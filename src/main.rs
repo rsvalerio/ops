@@ -568,8 +568,14 @@ mod tests {
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         run_init(false).expect("run_init should succeed");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert!(content.contains("[output]"), "should contain output section");
-        assert!(content.contains("[themes.classic]"), "should contain classic theme");
+        assert!(
+            content.contains("[output]"),
+            "should contain output section"
+        );
+        assert!(
+            content.contains("[themes.classic]"),
+            "should contain classic theme"
+        );
     }
 
     #[test]
@@ -630,20 +636,13 @@ mod tests {
     fn preprocess_args_strips_ops_prefix() {
         let args: Vec<OsString> = vec!["ops".into(), "ops".into(), "build".into()];
         let result = preprocess_args(args);
-        assert_eq!(
-            result,
-            vec![OsString::from("ops"), OsString::from("build")]
-        );
+        assert_eq!(result, vec![OsString::from("ops"), OsString::from("build")]);
     }
 
     #[test]
     fn preprocess_args_preserves_all_after_ops() {
-        let args: Vec<OsString> = vec![
-            "ops".into(),
-            "ops".into(),
-            "run".into(),
-            "mycommand".into(),
-        ];
+        let args: Vec<OsString> =
+            vec!["ops".into(), "ops".into(), "run".into(), "mycommand".into()];
         let result = preprocess_args(args);
         assert_eq!(
             result,
@@ -659,10 +658,7 @@ mod tests {
     fn preprocess_args_no_change_without_ops() {
         let args: Vec<OsString> = vec!["ops".into(), "build".into()];
         let result = preprocess_args(args);
-        assert_eq!(
-            result,
-            vec![OsString::from("ops"), OsString::from("build")]
-        );
+        assert_eq!(result, vec![OsString::from("ops"), OsString::from("build")]);
     }
 
     #[test]

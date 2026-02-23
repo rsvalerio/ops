@@ -948,7 +948,10 @@ mod error_path_tests {
         let ids = runner.list_command_ids();
         assert!(ids.contains(&"build".to_string()));
         assert!(ids.contains(&"test".to_string()));
-        assert!(ids.len() >= 2, "should have at least build and test commands");
+        assert!(
+            ids.len() >= 2,
+            "should have at least build and test commands"
+        );
     }
 
     #[test]
