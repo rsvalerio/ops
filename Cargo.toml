@@ -1,0 +1,54 @@
+[package]
+name = "cargo-ops"
+version = "0.1.0"
+edition = "2021"
+description = "Batteries-included task runner for any stack"
+authors = ["cargo-ops contributors"]
+license = "Apache-2.0"
+repository = "https://github.com/rsvalerio/cargo-ops"
+homepage = "https://github.com/rsvalerio/cargo-ops"
+
+[features]
+default = []
+stack-rust = ["dep:duckdb", "dep:sha2", "dep:hex"]
+stack-node = []
+stack-go = []
+stack-python = []
+stack-terraform = []
+stack-ansible = []
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.18"
+config = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "macros", "rt-multi-thread", "sync", "io-util", "time"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+toml = "1"
+unicode-width = "0.2"
+thiserror = "2"
+inquire = "0.9"
+duckdb = { version = "1.4", features = ["bundled"], optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+indexmap = { version = "2", features = ["serde"] }
+bitflags = "2"
+comfy-table = "7"
+
+[dev-dependencies]
+tempfile = "3"
+proptest = "1"
+assert_cmd = "2"
+predicates = "3"
+serial_test = "3"
+
+[[bin]]
+name = "ops"
+path = "src/main.rs"
+
+[profile.release]
+strip = true
+lto = true

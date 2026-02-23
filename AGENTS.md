@@ -1,0 +1,113 @@
+# AGENTS.md
+
+Instructions for AI coding agents working on this project.
+
+**Every time a rust file (`*.rs`) is changed, make sure to run `cargo install --path . --force` after passing `cargo clippy --all-targets -- -D warnings`.**
+
+## Project overview
+
+`cargo-ops` is an opinionated, batteries-included Rust development CLI. Zero config, maximum quality.
+
+**Key concepts:**
+- Commands are defined in `.ops.toml` (or from internal default when no file); run `cargo ops init` to create/overwrite `.ops.toml` with the default template
+- Commands can be **exec** (run a program) or **composite** (run multiple commands)
+- Extension trait for registering commands and data providers
+- CLI output: theme-based plain text to stdout/stderr (themed step lines, streaming output, summary); themes: classic (default), compact; configurable columns
+
+## Setup commands
+
+- Build: `cargo build`
+- Run: `cargo run -- <subcommand>` (e.g. `cargo run -- build`, `cargo run -- verify`)
+- Install it locally: `cargo install --path .` then use `cargo ops <command>`
+- Initialize config: `cargo ops init` creates `.ops.toml` in the current directory; `cargo ops init --force` overwrites existing
+
+## Build and test
+
+- **Build:** `cargo build` or `cargo build --all-targets`
+- **Tests:** `cargo test`
+- **Lint:** `cargo clippy --all-targets -- -D warnings`
+- **Format:** `cargo fmt` (check only: `cargo fmt -- --check`)
+- **Full verify:** `cargo ops verify` runs build → clippy → test in sequence
+
+**Every time a rust file (`*.rs`) is changed, make sure to run `cargo install --path . --force` after passing `cargo clippy --all-targets -- -D warnings`.**
+
+## Code style
+
+- Rust edition 2021
+- Clippy with `-D warnings` (treat warnings as errors)
+- Fix all clippy and format issues before considering a change done
+- Follow existing module structure:
+  - `src/config/mod.rs` - TOML config parsing (output.theme, output.columns, show_error_detail)
+  - `src/command/mod.rs` - CommandRunner execution engine, StepResult, RunnerEvent stream
+  - `src/output.rs` - Step line data types (StepLine, StepStatus, ErrorDetail) and display width
+  - `src/theme/mod.rs` - ThemeConfig, StepLineTheme trait, configurable themes
+  - `src/theme_cmd.rs` - Theme management CLI (list, select)
+  - `src/display.rs` - ProgressDisplay for step rendering with indicatif
+  - `src/style.rs` - Visual style constants
+  - `src/extension.rs` - Extension trait, CommandRegistry, DataRegistry, Context
+  - `src/extensions/` - Optional extensions (metadata, ops-db, cargo-toml)
+
+## Testing instructions
+
+- Run the full suite: `cargo test`
+- Tests live next to the code they cover (`#[cfg(test)] mod tests` in the same file)
+- Some tests use `#[tokio::test]` for async command execution
+- After changes, run `cargo test` and fix any failures
+- Add or update tests for new behavior
+
+## Before committing and after changes to *.rs files
+
+Run these commands and fix any issues:
+
+```bash
+cargo fmt
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+Then install it locally: `cargo install --path . --force`
+
+## Documentation
+
+- **Design and architecture:** [docs/project/designdoc.md](docs/project/designdoc.md) - config model, command execution, extension system, visualization spec
+- **CLI output:** [docs/project/architecture.md](docs/project/architecture.md) - step headers, streaming output, summary line
+- **Visual components:** [docs/project/components.md](docs/project/components.md) - step icons, error boxes, theme comparison
+
+## Configuration
+
+Configuration is merged (later overrides earlier):
+1. Internal default (same content as `cargo ops init`; used when no local file)
+2. Global config in `~/.config/cargo-ops/config.toml` (optional)
+3. Local `.ops.toml` in current directory (optional; overrides internal default when present)
+4. `.ops.d/*.toml` files (sorted alphabetically; good for separating themes, commands)
+5. Environment variables `CARGO_OPS_*`
+
+### Split config with `.ops.d/`
+
+For better organization, place additional config files in `.ops.d/`:
+
+```
+.ops.toml           # main config
+.ops.d/themes.toml  # custom themes
+.ops.d/commands.toml # project-specific commands
+```
+
+Files are merged in alphabetical order after `.ops.toml`. Each file uses the same format.
+
+Example `.ops.toml`:
+
+```toml
+[output]
+theme = "classic"   # "classic" (default) or "compact" or custom theme name
+columns = 80        # line width for step lines
+show_error_detail = true  # show error details below failed steps
+
+[commands.build]
+program = "cargo"
+args = ["build", "--all-targets"]
+
+[commands.verify]
+commands = ["build", "clippy", "test"]
+parallel = false
+fail_fast = true   # stop on first failure (default: true)
+```

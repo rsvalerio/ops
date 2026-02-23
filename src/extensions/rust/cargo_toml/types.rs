@@ -1,0 +1,566 @@
+//! Type definitions for Cargo.toml parsing.
+//!
+//! This module provides strongly-typed structures that map directly to Cargo.toml sections.
+//! All types derive `Deserialize` for parsing and implement `Clone` for caching.
+
+use crate::serde_defaults;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+/// Root Cargo.toml structure.
+///
+/// Represents the complete manifest with all sections. Use [`CargoToml::parse`]
+/// to parse from TOML source, or access via the `cargo_toml` data provider.
+///
+/// # Example
+///
+/// ```ignore
+/// use crate::extensions::cargo_toml::CargoToml;
+///
+/// let manifest = CargoToml::parse(&toml_content)?;
+/// if let Some(pkg) = &manifest.package {
+///     println!("Package: {} v{}", pkg.name, pkg.version);
+/// }
+/// ```
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CargoToml {
+    /// The `[package]` section. Present for package manifests, absent for virtual workspaces.
+    pub package: Option<Package>,
+
+    /// The `[workspace]` section. Present for workspace roots.
+    pub workspace: Option<Workspace>,
+
+    /// Normal dependencies from `[dependencies]`.
+    #[serde(default)]
+    pub dependencies: BTreeMap<String, DepSpec>,
+
+    /// Dev dependencies from `[dev-dependencies]`.
+    #[serde(default, alias = "dev-dependencies")]
+    pub dev_dependencies: BTreeMap<String, DepSpec>,
+
+    /// Build dependencies from `[build-dependencies]`.
+    #[serde(default, alias = "build-dependencies")]
+    pub build_dependencies: BTreeMap<String, DepSpec>,
+
+    /// Feature definitions from `[features]`.
+    #[serde(default)]
+    pub features: BTreeMap<String, Vec<String>>,
+}
+
+#[allow(dead_code)]
+impl CargoToml {
+    /// Parse Cargo.toml content from a string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the TOML is malformed or contains unexpected types.
+    pub fn parse(content: &str) -> Result<Self, toml::de::Error> {
+        toml::from_str(content)
+    }
+
+    /// Returns `true` if this is a virtual workspace (no root package).
+    pub fn is_virtual_workspace(&self) -> bool {
+        self.package.is_none() && self.workspace.is_some()
+    }
+
+    /// Returns `true` if this manifest defines a workspace.
+    pub fn is_workspace(&self) -> bool {
+        self.workspace.is_some()
+    }
+
+    /// Returns the package name if present.
+    pub fn package_name(&self) -> Option<&str> {
+        self.package.as_ref().map(|p| p.name.as_str())
+    }
+
+    /// Returns the package version if present and resolved.
+    pub fn package_version(&self) -> Option<&str> {
+        self.package.as_ref().and_then(|p| p.version.as_str())
+    }
+
+    /// Returns workspace members if defined.
+    pub fn workspace_members(&self) -> Option<&[String]> {
+        self.workspace.as_ref().map(|w| w.members.as_slice())
+    }
+
+    /// Merges inherited dependencies (workspace = true) with workspace definitions.
+    ///
+    /// After calling this, all dependencies with `workspace = true` will have
+    /// their values filled from `workspace.dependencies`.
+    pub fn resolve_inheritance(&mut self) -> Result<(), InheritanceError> {
+        let Some(ws) = &self.workspace else {
+            return Ok(());
+        };
+
+        let ws_deps = &ws.dependencies;
+
+        resolve_deps_inheritance(&mut self.dependencies, ws_deps)?;
+        resolve_deps_inheritance(&mut self.dev_dependencies, ws_deps)?;
+        resolve_deps_inheritance(&mut self.build_dependencies, ws_deps)?;
+
+        Ok(())
+    }
+
+    /// Resolves package fields inherited from `workspace.package`.
+    ///
+    /// After calling this, all package fields with `{ workspace = true }` will have
+    /// their values filled from `workspace.package`.
+    pub fn resolve_package_inheritance(&mut self) {
+        let Some(pkg) = &mut self.package else {
+            return;
+        };
+        let Some(ws) = &self.workspace else {
+            return;
+        };
+        let Some(ws_pkg) = &ws.package else {
+            return;
+        };
+
+        resolve_string_field(&mut pkg.version, &ws_pkg.version);
+        resolve_string_field(&mut pkg.edition, &ws_pkg.edition);
+        resolve_string_field(&mut pkg.rust_version, &ws_pkg.rust_version);
+        resolve_string_field(&mut pkg.description, &ws_pkg.description);
+        resolve_string_field(&mut pkg.documentation, &ws_pkg.documentation);
+        resolve_string_field(&mut pkg.homepage, &ws_pkg.homepage);
+        resolve_string_field(&mut pkg.repository, &ws_pkg.repository);
+        resolve_string_field(&mut pkg.license, &ws_pkg.license);
+
+        if let InheritableField::Inherited { workspace: true } = &pkg.authors {
+            pkg.authors = InheritableField::Value(ws_pkg.authors.clone());
+        }
+    }
+}
+
+fn resolve_string_field(field: &mut InheritableString, ws_value: &Option<String>) {
+    if let InheritableField::Inherited { workspace: true } = field {
+        if let Some(v) = ws_value {
+            *field = InheritableField::Value(v.clone());
+        }
+    }
+}
+
+/// CQ-003: Helper to resolve workspace inheritance for a dependency map.
+fn resolve_deps_inheritance(
+    deps: &mut BTreeMap<String, DepSpec>,
+    ws_deps: &BTreeMap<String, DepSpec>,
+) -> Result<(), InheritanceError> {
+    for (name, dep) in deps {
+        if dep.is_workspace_inherited() {
+            *dep = resolve_dep_from_workspace(name, dep, ws_deps)?;
+        }
+    }
+    Ok(())
+}
+
+/// The `[package]` section of Cargo.toml.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Package {
+    /// The crate name.
+    pub name: String,
+
+    /// The crate version (semver, can be inherited from workspace).
+    #[serde(default)]
+    pub version: InheritableString,
+
+    /// The Rust edition (e.g., "2021", can be inherited from workspace).
+    #[serde(default)]
+    pub edition: InheritableString,
+
+    /// Minimum supported Rust version (can be inherited from workspace).
+    #[serde(default, alias = "rust-version")]
+    pub rust_version: InheritableString,
+
+    /// List of authors (can be inherited from workspace).
+    #[serde(default)]
+    pub authors: InheritableVec,
+
+    /// Crate description (can be inherited from workspace).
+    #[serde(default)]
+    pub description: InheritableString,
+
+    /// Documentation URL (can be inherited from workspace).
+    #[serde(default)]
+    pub documentation: InheritableString,
+
+    /// README file path.
+    pub readme: Option<ReadmeSpec>,
+
+    /// Homepage URL (can be inherited from workspace).
+    #[serde(default)]
+    pub homepage: InheritableString,
+
+    /// Repository URL (can be inherited from workspace).
+    #[serde(default)]
+    pub repository: InheritableString,
+
+    /// License identifier (e.g., "MIT OR Apache-2.0", can be inherited from workspace).
+    #[serde(default)]
+    pub license: InheritableString,
+
+    /// Path to license file.
+    #[serde(alias = "license-file")]
+    pub license_file: Option<String>,
+
+    /// Keywords for crates.io.
+    #[serde(default)]
+    pub keywords: Vec<String>,
+
+    /// Categories for crates.io.
+    #[serde(default)]
+    pub categories: Vec<String>,
+
+    /// Path to the main source file.
+    #[serde(alias = "default-run")]
+    pub default_run: Option<String>,
+
+    /// Whether to publish to crates.io.
+    #[serde(default)]
+    pub publish: PublishSpec,
+}
+
+/// A field that can be inherited from workspace.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(untagged)]
+pub enum InheritableField<T> {
+    /// Direct value.
+    Value(T),
+    /// Inherited from workspace: `field = { workspace = true }`
+    Inherited { workspace: bool },
+}
+
+impl<T> InheritableField<T> {
+    /// Returns the value if this is a direct value, otherwise None.
+    pub fn value(&self) -> Option<&T> {
+        match self {
+            InheritableField::Value(v) => Some(v),
+            InheritableField::Inherited { .. } => None,
+        }
+    }
+}
+
+impl InheritableField<String> {
+    /// Returns the string value as &str if present.
+    pub fn as_str(&self) -> Option<&str> {
+        self.value().map(|s| s.as_str())
+    }
+}
+
+impl<T: Default> Default for InheritableField<T> {
+    fn default() -> Self {
+        InheritableField::Value(T::default())
+    }
+}
+
+/// A vec field that can be inherited from workspace.
+pub type InheritableVec = InheritableField<Vec<String>>;
+
+/// A string field that can be inherited from workspace.
+pub type InheritableString = InheritableField<String>;
+
+/// README specification: can be a boolean, string, or table.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum ReadmeSpec {
+    /// `readme = true` or `readme = false`
+    Bool(bool),
+    /// `readme = "README.md"`
+    Path(String),
+    /// `readme = { file = "...", ... }`
+    Table { file: String },
+}
+
+/// Publish specification: can be a boolean or list of registries.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(untagged)]
+pub enum PublishSpec {
+    /// `publish = false`
+    Bool(bool),
+    /// `publish = ["my-registry"]`
+    Registries(Vec<String>),
+    /// No publish field (defaults to true).
+    #[default]
+    None,
+}
+
+#[allow(dead_code)]
+impl PublishSpec {
+    /// Returns `true` if publishing is allowed (to any registry).
+    pub fn is_publishable(&self) -> bool {
+        match self {
+            PublishSpec::Bool(b) => *b,
+            PublishSpec::Registries(v) => !v.is_empty(),
+            PublishSpec::None => true,
+        }
+    }
+}
+
+/// The `[workspace]` section of Cargo.toml.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Workspace {
+    /// Workspace member paths (globs supported by Cargo).
+    #[serde(default)]
+    pub members: Vec<String>,
+
+    /// Dependency resolver version ("1" or "2").
+    pub resolver: Option<String>,
+
+    /// Shared workspace dependencies from `[workspace.dependencies]`.
+    #[serde(default)]
+    pub dependencies: BTreeMap<String, DepSpec>,
+
+    /// Default members for `cargo build/test` without `-p`.
+    #[serde(default, alias = "default-members")]
+    pub default_members: Vec<String>,
+
+    /// Path to workspace root (excluding this crate).
+    #[serde(default, alias = "exclude")]
+    pub exclude: Vec<String>,
+
+    /// Shared package metadata from `[workspace.package]`.
+    #[serde(default)]
+    pub package: Option<WorkspacePackage>,
+}
+
+/// The `[workspace.package]` section - shared metadata for workspace members.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct WorkspacePackage {
+    /// Shared authors list.
+    #[serde(default)]
+    pub authors: Vec<String>,
+
+    /// Shared edition.
+    pub edition: Option<String>,
+
+    /// Shared version.
+    pub version: Option<String>,
+
+    /// Shared description.
+    pub description: Option<String>,
+
+    /// Shared homepage.
+    pub homepage: Option<String>,
+
+    /// Shared documentation URL.
+    pub documentation: Option<String>,
+
+    /// Shared license.
+    pub license: Option<String>,
+
+    /// Shared repository.
+    pub repository: Option<String>,
+
+    /// Shared rust-version.
+    #[serde(alias = "rust-version")]
+    pub rust_version: Option<String>,
+}
+
+/// Dependency specification from `[dependencies]`, `[dev-dependencies]`, etc.
+///
+/// Handles all dependency forms:
+/// - Simple: `serde = "1.0"`
+/// - Table: `serde = { version = "1.0", features = ["derive"] }`
+/// - Path: `my-crate = { path = "../my-crate" }`
+/// - Git: `my-crate = { git = "https://...", branch = "main" }`
+/// - Workspace: `my-crate = { workspace = true }`
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum DepSpec {
+    /// Simple version string: `"1.0"`.
+    Simple(String),
+    /// Full table specification.
+    Detailed(DetailedDepSpec),
+}
+
+#[allow(dead_code)]
+impl DepSpec {
+    /// Returns `true` if this dependency inherits from workspace.
+    pub fn is_workspace_inherited(&self) -> bool {
+        match self {
+            DepSpec::Simple(_) => false,
+            DepSpec::Detailed(d) => d.workspace == Some(true),
+        }
+    }
+
+    /// Returns the version requirement if specified.
+    pub fn version(&self) -> Option<&str> {
+        match self {
+            DepSpec::Simple(v) => Some(v),
+            DepSpec::Detailed(d) => d.version.as_deref(),
+        }
+    }
+
+    /// Returns the path if specified.
+    pub fn path(&self) -> Option<&str> {
+        match self {
+            DepSpec::Simple(_) => None,
+            DepSpec::Detailed(d) => d.path.as_deref(),
+        }
+    }
+
+    /// Returns the git URL if specified.
+    pub fn git(&self) -> Option<&str> {
+        match self {
+            DepSpec::Simple(_) => None,
+            DepSpec::Detailed(d) => d.git.as_deref(),
+        }
+    }
+
+    /// Returns enabled features.
+    pub fn features(&self) -> &[String] {
+        match self {
+            DepSpec::Simple(_) => &[],
+            DepSpec::Detailed(d) => &d.features,
+        }
+    }
+
+    /// Returns `true` if this is an optional dependency.
+    pub fn is_optional(&self) -> bool {
+        match self {
+            DepSpec::Simple(_) => false,
+            DepSpec::Detailed(d) => d.optional,
+        }
+    }
+
+    /// Returns `true` if default features are enabled (default is true).
+    pub fn uses_default_features(&self) -> bool {
+        match self {
+            DepSpec::Simple(_) => true,
+            DepSpec::Detailed(d) => d.default_features,
+        }
+    }
+
+    /// Returns the renamed package name if using `package = "original-name"`.
+    pub fn package(&self) -> Option<&str> {
+        match self {
+            DepSpec::Simple(_) => None,
+            DepSpec::Detailed(d) => d.package.as_deref(),
+        }
+    }
+}
+
+/// Detailed dependency specification (table form).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DetailedDepSpec {
+    /// Version requirement.
+    pub version: Option<String>,
+
+    /// Path to local crate.
+    pub path: Option<String>,
+
+    /// Git repository URL.
+    pub git: Option<String>,
+
+    /// Git branch.
+    pub branch: Option<String>,
+
+    /// Git tag.
+    pub tag: Option<String>,
+
+    /// Git revision.
+    pub rev: Option<String>,
+
+    /// Enabled features.
+    #[serde(default)]
+    pub features: Vec<String>,
+
+    /// Whether this is optional.
+    #[serde(default)]
+    pub optional: bool,
+
+    /// Whether default features are enabled.
+    #[serde(default = "serde_defaults::default_true")]
+    pub default_features: bool,
+
+    /// Inherit from workspace dependencies.
+    pub workspace: Option<bool>,
+
+    /// Renamed package name.
+    pub package: Option<String>,
+
+    /// Target platform (e.g., "cfg(target_os = \"linux\")").
+    pub target: Option<String>,
+}
+
+/// Error during workspace inheritance resolution.
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum InheritanceError {
+    /// Dependency marked as `workspace = true` but not found in workspace.
+    #[error("dependency '{name}' not found in workspace.dependencies")]
+    MissingWorkspaceDependency { name: String },
+}
+
+fn merge_features(base: &[String], additional: &[String]) -> Vec<String> {
+    let mut merged = base.to_vec();
+    for f in additional {
+        if !merged.contains(f) {
+            merged.push(f.clone());
+        }
+    }
+    merged
+}
+
+/// CQ-012: Extracted helper to build resolved DetailedDepSpec from a simple workspace dep.
+fn resolve_from_simple_dep(version: &str, local: &DepSpec) -> DetailedDepSpec {
+    let (local_features, local_optional, local_default_features) = extract_local_overrides(local);
+    DetailedDepSpec {
+        version: Some(version.to_string()),
+        path: None,
+        git: None,
+        branch: None,
+        tag: None,
+        rev: None,
+        features: local_features,
+        optional: local_optional,
+        default_features: local_default_features,
+        workspace: None,
+        package: None,
+        target: None,
+    }
+}
+
+/// CQ-012: Extracted helper to build resolved DetailedDepSpec from a detailed workspace dep.
+fn resolve_from_detailed_dep(ws: &DetailedDepSpec, local: &DepSpec) -> DetailedDepSpec {
+    let (local_features, local_optional, local_default_features) = extract_local_overrides(local);
+    DetailedDepSpec {
+        version: ws.version.clone(),
+        path: ws.path.clone(),
+        git: ws.git.clone(),
+        branch: ws.branch.clone(),
+        tag: ws.tag.clone(),
+        rev: ws.rev.clone(),
+        features: merge_features(&ws.features, &local_features),
+        optional: ws.optional || local_optional,
+        default_features: ws.default_features && local_default_features,
+        workspace: None,
+        package: ws.package.clone(),
+        target: ws.target.clone(),
+    }
+}
+
+/// CQ-012: Extract local overrides from a dependency spec.
+fn extract_local_overrides(local: &DepSpec) -> (Vec<String>, bool, bool) {
+    match local {
+        DepSpec::Simple(_) => (vec![], false, true),
+        DepSpec::Detailed(d) => (d.features.clone(), d.optional, d.default_features),
+    }
+}
+
+/// CQ-012: Simplified by extracting helper functions.
+fn resolve_dep_from_workspace(
+    name: &str,
+    local: &DepSpec,
+    ws_deps: &BTreeMap<String, DepSpec>,
+) -> Result<DepSpec, InheritanceError> {
+    let ws_dep = ws_deps
+        .get(name)
+        .ok_or_else(|| InheritanceError::MissingWorkspaceDependency {
+            name: name.to_string(),
+        })?;
+
+    let resolved = match ws_dep {
+        DepSpec::Simple(v) => resolve_from_simple_dep(v, local),
+        DepSpec::Detailed(d) => resolve_from_detailed_dep(d, local),
+    };
+
+    Ok(DepSpec::Detailed(resolved))
+}

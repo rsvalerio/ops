@@ -1,0 +1,23 @@
+# Build artifacts
+/target/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reports
+/reports/
+
+.claude
+.cursor
