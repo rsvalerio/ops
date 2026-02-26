@@ -8,10 +8,10 @@
 
 use crate::config::{CommandSpec, CompositeCommandSpec, ExecCommandSpec};
 use indexmap::IndexMap;
-use std::collections::HashMap;
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumString, strum::IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub enum Stack {
     Rust,
     Node,
@@ -24,28 +24,7 @@ pub enum Stack {
 
 impl Stack {
     pub fn as_str(&self) -> &'static str {
-        match self {
-            Stack::Rust => "rust",
-            Stack::Node => "node",
-            Stack::Go => "go",
-            Stack::Python => "python",
-            Stack::Terraform => "terraform",
-            Stack::Ansible => "ansible",
-            Stack::Generic => "generic",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "rust" => Some(Stack::Rust),
-            "node" => Some(Stack::Node),
-            "go" => Some(Stack::Go),
-            "python" => Some(Stack::Python),
-            "terraform" => Some(Stack::Terraform),
-            "ansible" => Some(Stack::Ansible),
-            "generic" => Some(Stack::Generic),
-            _ => None,
-        }
+        (*self).into()
     }
 
     #[allow(dead_code)]
@@ -59,6 +38,15 @@ impl Stack {
             Stack::Ansible => &["site.yml", "playbook.yml", "ansible.cfg"],
             Stack::Generic => &[],
         }
+    }
+
+    /// DUP-001: Resolve stack from config override or auto-detection.
+    ///
+    /// Shared by `CommandRunner::new()` and `extensions::resolve_stack()`.
+    pub fn resolve(config_stack: Option<&str>, workspace_root: &Path) -> Option<Self> {
+        config_stack
+            .and_then(|s| s.parse().ok())
+            .or_else(|| Self::detect(workspace_root))
     }
 
     pub fn detect(start: &Path) -> Option<Self> {
@@ -88,12 +76,62 @@ impl Stack {
 
     pub fn default_commands(&self) -> IndexMap<String, CommandSpec> {
         match self {
-            Stack::Rust => rust_commands(),
-            Stack::Node => node_commands(),
-            Stack::Go => go_commands(),
-            Stack::Python => python_commands(),
-            Stack::Terraform => terraform_commands(),
-            Stack::Ansible => ansible_commands(),
+            Stack::Rust => build_commands(
+                "cargo",
+                &[
+                    ("fmt", &["fmt", "--all"]),
+                    ("check", &["check", "--all"]),
+                    ("clippy", &["clippy", "--all", "--", "-D", "warnings"]),
+                    ("build", &["build", "--all"]),
+                    ("test", &["test", "--all"]),
+                ],
+                &["fmt", "check", "clippy", "build", "test"],
+            ),
+            Stack::Node => build_commands(
+                "npm",
+                &[
+                    ("install", &["install"]),
+                    ("build", &["run", "build"]),
+                    ("test", &["test"]),
+                    ("lint", &["run", "lint"]),
+                ],
+                &["install", "lint", "build", "test"],
+            ),
+            Stack::Go => build_commands(
+                "go",
+                &[
+                    ("fmt", &["fmt", "./..."]),
+                    ("vet", &["vet", "./..."]),
+                    ("build", &["build", "./..."]),
+                    ("test", &["test", "./..."]),
+                ],
+                &["fmt", "vet", "build", "test"],
+            ),
+            Stack::Python => build_commands_multi(
+                &[
+                    ("format", "ruff", &["format", "."]),
+                    ("lint", "ruff", &["check", "."]),
+                    ("test", "pytest", &[]),
+                ],
+                &["format", "lint", "test"],
+            ),
+            Stack::Terraform => build_commands(
+                "terraform",
+                &[
+                    ("init", &["init"]),
+                    ("fmt", &["fmt", "-recursive"]),
+                    ("validate", &["validate"]),
+                    ("plan", &["plan"]),
+                ],
+                &["fmt", "validate"],
+            ),
+            Stack::Ansible => build_commands_multi(
+                &[
+                    ("lint", "ansible-lint", &[]),
+                    ("check", "ansible-playbook", &["--check", "site.yml"]),
+                ],
+                &["lint"],
+            ),
             Stack::Generic => IndexMap::new(),
         }
     }
@@ -125,352 +163,48 @@ impl Stack {
     }
 }
 
-fn rust_commands() -> IndexMap<String, CommandSpec> {
+/// Build an exec command spec.
+fn exec(program: &str, args: &[&str]) -> CommandSpec {
+    CommandSpec::Exec(ExecCommandSpec {
+        program: program.into(),
+        args: args.iter().map(|a| (*a).into()).collect(),
+        ..Default::default()
+    })
+}
+
+/// Build a verify composite command spec.
+fn verify(commands: &[&str]) -> CommandSpec {
+    CommandSpec::Composite(CompositeCommandSpec {
+        commands: commands.iter().map(|c| (*c).into()).collect(),
+        parallel: false,
+        fail_fast: true,
+    })
+}
+
+/// Build commands for a stack where all exec commands share the same program.
+fn build_commands(
+    program: &str,
+    steps: &[(&str, &[&str])],
+    verify_steps: &[&str],
+) -> IndexMap<String, CommandSpec> {
     let mut cmds = IndexMap::new();
-
-    cmds.insert(
-        "fmt".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "cargo".into(),
-            args: vec!["fmt".into(), "--all".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "check".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "cargo".into(),
-            args: vec!["check".into(), "--all".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "clippy".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "cargo".into(),
-            args: vec![
-                "clippy".into(),
-                "--all".into(),
-                "--".into(),
-                "-D".into(),
-                "warnings".into(),
-            ],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "build".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "cargo".into(),
-            args: vec!["build".into(), "--all".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "test".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "cargo".into(),
-            args: vec!["test".into(), "--all".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "verify".into(),
-        CommandSpec::Composite(CompositeCommandSpec {
-            commands: vec![
-                "fmt".into(),
-                "check".into(),
-                "clippy".into(),
-                "build".into(),
-                "test".into(),
-            ],
-            parallel: false,
-            fail_fast: true,
-        }),
-    );
-
+    for (name, args) in steps {
+        cmds.insert((*name).into(), exec(program, args));
+    }
+    cmds.insert("verify".into(), verify(verify_steps));
     cmds
 }
 
-fn node_commands() -> IndexMap<String, CommandSpec> {
+/// Build commands for a stack where exec commands may use different programs.
+fn build_commands_multi(
+    steps: &[(&str, &str, &[&str])],
+    verify_steps: &[&str],
+) -> IndexMap<String, CommandSpec> {
     let mut cmds = IndexMap::new();
-
-    cmds.insert(
-        "install".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "npm".into(),
-            args: vec!["install".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "build".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "npm".into(),
-            args: vec!["run".into(), "build".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "test".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "npm".into(),
-            args: vec!["test".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "lint".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "npm".into(),
-            args: vec!["run".into(), "lint".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "verify".into(),
-        CommandSpec::Composite(CompositeCommandSpec {
-            commands: vec![
-                "install".into(),
-                "lint".into(),
-                "build".into(),
-                "test".into(),
-            ],
-            parallel: false,
-            fail_fast: true,
-        }),
-    );
-
-    cmds
-}
-
-fn go_commands() -> IndexMap<String, CommandSpec> {
-    let mut cmds = IndexMap::new();
-
-    cmds.insert(
-        "fmt".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "go".into(),
-            args: vec!["fmt".into(), "./...".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "vet".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "go".into(),
-            args: vec!["vet".into(), "./...".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "build".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "go".into(),
-            args: vec!["build".into(), "./...".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "test".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "go".into(),
-            args: vec!["test".into(), "./...".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "verify".into(),
-        CommandSpec::Composite(CompositeCommandSpec {
-            commands: vec!["fmt".into(), "vet".into(), "build".into(), "test".into()],
-            parallel: false,
-            fail_fast: true,
-        }),
-    );
-
-    cmds
-}
-
-fn python_commands() -> IndexMap<String, CommandSpec> {
-    let mut cmds = IndexMap::new();
-
-    cmds.insert(
-        "format".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "ruff".into(),
-            args: vec!["format".into(), ".".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "lint".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "ruff".into(),
-            args: vec!["check".into(), ".".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "test".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "pytest".into(),
-            args: vec![],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "verify".into(),
-        CommandSpec::Composite(CompositeCommandSpec {
-            commands: vec!["format".into(), "lint".into(), "test".into()],
-            parallel: false,
-            fail_fast: true,
-        }),
-    );
-
-    cmds
-}
-
-fn terraform_commands() -> IndexMap<String, CommandSpec> {
-    let mut cmds = IndexMap::new();
-
-    cmds.insert(
-        "init".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "terraform".into(),
-            args: vec!["init".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "fmt".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "terraform".into(),
-            args: vec!["fmt".into(), "-recursive".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "validate".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "terraform".into(),
-            args: vec!["validate".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "plan".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "terraform".into(),
-            args: vec!["plan".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "verify".into(),
-        CommandSpec::Composite(CompositeCommandSpec {
-            commands: vec!["fmt".into(), "validate".into()],
-            parallel: false,
-            fail_fast: true,
-        }),
-    );
-
-    cmds
-}
-
-fn ansible_commands() -> IndexMap<String, CommandSpec> {
-    let mut cmds = IndexMap::new();
-
-    cmds.insert(
-        "lint".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "ansible-lint".into(),
-            args: vec![],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "check".into(),
-        CommandSpec::Exec(ExecCommandSpec {
-            program: "ansible-playbook".into(),
-            args: vec!["--check".into(), "site.yml".into()],
-            env: HashMap::new(),
-            cwd: None,
-            timeout_secs: None,
-        }),
-    );
-
-    cmds.insert(
-        "verify".into(),
-        CommandSpec::Composite(CompositeCommandSpec {
-            commands: vec!["lint".into()],
-            parallel: false,
-            fail_fast: true,
-        }),
-    );
-
+    for (name, program, args) in steps {
+        cmds.insert((*name).into(), exec(program, args));
+    }
+    cmds.insert("verify".into(), verify(verify_steps));
     cmds
 }
 
@@ -489,13 +223,13 @@ mod tests {
             Stack::Ansible,
             Stack::Generic,
         ] {
-            assert_eq!(Stack::from_str(stack.as_str()), Some(stack));
+            assert_eq!(stack.as_str().parse::<Stack>(), Ok(stack));
         }
     }
 
     #[test]
     fn stack_from_str_unknown() {
-        assert_eq!(Stack::from_str("unknown"), None);
+        assert!("unknown".parse::<Stack>().is_err());
     }
 
     #[test]
@@ -575,6 +309,22 @@ mod tests {
         std::fs::write(dir.path().join("Cargo.toml"), "").expect("write");
         std::fs::write(dir.path().join("package.json"), "{}").expect("write");
         assert_eq!(Stack::detect(dir.path()), Some(Stack::Rust));
+    }
+
+    #[test]
+    fn detect_prioritizes_go_over_python() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("go.mod"), "module test").expect("write");
+        std::fs::write(dir.path().join("pyproject.toml"), "").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::Go));
+    }
+
+    #[test]
+    fn detect_prioritizes_node_over_terraform() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("package.json"), "{}").expect("write");
+        std::fs::write(dir.path().join("main.tf"), "").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::Node));
     }
 
     #[test]
