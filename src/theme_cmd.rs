@@ -53,8 +53,8 @@ pub fn run_theme_list() -> anyhow::Result<()> {
     let max_name_len = options.iter().map(|o| o.name.len()).max().unwrap_or(0);
 
     for option in options {
+        let marker = if option.is_custom { " (custom)" } else { "" };
         if is_tty {
-            let marker = if option.is_custom { " (custom)" } else { "" };
             println!(
                 "  {:width$}   {}{}",
                 style::cyan(&option.name),
@@ -63,7 +63,6 @@ pub fn run_theme_list() -> anyhow::Result<()> {
                 width = max_name_len
             );
         } else {
-            let marker = if option.is_custom { " (custom)" } else { "" };
             println!(
                 "{:width$}   {}{}",
                 option.name,
@@ -75,6 +74,11 @@ pub fn run_theme_list() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Default TTY check using stdout.
+fn is_stdout_tty() -> bool {
+    io::stdout().is_terminal()
 }
 
 /// Interactively selects a theme and updates `.ops.toml`.
@@ -93,7 +97,14 @@ pub fn run_theme_list() -> anyhow::Result<()> {
 /// 2. Use a TTY emulation library
 /// 3. Run manual testing with `cargo ops theme select`
 pub fn run_theme_select() -> anyhow::Result<()> {
-    if !io::stdout().is_terminal() {
+    run_theme_select_with_tty_check(is_stdout_tty)
+}
+
+fn run_theme_select_with_tty_check<F>(is_tty: F) -> anyhow::Result<()>
+where
+    F: FnOnce() -> bool,
+{
+    if !is_tty() {
         anyhow::bail!("theme select requires an interactive terminal");
     }
 
@@ -168,12 +179,6 @@ theme = "{}"
     Ok(())
 }
 
-use std::borrow::Cow;
-
-fn find_output_section_index(lines: &[Cow<str>]) -> Option<usize> {
-    lines.iter().position(|l| l.trim() == "[output]")
-}
-
 fn escape_toml_string(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
@@ -182,83 +187,16 @@ fn escape_toml_string(s: &str) -> String {
         .replace('\t', "\\t")
 }
 
-fn update_existing_theme_line(line: &mut Cow<str>, theme_name: &str) -> bool {
-    let trimmed = line.trim();
-    if !trimmed.starts_with("theme") {
-        return false;
-    }
-    if let Some(eq_pos) = line.find('=') {
-        let key_part = line[..eq_pos].trim_end();
-        *line = Cow::Owned(format!(
-            r#"{} = "{}""#,
-            key_part,
-            escape_toml_string(theme_name)
-        ));
-        return true;
-    }
-    false
-}
-
-fn insert_theme_after_output(lines: &mut Vec<Cow<str>>, output_idx: usize, theme_name: &str) {
-    lines.insert(
-        output_idx + 1,
-        Cow::Owned(format!(r#"theme = "{}""#, escape_toml_string(theme_name))),
-    );
-}
-
-fn prepend_output_section<'a>(lines: Vec<Cow<'a, str>>, theme_name: &str) -> Vec<Cow<'a, str>> {
-    let mut new_lines = vec![
-        Cow::Borrowed("[output]"),
-        Cow::Owned(format!(r#"theme = "{}""#, escape_toml_string(theme_name))),
-    ];
-    if !lines.is_empty() && !lines[0].starts_with('[') {
-        new_lines.push(Cow::Borrowed(""));
-    }
-    new_lines.extend(lines);
-    new_lines
-}
-
-/// CQ-003/CQ-007: Explicit state machine for TOML section tracking.
-///
-/// Using an enum instead of boolean flags makes the parsing logic explicit
-/// and prevents invalid state combinations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ParseState {
-    OutsideSection,
-    InOutputSection,
-}
-
-/// Update the theme value in TOML content.
-///
-/// CQ-003/CQ-007: Uses explicit state machine for section tracking.
+/// Update the theme value in TOML content, preserving formatting.
 fn update_toml_theme(content: &str, theme_name: &str) -> String {
-    let mut lines: Vec<Cow<str>> = content.lines().map(Cow::Borrowed).collect();
-    let mut state = ParseState::OutsideSection;
-    let mut found_theme_key = false;
-
-    for line in &mut lines {
-        let trimmed = line.trim();
-
-        state = match (state, trimmed) {
-            (_, "[output]") => ParseState::InOutputSection,
-            (ParseState::InOutputSection, t) if t.starts_with('[') => ParseState::OutsideSection,
-            (s, _) => s,
-        };
-
-        if state == ParseState::InOutputSection && update_existing_theme_line(line, theme_name) {
-            found_theme_key = true;
-        }
+    let mut doc = content
+        .parse::<toml_edit::DocumentMut>()
+        .unwrap_or_else(|_| toml_edit::DocumentMut::new());
+    if !doc.contains_key("output") {
+        doc["output"] = toml_edit::Item::Table(toml_edit::Table::new());
     }
-
-    if !found_theme_key {
-        if let Some(idx) = find_output_section_index(&lines) {
-            insert_theme_after_output(&mut lines, idx, theme_name);
-        } else {
-            lines = prepend_output_section(lines, theme_name);
-        }
-    }
-
-    lines.join("\n")
+    doc["output"]["theme"] = toml_edit::value(theme_name);
+    doc.to_string()
 }
 
 #[cfg(test)]
@@ -284,9 +222,11 @@ mod tests {
         let input = r#"[output]
 theme = "compact"
 "#;
-        let result = update_toml_theme(input, r#"malicious"theme"#);
-        assert!(result.contains(r#"theme = "malicious\"theme""#));
-        assert!(!result.contains(r#"theme = "malicious"theme""#));
+        let malicious = r#"malicious"theme"#;
+        let result = update_toml_theme(input, malicious);
+        // Verify the output is valid TOML that round-trips correctly
+        let doc: toml_edit::DocumentMut = result.parse().expect("valid TOML");
+        assert_eq!(doc["output"]["theme"].as_str().unwrap(), malicious);
     }
 
     #[test]
@@ -318,26 +258,6 @@ build = "cargo build"
         let result = update_toml_theme(input, "classic");
         assert!(result.contains("[output]"));
         assert!(result.contains(r#"theme = "classic""#));
-    }
-
-    #[test]
-    fn find_output_section_index_finds_section() {
-        let lines: Vec<std::borrow::Cow<str>> = vec![
-            "[commands]".into(),
-            "build = \"cargo build\"".into(),
-            "[output]".into(),
-            "theme = \"classic\"".into(),
-        ];
-        let idx = find_output_section_index(&lines);
-        assert_eq!(idx, Some(2));
-    }
-
-    #[test]
-    fn find_output_section_index_returns_none_when_missing() {
-        let lines: Vec<std::borrow::Cow<str>> =
-            vec!["[commands]".into(), "build = \"cargo build\"".into()];
-        let idx = find_output_section_index(&lines);
-        assert_eq!(idx, None);
     }
 
     #[test]
@@ -383,7 +303,7 @@ build = "cargo build"
 
     #[test]
     fn run_theme_select_non_tty_returns_error() {
-        let result = run_theme_select();
+        let result = run_theme_select_with_tty_check(|| false);
         assert!(result.is_err(), "run_theme_select should fail without TTY");
         assert!(result
             .unwrap_err()
@@ -396,8 +316,11 @@ build = "cargo build"
         let input = r#"[output]
 theme = "compact"
 "#;
-        let result = update_toml_theme(input, "theme\nwith\nnewlines");
-        assert!(result.contains(r#"theme = "theme\nwith\nnewlines""#));
+        let malicious = "theme\nwith\nnewlines";
+        let result = update_toml_theme(input, malicious);
+        // Verify the output is valid TOML that round-trips correctly
+        let doc: toml_edit::DocumentMut = result.parse().expect("valid TOML");
+        assert_eq!(doc["output"]["theme"].as_str().unwrap(), malicious);
     }
 
     #[test]
@@ -426,31 +349,16 @@ theme = "compact"
     mod run_theme_list_tests {
         use super::*;
 
-        fn setup_config_with_themes(dir: &std::path::Path, themes_toml: &str) {
-            std::fs::write(
-                dir.join(".ops.toml"),
-                format!(
-                    r#"[output]
+        #[test]
+        fn run_theme_list_outputs_themes() {
+            let (_dir, _guard) = crate::test_utils::with_temp_config(
+                r#"[output]
 theme = "classic"
 
 [themes]
-{}
-"#,
-                    themes_toml
-                ),
-            )
-            .unwrap();
-        }
-
-        #[test]
-        fn run_theme_list_outputs_themes() {
-            let dir = tempfile::tempdir().expect("tempdir");
-            setup_config_with_themes(
-                dir.path(),
-                r#"my-custom = { description = "My custom theme", icon_succeeded = "✓" }
+my-custom = { description = "My custom theme", icon_succeeded = "✓" }
 "#,
             );
-            let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
             let result = run_theme_list();
             assert!(result.is_ok(), "run_theme_list should succeed");
@@ -458,9 +366,7 @@ theme = "classic"
 
         #[test]
         fn run_theme_list_includes_builtin_themes() {
-            let dir = tempfile::tempdir().expect("tempdir");
-            std::fs::write(dir.path().join(".ops.toml"), "").unwrap();
-            let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
+            let (_dir, _guard) = crate::test_utils::with_temp_config("");
 
             let result = run_theme_list();
             assert!(result.is_ok());
@@ -468,13 +374,14 @@ theme = "classic"
 
         #[test]
         fn run_theme_list_marks_custom_themes() {
-            let dir = tempfile::tempdir().expect("tempdir");
-            setup_config_with_themes(
-                dir.path(),
-                r#"custom-one = { description = "Custom", icon_succeeded = "✓" }
+            let (_dir, _guard) = crate::test_utils::with_temp_config(
+                r#"[output]
+theme = "classic"
+
+[themes]
+custom-one = { description = "Custom", icon_succeeded = "✓" }
 "#,
             );
-            let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
             let result = run_theme_list();
             assert!(result.is_ok());
