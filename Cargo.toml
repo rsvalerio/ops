@@ -41,6 +41,7 @@ indexmap = { version = "2", features = ["serde"] }
 bitflags = "2"
 comfy-table = "7"
 strum = { version = "0.26", features = ["derive"] }
+toml_edit = "0.22"
 
 [dev-dependencies]
 tempfile = "3"
