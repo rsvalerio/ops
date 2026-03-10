@@ -1,0 +1,4 @@
+# term_size is a transitive dependency of tokei; unmaintained but not vulnerable.
+# Tokei uses it for terminal size detection. Allow until tokei switches to terminal_size.
+[advisories]
+ignore = ["RUSTSEC-2020-0163"]

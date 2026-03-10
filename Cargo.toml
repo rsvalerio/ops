@@ -28,6 +28,10 @@ tracing = "0.1"
 indexmap = { version = "2", features = ["serde"] }
 tokio = { version = "1", features = ["process", "macros", "rt-multi-thread", "sync", "io-util", "time"] }
 
+[patch.crates-io]
+# RUSTSEC-2026-0037: patch quinn-proto to 0.11.14 (DoS fix)
+quinn-proto = { git = "https://github.com/quinn-rs/quinn", rev = "quinn-proto-0.11.14" }
+
 [profile.release]
 strip = true
 lto = true
