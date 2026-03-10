@@ -19,6 +19,7 @@
 //! 2. The helpers are 3-10 lines each
 //! 3. Each test file having its own helpers is idiomatic for Rust integration tests
 
+// Allow deprecated std::env::set_var/remove_var which become unsafe in Rust 2024 edition.
 #![allow(deprecated)]
 
 use assert_cmd::Command;
@@ -45,7 +46,7 @@ fn read_ops_toml(dir: &Path) -> String {
 }
 
 fn cargo_ops() -> Command {
-    Command::cargo_bin("cargo-ops").expect("cargo-ops binary")
+    Command::cargo_bin("ops").expect("ops binary")
 }
 
 #[test]
@@ -54,9 +55,9 @@ fn cli_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("cargo-ops"))
+        .stdout(predicate::str::contains("ops"))
         .stdout(predicate::function(|s: &str| {
-            s.contains("cargo-ops") && s.chars().any(|c| c.is_ascii_digit())
+            s.contains("ops") && s.chars().any(|c| c.is_ascii_digit())
         }));
 }
 
@@ -66,7 +67,7 @@ fn cli_help() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("cargo-ops"))
+        .stdout(predicate::str::contains("Batteries-included"))
         .stdout(predicate::str::contains("Usage:"))
         .stdout(predicate::str::contains("Commands:"));
 }
@@ -109,7 +110,7 @@ fn cli_init_force_overwrites() {
         .assert()
         .success();
 
-    assert!(read_ops_toml(dir.path()).contains("[commands.build]"));
+    assert!(read_ops_toml(dir.path()).contains("[output]"));
 }
 
 #[test]
