@@ -55,6 +55,9 @@ body = """
 # Remove leading and trailing whitespace from changelog
 trim = true
 
+# Protect breaking changes (always include feat!: etc. in changelog)
+protect_breaking_commits = true
+
 # Commit preprocessors - clean up commit messages
 [[changelog.commit_preprocessors]]
 # Remove issue numbers from commit messages
@@ -110,6 +113,3 @@ group = "Miscellaneous"
 [[changelog.commit_parsers]]
 message = "^Merge"
 skip = true
-
-# Protect breaking changes
-[changelog.protect_breaking_commits]
