@@ -1,0 +1,17 @@
+[package]
+name = "cargo-ops-cargo-toml"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cargo-ops-core = { workspace = true }
+cargo-ops-extension = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = "1"
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+cargo-ops-extension = { workspace = true, features = ["test-support"] }
+tempfile = "3"

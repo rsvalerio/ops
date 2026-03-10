@@ -3,7 +3,7 @@
 //! This module provides strongly-typed structures that map directly to Cargo.toml sections.
 //! All types derive `Deserialize` for parsing and implement `Clone` for caching.
 
-use crate::serde_defaults;
+use cargo_ops_core::serde_defaults;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 /// # Example
 ///
 /// ```ignore
-/// use crate::extensions::cargo_toml::CargoToml;
+/// use cargo_ops_rust::cargo_toml::CargoToml;
 ///
 /// let manifest = CargoToml::parse(&toml_content)?;
 /// if let Some(pkg) = &manifest.package {
@@ -373,12 +373,17 @@ pub enum DepSpec {
 
 #[allow(dead_code)]
 impl DepSpec {
+    /// Returns the inner `DetailedDepSpec` if this is a `Detailed` variant.
+    pub fn detail(&self) -> Option<&DetailedDepSpec> {
+        match self {
+            DepSpec::Simple(_) => None,
+            DepSpec::Detailed(d) => Some(d),
+        }
+    }
+
     /// Returns `true` if this dependency inherits from workspace.
     pub fn is_workspace_inherited(&self) -> bool {
-        match self {
-            DepSpec::Simple(_) => false,
-            DepSpec::Detailed(d) => d.workspace == Some(true),
-        }
+        self.detail().is_some_and(|d| d.workspace == Some(true))
     }
 
     /// Returns the version requirement if specified.
@@ -391,50 +396,35 @@ impl DepSpec {
 
     /// Returns the path if specified.
     pub fn path(&self) -> Option<&str> {
-        match self {
-            DepSpec::Simple(_) => None,
-            DepSpec::Detailed(d) => d.path.as_deref(),
-        }
+        self.detail().and_then(|d| d.path.as_deref())
     }
 
     /// Returns the git URL if specified.
     pub fn git(&self) -> Option<&str> {
-        match self {
-            DepSpec::Simple(_) => None,
-            DepSpec::Detailed(d) => d.git.as_deref(),
-        }
+        self.detail().and_then(|d| d.git.as_deref())
     }
 
     /// Returns enabled features.
     pub fn features(&self) -> &[String] {
-        match self {
-            DepSpec::Simple(_) => &[],
-            DepSpec::Detailed(d) => &d.features,
+        match self.detail() {
+            Some(d) => &d.features,
+            None => &[],
         }
     }
 
     /// Returns `true` if this is an optional dependency.
     pub fn is_optional(&self) -> bool {
-        match self {
-            DepSpec::Simple(_) => false,
-            DepSpec::Detailed(d) => d.optional,
-        }
+        self.detail().is_some_and(|d| d.optional)
     }
 
     /// Returns `true` if default features are enabled (default is true).
     pub fn uses_default_features(&self) -> bool {
-        match self {
-            DepSpec::Simple(_) => true,
-            DepSpec::Detailed(d) => d.default_features,
-        }
+        self.detail().is_none_or(|d| d.default_features)
     }
 
     /// Returns the renamed package name if using `package = "original-name"`.
     pub fn package(&self) -> Option<&str> {
-        match self {
-            DepSpec::Simple(_) => None,
-            DepSpec::Detailed(d) => d.package.as_deref(),
-        }
+        self.detail().and_then(|d| d.package.as_deref())
     }
 }
 
@@ -490,9 +480,10 @@ pub enum InheritanceError {
 }
 
 fn merge_features(base: &[String], additional: &[String]) -> Vec<String> {
+    let mut seen: std::collections::HashSet<&str> = base.iter().map(|s| s.as_str()).collect();
     let mut merged = base.to_vec();
     for f in additional {
-        if !merged.contains(f) {
+        if seen.insert(f.as_str()) {
             merged.push(f.clone());
         }
     }

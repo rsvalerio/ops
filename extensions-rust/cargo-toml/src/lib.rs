@@ -24,14 +24,14 @@
 //! ## As a Data Provider (from other extensions)
 //!
 //! ```ignore
-//! use crate::extension::{Context, DataRegistry};
-//! use crate::extensions::cargo_toml::CargoToml;
+//! use cargo_ops_extension::{Context, DataRegistry};
+//! use cargo_ops_cargo_toml::CargoToml;
 //!
 //! fn my_extension_logic(ctx: &mut Context, registry: &DataRegistry) -> Result<(), anyhow::Error> {
 //!     // Get cached Cargo.toml data
 //!     let value = ctx.get_or_provide("cargo_toml", registry)?;
 //!     let manifest: CargoToml = serde_json::from_value((*value).clone())?;
-//!     
+//!
 //!     if let Some(pkg) = &manifest.package {
 //!         println!("Package: {} v{}", pkg.name, pkg.version);
 //!     }
@@ -59,14 +59,15 @@
 mod tests;
 mod types;
 
+#[allow(unused_imports)]
 pub use types::{
     CargoToml, DepSpec, DetailedDepSpec, InheritanceError, Package, PublishSpec, ReadmeSpec,
     Workspace,
 };
 
-use crate::extension::{
-    CommandRegistry, Context, DataField, DataProvider, DataProviderError, DataProviderSchema,
-    DataRegistry, Extension, ExtensionType,
+use anyhow::Context as _;
+use cargo_ops_extension::{
+    Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -87,8 +88,8 @@ pub const DATA_PROVIDER_NAME: &str = "cargo_toml";
 /// # Example
 ///
 /// ```ignore
-/// use crate::extensions::cargo_toml::CargoTomlExtension;
-/// use crate::extension::Extension;
+/// use cargo_ops_cargo_toml::CargoTomlExtension;
+/// use cargo_ops_extension::Extension;
 ///
 /// // Auto-discover from current directory
 /// let ext = CargoTomlExtension::new();
@@ -119,36 +120,20 @@ impl Default for CargoTomlExtension {
     }
 }
 
-impl Extension for CargoTomlExtension {
-    fn name(&self) -> &'static str {
-        NAME
-    }
-
-    fn description(&self) -> &'static str {
-        DESCRIPTION
-    }
-
-    fn shortname(&self) -> &'static str {
-        SHORTNAME
-    }
-
-    fn types(&self) -> ExtensionType {
-        ExtensionType::DATASOURCE
-    }
-
-    fn data_provider_name(&self) -> Option<&'static str> {
-        Some(DATA_PROVIDER_NAME)
-    }
-
-    fn register_commands(&self, _registry: &mut CommandRegistry) {}
-
-    fn register_data_providers(&self, registry: &mut DataRegistry) {
-        let provider = match &self.root {
+cargo_ops_extension::impl_extension! {
+    CargoTomlExtension,
+    name: NAME,
+    description: DESCRIPTION,
+    shortname: SHORTNAME,
+    types: ExtensionType::DATASOURCE,
+    data_provider_name: Some(DATA_PROVIDER_NAME),
+    register_data_providers: |this, registry| {
+        let provider = match &this.root {
             Some(p) => CargoTomlProvider::with_root(p.clone()),
             None => CargoTomlProvider::new(),
         };
         registry.register(DATA_PROVIDER_NAME, Box::new(provider));
-    }
+    },
 }
 
 /// Data provider that parses Cargo.toml and returns structured JSON.
@@ -198,110 +183,72 @@ impl DataProvider for CargoTomlProvider {
         let root = self.resolve_root(&ctx.working_directory)?;
         let cargo_toml = root.join("Cargo.toml");
 
-        let content = fs::read_to_string(&cargo_toml).map_err(|e| {
-            DataProviderError::computation_failed(format!(
-                "reading {}: {}",
-                cargo_toml.display(),
-                e
-            ))
-        })?;
+        let content = fs::read_to_string(&cargo_toml)
+            .with_context(|| format!("reading {}", cargo_toml.display()))
+            .map_err(DataProviderError::from)?;
 
-        let mut manifest: CargoToml = toml::from_str(&content).map_err(|e| {
-            DataProviderError::computation_failed(format!(
-                "parsing {}: {}",
-                cargo_toml.display(),
-                e
-            ))
-        })?;
+        let mut manifest: CargoToml = toml::from_str(&content)
+            .with_context(|| format!("parsing {}", cargo_toml.display()))
+            .map_err(DataProviderError::from)?;
 
-        manifest.resolve_inheritance().map_err(|e| {
-            DataProviderError::computation_failed(format!("resolving workspace inheritance: {}", e))
-        })?;
+        manifest
+            .resolve_inheritance()
+            .context("resolving workspace inheritance")
+            .map_err(DataProviderError::from)?;
 
         manifest.resolve_package_inheritance();
 
-        serde_json::to_value(&manifest).map_err(|e| DataProviderError::Serialization(e.to_string()))
+        serde_json::to_value(&manifest).map_err(DataProviderError::from)
     }
 
     fn schema(&self) -> DataProviderSchema {
+        use cargo_ops_extension::data_field;
         DataProviderSchema {
             description: "Cargo.toml manifest data (parsed from workspace root)",
             fields: vec![
-                DataField {
-                    name: "package",
-                    type_name: "Option<Package>",
-                    description: "Root package definition (None for virtual workspaces)",
-                },
-                DataField {
-                    name: "workspace",
-                    type_name: "Option<Workspace>",
-                    description: "Workspace configuration",
-                },
-                DataField {
-                    name: "dependencies",
-                    type_name: "Map<String, DepSpec>",
-                    description: "Package dependencies",
-                },
-                DataField {
-                    name: "dev-dependencies",
-                    type_name: "Map<String, DepSpec>",
-                    description: "Development dependencies",
-                },
-                DataField {
-                    name: "build-dependencies",
-                    type_name: "Map<String, DepSpec>",
-                    description: "Build dependencies",
-                },
-                DataField {
-                    name: "Package.name",
-                    type_name: "String",
-                    description: "Package name",
-                },
-                DataField {
-                    name: "Package.version",
-                    type_name: "String",
-                    description: "Package version",
-                },
-                DataField {
-                    name: "Package.edition",
-                    type_name: "String",
-                    description: "Rust edition (e.g., 2021)",
-                },
-                DataField {
-                    name: "Package.license",
-                    type_name: "Option<String>",
-                    description: "License identifier",
-                },
-                DataField {
-                    name: "Package.description",
-                    type_name: "Option<String>",
-                    description: "Package description",
-                },
-                DataField {
-                    name: "Package.repository",
-                    type_name: "Option<String>",
-                    description: "Repository URL",
-                },
-                DataField {
-                    name: "Package.authors",
-                    type_name: "Vec<String>",
-                    description: "Package authors",
-                },
-                DataField {
-                    name: "Workspace.members",
-                    type_name: "Vec<String>",
-                    description: "Workspace member paths",
-                },
-                DataField {
-                    name: "Workspace.dependencies",
-                    type_name: "Map<String, DepSpec>",
-                    description: "Shared workspace dependencies",
-                },
-                DataField {
-                    name: "DepSpec",
-                    type_name: "String | DetailedDepSpec",
-                    description: "Simple version string or detailed spec with features",
-                },
+                data_field!(
+                    "package",
+                    "Option<Package>",
+                    "Root package definition (None for virtual workspaces)"
+                ),
+                data_field!("workspace", "Option<Workspace>", "Workspace configuration"),
+                data_field!(
+                    "dependencies",
+                    "Map<String, DepSpec>",
+                    "Package dependencies"
+                ),
+                data_field!(
+                    "dev-dependencies",
+                    "Map<String, DepSpec>",
+                    "Development dependencies"
+                ),
+                data_field!(
+                    "build-dependencies",
+                    "Map<String, DepSpec>",
+                    "Build dependencies"
+                ),
+                data_field!("Package.name", "String", "Package name"),
+                data_field!("Package.version", "String", "Package version"),
+                data_field!("Package.edition", "String", "Rust edition (e.g., 2021)"),
+                data_field!("Package.license", "Option<String>", "License identifier"),
+                data_field!(
+                    "Package.description",
+                    "Option<String>",
+                    "Package description"
+                ),
+                data_field!("Package.repository", "Option<String>", "Repository URL"),
+                data_field!("Package.authors", "Vec<String>", "Package authors"),
+                data_field!("Workspace.members", "Vec<String>", "Workspace member paths"),
+                data_field!(
+                    "Workspace.dependencies",
+                    "Map<String, DepSpec>",
+                    "Shared workspace dependencies"
+                ),
+                data_field!(
+                    "DepSpec",
+                    "String | DetailedDepSpec",
+                    "Simple version string or detailed spec with features"
+                ),
             ],
         }
     }

@@ -1,0 +1,13 @@
+[package]
+name = "cargo-ops-tools"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cargo-ops-core = { workspace = true }
+cargo-ops-extension = { workspace = true }
+indexmap = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+toml = "1"
