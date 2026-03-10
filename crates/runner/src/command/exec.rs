@@ -30,9 +30,9 @@
 //! sensitive-looking variable names or values that appear to be secrets
 //! (e.g., long base64-like strings, common secret formats).
 
-use crate::command::events::RunnerEvent;
-use crate::command::results::{CommandOutput, StepResult};
-use crate::config::{CommandId, ExecCommandSpec};
+use super::events::RunnerEvent;
+use super::results::{CommandOutput, StepResult};
+use cargo_ops_core::config::{CommandId, ExecCommandSpec};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -60,6 +60,10 @@ pub fn build_command(spec: &ExecCommandSpec, cwd: &std::path::Path) -> Command {
 
 /// DUP-001: Shared patterns for detecting sensitive environment variable names.
 /// Used by warn_if_sensitive_env() for warnings and is_sensitive_env_key() for dry-run redaction.
+///
+/// `SENSITIVE_REDACTION_PATTERNS` is a strict subset of this list.
+/// The extra entries ("access_key", "session") trigger warnings but are not redacted in dry-run
+/// output because they commonly appear in non-secret contexts.
 const SENSITIVE_KEY_PATTERNS: &[&str] = &[
     "password",
     "secret",
@@ -73,7 +77,8 @@ const SENSITIVE_KEY_PATTERNS: &[&str] = &[
     "session",
 ];
 
-/// DUP-001: Subset of patterns used for dry-run redaction (excludes session, access_key).
+/// DUP-001: Subset of SENSITIVE_KEY_PATTERNS used for dry-run redaction.
+/// Every entry here must also appear in SENSITIVE_KEY_PATTERNS.
 const SENSITIVE_REDACTION_PATTERNS: &[&str] = &[
     "password",
     "secret",
@@ -144,11 +149,21 @@ pub(crate) fn looks_like_secret_value(value: &str) -> bool {
 
 /// CQ-005: Extracted helper predicates for secret detection.
 pub(crate) fn has_high_entropy(value: &str) -> bool {
-    let chars: Vec<char> = value.chars().collect();
-    let alphanumeric = chars.iter().filter(|c| c.is_alphanumeric()).count();
-    let digits = chars.iter().filter(|c| c.is_ascii_digit()).count();
-    let lowercase = chars.iter().filter(|c| c.is_ascii_lowercase()).count();
-    let uppercase = chars.iter().filter(|c| c.is_ascii_uppercase()).count();
+    let (mut alphanumeric, mut digits, mut lowercase, mut uppercase) = (0usize, 0, 0, 0);
+    for c in value.chars() {
+        if c.is_ascii_digit() {
+            digits += 1;
+            alphanumeric += 1;
+        } else if c.is_ascii_lowercase() {
+            lowercase += 1;
+            alphanumeric += 1;
+        } else if c.is_ascii_uppercase() {
+            uppercase += 1;
+            alphanumeric += 1;
+        } else if c.is_alphanumeric() {
+            alphanumeric += 1;
+        }
+    }
     alphanumeric > 15 && digits > 3 && lowercase > 3 && uppercase > 3
 }
 
@@ -164,7 +179,19 @@ pub(crate) fn looks_like_aws_key(value: &str) -> bool {
 }
 
 pub(crate) fn looks_like_uuid(value: &str) -> bool {
-    value.len() == 36 && value.matches('-').count() == 4
+    if value.len() != 36 {
+        return false;
+    }
+    let parts: Vec<&str> = value.split('-').collect();
+    parts.len() == 5
+        && parts[0].len() == 8
+        && parts[1].len() == 4
+        && parts[2].len() == 4
+        && parts[3].len() == 4
+        && parts[4].len() == 12
+        && parts
+            .iter()
+            .all(|p| p.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 /// Execute a command with an optional timeout.
@@ -400,5 +427,16 @@ mod tests {
     fn looks_like_secret_value_rejects_simple_strings() {
         assert!(!looks_like_secret_value("this is a normal string value"));
         assert!(!looks_like_secret_value("a simple path /to/some/file"));
+    }
+
+    #[test]
+    fn redaction_patterns_is_subset_of_key_patterns() {
+        for pattern in SENSITIVE_REDACTION_PATTERNS {
+            assert!(
+                SENSITIVE_KEY_PATTERNS.contains(pattern),
+                "SENSITIVE_REDACTION_PATTERNS entry {:?} missing from SENSITIVE_KEY_PATTERNS",
+                pattern
+            );
+        }
     }
 }

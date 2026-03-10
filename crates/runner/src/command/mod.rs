@@ -36,9 +36,9 @@ pub use events::RunnerEvent;
 pub use exec::is_sensitive_env_key;
 pub use results::StepResult;
 
-use crate::config::{CommandId, CommandSpec, Config, ExecCommandSpec, OutputConfig};
-use crate::extension::{DataProviderError, DataRegistry};
-use crate::stack::Stack;
+use cargo_ops_core::config::{CommandId, CommandSpec, Config, ExecCommandSpec, OutputConfig};
+use cargo_ops_core::stack::Stack;
+use cargo_ops_extension::{DataProviderError, DataRegistry};
 use exec::{exec_command, exec_standalone, resolution_failure};
 use indexmap::IndexMap;
 use std::path::PathBuf;
@@ -48,6 +48,30 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing::{debug, instrument};
 
+/// Tracks the lifecycle of a plan execution (PlanStarted → RunFinished bookends).
+struct PlanLifecycle {
+    start: Instant,
+}
+
+impl PlanLifecycle {
+    fn begin(command_ids: &[CommandId], on_event: &mut impl FnMut(RunnerEvent)) -> Self {
+        on_event(RunnerEvent::PlanStarted {
+            command_ids: command_ids.to_vec(),
+        });
+        Self {
+            start: Instant::now(),
+        }
+    }
+
+    fn finish(self, results: &[StepResult], on_event: &mut impl FnMut(RunnerEvent)) {
+        let success = results.iter().all(|r| r.success);
+        on_event(RunnerEvent::RunFinished {
+            duration_secs: self.start.elapsed().as_secs_f64(),
+            success,
+        });
+    }
+}
+
 /// Runs commands from config; emits RunnerEvent stream.
 pub struct CommandRunner {
     config: Arc<Config>,
@@ -55,19 +79,13 @@ pub struct CommandRunner {
     stack_commands: IndexMap<CommandId, CommandSpec>,
     extension_commands: std::collections::HashMap<CommandId, CommandSpec>,
     data_registry: DataRegistry,
-    #[allow(dead_code)]
     data_cache: std::collections::HashMap<String, Arc<serde_json::Value>>,
-    #[allow(dead_code)]
     detected_stack: Option<Stack>,
 }
 
 impl CommandRunner {
     pub fn new(config: Config, cwd: PathBuf) -> Self {
-        let detected_stack = config
-            .stack
-            .as_deref()
-            .and_then(Stack::from_str)
-            .or_else(|| Stack::detect(&cwd));
+        let detected_stack = Stack::resolve(config.stack.as_deref(), &cwd);
 
         let stack_commands = if let Some(stack) = detected_stack {
             let defaults = stack.default_commands();
@@ -108,7 +126,6 @@ impl CommandRunner {
     }
 
     /// Detected or configured stack.
-    #[allow(dead_code)]
     pub fn stack(&self) -> Option<Stack> {
         self.detected_stack
     }
@@ -119,16 +136,13 @@ impl CommandRunner {
     }
 
     /// Query cached data or compute via provider.
-    ///
-    /// EFF-002: Uses entry API to avoid double-clone of data_cache.
-    #[allow(dead_code)]
     pub fn query_data(&mut self, name: &str) -> Result<Arc<serde_json::Value>, DataProviderError> {
         use std::collections::hash_map::Entry;
         match self.data_cache.entry(name.to_string()) {
             Entry::Occupied(v) => Ok(Arc::clone(v.get())),
             Entry::Vacant(slot) => {
                 let mut ctx =
-                    crate::extension::Context::new(Arc::clone(&self.config), self.cwd.clone());
+                    cargo_ops_extension::Context::new(Arc::clone(&self.config), self.cwd.clone());
                 let v = ctx.get_or_provide(name, &self.data_registry)?;
                 slot.insert(Arc::clone(&v));
                 Ok(v)
@@ -180,8 +194,8 @@ impl CommandRunner {
         /// CQ-012: Maximum recursion depth for composite expansion.
         ///
         /// This limit prevents stack overflow from pathological configs with deeply
-        /// nested composites (e.g., a → b → c → ... → z with 100+ levels). Normal
-        /// configs typically have 2-5 levels (e.g., verify → [build, test] → cargo).
+        /// nested composites (e.g., a -> b -> c -> ... -> z with 100+ levels). Normal
+        /// configs typically have 2-5 levels (e.g., verify -> [build, test] -> cargo).
         /// The cycle detection already catches circular references, so this is a
         /// defense against accidental deep nesting.
         const MAX_DEPTH: usize = 100;
@@ -232,6 +246,29 @@ impl CommandRunner {
         exec_command(id, spec, &self.cwd, on_event).await
     }
 
+    /// Execute a single step in a sequential plan, returning the result and whether to stop.
+    async fn execute_step(
+        &self,
+        id: &str,
+        on_event: &mut impl FnMut(RunnerEvent),
+    ) -> (StepResult, bool) {
+        let Some(spec) = self.resolve(id) else {
+            let msg = format!("unknown command: {}", id);
+            return (resolution_failure(id, msg, on_event), true);
+        };
+        match spec {
+            CommandSpec::Exec(e) => {
+                let r = self.run_exec(id, e, on_event).await;
+                let should_stop = !r.success;
+                (r, should_stop)
+            }
+            CommandSpec::Composite(_) => {
+                let msg = format!("internal error: composite in leaf plan: {}", id);
+                (resolution_failure(id, msg, on_event), true)
+            }
+        }
+    }
+
     /// Run a flat list of exec command IDs sequentially; stop on first failure.
     #[instrument(skip(self, on_event))]
     pub async fn run_plan(
@@ -239,44 +276,18 @@ impl CommandRunner {
         command_ids: &[CommandId],
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> Vec<StepResult> {
-        on_event(RunnerEvent::PlanStarted {
-            command_ids: command_ids.to_vec(),
-        });
-        let start = Instant::now();
+        let lifecycle = PlanLifecycle::begin(command_ids, on_event);
         let mut results = Vec::new();
 
         for id in command_ids {
-            let spec = match self.resolve(id) {
-                Some(s) => s,
-                None => {
-                    let msg = format!("unknown command: {}", id);
-                    results.push(resolution_failure(id, msg, on_event));
-                    break;
-                }
-            };
-
-            match spec {
-                CommandSpec::Exec(e) => {
-                    let r = self.run_exec(id, e, on_event).await;
-                    let failed = !r.success;
-                    results.push(r);
-                    if failed {
-                        break;
-                    }
-                }
-                CommandSpec::Composite(_) => {
-                    let msg = format!("internal error: composite in leaf plan: {}", id);
-                    results.push(resolution_failure(id, msg, on_event));
-                    break;
-                }
+            let (result, should_stop) = self.execute_step(id, on_event).await;
+            results.push(result);
+            if should_stop {
+                break;
             }
         }
 
-        let success = results.iter().all(|r| r.success);
-        on_event(RunnerEvent::RunFinished {
-            duration_secs: start.elapsed().as_secs_f64(),
-            success,
-        });
+        lifecycle.finish(&results, on_event);
         results
     }
 
@@ -288,6 +299,8 @@ impl CommandRunner {
         let mut steps = Vec::with_capacity(command_ids.len());
         for id in command_ids {
             match self.resolve(id) {
+                // Clone is required: specs must be owned to move into spawned tasks.
+                // Acceptable for typical parallel groups (<10 commands).
                 Some(CommandSpec::Exec(e)) => steps.push((id.clone(), e.clone())),
                 _ => return Err(id.clone()),
             }
@@ -308,7 +321,7 @@ impl CommandRunner {
     ///
     /// This is important for robustness in CI/CD environments where a single
     /// misbehaving command should not abort the entire run.
-    async fn collect_join_results(
+    pub(crate) async fn collect_join_results(
         mut join_set: tokio::task::JoinSet<StepResult>,
     ) -> Vec<StepResult> {
         let mut results = Vec::new();
@@ -340,7 +353,7 @@ impl CommandRunner {
     /// If memory becomes a concern with very large parallel groups,
     /// consider splitting into smaller batches or adding a config option
     /// for maximum parallelism.
-    fn spawn_parallel_tasks(
+    pub(crate) fn spawn_parallel_tasks(
         steps: Vec<(CommandId, ExecCommandSpec)>,
         cwd: PathBuf,
     ) -> (
@@ -362,7 +375,7 @@ impl CommandRunner {
     }
 
     /// Receive events from parallel execution, handling fail_fast abort.
-    async fn handle_parallel_events(
+    pub(crate) async fn handle_parallel_events(
         mut rx: mpsc::UnboundedReceiver<RunnerEvent>,
         fail_fast: bool,
         abort: Arc<AtomicBool>,
@@ -376,35 +389,6 @@ impl CommandRunner {
             }
             on_event(ev);
         }
-    }
-
-    #[cfg(test)]
-    pub fn spawn_parallel_tasks_for_test(
-        steps: Vec<(CommandId, ExecCommandSpec)>,
-        cwd: PathBuf,
-    ) -> (
-        mpsc::UnboundedReceiver<RunnerEvent>,
-        Arc<AtomicBool>,
-        tokio::task::JoinSet<StepResult>,
-    ) {
-        Self::spawn_parallel_tasks(steps, cwd)
-    }
-
-    #[cfg(test)]
-    pub async fn handle_parallel_events_for_test(
-        rx: mpsc::UnboundedReceiver<RunnerEvent>,
-        fail_fast: bool,
-        abort: Arc<AtomicBool>,
-        on_event: &mut impl FnMut(RunnerEvent),
-    ) {
-        Self::handle_parallel_events(rx, fail_fast, abort, on_event).await
-    }
-
-    #[cfg(test)]
-    pub async fn collect_join_results_for_test(
-        join_set: tokio::task::JoinSet<StepResult>,
-    ) -> Vec<StepResult> {
-        Self::collect_join_results(join_set).await
     }
 
     /// Run a flat list of exec command IDs in parallel; events sent via channel. When fail_fast is true, abort flag is set on first failure.
@@ -422,21 +406,15 @@ impl CommandRunner {
         fail_fast: bool,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> Vec<StepResult> {
-        on_event(RunnerEvent::PlanStarted {
-            command_ids: command_ids.to_vec(),
-        });
-        let start = Instant::now();
+        let lifecycle = PlanLifecycle::begin(command_ids, on_event);
 
         let steps = match self.resolve_exec_specs(command_ids) {
             Ok(s) => s,
             Err(id) => {
-                let msg = "internal error: composite in leaf plan".to_string();
-                let result = resolution_failure(&id, msg, on_event);
-                on_event(RunnerEvent::RunFinished {
-                    duration_secs: start.elapsed().as_secs_f64(),
-                    success: false,
-                });
-                return vec![result];
+                let msg = format!("internal error: composite in leaf plan: {}", id);
+                let results = vec![resolution_failure(&id, msg, on_event)];
+                lifecycle.finish(&results, on_event);
+                return results;
             }
         };
 
@@ -444,11 +422,7 @@ impl CommandRunner {
         Self::handle_parallel_events(rx, fail_fast, abort, on_event).await;
         let results = Self::collect_join_results(join_set).await;
 
-        let success = results.iter().all(|r| r.success);
-        on_event(RunnerEvent::RunFinished {
-            duration_secs: start.elapsed().as_secs_f64(),
-            success,
-        });
+        lifecycle.finish(&results, on_event);
         results
     }
 

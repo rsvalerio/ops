@@ -4,10 +4,11 @@ use super::*;
 use crate::command::events::RunnerEvent;
 use crate::command::exec::{build_command, emit_output_events, exec_standalone};
 use crate::command::results::StepResult;
-use crate::config::{CommandSpec, CompositeCommandSpec};
-use crate::test_utils::{
-    echo_cmd, exec_spec, exec_spec_with_cwd, false_cmd, sleep_cmd, test_runner, true_cmd,
-    EventAssertions,
+use crate::test_support::{test_runner, EventAssertions};
+use cargo_ops_core::config::CommandSpec;
+use cargo_ops_core::test_utils::{
+    composite_cmd, echo_cmd, exec_spec, exec_spec_with_cwd, false_cmd, parallel_cmd, sleep_cmd,
+    true_cmd,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -28,11 +29,7 @@ fn runner_with_test_commands() -> CommandRunner {
     );
     commands.insert(
         "verify".to_string(),
-        CommandSpec::Composite(CompositeCommandSpec {
-            commands: vec!["build".to_string(), "clippy".to_string()],
-            parallel: false,
-            fail_fast: true,
-        }),
+        CommandSpec::Composite(composite_cmd(&["build", "clippy"])),
     );
     test_runner(commands)
 }
@@ -301,11 +298,7 @@ async fn run_sequential_composite() {
     commands.insert("b".to_string(), CommandSpec::Exec(echo_cmd("b")));
     commands.insert(
         "both".to_string(),
-        CommandSpec::Composite(CompositeCommandSpec {
-            commands: vec!["a".to_string(), "b".to_string()],
-            parallel: false,
-            fail_fast: true,
-        }),
+        CommandSpec::Composite(composite_cmd(&["a", "b"])),
     );
     let runner = test_runner(commands);
     let mut events = Vec::new();
@@ -330,11 +323,7 @@ async fn run_parallel_composite() {
     commands.insert("b".to_string(), CommandSpec::Exec(echo_cmd("b")));
     commands.insert(
         "par".to_string(),
-        CommandSpec::Composite(CompositeCommandSpec {
-            commands: vec!["a".to_string(), "b".to_string()],
-            parallel: true,
-            fail_fast: true,
-        }),
+        CommandSpec::Composite(parallel_cmd(&["a", "b"])),
     );
     let runner = test_runner(commands);
     let mut events = Vec::new();
@@ -381,11 +370,7 @@ async fn run_plan_parallel_resolution_failure() {
     let mut commands = HashMap::new();
     commands.insert(
         "comp".to_string(),
-        CommandSpec::Composite(CompositeCommandSpec {
-            commands: vec!["a".to_string()],
-            parallel: false,
-            fail_fast: true,
-        }),
+        CommandSpec::Composite(composite_cmd(&["a"])),
     );
     let runner = test_runner(commands);
     let mut events = Vec::new();
@@ -475,7 +460,7 @@ mod proptest_tests {
             commands.insert(cmd2.clone(), CommandSpec::Exec(exec_spec("echo", &[&cmd2])));
             commands.insert(
                 name.clone(),
-                CommandSpec::Composite(CompositeCommandSpec {
+                CommandSpec::Composite(cargo_ops_core::config::CompositeCommandSpec {
                     commands: vec![cmd1.clone(), cmd2.clone()],
                     parallel: false,
                     fail_fast: true,
@@ -659,18 +644,6 @@ mod exec_unit_tests {
             "env var should be set"
         );
     }
-
-    #[test]
-    fn build_command_sensitive_env_key_warning() {
-        let mut spec = exec_spec("echo", &["test"]);
-        spec.env
-            .insert("API_KEY".to_string(), "secret123".to_string());
-        spec.env
-            .insert("PASSWORD".to_string(), "secret123".to_string());
-        spec.env
-            .insert("MY_SECRET".to_string(), "secret123".to_string());
-        let _cmd = build_command(&spec, std::path::Path::new("."));
-    }
 }
 
 /// TQ-005: Tests for build_command error paths.
@@ -764,7 +737,7 @@ mod emit_output_edge_tests {
     #[test]
     fn emit_output_events_with_unicode() {
         let mut events: Vec<RunnerEvent> = Vec::new();
-        let unicode = "日本語\nテスト\n🎉\n";
+        let unicode = "\u{65E5}\u{672C}\u{8A9E}\n\u{30C6}\u{30B9}\u{30C8}\n\u{1F389}\n";
         emit_output_events("test", unicode, "", &mut |e| events.push(e));
 
         assert_eq!(events.len(), 3);
@@ -783,27 +756,15 @@ mod nested_composite_tests {
 
         commands.insert(
             "level2_a".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["leaf1".to_string(), "leaf2".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["leaf1", "leaf2"])),
         );
         commands.insert(
             "level2_b".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["leaf3".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["leaf3"])),
         );
         commands.insert(
             "level3".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["level2_a".to_string(), "level2_b".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["level2_a", "level2_b"])),
         );
 
         let runner = test_runner(commands);
@@ -817,19 +778,11 @@ mod nested_composite_tests {
         commands.insert("leaf".to_string(), CommandSpec::Exec(echo_cmd("1")));
         commands.insert(
             "level2".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["nonexistent".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["nonexistent"])),
         );
         commands.insert(
             "level3".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["level2".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["level2"])),
         );
 
         let runner = test_runner(commands);
@@ -845,19 +798,11 @@ mod nested_composite_tests {
         commands.insert("leaf".to_string(), CommandSpec::Exec(echo_cmd("1")));
         commands.insert(
             "level2".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["level3".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["level3"])),
         );
         commands.insert(
             "level3".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["level2".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["level2"])),
         );
 
         let runner = test_runner(commands);
@@ -974,19 +919,11 @@ mod cycle_detection_tests {
         let mut commands = HashMap::new();
         commands.insert(
             "a".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["b".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["b"])),
         );
         commands.insert(
             "b".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["a".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["a"])),
         );
         let runner = test_runner(commands);
         assert!(
@@ -1000,27 +937,15 @@ mod cycle_detection_tests {
         let mut commands = HashMap::new();
         commands.insert(
             "a".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["b".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["b"])),
         );
         commands.insert(
             "b".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["c".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["c"])),
         );
         commands.insert(
             "c".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["a".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["a"])),
         );
         let runner = test_runner(commands);
         assert!(
@@ -1034,11 +959,7 @@ mod cycle_detection_tests {
         let mut commands = HashMap::new();
         commands.insert(
             "self_ref".to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["self_ref".to_string()],
-                parallel: false,
-                fail_fast: true,
-            }),
+            CommandSpec::Composite(composite_cmd(&["self_ref"])),
         );
         let runner = test_runner(commands);
         assert!(
@@ -1077,7 +998,7 @@ mod parallel_timing_tests {
         // Use 1.8s as threshold to give ample margin for CI overhead.
         assert!(
             elapsed.as_secs_f64() < 1.8,
-            "parallel execution took {:.2}s — expected < 1.8s (two 1s sleeps in parallel)",
+            "parallel execution took {:.2}s -- expected < 1.8s (two 1s sleeps in parallel)",
             elapsed.as_secs_f64()
         );
     }
@@ -1139,10 +1060,9 @@ mod parallel_infra_tests {
             ("cmd2".to_string(), echo_cmd("b")),
             ("cmd3".to_string(), echo_cmd("c")),
         ];
-        let (rx, _abort, join_set) =
-            CommandRunner::spawn_parallel_tasks_for_test(steps, PathBuf::from("."));
+        let (rx, _abort, join_set) = CommandRunner::spawn_parallel_tasks(steps, PathBuf::from("."));
         drop(rx);
-        let results = CommandRunner::collect_join_results_for_test(join_set).await;
+        let results = CommandRunner::collect_join_results(join_set).await;
         assert_eq!(results.len(), 3);
     }
 
@@ -1165,8 +1085,7 @@ mod parallel_infra_tests {
         drop(tx);
 
         let mut events = Vec::new();
-        CommandRunner::handle_parallel_events_for_test(rx, false, abort, &mut |e| events.push(e))
-            .await;
+        CommandRunner::handle_parallel_events(rx, false, abort, &mut |e| events.push(e)).await;
 
         assert_eq!(events.len(), 2);
     }
@@ -1186,7 +1105,7 @@ mod parallel_infra_tests {
         drop(tx);
 
         let mut events = Vec::new();
-        CommandRunner::handle_parallel_events_for_test(rx, true, Arc::clone(&abort), &mut |e| {
+        CommandRunner::handle_parallel_events(rx, true, Arc::clone(&abort), &mut |e| {
             events.push(e)
         })
         .await;
@@ -1212,7 +1131,7 @@ mod parallel_infra_tests {
         drop(tx);
 
         let mut events = Vec::new();
-        CommandRunner::handle_parallel_events_for_test(rx, false, Arc::clone(&abort), &mut |e| {
+        CommandRunner::handle_parallel_events(rx, false, Arc::clone(&abort), &mut |e| {
             events.push(e)
         })
         .await;
@@ -1229,7 +1148,7 @@ mod parallel_infra_tests {
         join_set.spawn(async { panic!("test panic message") });
         join_set.spawn(async { StepResult::success("ok", Duration::from_millis(10)) });
 
-        let results = CommandRunner::collect_join_results_for_test(join_set).await;
+        let results = CommandRunner::collect_join_results(join_set).await;
 
         assert_eq!(results.len(), 2);
         let panic_result = results.iter().find(|r| r.id == "<panicked>");
@@ -1258,7 +1177,7 @@ mod depth_limit_tests {
             let next_name = format!("level_{}", i + 1);
             commands.insert(
                 name,
-                CommandSpec::Composite(CompositeCommandSpec {
+                CommandSpec::Composite(cargo_ops_core::config::CompositeCommandSpec {
                     commands: vec![next_name],
                     parallel: false,
                     fail_fast: true,
@@ -1303,90 +1222,11 @@ mod depth_limit_tests {
     }
 }
 
-/// TQ-GAP-002: Tests for warn_if_sensitive_env logging behavior.
-///
-/// These tests verify that the sensitive env detection correctly identifies
-/// and logs warnings for sensitive-looking environment variables.
 mod sensitive_env_tests {
     use crate::command::exec::{
         has_high_entropy, is_sensitive_env_key, looks_like_aws_key, looks_like_jwt,
-        looks_like_secret_value, looks_like_uuid, warn_if_sensitive_env,
+        looks_like_secret_value, looks_like_uuid,
     };
-
-    #[test]
-    fn warn_if_sensitive_env_detects_password_key() {
-        let subscriber = tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::WARN)
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
-
-        warn_if_sensitive_env("MY_PASSWORD", "value123");
-    }
-
-    #[test]
-    fn warn_if_sensitive_env_detects_secret_key() {
-        let subscriber = tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::WARN)
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
-
-        warn_if_sensitive_env("CLIENT_SECRET", "abc123");
-    }
-
-    #[test]
-    fn warn_if_sensitive_env_detects_token_key() {
-        let subscriber = tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::WARN)
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
-
-        warn_if_sensitive_env("ACCESS_TOKEN", "xyz789");
-    }
-
-    #[test]
-    fn warn_if_sensitive_env_detects_api_key_key() {
-        let subscriber = tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::WARN)
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
-
-        warn_if_sensitive_env("X_API_KEY", "key123");
-    }
-
-    #[test]
-    fn warn_if_sensitive_env_detects_secret_value_jwt() {
-        let subscriber = tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::WARN)
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
-
-        warn_if_sensitive_env(
-            "MY_VAR",
-            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
-        );
-    }
-
-    #[test]
-    fn warn_if_sensitive_env_detects_secret_value_uuid() {
-        let subscriber = tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::WARN)
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
-
-        warn_if_sensitive_env("MY_VAR", "550e8400-e29b-41d4-a716-446655440000");
-    }
-
-    #[test]
-    fn warn_if_sensitive_env_no_warning_for_normal_vars() {
-        let subscriber = tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::WARN)
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
-
-        warn_if_sensitive_env("PATH", "/usr/bin");
-        warn_if_sensitive_env("HOME", "/home/user");
-        warn_if_sensitive_env("DEBUG", "1");
-    }
 
     #[test]
     fn has_high_entropy_detects_random_strings() {
@@ -1446,6 +1286,14 @@ mod sensitive_env_tests {
     }
 
     #[test]
+    fn looks_like_uuid_rejects_wrong_segment_lengths() {
+        // Right length and hyphen count, but wrong segment layout (not 8-4-4-4-12)
+        assert!(!looks_like_uuid("550e84001-e29b-41d4-a71-446655440000"));
+        // Contains non-hex characters
+        assert!(!looks_like_uuid("550e8400-e29b-41d4-a716-44665544000g"));
+    }
+
+    #[test]
     fn looks_like_secret_value_combines_all_checks() {
         assert!(looks_like_secret_value(
             "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signature"
@@ -1478,7 +1326,7 @@ mod sensitive_env_tests {
 /// TQ-GAP-005: Tests for CommandRunner::query_data().
 mod query_data_tests {
     use super::*;
-    use crate::extension::{DataProvider, DataProviderError, DataRegistry};
+    use cargo_ops_extension::{Context, DataProvider, DataProviderError, DataRegistry};
 
     struct FixedProvider {
         value: serde_json::Value,
@@ -1488,10 +1336,7 @@ mod query_data_tests {
         fn name(&self) -> &'static str {
             "fixed"
         }
-        fn provide(
-            &self,
-            _ctx: &mut crate::extension::Context,
-        ) -> Result<serde_json::Value, DataProviderError> {
+        fn provide(&self, _ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
             Ok(self.value.clone())
         }
     }
@@ -1502,10 +1347,7 @@ mod query_data_tests {
         fn name(&self) -> &'static str {
             "failing"
         }
-        fn provide(
-            &self,
-            _ctx: &mut crate::extension::Context,
-        ) -> Result<serde_json::Value, DataProviderError> {
+        fn provide(&self, _ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
             Err(DataProviderError::computation_failed("provider error"))
         }
     }

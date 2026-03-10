@@ -1,9 +1,9 @@
 //! Progress display: step-line rendering, progress bars, and CLI event handling.
 
 use crate::command::RunnerEvent;
-use crate::config;
-use crate::output::{tail_lines, ErrorDetail, StepLine, StepStatus};
-use crate::theme::{self, ThemeConfig};
+use cargo_ops_core::config;
+use cargo_ops_core::output::{tail_lines, ErrorDetail, StepLine, StepStatus};
+use cargo_ops_theme::{self as theme, ThemeConfig};
 
 use anyhow::Context;
 use indexmap::IndexMap;
@@ -38,44 +38,18 @@ fn write_stderr(line: Option<&str>) {
 }
 
 /// Render configuration extracted from OutputConfig.
-pub(crate) struct RenderConfig {
+pub struct RenderConfig {
     pub theme: Box<dyn theme::StepLineTheme>,
     pub columns: u16,
     pub is_tty: bool,
     pub show_error_detail: bool,
 }
 
-/// Renders step lines with status icons and elapsed time.
-///
-/// This struct encapsulates step rendering logic to support future growth.
-/// Currently kept minimal as the display logic is manageable.
-#[cfg(test)]
-pub(crate) struct StepRenderer<'a> {
-    theme: &'a dyn theme::StepLineTheme,
-    columns: u16,
-}
-
-#[cfg(test)]
-impl<'a> StepRenderer<'a> {
-    pub fn new(theme: &'a dyn theme::StepLineTheme, columns: u16) -> Self {
-        Self { theme, columns }
-    }
-
-    pub fn render(&self, status: StepStatus, label: &str, elapsed: Option<f64>) -> String {
-        let step = StepLine {
-            status,
-            label: label.to_string(),
-            elapsed,
-        };
-        self.theme.render(&step, self.columns)
-    }
-}
-
 /// Renders error detail blocks for failed steps.
 ///
 /// This struct encapsulates error detail rendering to support future growth.
 /// Currently kept minimal as the display logic is manageable.
-pub(crate) struct ErrorDetailRenderer<'a> {
+pub struct ErrorDetailRenderer<'a> {
     theme: &'a dyn theme::StepLineTheme,
     columns: u16,
 }
@@ -125,7 +99,7 @@ impl<'a> ErrorDetailRenderer<'a> {
 /// consider extracting:
 /// - `ProgressState`: bars, steps, step_stderr, display_map
 /// - `EventRouter`: handle_event dispatcher + on_* methods
-pub(crate) struct ProgressDisplay {
+pub struct ProgressDisplay {
     render: RenderConfig,
     multi: MultiProgress,
     bars: Vec<ProgressBar>,
@@ -137,19 +111,34 @@ pub(crate) struct ProgressDisplay {
 }
 
 impl ProgressDisplay {
+    fn is_stderr_tty() -> bool {
+        std::io::stderr().is_terminal()
+    }
+
     pub fn new(
         output: &config::OutputConfig,
         display_map: HashMap<String, String>,
         custom_themes: &IndexMap<String, ThemeConfig>,
     ) -> anyhow::Result<Self> {
-        let is_tty = std::io::stderr().is_terminal();
+        Self::new_with_tty_check(output, display_map, custom_themes, Self::is_stderr_tty)
+    }
+
+    fn new_with_tty_check<F>(
+        output: &config::OutputConfig,
+        display_map: HashMap<String, String>,
+        custom_themes: &IndexMap<String, ThemeConfig>,
+        is_tty_fn: F,
+    ) -> anyhow::Result<Self>
+    where
+        F: FnOnce() -> bool,
+    {
+        let is_tty = is_tty_fn();
         let multi = MultiProgress::with_draw_target(if is_tty {
             ProgressDrawTarget::stderr()
         } else {
             ProgressDrawTarget::hidden()
         });
-        let resolved_theme = theme::resolve_theme(&output.theme, custom_themes)
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        let resolved_theme = theme::resolve_theme(&output.theme, custom_themes)?;
         let pending_style = ProgressStyle::with_template("{msg}")
             .with_context(|| format!("invalid pending template for theme '{}'", output.theme))?;
         let running_style = ProgressStyle::with_template(resolved_theme.running_template())
@@ -221,7 +210,7 @@ impl ProgressDisplay {
     /// handlers. At 25 lines with 8 match arms, it's at the threshold of what
     /// would benefit from refactoring. The current design is kept because:
     ///
-    /// 1. Each match arm is a single method call — clear and readable
+    /// 1. Each match arm is a single method call -- clear and readable
     /// 2. The match is exhaustive, ensuring all events are handled
     /// 3. Extracting to a visitor pattern would add indirection without benefit
     ///
@@ -442,8 +431,29 @@ impl ProgressDisplay {
 mod tests {
     use super::*;
     use crate::command::RunnerEvent;
-    use crate::output::StepStatus;
-    use crate::theme::ThemeConfig;
+    use cargo_ops_core::output::{StepLine, StepStatus};
+    use cargo_ops_theme::ThemeConfig;
+
+    /// Renders step lines with status icons and elapsed time.
+    pub struct StepRenderer<'a> {
+        theme: &'a dyn theme::StepLineTheme,
+        columns: u16,
+    }
+
+    impl<'a> StepRenderer<'a> {
+        pub fn new(theme: &'a dyn theme::StepLineTheme, columns: u16) -> Self {
+            Self { theme, columns }
+        }
+
+        pub fn render(&self, status: StepStatus, label: &str, elapsed: Option<f64>) -> String {
+            let step = StepLine {
+                status,
+                label: label.to_string(),
+                elapsed,
+            };
+            self.theme.render(&step, self.columns)
+        }
+    }
 
     fn test_themes() -> IndexMap<String, ThemeConfig> {
         let mut themes = IndexMap::new();
@@ -452,14 +462,26 @@ mod tests {
         themes
     }
 
+    /// DUP-004: Reduce repeated ProgressDisplay test setup.
+    fn test_display(entries: &[(&str, &str)]) -> ProgressDisplay {
+        test_display_with_config(config::OutputConfig::default(), entries)
+    }
+
+    fn test_display_with_config(
+        output: config::OutputConfig,
+        entries: &[(&str, &str)],
+    ) -> ProgressDisplay {
+        let display_map: HashMap<String, String> = entries
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let custom_themes = test_themes();
+        ProgressDisplay::new(&output, display_map, &custom_themes).expect("test display construct")
+    }
+
     #[test]
     fn progress_display_handles_full_lifecycle() {
-        let output = config::OutputConfig::default();
-        let mut display_map = HashMap::new();
-        display_map.insert("echo_hi".to_string(), "echo hi".to_string());
-        let custom_themes = test_themes();
-        let mut display =
-            ProgressDisplay::new(&output, display_map, &custom_themes).expect("should construct");
+        let mut display = test_display(&[("echo_hi", "echo hi")]);
 
         // Non-TTY: events go to stderr (we just verify no panics and state is correct)
         display.handle_event(RunnerEvent::PlanStarted {
@@ -502,15 +524,13 @@ mod tests {
 
     #[test]
     fn progress_display_handles_failure_with_error_detail() {
-        let output = config::OutputConfig {
-            show_error_detail: true,
-            ..config::OutputConfig::default()
-        };
-        let mut display_map = HashMap::new();
-        display_map.insert("fail_cmd".to_string(), "false".to_string());
-        let custom_themes = test_themes();
-        let mut display =
-            ProgressDisplay::new(&output, display_map, &custom_themes).expect("should construct");
+        let mut display = test_display_with_config(
+            config::OutputConfig {
+                show_error_detail: true,
+                ..config::OutputConfig::default()
+            },
+            &[("fail_cmd", "false")],
+        );
 
         display.handle_event(RunnerEvent::PlanStarted {
             command_ids: vec!["fail_cmd".to_string()],
@@ -540,10 +560,7 @@ mod tests {
 
     #[test]
     fn progress_display_render_step() {
-        let output = config::OutputConfig::default();
-        let custom_themes = test_themes();
-        let display = ProgressDisplay::new(&output, HashMap::new(), &custom_themes)
-            .expect("should construct");
+        let display = test_display(&[]);
         let renderer = StepRenderer::new(
             display.render_config().theme.as_ref(),
             display.render_config().columns,
@@ -560,29 +577,22 @@ mod tests {
             ..config::OutputConfig::default()
         };
         let custom_themes = test_themes();
-        let display = ProgressDisplay::new(&output, HashMap::new(), &custom_themes)
-            .expect("should construct");
+        let display =
+            ProgressDisplay::new_with_tty_check(&output, HashMap::new(), &custom_themes, || false)
+                .expect("should construct");
         assert!(!display.render.is_tty);
         display.emit_line("test line");
     }
 
     #[test]
     fn emit_line_handles_empty_string() {
-        let output = config::OutputConfig::default();
-        let custom_themes = test_themes();
-        let display = ProgressDisplay::new(&output, HashMap::new(), &custom_themes)
-            .expect("should construct");
+        let display = test_display(&[]);
         display.emit_line("");
     }
 
     #[test]
     fn step_stderr_captures_output() {
-        let output = config::OutputConfig::default();
-        let mut display_map = HashMap::new();
-        display_map.insert("cmd".to_string(), "test cmd".to_string());
-        let custom_themes = test_themes();
-        let mut display =
-            ProgressDisplay::new(&output, display_map, &custom_themes).expect("should construct");
+        let mut display = test_display(&[("cmd", "test cmd")]);
 
         display.handle_event(RunnerEvent::PlanStarted {
             command_ids: vec!["cmd".to_string()],
@@ -614,26 +624,21 @@ mod tests {
 
     #[test]
     fn render_config_uses_output_settings() {
-        let output = config::OutputConfig {
-            columns: 100,
-            show_error_detail: false,
-            theme: "compact".into(),
-        };
-        let custom_themes = test_themes();
-        let display = ProgressDisplay::new(&output, HashMap::new(), &custom_themes)
-            .expect("should construct");
+        let display = test_display_with_config(
+            config::OutputConfig {
+                columns: 100,
+                show_error_detail: false,
+                theme: "compact".into(),
+            },
+            &[],
+        );
         assert_eq!(display.render.columns, 100);
         assert!(!display.render.show_error_detail);
     }
 
     #[test]
     fn progress_display_handles_step_skipped() {
-        let output = config::OutputConfig::default();
-        let mut display_map = HashMap::new();
-        display_map.insert("skip_cmd".to_string(), "skipped command".to_string());
-        let custom_themes = test_themes();
-        let mut display =
-            ProgressDisplay::new(&output, display_map, &custom_themes).expect("should construct");
+        let mut display = test_display(&[("skip_cmd", "skipped command")]);
 
         display.handle_event(RunnerEvent::PlanStarted {
             command_ids: vec!["skip_cmd".to_string()],
@@ -657,7 +662,7 @@ mod tests {
     mod edge_case_tests {
         use super::*;
         use crate::command::RunnerEvent;
-        use crate::output::StepStatus;
+        use cargo_ops_core::output::StepStatus;
 
         #[test]
         fn extract_stderr_tail_extracts_correct_count() {
@@ -686,14 +691,7 @@ mod tests {
 
         #[test]
         fn finish_step_returns_none_for_unknown_id() {
-            let output = config::OutputConfig::default();
-            let custom_themes = {
-                let mut themes = IndexMap::new();
-                themes.insert("classic".into(), ThemeConfig::classic());
-                themes
-            };
-            let mut display = ProgressDisplay::new(&output, HashMap::new(), &custom_themes)
-                .expect("should construct");
+            let mut display = test_display(&[]);
 
             display.handle_event(RunnerEvent::PlanStarted {
                 command_ids: vec!["known".to_string()],
@@ -716,17 +714,7 @@ mod tests {
 
         #[test]
         fn handle_event_rapid_sequence_no_panic() {
-            let output = config::OutputConfig::default();
-            let mut display_map = HashMap::new();
-            display_map.insert("cmd1".to_string(), "echo 1".to_string());
-            display_map.insert("cmd2".to_string(), "echo 2".to_string());
-            let custom_themes = {
-                let mut themes = IndexMap::new();
-                themes.insert("classic".into(), ThemeConfig::classic());
-                themes
-            };
-            let mut display =
-                ProgressDisplay::new(&output, display_map, &custom_themes).expect("construct");
+            let mut display = test_display(&[("cmd1", "echo 1"), ("cmd2", "echo 2")]);
 
             // Simulate rapid event sequence as would occur in parallel execution
             let events = vec![
@@ -779,20 +767,13 @@ mod tests {
 
         #[test]
         fn handle_event_interleaved_failure_sequence() {
-            let output = config::OutputConfig {
-                show_error_detail: true,
-                ..config::OutputConfig::default()
-            };
-            let mut display_map = HashMap::new();
-            display_map.insert("ok".to_string(), "true".to_string());
-            display_map.insert("fail".to_string(), "false".to_string());
-            let custom_themes = {
-                let mut themes = IndexMap::new();
-                themes.insert("classic".into(), ThemeConfig::classic());
-                themes
-            };
-            let mut display =
-                ProgressDisplay::new(&output, display_map, &custom_themes).expect("construct");
+            let mut display = test_display_with_config(
+                config::OutputConfig {
+                    show_error_detail: true,
+                    ..config::OutputConfig::default()
+                },
+                &[("ok", "true"), ("fail", "false")],
+            );
 
             // Simulate parallel execution with one failure
             let events = vec![
@@ -869,14 +850,8 @@ mod tests {
                 theme: "classic".into(),
                 ..config::OutputConfig::default()
             };
-            let custom_themes = {
-                let mut themes = IndexMap::new();
-                themes.insert("classic".into(), ThemeConfig::classic());
-                themes
-            };
-            let result = ProgressDisplay::new(&output, HashMap::new(), &custom_themes);
-
-            assert!(result.is_ok(), "should succeed for valid theme");
+            // test_display_with_config uses test_themes() which includes "classic"
+            let _display = test_display_with_config(output, &[]);
         }
     }
 
@@ -884,18 +859,9 @@ mod tests {
     mod unknown_command_tests {
         use super::*;
 
-        fn test_themes() -> IndexMap<String, ThemeConfig> {
-            let mut themes = IndexMap::new();
-            themes.insert("classic".into(), ThemeConfig::classic());
-            themes
-        }
-
         #[test]
         fn handle_event_unknown_command_id_no_panic() {
-            let output = config::OutputConfig::default();
-            let custom_themes = test_themes();
-            let mut display =
-                ProgressDisplay::new(&output, HashMap::new(), &custom_themes).expect("construct");
+            let mut display = test_display(&[]);
 
             display.handle_event(RunnerEvent::PlanStarted {
                 command_ids: vec!["known_cmd".to_string()],
@@ -920,10 +886,7 @@ mod tests {
 
         #[test]
         fn handle_event_step_output_for_unknown_command_no_panic() {
-            let output = config::OutputConfig::default();
-            let custom_themes = test_themes();
-            let mut display =
-                ProgressDisplay::new(&output, HashMap::new(), &custom_themes).expect("construct");
+            let mut display = test_display(&[]);
 
             display.handle_event(RunnerEvent::PlanStarted {
                 command_ids: vec!["cmd1".to_string()],
@@ -944,16 +907,13 @@ mod tests {
         /// TQ-012: finish_step with unknown step ID returns None.
         #[test]
         fn finish_step_unknown_id_returns_none() {
-            let output = config::OutputConfig::default();
-            let custom_themes = test_themes();
-            let mut display =
-                ProgressDisplay::new(&output, HashMap::new(), &custom_themes).expect("construct");
+            let mut display = test_display(&[]);
 
             display.handle_event(RunnerEvent::PlanStarted {
                 command_ids: vec!["known".to_string()],
             });
 
-            // finish_step is called internally via on_step_finished — trigger it with unknown ID
+            // finish_step is called internally via on_step_finished -- trigger it with unknown ID
             display.handle_event(RunnerEvent::StepFinished {
                 id: "never_registered".to_string(),
                 duration_secs: 1.0,
@@ -964,13 +924,13 @@ mod tests {
 
         #[test]
         fn handle_event_step_failed_for_unknown_command_no_panic() {
-            let output = config::OutputConfig {
-                show_error_detail: true,
-                ..config::OutputConfig::default()
-            };
-            let custom_themes = test_themes();
-            let mut display =
-                ProgressDisplay::new(&output, HashMap::new(), &custom_themes).expect("construct");
+            let mut display = test_display_with_config(
+                config::OutputConfig {
+                    show_error_detail: true,
+                    ..config::OutputConfig::default()
+                },
+                &[],
+            );
 
             display.handle_event(RunnerEvent::PlanStarted {
                 command_ids: vec!["known".to_string()],
