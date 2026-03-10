@@ -17,21 +17,6 @@ brew install ops
 cargo install cargo-ops
 ```
 
-## Quick Start
-
-```bash
-# Initialize configuration in current directory
-cargo ops init
-
-# Run a command
-cargo ops build
-cargo ops clippy
-cargo ops test
-
-# Run a composite command
-cargo ops verify  # Runs: build → clippy → test
-```
-
 ## Configuration
 
 Create a `.ops.toml` file in your project root (or run `cargo ops init`):
@@ -64,7 +49,7 @@ commands = ["fmt", "clippy", "check"]
 parallel = true
 ```
 
-Commands come from merged config: internal default (when no local file) → global config → local `.ops.toml` → env. Run `cargo ops init` to create a `.ops.toml` from the default template; use `cargo ops init --force` to overwrite an existing file.
+Commands come from merged config: internal default (when no local file) → global config → local `.ops.toml` → env. Run `cargo ops init` to create a `.ops.toml`; when run inside a project with a detected stack (e.g. Rust with `Cargo.toml`), the file is pre-filled with that stack's default commands so you can run `cargo ops build`, `cargo ops verify`, etc. immediately. Use `cargo ops init --force` to overwrite an existing file.
 
 ## Documentation
 
