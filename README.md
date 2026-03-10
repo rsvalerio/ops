@@ -53,9 +53,20 @@ Commands come from merged config: internal default (when no local file) → glob
 
 ## Documentation
 
-- **[Design Document](docs/project/designdoc.md)** - Complete architecture, extension system, visualization spec, and design decisions
-- **[CLI Output](docs/project/architecture.md)** - Theme-based output and step line formatting
-- **[Visual Components](docs/project/components.md)** - Step icons, error boxes, theme comparison
+- **[Releasing](docs/releasing.md)** - Automated releases, conventional commits, and Homebrew tap setup
+- **[Visual Components](docs/components.md)** - Step icons, error boxes, theme comparison
+
+## Contributing
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/). Please format your commit messages as:
+
+```
+feat: add new feature
+fix: resolve bug
+docs: update documentation
+```
+
+See [docs/releasing.md](docs/releasing.md) for the full commit type reference.
 
 ## Features
 
