@@ -3,6 +3,8 @@
 publish = false
 # Update changelog on release
 changelog_update = true
+# Single changelog at repo root (not per-crate)
+changelog_path = "./CHANGELOG.md"
 # Create GitHub releases (cargo-dist will add artifacts to these)
 git_release_enable = true
 # Release commits don't need to be signed
