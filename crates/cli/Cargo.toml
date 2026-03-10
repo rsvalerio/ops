@@ -2,6 +2,10 @@
 name = "cargo-ops"
 version.workspace = true
 edition.workspace = true
+description = "Batteries-included task runner for any stack"
+repository = "https://github.com/rsvalerio/cargo-ops"
+homepage = "https://github.com/rsvalerio/cargo-ops"
+license = "Apache-2.0"
 
 [features]
 default = []

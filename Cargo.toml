@@ -31,3 +31,8 @@ tokio = { version = "1", features = ["process", "macros", "rt-multi-thread", "sy
 [profile.release]
 strip = true
 lto = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
