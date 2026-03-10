@@ -1,0 +1,385 @@
+//! Tests for the cargo_update extension.
+
+use super::*;
+
+// -- Extension trait tests --
+
+mod extension_tests {
+    use super::*;
+
+    cargo_ops_extension::test_datasource_extension!(
+        CargoUpdateExtension,
+        name: "cargo-update",
+        data_provider: "cargo_update"
+    );
+}
+
+// -- Parser tests --
+
+#[test]
+fn parse_single_update() {
+    let stderr = b"    Updating serde v1.0.0 -> v1.0.1\n";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 1);
+    assert_eq!(result.update_count, 1);
+    assert_eq!(result.add_count, 0);
+    assert_eq!(result.remove_count, 0);
+
+    let entry = &result.entries[0];
+    assert_eq!(entry.action, UpdateAction::Update);
+    assert_eq!(entry.name, "serde");
+    assert_eq!(entry.from, Some("1.0.0".to_string()));
+    assert_eq!(entry.to, Some("1.0.1".to_string()));
+}
+
+#[test]
+fn parse_single_add() {
+    let stderr = b"      Adding new-crate v0.1.0\n";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 1);
+    assert_eq!(result.add_count, 1);
+
+    let entry = &result.entries[0];
+    assert_eq!(entry.action, UpdateAction::Add);
+    assert_eq!(entry.name, "new-crate");
+    assert_eq!(entry.from, None);
+    assert_eq!(entry.to, Some("0.1.0".to_string()));
+}
+
+#[test]
+fn parse_single_remove() {
+    let stderr = b"    Removing old-crate v0.2.0\n";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 1);
+    assert_eq!(result.remove_count, 1);
+
+    let entry = &result.entries[0];
+    assert_eq!(entry.action, UpdateAction::Remove);
+    assert_eq!(entry.name, "old-crate");
+    assert_eq!(entry.from, Some("0.2.0".to_string()));
+    assert_eq!(entry.to, None);
+}
+
+#[test]
+fn parse_mixed_output() {
+    let stderr = b"\
+    Updating crates.io index
+    Locking 3 packages to latest compatible versions
+    Updating serde v1.0.0 -> v1.0.1
+      Adding new-dep v0.5.0
+    Removing old-dep v0.3.0
+    Updating tokio v1.28.0 -> v1.29.0
+";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 4);
+    assert_eq!(result.update_count, 2);
+    assert_eq!(result.add_count, 1);
+    assert_eq!(result.remove_count, 1);
+
+    assert_eq!(result.entries[0].name, "serde");
+    assert_eq!(result.entries[1].name, "new-dep");
+    assert_eq!(result.entries[2].name, "old-dep");
+    assert_eq!(result.entries[3].name, "tokio");
+}
+
+#[test]
+fn parse_empty_output() {
+    let stderr = b"";
+    let result = parse_update_output(stderr);
+    assert!(result.entries.is_empty());
+    assert_eq!(result.update_count, 0);
+    assert_eq!(result.add_count, 0);
+    assert_eq!(result.remove_count, 0);
+}
+
+#[test]
+fn parse_no_updates_available() {
+    let stderr = b"\
+    Updating crates.io index
+    Locking 0 packages to latest compatible versions
+";
+    let result = parse_update_output(stderr);
+    assert!(result.entries.is_empty());
+}
+
+#[test]
+fn parse_strips_v_prefix() {
+    let stderr = b"    Updating serde v1.0.0 -> v1.0.1\n";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries[0].from, Some("1.0.0".to_string()));
+    assert_eq!(result.entries[0].to, Some("1.0.1".to_string()));
+}
+
+#[test]
+fn parse_no_v_prefix_passthrough() {
+    let stderr = b"    Updating serde 1.0.0 -> 1.0.1\n";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries[0].from, Some("1.0.0".to_string()));
+    assert_eq!(result.entries[0].to, Some("1.0.1".to_string()));
+}
+
+#[test]
+fn parse_skips_warning_lines() {
+    let stderr = b"\
+warning: some warning message
+    Updating serde v1.0.0 -> v1.0.1
+note: some note
+";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 1);
+    assert_eq!(result.entries[0].name, "serde");
+}
+
+#[test]
+fn parse_skips_index_update_line() {
+    let stderr = b"    Updating crates.io index\n";
+    let result = parse_update_output(stderr);
+    assert!(result.entries.is_empty());
+}
+
+#[test]
+fn parse_skips_locking_line() {
+    let stderr = b"      Locking 5 packages to latest compatible versions\n";
+    let result = parse_update_output(stderr);
+    assert!(result.entries.is_empty());
+}
+
+#[test]
+fn serialization_round_trip() {
+    let result = CargoUpdateResult {
+        entries: vec![
+            UpdateEntry {
+                action: UpdateAction::Update,
+                name: "serde".to_string(),
+                from: Some("1.0.0".to_string()),
+                to: Some("1.0.1".to_string()),
+            },
+            UpdateEntry {
+                action: UpdateAction::Add,
+                name: "new-crate".to_string(),
+                from: None,
+                to: Some("0.1.0".to_string()),
+            },
+        ],
+        update_count: 1,
+        add_count: 1,
+        remove_count: 0,
+    };
+
+    let json = serde_json::to_value(&result).expect("serialize");
+    assert_eq!(json["update_count"], 1);
+    assert_eq!(json["add_count"], 1);
+    assert_eq!(json["remove_count"], 0);
+    assert_eq!(json["entries"].as_array().unwrap().len(), 2);
+    assert_eq!(json["entries"][0]["action"], "update");
+    assert_eq!(json["entries"][1]["action"], "add");
+}
+
+#[test]
+fn strip_v_prefix_with_v() {
+    assert_eq!(strip_v_prefix("v1.0.0"), "1.0.0");
+}
+
+#[test]
+fn strip_v_prefix_without_v() {
+    assert_eq!(strip_v_prefix("1.0.0"), "1.0.0");
+}
+
+#[test]
+fn strip_ansi_removes_escape_codes() {
+    let input = "\x1b[1m\x1b[32mUpdating\x1b[0m serde v1.0.0 -> v1.0.1";
+    let clean = strip_ansi(input);
+    assert_eq!(clean, "Updating serde v1.0.0 -> v1.0.1");
+}
+
+#[test]
+fn parse_output_with_ansi_codes() {
+    let stderr = b"\x1b[1m\x1b[32m    Updating\x1b[0m serde v1.0.0 -> v1.0.1\n";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 1);
+    assert_eq!(result.entries[0].name, "serde");
+}
+
+#[test]
+fn parse_malformed_updating_line_missing_arrow() {
+    let stderr = b"    Updating serde v1.0.0\n";
+    let result = parse_update_output(stderr);
+    assert!(
+        result.entries.is_empty(),
+        "incomplete update line should be skipped"
+    );
+}
+
+#[test]
+fn parse_malformed_adding_line_missing_version() {
+    let stderr = b"      Adding new-crate\n";
+    let result = parse_update_output(stderr);
+    assert!(
+        result.entries.is_empty(),
+        "adding line without version should be skipped"
+    );
+}
+
+#[test]
+fn parse_malformed_removing_line_missing_version() {
+    let stderr = b"    Removing old-crate\n";
+    let result = parse_update_output(stderr);
+    assert!(
+        result.entries.is_empty(),
+        "removing line without version should be skipped"
+    );
+}
+
+#[test]
+fn parse_multiple_updates_same_crate() {
+    let stderr = b"\
+    Updating serde v1.0.0 -> v1.0.1
+    Updating serde_derive v1.0.0 -> v1.0.1
+    Updating serde_json v1.0.0 -> v1.0.1
+";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 3);
+    assert_eq!(result.update_count, 3);
+    assert_eq!(result.add_count, 0);
+    assert_eq!(result.remove_count, 0);
+}
+
+#[test]
+fn parse_skips_note_lines() {
+    let stderr = b"\
+note: pass `--verbose` to see more
+    Updating serde v1.0.0 -> v1.0.1
+";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 1);
+}
+
+#[test]
+fn parse_skips_blank_lines() {
+    let stderr = b"\n\n    Updating serde v1.0.0 -> v1.0.1\n\n";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 1);
+}
+
+#[test]
+fn strip_ansi_no_escape_codes() {
+    let input = "plain text";
+    assert_eq!(strip_ansi(input), "plain text");
+}
+
+#[test]
+fn strip_ansi_multiple_consecutive_codes() {
+    let input = "\x1b[1m\x1b[32m\x1b[4mtext\x1b[0m";
+    assert_eq!(strip_ansi(input), "text");
+}
+
+#[test]
+fn strip_ansi_at_boundaries() {
+    let input = "\x1b[31mhello\x1b[0m";
+    assert_eq!(strip_ansi(input), "hello");
+}
+
+#[test]
+fn strip_v_prefix_empty_string() {
+    assert_eq!(strip_v_prefix(""), "");
+}
+
+#[test]
+fn strip_v_prefix_just_v() {
+    assert_eq!(strip_v_prefix("v"), "");
+}
+
+#[test]
+fn parse_updating_line_with_various_index_names() {
+    // "Updating github.com index" should also be skipped
+    let stderr = b"    Updating github.com index\n";
+    let result = parse_update_output(stderr);
+    assert!(result.entries.is_empty());
+}
+
+#[test]
+fn update_action_serialization() {
+    let update = serde_json::to_value(UpdateAction::Update).unwrap();
+    assert_eq!(update, "update");
+    let add = serde_json::to_value(UpdateAction::Add).unwrap();
+    assert_eq!(add, "add");
+    let remove = serde_json::to_value(UpdateAction::Remove).unwrap();
+    assert_eq!(remove, "remove");
+}
+
+#[test]
+fn update_action_deserialization() {
+    let update: UpdateAction = serde_json::from_str("\"update\"").unwrap();
+    assert_eq!(update, UpdateAction::Update);
+    let add: UpdateAction = serde_json::from_str("\"add\"").unwrap();
+    assert_eq!(add, UpdateAction::Add);
+    let remove: UpdateAction = serde_json::from_str("\"remove\"").unwrap();
+    assert_eq!(remove, UpdateAction::Remove);
+}
+
+#[test]
+fn cargo_update_result_deserialization() {
+    let json = serde_json::json!({
+        "entries": [
+            {"action": "update", "name": "serde", "from": "1.0.0", "to": "1.0.1"}
+        ],
+        "update_count": 1,
+        "add_count": 0,
+        "remove_count": 0
+    });
+    let result: CargoUpdateResult = serde_json::from_value(json).unwrap();
+    assert_eq!(result.entries.len(), 1);
+    assert_eq!(result.entries[0].action, UpdateAction::Update);
+    assert_eq!(result.update_count, 1);
+}
+
+#[test]
+fn schema_has_expected_fields() {
+    use cargo_ops_extension::DataProvider;
+    let schema = CargoUpdateProvider.schema();
+    assert_eq!(schema.fields.len(), 4);
+    let field_names: Vec<&str> = schema.fields.iter().map(|f| f.name).collect();
+    assert!(field_names.contains(&"entries"));
+    assert!(field_names.contains(&"update_count"));
+    assert!(field_names.contains(&"add_count"));
+    assert!(field_names.contains(&"remove_count"));
+}
+
+#[test]
+fn parse_only_adds() {
+    let stderr = b"\
+      Adding dep-a v0.1.0
+      Adding dep-b v0.2.0
+      Adding dep-c v0.3.0
+";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 3);
+    assert_eq!(result.add_count, 3);
+    assert_eq!(result.update_count, 0);
+    assert_eq!(result.remove_count, 0);
+}
+
+#[test]
+fn parse_only_removes() {
+    let stderr = b"\
+    Removing dep-a v0.1.0
+    Removing dep-b v0.2.0
+";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 2);
+    assert_eq!(result.remove_count, 2);
+    assert_eq!(result.update_count, 0);
+    assert_eq!(result.add_count, 0);
+}
+
+#[test]
+fn parse_ignores_unknown_lines() {
+    let stderr = b"\
+    Compiling something
+    Finished something
+    Updating serde v1.0.0 -> v1.0.1
+";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 1);
+    assert_eq!(result.entries[0].name, "serde");
+}

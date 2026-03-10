@@ -1,7 +1,11 @@
 //! Tests for the metadata extension.
 
 use super::*;
-use crate::extension::{CommandRegistry, DataRegistry, Extension};
+cargo_ops_extension::test_datasource_extension!(
+    MetadataExtension,
+    name: "metadata",
+    data_provider: "metadata"
+);
 
 fn sample_metadata() -> serde_json::Value {
     serde_json::json!({
@@ -82,25 +86,6 @@ fn test_pkg_serde(metadata: &Metadata) -> Package<'_> {
 }
 
 #[test]
-fn metadata_extension_name() {
-    assert_eq!(MetadataExtension.name(), "metadata");
-}
-
-#[test]
-fn metadata_extension_registers_no_commands() {
-    let mut registry = CommandRegistry::new();
-    MetadataExtension.register_commands(&mut registry);
-    assert!(registry.is_empty());
-}
-
-#[test]
-fn metadata_extension_registers_data_provider() {
-    let mut registry = DataRegistry::new();
-    MetadataExtension.register_data_providers(&mut registry);
-    assert!(registry.get("metadata").is_some());
-}
-
-#[test]
 fn metadata_provider_name() {
     assert_eq!(MetadataProvider.name(), "metadata");
 }
@@ -118,13 +103,9 @@ fn metadata_provider_name() {
 /// **Tracking:** This test validates real-world behavior and should be run
 /// periodically in CI environments with cargo available.
 #[test]
-#[ignore = "TQ-003: requires external cargo binary; run with --ignored. Re-enable: when CI has cargo or refactor to mock"]
 fn metadata_provider_returns_valid_json() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mut ctx = Context::new(
-        std::sync::Arc::new(crate::config::Config::default()),
-        manifest_dir,
-    );
+    let mut ctx = Context::test_context(manifest_dir);
     let value = MetadataProvider
         .provide(&mut ctx)
         .expect("cargo metadata should succeed");
@@ -136,10 +117,7 @@ fn metadata_provider_returns_valid_json() {
 #[test]
 fn metadata_provider_fails_in_non_cargo_dir() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let mut ctx = Context::new(
-        std::sync::Arc::new(crate::config::Config::default()),
-        dir.path().to_path_buf(),
-    );
+    let mut ctx = Context::test_context(dir.path().to_path_buf());
     let result = MetadataProvider.provide(&mut ctx);
     assert!(result.is_err());
 }
@@ -580,5 +558,270 @@ mod metadata_edge_case_tests {
         assert!(dep.rename().is_none());
         assert!(dep.target().is_none());
         assert!(dep.source().is_none());
+    }
+
+    #[test]
+    fn package_id_accessor() {
+        let m = Metadata::from_value(sample_metadata());
+        let p = test_pkg_a(&m);
+        assert_eq!(p.id(), "pkg-a 0.1.0 (path+file:///workspace/pkg-a)");
+    }
+
+    #[test]
+    fn target_edition_present() {
+        let m = Metadata::from_value(serde_json::json!({
+            "workspace_root": "/workspace",
+            "target_directory": "/workspace/target",
+            "workspace_members": ["pkg 0.1.0 (path+file:///workspace/pkg)"],
+            "packages": [{
+                "name": "pkg",
+                "version": "0.1.0",
+                "id": "pkg 0.1.0 (path+file:///workspace/pkg)",
+                "manifest_path": "/workspace/pkg/Cargo.toml",
+                "dependencies": [],
+                "targets": [{
+                    "name": "pkg",
+                    "kind": ["lib"],
+                    "src_path": "/workspace/pkg/src/lib.rs",
+                    "edition": "2021"
+                }]
+            }]
+        }));
+        let pkg = m.package_by_name("pkg").unwrap();
+        let lib = pkg.lib_target().unwrap();
+        assert_eq!(lib.edition(), Some("2021"));
+    }
+
+    #[test]
+    fn target_edition_absent() {
+        let m = Metadata::from_value(sample_metadata());
+        let p = test_pkg_a(&m);
+        let lib = p.lib_target().unwrap();
+        assert!(lib.edition().is_none());
+    }
+
+    #[test]
+    fn target_doc_path_present() {
+        let m = Metadata::from_value(serde_json::json!({
+            "workspace_root": "/workspace",
+            "target_directory": "/workspace/target",
+            "workspace_members": ["pkg 0.1.0 (path+file:///workspace/pkg)"],
+            "packages": [{
+                "name": "pkg",
+                "version": "0.1.0",
+                "id": "pkg 0.1.0 (path+file:///workspace/pkg)",
+                "manifest_path": "/workspace/pkg/Cargo.toml",
+                "dependencies": [],
+                "targets": [{
+                    "name": "pkg",
+                    "kind": ["lib"],
+                    "src_path": "/workspace/pkg/src/lib.rs",
+                    "doc_path": "/workspace/pkg/src/lib.rs"
+                }]
+            }]
+        }));
+        let pkg = m.package_by_name("pkg").unwrap();
+        let lib = pkg.lib_target().unwrap();
+        assert_eq!(lib.doc_path(), Some("/workspace/pkg/src/lib.rs"));
+    }
+
+    #[test]
+    fn target_doc_path_absent() {
+        let m = Metadata::from_value(sample_metadata());
+        let p = test_pkg_a(&m);
+        let lib = p.lib_target().unwrap();
+        assert!(lib.doc_path().is_none());
+    }
+
+    #[test]
+    fn dependency_with_rename() {
+        let m = Metadata::from_value(serde_json::json!({
+            "workspace_root": "/workspace",
+            "target_directory": "/workspace/target",
+            "workspace_members": ["pkg 0.1.0 (path+file:///workspace/pkg)"],
+            "packages": [{
+                "name": "pkg",
+                "version": "0.1.0",
+                "id": "pkg 0.1.0 (path+file:///workspace/pkg)",
+                "manifest_path": "/workspace/pkg/Cargo.toml",
+                "dependencies": [{
+                    "name": "serde",
+                    "req": "^1.0",
+                    "rename": "my_serde",
+                    "source": "registry+https://github.com/rust-lang/crates.io-index"
+                }],
+                "targets": []
+            }]
+        }));
+        let pkg = m.package_by_name("pkg").unwrap();
+        let dep = pkg.all_dependencies().next().unwrap();
+        assert_eq!(dep.rename(), Some("my_serde"));
+        assert!(dep.source().is_some());
+    }
+
+    #[test]
+    fn dependency_with_target_platform() {
+        let m = Metadata::from_value(serde_json::json!({
+            "workspace_root": "/workspace",
+            "target_directory": "/workspace/target",
+            "workspace_members": ["pkg 0.1.0 (path+file:///workspace/pkg)"],
+            "packages": [{
+                "name": "pkg",
+                "version": "0.1.0",
+                "id": "pkg 0.1.0 (path+file:///workspace/pkg)",
+                "manifest_path": "/workspace/pkg/Cargo.toml",
+                "dependencies": [{
+                    "name": "winapi",
+                    "req": "^0.3",
+                    "target": "cfg(windows)"
+                }],
+                "targets": []
+            }]
+        }));
+        let pkg = m.package_by_name("pkg").unwrap();
+        let dep = pkg.all_dependencies().next().unwrap();
+        assert_eq!(dep.target(), Some("cfg(windows)"));
+    }
+
+    #[test]
+    fn metadata_multiple_workspace_members() {
+        let m = Metadata::from_value(serde_json::json!({
+            "workspace_root": "/workspace",
+            "target_directory": "/workspace/target",
+            "workspace_members": [
+                "pkg-a 0.1.0 (path+file:///workspace/pkg-a)",
+                "pkg-b 0.2.0 (path+file:///workspace/pkg-b)"
+            ],
+            "workspace_default_members": [
+                "pkg-a 0.1.0 (path+file:///workspace/pkg-a)"
+            ],
+            "packages": [
+                {
+                    "name": "pkg-a",
+                    "version": "0.1.0",
+                    "id": "pkg-a 0.1.0 (path+file:///workspace/pkg-a)",
+                    "edition": "2021",
+                    "manifest_path": "/workspace/pkg-a/Cargo.toml",
+                    "dependencies": [],
+                    "targets": []
+                },
+                {
+                    "name": "pkg-b",
+                    "version": "0.2.0",
+                    "id": "pkg-b 0.2.0 (path+file:///workspace/pkg-b)",
+                    "edition": "2021",
+                    "manifest_path": "/workspace/pkg-b/Cargo.toml",
+                    "dependencies": [],
+                    "targets": []
+                },
+                {
+                    "name": "external",
+                    "version": "1.0.0",
+                    "id": "external 1.0.0 (registry+https://crates.io)",
+                    "edition": "2018",
+                    "manifest_path": "/cargo/registry/external-1.0.0/Cargo.toml",
+                    "dependencies": [],
+                    "targets": []
+                }
+            ]
+        }));
+        let members: Vec<&str> = m.members().map(|p| p.name()).collect();
+        assert_eq!(members, vec!["pkg-a", "pkg-b"]);
+
+        let defaults: Vec<&str> = m.default_members().map(|p| p.name()).collect();
+        assert_eq!(defaults, vec!["pkg-a"]);
+
+        assert!(m.package_by_name("pkg-b").unwrap().is_member());
+        assert!(!m.package_by_name("pkg-b").unwrap().is_default_member());
+        assert!(!m.package_by_name("external").unwrap().is_member());
+    }
+
+    #[test]
+    fn metadata_package_with_all_target_types() {
+        let m = Metadata::from_value(serde_json::json!({
+            "workspace_root": "/workspace",
+            "target_directory": "/workspace/target",
+            "workspace_members": ["pkg 0.1.0 (path+file:///workspace/pkg)"],
+            "packages": [{
+                "name": "pkg",
+                "version": "0.1.0",
+                "id": "pkg 0.1.0 (path+file:///workspace/pkg)",
+                "manifest_path": "/workspace/pkg/Cargo.toml",
+                "dependencies": [],
+                "targets": [
+                    {"name": "pkg", "kind": ["lib"], "src_path": "/workspace/pkg/src/lib.rs"},
+                    {"name": "cli", "kind": ["bin"], "src_path": "/workspace/pkg/src/main.rs"},
+                    {"name": "integration", "kind": ["test"], "src_path": "/workspace/pkg/tests/integration.rs"},
+                    {"name": "demo", "kind": ["example"], "src_path": "/workspace/pkg/examples/demo.rs"},
+                    {"name": "perf", "kind": ["bench"], "src_path": "/workspace/pkg/benches/perf.rs"}
+                ]
+            }]
+        }));
+        let pkg = m.package_by_name("pkg").unwrap();
+        assert!(pkg.lib_target().is_some());
+        assert_eq!(pkg.bin_targets().count(), 1);
+        assert_eq!(pkg.test_targets().count(), 1);
+        assert_eq!(pkg.example_targets().count(), 1);
+        assert_eq!(pkg.bench_targets().count(), 1);
+
+        let test = pkg.test_targets().next().unwrap();
+        assert!(test.is_test());
+        assert!(!test.is_lib());
+
+        let example = pkg.example_targets().next().unwrap();
+        assert!(example.is_example());
+
+        let bench = pkg.bench_targets().next().unwrap();
+        assert!(bench.is_bench());
+    }
+
+    #[test]
+    fn metadata_schema_has_expected_fields() {
+        use cargo_ops_extension::DataProvider;
+        let schema = MetadataProvider.schema();
+        assert!(!schema.fields.is_empty());
+        let field_names: Vec<&str> = schema.fields.iter().map(|f| f.name).collect();
+        assert!(field_names.contains(&"workspace_root"));
+        assert!(field_names.contains(&"packages"));
+        assert!(field_names.contains(&"members"));
+    }
+
+    #[test]
+    fn check_metadata_output_success() {
+        use std::process::Output;
+        let output = Output {
+            status: std::process::ExitStatus::default(),
+            stdout: vec![],
+            stderr: vec![],
+        };
+        // ExitStatus::default() is success (code 0) on unix
+        #[cfg(unix)]
+        assert!(check_metadata_output(&output).is_ok());
+    }
+
+    #[test]
+    fn metadata_package_by_id_returns_none_for_missing() {
+        let m = Metadata::from_value(sample_metadata());
+        assert!(m
+            .package_by_id("nonexistent 0.0.0 (path+file:///nowhere)")
+            .is_none());
+    }
+
+    #[test]
+    fn metadata_missing_packages_key() {
+        let m = Metadata::from_value(serde_json::json!({
+            "workspace_root": "/workspace",
+            "target_directory": "/workspace/target"
+        }));
+        assert_eq!(m.packages().count(), 0);
+        assert_eq!(m.members().count(), 0);
+    }
+
+    #[test]
+    fn target_required_features_empty() {
+        let m = Metadata::from_value(sample_metadata());
+        let p = test_pkg_a(&m);
+        let lib = p.lib_target().unwrap();
+        assert_eq!(lib.required_features().count(), 0);
     }
 }
