@@ -1,148 +1,34 @@
 //! Theme types and step-line rendering.
 //!
-//! [`ThemeConfig`] is the serializable theme definition (TOML-compatible).
+//! [`ThemeConfig`] is the serializable theme definition (TOML-compatible),
+//! defined in `cargo-ops-core` and re-exported here for convenience.
 //! [`ConfigurableTheme`] wraps a `ThemeConfig` and implements [`StepLineTheme`]
 //! for rendering step lines and error details.
 
-use crate::output::{display_width, ErrorDetail, StepLine, StepStatus, ALL_STATUSES};
+pub use cargo_ops_core::config::theme_types;
+pub use cargo_ops_core::config::theme_types::{ErrorBlockChars, PlanHeaderStyle, ThemeConfig};
+
+use cargo_ops_core::output::{display_width, ErrorDetail, StepLine, StepStatus, ALL_STATUSES};
 use indexmap::IndexMap;
-use serde::Deserialize;
 
-/// Style for rendering the plan header.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PlanHeaderStyle {
-    /// Plain header: "Running: cmd1, cmd2"
-    #[default]
-    Plain,
-    /// Tree-style header with box-drawing chars: "┌ Running: cmd1, cmd2" + "│"
-    Tree,
-}
-
-/// Box-drawing characters for error detail blocks.
-#[derive(Debug, Clone, Deserialize)]
-pub struct ErrorBlockChars {
-    /// Top-left corner (e.g., "┌─" or "╭─")
-    pub top: String,
-    /// Vertical line for middle rows (e.g., "│")
-    pub mid: String,
-    /// Bottom-left corner (e.g., "└─" or "╰─")
-    pub bottom: String,
-    /// Rail character prepended to gutter (e.g., "│" for tree style, "" for plain)
-    pub rail: String,
-}
-
-impl Default for ErrorBlockChars {
-    fn default() -> Self {
-        Self {
-            top: "╭─".into(),
-            mid: "│".into(),
-            bottom: "╰─".into(),
-            rail: String::new(),
-        }
-    }
-}
-
-/// Serializable theme configuration for TOML.
+/// Format a duration in seconds into a human-friendly string.
 ///
-/// All properties are customizable. Built-in themes (`classic`, `compact`)
-/// are provided as constructors.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ThemeConfig {
-    /// Icon for pending steps.
-    pub icon_pending: String,
-    /// Icon for running steps (often empty, spinner handled by indicatif).
-    pub icon_running: String,
-    /// Icon for succeeded steps.
-    pub icon_succeeded: String,
-    /// Icon for failed steps.
-    pub icon_failed: String,
-    /// Icon for skipped steps.
-    pub icon_skipped: String,
-    /// Character used for the separator between label and elapsed time.
-    pub separator_char: char,
-    /// Indent string before the icon on non-running step lines.
-    pub step_indent: String,
-    /// Indicatif template for running steps.
-    pub running_template: String,
-    /// Tick characters for the indicatif spinner (last char is steady state).
-    pub tick_chars: String,
-    /// Columns consumed by the running template outside of `{msg}`.
-    pub running_template_overhead: usize,
-    /// Style for rendering the plan header.
-    #[serde(default)]
-    pub plan_header_style: PlanHeaderStyle,
-    /// Prefix for the summary line (e.g., "└── " or "→ ").
-    pub summary_prefix: String,
-    /// Separator string before the summary (e.g., "│" or "").
-    pub summary_separator: String,
-    /// Box-drawing characters for error detail blocks.
-    #[serde(default)]
-    pub error_block: ErrorBlockChars,
-    /// Optional description for `theme list` output.
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub description: Option<String>,
-}
-
-impl ThemeConfig {
-    #[cfg(test)]
-    pub fn classic() -> Self {
-        Self {
-            icon_pending: "◇".into(),
-            icon_running: String::new(),
-            icon_succeeded: "◆".into(),
-            icon_failed: "✖".into(),
-            icon_skipped: "⊘".into(),
-            separator_char: '─',
-            step_indent: "├── ".into(),
-            running_template: "├── {spinner:.cyan}{msg} {elapsed:.dim}".into(),
-            tick_chars: "|/-\\ ".into(),
-            running_template_overhead: 9,
-            plan_header_style: PlanHeaderStyle::Tree,
-            summary_prefix: "└── ".into(),
-            summary_separator: "│".into(),
-            error_block: ErrorBlockChars {
-                top: "┌─".into(),
-                mid: "│".into(),
-                bottom: "└─".into(),
-                rail: "│".into(),
-            },
-            description: Some("Bold tree-style with box-drawing chars".into()),
-        }
-    }
-
-    #[cfg(test)]
-    pub fn compact() -> Self {
-        Self {
-            icon_pending: "○".into(),
-            icon_running: String::new(),
-            icon_succeeded: "✓".into(),
-            icon_failed: "✗".into(),
-            icon_skipped: "—".into(),
-            separator_char: '.',
-            step_indent: "  ".into(),
-            running_template: "  {spinner:.cyan}{msg} {elapsed:.dim}".into(),
-            tick_chars: "⠁⠂⠄⡀⢀⠠⠐⠈ ".into(),
-            running_template_overhead: 7,
-            plan_header_style: PlanHeaderStyle::Plain,
-            summary_prefix: String::new(),
-            summary_separator: String::new(),
-            error_block: ErrorBlockChars::default(),
-            description: Some("Minimal with dot separators".into()),
-        }
-    }
-
-    /// Get the icon for a given step status.
-    pub fn status_icon(&self, status: StepStatus) -> &str {
-        match status {
-            StepStatus::Pending => &self.icon_pending,
-            StepStatus::Running => &self.icon_running,
-            StepStatus::Succeeded => &self.icon_succeeded,
-            StepStatus::Failed => &self.icon_failed,
-            StepStatus::Skipped => &self.icon_skipped,
-        }
+/// - `< 60s` → `"0.74s"`, `"5.37s"` (two decimal places)
+/// - `≥ 60s` → `"2m14s"`, `"4m38s"` (minutes + whole seconds)
+/// - `≥ 3600s` → `"1h2m3s"` (hours + minutes + seconds)
+pub fn format_duration(secs: f64) -> String {
+    if secs < 60.0 {
+        format!("{:.2}s", secs)
+    } else if secs < 3600.0 {
+        let mins = (secs / 60.0) as u64;
+        let remaining = secs as u64 % 60;
+        format!("{}m{}s", mins, remaining)
+    } else {
+        let hours = (secs / 3600.0) as u64;
+        let remaining = secs as u64 % 3600;
+        let mins = remaining / 60;
+        let secs_part = remaining % 60;
+        format!("{}h{}m{}s", hours, mins, secs_part)
     }
 }
 
@@ -192,7 +78,12 @@ impl StepLineTheme for ConfigurableTheme {
 
     fn render_summary(&self, success: bool, elapsed_secs: f64) -> String {
         let label = if success { "Done" } else { "Failed" };
-        format!("{}{} in {:.2}s", self.0.summary_prefix, label, elapsed_secs)
+        format!(
+            "{}{} in {}",
+            self.0.summary_prefix,
+            label,
+            format_duration(elapsed_secs)
+        )
     }
 
     fn render_summary_separator(&self, _columns: u16) -> String {
@@ -270,9 +161,9 @@ pub trait StepLineTheme: Send + Sync {
         '.'
     }
 
-    /// Format elapsed seconds for display. Default: "{:.2}s".
+    /// Format elapsed seconds for display using human-friendly notation.
     fn format_elapsed(&self, secs: f64) -> String {
-        format!("{:.2}s", secs)
+        format_duration(secs)
     }
 
     /// Maximum display width across all status icons, used to pad narrower icons
@@ -318,7 +209,7 @@ pub trait StepLineTheme: Send + Sync {
     /// Render the final summary line.
     fn render_summary(&self, success: bool, elapsed_secs: f64) -> String {
         let label = if success { "Done" } else { "Failed" };
-        format!("{} in {:.2}s", label, elapsed_secs)
+        format!("{} in {}", label, format_duration(elapsed_secs))
     }
 
     /// Render error details as lines displayed below a failed step.
@@ -392,7 +283,7 @@ pub trait StepLineTheme: Send + Sync {
 }
 
 /// Shared helper for rendering error detail blocks with configurable box-drawing characters.
-fn render_error_block(
+pub fn render_error_block(
     detail: &ErrorDetail,
     icon_column_width: usize,
     chars: &ErrorBlockChars,
@@ -447,7 +338,6 @@ pub fn resolve_theme(
 
 /// List all available theme names.
 /// Note: Used by tests and available for programmatic access.
-#[allow(dead_code)]
 pub fn list_theme_names(themes: &IndexMap<String, ThemeConfig>) -> Vec<String> {
     themes.keys().cloned().collect()
 }
