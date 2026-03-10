@@ -1,0 +1,26 @@
+# Default commands for Rust stack (Cargo).
+
+[commands.fmt]
+program = "cargo"
+args = ["fmt", "--all"]
+
+[commands.check]
+program = "cargo"
+args = ["check", "--all"]
+
+[commands.clippy]
+program = "cargo"
+args = ["clippy", "--all", "--", "-D", "warnings"]
+
+[commands.build]
+program = "cargo"
+args = ["build", "--all"]
+
+[commands.test]
+program = "cargo"
+args = ["test", "--all"]
+
+[commands.verify]
+commands = ["fmt", "check", "clippy", "build", "test"]
+parallel = false
+fail_fast = true

@@ -1,0 +1,22 @@
+# Default commands for Go stack.
+
+[commands.fmt]
+program = "go"
+args = ["fmt", "./..."]
+
+[commands.vet]
+program = "go"
+args = ["vet", "./..."]
+
+[commands.build]
+program = "go"
+args = ["build", "./..."]
+
+[commands.test]
+program = "go"
+args = ["test", "./..."]
+
+[commands.verify]
+commands = ["fmt", "vet", "build", "test"]
+parallel = false
+fail_fast = true
