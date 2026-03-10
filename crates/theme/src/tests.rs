@@ -1,8 +1,25 @@
 //! Tests for theme types and rendering.
 
 use super::*;
-use crate::output::{StepLine, StepStatus};
+use cargo_ops_core::output::{ErrorDetail, StepLine, StepStatus};
 use indexmap::IndexMap;
+
+/// Minimal valid ThemeConfig TOML with all required fields.
+/// Tests that need to tweak one field can append/override after this base.
+const MINIMAL_THEME_TOML: &str = r#"
+icon_pending = "○"
+icon_running = ""
+icon_succeeded = "●"
+icon_failed = "✗"
+icon_skipped = "—"
+separator_char = '.'
+step_indent = "  "
+running_template = "  {spinner:.cyan}{msg}"
+tick_chars = "⠁⠂⠄ "
+running_template_overhead = 7
+summary_prefix = "→ "
+summary_separator = ""
+"#;
 
 fn render_line(
     theme: &dyn StepLineTheme,
@@ -295,21 +312,11 @@ icon_running = ""
 
 #[test]
 fn theme_config_deserialize_invalid_field_type() {
-    let toml = r#"
-icon_pending = "○"
-icon_running = ""
-icon_succeeded = "●"
-icon_failed = "✗"
-icon_skipped = "—"
-separator_char = "should_be_char_not_string"
-step_indent = "  "
-running_template = "  {spinner:.cyan}{msg}"
-tick_chars = "⠁⠂⠄ "
-running_template_overhead = 7
-summary_prefix = "→ "
-summary_separator = ""
-"#;
-    let result: Result<ThemeConfig, _> = toml::from_str(toml);
+    let toml = MINIMAL_THEME_TOML.replace(
+        "separator_char = '.'",
+        "separator_char = \"should_be_char_not_string\"",
+    );
+    let result: Result<ThemeConfig, _> = toml::from_str(&toml);
     assert!(
         result.is_err(),
         "should fail with invalid separator_char type"
@@ -318,43 +325,21 @@ summary_separator = ""
 
 #[test]
 fn theme_config_deserialize_unknown_field() {
-    let toml = r#"
-icon_pending = "○"
-icon_running = ""
-icon_succeeded = "●"
-icon_failed = "✗"
-icon_skipped = "—"
-separator_char = '.'
-step_indent = "  "
-running_template = "  {spinner:.cyan}{msg}"
-tick_chars = "⠁⠂⠄ "
-running_template_overhead = 7
-summary_prefix = "→ "
-summary_separator = ""
-unknown_field = "this should fail"
-"#;
-    let result: Result<ThemeConfig, _> = toml::from_str(toml);
+    let toml = format!(
+        "{}\nunknown_field = \"this should fail\"\n",
+        MINIMAL_THEME_TOML
+    );
+    let result: Result<ThemeConfig, _> = toml::from_str(&toml);
     assert!(result.is_err(), "should fail with unknown field");
 }
 
 #[test]
 fn theme_config_deserialize_invalid_plan_header_style() {
-    let toml = r#"
-icon_pending = "○"
-icon_running = ""
-icon_succeeded = "●"
-icon_failed = "✗"
-icon_skipped = "—"
-separator_char = '.'
-step_indent = "  "
-running_template = "  {spinner:.cyan}{msg}"
-tick_chars = "⠁⠂⠄ "
-running_template_overhead = 7
-plan_header_style = "invalid_style"
-summary_prefix = "→ "
-summary_separator = ""
-"#;
-    let result: Result<ThemeConfig, _> = toml::from_str(toml);
+    let toml = format!(
+        "{}\nplan_header_style = \"invalid_style\"\n",
+        MINIMAL_THEME_TOML
+    );
+    let result: Result<ThemeConfig, _> = toml::from_str(&toml);
     assert!(
         result.is_err(),
         "should fail with invalid plan_header_style"
@@ -363,21 +348,7 @@ summary_separator = ""
 
 #[test]
 fn theme_config_deserialize_partial_with_defaults() {
-    let toml = r#"
-icon_pending = "○"
-icon_running = ""
-icon_succeeded = "●"
-icon_failed = "✗"
-icon_skipped = "—"
-separator_char = '.'
-step_indent = "  "
-running_template = "  {spinner:.cyan}{msg}"
-tick_chars = "⠁⠂⠄ "
-running_template_overhead = 7
-summary_prefix = "→ "
-summary_separator = ""
-"#;
-    let result: Result<ThemeConfig, _> = toml::from_str(toml);
+    let result: Result<ThemeConfig, _> = toml::from_str(MINIMAL_THEME_TOML);
     assert!(result.is_ok(), "should succeed with required fields only");
     let config = result.unwrap();
     assert_eq!(config.plan_header_style, PlanHeaderStyle::Plain);
@@ -455,6 +426,14 @@ mod render_summary_tests {
     }
 
     #[test]
+    fn classic_render_summary_minutes() {
+        let theme = ConfigurableTheme(ThemeConfig::classic());
+        let summary = theme.render_summary(true, 278.04);
+        assert!(summary.contains("Done"));
+        assert!(summary.contains("4m38s"));
+    }
+
+    #[test]
     fn compact_render_summary_success() {
         let theme = ConfigurableTheme(ThemeConfig::compact());
         let summary = theme.render_summary(true, 2.0);
@@ -485,6 +464,7 @@ mod render_summary_tests {
 /// TQ-010: Edge case tests for extreme column widths.
 mod edge_case_width_tests {
     use super::*;
+    use cargo_ops_core::output::StepLine;
 
     #[test]
     fn render_with_zero_columns_does_not_panic() {
@@ -581,8 +561,8 @@ mod edge_case_width_tests {
         let theme = ConfigurableTheme(ThemeConfig::classic());
         let long_label = "this_label_is_way_too_long_for_the_given_column_width";
         let sep = theme.render_separator(long_label, "1.23s", 10, false);
-        // Should not panic; separator may be empty or minimal
-        let _ = sep;
+        // Should not panic; separator may be empty or truncated
+        assert!(sep.len() <= 200, "separator should not be excessively long");
     }
 
     #[test]
@@ -590,5 +570,55 @@ mod edge_case_width_tests {
         let theme = ConfigurableTheme(ThemeConfig::classic());
         let width = theme.icon_column_width();
         assert!(width > 0, "icon column width should be positive");
+    }
+}
+
+mod format_duration_tests {
+    use super::*;
+
+    #[test]
+    fn zero_seconds() {
+        assert_eq!(format_duration(0.0), "0.00s");
+    }
+
+    #[test]
+    fn sub_second() {
+        assert_eq!(format_duration(0.74), "0.74s");
+    }
+
+    #[test]
+    fn whole_seconds() {
+        assert_eq!(format_duration(5.37), "5.37s");
+    }
+
+    #[test]
+    fn just_under_a_minute() {
+        assert_eq!(format_duration(59.99), "59.99s");
+    }
+
+    #[test]
+    fn exactly_sixty_seconds() {
+        assert_eq!(format_duration(60.0), "1m0s");
+    }
+
+    #[test]
+    fn minutes_and_seconds() {
+        assert_eq!(format_duration(134.0), "2m14s");
+        assert_eq!(format_duration(278.04), "4m38s");
+    }
+
+    #[test]
+    fn exactly_one_hour() {
+        assert_eq!(format_duration(3600.0), "1h0m0s");
+    }
+
+    #[test]
+    fn hours_minutes_seconds() {
+        assert_eq!(format_duration(3723.0), "1h2m3s");
+    }
+
+    #[test]
+    fn large_duration() {
+        assert_eq!(format_duration(7384.0), "2h3m4s");
     }
 }
