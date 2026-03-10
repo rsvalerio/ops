@@ -9,7 +9,7 @@ Instructions for AI coding agents working on this project.
 `cargo-ops` is an opinionated, batteries-included Rust development CLI. Zero config, maximum quality.
 
 **Key concepts:**
-- Commands are defined in `.ops.toml` (or from internal default when no file); run `cargo ops init` to create/overwrite `.ops.toml` with the default template
+- Commands are defined in `.ops.toml` (or from internal default when no file). Run `cargo ops init` to create `.ops.toml`; when a stack is detected (e.g. Rust via `Cargo.toml`), the written file is merged with that stack's default commands (from embedded `.default.<stack>.ops.toml`).
 - Commands can be **exec** (run a program) or **composite** (run multiple commands)
 - Extension trait for registering commands and data providers
 - CLI output: theme-based plain text to stdout/stderr (themed step lines, streaming output, summary); themes: classic (default), compact; configurable columns
@@ -19,7 +19,7 @@ Instructions for AI coding agents working on this project.
 - Build: `cargo build`
 - Run: `cargo run -- <subcommand>` (e.g. `cargo run -- build`, `cargo run -- verify`)
 - Install it locally: `cargo install --path .` then use `cargo ops <command>`
-- Initialize config: `cargo ops init` creates `.ops.toml` in the current directory; `cargo ops init --force` overwrites existing
+- Initialize config: `cargo ops init` creates `.ops.toml` in the current directory, merging in stack default commands when a stack is detected; `cargo ops init --force` overwrites existing
 
 ## Build and test
 
@@ -76,11 +76,13 @@ Then install it locally: `cargo install --path . --force`
 ## Configuration
 
 Configuration is merged (later overrides earlier):
-1. Internal default (same content as `cargo ops init`; used when no local file)
+1. Internal default (base config; when a stack is detected at runtime or at `init` time, stack default commands from embedded `.default.<stack>.ops.toml` are also loaded)
 2. Global config in `~/.config/cargo-ops/config.toml` (optional)
 3. Local `.ops.toml` in current directory (optional; overrides internal default when present)
 4. `.ops.d/*.toml` files (sorted alphabetically; good for separating themes, commands)
 5. Environment variables `CARGO_OPS_*`
+
+`cargo ops init` writes a merged template: base config plus the detected stack's default commands (so e.g. in a Rust project the generated `.ops.toml` already contains `[commands.build]`, `[commands.clippy]`, `[commands.verify]`, etc.).
 
 ### Split config with `.ops.d/`
 
