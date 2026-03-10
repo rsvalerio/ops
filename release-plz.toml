@@ -55,8 +55,7 @@ body = """
 # Remove leading and trailing whitespace from changelog
 trim = true
 
-# Commits to skip in changelog
-[changelog.commit_preprocessors]
+# Commit preprocessors - clean up commit messages
 [[changelog.commit_preprocessors]]
 # Remove issue numbers from commit messages
 pattern = '\((\w+\s)?#([0-9]+)\)'
