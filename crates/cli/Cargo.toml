@@ -1,0 +1,52 @@
+[package]
+name = "cargo-ops"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+duckdb = ["dep:cargo-ops-duckdb", "cargo-ops-extension/duckdb"]
+stack-rust = ["dep:cargo-ops-about", "dep:cargo-ops-cargo-toml", "dep:cargo-ops-cargo-update", "dep:cargo-ops-metadata", "dep:cargo-ops-tools", "duckdb"]
+stack-node = []
+stack-go = []
+stack-python = []
+stack-terraform = []
+stack-ansible = []
+tokei = ["dep:cargo-ops-tokei", "duckdb"]
+coverage = ["dep:cargo-ops-test-coverage", "duckdb"]
+
+[dependencies]
+cargo-ops-core = { workspace = true }
+cargo-ops-extension = { workspace = true }
+cargo-ops-theme = { workspace = true }
+cargo-ops-runner = { workspace = true }
+cargo-ops-tools = { workspace = true, optional = true }
+cargo-ops-duckdb = { workspace = true, optional = true }
+cargo-ops-tokei = { workspace = true, optional = true }
+cargo-ops-about = { workspace = true, optional = true }
+cargo-ops-cargo-toml = { workspace = true, optional = true }
+cargo-ops-cargo-update = { workspace = true, optional = true }
+cargo-ops-metadata = { workspace = true, optional = true }
+cargo-ops-test-coverage = { workspace = true, optional = true }
+clap = { version = "4", features = ["derive"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+inquire = "0.9"
+anyhow = { workspace = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }
+indexmap = { workspace = true }
+toml_edit = "0.25"
+toml = "1"
+tokio = { workspace = true }
+
+[dev-dependencies]
+cargo-ops-core = { workspace = true, features = ["test-support"] }
+cargo-ops-runner = { workspace = true, features = ["test-support"] }
+tempfile = "3"
+assert_cmd = "2"
+predicates = "3"
+serial_test = "3"
+
+[[bin]]
+name = "ops"
+path = "src/main.rs"

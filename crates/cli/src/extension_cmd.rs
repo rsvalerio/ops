@@ -1,0 +1,336 @@
+//! `cargo ops extension` - extension management commands.
+
+use std::io::{self, IsTerminal, Write};
+
+use cargo_ops_core::style;
+use cargo_ops_core::table::{Cell, Color, OpsTable};
+use cargo_ops_extension::{CommandRegistry, DataProviderSchema};
+
+use crate::registry::{build_data_registry, collect_compiled_extensions};
+
+fn format_list(items: &[String]) -> String {
+    if items.is_empty() {
+        "-".to_string()
+    } else {
+        items.join(", ")
+    }
+}
+
+pub fn run_extension_list() -> anyhow::Result<()> {
+    run_extension_list_to(&mut std::io::stdout())
+}
+
+fn run_extension_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
+    let (config, cwd) = crate::load_config_and_cwd()?;
+
+    let compiled = collect_compiled_extensions(&config, &cwd);
+
+    if compiled.is_empty() {
+        writeln!(w, "No extensions compiled in.")?;
+        return Ok(());
+    }
+
+    let mut table = OpsTable::new();
+    table.set_header(vec![
+        "Name",
+        "Shortname",
+        "Types",
+        "Commands",
+        "Data Provider",
+        "Description",
+    ]);
+
+    for (config_name, ext) in &compiled {
+        table.add_row(build_extension_row(&table, config_name, ext.as_ref()));
+    }
+
+    table.set_max_width(5, 40);
+
+    writeln!(w, "{table}")?;
+    Ok(())
+}
+
+/// Build a table row for a single extension.
+fn build_extension_row(
+    table: &OpsTable,
+    config_name: &str,
+    ext: &dyn cargo_ops_extension::Extension,
+) -> Vec<Cell> {
+    let info = ext.info();
+
+    let mut types = Vec::new();
+    if info.types.is_datasource() {
+        types.push("DATASOURCE".to_string());
+    }
+    if info.types.is_command() {
+        types.push("COMMAND".to_string());
+    }
+
+    let mut cmd_registry = CommandRegistry::new();
+    ext.register_commands(&mut cmd_registry);
+    let commands: Vec<String> = cmd_registry.keys().map(|s| s.to_string()).collect();
+
+    let data_provider = info
+        .data_provider_name
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+
+    let data_cell = if table.is_tty() && !data_provider.is_empty() {
+        Cell::new(&data_provider).fg(Color::Green)
+    } else {
+        Cell::new(&data_provider)
+    };
+
+    vec![
+        table.cell(config_name, Color::Cyan),
+        Cell::new(info.shortname),
+        Cell::new(format_list(&types)),
+        Cell::new(format_list(&commands)),
+        data_cell,
+        table.cell(info.description, Color::DarkGrey),
+    ]
+}
+
+/// Default TTY check using stdout.
+fn is_stdout_tty() -> bool {
+    io::stdout().is_terminal()
+}
+
+pub fn run_extension_show(name: Option<&str>) -> anyhow::Result<()> {
+    run_extension_show_with_tty_check(name, is_stdout_tty)
+}
+
+fn run_extension_show_with_tty_check<F>(name: Option<&str>, is_tty: F) -> anyhow::Result<()>
+where
+    F: FnOnce() -> bool,
+{
+    let (config, cwd) = crate::load_config_and_cwd()?;
+    let compiled = collect_compiled_extensions(&config, &cwd);
+
+    let resolved_name: String = match name {
+        Some(n) => n.to_string(),
+        None => {
+            if !is_tty() {
+                anyhow::bail!("extension show requires an interactive terminal (or pass a name)");
+            }
+
+            if compiled.is_empty() {
+                anyhow::bail!("no extensions compiled in");
+            }
+
+            let options: Vec<ExtensionOption> = compiled
+                .iter()
+                .map(|(config_name, ext)| ExtensionOption {
+                    name: config_name.to_string(),
+                    description: ext.info().description.to_string(),
+                })
+                .collect();
+
+            let selected = inquire::Select::new("Select an extension:", options).prompt()?;
+            selected.name
+        }
+    };
+
+    let (_, ext) = compiled
+        .iter()
+        .find(|(config_name, _)| *config_name == resolved_name.as_str())
+        .ok_or_else(|| {
+            let available: Vec<&str> = compiled.iter().map(|(n, _)| *n).collect();
+            anyhow::anyhow!(
+                "extension not found: {}. Available: {}",
+                resolved_name,
+                available.join(", ")
+            )
+        })?;
+
+    print_extension_details(
+        &mut std::io::stdout(),
+        &resolved_name,
+        ext.as_ref(),
+        &config,
+        &cwd,
+    )
+}
+
+fn print_extension_details(
+    w: &mut dyn Write,
+    name: &str,
+    ext: &dyn cargo_ops_extension::Extension,
+    config: &cargo_ops_core::config::Config,
+    cwd: &std::path::Path,
+) -> anyhow::Result<()> {
+    let info = ext.info();
+    let table = OpsTable::new();
+    let is_tty = table.is_tty();
+
+    let mut types = Vec::new();
+    if info.types.is_datasource() {
+        types.push("DATASOURCE".to_string());
+    }
+    if info.types.is_command() {
+        types.push("COMMAND".to_string());
+    }
+
+    let mut cmd_registry = CommandRegistry::new();
+    ext.register_commands(&mut cmd_registry);
+    let commands: Vec<String> = cmd_registry.keys().map(|s| s.to_string()).collect();
+
+    let data_provider = info
+        .data_provider_name
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "-".to_string());
+
+    writeln!(
+        w,
+        "EXTENSION: {}",
+        if is_tty {
+            style::cyan(name)
+        } else {
+            name.to_string()
+        }
+    )?;
+    writeln!(w, "{}", info.description)?;
+    writeln!(w)?;
+    writeln!(w, "  Shortname:     {}", info.shortname)?;
+    writeln!(w, "  Types:         {}", format_list(&types))?;
+    writeln!(w, "  Commands:      {}", format_list(&commands))?;
+    writeln!(w, "  Data provider: {}", data_provider)?;
+
+    if let Some(provider_name) = info.data_provider_name {
+        match build_data_registry(config, cwd) {
+            Ok(registry) => {
+                if let Some(provider) = registry.get(provider_name) {
+                    writeln!(w)?;
+                    print_provider_info(w, provider_name, &provider.schema())?;
+                }
+            }
+            Err(e) => {
+                tracing::debug!("could not build data registry for schema display: {}", e);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_provider_info(
+    w: &mut dyn Write,
+    name: &str,
+    schema: &DataProviderSchema,
+) -> anyhow::Result<()> {
+    let table = OpsTable::new();
+    writeln!(
+        w,
+        "PROVIDER: {}",
+        if table.is_tty() {
+            style::cyan(name)
+        } else {
+            name.to_string()
+        }
+    )?;
+    writeln!(w, "{}", schema.description)?;
+    writeln!(w)?;
+
+    if schema.fields.is_empty() {
+        writeln!(w, "No fields documented.")?;
+        return Ok(());
+    }
+
+    let mut table = OpsTable::new();
+    table.set_header(vec!["Field", "Type", "Description"]);
+
+    for field in &schema.fields {
+        let row = vec![
+            table.cell(field.name, Color::Yellow),
+            table.cell(field.type_name, Color::DarkGrey),
+            table.cell(field.description, Color::White),
+        ];
+        table.add_row(row);
+    }
+
+    table.set_max_width(2, 50);
+
+    writeln!(w, "{table}")?;
+    Ok(())
+}
+
+struct ExtensionOption {
+    name: String,
+    description: String,
+}
+
+impl std::fmt::Display for ExtensionOption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} - {}", self.name, self.description)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_extension_list_succeeds() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config("");
+
+        let result = run_extension_list();
+        assert!(result.is_ok(), "run_extension_list should succeed");
+    }
+
+    #[test]
+    fn run_extension_show_unknown_returns_error() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config("");
+
+        let result = run_extension_show(Some("nonexistent"));
+        assert!(
+            result.is_err(),
+            "run_extension_show should error for unknown extension"
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("nonexistent"), "error should mention the name");
+    }
+
+    #[test]
+    #[cfg(feature = "stack-rust")]
+    fn run_extension_show_tools_succeeds() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config("");
+
+        let result = run_extension_show(Some("tools"));
+        assert!(
+            result.is_ok(),
+            "run_extension_show should succeed for 'tools' (requires stack-rust)"
+        );
+    }
+
+    #[test]
+    fn run_extension_show_no_tty_returns_error() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config("");
+
+        let result = run_extension_show_with_tty_check(None, || false);
+        assert!(
+            result.is_err(),
+            "run_extension_show should fail without TTY when no name given"
+        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("interactive terminal"));
+    }
+
+    #[test]
+    fn format_list_empty_returns_dash() {
+        let items: Vec<String> = vec![];
+        assert_eq!(format_list(&items), "-");
+    }
+
+    #[test]
+    fn format_list_single_item() {
+        let items = vec!["DATASOURCE".to_string()];
+        assert_eq!(format_list(&items), "DATASOURCE");
+    }
+
+    #[test]
+    fn format_list_multiple_items() {
+        let items = vec!["DATASOURCE".to_string(), "COMMAND".to_string()];
+        assert_eq!(format_list(&items), "DATASOURCE, COMMAND");
+    }
+}
