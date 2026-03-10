@@ -79,4 +79,4 @@ See [docs/releasing.md](docs/releasing.md) for the full commit type reference.
 
 ## License
 
-MIT OR Apache-2.0
+Apache-2.0
