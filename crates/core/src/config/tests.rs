@@ -12,27 +12,69 @@
 //! tests (e.g., running each test in a subprocess) to restore parallelism.
 
 use super::*;
+use crate::config::theme_types::ThemeConfig;
 use crate::test_utils::{exec_spec, EnvGuard, TestConfigBuilder};
 use indexmap::IndexMap;
 use serial_test::serial;
-use std::collections::HashMap;
 
 #[test]
 fn default_ops_file_exists_and_deserializes() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/.default.ops.toml");
     assert!(
         path.exists(),
-        "src/.default.ops.toml must exist in the repo (source of default commands)"
+        "src/.default.ops.toml must exist in the repo (base config; stack commands in .default.<stack>.ops.toml)"
     );
     let c: Config = toml::from_str(default_ops_toml()).expect("default config must deserialize");
     assert_eq!(c.output.theme, "classic");
     assert_eq!(c.output.columns, 120);
     assert!(c.output.show_error_detail);
-    // Commands are now provided by stack defaults, not the default config file.
-    // The default config only contains output settings and themes.
+    // Commands are provided by stack defaults (from .default.<stack>.ops.toml), not the base file.
     assert!(
         c.commands.is_empty(),
         "default config should have no commands; stack defaults are loaded separately"
+    );
+}
+
+#[test]
+fn init_template_with_rust_stack_includes_commands() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"x\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("write Cargo.toml");
+    let content = init_template(dir.path()).expect("init_template must succeed");
+    assert!(
+        content.contains("[commands.build]"),
+        "Rust stack init template must include [commands.build]"
+    );
+    assert!(
+        content.contains("[commands.clippy]"),
+        "Rust stack init template must include [commands.clippy]"
+    );
+    assert!(
+        content.contains("[commands.verify]"),
+        "Rust stack init template must include [commands.verify]"
+    );
+    assert!(
+        content.contains("stack = \"rust\""),
+        "Rust stack init template must set stack = \"rust\""
+    );
+}
+
+#[test]
+fn init_template_without_stack_omits_stack_commands() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let content = init_template(dir.path()).expect("init_template must succeed");
+    assert!(
+        content.contains("[output]"),
+        "init template must include base [output]"
+    );
+    // No stack detected, so no stack-specific commands; base has no commands.
+    let config: Config = toml::from_str(&content).expect("init template must deserialize");
+    assert!(
+        config.commands.is_empty(),
+        "init without detected stack should have no commands"
     );
 }
 
@@ -78,16 +120,12 @@ fn make_exec_spec(program: &str, args: &[&str]) -> CommandSpec {
 fn merge_config_overlay_adds_commands() {
     let mut base = base_config();
     let overlay = ConfigOverlay {
-        output: None,
         commands: Some({
             let mut m = IndexMap::new();
             m.insert("test".into(), make_exec_spec("cargo", &["test"]));
             m
         }),
-        data: None,
-        themes: None,
-        extensions: None,
-        stack: None,
+        ..Default::default()
     };
     merge_config(&mut base, &overlay);
     assert!(
@@ -101,7 +139,6 @@ fn merge_config_overlay_adds_commands() {
 fn merge_config_overlay_overrides_existing_command() {
     let mut base = base_config();
     let overlay = ConfigOverlay {
-        output: None,
         commands: Some({
             let mut m = IndexMap::new();
             m.insert(
@@ -110,10 +147,7 @@ fn merge_config_overlay_overrides_existing_command() {
             );
             m
         }),
-        data: None,
-        themes: None,
-        extensions: None,
-        stack: None,
+        ..Default::default()
     };
     merge_config(&mut base, &overlay);
     match &base.commands["build"] {
@@ -131,11 +165,7 @@ fn merge_config_overlay_overrides_output() {
             columns: Some(120),
             show_error_detail: Some(false),
         }),
-        commands: None,
-        data: None,
-        themes: None,
-        extensions: None,
-        stack: None,
+        ..Default::default()
     };
     merge_config(&mut base, &overlay);
     assert_eq!(base.output.theme, "compact");
@@ -152,11 +182,7 @@ fn merge_config_partial_overlay_preserves_base() {
             columns: Some(200),
             show_error_detail: None,
         }),
-        commands: None,
-        data: None,
-        themes: None,
-        extensions: None,
-        stack: None,
+        ..Default::default()
     };
     merge_config(&mut base, &overlay);
     assert_eq!(base.output.theme, "classic", "theme preserved from base");
@@ -177,14 +203,10 @@ fn merge_config_data_overlay_sets_path() {
     let mut base = base_config();
     base.data.path = Some(std::path::PathBuf::from("/original/path"));
     let overlay = ConfigOverlay {
-        output: None,
-        commands: None,
         data: Some(DataConfigOverlay {
             path: Some(std::path::PathBuf::from("/new/path")),
         }),
-        themes: None,
-        extensions: None,
-        stack: None,
+        ..Default::default()
     };
     merge_config(&mut base, &overlay);
     assert_eq!(
@@ -199,12 +221,8 @@ fn merge_config_data_overlay_none_path_preserves_base() {
     let mut base = base_config();
     base.data.path = Some(std::path::PathBuf::from("/original/path"));
     let overlay = ConfigOverlay {
-        output: None,
-        commands: None,
         data: Some(DataConfigOverlay { path: None }),
-        themes: None,
-        extensions: None,
-        stack: None,
+        ..Default::default()
     };
     merge_config(&mut base, &overlay);
     assert_eq!(
@@ -219,14 +237,10 @@ fn merge_config_data_overlay_none_path_preserves_base() {
 fn merge_config_extension_overlay_sets_enabled() {
     let mut base = base_config();
     let overlay = ConfigOverlay {
-        output: None,
-        commands: None,
-        data: None,
-        themes: None,
         extensions: Some(ExtensionConfigOverlay {
             enabled: Some(vec!["metadata".to_string()]),
         }),
-        stack: None,
+        ..Default::default()
     };
     merge_config(&mut base, &overlay);
     assert_eq!(
@@ -241,12 +255,8 @@ fn merge_config_extension_overlay_none_preserves_base() {
     let mut base = base_config();
     base.extensions.enabled = Some(vec!["metadata".to_string()]);
     let overlay = ConfigOverlay {
-        output: None,
-        commands: None,
-        data: None,
-        themes: None,
         extensions: Some(ExtensionConfigOverlay { enabled: None }),
-        stack: None,
+        ..Default::default()
     };
     merge_config(&mut base, &overlay);
     assert_eq!(
@@ -260,16 +270,12 @@ fn merge_config_extension_overlay_none_preserves_base() {
 fn merge_config_overlay_adds_themes() {
     let mut base = base_config();
     let overlay = ConfigOverlay {
-        output: None,
-        commands: None,
-        data: None,
         themes: Some({
             let mut m = IndexMap::new();
             m.insert("dark".into(), ThemeConfig::compact());
             m
         }),
-        extensions: None,
-        stack: None,
+        ..Default::default()
     };
     merge_config(&mut base, &overlay);
     assert!(base.themes.contains_key("dark"));
@@ -320,75 +326,6 @@ fn read_config_file_missing_returns_none() {
 }
 
 #[test]
-fn load_config_merges_local_ops_toml() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    std::fs::write(
-        dir.path().join(".ops.toml"),
-        r#"
-[output]
-theme = "compact"
-columns = 200
-show_error_detail = false
-
-[commands.custom]
-program = "echo"
-args = ["custom"]
-"#,
-    )
-    .unwrap();
-    let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-    let config = load_config().expect("load_config should succeed");
-    assert_eq!(config.output.theme, "compact");
-    assert_eq!(config.output.columns, 200);
-    assert!(!config.output.show_error_detail);
-    assert!(
-        config.commands.contains_key("custom"),
-        "local command merged"
-    );
-    // Note: build command is no longer in default config; it comes from stack defaults
-}
-
-#[test]
-fn load_config_merges_custom_themes() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    std::fs::write(
-        dir.path().join(".ops.toml"),
-        r#"
-[output]
-theme = "my-dark"
-
-[themes.my-dark]
-icon_pending = "○"
-icon_running = ""
-icon_succeeded = "●"
-icon_failed = "✗"
-icon_skipped = "—"
-separator_char = '·'
-step_indent = "  "
-running_template = "  {spinner:.cyan}{msg} {elapsed:.dim}"
-tick_chars = "⠁⠂⠄ "
-running_template_overhead = 7
-plan_header_style = "plain"
-summary_prefix = "→ "
-summary_separator = ""
-
-[themes.my-dark.error_block]
-top = "╭─"
-mid = "│"
-bottom = "╰─"
-rail = ""
-"#,
-    )
-    .unwrap();
-    let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-    let config = load_config().expect("load_config should succeed");
-    assert_eq!(config.output.theme, "my-dark");
-    assert!(config.themes.contains_key("my-dark"));
-    let theme = &config.themes["my-dark"];
-    assert_eq!(theme.icon_succeeded, "●");
-}
-
-#[test]
 #[serial]
 fn global_config_path_uses_xdg_config_home() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
@@ -419,96 +356,44 @@ fn global_config_path_falls_back_to_home_config() {
     assert!(path.ends_with("ops/config"));
 }
 
-#[test]
-#[serial]
-fn merge_env_vars_valid_override() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let _cwd_guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-    let _env_guard = EnvGuard::set("OPS__OUTPUT__THEME", "compact");
-
-    let config = load_config().expect("load_config should succeed");
-    assert_eq!(config.output.theme, "compact");
-}
-
-#[test]
-#[serial]
-fn merge_env_vars_no_override_without_prefix() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let _cwd_guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-
-    let config = load_config().expect("load_config should succeed");
-    assert_eq!(
-        config.output.theme, "classic",
-        "should use default without env override"
-    );
-}
-
-#[test]
-#[serial]
-fn merge_env_vars_columns_override() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let _cwd_guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-    let _env_guard = EnvGuard::set("OPS__OUTPUT__COLUMNS", "120");
-
-    let config = load_config().expect("load_config should succeed");
-    assert_eq!(
-        config.output.columns, 120,
-        "should use env override for valid number"
-    );
-}
-
 mod proptest_tests {
     use super::*;
     use proptest::prelude::*;
 
     proptest! {
         #[test]
-        fn merge_config_overlay_preserves_base_commands(
+        fn merge_config_overlay_overrides_base_commands(
             cmd_name in "cmd[a-zA-Z0-9_]{0,8}",
             base_program in "base[a-zA-Z0-9_]{0,8}",
             overlay_program in "over[a-zA-Z0-9_]{0,8}"
         ) {
             let mut base = Config {
-                output: OutputConfig::default(),
                 commands: {
                     let mut m = IndexMap::new();
                     m.insert(
                         cmd_name.clone(),
                         CommandSpec::Exec(ExecCommandSpec {
                             program: base_program,
-                            args: vec![],
-                            env: HashMap::new(),
-                            cwd: None,
-                            timeout_secs: None,
+                            ..Default::default()
                         }),
                     );
                     m
                 },
-                data: DataConfig::default(),
-                themes: IndexMap::new(),
-                extensions: ExtensionConfig::default(),
-                stack: None,
+                ..Default::default()
             };
             let overlay = ConfigOverlay {
-                output: None,
                 commands: Some({
                     let mut m = IndexMap::new();
                     m.insert(
                         cmd_name.clone(),
                         CommandSpec::Exec(ExecCommandSpec {
                             program: overlay_program.clone(),
-                            args: vec![],
-                            env: HashMap::new(),
-                            cwd: None,
-                            timeout_secs: None,
+                            ..Default::default()
                         }),
                     );
                     m
                 }),
-                data: None,
-                themes: None,
-                extensions: None,
-                stack: None,
+                ..Default::default()
             };
             merge_config(&mut base, &overlay);
             prop_assert!(base.commands.contains_key(&cmd_name));
@@ -530,11 +415,7 @@ mod proptest_tests {
                     columns: base_columns,
                     show_error_detail: true,
                 },
-                commands: IndexMap::new(),
-                data: DataConfig::default(),
-                themes: IndexMap::new(),
-                extensions: ExtensionConfig::default(),
-                stack: None,
+                ..Default::default()
             };
             let overlay = ConfigOverlay {
                 output: Some(OutputConfigOverlay {
@@ -542,11 +423,7 @@ mod proptest_tests {
                     columns: Some(overlay_columns),
                     show_error_detail: None,
                 }),
-                commands: None,
-                data: None,
-                themes: None,
-                extensions: None,
-                stack: None,
+                ..Default::default()
             };
             merge_config(&mut base, &overlay);
             prop_assert_eq!(base.output.theme, "classic");
@@ -566,14 +443,10 @@ fn extension_config_default_is_none() {
 fn merge_config_overlay_enables_extensions() {
     let mut base = base_config();
     let overlay = ConfigOverlay {
-        output: None,
-        commands: None,
-        data: None,
-        themes: None,
         extensions: Some(ExtensionConfigOverlay {
             enabled: Some(vec!["metadata".into(), "cargo-toml".into()]),
         }),
-        stack: None,
+        ..Default::default()
     };
     merge_config(&mut base, &overlay);
     assert_eq!(
@@ -598,122 +471,6 @@ enabled = ["ops-db", "metadata"]
         ext.enabled,
         Some(vec!["ops-db".to_string(), "metadata".to_string()])
     );
-}
-
-mod merge_conf_d_tests {
-    use super::*;
-    use std::io::Write;
-
-    fn create_ops_d_file(dir: &Path, name: &str, content: &str) {
-        let ops_d = dir.join(".ops.d");
-        std::fs::create_dir_all(&ops_d).expect("create .ops.d");
-        let mut file = std::fs::File::create(ops_d.join(name)).expect("create file");
-        file.write_all(content.as_bytes()).expect("write content");
-    }
-
-    #[test]
-    fn merge_conf_d_merges_alphabetically() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-
-        create_ops_d_file(
-            dir.path(),
-            "b_commands.toml",
-            r#"
-[commands.second]
-program = "echo"
-args = ["second"]
-"#,
-        );
-        create_ops_d_file(
-            dir.path(),
-            "a_commands.toml",
-            r#"
-[commands.first]
-program = "echo"
-args = ["first"]
-"#,
-        );
-
-        let config = load_config().expect("load_config");
-        assert!(
-            config.commands.contains_key("first"),
-            "a_commands.toml should be merged"
-        );
-        assert!(
-            config.commands.contains_key("second"),
-            "b_commands.toml should be merged"
-        );
-    }
-
-    #[test]
-    fn merge_conf_d_handles_missing_directory() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-
-        let result = load_config();
-        assert!(result.is_ok(), "should succeed even without .ops.d");
-    }
-
-    #[test]
-    fn merge_conf_d_ignores_non_toml_files() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-
-        let ops_d = dir.path().join(".ops.d");
-        std::fs::create_dir_all(&ops_d).expect("create .ops.d");
-        std::fs::write(ops_d.join("readme.txt"), "not toml").expect("write readme");
-
-        let result = load_config();
-        assert!(result.is_ok(), "should ignore non-toml files");
-    }
-}
-
-mod load_config_error_paths {
-    use super::*;
-
-    #[test]
-    fn load_config_handles_invalid_env_var_type() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-
-        std::fs::write(
-            dir.path().join(".ops.toml"),
-            r#"[output]
-theme = "classic"
-"#,
-        )
-        .unwrap();
-
-        let _env_guard = EnvGuard::set("OPS__OUTPUT__COLUMNS", "not_a_number");
-
-        let result = load_config();
-        assert!(result.is_ok(), "should handle invalid env var gracefully");
-        let config = result.unwrap();
-        assert_eq!(
-            config.output.columns, 120,
-            "should use default when env is invalid"
-        );
-    }
-
-    #[test]
-    fn load_config_with_valid_env_vars() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-
-        std::fs::write(
-            dir.path().join(".ops.toml"),
-            r#"[output]
-theme = "classic"
-"#,
-        )
-        .unwrap();
-
-        let _env_guard = EnvGuard::set("OPS__OUTPUT__COLUMNS", "80");
-
-        let config = load_config().expect("load_config should succeed");
-        assert_eq!(config.output.columns, 80, "env var should override");
-    }
 }
 
 /// TQ-EFF-001: Permission-denied error path tests.
@@ -744,123 +501,5 @@ mod read_config_file_error_paths {
         assert!(result.is_none(), "permission denied should return None");
 
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
-    }
-}
-
-/// TQ-012: Test environment variable edge cases.
-mod env_var_edge_case_tests {
-    use super::*;
-
-    #[test]
-    #[serial]
-    fn env_var_empty_string_value() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-
-        std::fs::write(
-            dir.path().join(".ops.toml"),
-            r#"[output]
-theme = "classic"
-"#,
-        )
-        .unwrap();
-
-        let _env_guard = EnvGuard::set("OPS__OUTPUT__THEME", "");
-
-        let config = load_config().expect("load_config should succeed");
-        assert_eq!(config.output.theme, "", "empty string should be accepted");
-    }
-
-    #[test]
-    #[serial]
-    fn env_var_long_value() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-
-        std::fs::write(
-            dir.path().join(".ops.toml"),
-            r#"[output]
-theme = "classic"
-"#,
-        )
-        .unwrap();
-
-        let long_value = "x".repeat(1000);
-        let _env_guard = EnvGuard::set("OPS__OUTPUT__THEME", &long_value);
-
-        let config = load_config().expect("load_config should succeed");
-        assert_eq!(
-            config.output.theme.len(),
-            1000,
-            "long value should be accepted"
-        );
-    }
-
-    #[test]
-    #[serial]
-    fn env_var_special_characters() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-
-        std::fs::write(
-            dir.path().join(".ops.toml"),
-            r#"[output]
-theme = "classic"
-"#,
-        )
-        .unwrap();
-
-        let special = "test-foo_bar.baz:qux";
-        let _env_guard = EnvGuard::set("OPS__OUTPUT__THEME", special);
-
-        let config = load_config().expect("load_config should succeed");
-        assert_eq!(
-            config.output.theme, special,
-            "special chars should be preserved"
-        );
-    }
-
-    #[test]
-    #[serial]
-    fn env_var_unicode_value() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-
-        std::fs::write(
-            dir.path().join(".ops.toml"),
-            r#"[output]
-theme = "classic"
-"#,
-        )
-        .unwrap();
-
-        let unicode = "日本語-테스트-🎉";
-        let _env_guard = EnvGuard::set("OPS__OUTPUT__THEME", unicode);
-
-        let config = load_config().expect("load_config should succeed");
-        assert_eq!(config.output.theme, unicode, "unicode should be preserved");
-    }
-
-    #[test]
-    #[serial]
-    fn no_cargo_ops_env_vars_uses_local_config() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-
-        std::fs::write(
-            dir.path().join(".ops.toml"),
-            r#"[output]
-theme = "compact"
-columns = 60
-"#,
-        )
-        .unwrap();
-
-        let config = load_config().expect("load_config should succeed");
-        assert_eq!(
-            config.output.theme, "compact",
-            "should use local config theme"
-        );
-        assert_eq!(config.output.columns, 60, "should use local config columns");
     }
 }

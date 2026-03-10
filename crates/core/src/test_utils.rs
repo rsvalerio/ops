@@ -2,13 +2,12 @@
 
 use indexmap::IndexMap;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
+use crate::config::theme_types::ThemeConfig;
 use crate::config::{
     CommandSpec, CompositeCommandSpec, ConfigOverlay, ExecCommandSpec, ExtensionConfigOverlay,
     OutputConfig, OutputConfigOverlay,
 };
-use crate::theme::ThemeConfig;
 
 /// Create an ExecCommandSpec with the given program and args.
 pub fn exec_spec(program: &str, args: &[&str]) -> ExecCommandSpec {
@@ -171,6 +170,7 @@ impl TestConfigBuilder {
             themes: IndexMap::new(),
             extensions: crate::config::ExtensionConfig::default(),
             stack: None,
+            tools: IndexMap::new(),
         }
     }
 }
@@ -292,6 +292,7 @@ impl ConfigOverlayBuilder {
             themes: self.themes,
             extensions: self.extensions,
             stack: None,
+            tools: None,
         }
     }
 }
@@ -311,137 +312,9 @@ pub fn test_config_with_commands(commands: HashMap<String, CommandSpec>) -> crat
     builder.build()
 }
 
-/// Create a CommandRunner with the given commands for testing.
-#[cfg(test)]
-pub fn test_runner(commands: HashMap<String, CommandSpec>) -> crate::command::CommandRunner {
-    crate::command::CommandRunner::new(test_config_with_commands(commands), PathBuf::from("."))
-}
-
-/// Helper trait for event assertions in tests.
-/// DUP-007: Provides convenience methods for common event pattern checks.
-/// DUP-009: The `has_*` methods follow a repetitive pattern (has_event + matches!).
-/// This is acceptable because:
-/// 1. Each method has a clear, specific purpose
-/// 2. The pattern is idiomatic Rust for event matching
-/// 3. A macro would add complexity without meaningful benefit for 6 methods
-#[cfg(test)]
-pub trait EventAssertions {
-    fn has_event<F>(&self, predicate: F) -> bool
-    where
-        F: Fn(&crate::command::RunnerEvent) -> bool;
-
-    fn assert_has_event<F>(&self, predicate: F, message: &str)
-    where
-        F: Fn(&crate::command::RunnerEvent) -> bool;
-
-    /// Check if a PlanStarted event exists.
-    #[allow(dead_code)]
-    fn has_plan_started(&self) -> bool {
-        self.has_event(|e| matches!(e, crate::command::RunnerEvent::PlanStarted { .. }))
-    }
-
-    /// Check if a StepFinished event exists for the given command ID.
-    #[allow(dead_code)]
-    fn has_step_finished(&self, id: &str) -> bool {
-        self.has_event(|e| matches!(e, crate::command::RunnerEvent::StepFinished { id: event_id, .. } if event_id == id))
-    }
-
-    /// Check if a StepFailed event exists for the given command ID.
-    #[allow(dead_code)]
-    fn has_step_failed(&self, id: &str) -> bool {
-        self.has_event(|e| matches!(e, crate::command::RunnerEvent::StepFailed { id: event_id, .. } if event_id == id))
-    }
-
-    /// Check if a StepSkipped event exists for the given command ID.
-    #[allow(dead_code)]
-    fn has_step_skipped(&self, id: &str) -> bool {
-        self.has_event(|e| matches!(e, crate::command::RunnerEvent::StepSkipped { id: event_id, .. } if event_id == id))
-    }
-
-    /// Check if a RunFinished event exists with success=true.
-    #[allow(dead_code)]
-    fn has_run_finished_success(&self) -> bool {
-        self.has_event(|e| {
-            matches!(
-                e,
-                crate::command::RunnerEvent::RunFinished { success: true, .. }
-            )
-        })
-    }
-
-    /// Check if a RunFinished event exists with success=false.
-    #[allow(dead_code)]
-    fn has_run_finished_failure(&self) -> bool {
-        self.has_event(|e| {
-            matches!(
-                e,
-                crate::command::RunnerEvent::RunFinished { success: false, .. }
-            )
-        })
-    }
-
-    /// Count events matching a predicate.
-    #[allow(dead_code)]
-    fn count_events_matching<F>(&self, predicate: F) -> usize
-    where
-        F: Fn(&crate::command::RunnerEvent) -> bool;
-}
-
-#[cfg(test)]
-impl EventAssertions for Vec<crate::command::RunnerEvent> {
-    fn has_event<F>(&self, predicate: F) -> bool
-    where
-        F: Fn(&crate::command::RunnerEvent) -> bool,
-    {
-        self.iter().any(predicate)
-    }
-
-    fn assert_has_event<F>(&self, predicate: F, message: &str)
-    where
-        F: Fn(&crate::command::RunnerEvent) -> bool,
-    {
-        assert!(self.has_event(predicate), "{}", message);
-    }
-
-    fn count_events_matching<F>(&self, predicate: F) -> usize
-    where
-        F: Fn(&crate::command::RunnerEvent) -> bool,
-    {
-        self.iter().filter(|e| predicate(e)).count()
-    }
-}
-
-/// Create a test Context with default config and given path.
-#[cfg(test)]
-#[allow(dead_code)]
-pub fn test_context(path: std::path::PathBuf) -> crate::extension::Context {
-    use std::sync::Arc;
-    crate::extension::Context::new(Arc::new(crate::config::Config::default()), path)
-}
-
-/// DUP-006: Register an extension and return both registries.
-///
-/// This helper reduces boilerplate in tests that need to set up extensions.
-#[cfg(test)]
-#[allow(dead_code)]
-pub fn register_extension(
-    ext: &dyn crate::extension::Extension,
-) -> (
-    crate::extension::CommandRegistry,
-    crate::extension::DataRegistry,
-) {
-    use crate::extension::{CommandRegistry, DataRegistry};
-    let mut cmd_registry = CommandRegistry::new();
-    let mut data_registry = DataRegistry::new();
-    ext.register_commands(&mut cmd_registry);
-    ext.register_data_providers(&mut data_registry);
-    (cmd_registry, data_registry)
-}
-
 /// DUP-011: Platform-specific output creation for tests.
 ///
 /// Creates a `std::process::Output` with the given status code and output bytes.
-#[cfg(test)]
 #[allow(dead_code)]
 pub fn make_test_output(status_code: i32, stdout: &[u8], stderr: &[u8]) -> std::process::Output {
     #[cfg(unix)]
@@ -472,14 +345,9 @@ pub fn make_test_output(status_code: i32, stdout: &[u8], stderr: &[u8]) -> std::
 ///
 /// # Rust 2024 Compatibility (E104)
 ///
-/// `std::env::set_var` and `std::env::remove_var` will become `unsafe` in Rust 2024.
-/// This helper is test-only and will need to be updated when migrating to Rust 2024:
-///
-/// 1. Wrap calls in `unsafe` blocks, OR
-/// 2. Use conditional compilation with `#[cfg(rust_2024)]`, OR
-/// 3. Use a crate that provides safe wrappers for test env manipulation
-///
-/// **Tracking:** Update when Rust 2024 edition is stable.
+/// `std::env::set_var` and `std::env::remove_var` are `unsafe` in Rust 2024.
+/// All calls are wrapped in `unsafe` blocks with SAFETY comments.
+/// Thread-safety is ensured by requiring callers to use `#[serial]`.
 ///
 /// # Thread Safety (TQ-010)
 ///
@@ -506,61 +374,50 @@ pub struct EnvGuard {
     original: Option<String>,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, unused_unsafe)]
 impl EnvGuard {
     /// Set an environment variable, returning a guard that restores it on drop.
     ///
-    /// # Safety Note (E104)
+    /// # Safety (E104)
     ///
-    /// This will require `unsafe` in Rust 2024. See struct documentation.
-    #[allow(deprecated)]
+    /// Uses `unsafe` for `set_var` which is unsafe in Rust 2024 edition.
+    /// This is test-only code guarded by `#[cfg(test)]` consumers and
+    /// thread-safety is ensured via `#[serial]` test attributes.
     pub fn set(key: impl Into<String>, value: impl AsRef<str>) -> Self {
         let key = key.into();
         let original = std::env::var(&key).ok();
-        std::env::set_var(&key, value.as_ref());
+        // SAFETY: Test-only. Callers use #[serial] to prevent concurrent env access.
+        unsafe { std::env::set_var(&key, value.as_ref()) };
         Self { key, original }
     }
 
     /// Remove an environment variable, returning a guard that restores it on drop.
     ///
-    /// # Safety Note (E104)
+    /// # Safety (E104)
     ///
-    /// This will require `unsafe` in Rust 2024. See struct documentation.
-    #[allow(deprecated)]
+    /// Uses `unsafe` for `remove_var` which is unsafe in Rust 2024 edition.
+    /// This is test-only code guarded by `#[cfg(test)]` consumers and
+    /// thread-safety is ensured via `#[serial]` test attributes.
     pub fn remove(key: impl Into<String>) -> Self {
         let key = key.into();
         let original = std::env::var(&key).ok();
-        std::env::remove_var(&key);
+        // SAFETY: Test-only. Callers use #[serial] to prevent concurrent env access.
+        unsafe { std::env::remove_var(&key) };
         Self { key, original }
     }
 }
 
 impl Drop for EnvGuard {
+    #[allow(unused_unsafe)]
     fn drop(&mut self) {
-        match &self.original {
-            Some(val) => std::env::set_var(&self.key, val),
-            None => std::env::remove_var(&self.key),
+        // SAFETY: Test-only. Callers use #[serial] to prevent concurrent env access.
+        unsafe {
+            match &self.original {
+                Some(val) => std::env::set_var(&self.key, val),
+                None => std::env::remove_var(&self.key),
+            }
         }
     }
-}
-
-/// DUP-013: Helper to create a temp directory with .ops.toml content.
-///
-/// This reduces the boilerplate pattern of:
-/// ```ignore
-/// let dir = tempfile::tempdir().expect("tempdir");
-/// std::fs::write(dir.path().join(".ops.toml"), content).unwrap();
-/// let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
-/// ```
-///
-/// Returns the temp directory (for cleanup) and the CwdGuard.
-#[cfg(test)]
-#[allow(dead_code)]
-pub fn with_temp_config(content: &str) -> (tempfile::TempDir, crate::CwdGuard) {
-    let dir = tempfile::tempdir().expect("tempdir");
-    std::fs::write(dir.path().join(".ops.toml"), content).expect("write .ops.toml");
-    let guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
-    (dir, guard)
 }
 
 #[cfg(test)]
@@ -576,9 +433,7 @@ pub mod proptest_strategies {
             ExecCommandSpec {
                 program,
                 args,
-                env: HashMap::new(),
-                cwd: None,
-                timeout_secs: None,
+                ..Default::default()
             }
         }
     }

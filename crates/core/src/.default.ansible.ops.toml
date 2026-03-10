@@ -1,0 +1,14 @@
+# Default commands for Ansible stack.
+
+[commands.lint]
+program = "ansible-lint"
+args = []
+
+[commands.check]
+program = "ansible-playbook"
+args = ["--check", "site.yml"]
+
+[commands.verify]
+commands = ["lint"]
+parallel = false
+fail_fast = true
