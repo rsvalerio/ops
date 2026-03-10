@@ -9,10 +9,13 @@ on:
       - main
 
 jobs:
+  # These jobs intentionally run in parallel after CI succeeds on main:
+  # - `release` publishes only when the checked out commit is the merged release PR.
+  # - `release-pr` prepares or updates the next release PR.
   release-plz-release:
     name: Release-plz release
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'rsvalerio' && github.event.workflow_run.conclusion == 'success'
+    if: ${{ github.repository_owner == 'rsvalerio' && github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: write
       pull-requests: read
@@ -35,12 +38,14 @@ jobs:
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'rsvalerio' && github.event.workflow_run.conclusion == 'success'
+    if: ${{ github.repository_owner == 'rsvalerio' && github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: write
       pull-requests: write
     concurrency:
-      group: release-plz-${{ github.ref }}
+      # Serialize only the PR maintenance job so concurrent main builds don't
+      # race while updating the release PR branch.
+      group: release-plz-${{ github.event.workflow_run.head_branch }}
       cancel-in-progress: false
     steps:
       - name: Checkout repository
