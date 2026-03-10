@@ -1,20 +1,21 @@
 //! `cargo ops theme` - theme management commands.
 
-use std::io::{self, IsTerminal};
+use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
-use crate::config;
-use crate::style;
+use anyhow::Context;
+use cargo_ops_core::config;
+use cargo_ops_core::style;
 
-fn parse_default_config() -> Result<crate::config::Config, anyhow::Error> {
-    toml::from_str::<crate::config::Config>(config::default_ops_toml())
-        .map_err(|e| anyhow::anyhow!("failed to parse default config: {}", e))
+fn parse_default_config() -> Result<cargo_ops_core::config::Config, anyhow::Error> {
+    toml::from_str::<cargo_ops_core::config::Config>(config::default_ops_toml())
+        .context("failed to parse default config")
 }
 
 /// DUP-005: Extracted helper to collect theme options from config.
 ///
 /// Used by both `run_theme_list` and `run_theme_select` to avoid duplication.
-fn collect_theme_options(config: &crate::config::Config) -> Vec<ThemeOption> {
+fn collect_theme_options(config: &cargo_ops_core::config::Config) -> Vec<ThemeOption> {
     let default_config = parse_default_config().ok();
 
     let mut options: Vec<ThemeOption> = config
@@ -45,6 +46,10 @@ fn collect_theme_options(config: &crate::config::Config) -> Vec<ThemeOption> {
 ///
 /// Prints theme names with descriptions to stdout. Local overrides are marked.
 pub fn run_theme_list() -> anyhow::Result<()> {
+    run_theme_list_to(&mut std::io::stdout())
+}
+
+fn run_theme_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
     let config = config::load_config()?;
     let is_tty = io::stdout().is_terminal();
 
@@ -55,21 +60,23 @@ pub fn run_theme_list() -> anyhow::Result<()> {
     for option in options {
         let marker = if option.is_custom { " (custom)" } else { "" };
         if is_tty {
-            println!(
+            writeln!(
+                w,
                 "  {:width$}   {}{}",
                 style::cyan(&option.name),
                 style::dim(&option.description),
                 style::dim(marker),
                 width = max_name_len
-            );
+            )?;
         } else {
-            println!(
+            writeln!(
+                w,
                 "{:width$}   {}{}",
                 option.name,
                 option.description,
                 marker,
                 width = max_name_len
-            );
+            )?;
         }
     }
 
@@ -130,13 +137,17 @@ where
         .prompt()?;
 
     if selected.name == *current_theme {
-        println!("Theme already set to '{}'", selected.name);
+        writeln!(
+            std::io::stdout(),
+            "Theme already set to '{}'",
+            selected.name
+        )?;
         return Ok(());
     }
 
     update_theme_in_config(&selected.name)?;
 
-    println!("Theme set to '{}'", selected.name);
+    writeln!(std::io::stdout(), "Theme set to '{}'", selected.name)?;
     Ok(())
 }
 
