@@ -1,0 +1,18 @@
+# Default commands for Python stack.
+
+[commands.format]
+program = "ruff"
+args = ["format", "."]
+
+[commands.lint]
+program = "ruff"
+args = ["check", "."]
+
+[commands.test]
+program = "pytest"
+args = []
+
+[commands.verify]
+commands = ["format", "lint", "test"]
+parallel = false
+fail_fast = true

@@ -1,10 +1,10 @@
 //! Step line data types and display-width helpers.
 //!
-//! Rendering (themes, step lines, error blocks) lives in the [`crate::theme`] module.
+//! Rendering (themes, step lines, error blocks) lives in the theme crate.
 
 use unicode_width::UnicodeWidthStr;
 
-/// Display width of a string in terminal columns (e.g. ✓/✗ = 1, ✅ = 2).
+/// Display width of a string in terminal columns (e.g. checkmark/cross = 1, wide emoji = 2).
 pub fn display_width(s: &str) -> usize {
     s.width()
 }
@@ -17,7 +17,6 @@ pub fn tail_lines<T>(lines: &[T], n: usize) -> &[T] {
 
 /// Format the last `n` lines of stderr for error display.
 /// Converts raw bytes to string (lossy), extracts lines, and joins with newlines.
-#[cfg(feature = "stack-rust")]
 pub fn format_error_tail(stderr: &[u8], n: usize) -> String {
     let stderr_str = String::from_utf8_lossy(stderr);
     let lines: Vec<&str> = stderr_str.lines().collect();
@@ -45,7 +44,6 @@ pub struct StepLine {
 /// Error details shown inline below a failed step line.
 ///
 /// Contains the exit message and an optional tail of stderr output.
-/// Rendered by the theme's [`crate::theme::StepLineTheme::render_error_detail`].
 #[derive(Debug, Clone)]
 pub struct ErrorDetail {
     /// Primary error message (e.g. "exit status: 101").
@@ -78,7 +76,7 @@ mod tests {
 
     #[test]
     fn display_width_emoji() {
-        assert_eq!(display_width("✅"), 2);
+        assert_eq!(display_width("\u{2705}"), 2);
     }
 
     #[test]
@@ -97,24 +95,6 @@ mod tests {
     fn tail_lines_empty_returns_empty() {
         let lines: Vec<&str> = vec![];
         assert!(tail_lines(&lines, 3).is_empty());
-    }
-
-    // -- TQ-010: Tests for StepLine, ErrorDetail, StepStatus --
-
-    #[test]
-    fn all_statuses_covered_in_match() {
-        fn assert_exhaustive(status: StepStatus) -> bool {
-            match status {
-                StepStatus::Pending => true,
-                StepStatus::Running => true,
-                StepStatus::Succeeded => true,
-                StepStatus::Failed => true,
-                StepStatus::Skipped => true,
-            }
-        }
-        for status in ALL_STATUSES {
-            assert!(assert_exhaustive(status));
-        }
     }
 
     #[test]
@@ -139,11 +119,6 @@ mod tests {
         assert_eq!(detail.stderr_tail.len(), 2);
     }
 
-    #[test]
-    fn all_statuses_has_five_variants() {
-        assert_eq!(ALL_STATUSES.len(), 5);
-    }
-
     // -- TQ-011: Edge cases for display_width --
 
     #[test]
@@ -164,7 +139,7 @@ mod tests {
 
     #[test]
     fn display_width_zero_width_joiner() {
-        let family = "👨‍👩‍👧";
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
         assert!(
             display_width(family) >= 2,
             "family emoji should have display width"
@@ -181,12 +156,11 @@ mod tests {
 
     #[test]
     fn display_width_mixed_ascii_unicode() {
-        assert_eq!(display_width("abc✓def"), 7);
+        assert_eq!(display_width("abc\u{2713}def"), 7);
     }
 
     // -- Tests for format_error_tail --
 
-    #[cfg(feature = "stack-rust")]
     #[test]
     fn format_error_tail_returns_last_n_lines() {
         let stderr = b"line1\nline2\nline3\nline4\nline5";
@@ -194,7 +168,6 @@ mod tests {
         assert_eq!(result, "line3\nline4\nline5");
     }
 
-    #[cfg(feature = "stack-rust")]
     #[test]
     fn format_error_tail_handles_fewer_lines() {
         let stderr = b"line1\nline2";
@@ -202,14 +175,12 @@ mod tests {
         assert_eq!(result, "line1\nline2");
     }
 
-    #[cfg(feature = "stack-rust")]
     #[test]
     fn format_error_tail_handles_empty() {
         let result = format_error_tail(b"", 5);
         assert!(result.is_empty());
     }
 
-    #[cfg(feature = "stack-rust")]
     #[test]
     fn format_error_tail_handles_invalid_utf8() {
         let stderr = b"line1\n\xff\xfe\nline3";

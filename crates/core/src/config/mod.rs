@@ -2,21 +2,24 @@
 //!
 //! Resolution order: internal default → global config → local `.ops.toml` → env vars.
 
+pub mod theme_types;
+pub mod tools;
+
+use crate::config::theme_types::ThemeConfig;
+use crate::config::tools::ToolSpec;
 use crate::serde_defaults;
-use crate::theme::ThemeConfig;
 use anyhow::Context;
 use config as config_crate;
 use indexmap::IndexMap;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tracing::{debug, instrument};
 
 /// Root configuration structure.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub struct Config {
     #[serde(default)]
     pub output: OutputConfig,
@@ -30,10 +33,12 @@ pub struct Config {
     pub extensions: ExtensionConfig,
     #[serde(default)]
     pub stack: Option<String>,
+    #[serde(default)]
+    pub tools: IndexMap<String, ToolSpec>,
 }
 
 /// Extension configuration.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExtensionConfig {
     /// List of extension names to enable. Empty = no extensions.
@@ -42,7 +47,7 @@ pub struct ExtensionConfig {
 }
 
 /// Data storage settings (DuckDB path).
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DataConfig {
     /// Optional path override for the DuckDB database.
@@ -55,7 +60,6 @@ pub struct DataConfig {
 /// overwrite the base config during merging.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub struct ConfigOverlay {
     #[serde(default)]
     pub output: Option<OutputConfigOverlay>,
@@ -69,6 +73,8 @@ pub struct ConfigOverlay {
     pub extensions: Option<ExtensionConfigOverlay>,
     #[serde(default)]
     pub stack: Option<String>,
+    #[serde(default)]
+    pub tools: Option<IndexMap<String, ToolSpec>>,
 }
 
 /// Overlay for extension settings.
@@ -96,7 +102,7 @@ pub struct OutputConfigOverlay {
 }
 
 /// Output and theme settings.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OutputConfig {
     /// Theme name (built-in: "classic", "compact"; or custom theme from [themes]).
@@ -106,7 +112,7 @@ pub struct OutputConfig {
     #[serde(default = "default_columns")]
     pub columns: u16,
     /// When true (default), show error details (exit status, stderr tail) inline
-    /// below the failed step line. When false, only the step line with ✗ is shown.
+    /// below the failed step line. When false, only the step line with failure icon is shown.
     #[serde(default = "serde_defaults::default_true")]
     pub show_error_detail: bool,
 }
@@ -130,7 +136,7 @@ fn default_columns() -> u16 {
 }
 
 /// Command definition: either a single exec or a composite of multiple commands.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum CommandSpec {
     Exec(ExecCommandSpec),
@@ -138,7 +144,7 @@ pub enum CommandSpec {
 }
 
 /// Single executable command.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExecCommandSpec {
     pub program: String,
@@ -173,7 +179,7 @@ impl ExecCommandSpec {
 }
 
 /// Composite command: runs multiple commands (sequential or parallel).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CompositeCommandSpec {
     pub commands: Vec<String>,
@@ -204,22 +210,39 @@ pub fn default_ops_toml() -> &'static str {
     ))
 }
 
+/// Build merged init template: base config plus stack default commands when a stack is detected at `workspace_root`.
+/// Used by `cargo ops init` to write a stack-aware `.ops.toml`.
+pub fn init_template(workspace_root: &Path) -> anyhow::Result<String> {
+    let mut config: Config =
+        toml::from_str(default_ops_toml()).context("failed to parse internal default config")?;
+    if let Some(stack) = crate::stack::Stack::detect(workspace_root) {
+        for (id, spec) in stack.default_commands() {
+            config.commands.insert(id, spec);
+        }
+        config.stack = Some(stack.as_str().to_string());
+    }
+    toml::to_string_pretty(&config).context("failed to serialize init config")
+}
+
 fn merge_field<T>(base: &mut T, overlay: Option<T>) {
     if let Some(v) = overlay {
         *base = v;
     }
 }
 
-/// EFF-002: Merge field accepting reference to avoid unnecessary clone.
-/// Use this for String types where we can clone only when needed.
-fn merge_field_ref<T: Clone>(base: &mut T, overlay: Option<&T>) {
-    if let Some(v) = overlay {
-        *base = v.clone();
+fn merge_indexmap<K: Clone + Eq + std::hash::Hash, V: Clone>(
+    base: &mut IndexMap<K, V>,
+    overlay: &Option<IndexMap<K, V>>,
+) {
+    if let Some(items) = overlay {
+        for (k, v) in items {
+            base.insert(k.clone(), v.clone());
+        }
     }
 }
 
 fn merge_output(base: &mut OutputConfig, overlay: &OutputConfigOverlay) {
-    merge_field_ref(&mut base.theme, overlay.theme.as_ref());
+    merge_field(&mut base.theme, overlay.theme.clone());
     merge_field(&mut base.columns, overlay.columns);
     merge_field(&mut base.show_error_detail, overlay.show_error_detail);
 }
@@ -228,7 +251,7 @@ fn merge_output(base: &mut OutputConfig, overlay: &OutputConfigOverlay) {
 ///
 /// Uses destructuring so adding a field to the overlay types without
 /// handling it here causes a compile error.
-fn merge_config(base: &mut Config, overlay: &ConfigOverlay) {
+pub fn merge_config(base: &mut Config, overlay: &ConfigOverlay) {
     let ConfigOverlay {
         output,
         commands,
@@ -236,26 +259,19 @@ fn merge_config(base: &mut Config, overlay: &ConfigOverlay) {
         themes,
         extensions,
         stack,
+        tools,
     } = overlay;
 
     if let Some(output_overlay) = output {
         merge_output(&mut base.output, output_overlay);
     }
-    if let Some(cmds) = commands {
-        for (id, spec) in cmds {
-            base.commands.insert(id.clone(), spec.clone());
-        }
-    }
+    merge_indexmap(&mut base.commands, commands);
     if let Some(data_overlay) = data {
         if let Some(path) = &data_overlay.path {
             base.data.path = Some(path.clone());
         }
     }
-    if let Some(custom_themes) = themes {
-        for (name, theme_config) in custom_themes {
-            base.themes.insert(name.clone(), theme_config.clone());
-        }
-    }
+    merge_indexmap(&mut base.themes, themes);
     if let Some(ext_overlay) = extensions {
         if let Some(enabled) = &ext_overlay.enabled {
             base.extensions.enabled = Some(enabled.clone());
@@ -264,6 +280,7 @@ fn merge_config(base: &mut Config, overlay: &ConfigOverlay) {
     if let Some(s) = stack {
         base.stack = Some(s.clone());
     }
+    merge_indexmap(&mut base.tools, tools);
 }
 
 /// Load and merge configuration from all sources.
@@ -298,17 +315,8 @@ fn merge_config(base: &mut Config, overlay: &ConfigOverlay) {
 /// Do NOT store secrets (API keys, tokens, passwords) in `.ops.toml` files or the
 /// `env` section of command definitions. These values may be visible in process listings,
 /// logs, or error messages. Use environment variables directly or a secrets manager
-/// instead. For example, prefer:
+/// instead.
 ///
-/// ```toml
-/// [commands.deploy]
-/// program = "cargo"
-/// args = ["deploy"]
-/// # Don't do this: env = { "API_KEY" = "secret123" }
-/// ```
-///
-/// Instead, set the environment variable in your shell or CI system before running
-/// `cargo ops deploy`.
 /// Merge environment variables with OPS prefix into config.
 ///
 /// Only applies overlay when OPS__ prefixed env vars exist.
@@ -316,7 +324,7 @@ fn merge_config(base: &mut Config, overlay: &ConfigOverlay) {
 /// all-default values, and merge_config unconditionally overwrites the local
 /// config's intentional settings.
 fn merge_env_vars(config: &mut Config) {
-    let has_ops_env = std::env::vars().any(|(k, _)| k.starts_with("OPS"));
+    let has_ops_env = std::env::vars().any(|(k, _)| k.starts_with("OPS__"));
     if !has_ops_env {
         return;
     }
@@ -339,11 +347,9 @@ pub fn load_config() -> anyhow::Result<Config> {
     load_global_config(&mut config);
 
     let local_path = PathBuf::from(".ops.toml");
-    if local_path.exists() {
-        if let Some(overlay) = read_config_file(&local_path) {
-            debug!(path = %local_path.display(), "merging local config");
-            merge_config(&mut config, &overlay);
-        }
+    if let Some(overlay) = read_config_file(&local_path) {
+        debug!(path = %local_path.display(), "merging local config");
+        merge_config(&mut config, &overlay);
     }
 
     merge_conf_d(&mut config);
@@ -354,16 +360,12 @@ pub fn load_config() -> anyhow::Result<Config> {
     Ok(config)
 }
 
-fn read_config_file(path: &Path) -> Option<ConfigOverlay> {
+pub fn read_config_file(path: &Path) -> Option<ConfigOverlay> {
     let s = match std::fs::read_to_string(path) {
         Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
-            let severity = match e.kind() {
-                std::io::ErrorKind::PermissionDenied => "error",
-                _ => "warning",
-            };
             tracing::warn!(
-                severity = severity,
                 path = %path.display(),
                 error = %e,
                 "config file read error"
@@ -384,31 +386,34 @@ fn read_config_file(path: &Path) -> Option<ConfigOverlay> {
     }
 }
 
-fn merge_conf_d(config: &mut Config) {
-    let conf_d_path = PathBuf::from(".ops.d");
-    if !conf_d_path.is_dir() {
-        return;
-    }
-
-    let entries = match std::fs::read_dir(&conf_d_path) {
+/// Read sorted `.toml` files from a directory, returning None if the directory
+/// doesn't exist or can't be read.
+fn read_conf_d_files(dir: &Path) -> Option<Vec<PathBuf>> {
+    let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
             tracing::warn!(
-                path = %conf_d_path.display(),
+                path = %dir.display(),
                 error = %e,
                 "failed to read .ops.d directory"
             );
-            return;
+            return None;
         }
     };
-
     let mut files: Vec<PathBuf> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|ext| ext == "toml"))
         .collect();
     files.sort();
+    Some(files)
+}
 
+fn merge_conf_d(config: &mut Config) {
+    let Some(files) = read_conf_d_files(Path::new(".ops.d")) else {
+        return;
+    };
     for path in files {
         if let Some(overlay) = read_config_file(&path) {
             debug!(path = %path.display(), "merging conf.d config");
@@ -429,18 +434,6 @@ fn merge_conf_d(config: &mut Config) {
 /// - These variables are set by the shell/session manager
 /// - They typically point to the user's home directory
 /// - An attacker with control over these variables already has significant access
-///
-/// **Threat model**: If an attacker can set `HOME` to an attacker-controlled path before
-/// running `cargo ops`, they could cause it to load a malicious config. This is acceptable
-/// because:
-/// 1. Environment variable control implies shell access or process spawning capability
-/// 2. `cargo ops` is designed to run trusted commands from trusted configs
-/// 3. Similar tools (cargo, npm, git) have the same trust model
-///
-/// If you need to harden against this vector, run `cargo ops` with a clean environment:
-/// ```bash
-/// env -i HOME="$HOME" PATH="$PATH" cargo ops build
-/// ```
 fn global_config_path() -> Option<PathBuf> {
     let config_dir = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         PathBuf::from(xdg)
@@ -458,11 +451,9 @@ fn load_global_config(config: &mut Config) {
     };
     let to_try = [global_path.with_extension("toml"), global_path];
     for path in &to_try {
-        if path.exists() {
-            if let Some(overlay) = read_config_file(path) {
-                debug!(path = %path.display(), "merging global config");
-                merge_config(config, &overlay);
-            }
+        if let Some(overlay) = read_config_file(path) {
+            debug!(path = %path.display(), "merging global config");
+            merge_config(config, &overlay);
             return;
         }
     }

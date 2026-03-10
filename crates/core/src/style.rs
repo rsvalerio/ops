@@ -10,8 +10,8 @@ macro_rules! ansi_style {
 }
 
 ansi_style!(cyan, 36);
-ansi_style!(#[allow(dead_code)] white, 37);
-ansi_style!(#[allow(dead_code)] grey, 90);
+ansi_style!(white, 37);
+ansi_style!(grey, 90);
 ansi_style!(dim, 2);
 ansi_style!(green, 32);
 ansi_style!(red, 31);

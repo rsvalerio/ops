@@ -1,0 +1,22 @@
+# Default commands for Terraform stack.
+
+[commands.init]
+program = "terraform"
+args = ["init"]
+
+[commands.fmt]
+program = "terraform"
+args = ["fmt", "-recursive"]
+
+[commands.validate]
+program = "terraform"
+args = ["validate"]
+
+[commands.plan]
+program = "terraform"
+args = ["plan"]
+
+[commands.verify]
+commands = ["fmt", "validate"]
+parallel = false
+fail_fast = true

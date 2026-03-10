@@ -1,0 +1,22 @@
+# Default commands for Node.js stack (npm).
+
+[commands.install]
+program = "npm"
+args = ["install"]
+
+[commands.build]
+program = "npm"
+args = ["run", "build"]
+
+[commands.test]
+program = "npm"
+args = ["test"]
+
+[commands.lint]
+program = "npm"
+args = ["run", "lint"]
+
+[commands.verify]
+commands = ["install", "lint", "build", "test"]
+parallel = false
+fail_fast = true

@@ -3,10 +3,10 @@
 //! A "stack" represents a language, framework, or toolchain (Rust, Node, Go, etc.).
 //! Each stack has:
 //! - Manifest files used for detection (Cargo.toml, package.json, go.mod)
-//! - Default commands (build, test, lint)
+//! - Default commands (build, test, lint) loaded from embedded `.default.<stack>.ops.toml`
 //! - Default data directory location
 
-use crate::config::{CommandSpec, CompositeCommandSpec, ExecCommandSpec};
+use crate::config::{CommandSpec, Config};
 use indexmap::IndexMap;
 use std::path::Path;
 
@@ -27,7 +27,6 @@ impl Stack {
         (*self).into()
     }
 
-    #[allow(dead_code)]
     pub fn manifest_files(&self) -> &[&str] {
         match self {
             Stack::Rust => &["Cargo.toml"],
@@ -50,23 +49,23 @@ impl Stack {
     }
 
     pub fn detect(start: &Path) -> Option<Self> {
-        let candidates: &[(Stack, &[&str])] = &[
-            (Stack::Rust, &["Cargo.toml"]),
-            (Stack::Node, &["package.json"]),
-            (Stack::Go, &["go.mod"]),
-            (Stack::Python, &["pyproject.toml", "setup.py"]),
-            (Stack::Terraform, &["main.tf", "terraform.tf"]),
-            (Stack::Ansible, &["site.yml", "playbook.yml"]),
+        // Priority order for detection (Generic is excluded — no manifest files).
+        const DETECT_ORDER: &[Stack] = &[
+            Stack::Rust,
+            Stack::Node,
+            Stack::Go,
+            Stack::Python,
+            Stack::Terraform,
+            Stack::Ansible,
         ];
 
         let mut current = start.to_path_buf();
         loop {
-            for (stack, files) in candidates {
-                for file in *files {
-                    if current.join(file).exists() {
-                        return Some(*stack);
-                    }
-                }
+            if let Some(&stack) = DETECT_ORDER
+                .iter()
+                .find(|s| s.manifest_files().iter().any(|f| current.join(f).exists()))
+            {
+                return Some(stack);
             }
             if !current.pop() {
                 return None;
@@ -74,138 +73,46 @@ impl Stack {
         }
     }
 
+    /// Embedded TOML content for this stack's default commands, or None for Generic.
+    fn default_commands_toml(&self) -> Option<&'static str> {
+        match self {
+            Stack::Rust => Some(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/.default.rust.ops.toml"
+            ))),
+            Stack::Node => Some(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/.default.node.ops.toml"
+            ))),
+            Stack::Go => Some(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/.default.go.ops.toml"
+            ))),
+            Stack::Python => Some(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/.default.python.ops.toml"
+            ))),
+            Stack::Terraform => Some(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/.default.terraform.ops.toml"
+            ))),
+            Stack::Ansible => Some(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/.default.ansible.ops.toml"
+            ))),
+            Stack::Generic => None,
+        }
+    }
+
     pub fn default_commands(&self) -> IndexMap<String, CommandSpec> {
-        match self {
-            Stack::Rust => build_commands(
-                "cargo",
-                &[
-                    ("fmt", &["fmt", "--all"]),
-                    ("check", &["check", "--all"]),
-                    ("clippy", &["clippy", "--all", "--", "-D", "warnings"]),
-                    ("build", &["build", "--all"]),
-                    ("test", &["test", "--all"]),
-                ],
-                &["fmt", "check", "clippy", "build", "test"],
-            ),
-            Stack::Node => build_commands(
-                "npm",
-                &[
-                    ("install", &["install"]),
-                    ("build", &["run", "build"]),
-                    ("test", &["test"]),
-                    ("lint", &["run", "lint"]),
-                ],
-                &["install", "lint", "build", "test"],
-            ),
-            Stack::Go => build_commands(
-                "go",
-                &[
-                    ("fmt", &["fmt", "./..."]),
-                    ("vet", &["vet", "./..."]),
-                    ("build", &["build", "./..."]),
-                    ("test", &["test", "./..."]),
-                ],
-                &["fmt", "vet", "build", "test"],
-            ),
-            Stack::Python => build_commands_multi(
-                &[
-                    ("format", "ruff", &["format", "."]),
-                    ("lint", "ruff", &["check", "."]),
-                    ("test", "pytest", &[]),
-                ],
-                &["format", "lint", "test"],
-            ),
-            Stack::Terraform => build_commands(
-                "terraform",
-                &[
-                    ("init", &["init"]),
-                    ("fmt", &["fmt", "-recursive"]),
-                    ("validate", &["validate"]),
-                    ("plan", &["plan"]),
-                ],
-                &["fmt", "validate"],
-            ),
-            Stack::Ansible => build_commands_multi(
-                &[
-                    ("lint", "ansible-lint", &[]),
-                    ("check", "ansible-playbook", &["--check", "site.yml"]),
-                ],
-                &["lint"],
-            ),
-            Stack::Generic => IndexMap::new(),
-        }
+        let toml = match self.default_commands_toml() {
+            Some(t) => t,
+            None => return IndexMap::new(),
+        };
+        let config: Config =
+            toml::from_str(toml).expect("stack default commands TOML must be valid");
+        config.commands
     }
-
-    #[allow(dead_code)]
-    pub fn data_dir_name(&self) -> &'static str {
-        match self {
-            Stack::Rust => "target",
-            Stack::Node => "node_modules",
-            Stack::Go => ".",
-            Stack::Python => ".",
-            Stack::Terraform => ".terraform",
-            Stack::Ansible => ".",
-            Stack::Generic => ".ops",
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn description(&self) -> &'static str {
-        match self {
-            Stack::Rust => "Rust (Cargo)",
-            Stack::Node => "Node.js (npm/yarn)",
-            Stack::Go => "Go modules",
-            Stack::Python => "Python (pip/poetry)",
-            Stack::Terraform => "Terraform",
-            Stack::Ansible => "Ansible",
-            Stack::Generic => "Generic (no stack detected)",
-        }
-    }
-}
-
-/// Build an exec command spec.
-fn exec(program: &str, args: &[&str]) -> CommandSpec {
-    CommandSpec::Exec(ExecCommandSpec {
-        program: program.into(),
-        args: args.iter().map(|a| (*a).into()).collect(),
-        ..Default::default()
-    })
-}
-
-/// Build a verify composite command spec.
-fn verify(commands: &[&str]) -> CommandSpec {
-    CommandSpec::Composite(CompositeCommandSpec {
-        commands: commands.iter().map(|c| (*c).into()).collect(),
-        parallel: false,
-        fail_fast: true,
-    })
-}
-
-/// Build commands for a stack where all exec commands share the same program.
-fn build_commands(
-    program: &str,
-    steps: &[(&str, &[&str])],
-    verify_steps: &[&str],
-) -> IndexMap<String, CommandSpec> {
-    let mut cmds = IndexMap::new();
-    for (name, args) in steps {
-        cmds.insert((*name).into(), exec(program, args));
-    }
-    cmds.insert("verify".into(), verify(verify_steps));
-    cmds
-}
-
-/// Build commands for a stack where exec commands may use different programs.
-fn build_commands_multi(
-    steps: &[(&str, &str, &[&str])],
-    verify_steps: &[&str],
-) -> IndexMap<String, CommandSpec> {
-    let mut cmds = IndexMap::new();
-    for (name, program, args) in steps {
-        cmds.insert((*name).into(), exec(program, args));
-    }
-    cmds.insert("verify".into(), verify(verify_steps));
-    cmds
 }
 
 #[cfg(test)]
@@ -327,13 +234,42 @@ mod tests {
         assert_eq!(Stack::detect(dir.path()), Some(Stack::Node));
     }
 
+    // DUP-011 regression: detect must check all manifest_files()
     #[test]
-    fn data_dir_name_rust_is_target() {
-        assert_eq!(Stack::Rust.data_dir_name(), "target");
+    fn detect_finds_requirements_txt() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("requirements.txt"), "flask\n").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::Python));
     }
 
     #[test]
-    fn data_dir_name_node_is_node_modules() {
-        assert_eq!(Stack::Node.data_dir_name(), "node_modules");
+    fn detect_finds_ansible_cfg() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("ansible.cfg"), "[defaults]\n").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::Ansible));
+    }
+
+    #[test]
+    fn each_stack_default_toml_parses_and_includes_verify() {
+        for stack in [
+            Stack::Rust,
+            Stack::Node,
+            Stack::Go,
+            Stack::Python,
+            Stack::Terraform,
+            Stack::Ansible,
+        ] {
+            let cmds = stack.default_commands();
+            assert!(
+                cmds.contains_key("verify"),
+                "stack {} default TOML must define verify",
+                stack.as_str()
+            );
+            assert!(
+                !cmds.is_empty(),
+                "stack {} default TOML must define at least one command",
+                stack.as_str()
+            );
+        }
     }
 }
