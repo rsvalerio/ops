@@ -1,5 +1,6 @@
 [package]
 name = "cargo-ops-duckdb"
+publish = false
 version.workspace = true
 edition.workspace = true
 

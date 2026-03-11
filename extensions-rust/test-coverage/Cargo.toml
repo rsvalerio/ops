@@ -1,5 +1,6 @@
 [package]
 name = "cargo-ops-test-coverage"
+publish = false
 version.workspace = true
 edition.workspace = true
 

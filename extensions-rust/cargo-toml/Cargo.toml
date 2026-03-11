@@ -1,5 +1,6 @@
 [package]
 name = "cargo-ops-cargo-toml"
+publish = false
 version.workspace = true
 edition.workspace = true
 
