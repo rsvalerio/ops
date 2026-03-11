@@ -5,6 +5,8 @@ publish = false
 changelog_update = true
 # Single changelog at repo root (not per-crate)
 changelog_path = "./CHANGELOG.md"
+# Reference external git-cliff configuration
+changelog_config = "cliff.toml"
 # Create GitHub releases (cargo-dist will add artifacts to these)
 git_release_enable = true
 # Release commits don't need to be signed
@@ -15,103 +17,3 @@ git_release_draft = false
 name = "cargo-ops"
 # This is the only package we release
 publish = false
-
-[changelog]
-# Changelog header
-header = """# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-"""
-
-# Changelog body template using git-cliff syntax
-body = """
-{%- macro remote_url() -%}
-  https://github.com/rsvalerio/cargo-ops
-{%- endmacro -%}
-
-{% if version -%}
-## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
-{% else -%}
-## [Unreleased]
-{% endif -%}
-
-{% for group, commits in commits | group_by(attribute="group") %}
-### {{ group | striptags | trim | upper_first }}
-{% for commit in commits
-| filter(attribute="scope")
-| sort(attribute="scope") %}
-- **{{ commit.scope }}:** {{ commit.message | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}]({{ self::remote_url() }}/commit/{{ commit.id }}))
-{%- endfor -%}
-{% for commit in commits %}
-{%- if not commit.scope %}
-- {{ commit.message | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}]({{ self::remote_url() }}/commit/{{ commit.id }}))
-{% endif -%}
-{% endfor -%}
-{% endfor %}
-"""
-
-# Remove leading and trailing whitespace from changelog
-trim = true
-
-# Protect breaking changes (always include feat!: etc. in changelog)
-protect_breaking_commits = true
-
-# Commit preprocessors - clean up commit messages
-[[changelog.commit_preprocessors]]
-# Remove issue numbers from commit messages
-pattern = '\((\w+\s)?#([0-9]+)\)'
-replace = ""
-
-# Commit parsers - map conventional commits to changelog groups
-[[changelog.commit_parsers]]
-message = "^feat"
-group = "Features"
-
-[[changelog.commit_parsers]]
-message = "^fix"
-group = "Bug Fixes"
-
-[[changelog.commit_parsers]]
-message = "^doc"
-group = "Documentation"
-
-[[changelog.commit_parsers]]
-message = "^perf"
-group = "Performance"
-
-[[changelog.commit_parsers]]
-message = "^refactor"
-group = "Refactoring"
-
-[[changelog.commit_parsers]]
-message = "^style"
-group = "Styling"
-
-[[changelog.commit_parsers]]
-message = "^test"
-group = "Testing"
-
-[[changelog.commit_parsers]]
-message = "^build"
-group = "Build System"
-
-[[changelog.commit_parsers]]
-message = "^ci"
-group = "CI/CD"
-
-[[changelog.commit_parsers]]
-message = "^chore\\(release\\)"
-skip = true
-
-[[changelog.commit_parsers]]
-message = "^chore|^misc"
-group = "Miscellaneous"
-
-# Skip merge commits
-[[changelog.commit_parsers]]
-message = "^Merge"
-skip = true
