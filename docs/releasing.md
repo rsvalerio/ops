@@ -3,7 +3,7 @@
 This project uses automated release management with two tools:
 
 - **[release-plz](https://release-plz.dev/)** - Handles version bumps, changelog generation, and git tags
-- **[cargo-dist](https://opensource.axo.dev/cargo-dist/)** - Builds binaries and publishes to package managers
+- **[cargo-dist](https://opensource.axo.dev/cargo-dist/)** - Builds binaries, creates GitHub releases, and publishes to package managers
 
 ## How It Works
 
@@ -18,7 +18,8 @@ This project uses automated release management with two tools:
 │  feat: add new command  ──► release-plz creates ──► Merge PR ──► Tag pushed │
 │  fix: resolve crash         PR with:                             │          │
 │  docs: update readme        • Version bump                       ▼          │
-│                             • CHANGELOG update         cargo-dist builds:   │
+│                             • CHANGELOG update         cargo-dist:          │
+│                                                        • GitHub release     │
 │                                                        • macOS binaries     │
 │                                                        • Linux binaries     │
 │                                                        • Shell installer    │
@@ -119,7 +120,7 @@ Review the PR to verify:
 When you merge the Release PR:
 1. release-plz creates a git tag (e.g., `v0.2.0`)
 2. The tag triggers cargo-dist's release workflow
-3. cargo-dist builds binaries and publishes everywhere
+3. cargo-dist creates the GitHub release, builds binaries, and publishes everywhere
 
 ### Manual Release (Emergency)
 
@@ -198,7 +199,9 @@ Controls version bumping and changelog generation:
 [workspace]
 publish = false              # Don't publish to crates.io
 changelog_update = true      # Update CHANGELOG.md
-git_release_enable = true    # Create GitHub releases
+changelog_path = "./CHANGELOG.md"
+changelog_config = "cliff.toml"
+git_release_enable = false   # GitHub releases handled by cargo-dist
 ```
 
 ### dist-workspace.toml

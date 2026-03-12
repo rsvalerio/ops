@@ -36,16 +36,18 @@ Instructions for AI coding agents working on this project.
 - Rust edition 2021
 - Clippy with `-D warnings` (treat warnings as errors)
 - Fix all clippy and format issues before considering a change done
-- Follow existing module structure:
-  - `src/config/mod.rs` - TOML config parsing (output.theme, output.columns, show_error_detail)
-  - `src/command/mod.rs` - CommandRunner execution engine, StepResult, RunnerEvent stream
-  - `src/output.rs` - Step line data types (StepLine, StepStatus, ErrorDetail) and display width
-  - `src/theme/mod.rs` - ThemeConfig, StepLineTheme trait, configurable themes
-  - `src/theme_cmd.rs` - Theme management CLI (list, select)
-  - `src/display.rs` - ProgressDisplay for step rendering with indicatif
-  - `src/style.rs` - Visual style constants
-  - `src/extension.rs` - Extension trait, CommandRegistry, DataRegistry, Context
-  - `src/extensions/` - Optional extensions (metadata, ops-db, cargo-toml)
+- Follow existing workspace structure:
+  - `crates/core/src/config/mod.rs` - TOML config parsing (output.theme, output.columns, show_error_detail)
+  - `crates/core/src/output.rs` - Step line data types (StepLine, StepStatus, ErrorDetail) and display width
+  - `crates/core/src/style.rs` - Visual style constants
+  - `crates/theme/src/lib.rs` - StepLineTheme trait, ConfigurableTheme
+  - `crates/core/src/config/theme_types.rs` - ThemeConfig struct and classic/compact factory methods
+  - `crates/runner/src/command/mod.rs` - CommandRunner execution engine, StepResult, RunnerEvent stream
+  - `crates/runner/src/display.rs` - ProgressDisplay for step rendering with indicatif
+  - `crates/extension/src/lib.rs` - Extension trait, CommandRegistry, DataRegistry, Context
+  - `crates/cli/src/theme_cmd.rs` - Theme management CLI (list, select)
+  - `extensions/` - Optional extensions (duckdb, tokei)
+  - `extensions-rust/` - Rust-specific extensions (about, cargo-toml, metadata, tools, etc.)
 
 ## Testing instructions
 
@@ -69,9 +71,8 @@ Then install it locally: `cargo install --path . --force`
 
 ## Documentation
 
-- **Design and architecture:** [docs/project/designdoc.md](docs/project/designdoc.md) - config model, command execution, extension system, visualization spec
-- **CLI output:** [docs/project/architecture.md](docs/project/architecture.md) - step headers, streaming output, summary line
-- **Visual components:** [docs/project/components.md](docs/project/components.md) - step icons, error boxes, theme comparison
+- **Releasing:** [docs/releasing.md](docs/releasing.md) - automated releases, conventional commits, and Homebrew tap setup
+- **Visual components:** [docs/components.md](docs/components.md) - step icons, error boxes, theme comparison
 
 ## Configuration
 

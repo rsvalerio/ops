@@ -19,7 +19,7 @@ Running: build, clippy, test
 
 **Configuration:** None. Content is derived from the command IDs in the run plan.
 
-**Implementation:** `StepLineTheme::render_plan_header()` in `src/theme.rs:47-50`. Default trait method joins command IDs with `, ` and wraps in blank lines.
+**Implementation:** `StepLineTheme::render_plan_header()` in `crates/theme/src/lib.rs:154-157` (trait default). `ConfigurableTheme` override at `crates/theme/src/lib.rs:63-77`. Default trait method joins command IDs with `, ` and wraps in blank lines.
 
 ---
 
@@ -40,33 +40,40 @@ Running: build, clippy, test
 - `output.columns` — total line width used to calculate dot-fill length.
 
 **Implementation:**
-- Full line: `StepLineTheme::render()` in `src/theme.rs:117-136`
-- Prefix (indent + icon + label): `StepLineTheme::render_prefix()` in `src/theme.rs:139-152`
-- Separator dots: `StepLineTheme::render_separator()` in `src/theme.rs:159-186`
+- Full line: `StepLineTheme::render()` in `crates/theme/src/lib.rs:225-239`
+- Prefix (indent + icon + label): `StepLineTheme::render_prefix()` in `crates/theme/src/lib.rs:242-253`
+- Separator dots: `StepLineTheme::render_separator()` in `crates/theme/src/lib.rs:256-282`
 
 ---
 
 ## 3. Spinner
 
-**What:** Animated braille-dot character shown while a step is running.
+**What:** Animated character shown while a step is running.
 
-**Visual example:**
+**Visual example (compact):**
 ```text
   ⠁ cargo build --all-targets ........................... 3s
   ⠂ cargo clippy --all-targets -- -D warnings ........... 1s
 ```
 
-**Characters:** `⠁⠂⠄⡀⢀⠠⠐⠈` (8 braille frames + 1 blank rest frame), cycling at 80ms via `enable_steady_tick`.
+**Visual example (classic):**
+```text
+├── | cargo build --all-targets ........................ 3s
+├── / cargo clippy --all-targets -- -D warnings ........ 1s
+```
 
-**Theme variations:** None (identical in classic and compact).
+**Theme variations:**
+- Classic: `|/-\` (4 ASCII frames + 1 blank rest frame), template `"├── {spinner:.cyan}{msg} {elapsed:.dim}"`
+- Compact: `⠁⠂⠄⡀⢀⠠⠐⠈` (8 braille frames + 1 blank rest frame), template `"  {spinner:.cyan}{msg} {elapsed:.dim}"`
 
-**Configuration:** None. Characters and tick interval are hardcoded.
+Both cycle at 80ms via `enable_steady_tick`.
+
+**Configuration:** Spinner characters and template are defined per theme in `ThemeConfig` (`crates/core/src/config/theme_types.rs:88-132`).
 
 **Implementation:**
-- Style: `running_style` in `ProgressDisplay::new()` at `src/main.rs:271-273`
-- Template: `"  {spinner:.cyan}{msg} {elapsed:.dim}"`
-- Tick chars: `.tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")`
-- Template overhead constant: `SPINNER_TEMPLATE_OVERHEAD` in `src/theme.rs:15` (7 columns)
+- Style: `running_style` in `ProgressDisplay::new_with_tty_check()` at `crates/runner/src/display.rs:144-152`
+- Templates and tick chars: `ThemeConfig::classic()` at `crates/core/src/config/theme_types.rs:97-98`, `ThemeConfig::compact()` at `crates/core/src/config/theme_types.rs:123-124`
+- Template overhead: `running_template_overhead()` method in `crates/theme/src/lib.rs:205-207`, configured per theme via `ThemeConfig.running_template_overhead` field at `crates/core/src/config/theme_types.rs:70`
 
 ---
 
@@ -87,9 +94,10 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 **Configuration:** `output.theme` selects the icon set.
 
 **Implementation:**
-- Classic: `ClassicTheme::status_icon()` at `src/theme.rs:193-201`
-- Compact: `CompactTheme::status_icon()` at `src/theme.rs:208-216`
-- Alignment padding: `StepLineTheme::icon_column_width()` at `src/theme.rs:64-70`
+- Classic icons: `ThemeConfig::classic()` at `crates/core/src/config/theme_types.rs:88-111`
+- Compact icons: `ThemeConfig::compact()` at `crates/core/src/config/theme_types.rs:114-132`
+- Icon resolution: `ConfigurableTheme::status_icon()` at `crates/theme/src/lib.rs:35-41`
+- Alignment padding: `StepLineTheme::icon_column_width()` at `crates/theme/src/lib.rs:174-181`
 
 ---
 
@@ -113,7 +121,7 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 
 **Configuration:** `output.columns` controls available width.
 
-**Implementation:** `StepLineTheme::render_separator()` in `src/theme.rs:159-186`. Uses `SPINNER_TEMPLATE_OVERHEAD` (7) to subtract the indicatif template's fixed-width elements for running steps.
+**Implementation:** `StepLineTheme::render_separator()` in `crates/theme/src/lib.rs:256-282`. Uses `running_template_overhead()` to subtract the indicatif template's fixed-width elements for running steps.
 
 ---
 
@@ -134,8 +142,8 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 **Configuration:** None.
 
 **Implementation:**
-- Finished: `StepLineTheme::format_elapsed()` in `src/theme.rs:58-60`
-- Running: `{elapsed:.dim}` in the spinner template at `src/main.rs:271`
+- Finished: `StepLineTheme::format_elapsed()` in `crates/theme/src/lib.rs:165-167`, with standalone `format_duration()` helper at `crates/theme/src/lib.rs:19-33`
+- Running: `{elapsed:.dim}` in the spinner template (see `ThemeConfig` in `crates/core/src/config/theme_types.rs`)
 
 ---
 
@@ -166,13 +174,13 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 
 **Gutter:** Aligned with label column — `icon_column_width() + 3` spaces (2-char line indent + icon width + 1 space).
 
-**Stderr capture:** Last 5 lines of stderr, hardcoded in `src/main.rs:441`.
+**Stderr capture:** Last 5 lines of stderr, defined as `STDERR_TAIL_LINES` constant in `crates/runner/src/display.rs:22`.
 
 **Theme variations:** Gutter width differs because `icon_column_width()` varies (classic: 5 spaces `"     "`, compact: 4 spaces `"    "`).
 
 **Configuration:** `output.show_error_detail` (boolean, default `true`). When `false`, the error box is suppressed entirely.
 
-**Implementation:** `StepLineTheme::render_error_detail()` in `src/theme.rs:87-110`. Error detail toggle check at `src/main.rs:436-438`.
+**Implementation:** `StepLineTheme::render_error_detail()` in `crates/theme/src/lib.rs:216-222`, with `render_error_block()` helper at `crates/theme/src/lib.rs:286-317`. Error detail toggle check at `crates/runner/src/display.rs:371`.
 
 ---
 
@@ -191,7 +199,7 @@ Done in 23.62s
 
 **Configuration:** None. Overridable per theme via `render_summary_separator()`.
 
-**Implementation:** `StepLineTheme::render_summary_separator()` in `src/theme.rs:76-78`. Called from `ProgressDisplay::on_run_finished()` at `src/main.rs:471`.
+**Implementation:** `StepLineTheme::render_summary_separator()` in `crates/theme/src/lib.rs:184-186`. Called from `ProgressDisplay::on_run_finished()` at `crates/runner/src/display.rs:399-427`.
 
 ---
 
@@ -211,7 +219,7 @@ Failed in 0.42s      (one or more steps failed)
 
 **Configuration:** None.
 
-**Implementation:** `ProgressDisplay::on_run_finished()` in `src/main.rs:492-495`.
+**Implementation:** `ProgressDisplay::on_run_finished()` in `crates/runner/src/display.rs:399-427`.
 
 ---
 
@@ -252,7 +260,7 @@ Failed in 15.97s                              # [9] Summary Line
 | Error detail | Inserted as progress bars after the failed step | `writeln!` to stderr |
 | Summary | Progress bar via `finish_with_message` | `writeln!` to stderr |
 
-**Implementation:** TTY detection at `src/main.rs:262`. Non-TTY fallback in `ProgressDisplay::emit_line()` at `src/main.rs:309` and `finish_bar()`.
+**Implementation:** TTY detection via `is_stderr_tty()` at `crates/runner/src/display.rs:114-116`. Non-TTY fallback in `ProgressDisplay::emit_line()` at `crates/runner/src/display.rs:189-199`.
 
 ---
 
