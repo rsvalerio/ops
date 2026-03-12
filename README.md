@@ -74,7 +74,7 @@ See [docs/releasing.md](docs/releasing.md) for the full commit type reference.
 - **Declarative Commands** - Define commands in TOML config
 - **Configurable Columns** - Set line width via `output.columns` (no runtime change)
 - **Extension Architecture** - Extensible via compile-time extensions (commands and data providers)
-- **Metadata Collection** - Optional `cargo ops metadata` commands (feature-gated) for DuckDB storage
+- **Metadata Collection** - Optional data-provider extensions (feature-gated) with DuckDB storage
 - **Zero Config** - Works out of the box with sensible defaults
 
 ## License
