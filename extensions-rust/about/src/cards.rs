@@ -16,7 +16,7 @@ impl CardLayoutConfig {
     /// Width of each crate card in characters.
     const CARD_WIDTH: usize = 32;
     /// Maximum lines for description in a card.
-    const CARD_DESC_LINES: usize = 2;
+    const CARD_DESC_LINES: usize = 3;
     /// Spacing between cards horizontally.
     const CARD_SPACING: usize = 2;
     /// Minimum terminal width to show 3 cards per row.

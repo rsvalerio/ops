@@ -977,7 +977,7 @@ mod tests {
 
     #[test]
     fn render_card_line_count() {
-        // Card should have: top border, title, path, stats/empty, 2 desc lines, bottom border = 7
+        // Card should have: top border, title, path, stats/empty, 3 desc lines, bottom border = 8
         let info = CrateInfo {
             name: "Test".to_string(),
             package_name: "test".to_string(),
@@ -989,7 +989,7 @@ mod tests {
             dep_count: None,
         };
         let card = render_card(&info, false);
-        assert_eq!(card.len(), 7);
+        assert_eq!(card.len(), 8);
     }
 
     #[test]
