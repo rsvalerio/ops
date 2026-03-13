@@ -494,6 +494,7 @@ dependencies = [
  "cargo-ops-core",
  "cargo-ops-duckdb",
  "cargo-ops-extension",
+ "cargo-ops-tools",
  "duckdb",
  "indicatif",
  "serde_json",

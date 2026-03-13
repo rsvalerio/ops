@@ -1,12 +1,15 @@
-//! About command: displays workspace/project information in a formatted dashboard view.
+//! About command: displays workspace/project identity card.
+//! Dashboard command: comprehensive project health page.
 //!
 //! Split into submodules by responsibility (CQ-001):
 //! - `text_util`: formatting, padding, truncation, wrapping
 //! - `cards`: crate card rendering and grid layout
 //! - `query`: data fetching from DuckDB/providers
-//! - `format`: section formatters for the dashboard output
+//! - `format`: section formatters shared by about and dashboard
+//! - `dashboard`: dashboard orchestration and new section formatters
 
 pub(crate) mod cards;
+pub mod dashboard;
 pub(crate) mod format;
 pub(crate) mod query;
 pub(crate) mod text_util;
@@ -15,22 +18,17 @@ use cargo_ops_cargo_toml::CargoToml;
 use cargo_ops_extension::Context;
 
 use format::AboutContext;
-use query::{
-    maybe_spinner, query_coverage_data, query_deps_data, query_deps_tree_data, query_loc_data,
-    query_updates_data, resolve_member_globs,
-};
+use query::{query_loc_data, resolve_member_globs};
+
+pub use dashboard::{run_dashboard, DashboardOptions};
 
 /// Options for the about command display.
 pub struct AboutOptions {
-    pub show_crates: bool,
-    pub show_deps_tree: bool,
-    pub show_coverage: bool,
-    pub show_update: bool,
-    /// Force re-collection of data (drop cached DuckDB tables).
+    /// Force re-collection of data (ignores cached results).
     pub refresh: bool,
 }
 
-/// Run the about command, displaying workspace information.
+/// Run the about command, displaying a quick project identity card.
 ///
 /// Uses `Config::default()` intentionally — the about command only needs
 /// extension data providers (cargo_toml), not user-configured commands or themes.
@@ -48,9 +46,6 @@ pub fn run_about(
     }
 
     let value = ctx.get_or_provide("cargo_toml", data_registry)?;
-    // EFF-003: Clone required — serde_json::from_value() consumes the Value.
-    // The Arc<Value> cache enables sharing across providers, so the clone is the
-    // cost of that sharing. Negligible for single-invocation CLI usage.
     let mut manifest: CargoToml = serde_json::from_value((*value).clone())?;
 
     // Expand workspace member globs (e.g. "crates/*") to actual directory paths
@@ -59,46 +54,11 @@ pub fn run_about(
     }
 
     let loc_data = query_loc_data(&manifest, &mut ctx, data_registry);
-    let deps_data = if opts.show_crates {
-        query_deps_data(&mut ctx, data_registry)
-    } else {
-        None
-    };
-    let deps_tree = if opts.show_deps_tree {
-        query_deps_tree_data(&mut ctx, data_registry)
-    } else {
-        None
-    };
-    let coverage_data = if opts.show_coverage {
-        let spinner = maybe_spinner("Collecting coverage data\u{2026}");
-        let result = query_coverage_data(&manifest, &cwd, &mut ctx, data_registry);
-        if let Some(sp) = spinner {
-            sp.finish_and_clear();
-        }
-        result
-    } else {
-        None
-    };
-    let updates_data = if opts.show_update {
-        let spinner = maybe_spinner("Checking for dependency updates\u{2026}");
-        let result = query_updates_data(&mut ctx, data_registry);
-        if let Some(sp) = spinner {
-            sp.finish_and_clear();
-        }
-        result
-    } else {
-        None
-    };
 
     let output = format::format_about(&AboutContext {
         manifest: &manifest,
         cwd: &cwd,
         loc_data: loc_data.as_ref(),
-        deps_data: deps_data.as_ref(),
-        show_crates: opts.show_crates,
-        deps_tree: deps_tree.as_ref(),
-        coverage_data: coverage_data.as_ref(),
-        updates_data: updates_data.as_ref(),
     });
 
     println!("{}", output);
@@ -119,7 +79,7 @@ cargo_ops_extension::impl_extension! {
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: cargo_ops_extension::ExtensionType::DATASOURCE | cargo_ops_extension::ExtensionType::COMMAND,
-    command_names: &["about"],
+    command_names: &["about", "dashboard"],
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_commands: |_self, registry| {
         use cargo_ops_core::config::ExecCommandSpec;
@@ -1241,15 +1201,10 @@ mod tests {
             manifest: &manifest,
             cwd: &cwd,
             loc_data: None,
-            deps_data: None,
-            show_crates: false,
-            deps_tree: None,
-            coverage_data: None,
-            updates_data: None,
         };
         let output = format_about(&ctx);
         assert!(output.contains("workspace")); // header present
-        assert!(!output.contains("CRATES")); // show_crates is false
+        assert!(!output.contains("CRATES"));
         assert!(!output.contains("DEPENDENCIES"));
         assert!(!output.contains("UPDATES"));
     }
@@ -1269,34 +1224,10 @@ mod tests {
             manifest: &manifest,
             cwd: &cwd,
             loc_data: Some(&loc_data),
-            deps_data: None,
-            show_crates: false,
-            deps_tree: None,
-            coverage_data: None,
-            updates_data: None,
         };
         let output = format_about(&ctx);
         assert!(output.contains("2,500"));
         assert!(output.contains("file"));
-    }
-
-    #[test]
-    fn format_about_with_show_crates_empty_members() {
-        let manifest = test_workspace_manifest(vec![]);
-        let cwd = std::path::PathBuf::from("/test");
-        let ctx = AboutContext {
-            manifest: &manifest,
-            cwd: &cwd,
-            loc_data: None,
-            deps_data: None,
-            show_crates: true,
-            deps_tree: None,
-            coverage_data: None,
-            updates_data: None,
-        };
-        let output = format_about(&ctx);
-        // show_crates is true but no members, so no CRATES section
-        assert!(!output.contains("CRATES"));
     }
 
     #[test]
