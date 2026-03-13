@@ -160,21 +160,22 @@ pub enum CoreSubcommand {
         #[command(subcommand)]
         action: ExtensionAction,
     },
-    /// Display workspace/project information.
+    /// Display workspace/project identity card.
     #[cfg(feature = "stack-rust")]
     About {
-        /// Show per-crate cards with LOC and dep counts.
+        /// Force re-collection of data (ignores cached results).
         #[arg(long)]
-        crates: bool,
-        /// Show per-crate dependency tree.
+        refresh: bool,
+    },
+    /// Display comprehensive project health dashboard.
+    #[cfg(feature = "stack-rust")]
+    Dashboard {
+        /// Skip test coverage collection.
         #[arg(long)]
-        dependencies: bool,
-        /// Show per-crate test coverage.
+        skip_coverage: bool,
+        /// Skip dependency update check.
         #[arg(long)]
-        coverage: bool,
-        /// Show available dependency updates (runs cargo update --dry-run).
-        #[arg(long)]
-        update: bool,
+        skip_updates: bool,
         /// Force re-collection of data (ignores cached results).
         #[arg(long)]
         refresh: bool,
@@ -283,23 +284,27 @@ fn run() -> anyhow::Result<ExitCode> {
         Some(CoreSubcommand::Theme { action }) => run_theme(action)?,
         Some(CoreSubcommand::Extension { action }) => run_extension(action)?,
         #[cfg(feature = "stack-rust")]
-        Some(CoreSubcommand::About {
-            crates,
-            dependencies,
-            coverage,
-            update,
+        Some(CoreSubcommand::About { refresh }) => {
+            let (config, cwd) = load_config_and_cwd()?;
+            let registry = crate::registry::build_data_registry(&config, &cwd)?;
+            let opts = cargo_ops_about::AboutOptions { refresh };
+            cargo_ops_about::run_about(&registry, &opts)?;
+        }
+        #[cfg(feature = "stack-rust")]
+        Some(CoreSubcommand::Dashboard {
+            skip_coverage,
+            skip_updates,
             refresh,
         }) => {
             let (config, cwd) = load_config_and_cwd()?;
             let registry = crate::registry::build_data_registry(&config, &cwd)?;
-            let opts = cargo_ops_about::AboutOptions {
-                show_crates: crates,
-                show_deps_tree: dependencies,
-                show_coverage: coverage,
-                show_update: update,
+            let tools = cargo_ops_tools::collect_tools(&config.tools);
+            let opts = cargo_ops_about::DashboardOptions {
+                skip_coverage,
+                skip_updates,
                 refresh,
             };
-            cargo_ops_about::run_about(&registry, &opts)?;
+            cargo_ops_about::run_dashboard(&registry, &opts, &tools)?;
         }
         Some(CoreSubcommand::Tools { action }) => {
             #[cfg(feature = "stack-rust")]

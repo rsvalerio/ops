@@ -17,11 +17,6 @@ pub(crate) struct AboutContext<'a> {
     pub(crate) manifest: &'a CargoToml,
     pub(crate) cwd: &'a std::path::Path,
     pub(crate) loc_data: Option<&'a super::query::LocData>,
-    pub(crate) deps_data: Option<&'a super::query::DepsData>,
-    pub(crate) show_crates: bool,
-    pub(crate) deps_tree: Option<&'a DepsTreeData>,
-    pub(crate) coverage_data: Option<&'a CoverageData>,
-    pub(crate) updates_data: Option<&'a UpdatesData>,
 }
 
 pub(crate) fn format_about(ctx: &AboutContext<'_>) -> String {
@@ -29,46 +24,19 @@ pub(crate) fn format_about(ctx: &AboutContext<'_>) -> String {
         manifest,
         cwd,
         loc_data,
-        deps_data,
-        show_crates,
-        deps_tree,
-        coverage_data,
-        updates_data,
     } = ctx;
     let project_loc = loc_data.map(|d| d.project_total);
     let project_file_count = loc_data.map(|d| d.project_file_count);
-    let crate_locs = loc_data
-        .filter(|d| !d.per_crate.is_empty())
-        .map(|d| &d.per_crate);
-    let crate_file_counts = loc_data
-        .filter(|d| !d.per_crate_files.is_empty())
-        .map(|d| &d.per_crate_files);
-    let crate_deps = deps_data
-        .filter(|d| !d.per_crate.is_empty())
-        .map(|d| &d.per_crate);
 
     let mut lines = Vec::new();
 
     lines.extend(format_header(&manifest.package));
     lines.extend(format_description(&manifest.package));
     lines.extend(format_workspace_info(
-        manifest,
-        cwd,
-        project_loc,
-        project_file_count,
-        *coverage_data,
+        manifest, cwd, project_loc, project_file_count, None,
     ));
-    if *show_crates {
-        lines.extend(format_crates_section(
-            manifest,
-            cwd,
-            crate_locs,
-            crate_file_counts,
-            crate_deps,
-        ));
-    }
-    lines.extend(format_dependencies_section(manifest, *deps_tree));
-    lines.extend(format_updates_section(*updates_data));
+    lines.extend(format_authors(&manifest.package));
+    lines.extend(format_repository(&manifest.package));
 
     lines.join("\n")
 }
@@ -230,7 +198,49 @@ pub(crate) fn format_coverage_table(
     table.to_string()
 }
 
-fn format_crates_section(
+pub(crate) fn format_authors(root_pkg: &Option<cargo_ops_cargo_toml::Package>) -> Vec<String> {
+    let authors = root_pkg
+        .as_ref()
+        .and_then(|p| p.authors.value())
+        .filter(|a| !a.is_empty());
+
+    match authors {
+        Some(list) => {
+            let is_tty = io::stdout().is_terminal();
+            let mut lines = vec![String::new()];
+            let label = if list.len() == 1 {
+                "author"
+            } else {
+                "authors"
+            };
+            lines.push(format!(
+                "  \u{25b8} {}      {}",
+                label,
+                tty_style(&list.join(", "), dim, is_tty)
+            ));
+            lines
+        }
+        None => vec![],
+    }
+}
+
+pub(crate) fn format_repository(root_pkg: &Option<cargo_ops_cargo_toml::Package>) -> Vec<String> {
+    match root_pkg.as_ref().and_then(|p| p.repository.as_str()) {
+        Some(url) => {
+            let is_tty = io::stdout().is_terminal();
+            vec![
+                String::new(),
+                format!(
+                    "  \u{25b8} repository  {}",
+                    tty_style(url, dim, is_tty)
+                ),
+            ]
+        }
+        None => vec![],
+    }
+}
+
+pub(crate) fn format_crates_section(
     manifest: &CargoToml,
     workspace_root: &std::path::Path,
     crate_locs: Option<&HashMap<String, i64>>,

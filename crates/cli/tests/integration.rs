@@ -474,6 +474,37 @@ timeout_secs = 5
     );
 }
 
+// -- About / Dashboard smoke tests --
+
+#[test]
+fn cli_about_shows_header() {
+    cargo_ops()
+        .arg("about")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cargo-ops"));
+}
+
+#[test]
+fn cli_about_refresh_flag() {
+    cargo_ops()
+        .arg("about")
+        .arg("--refresh")
+        .assert()
+        .success();
+}
+
+#[test]
+fn cli_dashboard_shows_sections() {
+    cargo_ops()
+        .arg("dashboard")
+        .arg("--skip-coverage")
+        .arg("--skip-updates")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cargo-ops"));
+}
+
 // -- TQ-017: Malformed .ops.d/ handling --
 
 #[test]

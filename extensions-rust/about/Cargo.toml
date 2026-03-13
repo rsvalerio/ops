@@ -10,6 +10,7 @@ cargo-ops-extension = { workspace = true, features = ["duckdb"] }
 cargo-ops-duckdb = { workspace = true }
 cargo-ops-cargo-toml = { workspace = true }
 cargo-ops-cargo-update = { workspace = true }
+cargo-ops-tools = { workspace = true }
 duckdb = "1.4"
 serde_json = { workspace = true }
 anyhow = { workspace = true }

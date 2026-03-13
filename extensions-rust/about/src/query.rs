@@ -50,6 +50,13 @@ pub(crate) struct UpdatesData {
     pub(crate) result: cargo_ops_cargo_update::CargoUpdateResult,
 }
 
+/// Per-language LOC breakdown for the CODE STATISTICS section.
+pub(crate) struct LanguageStat {
+    pub(crate) language: String,
+    pub(crate) loc: i64,
+    pub(crate) file_count: i64,
+}
+
 /// Create a spinner on stderr if the terminal is interactive.
 pub(crate) fn maybe_spinner(message: &str) -> Option<indicatif::ProgressBar> {
     if !std::io::stderr().is_terminal() {
@@ -242,4 +249,49 @@ pub(crate) fn query_updates_data(
     let result: cargo_ops_cargo_update::CargoUpdateResult =
         serde_json::from_value((*value).clone()).ok()?;
     Some(UpdatesData { result })
+}
+
+pub(crate) fn query_language_stats(
+    ctx: &mut Context,
+    data_registry: &cargo_ops_extension::DataRegistry,
+) -> Option<Vec<LanguageStat>> {
+    if let Err(e) = ctx.get_or_provide("duckdb", data_registry) {
+        tracing::debug!("language_stats: duckdb provider failed: {e:#}");
+        return None;
+    }
+    if let Err(e) = ctx.get_or_provide("tokei", data_registry) {
+        tracing::debug!("language_stats: tokei provider failed: {e:#}");
+        return None;
+    }
+
+    let db = get_db(ctx)?;
+    let conn = db.lock().ok()?;
+
+    let mut stmt = match conn.prepare(
+        "SELECT language, SUM(code) as loc, COUNT(*) as file_count \
+         FROM tokei_files GROUP BY language ORDER BY loc DESC",
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::debug!("language_stats: prepare failed (table may not exist): {e:#}");
+            return None;
+        }
+    };
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(LanguageStat {
+                language: row.get(0)?,
+                loc: row.get(1)?,
+                file_count: row.get(2)?,
+            })
+        })
+        .ok()?;
+
+    let stats: Vec<LanguageStat> = rows.filter_map(|r| r.ok()).collect();
+    if stats.is_empty() {
+        None
+    } else {
+        Some(stats)
+    }
 }
