@@ -192,11 +192,15 @@ fn format_language_stats_section(stats: Option<&[LanguageStat]>) -> Vec<String> 
         table.add_row(vec![
             Cell::new(&stat.language),
             Cell::new(&loc_str),
-            Cell::new(&format_number(stat.file_count)),
+            Cell::new(format_number(stat.file_count)),
         ]);
     }
 
-    let mut lines = vec![String::new(), "  CODE STATISTICS".to_string(), String::new()];
+    let mut lines = vec![
+        String::new(),
+        "  CODE STATISTICS".to_string(),
+        String::new(),
+    ];
     lines.extend(table.to_string().lines().map(|l| format!("    {l}")));
     lines
 }

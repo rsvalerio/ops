@@ -33,7 +33,11 @@ pub(crate) fn format_about(ctx: &AboutContext<'_>) -> String {
     lines.extend(format_header(&manifest.package));
     lines.extend(format_description(&manifest.package));
     lines.extend(format_workspace_info(
-        manifest, cwd, project_loc, project_file_count, None,
+        manifest,
+        cwd,
+        project_loc,
+        project_file_count,
+        None,
     ));
     lines.extend(format_authors(&manifest.package));
     lines.extend(format_repository(&manifest.package));
@@ -208,11 +212,7 @@ pub(crate) fn format_authors(root_pkg: &Option<cargo_ops_cargo_toml::Package>) -
         Some(list) => {
             let is_tty = io::stdout().is_terminal();
             let mut lines = vec![String::new()];
-            let label = if list.len() == 1 {
-                "author"
-            } else {
-                "authors"
-            };
+            let label = if list.len() == 1 { "author" } else { "authors" };
             lines.push(format!(
                 "  \u{25b8} {}      {}",
                 label,
@@ -230,10 +230,7 @@ pub(crate) fn format_repository(root_pkg: &Option<cargo_ops_cargo_toml::Package>
             let is_tty = io::stdout().is_terminal();
             vec![
                 String::new(),
-                format!(
-                    "  \u{25b8} repository  {}",
-                    tty_style(url, dim, is_tty)
-                ),
+                format!("  \u{25b8} repository  {}", tty_style(url, dim, is_tty)),
             ]
         }
         None => vec![],

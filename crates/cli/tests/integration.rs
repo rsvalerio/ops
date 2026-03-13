@@ -474,9 +474,10 @@ timeout_secs = 5
     );
 }
 
-// -- About / Dashboard smoke tests --
+// -- About / Dashboard smoke tests (require stack-rust; run with --features stack-rust) --
 
 #[test]
+#[cfg_attr(not(feature = "stack-rust"), ignore)]
 fn cli_about_shows_header() {
     cargo_ops()
         .arg("about")
@@ -486,15 +487,13 @@ fn cli_about_shows_header() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "stack-rust"), ignore)]
 fn cli_about_refresh_flag() {
-    cargo_ops()
-        .arg("about")
-        .arg("--refresh")
-        .assert()
-        .success();
+    cargo_ops().arg("about").arg("--refresh").assert().success();
 }
 
 #[test]
+#[cfg_attr(not(feature = "stack-rust"), ignore)]
 fn cli_dashboard_shows_sections() {
     cargo_ops()
         .arg("dashboard")
