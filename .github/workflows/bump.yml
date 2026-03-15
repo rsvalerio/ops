@@ -40,4 +40,4 @@ jobs:
       #   post_bump_hooks: git push + git push origin <tag>
       # See cog.toml for hook definitions.
       - name: Run cog bump --auto
-        run: cog bump --auto -vvv
+        run: cog -vvv bump --auto
