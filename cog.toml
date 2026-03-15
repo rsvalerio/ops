@@ -20,7 +20,7 @@ post_bump_hooks = [
     # push Changelog and Cargo.toml changes to the remote repository
     "git push",
     # push the new tag to the remote repository
-    "git push origin {{version}}",
+    "git push origin v{{version}}",
 ]
 
 [changelog]
