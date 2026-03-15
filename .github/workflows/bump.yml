@@ -1,0 +1,52 @@
+name: Bump
+permissions:
+  contents: write
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches:
+      - main
+
+jobs:
+  release:
+    name: Bump
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'rsvalerio' && github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      # Used in pre_bump_hooks to set the version in Cargo.toml
+      - name: Install cargo-edit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-edit
+
+      # Only bump when feat/fix commits exist since last tag.
+      # Other commit types (docs, chore, etc.) still appear in the changelog
+      # on the next release — cog includes all commits since the last tag.
+      - name: Check for bump-worthy commits
+        id: check
+        run: |
+          if cog log | grep -qE '^(feat|fix)'; then
+            echo "should_bump=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_bump=false" >> "$GITHUB_OUTPUT"
+            echo "No feat/fix commits since last tag — skipping bump"
+          fi
+
+      # cog bump --auto: determines version from conventional commits, then runs:
+      #   pre_bump_hooks:  cargo set-version (updates Cargo.toml)
+      #   post_bump_hooks: git push + git push origin <tag>
+      # See cog.toml for hook definitions.
+      - name: Bump version, update and push CHANGELOG.md and Cargo.toml, and create tag
+        if: steps.check.outputs.should_bump == 'true'
+        run: |
+          cog bump --auto

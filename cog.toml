@@ -1,0 +1,47 @@
+# Cocogitto configuration for cargo-ops
+# Handles version bumping, changelog generation, and git tagging
+
+from_latest_tag = true
+ignore_merge_commits = true
+skip_untracked = true
+
+tag_prefix = "v"
+
+# To avoid infinite loops
+skip_ci = "[skip ci]"
+
+pre_bump_hooks = [
+  # uses cargo-edit's set-version command to set the version in Cargo.toml in the pre_bump_hooks
+  # its installed with cargo-edit with taiki-e/install-action
+  "cargo set-version {{version}}",
+]
+
+post_bump_hooks = [
+    # push Changelog and Cargo.toml changes to the remote repository
+    "git push",
+    # push the new tag to the remote repository
+    "git push origin {{version}}",
+]
+
+[changelog]
+path = "CHANGELOG.md"
+template = "remote"
+remote = "github.com"
+repository = "cargo-ops"
+owner = "rsvalerio"
+authors = [
+  { signature = "Rodrigo Valeri", username = "rsvalerio" },
+]
+
+[commit_types]
+feat = { changelog_title = "🚀 Features", omit_from_changelog = false }
+fix = { changelog_title = "🐛 Bug Fixes", omit_from_changelog = false }
+doc = { changelog_title = "📚 Documentation", omit_from_changelog = false }
+docs = { changelog_title = "📚 Documentation", omit_from_changelog = false }
+perf = { changelog_title = "⚡ Performance", omit_from_changelog = false }
+refactor = { changelog_title = "🚜 Refactoring", omit_from_changelog = false }
+style = { changelog_title = "🎨 Styling", omit_from_changelog = false }
+test = { changelog_title = "🧪 Testing", omit_from_changelog = false }
+build = { changelog_title = "🔧 Build System", omit_from_changelog = false }
+ci = { changelog_title = "🔄 CI/CD", omit_from_changelog = false }
+chore = { changelog_title = "⚙️ Miscellaneous", omit_from_changelog = false }

@@ -2,7 +2,7 @@
 
 This project uses automated release management with two tools:
 
-- **[release-plz](https://release-plz.dev/)** - Handles version bumps, changelog generation, and git tags
+- **[cocogitto](https://docs.cocogitto.io/)** - Handles version bumps, changelog generation, and git tags based on conventional commits
 - **[cargo-dist](https://opensource.axo.dev/cargo-dist/)** - Builds binaries, creates GitHub releases, and publishes to package managers
 
 ## How It Works
@@ -12,14 +12,17 @@ This project uses automated release management with two tools:
 │                              Release Workflow                               │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  1. Conventional Commits    2. Release PR         3. Binary Release         │
-│  ────────────────────────   ─────────────────     ─────────────────         │
+│  1. Conventional Commits    2. Release Gate          3. Binary Release      │
+│  ────────────────────────   ──────────────────       ─────────────────      │
 │                                                                             │
-│  feat: add new command  ──► release-plz creates ──► Merge PR ──► Tag pushed │
-│  fix: resolve crash         PR with:                             │          │
-│  docs: update readme        • Version bump                       ▼          │
-│                             • CHANGELOG update         cargo-dist:          │
-│                                                        • GitHub release     │
+│  feat: add new command  ──► CI checks for feat/fix ──► cog bump --auto      │
+│  fix: resolve crash         commits since last tag      • CHANGELOG update  │
+│  docs: update readme        │                           • Cargo.toml bump   │
+│  chore: update deps         │ feat/fix found?           • Git tag           │
+│                             │  yes ──► bump + release       │               │
+│                             │  no  ──► skip (commits        ▼               │
+│                             │         accumulate for   cargo-dist           │
+│                             │         next release)    • GitHub release     │
 │                                                        • macOS binaries     │
 │                                                        • Linux binaries     │
 │                                                        • Shell installer    │
@@ -48,14 +51,15 @@ This project uses [Conventional Commits](https://www.conventionalcommits.org/) t
 |------|-------------|--------------|
 | `feat` | New feature | Minor (0.1.0 → 0.2.0) |
 | `fix` | Bug fix | Patch (0.1.0 → 0.1.1) |
-| `docs` | Documentation only | Patch |
-| `style` | Code style (formatting, etc.) | Patch |
-| `refactor` | Code refactoring | Patch |
-| `perf` | Performance improvement | Patch |
-| `test` | Adding/updating tests | Patch |
-| `build` | Build system changes | Patch |
-| `ci` | CI configuration changes | Patch |
-| `chore` | Maintenance tasks | Patch |
+| `doc` | Documentation only | No bump (included in next changelog) |
+| `docs` | Documentation only | No bump (included in next changelog) |
+| `style` | Code style (formatting, etc.) | No bump (included in next changelog) |
+| `refactor` | Code refactoring | No bump (included in next changelog) |
+| `perf` | Performance improvement | No bump (included in next changelog) |
+| `test` | Adding/updating tests | No bump (included in next changelog) |
+| `build` | Build system changes | No bump (included in next changelog) |
+| `ci` | CI configuration changes | No bump (included in next changelog) |
+| `chore` | Maintenance tasks | No bump (included in next changelog) |
 
 ### Breaking Changes
 
@@ -75,6 +79,8 @@ Breaking changes trigger a **major** version bump (0.x.x → 1.0.0 or 1.x.x → 
 
 ### Examples
 
+Using `git commit`:
+
 ```bash
 # Feature (minor bump)
 git commit -m "feat: add parallel command execution"
@@ -85,54 +91,65 @@ git commit -m "feat(cli): add --verbose flag"
 # Bug fix (patch bump)
 git commit -m "fix: prevent crash on empty config"
 
-# Documentation (patch bump)
+# Documentation (no bump, included in next changelog)
 git commit -m "docs: add installation instructions"
 
 # Breaking change (major bump)
 git commit -m "feat!: require explicit stack selection"
 ```
 
+Or using `cog commit` for guided semantic commits (validates format automatically):
+
+```bash
+# Feature (minor bump)
+cog commit feat "add parallel command execution"
+
+# Feature with scope (minor bump)
+cog commit feat(cli) "add --verbose flag"
+
+# Bug fix (patch bump)
+cog commit fix "prevent crash on empty config"
+
+# Documentation (no bump, included in next changelog)
+cog commit docs "add installation instructions"
+```
+
 ## Creating a Release
 
-Releases are automated. Here's the workflow:
+Releases are fully automated:
 
-### 1. Merge Changes to Main
+### 1. Push Commits to Main
 
-Push commits with conventional commit messages to the `main` branch:
+Use conventional commit messages:
 
 ```bash
 git commit -m "feat: add new theme option"
 git push origin main
 ```
 
-### 2. Review the Release PR
+### 2. Automatic Version Bump
 
-After pushing to `main`, release-plz automatically creates or updates a Release PR with:
-- Updated version in `Cargo.toml`
-- Updated `CHANGELOG.md`
-
-Review the PR to verify:
-- The version bump is correct
-- The changelog entries are accurate
-
-### 3. Merge the Release PR
-
-When you merge the Release PR:
-1. release-plz creates a git tag (e.g., `v0.2.0`)
-2. The tag triggers cargo-dist's release workflow
-3. cargo-dist creates the GitHub release, builds binaries, and publishes everywhere
+After CI passes on `main`, cocogitto runs `cog bump --auto` which:
+1. Analyzes conventional commits since the last tag
+2. Determines the appropriate version bump (major/minor/patch)
+3. **pre_bump_hooks**: runs `cargo set-version` to update `Cargo.toml`
+4. Updates `CHANGELOG.md`, creates a version commit and git tag (e.g., `v0.2.0`)
+5. **post_bump_hooks**: pushes the commit and tag to remote, which triggers cargo-dist
 
 ### Manual Release (Emergency)
 
-If you need to release manually without the PR workflow:
+If you need to release manually:
 
 ```bash
-# Update version in Cargo.toml
-# Update CHANGELOG.md
-git add -A
-git commit -m "chore(release): prepare v0.2.0"
-git tag v0.2.0
-git push origin main --tags
+# Install cocogitto and cargo-edit
+cargo install cocogitto cargo-edit
+
+# Bump automatically based on commits
+# post_bump_hooks handle git push + tag push
+cog bump --auto
+
+# Or bump to a specific version
+cog bump --version 0.2.0
 ```
 
 ## Supported Platforms
@@ -145,18 +162,18 @@ git push origin main --tags
 ## Installers Generated
 
 - **Shell script** - `curl`-based installer for Unix systems
-- **Homebrew formula** - Published to `rsvalerio/homebrew-tap` (install with `brew install ops`)
+- **Homebrew formula** - `brew install rsvalerio/tap/ops` (repository: `rsvalerio/homebrew-tap`). 
+  - Alternative two step install: 
+    ```bash
+       brew tap rsvalerio/tap; \
+       brew install ops
+    ```
 
 ## Setup Requirements
 
 ### GitHub Actions Permissions
 
-For release-plz to create Release PRs:
-
-1. Go to repo **Settings → Actions → General**
-2. Under "Workflow permissions":
-   - Select "Read and write permissions"
-   - Enable "Allow GitHub Actions to create and approve pull requests"
+The release workflow needs a `RELEASE_TOKEN` (Personal Access Token) with `contents: write` permission to push tags and version commits.
 
 ### HOMEBREW_TAP_TOKEN
 
@@ -191,17 +208,24 @@ When your token expires:
 
 ## Configuration Files
 
-### release-plz.toml
+### cog.toml
 
-Controls version bumping and changelog generation:
+Controls version bumping, changelog generation, and tagging:
 
 ```toml
-[workspace]
-publish = false              # Don't publish to crates.io
-changelog_update = true      # Update CHANGELOG.md
-changelog_path = "./CHANGELOG.md"
-changelog_config = "cliff.toml"
-git_release_enable = false   # GitHub releases handled by cargo-dist
+from_latest_tag = true
+tag_prefix = "v"                   # Tag format: v0.2.0
+
+# Runs cargo-edit to set version in Cargo.toml before bump commit
+pre_bump_hooks = [
+  "cargo set-version {{version}}",
+]
+
+# Pushes commit and tag to remote after bump
+post_bump_hooks = [
+  "git push",
+  "git push origin {{version}}",
+]
 ```
 
 ### dist-workspace.toml
@@ -226,15 +250,15 @@ dist generate
 
 ## Troubleshooting
 
-### Release PR not created
+### No version bump after push
 
-- Check that commits use conventional commit format
-- Verify GitHub Actions has permission to create PRs
-- Check the `release-plz-pr` job logs
+- Check that commits use conventional commit format (`feat:`, `fix:`, etc.)
+- Run `cog check` locally to validate commit history
+- Check the `release` job logs in GitHub Actions
 
 ### Version not bumped correctly
 
-release-plz uses these rules:
+Cocogitto uses these rules:
 - `feat` → minor bump
 - `fix`, `docs`, `refactor`, etc. → patch bump
 - `BREAKING CHANGE` or `!` → major bump
