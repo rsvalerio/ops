@@ -27,7 +27,7 @@ jobs:
       - name: Install cargo-edit
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-edit
+          tool: cargo-edit,cocogitto
 
       # Only bump when feat/fix commits exist since last tag.
       # Other commit types (docs, chore, etc.) still appear in the changelog
