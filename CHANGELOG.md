@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.2.0](https://github.com/rsvalerio/cargo-ops/compare/886d1d668d2f1555b786dc6744c6d6836091b47e..v0.2.0) - 2026-03-15
+#### 🚀 Features
+- enhance `init` command to support section flags for output, themes, and commands - ([886d1d6](https://github.com/rsvalerio/cargo-ops/commit/886d1d668d2f1555b786dc6744c6d6836091b47e)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.1.0](https://github.com/rsvalerio/cargo-ops/compare/d14be6022c65611539891e7d228d142eda49e6eb..v0.1.0) - 2026-03-15
 #### 📚 Documentation
 - update docs for humans and agents - ([a3abefb](https://github.com/rsvalerio/cargo-ops/commit/a3abefb0420debe11f1537c71e3418a8454a4d36)) - [@rsvalerio](https://github.com/rsvalerio)

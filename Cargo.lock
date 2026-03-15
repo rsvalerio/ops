@@ -454,7 +454,7 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "cargo-ops"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -486,7 +486,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ops-about"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cargo-ops-cargo-toml",
@@ -506,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ops-cargo-toml"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cargo-ops-core",
@@ -520,7 +520,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ops-cargo-update"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cargo-ops-core",
@@ -531,7 +531,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ops-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bitflags",
@@ -553,7 +553,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ops-duckdb"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cargo-ops-core",
@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ops-extension"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bitflags",
@@ -584,7 +584,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ops-metadata"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cargo-ops-core",
@@ -599,7 +599,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ops-runner"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cargo-ops-core",
@@ -618,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ops-test-coverage"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cargo-ops-core",
@@ -633,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ops-theme"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cargo-ops-core",
  "indexmap",
@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ops-tokei"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cargo-ops-core",
@@ -661,7 +661,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ops-tools"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cargo-ops-core",
