@@ -7,11 +7,17 @@ An opinionated, batteries-included Rust development CLI. Zero config, maximum qu
 ### Homebrew (macOS and Linux)
 
 ```bash
+# 1. oneliner 
+brew install rsvalerio/tap/ops
+
+# 2. add tap then install 
 brew tap rsvalerio/tap
 brew install ops
 ```
 
 ### From source
+
+> When running locally (no crates going to cates.io)
 
 ```bash
 cargo install cargo-ops
@@ -58,15 +64,18 @@ Commands come from merged config: internal default (when no local file) → glob
 
 ## Contributing
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/). Please format your commit messages as:
+This project uses [Conventional Commits](https://www.conventionalcommits.org/). Only `feat` and `fix` commits trigger a release; all other types are included in the next changelog.
 
-```
-feat: add new feature
-fix: resolve bug
-docs: update documentation
+```bash
+git commit -m "feat: add new feature"
+git commit -m "fix: resolve bug"
+
+# Or use cocogitto for guided semantic commits
+cog commit feat "add new feature"
+cog commit fix "resolve bug"
 ```
 
-See [docs/releasing.md](docs/releasing.md) for the full commit type reference.
+See [docs/releasing.md](docs/releasing.md) for the full commit type reference, breaking changes, and release workflow.
 
 ## Features
 
