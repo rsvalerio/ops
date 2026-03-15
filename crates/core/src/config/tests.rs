@@ -43,7 +43,8 @@ fn init_template_with_rust_stack_includes_commands() {
         "[package]\nname = \"x\"\nversion = \"0.1.0\"\n",
     )
     .expect("write Cargo.toml");
-    let content = init_template(dir.path()).expect("init_template must succeed");
+    let sections = InitSections::from_flags(true, true, true);
+    let content = init_template(dir.path(), &sections).expect("init_template must succeed");
     assert!(
         content.contains("[commands.build]"),
         "Rust stack init template must include [commands.build]"
@@ -65,7 +66,8 @@ fn init_template_with_rust_stack_includes_commands() {
 #[test]
 fn init_template_without_stack_omits_stack_commands() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let content = init_template(dir.path()).expect("init_template must succeed");
+    let sections = InitSections::from_flags(true, true, true);
+    let content = init_template(dir.path(), &sections).expect("init_template must succeed");
     assert!(
         content.contains("[output]"),
         "init template must include base [output]"

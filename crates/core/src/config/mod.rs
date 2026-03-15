@@ -210,17 +210,64 @@ pub fn default_ops_toml() -> &'static str {
     ))
 }
 
-/// Build merged init template: base config plus stack default commands when a stack is detected at `workspace_root`.
-/// Used by `cargo ops init` to write a stack-aware `.ops.toml`.
-pub fn init_template(workspace_root: &Path) -> anyhow::Result<String> {
-    let mut config: Config =
-        toml::from_str(default_ops_toml()).context("failed to parse internal default config")?;
-    if let Some(stack) = crate::stack::Stack::detect(workspace_root) {
-        for (id, spec) in stack.default_commands() {
-            config.commands.insert(id, spec);
+/// Controls which sections are included in `ops init` output.
+#[derive(Debug, Clone)]
+pub struct InitSections {
+    pub output: bool,
+    pub themes: bool,
+    pub commands: bool,
+}
+
+impl InitSections {
+    /// Build from CLI flags. When no flags are given, default to output-only.
+    pub fn from_flags(output: bool, themes: bool, commands: bool) -> Self {
+        if !output && !themes && !commands {
+            // No flags → minimal config with just output
+            Self {
+                output: true,
+                themes: false,
+                commands: false,
+            }
+        } else {
+            Self {
+                output,
+                themes,
+                commands,
+            }
         }
-        config.stack = Some(stack.as_str().to_string());
     }
+}
+
+/// Build init template with only the requested sections.
+///
+/// - `output`: include `[output]` settings
+/// - `themes`: include `[themes.*]` definitions
+/// - `commands`: include stack-detected `[commands.*]` and `stack` field
+///
+/// When no sections are requested (default), only output is included.
+pub fn init_template(workspace_root: &Path, sections: &InitSections) -> anyhow::Result<String> {
+    let full: Config =
+        toml::from_str(default_ops_toml()).context("failed to parse internal default config")?;
+
+    let mut config = Config::default();
+
+    if sections.output {
+        config.output = full.output;
+    }
+
+    if sections.themes {
+        config.themes = full.themes;
+    }
+
+    if sections.commands {
+        if let Some(stack) = crate::stack::Stack::detect(workspace_root) {
+            for (id, spec) in stack.default_commands() {
+                config.commands.insert(id, spec);
+            }
+            config.stack = Some(stack.as_str().to_string());
+        }
+    }
+
     toml::to_string_pretty(&config).context("failed to serialize init config")
 }
 

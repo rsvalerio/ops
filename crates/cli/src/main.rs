@@ -145,10 +145,23 @@ pub struct Cli {
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum CoreSubcommand {
     /// Create a default `.ops.toml` in the current directory.
+    ///
+    /// Without section flags, generates a minimal config with output settings only.
+    /// Use `--themes`, `--commands`, or `--output` to include specific sections.
+    /// When any section flag is given, only the requested sections are included.
     Init {
         /// Overwrite existing `.ops.toml` if present.
         #[arg(short, long)]
         force: bool,
+        /// Include output settings (theme, columns, error detail).
+        #[arg(long)]
+        output: bool,
+        /// Include built-in theme definitions (classic, compact).
+        #[arg(long)]
+        themes: bool,
+        /// Include stack-detected commands (e.g. build, test, verify).
+        #[arg(long)]
+        commands: bool,
     },
     /// Manage output themes.
     Theme {
@@ -280,7 +293,16 @@ fn run() -> anyhow::Result<ExitCode> {
     let cli = Cli::parse_from(effective_args);
 
     match cli.subcommand {
-        Some(CoreSubcommand::Init { force }) => run_init(force)?,
+        Some(CoreSubcommand::Init {
+            force,
+            output,
+            themes,
+            commands,
+        }) => {
+            let sections =
+                cargo_ops_core::config::InitSections::from_flags(output, themes, commands);
+            run_init(force, sections)?;
+        }
         Some(CoreSubcommand::Theme { action }) => run_theme(action)?,
         Some(CoreSubcommand::Extension { action }) => run_extension(action)?,
         #[cfg(feature = "stack-rust")]
@@ -355,11 +377,15 @@ fn print_help() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_init(force: bool) -> anyhow::Result<()> {
-    run_init_to(force, &mut std::io::stdout())
+fn run_init(force: bool, sections: cargo_ops_core::config::InitSections) -> anyhow::Result<()> {
+    run_init_to(force, sections, &mut std::io::stdout())
 }
 
-fn run_init_to(force: bool, w: &mut dyn Write) -> anyhow::Result<()> {
+fn run_init_to(
+    force: bool,
+    sections: cargo_ops_core::config::InitSections,
+    w: &mut dyn Write,
+) -> anyhow::Result<()> {
     let path = PathBuf::from(".ops.toml");
     if path.exists() && !force {
         tracing::warn!(
@@ -369,17 +395,21 @@ fn run_init_to(force: bool, w: &mut dyn Write) -> anyhow::Result<()> {
         return Ok(());
     }
     let cwd = std::env::current_dir()?;
-    let content = cargo_ops_core::config::init_template(&cwd)?;
+    let content = cargo_ops_core::config::init_template(&cwd, &sections)?;
     std::fs::write(&path, content)?;
     tracing::info!("created {}", path.display());
-    let stack = cargo_ops_core::stack::Stack::detect(&cwd);
-    if stack.is_some() {
-        writeln!(
-            w,
-            "Created .ops.toml with default commands for the detected stack. Run `cargo ops <command>` (e.g. cargo ops build, cargo ops verify)."
-        )?;
+    if sections.commands {
+        let stack = cargo_ops_core::stack::Stack::detect(&cwd);
+        if stack.is_some() {
+            writeln!(
+                w,
+                "Created .ops.toml with default commands for the detected stack. Run `cargo ops <command>` (e.g. cargo ops build, cargo ops verify)."
+            )?;
+        } else {
+            writeln!(w, "Created .ops.toml. Add commands in [commands.<name>] or run in a project with a detected stack, then run `cargo ops <command>`.")?;
+        }
     } else {
-        writeln!(w, "Created .ops.toml. Add commands in [commands.<name>] or run in a project with a detected stack, then run `cargo ops <command>`.")?;
+        writeln!(w, "Created .ops.toml with output settings. Use `ops init --commands --themes` to include more sections.")?;
     }
     Ok(())
 }
@@ -588,7 +618,7 @@ mod tests {
         let cli = Cli::parse_from(["ops", "init"]);
         assert!(matches!(
             cli.subcommand,
-            Some(CoreSubcommand::Init { force: false })
+            Some(CoreSubcommand::Init { force: false, .. })
         ));
     }
 
@@ -633,11 +663,35 @@ mod tests {
 
     // -- TQ-011: run_init (using CwdGuard) --
 
+    fn all_sections() -> cargo_ops_core::config::InitSections {
+        cargo_ops_core::config::InitSections::from_flags(true, true, true)
+    }
+
+    fn default_sections() -> cargo_ops_core::config::InitSections {
+        cargo_ops_core::config::InitSections::from_flags(false, false, false)
+    }
+
     #[test]
-    fn run_init_creates_ops_toml() {
+    fn run_init_creates_minimal_ops_toml() {
         let dir = tempfile::tempdir().expect("tempdir");
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
-        run_init(false).expect("run_init should succeed");
+        run_init(false, default_sections()).expect("run_init should succeed");
+        let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
+        assert!(
+            content.contains("[output]"),
+            "should contain output section"
+        );
+        assert!(
+            !content.contains("[themes.classic]"),
+            "default init should not contain themes"
+        );
+    }
+
+    #[test]
+    fn run_init_all_sections_includes_themes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
+        run_init(false, all_sections()).expect("run_init should succeed");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(
             content.contains("[output]"),
@@ -652,7 +706,7 @@ mod tests {
     #[test]
     fn run_init_no_overwrite_without_force() {
         let (dir, _guard) = crate::test_utils::with_temp_config("existing");
-        run_init(false).expect("run_init should succeed (noop)");
+        run_init(false, default_sections()).expect("run_init should succeed (noop)");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert_eq!(content, "existing", "file should not be overwritten");
     }
@@ -660,7 +714,7 @@ mod tests {
     #[test]
     fn run_init_force_overwrites() {
         let (dir, _guard) = crate::test_utils::with_temp_config("existing");
-        run_init(true).expect("run_init should succeed");
+        run_init(true, default_sections()).expect("run_init should succeed");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(
             content.contains("[output]"),
@@ -669,20 +723,20 @@ mod tests {
     }
 
     #[test]
-    fn run_init_to_output_message_no_stack() {
+    fn run_init_to_output_message_no_flags() {
         let dir = tempfile::tempdir().expect("tempdir");
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         let mut buf = Vec::new();
-        run_init_to(false, &mut buf).expect("run_init_to");
+        run_init_to(false, default_sections(), &mut buf).expect("run_init_to");
         let output = String::from_utf8(buf).unwrap();
         assert!(
-            output.contains("Created .ops.toml"),
-            "expected creation message, got: {output}"
+            output.contains("Created .ops.toml with output settings"),
+            "expected minimal message, got: {output}"
         );
     }
 
     #[test]
-    fn run_init_to_output_message_with_rust_stack() {
+    fn run_init_to_output_message_with_commands_and_rust_stack() {
         let dir = tempfile::tempdir().expect("tempdir");
         // Write a Cargo.toml so Stack::detect returns Some(Rust)
         std::fs::write(
@@ -692,7 +746,8 @@ mod tests {
         .unwrap();
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         let mut buf = Vec::new();
-        run_init_to(false, &mut buf).expect("run_init_to");
+        let sections = cargo_ops_core::config::InitSections::from_flags(true, false, true);
+        run_init_to(false, sections, &mut buf).expect("run_init_to");
         let output = String::from_utf8(buf).unwrap();
         assert!(
             output.contains("detected stack"),

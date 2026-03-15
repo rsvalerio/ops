@@ -112,7 +112,7 @@ fn cli_init_force_overwrites() {
 }
 
 #[test]
-fn cli_init_in_rust_project_writes_stack_commands() {
+fn cli_init_in_rust_project_with_commands_flag_writes_stack_commands() {
     let dir = temp_dir();
     std::fs::write(
         dir.path().join("Cargo.toml"),
@@ -121,7 +121,7 @@ fn cli_init_in_rust_project_writes_stack_commands() {
     .expect("write Cargo.toml");
 
     cargo_ops()
-        .arg("init")
+        .args(["init", "--commands"])
         .current_dir(dir.path())
         .assert()
         .success();
@@ -129,20 +129,20 @@ fn cli_init_in_rust_project_writes_stack_commands() {
     let content = read_ops_toml(dir.path());
     assert!(
         content.contains("[commands.build]"),
-        "init in Rust project must write [commands.build]"
+        "init --commands in Rust project must write [commands.build]"
     );
     assert!(
         content.contains("[commands.clippy]"),
-        "init in Rust project must write [commands.clippy]"
+        "init --commands in Rust project must write [commands.clippy]"
     );
     assert!(
         content.contains("[commands.verify]"),
-        "init in Rust project must write [commands.verify]"
+        "init --commands in Rust project must write [commands.verify]"
     );
 }
 
 #[test]
-fn cli_init_without_stack_writes_base_only() {
+fn cli_init_default_writes_minimal_output_only() {
     let dir = temp_dir();
 
     cargo_ops()
@@ -156,10 +156,35 @@ fn cli_init_without_stack_writes_base_only() {
         content.contains("[output]"),
         "init must write base [output]"
     );
-    // No stack detected: base template has no stack commands.
+    // Default init (no flags) should not include themes or commands.
+    assert!(
+        !content.contains("[themes.classic]"),
+        "default init should not include theme definitions"
+    );
     assert!(
         !content.contains("[commands.build]"),
-        "init without detected stack should not add Rust stack commands"
+        "default init should not add stack commands"
+    );
+}
+
+#[test]
+fn cli_init_with_themes_flag_includes_themes() {
+    let dir = temp_dir();
+
+    cargo_ops()
+        .args(["init", "--themes"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    let content = read_ops_toml(dir.path());
+    assert!(
+        content.contains("[themes.classic]"),
+        "init --themes must include classic theme"
+    );
+    assert!(
+        content.contains("[themes.compact]"),
+        "init --themes must include compact theme"
     );
 }
 
