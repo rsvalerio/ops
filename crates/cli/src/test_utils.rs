@@ -1,22 +1,22 @@
 //! CLI-specific test utilities.
 //!
-//! Re-exports shared helpers from cargo-ops-core and cargo-ops-runner,
+//! Re-exports shared helpers from ops-core and ops-runner,
 //! and adds CLI-specific ones (CwdGuard-based helpers, etc.).
 
 // Re-export shared test helpers from core
-pub use cargo_ops_core::test_utils::*;
+pub use ops_core::test_utils::*;
 
 // Re-export runner test support (EventAssertions, test_runner)
 #[cfg(test)]
 #[allow(unused_imports)]
-pub use cargo_ops_runner::test_support::{test_runner, EventAssertions};
+pub use ops_runner::test_support::{test_runner, EventAssertions};
 
 /// Create a test Context with default config and given path.
 #[cfg(test)]
 #[allow(dead_code)]
-pub fn test_context(path: std::path::PathBuf) -> cargo_ops_extension::Context {
+pub fn test_context(path: std::path::PathBuf) -> ops_extension::Context {
     use std::sync::Arc;
-    cargo_ops_extension::Context::new(Arc::new(cargo_ops_core::config::Config::default()), path)
+    ops_extension::Context::new(Arc::new(ops_core::config::Config::default()), path)
 }
 
 /// DUP-006: Register an extension and return both registries.
@@ -25,13 +25,10 @@ pub fn test_context(path: std::path::PathBuf) -> cargo_ops_extension::Context {
 #[cfg(test)]
 #[allow(dead_code)]
 pub fn register_extension(
-    ext: &dyn cargo_ops_extension::Extension,
-) -> (
-    cargo_ops_extension::CommandRegistry,
-    cargo_ops_extension::DataRegistry,
-) {
-    let mut cmd_registry = cargo_ops_extension::CommandRegistry::new();
-    let mut data_registry = cargo_ops_extension::DataRegistry::new();
+    ext: &dyn ops_extension::Extension,
+) -> (ops_extension::CommandRegistry, ops_extension::DataRegistry) {
+    let mut cmd_registry = ops_extension::CommandRegistry::new();
+    let mut data_registry = ops_extension::DataRegistry::new();
     ext.register_commands(&mut cmd_registry);
     ext.register_data_providers(&mut data_registry);
     (cmd_registry, data_registry)

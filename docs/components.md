@@ -1,6 +1,6 @@
 # Visual Component Catalog
 
-Reference for every visual element rendered by `cargo-ops` CLI output. Components are listed in render order.
+Reference for every visual element rendered by `ops` CLI output. Components are listed in render order.
 
 ---
 
@@ -274,7 +274,7 @@ All `[output]` knobs and the components they affect:
 | `output.columns` | `u16` | `80` | [2] Pending Step Line, [5] Separator Dots |
 | `output.show_error_detail` | `bool` | `true` | [7] Error Detail Box |
 
-**Config sources** (later overrides earlier): embedded default → global `~/.config/cargo-ops/config.toml` → local `.ops.toml` → environment `CARGO_OPS_*`.
+**Config sources** (later overrides earlier): embedded default → global `~/.config/ops/config.toml` → local `.ops.toml` → environment `CARGO_OPS_*`.
 
 ---
 

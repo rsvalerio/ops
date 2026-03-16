@@ -14,8 +14,8 @@ pub(crate) mod format;
 pub(crate) mod query;
 pub(crate) mod text_util;
 
-use cargo_ops_cargo_toml::CargoToml;
-use cargo_ops_extension::Context;
+use ops_cargo_toml::CargoToml;
+use ops_extension::Context;
 
 use format::AboutContext;
 use query::{query_loc_data, resolve_member_globs};
@@ -35,11 +35,11 @@ pub struct AboutOptions {
 ///
 /// Accepts a `DataRegistry` from the caller (the CLI crate builds the registry).
 pub fn run_about(
-    data_registry: &cargo_ops_extension::DataRegistry,
+    data_registry: &ops_extension::DataRegistry,
     opts: &AboutOptions,
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(cargo_ops_core::config::Config::default());
+    let config = std::sync::Arc::new(ops_core::config::Config::default());
     let mut ctx = Context::new(config, cwd.clone());
     if opts.refresh {
         ctx.refresh = true;
@@ -73,21 +73,21 @@ pub const DATA_PROVIDER_NAME: &str = "about";
 
 pub struct AboutExtension;
 
-cargo_ops_extension::impl_extension! {
+ops_extension::impl_extension! {
     AboutExtension,
     name: NAME,
     description: DESCRIPTION,
     shortname: SHORTNAME,
-    types: cargo_ops_extension::ExtensionType::DATASOURCE | cargo_ops_extension::ExtensionType::COMMAND,
+    types: ops_extension::ExtensionType::DATASOURCE | ops_extension::ExtensionType::COMMAND,
     command_names: &["about", "dashboard"],
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_commands: |_self, registry| {
-        use cargo_ops_core::config::ExecCommandSpec;
+        use ops_core::config::ExecCommandSpec;
 
         registry.insert(
             "about".to_string(),
-            cargo_ops_core::config::CommandSpec::Exec(ExecCommandSpec {
-                program: "cargo-ops".to_string(),
+            ops_core::config::CommandSpec::Exec(ExecCommandSpec {
+                program: "ops".to_string(),
                 args: vec!["about".to_string()],
                 ..Default::default()
             }),
@@ -102,8 +102,8 @@ mod tests {
     use super::format::*;
     use super::query::*;
     use super::text_util::*;
-    use cargo_ops_core::output::display_width;
-    use cargo_ops_duckdb::sql::CrateCoverage;
+    use ops_core::output::display_width;
+    use ops_duckdb::sql::CrateCoverage;
     use std::collections::HashMap;
 
     #[test]
@@ -234,7 +234,7 @@ mod tests {
     fn render_card_with_loc() {
         let info = CrateInfo {
             name: "My-lib".to_string(),
-            package_name: "cargo-ops-my-lib".to_string(),
+            package_name: "ops-my-lib".to_string(),
             path: "crates/my-lib".to_string(),
             version: Some("0.1.0".to_string()),
             description: Some("A shared library".to_string()),
@@ -254,7 +254,7 @@ mod tests {
     fn render_card_without_loc() {
         let info = CrateInfo {
             name: "My-lib".to_string(),
-            package_name: "cargo-ops-my-lib".to_string(),
+            package_name: "ops-my-lib".to_string(),
             path: "crates/my-lib".to_string(),
             version: Some("0.1.0".to_string()),
             description: Some("A shared library".to_string()),
@@ -275,7 +275,7 @@ mod tests {
     fn render_card_with_loc_and_deps() {
         let info = CrateInfo {
             name: "My-lib".to_string(),
-            package_name: "cargo-ops-my-lib".to_string(),
+            package_name: "ops-my-lib".to_string(),
             path: "crates/my-lib".to_string(),
             version: Some("0.1.0".to_string()),
             description: Some("A shared library".to_string()),
@@ -296,11 +296,11 @@ mod tests {
         );
     }
 
-    fn test_workspace_manifest(members: Vec<String>) -> cargo_ops_cargo_toml::CargoToml {
+    fn test_workspace_manifest(members: Vec<String>) -> ops_cargo_toml::CargoToml {
         use std::collections::BTreeMap;
-        cargo_ops_cargo_toml::CargoToml {
+        ops_cargo_toml::CargoToml {
             package: None,
-            workspace: Some(cargo_ops_cargo_toml::Workspace {
+            workspace: Some(ops_cargo_toml::Workspace {
                 members,
                 resolver: None,
                 dependencies: BTreeMap::new(),
@@ -327,7 +327,7 @@ mod tests {
         let manifest = test_workspace_manifest(vec!["crates/a".to_string()]);
         let mut per_crate = HashMap::new();
         per_crate.insert(
-            "cargo-ops-core".to_string(),
+            "ops-core".to_string(),
             vec![
                 ("anyhow".to_string(), "^1.0".to_string()),
                 ("serde".to_string(), "^1.0".to_string()),
@@ -335,7 +335,7 @@ mod tests {
             ],
         );
         per_crate.insert(
-            "cargo-ops-cli".to_string(),
+            "ops-cli".to_string(),
             vec![
                 ("clap".to_string(), "^4.0".to_string()),
                 ("tokio".to_string(), "^1.0".to_string()),
@@ -346,8 +346,8 @@ mod tests {
         let output = result.join("\n");
 
         assert!(output.contains("DEPENDENCIES"));
-        assert!(output.contains("cargo-ops-cli"));
-        assert!(output.contains("cargo-ops-core"));
+        assert!(output.contains("ops-cli"));
+        assert!(output.contains("ops-core"));
         assert!(output.contains("\u{251c}\u{2500}\u{2500} clap"));
         assert!(output.contains("\u{2514}\u{2500}\u{2500} tokio"));
         assert!(output.contains("\u{251c}\u{2500}\u{2500} anyhow"));
@@ -357,8 +357,8 @@ mod tests {
         assert!(output.contains("^4.0"));
         assert!(output.contains("^0.8"));
 
-        let cli_pos = output.find("cargo-ops-cli").unwrap();
-        let core_pos = output.find("cargo-ops-core").unwrap();
+        let cli_pos = output.find("ops-cli").unwrap();
+        let core_pos = output.find("ops-core").unwrap();
         assert!(cli_pos < core_pos, "crate names should be sorted");
     }
 
@@ -366,7 +366,7 @@ mod tests {
     fn render_card_with_deps_only() {
         let info = CrateInfo {
             name: "My-lib".to_string(),
-            package_name: "cargo-ops-my-lib".to_string(),
+            package_name: "ops-my-lib".to_string(),
             path: "crates/my-lib".to_string(),
             version: Some("0.1.0".to_string()),
             description: Some("A shared library".to_string()),
@@ -409,7 +409,7 @@ mod tests {
 
     #[test]
     fn coverage_table_shows_per_crate() {
-        let ws = cargo_ops_cargo_toml::Workspace {
+        let ws = ops_cargo_toml::Workspace {
             members: vec!["crates/core".to_string(), "crates/cli".to_string()],
             resolver: None,
             dependencies: std::collections::BTreeMap::new(),
@@ -458,7 +458,7 @@ mod tests {
 
     #[test]
     fn coverage_table_skips_zero_count_crates() {
-        let ws = cargo_ops_cargo_toml::Workspace {
+        let ws = ops_cargo_toml::Workspace {
             members: vec!["crates/core".to_string(), "crates/cli".to_string()],
             resolver: None,
             dependencies: std::collections::BTreeMap::new(),
@@ -499,7 +499,7 @@ mod tests {
 
     #[test]
     fn coverage_table_shows_status_icons() {
-        let ws = cargo_ops_cargo_toml::Workspace {
+        let ws = ops_cargo_toml::Workspace {
             members: vec![
                 "crates/good".to_string(),
                 "crates/warn".to_string(),
@@ -579,7 +579,7 @@ mod tests {
     #[test]
     fn format_updates_section_empty_entries() {
         let data = UpdatesData {
-            result: cargo_ops_cargo_update::CargoUpdateResult {
+            result: ops_cargo_update::CargoUpdateResult {
                 entries: vec![],
                 update_count: 0,
                 add_count: 0,
@@ -594,10 +594,10 @@ mod tests {
 
     #[test]
     fn format_updates_section_with_entries() {
-        use cargo_ops_cargo_update::{UpdateAction, UpdateEntry};
+        use ops_cargo_update::{UpdateAction, UpdateEntry};
 
         let data = UpdatesData {
-            result: cargo_ops_cargo_update::CargoUpdateResult {
+            result: ops_cargo_update::CargoUpdateResult {
                 entries: vec![
                     UpdateEntry {
                         action: UpdateAction::Update,
@@ -727,7 +727,7 @@ mod tests {
 
     #[test]
     fn tty_style_applies_when_tty() {
-        let styled = tty_style("hello", cargo_ops_core::style::cyan, true);
+        let styled = tty_style("hello", ops_core::style::cyan, true);
         assert!(styled.contains("hello"));
         // Should contain ANSI escape sequences
         assert!(styled.contains("\x1b["));
@@ -735,7 +735,7 @@ mod tests {
 
     #[test]
     fn tty_style_passthrough_when_not_tty() {
-        let result = tty_style("hello", cargo_ops_core::style::cyan, false);
+        let result = tty_style("hello", ops_core::style::cyan, false);
         assert_eq!(result, "hello");
     }
 
@@ -1050,11 +1050,7 @@ mod tests {
 
     // ── format additional tests ─────────────────────────────────────────
 
-    fn test_package(
-        name: &str,
-        version: &str,
-        desc: Option<&str>,
-    ) -> cargo_ops_cargo_toml::Package {
+    fn test_package(name: &str, version: &str, desc: Option<&str>) -> ops_cargo_toml::Package {
         let desc_line = match desc {
             Some(d) => format!("description = \"{}\"", d),
             None => String::new(),
@@ -1063,7 +1059,7 @@ mod tests {
             "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2021\"\nlicense = \"MIT\"\n{}",
             name, version, desc_line
         );
-        let manifest = cargo_ops_cargo_toml::CargoToml::parse(&toml_str).unwrap();
+        let manifest = ops_cargo_toml::CargoToml::parse(&toml_str).unwrap();
         manifest.package.unwrap()
     }
 
@@ -1113,7 +1109,7 @@ mod tests {
 
     #[test]
     fn format_workspace_info_no_workspace() {
-        let manifest = cargo_ops_cargo_toml::CargoToml {
+        let manifest = ops_cargo_toml::CargoToml {
             package: None,
             workspace: None,
             dependencies: std::collections::BTreeMap::new(),
@@ -1184,7 +1180,7 @@ mod tests {
 
     #[test]
     fn coverage_color_thresholds() {
-        use cargo_ops_core::table::Color;
+        use ops_core::table::Color;
         assert!(matches!(coverage_color(0.0), Color::Red));
         assert!(matches!(coverage_color(49.9), Color::Red));
         assert!(matches!(coverage_color(50.0), Color::Yellow));
@@ -1242,7 +1238,7 @@ mod tests {
 
     #[test]
     fn format_dependencies_section_no_workspace() {
-        let manifest = cargo_ops_cargo_toml::CargoToml {
+        let manifest = ops_cargo_toml::CargoToml {
             package: None,
             workspace: None,
             dependencies: std::collections::BTreeMap::new(),
@@ -1280,10 +1276,10 @@ mod tests {
 
     #[test]
     fn format_updates_section_multiple_updates_plurals() {
-        use cargo_ops_cargo_update::{UpdateAction, UpdateEntry};
+        use ops_cargo_update::{UpdateAction, UpdateEntry};
 
         let data = UpdatesData {
-            result: cargo_ops_cargo_update::CargoUpdateResult {
+            result: ops_cargo_update::CargoUpdateResult {
                 entries: vec![
                     UpdateEntry {
                         action: UpdateAction::Update,
@@ -1310,7 +1306,7 @@ mod tests {
 
     #[test]
     fn format_update_entry_missing_versions() {
-        use cargo_ops_cargo_update::{UpdateAction, UpdateEntry};
+        use ops_cargo_update::{UpdateAction, UpdateEntry};
 
         let entry = UpdateEntry {
             action: UpdateAction::Update,
@@ -1326,7 +1322,7 @@ mod tests {
 
     #[test]
     fn format_update_entry_add_missing_version() {
-        use cargo_ops_cargo_update::{UpdateAction, UpdateEntry};
+        use ops_cargo_update::{UpdateAction, UpdateEntry};
 
         let entry = UpdateEntry {
             action: UpdateAction::Add,
@@ -1342,7 +1338,7 @@ mod tests {
 
     #[test]
     fn format_update_entry_remove_missing_version() {
-        use cargo_ops_cargo_update::{UpdateAction, UpdateEntry};
+        use ops_cargo_update::{UpdateAction, UpdateEntry};
 
         let entry = UpdateEntry {
             action: UpdateAction::Remove,
@@ -1358,7 +1354,7 @@ mod tests {
 
     #[test]
     fn coverage_table_empty_per_crate() {
-        let ws = cargo_ops_cargo_toml::Workspace {
+        let ws = ops_cargo_toml::Workspace {
             members: vec!["crates/core".to_string()],
             resolver: None,
             dependencies: std::collections::BTreeMap::new(),

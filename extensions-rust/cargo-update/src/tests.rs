@@ -7,7 +7,7 @@ use super::*;
 mod extension_tests {
     use super::*;
 
-    cargo_ops_extension::test_datasource_extension!(
+    ops_extension::test_datasource_extension!(
         CargoUpdateExtension,
         name: "cargo-update",
         data_provider: "cargo_update"
@@ -335,7 +335,7 @@ fn cargo_update_result_deserialization() {
 
 #[test]
 fn schema_has_expected_fields() {
-    use cargo_ops_extension::DataProvider;
+    use ops_extension::DataProvider;
     let schema = CargoUpdateProvider.schema();
     assert_eq!(schema.fields.len(), 4);
     let field_names: Vec<&str> = schema.fields.iter().map(|f| f.name).collect();

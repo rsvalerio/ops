@@ -1,4 +1,4 @@
-//! Integration tests for cargo-ops CLI.
+//! Integration tests for ops CLI.
 //!
 //! # Architecture (CQ-025)
 //!
@@ -43,13 +43,13 @@ fn read_ops_toml(dir: &Path) -> String {
 }
 
 #[allow(deprecated)]
-fn cargo_ops() -> Command {
+fn ops() -> Command {
     Command::cargo_bin("ops").expect("ops binary")
 }
 
 #[test]
 fn cli_version() {
-    cargo_ops()
+    ops()
         .arg("--version")
         .assert()
         .success()
@@ -61,7 +61,7 @@ fn cli_version() {
 
 #[test]
 fn cli_help() {
-    cargo_ops()
+    ops()
         .arg("--help")
         .assert()
         .success()
@@ -73,11 +73,7 @@ fn cli_help() {
 #[test]
 fn cli_init_creates_ops_toml() {
     let dir = temp_dir();
-    cargo_ops()
-        .arg("init")
-        .current_dir(dir.path())
-        .assert()
-        .success();
+    ops().arg("init").current_dir(dir.path()).assert().success();
 
     assert!(dir.path().join(".ops.toml").exists());
 }
@@ -87,11 +83,7 @@ fn cli_init_no_overwrite_without_force() {
     let dir = temp_dir();
     write_ops_toml(dir.path(), "existing content");
 
-    cargo_ops()
-        .arg("init")
-        .current_dir(dir.path())
-        .assert()
-        .success();
+    ops().arg("init").current_dir(dir.path()).assert().success();
 
     assert_eq!(read_ops_toml(dir.path()), "existing content");
 }
@@ -101,7 +93,7 @@ fn cli_init_force_overwrites() {
     let dir = temp_dir();
     write_ops_toml(dir.path(), "existing content");
 
-    cargo_ops()
+    ops()
         .arg("init")
         .arg("--force")
         .current_dir(dir.path())
@@ -120,7 +112,7 @@ fn cli_init_in_rust_project_with_commands_flag_writes_stack_commands() {
     )
     .expect("write Cargo.toml");
 
-    cargo_ops()
+    ops()
         .args(["init", "--commands"])
         .current_dir(dir.path())
         .assert()
@@ -145,11 +137,7 @@ fn cli_init_in_rust_project_with_commands_flag_writes_stack_commands() {
 fn cli_init_default_writes_minimal_output_only() {
     let dir = temp_dir();
 
-    cargo_ops()
-        .arg("init")
-        .current_dir(dir.path())
-        .assert()
-        .success();
+    ops().arg("init").current_dir(dir.path()).assert().success();
 
     let content = read_ops_toml(dir.path());
     assert!(
@@ -171,7 +159,7 @@ fn cli_init_default_writes_minimal_output_only() {
 fn cli_init_with_themes_flag_includes_themes() {
     let dir = temp_dir();
 
-    cargo_ops()
+    ops()
         .args(["init", "--themes"])
         .current_dir(dir.path())
         .assert()
@@ -197,7 +185,7 @@ program = "echo"
 args = ["hello"]
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("nonexistent_command")
                 .current_dir(path)
                 .assert()
@@ -215,7 +203,7 @@ program = "echo"
 args = ["integration_test_output"]
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("echo_test")
                 .current_dir(path)
                 .assert()
@@ -259,7 +247,7 @@ program = "{}"
         ),
     );
 
-    cargo_ops()
+    ops()
         .arg("fail_cmd")
         .current_dir(dir.path())
         .assert()
@@ -283,7 +271,7 @@ args = ["b"]
 commands = ["echo_a", "echo_b"]
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("both")
                 .current_dir(path)
                 .assert()
@@ -312,7 +300,7 @@ commands = ["echo_a", "echo_b"]
 parallel = true
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("par")
                 .current_dir(path)
                 .assert()
@@ -347,7 +335,7 @@ timeout_secs = 1
         ),
     );
 
-    cargo_ops()
+    ops()
         .arg("slow_cmd")
         .current_dir(dir.path())
         .assert()
@@ -365,11 +353,7 @@ fn cli_run_with_malformed_toml() {
 program = "echo"
 "#,
         |path| {
-            cargo_ops()
-                .arg("broken")
-                .current_dir(path)
-                .assert()
-                .failure();
+            ops().arg("broken").current_dir(path).assert().failure();
         },
     );
 }
@@ -386,7 +370,7 @@ theme = "classic"
 "#,
     );
 
-    cargo_ops()
+    ops()
         .arg("theme")
         .arg("list")
         .current_dir(dir.path())
@@ -421,7 +405,7 @@ summary_separator = ""
 "#,
     );
 
-    cargo_ops()
+    ops()
         .arg("theme")
         .arg("list")
         .current_dir(dir.path())
@@ -441,7 +425,7 @@ program = "cargo"
 args = ["build", "--release"]
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("--dry-run")
                 .arg("build")
                 .current_dir(path)
@@ -466,7 +450,7 @@ API_KEY = "super_secret_value"
 NORMAL_VAR = "visible"
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("--dry-run")
                 .arg("secret_cmd")
                 .current_dir(path)
@@ -488,7 +472,7 @@ args = ["10"]
 timeout_secs = 5
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("--dry-run")
                 .arg("slow")
                 .current_dir(path)
@@ -504,29 +488,29 @@ timeout_secs = 5
 #[test]
 #[cfg_attr(not(feature = "stack-rust"), ignore)]
 fn cli_about_shows_header() {
-    cargo_ops()
+    ops()
         .arg("about")
         .assert()
         .success()
-        .stdout(predicate::str::contains("cargo-ops"));
+        .stdout(predicate::str::contains("ops"));
 }
 
 #[test]
 #[cfg_attr(not(feature = "stack-rust"), ignore)]
 fn cli_about_refresh_flag() {
-    cargo_ops().arg("about").arg("--refresh").assert().success();
+    ops().arg("about").arg("--refresh").assert().success();
 }
 
 #[test]
 #[cfg_attr(not(feature = "stack-rust"), ignore)]
 fn cli_dashboard_shows_sections() {
-    cargo_ops()
+    ops()
         .arg("dashboard")
         .arg("--skip-coverage")
         .arg("--skip-updates")
         .assert()
         .success()
-        .stdout(predicate::str::contains("cargo-ops"));
+        .stdout(predicate::str::contains("ops"));
 }
 
 // -- TQ-017: Malformed .ops.d/ handling --
@@ -545,7 +529,7 @@ theme = "classic"
     std::fs::create_dir_all(&ops_d).expect("create .ops.d");
     std::fs::write(ops_d.join("invalid.toml"), "not valid toml [[[[").expect("write invalid");
 
-    cargo_ops()
+    ops()
         .arg("build")
         .current_dir(dir.path())
         .assert()

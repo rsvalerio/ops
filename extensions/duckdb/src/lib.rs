@@ -18,7 +18,7 @@ pub use ingestor::{DataIngestor, LoadResult, SidecarIngestorConfig};
 #[allow(unused_imports)]
 pub use schema::{init_schema, upsert_data_source};
 
-use cargo_ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
+use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -52,7 +52,7 @@ pub const DESCRIPTION: &str = "Per-project DuckDB database for data collection";
 pub const SHORTNAME: &str = "db";
 pub const DATA_PROVIDER_NAME: &str = "duckdb";
 
-impl cargo_ops_extension::DuckDbHandle for DuckDb {
+impl ops_extension::DuckDbHandle for DuckDb {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -68,7 +68,7 @@ impl DuckDbExtension {
     }
 }
 
-cargo_ops_extension::impl_extension! {
+ops_extension::impl_extension! {
     DuckDbExtension,
     name: NAME,
     description: DESCRIPTION,
@@ -110,7 +110,7 @@ impl DataProvider for DuckDbProvider {
 mod tests {
     use super::*;
     use crate::ingestor::{DataIngestor, LoadResult};
-    use cargo_ops_extension::Context;
+    use ops_extension::Context;
     use std::io::Write;
 
     #[test]
@@ -156,7 +156,7 @@ mod tests {
         let provider = DuckDbProvider {
             db_path: std::path::PathBuf::from(":memory:"),
         };
-        let config = std::sync::Arc::new(cargo_ops_core::config::Config::default());
+        let config = std::sync::Arc::new(ops_core::config::Config::default());
         let mut ctx = Context::new(config, std::path::PathBuf::from("."));
         ctx.db = Some(std::sync::Arc::new(db));
         let result = provider.provide(&mut ctx).expect("provide should succeed");
@@ -172,7 +172,7 @@ mod tests {
         let provider = DuckDbProvider {
             db_path: db_path.clone(),
         };
-        let config = std::sync::Arc::new(cargo_ops_core::config::Config::default());
+        let config = std::sync::Arc::new(ops_core::config::Config::default());
         let mut ctx = Context::new(config, std::path::PathBuf::from("."));
 
         assert!(ctx.db.is_none(), "ctx.db should start as None");
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn data_ingestor_trait_collect() {
         let ingestor = MockIngestor { name: "test" };
-        let config = std::sync::Arc::new(cargo_ops_core::config::Config::default());
+        let config = std::sync::Arc::new(ops_core::config::Config::default());
         let ctx = Context::new(config, std::path::PathBuf::from("."));
         let temp_dir = tempfile::tempdir().expect("tempdir");
 
@@ -335,7 +335,7 @@ mod tests {
         #[test]
         fn ingestor_collect_error_propagates() {
             let ingestor = FailingCollectIngestor;
-            let config = std::sync::Arc::new(cargo_ops_core::config::Config::default());
+            let config = std::sync::Arc::new(ops_core::config::Config::default());
             let ctx = Context::new(config, std::path::PathBuf::from("."));
             let temp_dir = tempfile::tempdir().expect("tempdir");
 

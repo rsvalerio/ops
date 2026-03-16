@@ -1,15 +1,15 @@
 //! Theme types and step-line rendering.
 //!
 //! [`ThemeConfig`] is the serializable theme definition (TOML-compatible),
-//! defined in `cargo-ops-core` and re-exported here for convenience.
+//! defined in `ops-core` and re-exported here for convenience.
 //! [`ConfigurableTheme`] wraps a `ThemeConfig` and implements [`StepLineTheme`]
 //! for rendering step lines and error details.
 
-pub use cargo_ops_core::config::theme_types;
-pub use cargo_ops_core::config::theme_types::{ErrorBlockChars, PlanHeaderStyle, ThemeConfig};
+pub use ops_core::config::theme_types;
+pub use ops_core::config::theme_types::{ErrorBlockChars, PlanHeaderStyle, ThemeConfig};
 
-use cargo_ops_core::output::{display_width, ErrorDetail, StepLine, StepStatus, ALL_STATUSES};
 use indexmap::IndexMap;
+use ops_core::output::{display_width, ErrorDetail, StepLine, StepStatus, ALL_STATUSES};
 
 /// Format a duration in seconds into a human-friendly string.
 ///

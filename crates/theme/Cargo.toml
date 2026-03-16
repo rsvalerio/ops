@@ -1,16 +1,16 @@
 [package]
-name = "cargo-ops-theme"
+name = "ops-theme"
 publish = false
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-cargo-ops-core = { workspace = true }
+ops-core = { workspace = true }
 indexmap = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-cargo-ops-core = { workspace = true, features = ["test-support"] }
+ops-core = { workspace = true, features = ["test-support"] }
 tempfile = "3"
 toml = "1"

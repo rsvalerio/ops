@@ -1,9 +1,9 @@
 //! Progress display: step-line rendering, progress bars, and CLI event handling.
 
 use crate::command::RunnerEvent;
-use cargo_ops_core::config;
-use cargo_ops_core::output::{tail_lines, ErrorDetail, StepLine, StepStatus};
-use cargo_ops_theme::{self as theme, ThemeConfig};
+use ops_core::config;
+use ops_core::output::{tail_lines, ErrorDetail, StepLine, StepStatus};
+use ops_theme::{self as theme, ThemeConfig};
 
 use anyhow::Context;
 use indexmap::IndexMap;
@@ -431,8 +431,8 @@ impl ProgressDisplay {
 mod tests {
     use super::*;
     use crate::command::RunnerEvent;
-    use cargo_ops_core::output::{StepLine, StepStatus};
-    use cargo_ops_theme::ThemeConfig;
+    use ops_core::output::{StepLine, StepStatus};
+    use ops_theme::ThemeConfig;
 
     /// Renders step lines with status icons and elapsed time.
     pub struct StepRenderer<'a> {
@@ -662,7 +662,7 @@ mod tests {
     mod edge_case_tests {
         use super::*;
         use crate::command::RunnerEvent;
-        use cargo_ops_core::output::StepStatus;
+        use ops_core::output::StepStatus;
 
         #[test]
         fn extract_stderr_tail_extracts_correct_count() {

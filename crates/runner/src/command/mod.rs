@@ -36,11 +36,11 @@ pub use events::RunnerEvent;
 pub use exec::is_sensitive_env_key;
 pub use results::StepResult;
 
-use cargo_ops_core::config::{CommandId, CommandSpec, Config, ExecCommandSpec, OutputConfig};
-use cargo_ops_core::stack::Stack;
-use cargo_ops_extension::{DataProviderError, DataRegistry};
 use exec::{exec_command, exec_standalone, resolution_failure};
 use indexmap::IndexMap;
+use ops_core::config::{CommandId, CommandSpec, Config, ExecCommandSpec, OutputConfig};
+use ops_core::stack::Stack;
+use ops_extension::{DataProviderError, DataRegistry};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -142,7 +142,7 @@ impl CommandRunner {
             Entry::Occupied(v) => Ok(Arc::clone(v.get())),
             Entry::Vacant(slot) => {
                 let mut ctx =
-                    cargo_ops_extension::Context::new(Arc::clone(&self.config), self.cwd.clone());
+                    ops_extension::Context::new(Arc::clone(&self.config), self.cwd.clone());
                 let v = ctx.get_or_provide(name, &self.data_registry)?;
                 slot.insert(Arc::clone(&v));
                 Ok(v)

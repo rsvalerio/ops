@@ -4,18 +4,18 @@ use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
 use anyhow::Context;
-use cargo_ops_core::config;
-use cargo_ops_core::style;
+use ops_core::config;
+use ops_core::style;
 
-fn parse_default_config() -> Result<cargo_ops_core::config::Config, anyhow::Error> {
-    toml::from_str::<cargo_ops_core::config::Config>(config::default_ops_toml())
+fn parse_default_config() -> Result<ops_core::config::Config, anyhow::Error> {
+    toml::from_str::<ops_core::config::Config>(config::default_ops_toml())
         .context("failed to parse default config")
 }
 
 /// DUP-005: Extracted helper to collect theme options from config.
 ///
 /// Used by both `run_theme_list` and `run_theme_select` to avoid duplication.
-fn collect_theme_options(config: &cargo_ops_core::config::Config) -> Vec<ThemeOption> {
+fn collect_theme_options(config: &ops_core::config::Config) -> Vec<ThemeOption> {
     let default_config = parse_default_config().ok();
 
     let mut options: Vec<ThemeOption> = config

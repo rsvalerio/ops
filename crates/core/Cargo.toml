@@ -1,5 +1,5 @@
 [package]
-name = "cargo-ops-core"
+name = "ops-core"
 publish = false
 version.workspace = true
 edition.workspace = true

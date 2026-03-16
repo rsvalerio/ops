@@ -1,7 +1,7 @@
 //! Tests for the metadata extension.
 
 use super::*;
-cargo_ops_extension::test_datasource_extension!(
+ops_extension::test_datasource_extension!(
     MetadataExtension,
     name: "metadata",
     data_provider: "metadata"
@@ -777,7 +777,7 @@ mod metadata_edge_case_tests {
 
     #[test]
     fn metadata_schema_has_expected_fields() {
-        use cargo_ops_extension::DataProvider;
+        use ops_extension::DataProvider;
         let schema = MetadataProvider.schema();
         assert!(!schema.fields.is_empty());
         let field_names: Vec<&str> = schema.fields.iter().map(|f| f.name).collect();

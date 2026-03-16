@@ -8,8 +8,8 @@ pub mod views;
 
 pub use ingestor::TokeiIngestor;
 
-use cargo_ops_duckdb::{init_schema, DataIngestor, DuckDb};
-use cargo_ops_extension::{
+use ops_duckdb::{init_schema, DataIngestor, DuckDb};
+use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
 };
 use std::path::Path;
@@ -24,7 +24,7 @@ pub const DATA_PROVIDER_NAME: &str = "tokei";
 
 pub struct TokeiExtension;
 
-cargo_ops_extension::impl_extension! {
+ops_extension::impl_extension! {
     TokeiExtension,
     name: NAME,
     description: DESCRIPTION,
@@ -44,7 +44,7 @@ impl DataProvider for TokeiProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        cargo_ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
+        ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
             collect_tokei(&ctx.working_directory)
         })
     }
@@ -89,7 +89,7 @@ impl DataProvider for TokeiProvider {
 }
 
 fn query_tokei_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
-    cargo_ops_duckdb::sql::query_rows_to_json(
+    ops_duckdb::sql::query_rows_to_json(
         db,
         "SELECT language, file, code, comments, blanks, lines FROM tokei_files",
         |row| {
@@ -106,13 +106,7 @@ fn query_tokei_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
 }
 
 fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
-    cargo_ops_duckdb::sql::provide_via_ingestor(
-        db,
-        ctx,
-        "tokei_files",
-        &TokeiIngestor,
-        query_tokei_files,
-    )
+    ops_duckdb::sql::provide_via_ingestor(db, ctx, "tokei_files", &TokeiIngestor, query_tokei_files)
 }
 
 pub fn collect_tokei(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {

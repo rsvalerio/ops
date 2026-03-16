@@ -1,4 +1,4 @@
-//! Integration tests for cargo-ops CLI.
+//! Integration tests for ops CLI.
 //!
 //! # Architecture (CQ-025)
 //!
@@ -45,13 +45,13 @@ fn read_ops_toml(dir: &Path) -> String {
     std::fs::read_to_string(dir.join(".ops.toml")).expect("read .ops.toml")
 }
 
-fn cargo_ops() -> Command {
+fn ops() -> Command {
     Command::cargo_bin("ops").expect("ops binary")
 }
 
 #[test]
 fn cli_version() {
-    cargo_ops()
+    ops()
         .arg("--version")
         .assert()
         .success()
@@ -63,7 +63,7 @@ fn cli_version() {
 
 #[test]
 fn cli_help() {
-    cargo_ops()
+    ops()
         .arg("--help")
         .assert()
         .success()
@@ -75,7 +75,7 @@ fn cli_help() {
 #[test]
 fn cli_init_creates_ops_toml() {
     let dir = temp_dir();
-    cargo_ops()
+    ops()
         .arg("init")
         .current_dir(dir.path())
         .assert()
@@ -89,7 +89,7 @@ fn cli_init_no_overwrite_without_force() {
     let dir = temp_dir();
     write_ops_toml(dir.path(), "existing content");
 
-    cargo_ops()
+    ops()
         .arg("init")
         .current_dir(dir.path())
         .assert()
@@ -103,7 +103,7 @@ fn cli_init_force_overwrites() {
     let dir = temp_dir();
     write_ops_toml(dir.path(), "existing content");
 
-    cargo_ops()
+    ops()
         .arg("init")
         .arg("--force")
         .current_dir(dir.path())
@@ -122,7 +122,7 @@ program = "echo"
 args = ["hello"]
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("nonexistent_command")
                 .current_dir(path)
                 .assert()
@@ -140,7 +140,7 @@ program = "echo"
 args = ["integration_test_output"]
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("echo_test")
                 .current_dir(path)
                 .assert()
@@ -184,7 +184,7 @@ program = "{}"
         ),
     );
 
-    cargo_ops()
+    ops()
         .arg("fail_cmd")
         .current_dir(dir.path())
         .assert()
@@ -208,7 +208,7 @@ args = ["b"]
 commands = ["echo_a", "echo_b"]
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("both")
                 .current_dir(path)
                 .assert()
@@ -237,7 +237,7 @@ commands = ["echo_a", "echo_b"]
 parallel = true
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("par")
                 .current_dir(path)
                 .assert()
@@ -272,7 +272,7 @@ timeout_secs = 1
         ),
     );
 
-    cargo_ops()
+    ops()
         .arg("slow_cmd")
         .current_dir(dir.path())
         .assert()
@@ -290,7 +290,7 @@ fn cli_run_with_malformed_toml() {
 program = "echo"
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("broken")
                 .current_dir(path)
                 .assert()
@@ -311,7 +311,7 @@ theme = "classic"
 "#,
     );
 
-    cargo_ops()
+    ops()
         .arg("theme")
         .arg("list")
         .current_dir(dir.path())
@@ -346,7 +346,7 @@ summary_separator = ""
 "#,
     );
 
-    cargo_ops()
+    ops()
         .arg("theme")
         .arg("list")
         .current_dir(dir.path())
@@ -366,7 +366,7 @@ program = "cargo"
 args = ["build", "--release"]
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("--dry-run")
                 .arg("build")
                 .current_dir(path)
@@ -391,7 +391,7 @@ API_KEY = "super_secret_value"
 NORMAL_VAR = "visible"
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("--dry-run")
                 .arg("secret_cmd")
                 .current_dir(path)
@@ -413,7 +413,7 @@ args = ["10"]
 timeout_secs = 5
 "#,
         |path| {
-            cargo_ops()
+            ops()
                 .arg("--dry-run")
                 .arg("slow")
                 .current_dir(path)
@@ -440,7 +440,7 @@ theme = "classic"
     std::fs::create_dir_all(&ops_d).expect("create .ops.d");
     std::fs::write(ops_d.join("invalid.toml"), "not valid toml [[[[").expect("write invalid");
 
-    cargo_ops()
+    ops()
         .arg("build")
         .current_dir(dir.path())
         .assert()

@@ -1,8 +1,8 @@
 //! Tests for theme types and rendering.
 
 use super::*;
-use cargo_ops_core::output::{ErrorDetail, StepLine, StepStatus};
 use indexmap::IndexMap;
+use ops_core::output::{ErrorDetail, StepLine, StepStatus};
 
 /// Minimal valid ThemeConfig TOML with all required fields.
 /// Tests that need to tweak one field can append/override after this base.
@@ -464,7 +464,7 @@ mod render_summary_tests {
 /// TQ-010: Edge case tests for extreme column widths.
 mod edge_case_width_tests {
     use super::*;
-    use cargo_ops_core::output::StepLine;
+    use ops_core::output::StepLine;
 
     #[test]
     fn render_with_zero_columns_does_not_panic() {

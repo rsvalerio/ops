@@ -1,6 +1,6 @@
 //! Result types for command execution.
 
-use cargo_ops_core::config::CommandId;
+use ops_core::config::CommandId;
 use std::time::Duration;
 
 /// Result of running a single command.
@@ -77,7 +77,7 @@ impl CommandOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cargo_ops_core::test_utils::make_test_output;
+    use ops_core::test_utils::make_test_output;
 
     #[test]
     fn command_output_from_raw_success() {

@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod tests;
 
-use cargo_ops_extension::{
+use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
 };
 use serde::{Deserialize, Serialize};
@@ -193,7 +193,7 @@ fn parse_removing_line(line: &str) -> Option<UpdateEntry> {
 
 pub struct CargoUpdateExtension;
 
-cargo_ops_extension::impl_extension! {
+ops_extension::impl_extension! {
     CargoUpdateExtension,
     name: NAME,
     description: DESCRIPTION,

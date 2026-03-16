@@ -2,10 +2,10 @@
 
 use std::io::{self, IsTerminal};
 
-use cargo_ops_cargo_toml::CargoToml;
-use cargo_ops_core::style::{cyan, dim, green, red};
-use cargo_ops_extension::Context;
-use cargo_ops_tools::{get_active_toolchain, ToolInfo, ToolStatus};
+use ops_cargo_toml::CargoToml;
+use ops_core::style::{cyan, dim, green, red};
+use ops_extension::Context;
+use ops_tools::{get_active_toolchain, ToolInfo, ToolStatus};
 
 use crate::format::{
     coverage_icon, format_crates_section, format_dependencies_section, format_description,
@@ -30,12 +30,12 @@ pub struct DashboardOptions {
 
 /// Run the dashboard command, displaying comprehensive project health.
 pub fn run_dashboard(
-    data_registry: &cargo_ops_extension::DataRegistry,
+    data_registry: &ops_extension::DataRegistry,
     opts: &DashboardOptions,
     tools: &[ToolInfo],
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(cargo_ops_core::config::Config::default());
+    let config = std::sync::Arc::new(ops_core::config::Config::default());
     let mut ctx = Context::new(config, cwd.clone());
     if opts.refresh {
         ctx.refresh = true;
@@ -175,7 +175,7 @@ fn format_language_stats_section(stats: Option<&[LanguageStat]>) -> Vec<String> 
         _ => return vec![],
     };
 
-    use cargo_ops_core::table::{Cell, OpsTable};
+    use ops_core::table::{Cell, OpsTable};
 
     let mut table = OpsTable::new();
     table.set_header(vec!["Language", "Lines of Code", "Files"]);
@@ -382,14 +382,14 @@ members = ["crates/core", "crates/cli"]
         let mut per_crate = HashMap::new();
         per_crate.insert(
             "crates/core".to_string(),
-            cargo_ops_duckdb::sql::CrateCoverage {
+            ops_duckdb::sql::CrateCoverage {
                 lines_percent: 85.0,
                 lines_covered: 850,
                 lines_count: 1000,
             },
         );
         let cov = CoverageData {
-            project: cargo_ops_duckdb::sql::CrateCoverage {
+            project: ops_duckdb::sql::CrateCoverage {
                 lines_percent: 85.0,
                 lines_covered: 850,
                 lines_count: 1000,

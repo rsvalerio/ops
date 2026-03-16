@@ -148,10 +148,7 @@ pub fn data_dir_for_db(db_path: &Path) -> PathBuf {
 
 /// Default DB path for a workspace root (using default DataConfig).
 pub fn default_db_path(workspace_root: &Path) -> PathBuf {
-    DuckDb::resolve_path(
-        &cargo_ops_core::config::DataConfig::default(),
-        workspace_root,
-    )
+    DuckDb::resolve_path(&ops_core::config::DataConfig::default(), workspace_root)
 }
 
 /// Default data directory for a workspace root.
@@ -238,7 +235,7 @@ where
 /// When `ctx.refresh` is true, drops existing data so it will be re-collected.
 pub fn provide_via_ingestor<I, Q>(
     db: &DuckDb,
-    ctx: &cargo_ops_extension::Context,
+    ctx: &ops_extension::Context,
     table_name: &str,
     ingestor: &I,
     query_fn: Q,
@@ -829,11 +826,11 @@ mod tests {
 
     #[test]
     fn data_dir_for_db_appends_ingest() {
-        let path = PathBuf::from("/home/proj/target/cargo-ops/data.duckdb");
+        let path = PathBuf::from("/home/proj/target/ops/data.duckdb");
         let result = data_dir_for_db(&path);
         assert_eq!(
             result,
-            PathBuf::from("/home/proj/target/cargo-ops/data.duckdb.ingest")
+            PathBuf::from("/home/proj/target/ops/data.duckdb.ingest")
         );
     }
 
@@ -841,10 +838,7 @@ mod tests {
     fn default_db_path_uses_target_dir() {
         let root = PathBuf::from("/home/proj");
         let path = default_db_path(&root);
-        assert_eq!(
-            path,
-            PathBuf::from("/home/proj/target/cargo-ops/data.duckdb")
-        );
+        assert_eq!(path, PathBuf::from("/home/proj/target/ops/data.duckdb"));
     }
 
     #[test]
@@ -969,11 +963,11 @@ mod tests {
         conn.execute_batch(
             "CREATE VIEW crate_dependencies AS \
              SELECT * FROM (VALUES \
-                 ('cargo-ops-core', 'anyhow', '^1.0', 'normal', false), \
-                 ('cargo-ops-core', 'serde', '^1.0', 'normal', false), \
-                 ('cargo-ops-core', 'tempfile', '^3.0', 'dev', false), \
-                 ('cargo-ops-cli', 'clap', '^4.0', 'normal', false), \
-                 ('cargo-ops-cli', 'tokio', '^1.0', 'normal', false) \
+                 ('ops-core', 'anyhow', '^1.0', 'normal', false), \
+                 ('ops-core', 'serde', '^1.0', 'normal', false), \
+                 ('ops-core', 'tempfile', '^3.0', 'dev', false), \
+                 ('ops-cli', 'clap', '^4.0', 'normal', false), \
+                 ('ops-cli', 'tokio', '^1.0', 'normal', false) \
              ) AS t(crate_name, dependency_name, version_req, dependency_kind, is_optional)",
         )
         .expect("create view with test data");
@@ -982,12 +976,12 @@ mod tests {
         let result = query_crate_deps(&db).expect("query should work");
         assert_eq!(result.len(), 2);
 
-        let core_deps = &result["cargo-ops-core"];
+        let core_deps = &result["ops-core"];
         assert_eq!(core_deps.len(), 2); // only normal deps
         assert_eq!(core_deps[0], ("anyhow".to_string(), "^1.0".to_string()));
         assert_eq!(core_deps[1], ("serde".to_string(), "^1.0".to_string()));
 
-        let cli_deps = &result["cargo-ops-cli"];
+        let cli_deps = &result["ops-cli"];
         assert_eq!(cli_deps.len(), 2);
         assert_eq!(cli_deps[0], ("clap".to_string(), "^4.0".to_string()));
         assert_eq!(cli_deps[1], ("tokio".to_string(), "^1.0".to_string()));
@@ -1010,10 +1004,10 @@ mod tests {
         conn.execute_batch(
             "CREATE VIEW crate_dependencies AS \
              SELECT * FROM (VALUES \
-                 ('cargo-ops-core', 'serde', '^1.0', 'normal', false), \
-                 ('cargo-ops-core', 'anyhow', '^1.0', 'normal', false), \
-                 ('cargo-ops-core', 'tempfile', '^3.0', 'dev', false), \
-                 ('cargo-ops-cli', 'clap', '^4.0', 'normal', false) \
+                 ('ops-core', 'serde', '^1.0', 'normal', false), \
+                 ('ops-core', 'anyhow', '^1.0', 'normal', false), \
+                 ('ops-core', 'tempfile', '^3.0', 'dev', false), \
+                 ('ops-cli', 'clap', '^4.0', 'normal', false) \
              ) AS t(crate_name, dependency_name, version_req, dependency_kind, is_optional)",
         )
         .expect("create view with test data");
@@ -1021,8 +1015,8 @@ mod tests {
 
         let result = query_crate_dep_counts(&db).expect("query should work");
         assert_eq!(result.len(), 2);
-        assert_eq!(result["cargo-ops-core"], 2); // only normal deps
-        assert_eq!(result["cargo-ops-cli"], 1);
+        assert_eq!(result["ops-core"], 2); // only normal deps
+        assert_eq!(result["ops-cli"], 1);
     }
 
     #[test]

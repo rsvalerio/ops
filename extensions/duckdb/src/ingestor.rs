@@ -2,7 +2,7 @@
 
 use crate::connection::DuckDb;
 use crate::error::DbResult;
-use cargo_ops_extension::Context;
+use ops_extension::Context;
 use std::path::Path;
 
 /// Result of a load operation (record count, etc.).

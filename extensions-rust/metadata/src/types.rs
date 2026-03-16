@@ -8,7 +8,7 @@
 //! for dependency and target accessor methods. Each macro generates multiple methods
 //! that differ only by the filter predicate (enum variant or target kind string).
 
-use cargo_ops_extension::{Context, DataRegistry};
+use ops_extension::{Context, DataRegistry};
 
 trait JsonValueExt {
     /// Returns the value at the given field, if present.

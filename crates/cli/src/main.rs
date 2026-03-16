@@ -113,11 +113,11 @@ use std::process::ExitCode;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use crate::registry::{as_ext_refs, builtin_extensions, register_extension_commands};
-use cargo_ops_core::config::CommandSpec;
-use cargo_ops_extension::CommandRegistry;
-use cargo_ops_runner::command::is_sensitive_env_key;
-use cargo_ops_runner::command::StepResult;
-use cargo_ops_runner::display::ProgressDisplay;
+use ops_core::config::CommandSpec;
+use ops_extension::CommandRegistry;
+use ops_runner::command::is_sensitive_env_key;
+use ops_runner::command::StepResult;
+use ops_runner::display::ProgressDisplay;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -299,8 +299,7 @@ fn run() -> anyhow::Result<ExitCode> {
             themes,
             commands,
         }) => {
-            let sections =
-                cargo_ops_core::config::InitSections::from_flags(output, themes, commands);
+            let sections = ops_core::config::InitSections::from_flags(output, themes, commands);
             run_init(force, sections)?;
         }
         Some(CoreSubcommand::Theme { action }) => run_theme(action)?,
@@ -309,8 +308,8 @@ fn run() -> anyhow::Result<ExitCode> {
         Some(CoreSubcommand::About { refresh }) => {
             let (config, cwd) = load_config_and_cwd()?;
             let registry = crate::registry::build_data_registry(&config, &cwd)?;
-            let opts = cargo_ops_about::AboutOptions { refresh };
-            cargo_ops_about::run_about(&registry, &opts)?;
+            let opts = ops_about::AboutOptions { refresh };
+            ops_about::run_about(&registry, &opts)?;
         }
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Dashboard {
@@ -320,13 +319,13 @@ fn run() -> anyhow::Result<ExitCode> {
         }) => {
             let (config, cwd) = load_config_and_cwd()?;
             let registry = crate::registry::build_data_registry(&config, &cwd)?;
-            let tools = cargo_ops_tools::collect_tools(&config.tools);
-            let opts = cargo_ops_about::DashboardOptions {
+            let tools = ops_tools::collect_tools(&config.tools);
+            let opts = ops_about::DashboardOptions {
                 skip_coverage,
                 skip_updates,
                 refresh,
             };
-            cargo_ops_about::run_dashboard(&registry, &opts, &tools)?;
+            ops_about::run_dashboard(&registry, &opts, &tools)?;
         }
         Some(CoreSubcommand::Tools { action }) => {
             #[cfg(feature = "stack-rust")]
@@ -356,8 +355,8 @@ fn run_external_command(args: &[OsString], dry_run: bool) -> anyhow::Result<Exit
 
 fn print_help() -> anyhow::Result<()> {
     if let Ok(cwd) = std::env::current_dir() {
-        if let Ok(config) = cargo_ops_core::config::load_config() {
-            let mut runner = cargo_ops_runner::command::CommandRunner::new(config, cwd);
+        if let Ok(config) = ops_core::config::load_config() {
+            let mut runner = ops_runner::command::CommandRunner::new(config, cwd);
             if let Err(e) = setup_extensions(&mut runner) {
                 tracing::debug!("failed to setup extensions for help: {}", e);
             } else {
@@ -377,13 +376,13 @@ fn print_help() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_init(force: bool, sections: cargo_ops_core::config::InitSections) -> anyhow::Result<()> {
+fn run_init(force: bool, sections: ops_core::config::InitSections) -> anyhow::Result<()> {
     run_init_to(force, sections, &mut std::io::stdout())
 }
 
 fn run_init_to(
     force: bool,
-    sections: cargo_ops_core::config::InitSections,
+    sections: ops_core::config::InitSections,
     w: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let path = PathBuf::from(".ops.toml");
@@ -395,11 +394,11 @@ fn run_init_to(
         return Ok(());
     }
     let cwd = std::env::current_dir()?;
-    let content = cargo_ops_core::config::init_template(&cwd, &sections)?;
+    let content = ops_core::config::init_template(&cwd, &sections)?;
     std::fs::write(&path, content)?;
     tracing::info!("created {}", path.display());
     if sections.commands {
-        let stack = cargo_ops_core::stack::Stack::detect(&cwd);
+        let stack = ops_core::stack::Stack::detect(&cwd);
         if stack.is_some() {
             writeln!(
                 w,
@@ -440,25 +439,25 @@ fn run_tools(action: ToolsAction) -> anyhow::Result<ExitCode> {
     }
 }
 
-fn setup_extensions(runner: &mut cargo_ops_runner::command::CommandRunner) -> anyhow::Result<()> {
+fn setup_extensions(runner: &mut ops_runner::command::CommandRunner) -> anyhow::Result<()> {
     let exts = builtin_extensions(runner.config(), runner.working_directory())?;
     let ext_refs = as_ext_refs(&exts);
     let mut cmd_registry = CommandRegistry::new();
     register_extension_commands(&ext_refs, &mut cmd_registry);
     runner.register_commands(cmd_registry);
-    let mut data_registry = cargo_ops_extension::DataRegistry::new();
+    let mut data_registry = ops_extension::DataRegistry::new();
     crate::registry::register_extension_data_providers(&ext_refs, &mut data_registry);
     runner.register_data_providers(data_registry);
     Ok(())
 }
 
-pub(crate) fn load_config_and_cwd() -> anyhow::Result<(cargo_ops_core::config::Config, PathBuf)> {
-    let config = cargo_ops_core::config::load_config()?;
+pub(crate) fn load_config_and_cwd() -> anyhow::Result<(ops_core::config::Config, PathBuf)> {
+    let config = ops_core::config::load_config()?;
     let cwd = std::env::current_dir()?;
     Ok((config, cwd))
 }
 
-fn display_cmd_for(runner: &cargo_ops_runner::command::CommandRunner, id: &str) -> String {
+fn display_cmd_for(runner: &ops_runner::command::CommandRunner, id: &str) -> String {
     match runner.resolve(id) {
         Some(CommandSpec::Exec(e)) => e.display_cmd().into_owned(),
         _ => id.to_string(),
@@ -467,7 +466,7 @@ fn display_cmd_for(runner: &cargo_ops_runner::command::CommandRunner, id: &str) 
 
 /// Build a display map from command IDs to their display strings.
 fn build_display_map(
-    runner: &cargo_ops_runner::command::CommandRunner,
+    runner: &ops_runner::command::CommandRunner,
     leaf_ids: &[String],
 ) -> std::collections::HashMap<String, String> {
     leaf_ids
@@ -494,7 +493,7 @@ fn log_step_results(results: &[StepResult]) {
 #[tracing::instrument(skip_all, fields(command = %name))]
 fn run_command(name: &str, dry_run: bool) -> anyhow::Result<ExitCode> {
     let (config, cwd) = load_config_and_cwd()?;
-    let mut runner = cargo_ops_runner::command::CommandRunner::new(config, cwd);
+    let mut runner = ops_runner::command::CommandRunner::new(config, cwd);
     setup_extensions(&mut runner)?;
 
     if dry_run {
@@ -518,14 +517,14 @@ fn run_command(name: &str, dry_run: bool) -> anyhow::Result<ExitCode> {
 /// - Auditing what commands are defined
 /// - Debugging composite command expansion
 fn run_command_dry_run(
-    runner: &cargo_ops_runner::command::CommandRunner,
+    runner: &ops_runner::command::CommandRunner,
     name: &str,
 ) -> anyhow::Result<ExitCode> {
     run_command_dry_run_to(runner, name, &mut std::io::stdout())
 }
 
 fn run_command_dry_run_to(
-    runner: &cargo_ops_runner::command::CommandRunner,
+    runner: &ops_runner::command::CommandRunner,
     name: &str,
     w: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
@@ -575,7 +574,7 @@ fn run_command_dry_run_to(
 }
 
 fn run_command_cli(
-    runner: &mut cargo_ops_runner::command::CommandRunner,
+    runner: &mut ops_runner::command::CommandRunner,
     name: &str,
 ) -> anyhow::Result<bool> {
     let leaf_ids = runner
@@ -663,12 +662,12 @@ mod tests {
 
     // -- TQ-011: run_init (using CwdGuard) --
 
-    fn all_sections() -> cargo_ops_core::config::InitSections {
-        cargo_ops_core::config::InitSections::from_flags(true, true, true)
+    fn all_sections() -> ops_core::config::InitSections {
+        ops_core::config::InitSections::from_flags(true, true, true)
     }
 
-    fn default_sections() -> cargo_ops_core::config::InitSections {
-        cargo_ops_core::config::InitSections::from_flags(false, false, false)
+    fn default_sections() -> ops_core::config::InitSections {
+        ops_core::config::InitSections::from_flags(false, false, false)
     }
 
     #[test]
@@ -746,7 +745,7 @@ mod tests {
         .unwrap();
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         let mut buf = Vec::new();
-        let sections = cargo_ops_core::config::InitSections::from_flags(true, false, true);
+        let sections = ops_core::config::InitSections::from_flags(true, false, true);
         run_init_to(false, sections, &mut buf).expect("run_init_to");
         let output = String::from_utf8(buf).unwrap();
         assert!(
@@ -762,14 +761,14 @@ mod tests {
         let config = TestConfigBuilder::new()
             .exec("build", "cargo", &["build", "--all"])
             .build();
-        let runner = cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+        let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         assert_eq!(display_cmd_for(&runner, "build"), "cargo build --all");
     }
 
     #[test]
     fn display_cmd_for_unknown_returns_id() {
-        let config = cargo_ops_core::config::Config::default();
-        let runner = cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+        let config = ops_core::config::Config::default();
+        let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         assert_eq!(display_cmd_for(&runner, "missing"), "missing");
     }
 
@@ -780,7 +779,7 @@ mod tests {
         let config = TestConfigBuilder::new()
             .composite("verify", &["build", "test"])
             .build();
-        let runner = cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+        let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         assert_eq!(display_cmd_for(&runner, "verify"), "verify");
     }
 
@@ -871,8 +870,8 @@ args = ["integration_test"]
         );
 
         let cwd = std::env::current_dir().expect("cwd");
-        let config = cargo_ops_core::config::load_config().expect("load_config");
-        let mut runner = cargo_ops_runner::command::CommandRunner::new(config, cwd);
+        let config = ops_core::config::load_config().expect("load_config");
+        let mut runner = ops_runner::command::CommandRunner::new(config, cwd);
         setup_extensions(&mut runner).expect("setup_extensions");
 
         let mut events = Vec::new();
@@ -886,23 +885,21 @@ args = ["integration_test"]
             "all steps should succeed"
         );
         assert!(
-            events.iter().any(|e| matches!(
-                e,
-                cargo_ops_runner::command::RunnerEvent::PlanStarted { .. }
-            )),
+            events
+                .iter()
+                .any(|e| matches!(e, ops_runner::command::RunnerEvent::PlanStarted { .. })),
             "should emit PlanStarted"
         );
         assert!(
-            events.iter().any(|e| matches!(
-                e,
-                cargo_ops_runner::command::RunnerEvent::StepFinished { .. }
-            )),
+            events
+                .iter()
+                .any(|e| matches!(e, ops_runner::command::RunnerEvent::StepFinished { .. })),
             "should emit StepFinished"
         );
         assert!(
             events.iter().any(|e| matches!(
                 e,
-                cargo_ops_runner::command::RunnerEvent::RunFinished { success: true, .. }
+                ops_runner::command::RunnerEvent::RunFinished { success: true, .. }
             )),
             "should emit RunFinished with success"
         );
@@ -998,7 +995,7 @@ commands = ["a"]
                 .exec("build", "cargo", &["build"])
                 .exec("test", "cargo", &["test"])
                 .build();
-            let runner = cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+            let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
             let display_map = build_display_map(&runner, &["build".into(), "test".into()]);
 
             assert_eq!(display_map.get("build"), Some(&"cargo build".to_string()));
@@ -1007,8 +1004,8 @@ commands = ["a"]
 
         #[test]
         fn build_display_map_with_unknown_command() {
-            let config = cargo_ops_core::config::Config::default();
-            let runner = cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+            let config = ops_core::config::Config::default();
+            let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
             let display_map = build_display_map(&runner, &["unknown".into()]);
 
             assert_eq!(display_map.get("unknown"), Some(&"unknown".to_string()));
@@ -1019,7 +1016,7 @@ commands = ["a"]
             let config = crate::test_utils::TestConfigBuilder::new()
                 .composite("verify", &["build", "test"])
                 .build();
-            let runner = cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+            let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
             let display_map = build_display_map(&runner, &["verify".into()]);
 
             assert_eq!(display_map.get("verify"), Some(&"verify".to_string()));
@@ -1027,19 +1024,17 @@ commands = ["a"]
 
         #[test]
         fn display_cmd_for_with_extension_command() {
-            let mut runner = cargo_ops_runner::command::CommandRunner::new(
-                cargo_ops_core::config::Config::default(),
+            let mut runner = ops_runner::command::CommandRunner::new(
+                ops_core::config::Config::default(),
                 PathBuf::from("."),
             );
             runner.register_commands(vec![(
                 "ext_cmd".into(),
-                cargo_ops_core::config::CommandSpec::Exec(
-                    cargo_ops_core::config::ExecCommandSpec {
-                        program: "echo".into(),
-                        args: vec!["ext".into()],
-                        ..Default::default()
-                    },
-                ),
+                ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec {
+                    program: "echo".into(),
+                    args: vec!["ext".into()],
+                    ..Default::default()
+                }),
             )]);
 
             assert_eq!(display_cmd_for(&runner, "ext_cmd"), "echo ext");
@@ -1049,14 +1044,14 @@ commands = ["a"]
     mod run_command_dry_run_tests {
         use super::*;
 
-        fn build_test_runner() -> cargo_ops_runner::command::CommandRunner {
+        fn build_test_runner() -> ops_runner::command::CommandRunner {
             let config = TestConfigBuilder::new()
                 .exec("build", "cargo", &["build", "--all"])
                 .exec("test", "cargo", &["test"])
                 .command(
                     "verify",
-                    cargo_ops_core::config::CommandSpec::Composite(
-                        cargo_ops_core::config::CompositeCommandSpec {
+                    ops_core::config::CommandSpec::Composite(
+                        ops_core::config::CompositeCommandSpec {
                             commands: vec!["build".into(), "test".into()],
                             parallel: false,
                             fail_fast: true,
@@ -1064,7 +1059,7 @@ commands = ["a"]
                     ),
                 )
                 .build();
-            cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."))
+            ops_runner::command::CommandRunner::new(config, PathBuf::from("."))
         }
 
         #[test]
@@ -1094,7 +1089,7 @@ commands = ["a"]
             let config = TestConfigBuilder::new()
                 .exec("echo_test", "echo", &["hello", "world"])
                 .build();
-            let runner = cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+            let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
             let mut buf = Vec::new();
             let result = run_command_dry_run_to(&runner, "echo_test", &mut buf);
             assert!(result.is_ok());
@@ -1107,15 +1102,15 @@ commands = ["a"]
         fn dry_run_shows_env_vars() {
             let mut env = std::collections::HashMap::new();
             env.insert("MY_VAR".to_string(), "my_value".to_string());
-            let spec = cargo_ops_core::config::ExecCommandSpec {
+            let spec = ops_core::config::ExecCommandSpec {
                 program: "echo".to_string(),
                 env,
                 ..Default::default()
             };
             let config = TestConfigBuilder::new()
-                .command("with_env", cargo_ops_core::config::CommandSpec::Exec(spec))
+                .command("with_env", ops_core::config::CommandSpec::Exec(spec))
                 .build();
-            let runner = cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+            let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
             let mut buf = Vec::new();
             let result = run_command_dry_run_to(&runner, "with_env", &mut buf);
             assert!(result.is_ok());
@@ -1129,18 +1124,15 @@ commands = ["a"]
             let mut env = std::collections::HashMap::new();
             env.insert("API_KEY".to_string(), "secret123".to_string());
             env.insert("PASSWORD".to_string(), "hunter2".to_string());
-            let spec = cargo_ops_core::config::ExecCommandSpec {
+            let spec = ops_core::config::ExecCommandSpec {
                 program: "echo".to_string(),
                 env,
                 ..Default::default()
             };
             let config = TestConfigBuilder::new()
-                .command(
-                    "with_secrets",
-                    cargo_ops_core::config::CommandSpec::Exec(spec),
-                )
+                .command("with_secrets", ops_core::config::CommandSpec::Exec(spec))
                 .build();
-            let runner = cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+            let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
             let mut buf = Vec::new();
             let result = run_command_dry_run_to(&runner, "with_secrets", &mut buf);
             assert!(result.is_ok());
@@ -1164,9 +1156,9 @@ commands = ["a"]
             let mut spec = exec_spec("echo", &[]);
             spec.cwd = Some(PathBuf::from("/custom/path"));
             let config = TestConfigBuilder::new()
-                .command("with_cwd", cargo_ops_core::config::CommandSpec::Exec(spec))
+                .command("with_cwd", ops_core::config::CommandSpec::Exec(spec))
                 .build();
-            let runner = cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+            let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
             let mut buf = Vec::new();
             let result = run_command_dry_run_to(&runner, "with_cwd", &mut buf);
             assert!(result.is_ok());
@@ -1179,12 +1171,9 @@ commands = ["a"]
             let mut spec = exec_spec("echo", &[]);
             spec.timeout_secs = Some(30);
             let config = TestConfigBuilder::new()
-                .command(
-                    "with_timeout",
-                    cargo_ops_core::config::CommandSpec::Exec(spec),
-                )
+                .command("with_timeout", ops_core::config::CommandSpec::Exec(spec))
                 .build();
-            let runner = cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+            let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
             let mut buf = Vec::new();
             let result = run_command_dry_run_to(&runner, "with_timeout", &mut buf);
             assert!(result.is_ok());
@@ -1209,7 +1198,7 @@ commands = ["a"]
         #[test]
         fn dry_run_no_args_omits_args_line() {
             let config = TestConfigBuilder::new().exec("simple", "echo", &[]).build();
-            let runner = cargo_ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+            let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
             let mut buf = Vec::new();
             run_command_dry_run_to(&runner, "simple", &mut buf).unwrap();
             let output = String::from_utf8(buf).unwrap();

@@ -2,15 +2,15 @@
 //!
 //! # Security (SEC-001)
 //!
-//! Path validation and SQL escaping are handled by `cargo_ops_duckdb::sql`
+//! Path validation and SQL escaping are handled by `ops_duckdb::sql`
 //! (shared defense-in-depth validation). This module only contains
 //! tokei-specific SQL generation.
 
-use cargo_ops_duckdb::sql::SqlError;
+use ops_duckdb::sql::SqlError;
 use std::path::Path;
 
 pub fn tokei_files_create_sql(path: &Path) -> Result<String, SqlError> {
-    cargo_ops_duckdb::sql::create_table_from_json_sql("tokei_files", path, None)
+    ops_duckdb::sql::create_table_from_json_sql("tokei_files", path, None)
 }
 
 pub fn tokei_languages_view_sql() -> String {
@@ -25,7 +25,7 @@ pub fn tokei_languages_view_sql() -> String {
 mod tests {
     use super::*;
 
-    cargo_ops_duckdb::test_create_sql_validation!(tokei_files_create_sql, "tokei_files.json");
+    ops_duckdb::test_create_sql_validation!(tokei_files_create_sql, "tokei_files.json");
 
     #[test]
     fn tokei_languages_view_sql_contains_aggregation() {
