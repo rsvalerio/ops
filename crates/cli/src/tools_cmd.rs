@@ -4,9 +4,9 @@ use indexmap::IndexMap;
 use std::io::Write;
 use std::process::ExitCode;
 
-use cargo_ops_core::config::load_config;
-use cargo_ops_core::style::{cyan, dim, green, red};
-use cargo_ops_tools::{collect_tools, install_tool, ToolInfo, ToolSource, ToolSpec, ToolStatus};
+use ops_core::config::load_config;
+use ops_core::style::{cyan, dim, green, red};
+use ops_tools::{collect_tools, install_tool, ToolInfo, ToolSource, ToolSpec, ToolStatus};
 
 fn load_tools() -> anyhow::Result<Vec<ToolInfo>> {
     let config = load_config()?;
@@ -203,7 +203,7 @@ fn run_tools_install_to(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cargo_ops_tools::ExtendedToolSpec;
+    use ops_tools::ExtendedToolSpec;
 
     // -- install_command_description --
 

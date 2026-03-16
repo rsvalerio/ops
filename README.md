@@ -1,6 +1,6 @@
-# cargo-ops
+# ops
 
-An opinionated, batteries-included Rust development CLI. Zero config, maximum quality.
+An opinionated, batteries-included development CLI operator ⚙️
 
 ## Installation
 
@@ -20,7 +20,7 @@ brew install ops
 > When running locally (no crates going to cates.io)
 
 ```bash
-cargo install cargo-ops
+cargo install ops
 ```
 
 ## Configuration

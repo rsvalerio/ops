@@ -112,7 +112,7 @@ mod tests {
             &db,
             "metadata",
             "/ws",
-            Path::new("/ws/target/cargo-ops/metadata.json"),
+            Path::new("/ws/target/ops/metadata.json"),
             1,
             "abc123",
         )

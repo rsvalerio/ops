@@ -8,18 +8,18 @@ version = "0.2.0"
 edition = "2021"
 
 [workspace.dependencies]
-cargo-ops-core = { path = "crates/core" }
-cargo-ops-extension = { path = "crates/extension" }
-cargo-ops-theme = { path = "crates/theme" }
-cargo-ops-runner = { path = "crates/runner" }
-cargo-ops-duckdb = { path = "extensions/duckdb" }
-cargo-ops-tokei = { path = "extensions/tokei" }
-cargo-ops-about = { path = "extensions-rust/about" }
-cargo-ops-cargo-toml = { path = "extensions-rust/cargo-toml" }
-cargo-ops-cargo-update = { path = "extensions-rust/cargo-update" }
-cargo-ops-metadata = { path = "extensions-rust/metadata" }
-cargo-ops-tools = { path = "extensions-rust/tools" }
-cargo-ops-test-coverage = { path = "extensions-rust/test-coverage" }
+ops-core = { path = "crates/core" }
+ops-extension = { path = "crates/extension" }
+ops-theme = { path = "crates/theme" }
+ops-runner = { path = "crates/runner" }
+ops-duckdb = { path = "extensions/duckdb" }
+ops-tokei = { path = "extensions/tokei" }
+ops-about = { path = "extensions-rust/about" }
+ops-cargo-toml = { path = "extensions-rust/cargo-toml" }
+ops-cargo-update = { path = "extensions-rust/cargo-update" }
+ops-metadata = { path = "extensions-rust/metadata" }
+ops-tools = { path = "extensions-rust/tools" }
+ops-test-coverage = { path = "extensions-rust/test-coverage" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"

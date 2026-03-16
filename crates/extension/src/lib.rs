@@ -1,8 +1,8 @@
 //! Extension trait and registries: CommandRegistry, DataRegistry, Context.
 
-use cargo_ops_core::config::{CommandId, CommandSpec, Config};
-use cargo_ops_core::stack::Stack;
 use indexmap::IndexMap;
+use ops_core::config::{CommandId, CommandSpec, Config};
+use ops_core::stack::Stack;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -295,7 +295,7 @@ impl Context {
 
 /// Extension: registers commands and/or data providers.
 ///
-/// Extensions are the primary mechanism for adding functionality to cargo-ops.
+/// Extensions are the primary mechanism for adding functionality to ops.
 /// They can register:
 /// - **Commands**: New named commands available via `cargo ops <name>`
 /// - **Data providers**: Named data sources queryable by other extensions
@@ -474,7 +474,7 @@ macro_rules! impl_extension {
 /// # Example
 ///
 /// ```ignore
-/// use cargo_ops_extension::data_field;
+/// use ops_extension::data_field;
 ///
 /// let fields = vec![
 ///     data_field!("name", "str", "Package name"),
@@ -501,7 +501,7 @@ macro_rules! data_field {
 /// # Example
 ///
 /// ```ignore
-/// cargo_ops_extension::test_datasource_extension!(
+/// ops_extension::test_datasource_extension!(
 ///     MetadataExtension,
 ///     name: "metadata",
 ///     data_provider: "metadata"
@@ -527,7 +527,7 @@ macro_rules! test_datasource_extension {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cargo_ops_core::config::ExecCommandSpec;
+    use ops_core::config::ExecCommandSpec;
 
     struct StubProvider;
     impl DataProvider for StubProvider {

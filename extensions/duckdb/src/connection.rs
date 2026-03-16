@@ -1,7 +1,7 @@
 //! DuckDb connection wrapper and path resolution.
 
 use crate::error::{DbError, DbResult};
-use cargo_ops_core::config::DataConfig;
+use ops_core::config::DataConfig;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -21,7 +21,7 @@ use std::sync::Mutex;
 /// 2. Using connection pooling
 /// 3. Moving to `RwLock` if/when the duckdb crate supports concurrent reads
 ///
-/// For typical cargo-ops usage (single command execution at a time), this is acceptable.
+/// For typical ops usage (single command execution at a time), this is acceptable.
 pub struct DuckDb {
     conn: Mutex<duckdb::Connection>,
     #[allow(dead_code)]
@@ -83,12 +83,12 @@ impl DuckDb {
 
     /// Resolve the DB path from config and workspace root.
     /// If config.data.path is set, resolve it (absolute or relative to workspace_root).
-    /// Otherwise default to workspace_root/target/cargo-ops/data.duckdb.
+    /// Otherwise default to workspace_root/target/ops/data.duckdb.
     pub fn resolve_path(config: &DataConfig, workspace_root: &Path) -> PathBuf {
         match &config.path {
             None => workspace_root
                 .join("target")
-                .join("cargo-ops")
+                .join("ops")
                 .join("data.duckdb"),
             Some(p) => {
                 if p.is_absolute() {
@@ -110,10 +110,7 @@ mod tests {
         let config = DataConfig::default();
         let root = Path::new("/home/proj");
         let path = DuckDb::resolve_path(&config, root);
-        assert_eq!(
-            path,
-            PathBuf::from("/home/proj/target/cargo-ops/data.duckdb")
-        );
+        assert_eq!(path, PathBuf::from("/home/proj/target/ops/data.duckdb"));
     }
 
     #[test]

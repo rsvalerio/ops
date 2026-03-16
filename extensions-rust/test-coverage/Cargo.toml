@@ -1,13 +1,13 @@
 [package]
-name = "cargo-ops-test-coverage"
+name = "ops-test-coverage"
 publish = false
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-cargo-ops-core = { workspace = true }
-cargo-ops-extension = { workspace = true, features = ["duckdb"] }
-cargo-ops-duckdb = { workspace = true }
+ops-core = { workspace = true }
+ops-extension = { workspace = true, features = ["duckdb"] }
+ops-duckdb = { workspace = true }
 duckdb = "1.4"
 serde_json = { workspace = true }
 serde = { workspace = true }
@@ -15,5 +15,5 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 
 [dev-dependencies]
-cargo-ops-extension = { workspace = true, features = ["test-support"] }
+ops-extension = { workspace = true, features = ["test-support"] }
 tempfile = "3"

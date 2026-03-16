@@ -1,15 +1,15 @@
 [package]
-name = "cargo-ops-extension"
+name = "ops-extension"
 publish = false
 version.workspace = true
 edition.workspace = true
 
 [features]
 duckdb = []
-test-support = ["cargo-ops-core/test-support"]
+test-support = ["ops-core/test-support"]
 
 [dependencies]
-cargo-ops-core = { workspace = true }
+ops-core = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }

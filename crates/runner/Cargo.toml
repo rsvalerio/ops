@@ -1,17 +1,17 @@
 [package]
-name = "cargo-ops-runner"
+name = "ops-runner"
 publish = false
 version.workspace = true
 edition.workspace = true
 
 [features]
 default = []
-test-support = ["cargo-ops-core/test-support"]
+test-support = ["ops-core/test-support"]
 
 [dependencies]
-cargo-ops-core = { workspace = true }
-cargo-ops-extension = { workspace = true }
-cargo-ops-theme = { workspace = true }
+ops-core = { workspace = true }
+ops-extension = { workspace = true }
+ops-theme = { workspace = true }
 tokio = { workspace = true }
 indicatif = "0.18"
 indexmap = { workspace = true }
@@ -21,8 +21,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-cargo-ops-core = { workspace = true, features = ["test-support"] }
-cargo-ops-runner = { path = ".", features = ["test-support"] }
+ops-core = { workspace = true, features = ["test-support"] }
+ops-runner = { path = ".", features = ["test-support"] }
 tempfile = "3"
 proptest = "1"
 tokio = { workspace = true }

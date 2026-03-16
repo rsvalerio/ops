@@ -363,7 +363,7 @@ my-serde = { package = "serde", version = "1.0" }
 
 mod provider_tests {
     use super::*;
-    use cargo_ops_core::config::Config;
+    use ops_core::config::Config;
     use std::sync::Arc;
 
     fn test_context(working_dir: PathBuf) -> Context {
@@ -381,7 +381,7 @@ mod provider_tests {
         let manifest: CargoToml =
             serde_json::from_value(value).expect("should deserialize to CargoToml");
 
-        assert_eq!(manifest.package_name(), Some("cargo-ops-cargo-toml"));
+        assert_eq!(manifest.package_name(), Some("ops-cargo-toml"));
     }
 
     #[test]
@@ -551,9 +551,9 @@ serde = "1.0"
 
 mod extension_tests {
     use super::*;
-    use cargo_ops_extension::{DataRegistry, Extension};
+    use ops_extension::{DataRegistry, Extension};
 
-    cargo_ops_extension::test_datasource_extension!(
+    ops_extension::test_datasource_extension!(
         CargoTomlExtension::new(),
         name: "cargo-toml",
         data_provider: "cargo_toml"

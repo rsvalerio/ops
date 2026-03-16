@@ -1,11 +1,11 @@
 //! Cargo tools extension: install and manage development tools.
 
 // Re-export tool types from core for convenience of downstream users.
-pub use cargo_ops_core::config::tools::{ExtendedToolSpec, ToolSource, ToolSpec};
+pub use ops_core::config::tools::{ExtendedToolSpec, ToolSource, ToolSpec};
 
 use anyhow::Context;
-use cargo_ops_extension::ExtensionType;
 use indexmap::IndexMap;
+use ops_extension::ExtensionType;
 use std::process::Command;
 
 pub const NAME: &str = "tools";
@@ -14,7 +14,7 @@ pub const SHORTNAME: &str = "tools";
 
 pub struct ToolsExtension;
 
-cargo_ops_extension::impl_extension! {
+ops_extension::impl_extension! {
     ToolsExtension,
     name: NAME,
     description: DESCRIPTION,

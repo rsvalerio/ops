@@ -9,11 +9,9 @@ pub mod views;
 pub use ingestor::CoverageIngestor;
 
 use anyhow::Context as AnyhowContext;
-use cargo_ops_core::output::format_error_tail;
-use cargo_ops_duckdb::{init_schema, DataIngestor, DuckDb};
-use cargo_ops_extension::{
-    Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
-};
+use ops_core::output::format_error_tail;
+use ops_duckdb::{init_schema, DataIngestor, DuckDb};
+use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType};
 use std::io;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -28,7 +26,7 @@ pub const DATA_PROVIDER_NAME: &str = "coverage";
 
 pub struct CoverageExtension;
 
-cargo_ops_extension::impl_extension! {
+ops_extension::impl_extension! {
     CoverageExtension,
     name: NAME,
     description: DESCRIPTION,
@@ -48,13 +46,13 @@ impl DataProvider for CoverageProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        cargo_ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
+        ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
             collect_coverage(&ctx.working_directory)
         })
     }
 
     fn schema(&self) -> DataProviderSchema {
-        use cargo_ops_extension::data_field;
+        use ops_extension::data_field;
         DataProviderSchema {
             description: "LLVM code coverage from `cargo llvm-cov` (per-file metrics)",
             fields: vec![
@@ -174,7 +172,7 @@ pub fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, anyhow:
 }
 
 fn query_coverage_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
-    cargo_ops_duckdb::sql::query_rows_to_json(
+    ops_duckdb::sql::query_rows_to_json(
         db,
         "SELECT filename, lines_count, lines_covered, lines_percent, \
          functions_count, functions_covered, functions_percent, \
@@ -204,7 +202,7 @@ fn query_coverage_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error>
 }
 
 fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
-    cargo_ops_duckdb::sql::provide_via_ingestor(
+    ops_duckdb::sql::provide_via_ingestor(
         db,
         ctx,
         "coverage_files",

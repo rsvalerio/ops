@@ -6,7 +6,7 @@ Instructions for AI coding agents working on this project.
 
 ## Project overview
 
-`cargo-ops` is an opinionated, batteries-included Rust development CLI. Zero config, maximum quality.
+`ops` is an opinionated, batteries-included Rust development CLI. Zero config, maximum quality.
 
 **Key concepts:**
 - Commands are defined in `.ops.toml` (or from internal default when no file). Run `cargo ops init` to create `.ops.toml`; when a stack is detected (e.g. Rust via `Cargo.toml`), the written file is merged with that stack's default commands (from embedded `.default.<stack>.ops.toml`).
@@ -78,7 +78,7 @@ Then install it locally: `cargo install --path . --force`
 
 Configuration is merged (later overrides earlier):
 1. Internal default (base config; when a stack is detected at runtime or at `init` time, stack default commands from embedded `.default.<stack>.ops.toml` are also loaded)
-2. Global config in `~/.config/cargo-ops/config.toml` (optional)
+2. Global config in `~/.config/ops/config.toml` (optional)
 3. Local `.ops.toml` in current directory (optional; overrides internal default when present)
 4. `.ops.d/*.toml` files (sorted alphabetically; good for separating themes, commands)
 5. Environment variables `CARGO_OPS_*`

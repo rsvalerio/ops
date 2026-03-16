@@ -2,9 +2,9 @@
 
 use std::io::{self, IsTerminal, Write};
 
-use cargo_ops_core::style;
-use cargo_ops_core::table::{Cell, Color, OpsTable};
-use cargo_ops_extension::{CommandRegistry, DataProviderSchema};
+use ops_core::style;
+use ops_core::table::{Cell, Color, OpsTable};
+use ops_extension::{CommandRegistry, DataProviderSchema};
 
 use crate::registry::{build_data_registry, collect_compiled_extensions};
 
@@ -54,7 +54,7 @@ fn run_extension_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
 fn build_extension_row(
     table: &OpsTable,
     config_name: &str,
-    ext: &dyn cargo_ops_extension::Extension,
+    ext: &dyn ops_extension::Extension,
 ) -> Vec<Cell> {
     let info = ext.info();
 
@@ -155,8 +155,8 @@ where
 fn print_extension_details(
     w: &mut dyn Write,
     name: &str,
-    ext: &dyn cargo_ops_extension::Extension,
-    config: &cargo_ops_core::config::Config,
+    ext: &dyn ops_extension::Extension,
+    config: &ops_core::config::Config,
     cwd: &std::path::Path,
 ) -> anyhow::Result<()> {
     let info = ext.info();

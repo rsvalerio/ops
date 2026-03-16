@@ -1,10 +1,10 @@
 //! Extension glue: resolve stack, collect compiled-in extensions, register commands/data providers.
 
-use cargo_ops_core::config::Config;
-use cargo_ops_core::stack::Stack;
+use ops_core::config::Config;
+use ops_core::stack::Stack;
 #[cfg(test)]
-use cargo_ops_extension::ExtensionInfo;
-use cargo_ops_extension::{CommandRegistry, DataRegistry, Extension};
+use ops_extension::ExtensionInfo;
+use ops_extension::{CommandRegistry, DataRegistry, Extension};
 use std::collections::HashMap;
 use std::path::Path;
 use tracing::debug;
@@ -26,42 +26,39 @@ pub fn collect_compiled_extensions(
 
     #[cfg(feature = "stack-rust")]
     {
-        available.push(("tools", Box::new(cargo_ops_tools::ToolsExtension)));
+        available.push(("tools", Box::new(ops_tools::ToolsExtension)));
     }
 
     #[cfg(feature = "duckdb")]
     {
-        let db_path = cargo_ops_duckdb::DuckDb::resolve_path(&config.data, workspace_root);
+        let db_path = ops_duckdb::DuckDb::resolve_path(&config.data, workspace_root);
         available.push((
             "duckdb",
-            Box::new(cargo_ops_duckdb::DuckDbExtension::new(db_path)),
+            Box::new(ops_duckdb::DuckDbExtension::new(db_path)),
         ));
     }
 
     #[cfg(feature = "tokei")]
     {
-        available.push(("tokei", Box::new(cargo_ops_tokei::TokeiExtension)));
+        available.push(("tokei", Box::new(ops_tokei::TokeiExtension)));
     }
 
     #[cfg(feature = "coverage")]
     {
-        available.push((
-            "coverage",
-            Box::new(cargo_ops_test_coverage::CoverageExtension),
-        ));
+        available.push(("coverage", Box::new(ops_test_coverage::CoverageExtension)));
     }
 
     #[cfg(feature = "stack-rust")]
     {
-        available.push(("metadata", Box::new(cargo_ops_metadata::MetadataExtension)));
+        available.push(("metadata", Box::new(ops_metadata::MetadataExtension)));
         available.push((
             "cargo-toml",
-            Box::new(cargo_ops_cargo_toml::CargoTomlExtension::new()),
+            Box::new(ops_cargo_toml::CargoTomlExtension::new()),
         ));
-        available.push(("about", Box::new(cargo_ops_about::AboutExtension)));
+        available.push(("about", Box::new(ops_about::AboutExtension)));
         available.push((
             "cargo-update",
-            Box::new(cargo_ops_cargo_update::CargoUpdateExtension),
+            Box::new(ops_cargo_update::CargoUpdateExtension),
         ));
     }
 
@@ -193,7 +190,7 @@ pub fn collect_extension_info(extensions: &[&dyn Extension]) -> Vec<ExtensionInf
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cargo_ops_core::config::{Config, ExtensionConfig};
+    use ops_core::config::{Config, ExtensionConfig};
 
     #[test]
     fn builtin_extensions_rejects_unknown_extension() {
@@ -286,7 +283,7 @@ mod tests {
 
     #[test]
     fn extension_types_methods_work() {
-        use cargo_ops_extension::ExtensionType;
+        use ops_extension::ExtensionType;
 
         let both = ExtensionType::DATASOURCE | ExtensionType::COMMAND;
         assert!(both.is_datasource());

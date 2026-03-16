@@ -2,11 +2,11 @@
 
 use crate::views;
 use crate::{check_metadata_output, run_cargo_metadata};
-use cargo_ops_duckdb::sql::io_err;
-use cargo_ops_duckdb::{
+use ops_duckdb::sql::io_err;
+use ops_duckdb::{
     init_schema, upsert_data_source, DataIngestor, DbError, DbResult, DuckDb, LoadResult,
 };
-use cargo_ops_extension::Context;
+use ops_extension::Context;
 use std::path::Path;
 
 pub struct MetadataIngestor;
@@ -49,7 +49,7 @@ impl DataIngestor for MetadataIngestor {
         drop(conn);
 
         let record_count = 1u64;
-        let checksum = cargo_ops_duckdb::sql::checksum_file(&data_dir.join("metadata.json"))?;
+        let checksum = ops_duckdb::sql::checksum_file(&data_dir.join("metadata.json"))?;
         upsert_data_source(
             db,
             self.name(),
@@ -68,7 +68,7 @@ impl DataIngestor for MetadataIngestor {
     }
 
     fn checksum(&self, data_dir: &Path) -> DbResult<String> {
-        cargo_ops_duckdb::sql::checksum_file(&data_dir.join("metadata.json"))
+        ops_duckdb::sql::checksum_file(&data_dir.join("metadata.json"))
     }
 }
 

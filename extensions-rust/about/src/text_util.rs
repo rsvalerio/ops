@@ -1,6 +1,6 @@
 //! Text utilities: formatting, padding, truncation, and wrapping.
 
-use cargo_ops_core::output::display_width;
+use ops_core::output::display_width;
 
 pub(crate) fn format_number(n: i64) -> String {
     if n < 0 {

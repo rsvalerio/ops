@@ -4,14 +4,14 @@ use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::path::Path;
 
-use cargo_ops_duckdb::sql::{
+use ops_duckdb::sql::{
     query_crate_coverage, query_crate_dep_counts, query_crate_deps, query_crate_file_count,
     query_crate_loc, query_project_coverage, query_project_file_count, query_project_loc,
     CrateCoverage,
 };
-use cargo_ops_extension::Context;
+use ops_extension::Context;
 
-use cargo_ops_cargo_toml::CargoToml;
+use ops_cargo_toml::CargoToml;
 
 /// LOC data for display — always has project total, workspaces also get per-crate.
 pub(crate) struct LocData {
@@ -47,7 +47,7 @@ pub(crate) struct CoverageData {
 
 /// Parsed updates data for the UPDATES section.
 pub(crate) struct UpdatesData {
-    pub(crate) result: cargo_ops_cargo_update::CargoUpdateResult,
+    pub(crate) result: ops_cargo_update::CargoUpdateResult,
 }
 
 /// Per-language LOC breakdown for the CODE STATISTICS section.
@@ -74,10 +74,10 @@ pub(crate) fn maybe_spinner(message: &str) -> Option<indicatif::ProgressBar> {
 }
 
 /// Extract the DuckDb handle from context (DUP-007).
-fn get_db(ctx: &Context) -> Option<&cargo_ops_duckdb::DuckDb> {
+fn get_db(ctx: &Context) -> Option<&ops_duckdb::DuckDb> {
     ctx.db
         .as_ref()
-        .and_then(|h| h.as_any().downcast_ref::<cargo_ops_duckdb::DuckDb>())
+        .and_then(|h| h.as_any().downcast_ref::<ops_duckdb::DuckDb>())
 }
 
 /// Expand workspace member glob patterns (e.g. `crates/*`) into actual directory paths
@@ -111,7 +111,7 @@ pub(crate) fn resolve_member_globs(members: &[String], workspace_root: &Path) ->
 pub(crate) fn query_loc_data(
     manifest: &CargoToml,
     ctx: &mut Context,
-    data_registry: &cargo_ops_extension::DataRegistry,
+    data_registry: &ops_extension::DataRegistry,
 ) -> Option<LocData> {
     if let Err(e) = ctx.get_or_provide("duckdb", data_registry) {
         tracing::debug!("loc: duckdb provider failed: {e:#}");
@@ -178,7 +178,7 @@ pub(crate) fn query_loc_data(
 
 pub(crate) fn query_deps_data(
     ctx: &mut Context,
-    data_registry: &cargo_ops_extension::DataRegistry,
+    data_registry: &ops_extension::DataRegistry,
 ) -> Option<DepsData> {
     ctx.get_or_provide("metadata", data_registry).ok()?;
     let db = get_db(ctx)?;
@@ -188,7 +188,7 @@ pub(crate) fn query_deps_data(
 
 pub(crate) fn query_deps_tree_data(
     ctx: &mut Context,
-    data_registry: &cargo_ops_extension::DataRegistry,
+    data_registry: &ops_extension::DataRegistry,
 ) -> Option<DepsTreeData> {
     ctx.get_or_provide("metadata", data_registry).ok()?;
     let db = get_db(ctx)?;
@@ -200,7 +200,7 @@ pub(crate) fn query_coverage_data(
     manifest: &CargoToml,
     cwd: &std::path::Path,
     ctx: &mut Context,
-    data_registry: &cargo_ops_extension::DataRegistry,
+    data_registry: &ops_extension::DataRegistry,
 ) -> Option<CoverageData> {
     if let Err(e) = ctx.get_or_provide("duckdb", data_registry) {
         tracing::debug!("coverage: duckdb provider failed: {e:#}");
@@ -243,17 +243,17 @@ pub(crate) fn query_coverage_data(
 
 pub(crate) fn query_updates_data(
     ctx: &mut Context,
-    data_registry: &cargo_ops_extension::DataRegistry,
+    data_registry: &ops_extension::DataRegistry,
 ) -> Option<UpdatesData> {
     let value = ctx.get_or_provide("cargo_update", data_registry).ok()?;
-    let result: cargo_ops_cargo_update::CargoUpdateResult =
+    let result: ops_cargo_update::CargoUpdateResult =
         serde_json::from_value((*value).clone()).ok()?;
     Some(UpdatesData { result })
 }
 
 pub(crate) fn query_language_stats(
     ctx: &mut Context,
-    data_registry: &cargo_ops_extension::DataRegistry,
+    data_registry: &ops_extension::DataRegistry,
 ) -> Option<Vec<LanguageStat>> {
     if let Err(e) = ctx.get_or_provide("duckdb", data_registry) {
         tracing::debug!("language_stats: duckdb provider failed: {e:#}");

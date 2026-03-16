@@ -9,12 +9,10 @@ mod views;
 
 pub use types::{Dependency, DependencyKind, Metadata, Package, Target};
 
-use cargo_ops_core::output::format_error_tail;
-use cargo_ops_duckdb::DuckDb;
-use cargo_ops_extension::{
-    Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
-};
 use ingestor::MetadataIngestor;
+use ops_core::output::format_error_tail;
+use ops_duckdb::DuckDb;
+use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType};
 use std::io;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -43,7 +41,7 @@ pub(crate) fn check_metadata_output(output: &Output) -> Result<(), anyhow::Error
 
 pub struct MetadataExtension;
 
-cargo_ops_extension::impl_extension! {
+ops_extension::impl_extension! {
     MetadataExtension,
     name: NAME,
     description: DESCRIPTION,
@@ -63,13 +61,11 @@ impl DataProvider for MetadataProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        cargo_ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
-            provide_via_cargo_metadata(ctx)
-        })
+        ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| provide_via_cargo_metadata(ctx))
     }
 
     fn schema(&self) -> DataProviderSchema {
-        use cargo_ops_extension::data_field;
+        use ops_extension::data_field;
         DataProviderSchema {
             description: "Cargo workspace metadata from `cargo metadata`",
             fields: vec![
@@ -174,7 +170,7 @@ fn query_metadata_raw(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
 }
 
 fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
-    cargo_ops_duckdb::sql::provide_via_ingestor(
+    ops_duckdb::sql::provide_via_ingestor(
         db,
         ctx,
         "metadata_raw",

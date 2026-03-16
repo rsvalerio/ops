@@ -195,7 +195,7 @@ The release workflow needs a GitHub Personal Access Token (PAT) to push the Home
 
 #### Step 2: Add as Repository Secret
 
-1. Go to `cargo-ops` repo → **Settings → Secrets and variables → Actions**
+1. Go to `ops` repo → **Settings → Secrets and variables → Actions**
 2. Click **"New repository secret"**
 3. Name: `HOMEBREW_TAP_TOKEN`, Secret: paste token
 4. Click **"Add secret"**

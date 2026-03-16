@@ -1,6 +1,6 @@
 //! Events emitted during command execution for plain-text (theme) output.
 
-use cargo_ops_core::config::CommandId;
+use ops_core::config::CommandId;
 use serde::Serialize;
 
 /// Events emitted during command execution for plain-text (theme) output.

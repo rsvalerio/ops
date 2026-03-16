@@ -3,9 +3,9 @@
 use std::collections::HashMap;
 use std::io::{self, IsTerminal};
 
-use cargo_ops_core::style::{cyan, dim, green};
+use ops_core::style::{cyan, dim, green};
 
-use cargo_ops_cargo_toml::CargoToml;
+use ops_cargo_toml::CargoToml;
 
 use super::cards::{
     format_crate_name, layout_cards_in_grid, load_crate_infos, render_card, CardLayoutConfig,
@@ -47,14 +47,14 @@ pub(crate) fn format_about(ctx: &AboutContext<'_>) -> String {
 
 /// Extract an optional field from the root package, returning `default` if absent.
 fn pkg_field<'a>(
-    root_pkg: &'a Option<cargo_ops_cargo_toml::Package>,
-    f: impl FnOnce(&'a cargo_ops_cargo_toml::Package) -> Option<&'a str>,
+    root_pkg: &'a Option<ops_cargo_toml::Package>,
+    f: impl FnOnce(&'a ops_cargo_toml::Package) -> Option<&'a str>,
     default: &'a str,
 ) -> &'a str {
     root_pkg.as_ref().and_then(f).unwrap_or(default)
 }
 
-pub(crate) fn format_header(root_pkg: &Option<cargo_ops_cargo_toml::Package>) -> Vec<String> {
+pub(crate) fn format_header(root_pkg: &Option<ops_cargo_toml::Package>) -> Vec<String> {
     let pkg_name = pkg_field(root_pkg, |p| Some(p.name.as_str()), "workspace");
     let pkg_version = pkg_field(root_pkg, |p| p.version.as_str(), "unknown");
     let edition = pkg_field(root_pkg, |p| p.edition.as_str(), "2021");
@@ -77,7 +77,7 @@ pub(crate) fn format_header(root_pkg: &Option<cargo_ops_cargo_toml::Package>) ->
     ]
 }
 
-pub(crate) fn format_description(root_pkg: &Option<cargo_ops_cargo_toml::Package>) -> Vec<String> {
+pub(crate) fn format_description(root_pkg: &Option<ops_cargo_toml::Package>) -> Vec<String> {
     match root_pkg.as_ref().and_then(|p| p.description.as_str()) {
         Some(desc) => vec![String::new(), format!("  {}", desc)],
         None => vec![],
@@ -156,8 +156,8 @@ pub(crate) fn coverage_icon(pct: f64) -> &'static str {
 }
 
 /// Color for coverage percentage.
-pub(crate) fn coverage_color(pct: f64) -> cargo_ops_core::table::Color {
-    use cargo_ops_core::table::Color;
+pub(crate) fn coverage_color(pct: f64) -> ops_core::table::Color {
+    use ops_core::table::Color;
     if pct < 50.0 {
         Color::Red
     } else if pct < 80.0 {
@@ -168,10 +168,10 @@ pub(crate) fn coverage_color(pct: f64) -> cargo_ops_core::table::Color {
 }
 
 pub(crate) fn format_coverage_table(
-    ws: &cargo_ops_cargo_toml::Workspace,
+    ws: &ops_cargo_toml::Workspace,
     cov_data: &CoverageData,
 ) -> String {
-    use cargo_ops_core::table::OpsTable;
+    use ops_core::table::OpsTable;
 
     let mut table = OpsTable::new();
     table.set_header(vec!["", "Crate", "Coverage", "Covered", "Total"]);
@@ -202,7 +202,7 @@ pub(crate) fn format_coverage_table(
     table.to_string()
 }
 
-pub(crate) fn format_authors(root_pkg: &Option<cargo_ops_cargo_toml::Package>) -> Vec<String> {
+pub(crate) fn format_authors(root_pkg: &Option<ops_cargo_toml::Package>) -> Vec<String> {
     let authors = root_pkg
         .as_ref()
         .and_then(|p| p.authors.value())
@@ -224,7 +224,7 @@ pub(crate) fn format_authors(root_pkg: &Option<cargo_ops_cargo_toml::Package>) -
     }
 }
 
-pub(crate) fn format_repository(root_pkg: &Option<cargo_ops_cargo_toml::Package>) -> Vec<String> {
+pub(crate) fn format_repository(root_pkg: &Option<ops_cargo_toml::Package>) -> Vec<String> {
     match root_pkg.as_ref().and_then(|p| p.repository.as_str()) {
         Some(url) => {
             let is_tty = io::stdout().is_terminal();
@@ -393,11 +393,8 @@ pub(crate) fn format_updates_section(updates_data: Option<&UpdatesData>) -> Vec<
     lines
 }
 
-pub(crate) fn format_update_entry(
-    entry: &cargo_ops_cargo_update::UpdateEntry,
-    is_tty: bool,
-) -> String {
-    use cargo_ops_cargo_update::UpdateAction;
+pub(crate) fn format_update_entry(entry: &ops_cargo_update::UpdateEntry, is_tty: bool) -> String {
+    use ops_cargo_update::UpdateAction;
     match &entry.action {
         UpdateAction::Update => {
             let from = entry.from.as_deref().unwrap_or("?");

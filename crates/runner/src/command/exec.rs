@@ -3,7 +3,7 @@
 //! # Security Model
 //!
 //! Commands are executed directly from configuration (`.ops.toml`) without
-//! sanitization. This is **intentional by design** — `cargo-ops` follows the
+//! sanitization. This is **intentional by design** — `ops` follows the
 //! same trust model as `make`, `npm run`, and other build tools:
 //!
 //! - Local `.ops.toml` files are implicitly trusted
@@ -32,7 +32,7 @@
 
 use super::events::RunnerEvent;
 use super::results::{CommandOutput, StepResult};
-use cargo_ops_core::config::{CommandId, ExecCommandSpec};
+use ops_core::config::{CommandId, ExecCommandSpec};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

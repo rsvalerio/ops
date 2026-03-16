@@ -24,8 +24,8 @@
 //! ## As a Data Provider (from other extensions)
 //!
 //! ```ignore
-//! use cargo_ops_extension::{Context, DataRegistry};
-//! use cargo_ops_cargo_toml::CargoToml;
+//! use ops_extension::{Context, DataRegistry};
+//! use ops_cargo_toml::CargoToml;
 //!
 //! fn my_extension_logic(ctx: &mut Context, registry: &DataRegistry) -> Result<(), anyhow::Error> {
 //!     // Get cached Cargo.toml data
@@ -66,9 +66,7 @@ pub use types::{
 };
 
 use anyhow::Context as _;
-use cargo_ops_extension::{
-    Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
-};
+use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -88,8 +86,8 @@ pub const DATA_PROVIDER_NAME: &str = "cargo_toml";
 /// # Example
 ///
 /// ```ignore
-/// use cargo_ops_cargo_toml::CargoTomlExtension;
-/// use cargo_ops_extension::Extension;
+/// use ops_cargo_toml::CargoTomlExtension;
+/// use ops_extension::Extension;
 ///
 /// // Auto-discover from current directory
 /// let ext = CargoTomlExtension::new();
@@ -120,7 +118,7 @@ impl Default for CargoTomlExtension {
     }
 }
 
-cargo_ops_extension::impl_extension! {
+ops_extension::impl_extension! {
     CargoTomlExtension,
     name: NAME,
     description: DESCRIPTION,
@@ -202,7 +200,7 @@ impl DataProvider for CargoTomlProvider {
     }
 
     fn schema(&self) -> DataProviderSchema {
-        use cargo_ops_extension::data_field;
+        use ops_extension::data_field;
         DataProviderSchema {
             description: "Cargo.toml manifest data (parsed from workspace root)",
             fields: vec![

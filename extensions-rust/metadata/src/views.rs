@@ -2,11 +2,11 @@
 //!
 //! # Security (SEC-001)
 //!
-//! Path validation and SQL escaping are handled by `cargo_ops_duckdb::sql`
+//! Path validation and SQL escaping are handled by `ops_duckdb::sql`
 //! (shared defense-in-depth validation). This module only contains
 //! metadata-specific SQL generation.
 
-use cargo_ops_duckdb::sql::SqlError;
+use ops_duckdb::sql::SqlError;
 use std::path::Path;
 
 pub fn crate_dependencies_view_sql() -> String {
@@ -27,7 +27,7 @@ pub fn crate_dependencies_view_sql() -> String {
 }
 
 pub fn metadata_raw_create_sql(path: &Path) -> Result<String, SqlError> {
-    cargo_ops_duckdb::sql::create_table_from_json_sql(
+    ops_duckdb::sql::create_table_from_json_sql(
         "metadata_raw",
         path,
         Some("maximum_object_size=67108864"),
@@ -48,5 +48,5 @@ mod tests {
         assert!(sql.contains("dependency_kind"));
     }
 
-    cargo_ops_duckdb::test_create_sql_validation!(metadata_raw_create_sql, "metadata.json");
+    ops_duckdb::test_create_sql_validation!(metadata_raw_create_sql, "metadata.json");
 }

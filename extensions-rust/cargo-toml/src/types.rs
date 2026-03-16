@@ -3,7 +3,7 @@
 //! This module provides strongly-typed structures that map directly to Cargo.toml sections.
 //! All types derive `Deserialize` for parsing and implement `Clone` for caching.
 
-use cargo_ops_core::serde_defaults;
+use ops_core::serde_defaults;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 /// # Example
 ///
 /// ```ignore
-/// use cargo_ops_rust::cargo_toml::CargoToml;
+/// use ops_rust::cargo_toml::CargoToml;
 ///
 /// let manifest = CargoToml::parse(&toml_content)?;
 /// if let Some(pkg) = &manifest.package {

@@ -1,9 +1,9 @@
 //! CoverageIngestor: collect LLVM coverage data and load into DuckDB.
 
 use crate::views;
-use cargo_ops_duckdb::sql::io_err;
-use cargo_ops_duckdb::{DataIngestor, DbResult, DuckDb, LoadResult, SidecarIngestorConfig};
-use cargo_ops_extension::Context;
+use ops_duckdb::sql::io_err;
+use ops_duckdb::{DataIngestor, DbResult, DuckDb, LoadResult, SidecarIngestorConfig};
+use ops_extension::Context;
 use std::path::Path;
 
 const PIPELINE: SidecarIngestorConfig = SidecarIngestorConfig {

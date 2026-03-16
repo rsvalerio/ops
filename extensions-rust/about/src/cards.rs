@@ -1,7 +1,7 @@
 //! Card rendering and grid layout for crate info display.
 
-use cargo_ops_core::output::display_width;
-use cargo_ops_core::style::{cyan, dim, grey, white};
+use ops_core::output::display_width;
+use ops_core::style::{cyan, dim, grey, white};
 
 use super::text_util::{
     format_number, get_terminal_width, pad_to_width_plain, truncate_to_width, tty_style, wrap_text,

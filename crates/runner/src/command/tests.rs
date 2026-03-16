@@ -5,8 +5,8 @@ use crate::command::events::RunnerEvent;
 use crate::command::exec::{build_command, emit_output_events, exec_standalone};
 use crate::command::results::StepResult;
 use crate::test_support::{test_runner, EventAssertions};
-use cargo_ops_core::config::CommandSpec;
-use cargo_ops_core::test_utils::{
+use ops_core::config::CommandSpec;
+use ops_core::test_utils::{
     composite_cmd, echo_cmd, exec_spec, exec_spec_with_cwd, false_cmd, parallel_cmd, sleep_cmd,
     true_cmd,
 };
@@ -460,7 +460,7 @@ mod proptest_tests {
             commands.insert(cmd2.clone(), CommandSpec::Exec(exec_spec("echo", &[&cmd2])));
             commands.insert(
                 name.clone(),
-                CommandSpec::Composite(cargo_ops_core::config::CompositeCommandSpec {
+                CommandSpec::Composite(ops_core::config::CompositeCommandSpec {
                     commands: vec![cmd1.clone(), cmd2.clone()],
                     parallel: false,
                     fail_fast: true,
@@ -1177,7 +1177,7 @@ mod depth_limit_tests {
             let next_name = format!("level_{}", i + 1);
             commands.insert(
                 name,
-                CommandSpec::Composite(cargo_ops_core::config::CompositeCommandSpec {
+                CommandSpec::Composite(ops_core::config::CompositeCommandSpec {
                     commands: vec![next_name],
                     parallel: false,
                     fail_fast: true,
@@ -1326,7 +1326,7 @@ mod sensitive_env_tests {
 /// TQ-GAP-005: Tests for CommandRunner::query_data().
 mod query_data_tests {
     use super::*;
-    use cargo_ops_extension::{Context, DataProvider, DataProviderError, DataRegistry};
+    use ops_extension::{Context, DataProvider, DataProviderError, DataRegistry};
 
     struct FixedProvider {
         value: serde_json::Value,
