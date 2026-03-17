@@ -20,6 +20,7 @@ strum = { version = "0.28", features = ["derive"] }
 comfy-table = "7"
 unicode-width = "0.2"
 bitflags = "2"
+terminal_size = "0.4"
 thiserror = { workspace = true }
 
 [dev-dependencies]

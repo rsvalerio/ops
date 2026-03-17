@@ -2077,6 +2077,7 @@ dependencies = [
  "serial_test",
  "strum 0.28.0",
  "tempfile",
+ "terminal_size",
  "thiserror 2.0.18",
  "toml 1.0.6+spec-1.1.0",
  "toml_edit 0.25.4+spec-1.1.0",
