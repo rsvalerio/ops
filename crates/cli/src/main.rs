@@ -2,6 +2,7 @@
 //! Step display uses indicatif MultiProgress (one spinner per step).
 
 mod extension_cmd;
+mod new_command_cmd;
 mod registry;
 mod theme_cmd;
 #[cfg(feature = "stack-rust")]
@@ -193,6 +194,8 @@ pub enum CoreSubcommand {
         #[arg(long)]
         refresh: bool,
     },
+    /// Interactively add a new command to `.ops.toml`.
+    NewCommand,
     /// Install and manage cargo development tools.
     Tools {
         #[command(subcommand)]
@@ -304,6 +307,7 @@ fn run() -> anyhow::Result<ExitCode> {
         }
         Some(CoreSubcommand::Theme { action }) => run_theme(action)?,
         Some(CoreSubcommand::Extension { action }) => run_extension(action)?,
+        Some(CoreSubcommand::NewCommand) => new_command_cmd::run_new_command()?,
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::About { refresh }) => {
             let (config, cwd) = load_config_and_cwd()?;

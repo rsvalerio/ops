@@ -23,17 +23,17 @@ use tracing::{debug, instrument};
 pub struct Config {
     #[serde(default)]
     pub output: OutputConfig,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub commands: IndexMap<String, CommandSpec>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "DataConfig::is_default")]
     pub data: DataConfig,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub themes: IndexMap<String, ThemeConfig>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "ExtensionConfig::is_default")]
     pub extensions: ExtensionConfig,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub tools: IndexMap<String, ToolSpec>,
 }
 
@@ -46,6 +46,12 @@ pub struct ExtensionConfig {
     pub enabled: Option<Vec<String>>,
 }
 
+impl ExtensionConfig {
+    fn is_default(&self) -> bool {
+        self.enabled.is_none()
+    }
+}
+
 /// Data storage settings (DuckDB path).
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -54,6 +60,12 @@ pub struct DataConfig {
     /// Absolute paths are used as-is; relative paths resolve from workspace root.
     /// Default (when None): .ops/data.duckdb (stack-dependent)
     pub path: Option<PathBuf>,
+}
+
+impl DataConfig {
+    fn is_default(&self) -> bool {
+        self.path.is_none()
+    }
 }
 
 /// Overlay configuration with optional fields — only explicitly-set values
