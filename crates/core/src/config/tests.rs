@@ -26,7 +26,8 @@ fn default_ops_file_exists_and_deserializes() {
     );
     let c: Config = toml::from_str(default_ops_toml()).expect("default config must deserialize");
     assert_eq!(c.output.theme, "classic");
-    assert_eq!(c.output.columns, 120);
+    // columns defaults to 90% of terminal width (or 80 if not a TTY)
+    assert!(c.output.columns > 0);
     assert!(c.output.show_error_detail);
     // Commands are provided by stack defaults (from .default.<stack>.ops.toml), not the base file.
     assert!(

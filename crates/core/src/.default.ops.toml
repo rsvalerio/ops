@@ -3,7 +3,8 @@
 
 [output]
 theme = "classic"
-columns = 120
+# columns auto-detected from terminal width (90%); override with a fixed value:
+# columns = 120
 show_error_detail = true
 
 # Built-in themes (classic and compact). Override by redefining or add new themes.

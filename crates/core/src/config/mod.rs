@@ -121,7 +121,11 @@ pub struct OutputConfig {
     #[serde(default = "default_theme")]
     pub theme: String,
     /// Line width in columns for step lines (command + spacer + time). No runtime change.
-    #[serde(default = "default_columns")]
+    /// When omitted, auto-detected from terminal width (90%).
+    #[serde(
+        default = "default_columns",
+        skip_serializing_if = "is_default_columns"
+    )]
     pub columns: u16,
     /// When true (default), show error details (exit status, stderr tail) inline
     /// below the failed step line. When false, only the step line with failure icon is shown.
@@ -144,7 +148,13 @@ fn default_theme() -> String {
 }
 
 fn default_columns() -> u16 {
-    80
+    terminal_size::terminal_size()
+        .map(|(w, _)| w.0 * 9 / 10)
+        .unwrap_or(80)
+}
+
+fn is_default_columns(v: &u16) -> bool {
+    *v == default_columns()
 }
 
 /// Command definition: either a single exec or a composite of multiple commands.
