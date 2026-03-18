@@ -186,40 +186,46 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 
 ## 8. Summary Separator
 
-**What:** Visual break between the last step line and the summary.
+**What:** Visual break between the last step line and the footer/summary. Rendered upfront when the plan starts and remains visible throughout execution.
 
 **Visual example:**
 ```text
   ✅ cargo test --all-targets ........................... 0.80s
-                                                              <-- blank line
-Done in 23.62s
+│                                                             <-- separator
+└── Done 5/5 in 23.62s
 ```
 
-**Theme variations:** None (default returns empty string, rendered as a blank line).
+**Theme variations:** Classic uses `│` (tree connector). Compact returns empty string (rendered as blank line).
 
 **Configuration:** None. Overridable per theme via `render_summary_separator()`.
 
-**Implementation:** `StepLineTheme::render_summary_separator()` in `crates/theme/src/lib.rs:184-186`. Called from `ProgressDisplay::on_run_finished()` at `crates/runner/src/display.rs:399-427`.
+**Implementation:** `StepLineTheme::render_summary_separator()` in `crates/theme/src/lib.rs`. Created as a progress bar in `ProgressDisplay::on_plan_started()`. TTY-only during progress; written to stderr on run finish for non-TTY.
 
 ---
 
-## 9. Summary Line
+## 9. Footer / Summary Line
 
-**What:** Final line showing total elapsed time and overall result.
+**What:** Progress footer shown from the start of execution, updated as steps complete, and finalized with elapsed time when the run ends.
 
-**Visual examples:**
+**Visual examples (during execution):**
 ```text
-Done in 23.62s       (all steps succeeded)
-Failed in 0.42s      (one or more steps failed)
+└── Done 0/5…      (plan just started)
+└── Done 3/5…      (3 steps completed)
 ```
 
-**Format:** `"Done in {:.2}s"` or `"Failed in {:.2}s"` — two decimal places.
+**Visual examples (final):**
+```text
+└── Done 5/5 in 23.62s       (all steps succeeded)
+└── Failed 3/5 in 15.97s     (one or more steps failed)
+```
 
-**Theme variations:** None.
+**Format:** `"{summary_prefix}{Done|Failed} {completed}/{total} in {elapsed}"`.
+
+**Theme variations:** `summary_prefix()` controls the line prefix (`"└── "` for classic, empty for compact).
 
 **Configuration:** None.
 
-**Implementation:** `ProgressDisplay::on_run_finished()` in `crates/runner/src/display.rs:399-427`.
+**Implementation:** Footer bar created in `ProgressDisplay::on_plan_started()`, updated in `finish_step()`, finalized in `on_run_finished()`. `StepLineTheme::summary_prefix()` in `crates/theme/src/lib.rs`.
 
 ---
 
@@ -228,12 +234,14 @@ Failed in 0.42s      (one or more steps failed)
 A complete classic-theme run with all components annotated:
 
 ```text
-                                          # Component
-Running: build, clippy, test              # [1] Plan Header
+                                              # Component
+Running: build, clippy, test                  # [1] Plan Header
 
-  ⠁ cargo build --all-targets ...... 2s   # [3] Spinner + [5] Dots + [6] Timer (running)
-  ○  cargo clippy -- -D warnings ......   # [2] Pending Step Line + [4] Icon (○)
-  ○  cargo test --all-targets .........   # [2] Pending Step Line
+  ⠁ cargo build --all-targets ...... 2s       # [3] Spinner + [5] Dots + [6] Timer (running)
+  ○  cargo clippy -- -D warnings ......       # [2] Pending Step Line + [4] Icon (○)
+  ○  cargo test --all-targets .........       # [2] Pending Step Line
+                                              # [8] Summary Separator
+Done 0/3…                                     # [9] Footer (progress)
 
   ✅ cargo build --all-targets ...... 12.35s  # [4] Icon (✅) + [5] Dots + [6] Timer
   ✅ cargo clippy -- -D warnings .... 3.20s
@@ -244,8 +252,8 @@ Running: build, clippy, test              # [1] Plan Header
      │   error: test failed                   #
      │   error: could not compile             #
      ╰─                                       #
-                                              # [8] Summary Separator
-Failed in 15.97s                              # [9] Summary Line
+                                              # [8] Summary Separator (same bar)
+Failed 2/3 in 15.97s                   # [9] Footer (final summary)
 ```
 
 ---
@@ -258,7 +266,8 @@ Failed in 15.97s                              # [9] Summary Line
 | Spinner animation | Visible, 80ms tick | Not rendered |
 | Step updates | In-place redraws via indicatif | `writeln!` to stderr on each step finish/fail |
 | Error detail | Inserted as progress bars after the failed step | `writeln!` to stderr |
-| Summary | Progress bar via `finish_with_message` | `writeln!` to stderr |
+| Footer progress | Visible, updates in-place as steps complete | Not rendered (TTY-only) |
+| Summary | Footer bar finalized via `finish_with_message` | `writeln!` to stderr |
 
 **Implementation:** TTY detection via `is_stderr_tty()` at `crates/runner/src/display.rs:114-116`. Non-TTY fallback in `ProgressDisplay::emit_line()` at `crates/runner/src/display.rs:189-199`.
 
