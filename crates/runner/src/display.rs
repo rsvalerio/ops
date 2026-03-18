@@ -108,6 +108,10 @@ pub struct ProgressDisplay {
     pending_style: ProgressStyle,
     running_style: ProgressStyle,
     display_map: HashMap<String, String>,
+    footer_separator: Option<ProgressBar>,
+    footer_bar: Option<ProgressBar>,
+    completed_steps: usize,
+    total_steps: usize,
 }
 
 impl ProgressDisplay {
@@ -165,6 +169,10 @@ impl ProgressDisplay {
             pending_style,
             running_style,
             display_map,
+            footer_separator: None,
+            footer_bar: None,
+            completed_steps: 0,
+            total_steps: 0,
         })
     }
 
@@ -287,6 +295,43 @@ impl ProgressDisplay {
             self.write_non_tty(line);
             self.bars.push(pb);
         }
+
+        self.total_steps = command_ids.len();
+        self.completed_steps = 0;
+
+        // Add footer separator and progress bar below all steps
+        let separator = self
+            .render
+            .theme
+            .render_summary_separator(self.render.columns);
+        let separator_message = if separator.is_empty() {
+            " ".to_string()
+        } else {
+            separator
+        };
+
+        let sep_pb = self.multi.add(ProgressBar::new(0));
+        sep_pb.set_style(self.pending_style.clone());
+        sep_pb.finish_with_message(separator_message);
+        self.footer_separator = Some(sep_pb);
+
+        let footer_msg = self.render_footer_message();
+        let footer_pb = self.multi.add(
+            ProgressBar::new(0)
+                .with_style(self.pending_style.clone())
+                .with_message(footer_msg),
+        );
+        footer_pb.tick();
+        self.footer_bar = Some(footer_pb);
+    }
+
+    fn render_footer_message(&self) -> String {
+        format!(
+            "{}Done {}/{}…",
+            self.render.theme.summary_prefix(),
+            self.completed_steps,
+            self.total_steps
+        )
     }
 
     fn on_step_started(&mut self, id: &str) {
@@ -330,6 +375,13 @@ impl ProgressDisplay {
         };
         let line = self.render.theme.render(&step, self.render.columns);
         self.finish_bar(&self.bars[i], &line);
+
+        self.completed_steps += 1;
+        if let Some(ref fb) = self.footer_bar {
+            let msg = self.render_footer_message();
+            fb.set_message(msg);
+        }
+
         Some(i)
     }
 
@@ -397,33 +449,55 @@ impl ProgressDisplay {
     }
 
     fn on_run_finished(&mut self, duration_secs: f64, success: bool) {
-        let separator = self
-            .render
-            .theme
-            .render_summary_separator(self.render.columns);
-        let separator_message = if separator.is_empty() {
-            " ".to_string()
+        let summary = if self.total_steps > 0 {
+            let label = if success { "Done" } else { "Failed" };
+            let elapsed = theme::format_duration(duration_secs);
+            format!(
+                "{}{} {}/{} in {}",
+                self.render.theme.summary_prefix(),
+                label,
+                self.completed_steps,
+                self.total_steps,
+                elapsed
+            )
         } else {
-            separator.clone()
+            self.render.theme.render_summary(success, duration_secs)
         };
 
-        if self.render.is_tty {
-            let pb = if let Some(last_bar) = self.bars.last() {
-                self.multi.insert_after(last_bar, ProgressBar::new(0))
+        // If we have a footer bar from on_plan_started, finalize it in place.
+        if let Some(ref fb) = self.footer_bar {
+            fb.finish_with_message(summary.clone());
+            // Non-TTY: write only the final summary (no transient separator/footer)
+            self.write_non_tty(&summary);
+        } else {
+            // Fallback: no footer (e.g. no plan was started), create bars as before.
+            let separator = self
+                .render
+                .theme
+                .render_summary_separator(self.render.columns);
+            let separator_message = if separator.is_empty() {
+                " ".to_string()
             } else {
-                self.multi.add(ProgressBar::new(0))
+                separator.clone()
             };
-            pb.set_style(self.pending_style.clone());
-            pb.finish_with_message(separator_message);
-        } else if separator.is_empty() {
-            write_stderr(None);
-        } else if let Err(e) = write!(io::stderr(), "{}", separator) {
-            tracing::debug!(error = %e, "stderr write failed");
-        }
 
-        let summary = self.render.theme.render_summary(success, duration_secs);
-        let summary_pb = self.multi.add(ProgressBar::new(0));
-        self.finish_bar(&summary_pb, &summary);
+            if self.render.is_tty {
+                let pb = if let Some(last_bar) = self.bars.last() {
+                    self.multi.insert_after(last_bar, ProgressBar::new(0))
+                } else {
+                    self.multi.add(ProgressBar::new(0))
+                };
+                pb.set_style(self.pending_style.clone());
+                pb.finish_with_message(separator_message);
+            } else if separator.is_empty() {
+                write_stderr(None);
+            } else if let Err(e) = write!(io::stderr(), "{}", separator) {
+                tracing::debug!(error = %e, "stderr write failed");
+            }
+
+            let summary_pb = self.multi.add(ProgressBar::new(0));
+            self.finish_bar(&summary_pb, &summary);
+        }
     }
 }
 

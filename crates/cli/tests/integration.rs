@@ -208,7 +208,7 @@ args = ["integration_test_output"]
                 .current_dir(path)
                 .assert()
                 .success()
-                .stderr(predicate::str::contains("Done in"));
+                .stderr(predicate::str::contains(" in "));
         },
     );
 }
@@ -252,7 +252,7 @@ program = "{}"
         .current_dir(dir.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Failed in"));
+        .stderr(predicate::str::contains(" in "));
 }
 
 #[test]
@@ -276,7 +276,7 @@ commands = ["echo_a", "echo_b"]
                 .current_dir(path)
                 .assert()
                 .success()
-                .stderr(predicate::str::contains("Done in"));
+                .stderr(predicate::str::contains(" in "));
         },
     );
 }
@@ -305,7 +305,7 @@ parallel = true
                 .current_dir(path)
                 .assert()
                 .success()
-                .stderr(predicate::str::contains("Done in"));
+                .stderr(predicate::str::contains(" in "));
         },
     );
 }
@@ -340,7 +340,7 @@ timeout_secs = 1
         .current_dir(dir.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Failed in"));
+        .stderr(predicate::str::contains(" in "));
 }
 
 // -- TQ-019: Malformed TOML config error handling --

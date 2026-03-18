@@ -48,6 +48,10 @@ impl StepLineTheme for ConfigurableTheme {
         &self.0.step_indent
     }
 
+    fn summary_prefix(&self) -> &str {
+        &self.0.summary_prefix
+    }
+
     fn running_template(&self) -> &str {
         &self.0.running_template
     }
@@ -126,14 +130,14 @@ impl StepLineTheme for ConfigurableTheme {
 ///
 /// # Architecture (CQ-016)
 ///
-/// This trait has 14 methods with 11 providing default implementations. The design
+/// This trait has 15 methods with 12 providing default implementations. The design
 /// allows themes to override only what they need:
 ///
 /// - **Core methods (no default)**: `status_icon` — must be implemented
 /// - **Layout Methods**: `render`, `render_prefix`, `render_separator` — sensible defaults
 /// - **Style Methods**: `separator_char`, `step_indent`, `format_elapsed` — customization
 /// - **Progress Methods**: `running_template`, `tick_chars` — spinner control
-/// - **Header/Summary**: `render_plan_header`, `render_summary`, `render_summary_separator`
+/// - **Header/Summary**: `render_plan_header`, `render_summary`, `render_summary_separator`, `summary_prefix`
 /// - **Error Display**: `render_error_detail`
 ///
 /// Alternative designs considered:
@@ -144,7 +148,7 @@ impl StepLineTheme for ConfigurableTheme {
 /// The current design is kept because:
 /// 1. Default implementations cover 80% of use cases
 /// 2. Single trait is easier to implement for custom themes
-/// 3. Method count is stable (14 is acceptable for a rendering trait)
+/// 3. Method count is stable (15 is acceptable for a rendering trait)
 pub trait StepLineTheme: Send + Sync {
     /// Icon string for the given step status.
     fn status_icon(&self, status: StepStatus) -> &str;
@@ -188,6 +192,11 @@ pub trait StepLineTheme: Send + Sync {
     /// Indent before the icon on non-running step lines. Default: `"  "` (2 spaces).
     fn step_indent(&self) -> &str {
         "  "
+    }
+
+    /// Prefix for the summary/footer line (e.g. `"└── "` for tree themes). Default: empty.
+    fn summary_prefix(&self) -> &str {
+        ""
     }
 
     /// Indicatif template for running steps. Default matches the compact style.
