@@ -1,0 +1,6 @@
+[output]
+theme = "compact"
+
+[commands.install]
+program = "cargo"
+args = ["install", "--path", "crates/cli", "--force", "--all-features"]
