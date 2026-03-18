@@ -1,45 +1,50 @@
 # ops
 
-An opinionated, batteries-included development CLI operator ⚙️
+An opinionated, batteries-included development CLI operator.
 
 ## Installation
 
 ### Homebrew (macOS and Linux)
 
 ```bash
-# 1. oneliner 
 brew install rsvalerio/tap/ops
-
-# 2. add tap then install 
-brew tap rsvalerio/tap
-brew install ops
 ```
 
-### From source
-
-> When running locally (no crates going to cates.io)
+### Local development
 
 ```bash
-cargo install ops
+cargo install --path crates/cli
+```
+
+## Quick start
+
+```bash
+# Initialize config for your project (auto-detects stack)
+ops init
+
+# Run a command
+ops build
+
+# Run a command group
+ops verify
+
+# Add a new command interactively
+ops new-command "cargo fmt --check"
 ```
 
 ## Configuration
 
-Create a `.ops.toml` file in your project root (or run `cargo ops init`):
+Create a `.ops.toml` file in your project root (or run `ops init`):
 
 ```toml
 [output]
-theme = "classic"   # "classic" (default) or "compact" or custom theme name
-columns = 80        # line width for step lines
-show_error_detail = true  # show error details below failed steps
+theme = "classic"        # "classic" (default) or "compact"
+columns = 80             # line width for step lines
+show_error_detail = true # show error details below failed steps
 
 [commands.build]
 program = "cargo"
 args = ["build", "--all-targets"]
-
-[commands.clippy]
-program = "cargo"
-args = ["clippy", "--all-targets", "--", "-D", "warnings"]
 
 [commands.test]
 program = "cargo"
@@ -48,43 +53,51 @@ args = ["test"]
 [commands.verify]
 commands = ["build", "clippy", "test"]
 parallel = false
-fail_fast = true   # stop on first failure (default: true)
+fail_fast = true
 
 [commands.lint]
 commands = ["fmt", "clippy", "check"]
 parallel = true
 ```
 
-Commands come from merged config: internal default (when no local file) → global config → local `.ops.toml` → env. Run `cargo ops init` to create a `.ops.toml`; when run inside a project with a detected stack (e.g. Rust with `Cargo.toml`), the file is pre-filled with that stack's default commands so you can run `cargo ops build`, `cargo ops verify`, etc. immediately. Use `cargo ops init --force` to overwrite an existing file.
+Config is merged in order: built-in defaults → global config → local `.ops.toml` → env. When run inside a project with a detected stack (e.g. Rust), `ops init` pre-fills stack-specific commands.
 
-## Documentation
+## Commands
 
-- **[Releasing](docs/releasing.md)** - Automated releases, conventional commits, and Homebrew tap setup
-- **[Visual Components](docs/components.md)** - Step icons, error boxes, theme comparison
+| Command | Description |
+|---------|-------------|
+| `ops <name>` | Run a configured command or command group |
+| `ops init` | Create `.ops.toml` (use `--force` to overwrite) |
+| `ops new-command` | Add a new command from a command line string |
+| `ops theme list\|select` | List or select output themes |
+| `ops extension list\|show` | List compiled-in extensions |
+| `ops about` | Project identity card (Rust stacks) |
+| `ops dashboard` | Project health dashboard (Rust stacks) |
+| `ops tools list\|check\|install` | Manage dev tools (Rust stacks) |
+
+## Features
+
+- **Zero config** — works out of the box with sensible defaults; `ops init` and othere to scaffold the rest
+- **Declarative commands** — define commands and command groups in TOML
+- **Themed output** — step lines with timing; switch between themes easily
+- **Extension architecture** — compile-time extensions; build your own ops
+- **Parallel execution** — run command groups concurrently with `parallel = true`
 
 ## Contributing
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/). Only `feat` and `fix` commits trigger a release; all other types are included in the next changelog.
+This project uses [Conventional Commits](https://www.conventionalcommits.org/). Only `feat` and `fix` commits trigger a release.
 
 ```bash
 git commit -m "feat: add new feature"
 git commit -m "fix: resolve bug"
-
-# Or use cocogitto for guided semantic commits
-cog commit feat "add new feature"
-cog commit fix "resolve bug"
 ```
 
-See [docs/releasing.md](docs/releasing.md) for the full commit type reference, breaking changes, and release workflow.
+See [docs/releasing.md](docs/releasing.md) for the full release workflow.
 
-## Features
+## Documentation
 
-- **Theme-Based Output** - Plain-text step lines (classic: full command + dots + time; compact: step id + time); customize with `cargo ops theme list/select`
-- **Declarative Commands** - Define commands in TOML config
-- **Configurable Columns** - Set line width via `output.columns` (no runtime change)
-- **Extension Architecture** - Extensible via compile-time extensions (commands and data providers)
-- **Metadata Collection** - Optional data-provider extensions (feature-gated) with DuckDB storage
-- **Zero Config** - Works out of the box with sensible defaults
+- [Releasing](docs/releasing.md) — automated releases, conventional commits, Homebrew tap
+- [Visual Components](docs/components.md) — step icons, error boxes, theme comparison
 
 ## License
 
