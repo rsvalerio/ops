@@ -2,14 +2,14 @@
 
 Instructions for AI coding agents working on this project.
 
-**Every time a rust file (`*.rs`) is changed, make sure to run `cargo install --path . --force` after passing `cargo clippy --all-targets -- -D warnings`.**
+**Every time a rust file (`*.rs`) is changed, make sure to run `ops verify; ops install`. If error or warning are reported, fix it and run verify and install again.**
 
 ## Project overview
 
-`ops` is an opinionated, batteries-included Rust development CLI. Zero config, maximum quality.
+`ops` is an opinionated, batteries-included development CLI.
 
 **Key concepts:**
-- Commands are defined in `.ops.toml` (or from internal default when no file). Run `cargo ops init` to create `.ops.toml`; when a stack is detected (e.g. Rust via `Cargo.toml`), the written file is merged with that stack's default commands (from embedded `.default.<stack>.ops.toml`).
+- Commands are defined in `.ops.toml` (or from internal default when no file). Run `ops init` to create `.ops.toml`; when a stack is detected (e.g. Rust via `Cargo.toml`), the written file is merged with that stack's default commands (from embedded `.default.<stack>.ops.toml`).
 - Commands can be **exec** (run a program) or **composite** (run multiple commands)
 - Extension trait for registering commands and data providers
 - CLI output: theme-based plain text to stdout/stderr (themed step lines, streaming output, summary); themes: classic (default), compact; configurable columns
@@ -18,8 +18,8 @@ Instructions for AI coding agents working on this project.
 
 - Build: `cargo build`
 - Run: `cargo run -- <subcommand>` (e.g. `cargo run -- build`, `cargo run -- verify`)
-- Install it locally: `cargo install --path .` then use `cargo ops <command>`
-- Initialize config: `cargo ops init` creates `.ops.toml` in the current directory, merging in stack default commands when a stack is detected; `cargo ops init --force` overwrites existing
+- Install it locally: `cargo install --path crates/cli` then use `ops <command>`
+- Initialize config: `ops init` creates `.ops.toml` in the current directory, merging in stack default commands when a stack is detected; `ops init --force` overwrites existing
 
 ## Build and test
 
@@ -27,9 +27,9 @@ Instructions for AI coding agents working on this project.
 - **Tests:** `cargo test`
 - **Lint:** `cargo clippy --all-targets -- -D warnings`
 - **Format:** `cargo fmt` (check only: `cargo fmt -- --check`)
-- **Full verify:** `cargo ops verify` runs build → clippy → test in sequence
+- **Full verify:** `ops verify` runs build → clippy → test in sequence
 
-**Every time a rust file (`*.rs`) is changed, make sure to run `cargo install --path . --force` after passing `cargo clippy --all-targets -- -D warnings`.**
+**Every time a rust file (`*.rs`) is changed, make sure to run `cargo install --path crates/cli --force` after passing `cargo clippy --all-targets -- -D warnings`.**
 
 ## Code style
 
@@ -67,7 +67,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-Then install it locally: `cargo install --path . --force`
+Then install it locally: `cargo install --path crates/cli --force`
 
 ## Documentation
 
@@ -83,7 +83,7 @@ Configuration is merged (later overrides earlier):
 4. `.ops.d/*.toml` files (sorted alphabetically; good for separating themes, commands)
 5. Environment variables `CARGO_OPS_*`
 
-`cargo ops init` writes a merged template: base config plus the detected stack's default commands (so e.g. in a Rust project the generated `.ops.toml` already contains `[commands.build]`, `[commands.clippy]`, `[commands.verify]`, etc.).
+`ops init` writes a merged template: base config plus the detected stack's default commands (so e.g. in a Rust project the generated `.ops.toml` already contains `[commands.build]`, `[commands.clippy]`, `[commands.verify]`, etc.).
 
 ### Split config with `.ops.d/`
 
