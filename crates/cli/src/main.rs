@@ -343,7 +343,9 @@ fn run() -> anyhow::Result<ExitCode> {
             }
         }
         Some(CoreSubcommand::External(args)) => return run_external_command(&args, cli.dry_run),
-        None => print_help()?,
+        None => {
+            Cli::command().print_help()?;
+        }
     }
 
     Ok(ExitCode::SUCCESS)
@@ -355,29 +357,6 @@ fn run_external_command(args: &[OsString], dry_run: bool) -> anyhow::Result<Exit
         .and_then(|s| s.to_str())
         .ok_or_else(|| anyhow::anyhow!("missing command name"))?;
     run_command(name, dry_run)
-}
-
-fn print_help() -> anyhow::Result<()> {
-    if let Ok(cwd) = std::env::current_dir() {
-        if let Ok(config) = ops_core::config::load_config() {
-            let mut runner = ops_runner::command::CommandRunner::new(config, cwd);
-            if let Err(e) = setup_extensions(&mut runner) {
-                tracing::debug!("failed to setup extensions for help: {}", e);
-            } else {
-                let commands = runner.list_command_ids();
-                if !commands.is_empty() {
-                    let mut err = std::io::stderr();
-                    let _ = writeln!(err, "Available commands: {}", commands.join(", "));
-                    let _ = writeln!(err);
-                }
-            }
-        }
-    } else {
-        tracing::debug!("could not get current directory for help listing");
-    }
-    let mut cmd = Cli::command();
-    cmd.print_help()?;
-    Ok(())
 }
 
 fn run_init(force: bool, sections: ops_core::config::InitSections) -> anyhow::Result<()> {
