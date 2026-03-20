@@ -7,8 +7,9 @@ use ops_theme::{self as theme, ThemeConfig};
 
 use anyhow::Context;
 use indexmap::IndexMap;
-use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 use std::collections::HashMap;
+use std::fmt::Write as FmtWrite;
 use std::io::{self, IsTerminal, Write};
 use std::time::Duration;
 
@@ -143,9 +144,12 @@ impl ProgressDisplay {
             ProgressDrawTarget::hidden()
         });
         let resolved_theme = theme::resolve_theme(&output.theme, custom_themes)?;
+        let left_pad_str = " ".repeat(resolved_theme.left_pad());
         let pending_style = ProgressStyle::with_template("{msg}")
             .with_context(|| format!("invalid pending template for theme '{}'", output.theme))?;
-        let running_style = ProgressStyle::with_template(resolved_theme.running_template())
+        let padded_running_template =
+            format!("{}{}", left_pad_str, resolved_theme.running_template());
+        let running_style = ProgressStyle::with_template(&padded_running_template)
             .with_context(|| {
                 format!(
                     "invalid running_template for theme '{}': {}",
@@ -153,7 +157,14 @@ impl ProgressDisplay {
                     resolved_theme.running_template()
                 )
             })?
-            .tick_chars(resolved_theme.tick_chars());
+            .tick_chars(resolved_theme.tick_chars())
+            .with_key("elapsed", |state: &ProgressState, w: &mut dyn FmtWrite| {
+                let _ = write!(
+                    w,
+                    "{}",
+                    theme::format_duration(state.elapsed().as_secs_f64())
+                );
+            });
 
         Ok(Self {
             render: RenderConfig {
@@ -327,7 +338,8 @@ impl ProgressDisplay {
 
     fn render_footer_message(&self) -> String {
         format!(
-            "{}Done {}/{}…",
+            "{}{}Done {}/{}…",
+            self.render.theme.left_pad_str(),
             self.render.theme.summary_prefix(),
             self.completed_steps,
             self.total_steps
@@ -453,7 +465,8 @@ impl ProgressDisplay {
             let label = if success { "Done" } else { "Failed" };
             let elapsed = theme::format_duration(duration_secs);
             format!(
-                "{}{} {}/{} in {}",
+                "{}{}{} {}/{} in {}",
+                self.render.theme.left_pad_str(),
                 self.render.theme.summary_prefix(),
                 label,
                 self.completed_steps,

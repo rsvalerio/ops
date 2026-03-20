@@ -19,6 +19,7 @@ tick_chars = "⠁⠂⠄ "
 running_template_overhead = 7
 summary_prefix = "→ "
 summary_separator = ""
+left_pad = 0
 "#;
 
 fn render_line(
@@ -44,7 +45,7 @@ fn classic_theme_success_with_duration() {
         "cargo build --all-targets",
         Some(0.35),
     );
-    assert!(line.starts_with("├── ◆ cargo build"));
+    assert!(line.starts_with(" ├── ◆ cargo build"));
     assert!(line.contains("0.35s"));
     assert!(line.contains('─'), "classic uses box-drawing separator");
     assert!(!line.contains(".."), "classic does not use dot separator");
@@ -54,7 +55,8 @@ fn classic_theme_success_with_duration() {
 fn compact_theme_success_icon() {
     let theme = ConfigurableTheme(ThemeConfig::compact());
     let line = render_line(&theme, StepStatus::Succeeded, "cargo test", Some(1.50));
-    assert!(line.starts_with("  ✓ cargo test"));
+    assert!(line.starts_with(" " /* left_pad */));
+    assert!(line.contains("✓ cargo test"));
     assert!(line.contains("1.50s"));
     assert!(line.contains('.'), "compact uses dot separator");
 }
@@ -63,7 +65,7 @@ fn compact_theme_success_icon() {
 fn classic_theme_failed() {
     let theme = ConfigurableTheme(ThemeConfig::classic());
     let line = render_line(&theme, StepStatus::Failed, "cargo clippy", Some(0.10));
-    assert!(line.starts_with("├── ✖ cargo clippy"));
+    assert!(line.starts_with(" ├── ✖ cargo clippy"));
     assert!(line.contains("0.10s"));
 }
 
@@ -71,7 +73,7 @@ fn classic_theme_failed() {
 fn classic_theme_pending_no_duration() {
     let theme = ConfigurableTheme(ThemeConfig::classic());
     let line = render_line(&theme, StepStatus::Pending, "cargo build", None);
-    assert!(line.starts_with("├── ◇ cargo build"));
+    assert!(line.starts_with(" ├── ◇ cargo build"));
     assert!(!line.contains("s"));
 }
 
@@ -98,8 +100,8 @@ fn classic_plan_header_tree() {
     let lines = theme.render_plan_header(&ids, 80);
     assert_eq!(lines.len(), 3);
     assert!(lines[0].is_empty(), "upper space");
-    assert_eq!(lines[1], "┌ Running: build, clippy, test");
-    assert_eq!(lines[2], "│");
+    assert_eq!(lines[1], " ┌ Running: build, clippy, test");
+    assert_eq!(lines[2], " │");
 }
 
 #[test]
@@ -109,7 +111,7 @@ fn compact_plan_header_plain() {
     let lines = theme.render_plan_header(&ids, 80);
     assert_eq!(lines.len(), 3);
     assert!(lines[0].is_empty());
-    assert_eq!(lines[1], "Running: build, test");
+    assert_eq!(lines[1], " Running: build, test");
     assert!(lines[2].is_empty());
 }
 
@@ -124,12 +126,12 @@ fn classic_error_detail_with_stderr() {
         ],
     };
     let lines = theme.render_error_detail(&detail, 80);
-    assert_eq!(lines[0], "│   ┌─");
-    assert_eq!(lines[1], "│   │ exit status: 101");
-    assert_eq!(lines[2], "│   │ stderr (last 2 lines):");
-    assert_eq!(lines[3], "│   │   thread 'main' panicked at ...");
-    assert_eq!(lines[4], "│   │   error: test failed");
-    assert_eq!(lines[5], "│   └─");
+    assert_eq!(lines[0], " │   ┌─");
+    assert_eq!(lines[1], " │   │ exit status: 101");
+    assert_eq!(lines[2], " │   │ stderr (last 2 lines):");
+    assert_eq!(lines[3], " │   │   thread 'main' panicked at ...");
+    assert_eq!(lines[4], " │   │   error: test failed");
+    assert_eq!(lines[5], " │   └─");
     assert_eq!(lines.len(), 6);
 }
 
@@ -141,9 +143,9 @@ fn compact_error_detail_gutter_width() {
         stderr_tail: vec![],
     };
     let lines = theme.render_error_detail(&detail, 80);
-    assert_eq!(lines[0], "    ╭─");
-    assert_eq!(lines[1], "    │ exit status: 1");
-    assert_eq!(lines[2], "    ╰─");
+    assert_eq!(lines[0], "     ╭─");
+    assert_eq!(lines[1], "     │ exit status: 1");
+    assert_eq!(lines[2], "     ╰─");
     assert_eq!(lines.len(), 3);
 }
 
@@ -151,7 +153,7 @@ fn compact_error_detail_gutter_width() {
 fn classic_summary_separator_is_rail() {
     let theme = ConfigurableTheme(ThemeConfig::classic());
     let sep = theme.render_summary_separator(80);
-    assert_eq!(sep, "│");
+    assert_eq!(sep, " │");
 }
 
 #[test]
@@ -413,7 +415,7 @@ mod render_summary_tests {
         let summary = theme.render_summary(true, 1.5);
         assert!(summary.contains("Done"));
         assert!(summary.contains("1.50s"));
-        assert!(summary.starts_with("└──"));
+        assert!(summary.starts_with(" └──"));
     }
 
     #[test]
@@ -422,7 +424,7 @@ mod render_summary_tests {
         let summary = theme.render_summary(false, 0.75);
         assert!(summary.contains("Failed"));
         assert!(summary.contains("0.75s"));
-        assert!(summary.starts_with("└──"));
+        assert!(summary.starts_with(" └──"));
     }
 
     #[test]
@@ -456,8 +458,8 @@ mod render_summary_tests {
         theme.plan_header_style = PlanHeaderStyle::Tree;
         let configurable = ConfigurableTheme(theme);
         let lines = configurable.render_plan_header(&["a".into(), "b".into()], 80);
-        assert_eq!(lines[1], "┌ Running: a, b");
-        assert_eq!(lines[2], "│");
+        assert_eq!(lines[1], " ┌ Running: a, b");
+        assert_eq!(lines[2], " │");
     }
 }
 
@@ -620,5 +622,57 @@ mod format_duration_tests {
     #[test]
     fn large_duration() {
         assert_eq!(format_duration(7384.0), "2h3m4s");
+    }
+}
+
+mod left_pad_tests {
+    use super::*;
+
+    fn theme_with_pad(pad: usize) -> ConfigurableTheme {
+        ConfigurableTheme(ThemeConfig {
+            left_pad: pad,
+            ..ThemeConfig::compact()
+        })
+    }
+
+    #[test]
+    fn left_pad_prepends_spaces_to_step_line() {
+        let theme = theme_with_pad(3);
+        let line = render_line(&theme, StepStatus::Succeeded, "cargo build", Some(0.5));
+        assert!(line.starts_with("   "), "should have 3-space left pad");
+        assert!(line.contains("✓ cargo build"));
+    }
+
+    #[test]
+    fn left_pad_prepends_spaces_to_plan_header() {
+        let theme = theme_with_pad(2);
+        let lines = theme.render_plan_header(&["build".into()], 80);
+        assert_eq!(lines[1], "  Running: build");
+    }
+
+    #[test]
+    fn left_pad_prepends_spaces_to_summary() {
+        let theme = theme_with_pad(2);
+        let summary = theme.render_summary(true, 1.0);
+        assert!(summary.starts_with("  Done"));
+    }
+
+    #[test]
+    fn left_pad_zero_produces_no_padding() {
+        let theme = theme_with_pad(0);
+        let line = render_line(&theme, StepStatus::Succeeded, "cargo test", Some(1.0));
+        // With pad=0, line starts directly with step_indent ("  "), not extra padding
+        assert!(
+            line.starts_with("  ✓"),
+            "should start with step_indent, no extra pad"
+        );
+
+        let padded = theme_with_pad(2);
+        let padded_line = render_line(&padded, StepStatus::Succeeded, "cargo test", Some(1.0));
+        // With pad=2, line starts with 2 extra spaces before step_indent
+        assert!(
+            padded_line.starts_with("    ✓"),
+            "should have 2-space pad + step_indent"
+        );
     }
 }

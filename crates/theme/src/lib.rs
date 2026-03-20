@@ -36,6 +36,10 @@ pub fn format_duration(secs: f64) -> String {
 pub struct ConfigurableTheme(pub ThemeConfig);
 
 impl StepLineTheme for ConfigurableTheme {
+    fn left_pad(&self) -> usize {
+        self.0.left_pad
+    }
+
     fn status_icon(&self, status: StepStatus) -> &str {
         self.0.status_icon(status)
     }
@@ -65,16 +69,17 @@ impl StepLineTheme for ConfigurableTheme {
     }
 
     fn render_plan_header(&self, command_ids: &[String], _columns: u16) -> Vec<String> {
+        let pad = self.left_pad_str();
         match self.0.plan_header_style {
             PlanHeaderStyle::Plain => {
-                let header = format!("Running: {}", command_ids.join(", "));
+                let header = format!("{}Running: {}", pad, command_ids.join(", "));
                 vec![String::new(), header, String::new()]
             }
             PlanHeaderStyle::Tree => {
                 vec![
                     String::new(),
-                    format!("┌ Running: {}", command_ids.join(", ")),
-                    "│".to_string(),
+                    format!("{}┌ Running: {}", pad, command_ids.join(", ")),
+                    format!("{}│", pad),
                 ]
             }
         }
@@ -83,7 +88,8 @@ impl StepLineTheme for ConfigurableTheme {
     fn render_summary(&self, success: bool, elapsed_secs: f64) -> String {
         let label = if success { "Done" } else { "Failed" };
         format!(
-            "{}{} in {}",
+            "{}{}{} in {}",
+            self.left_pad_str(),
             self.0.summary_prefix,
             label,
             format_duration(elapsed_secs)
@@ -91,11 +97,20 @@ impl StepLineTheme for ConfigurableTheme {
     }
 
     fn render_summary_separator(&self, _columns: u16) -> String {
-        self.0.summary_separator.clone()
+        if self.0.summary_separator.is_empty() {
+            String::new()
+        } else {
+            format!("{}{}", self.left_pad_str(), self.0.summary_separator)
+        }
     }
 
     fn render_error_detail(&self, detail: &ErrorDetail, _columns: u16) -> Vec<String> {
-        render_error_block(detail, self.icon_column_width(), &self.0.error_block)
+        render_error_block(
+            detail,
+            self.icon_column_width(),
+            &self.0.error_block,
+            self.left_pad(),
+        )
     }
 }
 
@@ -150,13 +165,23 @@ impl StepLineTheme for ConfigurableTheme {
 /// 2. Single trait is easier to implement for custom themes
 /// 3. Method count is stable (15 is acceptable for a rendering trait)
 pub trait StepLineTheme: Send + Sync {
+    /// Number of spaces to prepend to all rendered output lines. Default: 0.
+    fn left_pad(&self) -> usize {
+        0
+    }
+
+    /// Returns a string of spaces for the left padding.
+    fn left_pad_str(&self) -> String {
+        " ".repeat(self.left_pad())
+    }
+
     /// Icon string for the given step status.
     fn status_icon(&self, status: StepStatus) -> &str;
 
     /// Lines to print when a run plan starts: optional upper space, header, then blank before steps.
     /// Default: one blank line (upper space), "Running: id1, id2, ...", then one blank before steps.
     fn render_plan_header(&self, command_ids: &[String], _columns: u16) -> Vec<String> {
-        let header = format!("Running: {}", command_ids.join(", "));
+        let header = format!("{}Running: {}", self.left_pad_str(), command_ids.join(", "));
         vec![String::new(), header, String::new()]
     }
 
@@ -218,7 +243,12 @@ pub trait StepLineTheme: Send + Sync {
     /// Render the final summary line.
     fn render_summary(&self, success: bool, elapsed_secs: f64) -> String {
         let label = if success { "Done" } else { "Failed" };
-        format!("{} in {}", label, format_duration(elapsed_secs))
+        format!(
+            "{}{} in {}",
+            self.left_pad_str(),
+            label,
+            format_duration(elapsed_secs)
+        )
     }
 
     /// Render error details as lines displayed below a failed step.
@@ -227,6 +257,7 @@ pub trait StepLineTheme: Send + Sync {
             detail,
             self.icon_column_width(),
             &ErrorBlockChars::default(),
+            self.left_pad(),
         )
     }
 
@@ -239,11 +270,18 @@ pub trait StepLineTheme: Send + Sync {
             .map(|d| self.format_elapsed(d))
             .unwrap_or_default();
         let separator = self.render_separator(&prefix, &duration_str, columns as usize, is_running);
+        // Running steps get left_pad from the running_template in display.rs;
+        // non-running steps (pending/completed) need it here since their template is plain "{msg}".
+        let pad = if is_running {
+            String::new()
+        } else {
+            self.left_pad_str()
+        };
 
         if duration_str.is_empty() {
-            format!("{}{}", prefix, separator)
+            format!("{}{}{}", pad, prefix, separator)
         } else {
-            format!("{}{} {}", prefix, separator, duration_str)
+            format!("{}{}{} {}", pad, prefix, separator, duration_str)
         }
     }
 
@@ -274,7 +312,9 @@ pub trait StepLineTheme: Send + Sync {
         } else {
             0
         };
-        let line_budget = columns.saturating_sub(template_overhead);
+        let line_budget = columns
+            .saturating_sub(template_overhead)
+            .saturating_sub(self.left_pad());
 
         let prefix_width = display_width(prefix);
         let sep = self.separator_char();
@@ -296,32 +336,35 @@ pub fn render_error_block(
     detail: &ErrorDetail,
     icon_column_width: usize,
     chars: &ErrorBlockChars,
+    left_pad: usize,
 ) -> Vec<String> {
     if detail.message.is_empty() && detail.stderr_tail.is_empty() {
         return Vec::new();
     }
+    let pad = " ".repeat(left_pad);
     let gutter = if chars.rail.is_empty() {
         " ".repeat(icon_column_width + 3)
     } else {
         format!("{}   ", chars.rail)
     };
     let mut lines = Vec::new();
-    lines.push(format!("{}{}", gutter, chars.top));
+    lines.push(format!("{}{}{}", pad, gutter, chars.top));
     if !detail.message.is_empty() {
-        lines.push(format!("{}{} {}", gutter, chars.mid, detail.message));
+        lines.push(format!("{}{}{} {}", pad, gutter, chars.mid, detail.message));
     }
     if !detail.stderr_tail.is_empty() {
         lines.push(format!(
-            "{}{} stderr (last {} lines):",
+            "{}{}{} stderr (last {} lines):",
+            pad,
             gutter,
             chars.mid,
             detail.stderr_tail.len()
         ));
         for stderr_line in &detail.stderr_tail {
-            lines.push(format!("{}{}   {}", gutter, chars.mid, stderr_line));
+            lines.push(format!("{}{}{}   {}", pad, gutter, chars.mid, stderr_line));
         }
     }
-    lines.push(format!("{}{}", gutter, chars.bottom));
+    lines.push(format!("{}{}{}", pad, gutter, chars.bottom));
     lines
 }
 

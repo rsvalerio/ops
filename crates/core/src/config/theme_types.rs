@@ -81,6 +81,13 @@ pub struct ThemeConfig {
     /// Optional description for `theme list` output.
     #[serde(default)]
     pub description: Option<String>,
+    /// Number of spaces to prepend to all rendered output lines (left margin).
+    #[serde(default = "default_left_pad")]
+    pub left_pad: usize,
+}
+
+fn default_left_pad() -> usize {
+    1
 }
 
 impl ThemeConfig {
@@ -107,6 +114,7 @@ impl ThemeConfig {
                 rail: "\u{2502}".into(),
             },
             description: Some("Bold tree-style with box-drawing chars".into()),
+            left_pad: 1,
         }
     }
 
@@ -128,6 +136,7 @@ impl ThemeConfig {
             summary_separator: String::new(),
             error_block: ErrorBlockChars::default(),
             description: Some("Minimal with dot separators".into()),
+            left_pad: 1,
         }
     }
 
