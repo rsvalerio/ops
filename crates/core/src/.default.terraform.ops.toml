@@ -3,20 +3,25 @@
 [commands.init]
 program = "terraform"
 args = ["init"]
+help = "Initialize Terraform"
 
 [commands.fmt]
 program = "terraform"
 args = ["fmt", "-recursive"]
+help = "Format all files"
 
 [commands.validate]
 program = "terraform"
 args = ["validate"]
+help = "Validate configuration"
 
 [commands.plan]
 program = "terraform"
 args = ["plan"]
+help = "Show execution plan"
 
 [commands.verify]
 commands = ["fmt", "validate"]
 parallel = false
 fail_fast = true
+help = "Run fmt, validate"

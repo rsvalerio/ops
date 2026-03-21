@@ -3,12 +3,15 @@
 [commands.lint]
 program = "ansible-lint"
 args = []
+help = "Lint playbooks"
 
 [commands.check]
 program = "ansible-playbook"
 args = ["--check", "site.yml"]
+help = "Dry-run playbook"
 
 [commands.verify]
 commands = ["lint"]
 parallel = false
 fail_fast = true
+help = "Run lint"
