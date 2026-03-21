@@ -464,6 +464,7 @@ mod proptest_tests {
                     commands: vec![cmd1.clone(), cmd2.clone()],
                     parallel: false,
                     fail_fast: true,
+                    help: None,
                 }),
             );
             let runner = test_runner(commands);
@@ -1181,6 +1182,7 @@ mod depth_limit_tests {
                     commands: vec![next_name],
                     parallel: false,
                     fail_fast: true,
+                    help: None,
                 }),
             );
         }

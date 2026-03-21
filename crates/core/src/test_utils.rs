@@ -69,6 +69,7 @@ pub fn composite_cmd(commands: &[&str]) -> CompositeCommandSpec {
         commands: commands.iter().map(|s| s.to_string()).collect(),
         parallel: false,
         fail_fast: true,
+        help: None,
     }
 }
 
@@ -79,6 +80,7 @@ pub fn parallel_cmd(commands: &[&str]) -> CompositeCommandSpec {
         commands: commands.iter().map(|s| s.to_string()).collect(),
         parallel: true,
         fail_fast: true,
+        help: None,
     }
 }
 

@@ -472,6 +472,7 @@ commands = ["a"]
                             commands: vec!["build".into(), "test".into()],
                             parallel: false,
                             fail_fast: true,
+                            help: None,
                         },
                     ),
                 )
