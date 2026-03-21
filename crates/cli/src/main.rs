@@ -65,11 +65,11 @@ fn run() -> anyhow::Result<ExitCode> {
     let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let effective_args = preprocess_args(args);
 
-    // Detect stack before parsing so help output hides irrelevant commands.
+    // Load config early so stack detection and help output can use it.
+    let early_config = ops_core::config::load_config().unwrap_or_default();
     let detected_stack = {
-        let config = ops_core::config::load_config().unwrap_or_default();
         let cwd = std::env::current_dir().unwrap_or_default();
-        ops_core::stack::Stack::resolve(config.stack.as_deref(), &cwd)
+        ops_core::stack::Stack::resolve(early_config.stack.as_deref(), &cwd)
     };
 
     let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
@@ -129,11 +129,72 @@ fn run() -> anyhow::Result<ExitCode> {
             return run_cmd::run_external_command(&args, cli.dry_run)
         }
         None => {
-            hide_irrelevant_commands(Cli::command(), detected_stack).print_help()?;
+            let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
+            let mut cmd = inject_dynamic_commands(cmd, &early_config, detected_stack);
+            cmd.print_help()?;
         }
     }
 
     Ok(ExitCode::SUCCESS)
+}
+
+/// Inject dynamic commands (from config and stack defaults) into the clap Command for help display.
+fn inject_dynamic_commands(
+    mut cmd: clap::Command,
+    config: &ops_core::config::Config,
+    stack: Option<ops_core::stack::Stack>,
+) -> clap::Command {
+    use std::collections::HashSet;
+
+    // Built-in subcommand names to skip.
+    let builtins: HashSet<&str> = [
+        "init",
+        "theme",
+        "extension",
+        "new-command",
+        "about",
+        "dashboard",
+        "tools",
+        "help",
+    ]
+    .into_iter()
+    .collect();
+
+    let mut seen = HashSet::new();
+
+    // Helper: leak a String into a &'static str.
+    // Safe here because this runs once at process exit (help display).
+    fn leak(s: String) -> &'static str {
+        Box::leak(s.into_boxed_str())
+    }
+
+    // Config commands first (higher priority).
+    for (name, spec) in &config.commands {
+        if builtins.contains(name.as_str()) || !seen.insert(name.clone()) {
+            continue;
+        }
+        let about = spec
+            .help()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| spec.display_cmd_fallback());
+        cmd = cmd.subcommand(clap::Command::new(leak(name.clone())).about(leak(about)));
+    }
+
+    // Stack default commands.
+    if let Some(stack) = stack {
+        for (name, spec) in stack.default_commands() {
+            if builtins.contains(name.as_str()) || !seen.insert(name.clone()) {
+                continue;
+            }
+            let about = spec
+                .help()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| spec.display_cmd_fallback());
+            cmd = cmd.subcommand(clap::Command::new(leak(name)).about(leak(about)));
+        }
+    }
+
+    cmd
 }
 
 pub(crate) fn load_config_and_cwd() -> anyhow::Result<(ops_core::config::Config, PathBuf)> {
