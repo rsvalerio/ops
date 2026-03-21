@@ -1,0 +1,14 @@
+[package]
+name = "ops-pre-commit"
+publish = false
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ops-core = { workspace = true }
+ops-extension = { workspace = true }
+anyhow = { workspace = true }
+toml_edit = "0.25"
+
+[dev-dependencies]
+tempfile = "3"
