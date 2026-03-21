@@ -9,9 +9,7 @@ test-support = []
 
 [dependencies]
 serde = { workspace = true }
-serde_json = { workspace = true }
 toml = "1"
-toml_edit = "0.25"
 config = "0.15"
 anyhow = { workspace = true }
 tracing = { workspace = true }
@@ -19,9 +17,7 @@ indexmap = { workspace = true }
 strum = { version = "0.28", features = ["derive"] }
 comfy-table = "7"
 unicode-width = "0.2"
-bitflags = "2"
 terminal_size = "0.4"
-thiserror = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

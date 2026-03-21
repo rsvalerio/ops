@@ -5,14 +5,11 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-ops-core = { workspace = true }
 ops-extension = { workspace = true, features = ["duckdb"] }
 ops-duckdb = { workspace = true }
 duckdb = "1.4"
 tokei = "14.0"
 serde_json = { workspace = true }
-tracing = { workspace = true }
-serde = { workspace = true }
 anyhow = { workspace = true }
 
 [dev-dependencies]
