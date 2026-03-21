@@ -4,6 +4,7 @@ mod args;
 mod extension_cmd;
 mod init_cmd;
 mod new_command_cmd;
+mod pre_commit_cmd;
 mod registry;
 mod run_cmd;
 mod theme_cmd;
@@ -91,6 +92,7 @@ fn run() -> anyhow::Result<ExitCode> {
         Some(CoreSubcommand::Theme { action }) => run_theme(action)?,
         Some(CoreSubcommand::Extension { action }) => run_extension(action)?,
         Some(CoreSubcommand::NewCommand) => new_command_cmd::run_new_command()?,
+        Some(CoreSubcommand::PreCommit { action }) => return run_pre_commit(action),
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::About { refresh }) => {
             let (config, cwd) = load_config_and_cwd()?;
@@ -155,6 +157,7 @@ fn inject_dynamic_commands(
         "about",
         "dashboard",
         "tools",
+        "pre-commit",
         "help",
     ]
     .into_iter()
@@ -214,6 +217,28 @@ fn run_extension(action: ExtensionAction) -> anyhow::Result<()> {
     match action {
         ExtensionAction::List => extension_cmd::run_extension_list(),
         ExtensionAction::Show { name } => extension_cmd::run_extension_show(name.as_deref()),
+    }
+}
+
+fn run_pre_commit(action: Option<PreCommitAction>) -> anyhow::Result<ExitCode> {
+    match action {
+        Some(PreCommitAction::Install) => {
+            pre_commit_cmd::run_pre_commit_install()?;
+            Ok(ExitCode::SUCCESS)
+        }
+        None => {
+            if ops_pre_commit::should_skip() {
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "[pre-commit] {}=1 — skipping",
+                    ops_pre_commit::SKIP_ENV_VAR
+                );
+                return Ok(ExitCode::SUCCESS);
+            }
+            // No subcommand: run the configured `pre-commit` command from .ops.toml
+            let args = vec![std::ffi::OsString::from("pre-commit")];
+            run_cmd::run_external_command(&args, false)
+        }
     }
 }
 

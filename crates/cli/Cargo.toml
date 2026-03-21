@@ -31,6 +31,7 @@ ops-cargo-toml = { workspace = true, optional = true }
 ops-cargo-update = { workspace = true, optional = true }
 ops-metadata = { workspace = true, optional = true }
 ops-test-coverage = { workspace = true, optional = true }
+ops-pre-commit = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 inquire = "0.9"
