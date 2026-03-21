@@ -22,7 +22,6 @@ coverage = ["dep:ops-test-coverage", "duckdb"]
 [dependencies]
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
-ops-theme = { workspace = true }
 ops-runner = { workspace = true }
 ops-tools = { workspace = true, optional = true }
 ops-duckdb = { workspace = true, optional = true }
@@ -37,7 +36,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 inquire = "0.9"
 anyhow = { workspace = true }
 tracing = { workspace = true }
-serde_json = { workspace = true }
 indexmap = { workspace = true }
 toml_edit = "0.25"
 toml = "1"

@@ -9,7 +9,6 @@ ops-core = { workspace = true }
 ops-extension = { workspace = true, features = ["duckdb"] }
 ops-duckdb = { workspace = true }
 duckdb = "1.4"
-serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }

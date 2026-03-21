@@ -10,8 +10,6 @@ ops-extension = { workspace = true, features = ["duckdb"] }
 ops-duckdb = { workspace = true }
 duckdb = "1.4"
 serde_json = { workspace = true }
-serde = { workspace = true }
-tracing = { workspace = true }
 anyhow = { workspace = true }
 
 [dev-dependencies]
