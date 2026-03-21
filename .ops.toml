@@ -5,3 +5,14 @@ theme = "compact"
 [commands.install]
 program = "cargo"
 args = ["install", "--path", "crates/cli", "--force", "--all-features"]
+
+[commands.audit]
+program = "cargo"
+args = ["audit"]
+help = "Run cargo audit"
+
+[commands.pre-commit]
+commands = ["audit", "verify"]
+parallel = true
+fail_fast = true
+help = "Run audit and verify before committing"
