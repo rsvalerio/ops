@@ -3,20 +3,25 @@
 [commands.fmt]
 program = "go"
 args = ["fmt", "./..."]
+help = "Format all code"
 
 [commands.vet]
 program = "go"
 args = ["vet", "./..."]
+help = "Vet all packages"
 
 [commands.build]
 program = "go"
 args = ["build", "./..."]
+help = "Build all packages"
 
 [commands.test]
 program = "go"
 args = ["test", "./..."]
+help = "Run all tests"
 
 [commands.verify]
 commands = ["fmt", "vet", "build", "test"]
 parallel = false
 fail_fast = true
+help = "Run fmt, vet, build, test"

@@ -3,16 +3,20 @@
 [commands.format]
 program = "ruff"
 args = ["format", "."]
+help = "Format all code"
 
 [commands.lint]
 program = "ruff"
 args = ["check", "."]
+help = "Lint the codebase"
 
 [commands.test]
 program = "pytest"
 args = []
+help = "Run tests"
 
 [commands.verify]
 commands = ["format", "lint", "test"]
 parallel = false
 fail_fast = true
+help = "Run format, lint, test"

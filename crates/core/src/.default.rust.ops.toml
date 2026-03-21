@@ -3,24 +3,30 @@
 [commands.fmt]
 program = "cargo"
 args = ["fmt", "--all"]
+help = "Format all code"
 
 [commands.check]
 program = "cargo"
 args = ["check", "--all"]
+help = "Check all targets"
 
 [commands.clippy]
 program = "cargo"
 args = ["clippy", "--all", "--", "-D", "warnings"]
+help = "Lint with clippy"
 
 [commands.build]
 program = "cargo"
 args = ["build", "--all"]
+help = "Build all targets"
 
 [commands.test]
 program = "cargo"
 args = ["test", "--all"]
+help = "Run all tests"
 
 [commands.verify]
 commands = ["fmt", "check", "clippy", "build", "test"]
 parallel = false
 fail_fast = true
+help = "Run fmt, check, clippy, build, test"

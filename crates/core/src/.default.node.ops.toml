@@ -3,20 +3,25 @@
 [commands.install]
 program = "npm"
 args = ["install"]
+help = "Install dependencies"
 
 [commands.build]
 program = "npm"
 args = ["run", "build"]
+help = "Build the project"
 
 [commands.test]
 program = "npm"
 args = ["test"]
+help = "Run tests"
 
 [commands.lint]
 program = "npm"
 args = ["run", "lint"]
+help = "Lint the codebase"
 
 [commands.verify]
 commands = ["install", "lint", "build", "test"]
 parallel = false
 fail_fast = true
+help = "Run install, lint, build, test"
