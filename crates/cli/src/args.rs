@@ -82,6 +82,13 @@ pub enum CoreSubcommand {
     },
     /// Interactively add a new command to `.ops.toml`.
     NewCommand,
+    /// Install and manage git pre-commit hooks.
+    ///
+    /// Without a subcommand, runs the configured `pre-commit` command from `.ops.toml`.
+    PreCommit {
+        #[command(subcommand)]
+        action: Option<PreCommitAction>,
+    },
     /// Install and manage cargo development tools.
     Tools {
         #[command(subcommand)]
@@ -108,6 +115,13 @@ pub enum ExtensionAction {
     List,
     /// Show details for a specific extension (interactive picker if omitted).
     Show { name: Option<String> },
+}
+
+/// Pre-commit hook management subcommands.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum PreCommitAction {
+    /// Install the git pre-commit hook and add a default command to `.ops.toml`.
+    Install,
 }
 
 /// Tools management subcommands.
