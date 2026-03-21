@@ -165,6 +165,24 @@ pub enum CommandSpec {
     Composite(CompositeCommandSpec),
 }
 
+impl CommandSpec {
+    /// Return the help text for this command, if any.
+    pub fn help(&self) -> Option<&str> {
+        match self {
+            CommandSpec::Exec(e) => e.help.as_deref(),
+            CommandSpec::Composite(c) => c.help.as_deref(),
+        }
+    }
+
+    /// Fallback description when no `help` text is set.
+    pub fn display_cmd_fallback(&self) -> String {
+        match self {
+            CommandSpec::Exec(e) => e.display_cmd().into_owned(),
+            CommandSpec::Composite(c) => c.commands.join(", "),
+        }
+    }
+}
+
 /// Single executable command.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -179,6 +197,9 @@ pub struct ExecCommandSpec {
     /// Timeout in seconds; None means no timeout.
     #[serde(default)]
     pub timeout_secs: Option<u64>,
+    /// Short help text shown in `ops --help`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
 }
 
 impl ExecCommandSpec {
@@ -210,6 +231,9 @@ pub struct CompositeCommandSpec {
     /// When true (default), stop remaining steps on first failure. When false, run all steps.
     #[serde(default = "serde_defaults::default_true")]
     pub fail_fast: bool,
+    /// Short help text shown in `ops --help`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
 }
 
 /// Command identifier (name used in config and CLI).
