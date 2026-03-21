@@ -10,7 +10,8 @@ use ops_core::stack::Stack;
     name = "ops",
     bin_name = "ops",
     about = "Batteries-included task runner for any stack",
-    version
+    version,
+    next_display_order = None
 )]
 pub struct Cli {
     /// Preview commands without executing (dry-run mode).
