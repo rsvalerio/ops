@@ -19,6 +19,7 @@ ops-cargo-toml = { path = "extensions-rust/cargo-toml" }
 ops-cargo-update = { path = "extensions-rust/cargo-update" }
 ops-metadata = { path = "extensions-rust/metadata" }
 ops-tools = { path = "extensions-rust/tools" }
+ops-pre-commit = { path = "extensions/pre-commit" }
 ops-test-coverage = { path = "extensions-rust/test-coverage" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

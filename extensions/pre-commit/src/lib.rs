@@ -1,0 +1,344 @@
+//! Pre-commit hook extension: install and manage git pre-commit hooks.
+
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use anyhow::Context;
+use ops_extension::ExtensionType;
+
+pub const NAME: &str = "pre-commit";
+pub const DESCRIPTION: &str = "Install and manage git pre-commit hooks";
+pub const SHORTNAME: &str = "pre-commit";
+
+pub struct PreCommitExtension;
+
+ops_extension::impl_extension! {
+    PreCommitExtension,
+    name: NAME,
+    description: DESCRIPTION,
+    shortname: SHORTNAME,
+    types: ExtensionType::COMMAND,
+    data_provider_name: None,
+    register_data_providers: |_self, _registry| {},
+}
+
+/// The shell script installed as `.git/hooks/pre-commit`.
+const HOOK_SCRIPT: &str = "#!/usr/bin/env bash\nexec ops pre-commit\n";
+
+/// Environment variable that skips the pre-commit check when set to "1".
+pub const SKIP_ENV_VAR: &str = "SKIP_OPS_VERIFY";
+
+/// Returns `true` if `SKIP_OPS_VERIFY=1` is set.
+pub fn should_skip() -> bool {
+    std::env::var(SKIP_ENV_VAR).is_ok_and(|v| v == "1")
+}
+
+/// Default composite command added to `.ops.toml` when none exists.
+const DEFAULT_COMMANDS: &[&str] = &["verify"];
+
+/// Find the `.git` directory by walking up from the given path.
+pub fn find_git_dir(from: &Path) -> Option<PathBuf> {
+    let mut dir = from.to_path_buf();
+    loop {
+        let candidate = dir.join(".git");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
+/// Install the git pre-commit hook.
+///
+/// Returns the path to the created hook file.
+pub fn install_hook(git_dir: &Path, w: &mut dyn Write) -> anyhow::Result<PathBuf> {
+    let hooks_dir = git_dir.join("hooks");
+    std::fs::create_dir_all(&hooks_dir).context("failed to create .git/hooks directory")?;
+
+    let hook_path = hooks_dir.join("pre-commit");
+
+    if hook_path.exists() {
+        let existing =
+            std::fs::read_to_string(&hook_path).context("failed to read existing hook")?;
+        if existing == HOOK_SCRIPT {
+            writeln!(w, "Hook already installed at {}", hook_path.display())?;
+            return Ok(hook_path);
+        }
+        if existing.contains("ops pre-commit") {
+            // Old/outdated ops hook — overwrite it below
+            writeln!(w, "Updating outdated ops hook at {}", hook_path.display())?;
+        } else {
+            anyhow::bail!(
+                "a pre-commit hook already exists at {} and was not installed by ops. \
+                 Remove it manually or back it up before running install.",
+                hook_path.display()
+            );
+        }
+    }
+
+    std::fs::write(&hook_path, HOOK_SCRIPT).context("failed to write hook")?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook_path, std::fs::Permissions::from_mode(0o755))
+            .context("failed to make hook executable")?;
+    }
+
+    writeln!(w, "Installed hook at {}", hook_path.display())?;
+    Ok(hook_path)
+}
+
+/// Ensure a `[commands.pre-commit]` entry exists in `.ops.toml`.
+///
+/// If the config already has a `pre-commit` command, does nothing.
+/// Otherwise, adds a default composite command that runs `verify`.
+pub fn ensure_config_command(config_dir: &Path, w: &mut dyn Write) -> anyhow::Result<()> {
+    let config_path = config_dir.join(".ops.toml");
+
+    let content = if config_path.exists() {
+        std::fs::read_to_string(&config_path).context("failed to read .ops.toml")?
+    } else {
+        String::new()
+    };
+
+    let mut doc = content
+        .parse::<toml_edit::DocumentMut>()
+        .unwrap_or_else(|_| toml_edit::DocumentMut::new());
+
+    // Check if pre-commit command already exists
+    if let Some(commands) = doc.get("commands").and_then(|c| c.as_table()) {
+        if commands.contains_key("pre-commit") {
+            writeln!(w, "Command 'pre-commit' already defined in .ops.toml")?;
+            return Ok(());
+        }
+    }
+
+    // Ensure [commands] table exists
+    if !doc.contains_key("commands") {
+        doc["commands"] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+
+    let commands = doc["commands"]
+        .as_table_mut()
+        .context("commands is not a table")?;
+
+    let mut cmd = toml_edit::Table::new();
+
+    let mut arr = toml_edit::Array::new();
+    for name in DEFAULT_COMMANDS {
+        arr.push(*name);
+    }
+    cmd.insert("commands", toml_edit::value(arr));
+    cmd.insert("fail_fast", toml_edit::value(true));
+    cmd.insert(
+        "help",
+        toml_edit::value("Run pre-commit checks before committing"),
+    );
+
+    commands.insert("pre-commit", toml_edit::Item::Table(cmd));
+
+    std::fs::write(&config_path, doc.to_string()).context("failed to write .ops.toml")?;
+    writeln!(w, "Added default 'pre-commit' command to .ops.toml")?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- HOOK_SCRIPT --
+
+    #[test]
+    fn hook_script_contains_ops_pre_commit() {
+        assert!(HOOK_SCRIPT.contains("ops pre-commit"));
+    }
+
+    #[test]
+    fn hook_script_starts_with_shebang() {
+        assert!(HOOK_SCRIPT.starts_with("#!/usr/bin/env bash"));
+    }
+
+    #[test]
+    fn should_skip_returns_false_by_default() {
+        // env var not set in test => false
+        std::env::remove_var(SKIP_ENV_VAR);
+        assert!(!should_skip());
+    }
+
+    // -- find_git_dir --
+
+    #[test]
+    fn find_git_dir_in_current() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let result = find_git_dir(dir.path());
+        assert_eq!(result, Some(dir.path().join(".git")));
+    }
+
+    #[test]
+    fn find_git_dir_in_parent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        let result = find_git_dir(&sub);
+        assert_eq!(result, Some(dir.path().join(".git")));
+    }
+
+    #[test]
+    fn find_git_dir_not_found() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let result = find_git_dir(dir.path());
+        assert!(result.is_none());
+    }
+
+    // -- install_hook --
+
+    #[test]
+    fn install_hook_creates_executable_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+
+        let mut buf = Vec::new();
+        let path = install_hook(&git_dir, &mut buf).expect("install_hook");
+
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("ops pre-commit"));
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert!(mode & 0o111 != 0, "hook should be executable");
+        }
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("Installed hook"));
+    }
+
+    #[test]
+    fn install_hook_idempotent_when_ops_hook_exists() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(git_dir.join("hooks/pre-commit"), HOOK_SCRIPT).unwrap();
+
+        let mut buf = Vec::new();
+        let path = install_hook(&git_dir, &mut buf).expect("install_hook");
+
+        assert!(path.exists());
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("already installed"));
+    }
+
+    #[test]
+    fn install_hook_updates_outdated_ops_hook() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(
+            git_dir.join("hooks/pre-commit"),
+            "#!/bin/sh\necho old\nops pre-commit\n",
+        )
+        .unwrap();
+
+        let mut buf = Vec::new();
+        let path = install_hook(&git_dir, &mut buf).expect("install_hook");
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, HOOK_SCRIPT);
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("Updating outdated"));
+    }
+
+    #[test]
+    fn install_hook_refuses_foreign_hook() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(
+            git_dir.join("hooks/pre-commit"),
+            "#!/bin/sh\necho foreign\n",
+        )
+        .unwrap();
+
+        let mut buf = Vec::new();
+        let result = install_hook(&git_dir, &mut buf);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not installed by ops"));
+    }
+
+    // -- ensure_config_command --
+
+    #[test]
+    fn ensure_config_creates_command_in_empty_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        let mut buf = Vec::new();
+        ensure_config_command(dir.path(), &mut buf).expect("ensure_config_command");
+
+        let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
+        assert!(content.contains("[commands.pre-commit]"));
+        assert!(content.contains("verify"));
+        assert!(content.contains("fail_fast"));
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("Added default"));
+    }
+
+    #[test]
+    fn ensure_config_preserves_existing_pre_commit() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join(".ops.toml"),
+            "[commands.pre-commit]\ncommands = [\"test\"]\n",
+        )
+        .unwrap();
+
+        let mut buf = Vec::new();
+        ensure_config_command(dir.path(), &mut buf).expect("ensure_config_command");
+
+        let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
+        assert!(content.contains(r#"commands = ["test"]"#));
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("already defined"));
+    }
+
+    #[test]
+    fn ensure_config_appends_to_existing_config() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join(".ops.toml"),
+            "[output]\ntheme = \"compact\"\n\n[commands.build]\nprogram = \"cargo\"\nargs = [\"build\"]\n",
+        )
+        .unwrap();
+
+        let mut buf = Vec::new();
+        ensure_config_command(dir.path(), &mut buf).expect("ensure_config_command");
+
+        let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
+        assert!(content.contains("theme = \"compact\""));
+        assert!(content.contains("[commands.build]"));
+        assert!(content.contains("[commands.pre-commit]"));
+    }
+
+    // -- Extension metadata --
+
+    #[test]
+    fn extension_constants() {
+        assert_eq!(NAME, "pre-commit");
+        assert_eq!(SHORTNAME, "pre-commit");
+        assert!(!DESCRIPTION.is_empty());
+    }
+}

@@ -2002,6 +2002,7 @@ dependencies = [
  "ops-duckdb",
  "ops-extension",
  "ops-metadata",
+ "ops-pre-commit",
  "ops-runner",
  "ops-test-coverage",
  "ops-tokei",
@@ -2120,6 +2121,17 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "ops-pre-commit"
+version = "0.6.0"
+dependencies = [
+ "anyhow",
+ "ops-core",
+ "ops-extension",
+ "tempfile",
+ "toml_edit 0.25.5+spec-1.1.0",
 ]
 
 [[package]]
