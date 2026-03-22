@@ -2024,7 +2024,6 @@ dependencies = [
  "anyhow",
  "indicatif",
  "ops-cargo-toml",
- "ops-cargo-update",
  "ops-core",
  "ops-duckdb",
  "ops-extension",
