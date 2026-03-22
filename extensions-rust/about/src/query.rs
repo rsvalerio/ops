@@ -1,4 +1,4 @@
-//! Data querying: fetch LOC, deps, coverage, and updates from DuckDB/providers.
+//! Data querying: fetch LOC, deps, and coverage from DuckDB/providers.
 
 use std::collections::HashMap;
 use std::io::IsTerminal;
@@ -43,11 +43,6 @@ pub(crate) struct CoverageData {
     pub(crate) project: CrateCoverage,
     /// Per-crate coverage for workspace members (shown in COVERAGE section).
     pub(crate) per_crate: HashMap<String, CrateCoverage>,
-}
-
-/// Parsed updates data for the UPDATES section.
-pub(crate) struct UpdatesData {
-    pub(crate) result: ops_cargo_update::CargoUpdateResult,
 }
 
 /// Per-language LOC breakdown for the CODE STATISTICS section.
@@ -239,16 +234,6 @@ pub(crate) fn query_coverage_data(
         .unwrap_or_default();
 
     Some(CoverageData { project, per_crate })
-}
-
-pub(crate) fn query_updates_data(
-    ctx: &mut Context,
-    data_registry: &ops_extension::DataRegistry,
-) -> Option<UpdatesData> {
-    let value = ctx.get_or_provide("cargo_update", data_registry).ok()?;
-    let result: ops_cargo_update::CargoUpdateResult =
-        serde_json::from_value((*value).clone()).ok()?;
-    Some(UpdatesData { result })
 }
 
 pub(crate) fn query_language_stats(

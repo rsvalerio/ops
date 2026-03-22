@@ -3,14 +3,14 @@
 use std::collections::HashMap;
 use std::io::{self, IsTerminal};
 
-use ops_core::style::{cyan, dim, green};
+use ops_core::style::{cyan, dim};
 
 use ops_cargo_toml::CargoToml;
 
 use super::cards::{
     format_crate_name, layout_cards_in_grid, load_crate_infos, render_card, CardLayoutConfig,
 };
-use super::query::{CoverageData, DepsTreeData, UpdatesData};
+use super::query::{CoverageData, DepsTreeData};
 use super::text_util::{format_number, pad_header, tty_style};
 
 pub(crate) struct AboutContext<'a> {
@@ -338,93 +338,3 @@ pub(crate) fn format_dependencies_section(
     lines
 }
 
-pub(crate) fn format_updates_section(updates_data: Option<&UpdatesData>) -> Vec<String> {
-    let data = match updates_data {
-        Some(d) => d,
-        None => return vec![],
-    };
-
-    let result = &data.result;
-    let is_tty = io::stdout().is_terminal();
-
-    let mut lines = vec![String::new(), "  UPDATES".to_string()];
-
-    if result.entries.is_empty() {
-        lines.push(String::new());
-        lines.push(format!(
-            "  {}",
-            tty_style("All dependencies are up to date.", dim, is_tty)
-        ));
-        return lines;
-    }
-
-    let mut summary_parts = Vec::new();
-    if result.update_count > 0 {
-        summary_parts.push(format!(
-            "{} update{}",
-            result.update_count,
-            if result.update_count != 1 { "s" } else { "" }
-        ));
-    }
-    if result.add_count > 0 {
-        summary_parts.push(format!(
-            "{} addition{}",
-            result.add_count,
-            if result.add_count != 1 { "s" } else { "" }
-        ));
-    }
-    if result.remove_count > 0 {
-        summary_parts.push(format!(
-            "{} removal{}",
-            result.remove_count,
-            if result.remove_count != 1 { "s" } else { "" }
-        ));
-    }
-    lines.push(String::new());
-    lines.push(format!(
-        "  {}",
-        tty_style(&summary_parts.join(", "), dim, is_tty)
-    ));
-
-    for entry in &result.entries {
-        lines.push(format_update_entry(entry, is_tty));
-    }
-
-    lines
-}
-
-pub(crate) fn format_update_entry(entry: &ops_cargo_update::UpdateEntry, is_tty: bool) -> String {
-    use ops_cargo_update::UpdateAction;
-    match &entry.action {
-        UpdateAction::Update => {
-            let from = entry.from.as_deref().unwrap_or("?");
-            let to = entry.to.as_deref().unwrap_or("?");
-            format!(
-                "  {} {} {} {} {}",
-                tty_style(&entry.name, cyan, is_tty),
-                tty_style(from, dim, is_tty),
-                tty_style("->", dim, is_tty),
-                tty_style(to, green, is_tty),
-                tty_style("(update)", dim, is_tty)
-            )
-        }
-        UpdateAction::Add => {
-            let to = entry.to.as_deref().unwrap_or("?");
-            format!(
-                "  {} {} {}",
-                tty_style(&entry.name, cyan, is_tty),
-                tty_style(to, green, is_tty),
-                tty_style("(new)", dim, is_tty)
-            )
-        }
-        UpdateAction::Remove => {
-            let from = entry.from.as_deref().unwrap_or("?");
-            format!(
-                "  {} {} {}",
-                tty_style(&entry.name, cyan, is_tty),
-                tty_style(from, dim, is_tty),
-                tty_style("(remove)", dim, is_tty)
-            )
-        }
-    }
-}

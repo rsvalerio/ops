@@ -10,7 +10,6 @@ ops-core = { workspace = true }
 ops-extension = { workspace = true, features = ["duckdb"] }
 ops-duckdb = { workspace = true }
 ops-cargo-toml = { workspace = true }
-ops-cargo-update = { workspace = true }
 ops-tools = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
