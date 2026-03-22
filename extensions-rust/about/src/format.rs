@@ -337,4 +337,3 @@ pub(crate) fn format_dependencies_section(
 
     lines
 }
-

@@ -490,7 +490,11 @@ fn format_advisories(out: &mut String, advisories: &[AdvisoryEntry]) {
             advisories.len()
         ));
         let id_width = advisories.iter().map(|a| a.id.len()).max().unwrap_or(0);
-        let pkg_width = advisories.iter().map(|a| a.package.len()).max().unwrap_or(0);
+        let pkg_width = advisories
+            .iter()
+            .map(|a| a.package.len())
+            .max()
+            .unwrap_or(0);
         for a in advisories {
             let icon = severity_icon(&a.severity);
             out.push_str(&format!(
@@ -512,13 +516,8 @@ fn format_advisories(out: &mut String, advisories: &[AdvisoryEntry]) {
     }
 }
 
-fn format_deny_section<T, F>(
-    out: &mut String,
-    title: &str,
-    entries: &[T],
-    extract: F,
-    advice: &str,
-) where
+fn format_deny_section<T, F>(out: &mut String, title: &str, entries: &[T], extract: F, advice: &str)
+where
     F: Fn(&T) -> (&String, &String, &String),
 {
     if entries.is_empty() {
@@ -613,10 +612,8 @@ impl DataProvider for DepsProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let upgrade_entries =
-            run_cargo_upgrade_dry_run(&ctx.working_directory).map_err(|e| {
-                DataProviderError::from(anyhow::anyhow!("cargo upgrade failed: {}", e))
-            })?;
+        let upgrade_entries = run_cargo_upgrade_dry_run(&ctx.working_directory)
+            .map_err(|e| DataProviderError::from(anyhow::anyhow!("cargo upgrade failed: {}", e)))?;
 
         let upgrades = categorize_upgrades(upgrade_entries);
 
