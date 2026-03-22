@@ -9,12 +9,12 @@ use ops_tools::{get_active_toolchain, ToolInfo, ToolStatus};
 
 use crate::format::{
     coverage_icon, format_crates_section, format_dependencies_section, format_description,
-    format_header, format_updates_section, format_workspace_info,
+    format_header, format_workspace_info,
 };
 use crate::query::{
     maybe_spinner, query_coverage_data, query_deps_data, query_deps_tree_data,
-    query_language_stats, query_loc_data, query_updates_data, resolve_member_globs, CoverageData,
-    DepsData, DepsTreeData, LanguageStat, LocData, UpdatesData,
+    query_language_stats, query_loc_data, resolve_member_globs, CoverageData, DepsData,
+    DepsTreeData, LanguageStat, LocData,
 };
 use crate::text_util::{format_number, tty_style};
 
@@ -22,8 +22,6 @@ use crate::text_util::{format_number, tty_style};
 pub struct DashboardOptions {
     /// Skip test coverage collection.
     pub skip_coverage: bool,
-    /// Skip dependency update check.
-    pub skip_updates: bool,
     /// Force re-collection of data (ignores cached results).
     pub refresh: bool,
 }
@@ -64,17 +62,6 @@ pub fn run_dashboard(
         None
     };
 
-    let updates_data = if !opts.skip_updates {
-        let spinner = maybe_spinner("Checking for dependency updates\u{2026}");
-        let result = query_updates_data(&mut ctx, data_registry);
-        if let Some(sp) = spinner {
-            sp.finish_and_clear();
-        }
-        result
-    } else {
-        None
-    };
-
     let toolchain = get_active_toolchain();
 
     let output = format_dashboard(&DashboardContext {
@@ -84,7 +71,6 @@ pub fn run_dashboard(
         deps_data: deps_data.as_ref(),
         deps_tree: deps_tree.as_ref(),
         coverage_data: coverage_data.as_ref(),
-        updates_data: updates_data.as_ref(),
         language_stats: language_stats.as_deref(),
         toolchain: toolchain.as_deref(),
         tools,
@@ -102,7 +88,6 @@ struct DashboardContext<'a> {
     deps_data: Option<&'a DepsData>,
     deps_tree: Option<&'a DepsTreeData>,
     coverage_data: Option<&'a CoverageData>,
-    updates_data: Option<&'a UpdatesData>,
     language_stats: Option<&'a [LanguageStat]>,
     toolchain: Option<&'a str>,
     tools: &'a [ToolInfo],
@@ -154,10 +139,7 @@ fn format_dashboard(ctx: &DashboardContext<'_>) -> String {
     // 5. Dependencies
     lines.extend(format_dependencies_section(ctx.manifest, ctx.deps_tree));
 
-    // 6. Dependency Updates
-    lines.extend(format_updates_section(ctx.updates_data));
-
-    // 7. Test Coverage (detailed table, only if coverage_data has per-crate data)
+    // 6. Test Coverage (detailed table, only if coverage_data has per-crate data)
     lines.extend(format_dashboard_coverage_section(
         ctx.manifest,
         ctx.coverage_data,

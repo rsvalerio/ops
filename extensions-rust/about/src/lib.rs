@@ -571,73 +571,6 @@ mod tests {
     }
 
     #[test]
-    fn format_updates_section_none_returns_empty() {
-        let result = format_updates_section(None);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn format_updates_section_empty_entries() {
-        let data = UpdatesData {
-            result: ops_cargo_update::CargoUpdateResult {
-                entries: vec![],
-                update_count: 0,
-                add_count: 0,
-                remove_count: 0,
-            },
-        };
-        let result = format_updates_section(Some(&data));
-        let output = result.join("\n");
-        assert!(output.contains("UPDATES"));
-        assert!(output.contains("up to date"));
-    }
-
-    #[test]
-    fn format_updates_section_with_entries() {
-        use ops_cargo_update::{UpdateAction, UpdateEntry};
-
-        let data = UpdatesData {
-            result: ops_cargo_update::CargoUpdateResult {
-                entries: vec![
-                    UpdateEntry {
-                        action: UpdateAction::Update,
-                        name: "serde".to_string(),
-                        from: Some("1.0.0".to_string()),
-                        to: Some("1.0.1".to_string()),
-                    },
-                    UpdateEntry {
-                        action: UpdateAction::Add,
-                        name: "new-crate".to_string(),
-                        from: None,
-                        to: Some("0.1.0".to_string()),
-                    },
-                    UpdateEntry {
-                        action: UpdateAction::Remove,
-                        name: "old-crate".to_string(),
-                        from: Some("0.2.0".to_string()),
-                        to: None,
-                    },
-                ],
-                update_count: 1,
-                add_count: 1,
-                remove_count: 1,
-            },
-        };
-        let result = format_updates_section(Some(&data));
-        let output = result.join("\n");
-
-        assert!(output.contains("UPDATES"));
-        assert!(output.contains("1 update"));
-        assert!(output.contains("1 addition"));
-        assert!(output.contains("1 removal"));
-        assert!(output.contains("serde"));
-        assert!(output.contains("1.0.0"));
-        assert!(output.contains("1.0.1"));
-        assert!(output.contains("new-crate"));
-        assert!(output.contains("old-crate"));
-    }
-
-    #[test]
     fn resolve_member_globs_expands_glob() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
@@ -1202,7 +1135,6 @@ mod tests {
         assert!(output.contains("workspace")); // header present
         assert!(!output.contains("CRATES"));
         assert!(!output.contains("DEPENDENCIES"));
-        assert!(!output.contains("UPDATES"));
     }
 
     #[test]
@@ -1272,84 +1204,6 @@ mod tests {
         assert!(output.contains("serde"));
         // empty-crate name shouldn't appear as a header (it has no deps to show)
         assert!(!output.contains("empty-crate"));
-    }
-
-    #[test]
-    fn format_updates_section_multiple_updates_plurals() {
-        use ops_cargo_update::{UpdateAction, UpdateEntry};
-
-        let data = UpdatesData {
-            result: ops_cargo_update::CargoUpdateResult {
-                entries: vec![
-                    UpdateEntry {
-                        action: UpdateAction::Update,
-                        name: "a".to_string(),
-                        from: Some("1.0".to_string()),
-                        to: Some("2.0".to_string()),
-                    },
-                    UpdateEntry {
-                        action: UpdateAction::Update,
-                        name: "b".to_string(),
-                        from: Some("1.0".to_string()),
-                        to: Some("2.0".to_string()),
-                    },
-                ],
-                update_count: 2,
-                add_count: 0,
-                remove_count: 0,
-            },
-        };
-        let result = format_updates_section(Some(&data));
-        let output = result.join("\n");
-        assert!(output.contains("2 updates")); // plural
-    }
-
-    #[test]
-    fn format_update_entry_missing_versions() {
-        use ops_cargo_update::{UpdateAction, UpdateEntry};
-
-        let entry = UpdateEntry {
-            action: UpdateAction::Update,
-            name: "test".to_string(),
-            from: None,
-            to: None,
-        };
-        let result = format_update_entry(&entry, false);
-        // Missing versions should show "?"
-        assert!(result.contains("?"));
-        assert!(result.contains("test"));
-    }
-
-    #[test]
-    fn format_update_entry_add_missing_version() {
-        use ops_cargo_update::{UpdateAction, UpdateEntry};
-
-        let entry = UpdateEntry {
-            action: UpdateAction::Add,
-            name: "new-crate".to_string(),
-            from: None,
-            to: None,
-        };
-        let result = format_update_entry(&entry, false);
-        assert!(result.contains("new-crate"));
-        assert!(result.contains("?"));
-        assert!(result.contains("(new)"));
-    }
-
-    #[test]
-    fn format_update_entry_remove_missing_version() {
-        use ops_cargo_update::{UpdateAction, UpdateEntry};
-
-        let entry = UpdateEntry {
-            action: UpdateAction::Remove,
-            name: "old-crate".to_string(),
-            from: None,
-            to: None,
-        };
-        let result = format_update_entry(&entry, false);
-        assert!(result.contains("old-crate"));
-        assert!(result.contains("?"));
-        assert!(result.contains("(remove)"));
     }
 
     #[test]
