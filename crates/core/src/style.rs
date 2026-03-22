@@ -15,3 +15,5 @@ ansi_style!(grey, 90);
 ansi_style!(dim, 2);
 ansi_style!(green, 32);
 ansi_style!(red, 31);
+ansi_style!(yellow, 33);
+ansi_style!(bold, 1);
