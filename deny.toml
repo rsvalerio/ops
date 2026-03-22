@@ -1,0 +1,38 @@
+[graph]
+targets = []
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# term_size is pulled in by tokei 14.0.0 (latest) — no fix available upstream
+ignore = ["RUSTSEC-2020-0163"]
+
+[licenses]
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+# r-efi uses LGPL-2.1-or-later but is only linked on UEFI targets
+exceptions = [
+    { allow = ["LGPL-2.1-or-later"], crate = "r-efi" },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"

@@ -2080,6 +2080,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ops-deps"
+version = "0.6.0"
+dependencies = [
+ "anyhow",
+ "ops-core",
+ "ops-extension",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ops-duckdb"
 version = "0.6.0"
 dependencies = [
