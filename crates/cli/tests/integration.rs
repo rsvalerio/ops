@@ -507,7 +507,6 @@ fn cli_dashboard_shows_sections() {
     ops()
         .arg("dashboard")
         .arg("--skip-coverage")
-        .arg("--skip-updates")
         .assert()
         .success()
         .stdout(predicate::str::contains("ops"));

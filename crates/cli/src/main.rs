@@ -103,7 +103,6 @@ fn run() -> anyhow::Result<ExitCode> {
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Dashboard {
             skip_coverage,
-            skip_updates,
             refresh,
         }) => {
             let (config, cwd) = load_config_and_cwd()?;
@@ -111,7 +110,6 @@ fn run() -> anyhow::Result<ExitCode> {
             let tools = ops_tools::collect_tools(&config.tools);
             let opts = ops_about::DashboardOptions {
                 skip_coverage,
-                skip_updates,
                 refresh,
             };
             ops_about::run_dashboard(&registry, &opts, &tools)?;
