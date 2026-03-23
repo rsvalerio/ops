@@ -73,9 +73,6 @@ pub enum CoreSubcommand {
         /// Skip test coverage collection.
         #[arg(long)]
         skip_coverage: bool,
-        /// Skip dependency update check.
-        #[arg(long)]
-        skip_updates: bool,
         /// Force re-collection of data (ignores cached results).
         #[arg(long)]
         refresh: bool,
