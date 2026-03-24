@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 ops-extension = { workspace = true, features = ["duckdb"] }
 ops-duckdb = { workspace = true }
-duckdb = "1.10500"
+duckdb = "1.10501"
 tokei = "14.0"
 serde_json = { workspace = true }
 anyhow = { workspace = true }
