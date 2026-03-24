@@ -27,6 +27,6 @@ help = "Run all tests"
 
 [commands.verify]
 commands = ["fmt", "check", "clippy", "build", "test"]
-parallel = false
+parallel = true
 fail_fast = true
 help = "Run fmt, check, clippy, build, test"
