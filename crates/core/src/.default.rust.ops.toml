@@ -7,22 +7,22 @@ help = "Format all code"
 
 [commands.check]
 program = "cargo"
-args = ["check", "--all"]
+args = ["check", "--all", "--all-features"]
 help = "Check all targets"
 
 [commands.clippy]
 program = "cargo"
-args = ["clippy", "--all", "--", "-D", "warnings"]
+args = ["clippy", "--all", "--all-features", "--", "-D", "warnings"]
 help = "Lint with clippy"
 
 [commands.build]
 program = "cargo"
-args = ["build", "--all"]
+args = ["build", "--all", "--all-features"]
 help = "Build all targets"
 
 [commands.test]
 program = "cargo"
-args = ["test", "--all"]
+args = ["test", "--all", "--all-features"]
 help = "Run all tests"
 
 [commands.verify]
