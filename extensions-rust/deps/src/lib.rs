@@ -400,7 +400,7 @@ pub fn format_report(report: &DepsReport) -> String {
     // Compatible upgrades
     format_upgrade_section(
         &mut out,
-        "\u{2b06}\u{fe0f}  Compatible Upgrades",
+        "\u{2b06}\u{fe0f} Compatible Upgrades",
         &report.upgrades.compatible,
         false,
     );
@@ -481,12 +481,12 @@ fn format_upgrade_section(
 fn format_advisories(out: &mut String, advisories: &[AdvisoryEntry]) {
     if advisories.is_empty() {
         out.push_str(&format!(
-            "{P}\u{1f6e1}\u{fe0f}  Advisories {}\n\n",
+            "{P}\u{1f6e1}\u{fe0f} Advisories {}\n\n",
             green("\u{2714} None")
         ));
     } else {
         out.push_str(&format!(
-            "{P}\u{1f6e1}\u{fe0f}  Advisories ({}):\n",
+            "{P}\u{1f6e1}\u{fe0f} Advisories ({}):\n",
             advisories.len()
         ));
         let id_width = advisories.iter().map(|a| a.id.len()).max().unwrap_or(0);
