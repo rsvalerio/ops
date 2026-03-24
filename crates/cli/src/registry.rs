@@ -60,6 +60,7 @@ pub fn collect_compiled_extensions(
             "cargo-update",
             Box::new(ops_cargo_update::CargoUpdateExtension),
         ));
+        available.push(("deps", Box::new(ops_deps::DepsExtension)));
     }
 
     available
