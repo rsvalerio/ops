@@ -21,7 +21,7 @@ jobs:
           ref: ${{ github.event.workflow_run.head_branch }}
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ secrets.RELEASE_TOKEN }}
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       # Install cargo-edit and cocogitto
       - name: Install cargo-edit and cocogitto
