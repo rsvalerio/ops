@@ -67,6 +67,13 @@ pub enum CoreSubcommand {
         #[arg(long)]
         refresh: bool,
     },
+    /// Dependency health: upgrades, advisories, licenses, bans, sources.
+    #[cfg(feature = "stack-rust")]
+    Deps {
+        /// Force re-collection of data (ignores cached results).
+        #[arg(long)]
+        refresh: bool,
+    },
     /// Display comprehensive project health dashboard.
     #[cfg(feature = "stack-rust")]
     Dashboard {
@@ -147,6 +154,8 @@ fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
         ("about", Stack::Rust),
         #[cfg(feature = "stack-rust")]
         ("dashboard", Stack::Rust),
+        #[cfg(feature = "stack-rust")]
+        ("deps", Stack::Rust),
         #[cfg(feature = "stack-rust")]
         ("tools", Stack::Rust),
     ]

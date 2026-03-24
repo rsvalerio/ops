@@ -101,6 +101,13 @@ fn run() -> anyhow::Result<ExitCode> {
             ops_about::run_about(&registry, &opts)?;
         }
         #[cfg(feature = "stack-rust")]
+        Some(CoreSubcommand::Deps { refresh }) => {
+            let (config, cwd) = load_config_and_cwd()?;
+            let registry = crate::registry::build_data_registry(&config, &cwd)?;
+            let opts = ops_deps::DepsOptions { refresh };
+            ops_deps::run_deps(&registry, &opts)?;
+        }
+        #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Dashboard {
             skip_coverage,
             refresh,
@@ -154,6 +161,7 @@ fn inject_dynamic_commands(
         "new-command",
         "about",
         "dashboard",
+        "deps",
         "tools",
         "pre-commit",
         "help",

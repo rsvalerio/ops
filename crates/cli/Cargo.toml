@@ -10,7 +10,7 @@ license.workspace = true
 [features]
 default = []
 duckdb = ["dep:ops-duckdb", "ops-extension/duckdb"]
-stack-rust = ["dep:ops-about", "dep:ops-cargo-toml", "dep:ops-cargo-update", "dep:ops-metadata", "dep:ops-tools", "duckdb"]
+stack-rust = ["dep:ops-about", "dep:ops-cargo-toml", "dep:ops-cargo-update", "dep:ops-deps", "dep:ops-metadata", "dep:ops-tools", "duckdb"]
 stack-node = []
 stack-go = []
 stack-python = []
@@ -29,6 +29,7 @@ ops-tokei = { workspace = true, optional = true }
 ops-about = { workspace = true, optional = true }
 ops-cargo-toml = { workspace = true, optional = true }
 ops-cargo-update = { workspace = true, optional = true }
+ops-deps = { workspace = true, optional = true }
 ops-metadata = { workspace = true, optional = true }
 ops-test-coverage = { workspace = true, optional = true }
 ops-pre-commit = { workspace = true }
