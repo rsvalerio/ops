@@ -2,6 +2,28 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.7.0](https://github.com/rsvalerio/ops/compare/6d4a731944d2e07155efd84b4bb663f436be2b75..v0.7.0) - 2026-03-24
+#### 🚀 Features
+- (**cli**) wire pre-commit install subcommand and SKIP_OPS_VERIFY handling - ([239d25a](https://github.com/rsvalerio/ops/commit/239d25a468a55d86d79fae39edec1ebb490606f7)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+- (**core**) add yellow and bold ANSI style helpers - ([362372a](https://github.com/rsvalerio/ops/commit/362372a05efd3c6889fe50253a3c23efa87e78cc)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+- (**deps**) add deps extension and cargo-deny configuration - ([3c1c12e](https://github.com/rsvalerio/ops/commit/3c1c12e493b24d2f218285bdd50ef99c9da7e2bb)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+- (**extension**) add pre-commit hook management extension - ([0ca60e4](https://github.com/rsvalerio/ops/commit/0ca60e4a2b38b3d7070180166db42589b6d60edf)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+- (**ops**) add audit and pre-commit commands to .ops.toml - ([6d4a731](https://github.com/rsvalerio/ops/commit/6d4a731944d2e07155efd84b4bb663f436be2b75)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**ci**) add --all-features flag to build, test, and check commands - ([dfe9a5a](https://github.com/rsvalerio/ops/commit/dfe9a5ac0b3e9023e694a9d8664d43958b6c6c5a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**ci**) enable --all-features in check and clippy jobs - ([3518bdc](https://github.com/rsvalerio/ops/commit/3518bdc03d1845d979e003e95217ffcde1097ded)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+- (**dashboard**) remove leftover skip_updates references - ([1c01ba1](https://github.com/rsvalerio/ops/commit/1c01ba15d2df6605c0145fa4275ab849bb6acda2)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+- (**workflows**) update token var name on bump workflow - ([1654b97](https://github.com/rsvalerio/ops/commit/1654b972995b3df147a093af14d89ad1b71f6cf1)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**dashboard**) remove updates section and related functionality - ([4d64913](https://github.com/rsvalerio/ops/commit/4d6491306e458a3fc7185b0fb305084a7b852262)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**dependencies**) remove unused ops-core dependency from pre-commit extension - ([6c484c7](https://github.com/rsvalerio/ops/commit/6c484c784bf1df696d3af28a3ae421da68167d14)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) remove unused ops-cargo-update dependency from Cargo.lock - ([a287a0d](https://github.com/rsvalerio/ops/commit/a287a0dde586b7d0bc1a3e8741ed6f4d5d36aee1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) bump duckdb from 1.4 to 1.10500 - ([42e5984](https://github.com/rsvalerio/ops/commit/42e5984003318bd025ac85fdd39ffbd0c5626907)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+- centralize license = Apache-2.0 via workspace inheritance - ([763b2c0](https://github.com/rsvalerio/ops/commit/763b2c045cbef189052d64ded6757f5859bd1bef)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+
+- - -
+
 ## [v0.6.0](https://github.com/rsvalerio/ops/compare/c3843f36dee8e7929871521ed73e74ef114e9da2..v0.6.0) - 2026-03-21
 #### 🚀 Features
 - (**cli**) enhance command help display with dynamic commands - ([303027e](https://github.com/rsvalerio/ops/commit/303027e3f24bd7de53a2b3756def8846978eed2b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
