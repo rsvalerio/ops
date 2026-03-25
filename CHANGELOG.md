@@ -2,6 +2,22 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.8.0](https://github.com/rsvalerio/ops/compare/744cf131812604d82bff48e0370fbc20e9db81df..v0.8.0) - 2026-03-25
+#### 🚀 Features
+- (**config**) make verify command run in parallel by default - ([85c04e5](https://github.com/rsvalerio/ops/commit/85c04e5dc22907eb1f44895209d994f7decf4b35)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+- (**deps**) replace audit command with deps, show only totals for duplicates - ([6af4aa1](https://github.com/rsvalerio/ops/commit/6af4aa12bcdc2d80c9043168195990b5f14a23e1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**pre-commit**) skip checks when no staged files, add --all flag - ([4a5c910](https://github.com/rsvalerio/ops/commit/4a5c91041b9ca5a31aad1b35dd4568802f08125c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**cargo-update**) add missing license field - ([43df7f7](https://github.com/rsvalerio/ops/commit/43df7f7e7ac3aef7c2724cb93d491330b8817dc9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+- (**deps**) align section header spacing in deps report - ([64e9f6c](https://github.com/rsvalerio/ops/commit/64e9f6c14c508a9775dbec3201fa51f9988fb7b9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+- (**deps**) wire up deps extension to CLI - ([744cf13](https://github.com/rsvalerio/ops/commit/744cf131812604d82bff48e0370fbc20e9db81df)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+#### 🚜 Refactoring
+- (**extensions**) auto-register extensions via linkme distributed slice - ([b52d5d2](https://github.com/rsvalerio/ops/commit/b52d5d2ea5613d12f042b9a320a85fa73e20a67c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**deps**) bump duckdb to 1.10501 and update lockfile - ([bb368b7](https://github.com/rsvalerio/ops/commit/bb368b72288a98ab01cc71d86a2fe01ea3355523)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+
+- - -
+
 ## [v0.7.0](https://github.com/rsvalerio/ops/compare/6d4a731944d2e07155efd84b4bb663f436be2b75..v0.7.0) - 2026-03-24
 #### 🚀 Features
 - (**cli**) wire pre-commit install subcommand and SKIP_OPS_VERIFY handling - ([239d25a](https://github.com/rsvalerio/ops/commit/239d25a468a55d86d79fae39edec1ebb490606f7)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
