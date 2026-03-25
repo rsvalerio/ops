@@ -23,6 +23,7 @@ ops-metadata = { path = "extensions-rust/metadata" }
 ops-tools = { path = "extensions-rust/tools" }
 ops-pre-commit = { path = "extensions/pre-commit" }
 ops-test-coverage = { path = "extensions-rust/test-coverage" }
+linkme = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"

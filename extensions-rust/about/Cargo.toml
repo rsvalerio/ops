@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 ops-core = { workspace = true }
 ops-extension = { workspace = true, features = ["duckdb"] }
+linkme = { workspace = true }
 ops-duckdb = { workspace = true }
 ops-cargo-toml = { workspace = true }
 ops-tools = { workspace = true }
@@ -20,4 +21,5 @@ toml = "1"
 
 [dev-dependencies]
 ops-extension = { workspace = true, features = ["test-support"] }
+linkme = { workspace = true }
 tempfile = "3"

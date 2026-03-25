@@ -22,6 +22,9 @@ ops_extension::impl_extension! {
     types: ExtensionType::COMMAND,
     data_provider_name: None,
     register_data_providers: |_self, _registry| {},
+    factory: TOOLS_FACTORY = |_, _| {
+        Some((NAME, Box::new(ToolsExtension)))
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

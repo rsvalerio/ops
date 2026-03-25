@@ -203,6 +203,9 @@ ops_extension::impl_extension! {
     register_data_providers: |_self, registry| {
         registry.register(DATA_PROVIDER_NAME, Box::new(CargoUpdateProvider));
     },
+    factory: CARGO_UPDATE_FACTORY = |_, _| {
+        Some((NAME, Box::new(CargoUpdateExtension)))
+    },
 }
 
 /// Data provider that runs `cargo update --dry-run` and returns parsed results.

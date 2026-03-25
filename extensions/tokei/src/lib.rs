@@ -34,6 +34,9 @@ ops_extension::impl_extension! {
     register_data_providers: |_self, registry| {
         registry.register(DATA_PROVIDER_NAME, Box::new(TokeiProvider));
     },
+    factory: TOKEI_FACTORY = |_, _| {
+        Some((NAME, Box::new(TokeiExtension)))
+    },
 }
 
 struct TokeiProvider;

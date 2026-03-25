@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 ops-core = { workspace = true }
 ops-extension = { workspace = true, features = ["duckdb"] }
+linkme = { workspace = true }
 ops-duckdb = { workspace = true }
 duckdb = "1.10501"
 serde_json = { workspace = true }
@@ -16,4 +17,5 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 ops-extension = { workspace = true, features = ["test-support"] }
+linkme = { workspace = true }
 tempfile = "3"

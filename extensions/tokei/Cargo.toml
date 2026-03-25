@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 ops-extension = { workspace = true, features = ["duckdb"] }
+linkme = { workspace = true }
 ops-duckdb = { workspace = true }
 duckdb = "1.10501"
 tokei = "14.0"
@@ -15,4 +16,5 @@ anyhow = { workspace = true }
 
 [dev-dependencies]
 ops-extension = { workspace = true, features = ["test-support"] }
+linkme = { workspace = true }
 tempfile = "3"

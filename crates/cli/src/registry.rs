@@ -17,53 +17,18 @@ pub fn resolve_stack(config: &Config, workspace_root: &Path) -> Option<Stack> {
 
 /// Returns all compiled-in extensions as (config_name, extension) pairs.
 /// Does not filter by config or stack — caller decides what to do with disabled extensions.
+///
+/// Extensions self-register via `impl_extension!` with a `factory:` arm,
+/// which contributes to the `EXTENSION_REGISTRY` distributed slice at link time.
+/// No manual registration needed — if the crate is linked, it's discovered.
 pub fn collect_compiled_extensions(
-    #[allow(unused_variables)] config: &Config,
-    #[allow(unused_variables)] workspace_root: &Path,
+    config: &Config,
+    workspace_root: &Path,
 ) -> Vec<(&'static str, Box<dyn Extension>)> {
-    #[allow(unused_mut)]
-    let mut available: Vec<(&'static str, Box<dyn Extension>)> = vec![];
-
-    #[cfg(feature = "stack-rust")]
-    {
-        available.push(("tools", Box::new(ops_tools::ToolsExtension)));
-    }
-
-    #[cfg(feature = "duckdb")]
-    {
-        let db_path = ops_duckdb::DuckDb::resolve_path(&config.data, workspace_root);
-        available.push((
-            "duckdb",
-            Box::new(ops_duckdb::DuckDbExtension::new(db_path)),
-        ));
-    }
-
-    #[cfg(feature = "tokei")]
-    {
-        available.push(("tokei", Box::new(ops_tokei::TokeiExtension)));
-    }
-
-    #[cfg(feature = "coverage")]
-    {
-        available.push(("coverage", Box::new(ops_test_coverage::CoverageExtension)));
-    }
-
-    #[cfg(feature = "stack-rust")]
-    {
-        available.push(("metadata", Box::new(ops_metadata::MetadataExtension)));
-        available.push((
-            "cargo-toml",
-            Box::new(ops_cargo_toml::CargoTomlExtension::new()),
-        ));
-        available.push(("about", Box::new(ops_about::AboutExtension)));
-        available.push((
-            "cargo-update",
-            Box::new(ops_cargo_update::CargoUpdateExtension),
-        ));
-        available.push(("deps", Box::new(ops_deps::DepsExtension)));
-    }
-
-    available
+    ops_extension::EXTENSION_REGISTRY
+        .iter()
+        .filter_map(|factory| factory(config, workspace_root))
+        .collect()
 }
 
 /// Collect all built-in extensions (feature-gated), filtered by config and stack.

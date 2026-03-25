@@ -993,7 +993,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1827,6 +1827,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "linkme"
+version = "0.3.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e3283ed2d0e50c06dd8602e0ab319bb048b6325d0bba739db64ed8205179898"
+dependencies = [
+ "linkme-impl",
+]
+
+[[package]]
+name = "linkme-impl"
+version = "0.3.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5cec0ec4228b4853bb129c84dbf093a27e6c7a20526da046defc334a1b017f7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1923,7 +1943,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2024,6 +2044,7 @@ version = "0.7.0"
 dependencies = [
  "anyhow",
  "indicatif",
+ "linkme",
  "ops-cargo-toml",
  "ops-core",
  "ops-duckdb",
@@ -2041,6 +2062,7 @@ name = "ops-cargo-toml"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "linkme",
  "ops-core",
  "ops-extension",
  "serde",
@@ -2055,6 +2077,7 @@ name = "ops-cargo-update"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "linkme",
  "ops-extension",
  "serde",
  "serde_json",
@@ -2084,6 +2107,7 @@ name = "ops-deps"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "linkme",
  "ops-core",
  "ops-extension",
  "serde",
@@ -2097,6 +2121,7 @@ dependencies = [
  "anyhow",
  "duckdb",
  "hex",
+ "linkme",
  "ops-core",
  "ops-extension",
  "serde",
@@ -2114,6 +2139,7 @@ dependencies = [
  "anyhow",
  "bitflags",
  "indexmap",
+ "linkme",
  "ops-core",
  "serde_json",
  "tempfile",
@@ -2126,6 +2152,7 @@ version = "0.7.0"
 dependencies = [
  "anyhow",
  "duckdb",
+ "linkme",
  "ops-core",
  "ops-duckdb",
  "ops-extension",
@@ -2139,6 +2166,7 @@ name = "ops-pre-commit"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "linkme",
  "ops-extension",
  "tempfile",
  "toml_edit 0.25.8+spec-1.1.0",
@@ -2169,6 +2197,7 @@ version = "0.7.0"
 dependencies = [
  "anyhow",
  "duckdb",
+ "linkme",
  "ops-core",
  "ops-duckdb",
  "ops-extension",
@@ -2193,6 +2222,7 @@ version = "0.7.0"
 dependencies = [
  "anyhow",
  "duckdb",
+ "linkme",
  "ops-duckdb",
  "ops-extension",
  "serde_json",
@@ -2206,6 +2236,7 @@ version = "0.7.0"
 dependencies = [
  "anyhow",
  "indexmap",
+ "linkme",
  "ops-core",
  "ops-extension",
  "toml 1.0.7+spec-1.1.0",
@@ -2557,7 +2588,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2879,7 +2910,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3341,7 +3372,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3782,9 +3813,9 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
 name = "unicode-segmentation"
-version = "1.13.0"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a559e63b5d8004e12f9bce88af5c6d939c58de839b7532cfe9653846cedd2a9e"
+checksum = "da36089a805484bcccfffe0739803392c8298778a2d2f09febf76fac5ad9025b"
 
 [[package]]
 name = "unicode-width"
@@ -4058,7 +4089,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

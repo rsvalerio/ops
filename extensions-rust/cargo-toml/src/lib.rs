@@ -132,6 +132,9 @@ ops_extension::impl_extension! {
         };
         registry.register(DATA_PROVIDER_NAME, Box::new(provider));
     },
+    factory: CARGO_TOML_FACTORY = |_, _| {
+        Some((NAME, Box::new(CargoTomlExtension::new())))
+    },
 }
 
 /// Data provider that parses Cargo.toml and returns structured JSON.
