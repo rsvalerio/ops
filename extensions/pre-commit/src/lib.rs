@@ -20,6 +20,9 @@ ops_extension::impl_extension! {
     types: ExtensionType::COMMAND,
     data_provider_name: None,
     register_data_providers: |_self, _registry| {},
+    factory: PRE_COMMIT_FACTORY = |_, _| {
+        Some((NAME, Box::new(PreCommitExtension)))
+    },
 }
 
 /// The shell script installed as `.git/hooks/pre-commit`.
@@ -31,6 +34,15 @@ pub const SKIP_ENV_VAR: &str = "SKIP_OPS_VERIFY";
 /// Returns `true` if `SKIP_OPS_VERIFY=1` is set.
 pub fn should_skip() -> bool {
     std::env::var(SKIP_ENV_VAR).is_ok_and(|v| v == "1")
+}
+
+/// Returns `true` if there are any staged files in the git index.
+pub fn has_staged_files() -> anyhow::Result<bool> {
+    let output = std::process::Command::new("git")
+        .args(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
+        .output()
+        .context("failed to run git diff --cached")?;
+    Ok(!output.stdout.is_empty())
 }
 
 /// Default composite command added to `.ops.toml` when none exists.
