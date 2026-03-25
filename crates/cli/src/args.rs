@@ -88,8 +88,12 @@ pub enum CoreSubcommand {
     NewCommand,
     /// Install and manage git pre-commit hooks.
     ///
-    /// Without a subcommand, runs the configured `pre-commit` command from `.ops.toml`.
+    /// Without a subcommand, runs pre-commit checks on staged files only.
+    /// Use `--all` to check the entire workspace.
     PreCommit {
+        /// Run checks on all files, not just staged ones.
+        #[arg(long)]
+        all: bool,
         #[command(subcommand)]
         action: Option<PreCommitAction>,
     },

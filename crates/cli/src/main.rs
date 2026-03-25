@@ -92,7 +92,7 @@ fn run() -> anyhow::Result<ExitCode> {
         Some(CoreSubcommand::Theme { action }) => run_theme(action)?,
         Some(CoreSubcommand::Extension { action }) => run_extension(action)?,
         Some(CoreSubcommand::NewCommand) => new_command_cmd::run_new_command()?,
-        Some(CoreSubcommand::PreCommit { action }) => return run_pre_commit(action),
+        Some(CoreSubcommand::PreCommit { all, action }) => return run_pre_commit(action, all),
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::About { refresh }) => {
             let (config, cwd) = load_config_and_cwd()?;
@@ -226,7 +226,7 @@ fn run_extension(action: ExtensionAction) -> anyhow::Result<()> {
     }
 }
 
-fn run_pre_commit(action: Option<PreCommitAction>) -> anyhow::Result<ExitCode> {
+fn run_pre_commit(action: Option<PreCommitAction>, all: bool) -> anyhow::Result<ExitCode> {
     match action {
         Some(PreCommitAction::Install) => {
             pre_commit_cmd::run_pre_commit_install()?;
@@ -241,7 +241,14 @@ fn run_pre_commit(action: Option<PreCommitAction>) -> anyhow::Result<ExitCode> {
                 );
                 return Ok(ExitCode::SUCCESS);
             }
-            // No subcommand: run the configured `pre-commit` command from .ops.toml
+            if !all && !ops_pre_commit::has_staged_files()? {
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "[pre-commit] no staged files — skipping (use --all to check everything)"
+                );
+                return Ok(ExitCode::SUCCESS);
+            }
+            // Run the configured `pre-commit` command from .ops.toml
             let args = vec![std::ffi::OsString::from("pre-commit")];
             run_cmd::run_external_command(&args, false)
         }
