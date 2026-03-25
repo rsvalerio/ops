@@ -6,13 +6,13 @@ theme = "compact"
 program = "cargo"
 args = ["install", "--path", "crates/cli", "--force", "--all-features"]
 
-[commands.audit]
-program = "cargo"
-args = ["audit"]
-help = "Run cargo audit"
+[commands.deps]
+program = "ops"
+args = ["deps"]
+help = "Check dependencies, advisories, licenses, bans and sources in the workspace"
 
 [commands.pre-commit]
-commands = ["audit", "verify"]
-parallel = true
+commands = ["deps", "verify"]
 fail_fast = true
-help = "Run audit and verify before committing"
+parallel = true
+help = "Check dependencies, advisories, licenses, bans and sources also run verify (build, clippy, test) commands before committing"

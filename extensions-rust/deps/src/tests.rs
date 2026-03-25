@@ -252,21 +252,33 @@ fn format_report_with_advisory() {
 }
 
 #[test]
-fn format_report_duplicate_crates_shows_advice() {
+fn format_report_duplicate_crates_shows_totals_only() {
     let report = DepsReport {
         upgrades: UpgradeResult::default(),
         deny: DenyResult {
-            bans: vec![BanEntry {
-                package: "hashbrown".into(),
-                message: "found 3 duplicate entries".into(),
-                severity: "warning".into(),
-            }],
+            bans: vec![
+                BanEntry {
+                    package: "hashbrown".into(),
+                    message: "found 3 duplicate entries".into(),
+                    severity: "warning".into(),
+                },
+                BanEntry {
+                    package: "syn".into(),
+                    message: "found 2 duplicate entries".into(),
+                    severity: "error".into(),
+                },
+            ],
             ..Default::default()
         },
     };
     let output = format_report(&report);
-    assert!(output.contains("Duplicate Crates (1):"));
-    assert!(output.contains("hashbrown"));
+    assert!(output.contains("Duplicate Crates (2):"));
+    // Should NOT list individual crate names
+    assert!(!output.contains("hashbrown"));
+    assert!(!output.contains("syn"));
+    // Should show severity totals
+    assert!(output.contains("1 error"));
+    assert!(output.contains("1 warning"));
     assert!(output.contains("usually harmless"));
 }
 

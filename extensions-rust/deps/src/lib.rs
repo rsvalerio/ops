@@ -425,14 +425,8 @@ pub fn format_report(report: &DepsReport) -> String {
         "Run `cargo deny check licenses` for details. Configure allowed licenses in deny.toml.",
     );
 
-    // Duplicate crates (bans)
-    format_deny_section(
-        &mut out,
-        "\u{1f4e6} Duplicate Crates",
-        &report.deny.bans,
-        |b| (&b.package, &b.message, &b.severity),
-        "Duplicate versions are common in transitive dependencies and usually harmless.\nThey add binary size but rarely cause issues. Run `cargo update` to try to reduce them.",
-    );
+    // Duplicate crates (bans) — totals only
+    format_bans_summary(&mut out, &report.deny.bans);
 
     // Source issues
     format_deny_section(
@@ -513,6 +507,49 @@ fn format_advisories(out: &mut String, advisories: &[AdvisoryEntry]) {
             dim("\u{1f4a1}"),
             dim("Run `cargo deny check advisories` for details. Update affected crates or add exceptions to deny.toml.")
         ));
+    }
+}
+
+fn format_bans_summary(out: &mut String, bans: &[BanEntry]) {
+    let title = "\u{1f4e6} Duplicate Crates";
+    if bans.is_empty() {
+        out.push_str(&format!("{P}{} {}\n\n", title, green("\u{2714} None")));
+    } else {
+        let errors = bans.iter().filter(|b| b.severity == "error").count();
+        let warnings = bans.iter().filter(|b| b.severity == "warning").count();
+        let others = bans.len() - errors - warnings;
+
+        let mut parts = Vec::new();
+        if errors > 0 {
+            parts.push(red(&format!(
+                "{} error{}",
+                errors,
+                if errors == 1 { "" } else { "s" }
+            )));
+        }
+        if warnings > 0 {
+            parts.push(yellow(&format!(
+                "{} warning{}",
+                warnings,
+                if warnings == 1 { "" } else { "s" }
+            )));
+        }
+        if others > 0 {
+            parts.push(dim(&format!("{} info", others)));
+        }
+
+        out.push_str(&format!(
+            "{P}{} ({}): {}\n\n",
+            title,
+            bans.len(),
+            parts.join(", ")
+        ));
+
+        let advice = "Duplicate versions are common in transitive dependencies and usually harmless.\nThey add binary size but rarely cause issues. Run `cargo update` to try to reduce them.";
+        for line in advice.lines() {
+            out.push_str(&format!("{P}    {} {}\n", dim("\u{1f4a1}"), dim(line)));
+        }
+        out.push('\n');
     }
 }
 
@@ -601,6 +638,9 @@ ops_extension::impl_extension! {
     },
     register_data_providers: |_self, registry| {
         registry.register(DATA_PROVIDER_NAME, Box::new(DepsProvider));
+    },
+    factory: DEPS_FACTORY = |_, _| {
+        Some((NAME, Box::new(DepsExtension)))
     },
 }
 
