@@ -94,6 +94,9 @@ ops_extension::impl_extension! {
         );
     },
     register_data_providers: |_self, _registry| {},
+    factory: ABOUT_FACTORY = |_, _| {
+        Some((NAME, Box::new(AboutExtension)))
+    },
 }
 
 #[cfg(test)]

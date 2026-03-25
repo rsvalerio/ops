@@ -83,6 +83,10 @@ ops_extension::impl_extension! {
             }),
         );
     },
+    factory: DUCKDB_FACTORY = |config, workspace_root| {
+        let db_path = DuckDb::resolve_path(&config.data, workspace_root);
+        Some((NAME, Box::new(DuckDbExtension::new(db_path))))
+    },
 }
 
 struct DuckDbProvider {

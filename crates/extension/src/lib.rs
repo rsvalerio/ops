@@ -4,8 +4,17 @@ use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, Config};
 use ops_core::stack::Stack;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// Factory function that creates an extension instance given config and workspace root.
+/// Registered automatically by `impl_extension!` when the `factory:` arm is provided.
+pub type ExtensionFactory = fn(&Config, &Path) -> Option<(&'static str, Box<dyn Extension>)>;
+
+/// Distributed slice collecting all extension factories at link time.
+/// Extensions contribute to this slice via `impl_extension!` with a `factory:` arm.
+#[linkme::distributed_slice]
+pub static EXTENSION_REGISTRY: [ExtensionFactory];
 
 /// Cloneable wrapper for error sources, preserving the full error chain.
 ///
@@ -417,7 +426,38 @@ macro_rules! impl_extension {
         }
     };
 
-    // Full form with register_commands
+    // Full form with register_commands + factory (auto-registration)
+    (
+        $struct:ty,
+        name: $name:expr,
+        description: $desc:expr,
+        shortname: $short:expr,
+        types: $types:expr,
+        $(command_names: $cn:expr,)?
+        data_provider_name: $dp:expr,
+        register_commands: |$self_cmd:ident, $reg_cmd:ident| $cmd_body:block,
+        register_data_providers: |$self_dp:ident, $reg_dp:ident| $dp_body:block,
+        factory: $factory_ident:ident = $factory_fn:expr $(,)?
+    ) => {
+        impl $crate::Extension for $struct {
+            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, command_names: $cn)?);
+            fn register_commands(&self, registry: &mut $crate::CommandRegistry) {
+                let $self_cmd = self;
+                let $reg_cmd = registry;
+                $cmd_body
+            }
+            fn register_data_providers(&self, registry: &mut $crate::DataRegistry) {
+                let $self_dp = self;
+                let $reg_dp = registry;
+                $dp_body
+            }
+        }
+
+        #[linkme::distributed_slice($crate::EXTENSION_REGISTRY)]
+        static $factory_ident: $crate::ExtensionFactory = $factory_fn;
+    };
+
+    // Full form with register_commands (no factory — legacy)
     (
         $struct:ty,
         name: $name:expr,
@@ -444,7 +484,33 @@ macro_rules! impl_extension {
         }
     };
 
-    // Short form without register_commands (generates no-op)
+    // Short form with factory (auto-registration, no register_commands)
+    (
+        $struct:ty,
+        name: $name:expr,
+        description: $desc:expr,
+        shortname: $short:expr,
+        types: $types:expr,
+        $(command_names: $cn:expr,)?
+        data_provider_name: $dp:expr,
+        register_data_providers: |$self_dp:ident, $reg_dp:ident| $dp_body:block,
+        factory: $factory_ident:ident = $factory_fn:expr $(,)?
+    ) => {
+        impl $crate::Extension for $struct {
+            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, command_names: $cn)?);
+            fn register_commands(&self, _registry: &mut $crate::CommandRegistry) {}
+            fn register_data_providers(&self, registry: &mut $crate::DataRegistry) {
+                let $self_dp = self;
+                let $reg_dp = registry;
+                $dp_body
+            }
+        }
+
+        #[linkme::distributed_slice($crate::EXTENSION_REGISTRY)]
+        static $factory_ident: $crate::ExtensionFactory = $factory_fn;
+    };
+
+    // Short form without register_commands (no factory — legacy)
     (
         $struct:ty,
         name: $name:expr,
