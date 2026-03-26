@@ -31,6 +31,7 @@ thiserror = "2"
 tracing = "0.1"
 indexmap = { version = "2", features = ["serde"] }
 tokio = { version = "1", features = ["process", "macros", "rt-multi-thread", "sync", "io-util", "time"] }
+libc = "0.2"
 
 [patch.crates-io]
 # RUSTSEC-2026-0037: patch quinn-proto to 0.11.14 (DoS fix)
