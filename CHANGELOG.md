@@ -2,6 +2,26 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.8.1](https://github.com/rsvalerio/ops/compare/8729f7b855bd617f9dc0d6473d7b4058a544514a..v0.8.1) - 2026-03-26
+#### 🐛 Bug Fixes
+- (**deps**) exclude duplicate crate bans from actionable issue checks - ([f4175bc](https://github.com/rsvalerio/ops/commit/f4175bc88a2dcadcfcc17961a9e0b8703b44b88e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) update unicode-segmentation to 1.13.2 (1.13.1 was yanked) - ([d6997c0](https://github.com/rsvalerio/ops/commit/d6997c00ba51ac4436e5602ce3c83083af08fa13)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) fail with non-zero exit code when dependency issues are found - ([84137c3](https://github.com/rsvalerio/ops/commit/84137c3e36806f3bc62549b9c7f6231002856336)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) add terminal echo guard to suppress input echo during parallel execution - ([8729f7b](https://github.com/rsvalerio/ops/commit/8729f7b855bd617f9dc0d6473d7b4058a544514a)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**readme**) add backlog section with planned improvements - ([089d9d6](https://github.com/rsvalerio/ops/commit/089d9d683535aab9596618834e042f21b8afbcd5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**releasing**) update workflow for PR-based flow with branch protection - ([6310c7e](https://github.com/rsvalerio/ops/commit/6310c7e059df5172ce0a4377709d1e3d93565734)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**dist**) drop powershell installer, switch to gzip compression - ([ab40024](https://github.com/rsvalerio/ops/commit/ab400244f570954deff0747a2e57a0170df7cc51)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔄 CI/CD
+- remove deps command from ci workflow - ([03bef71](https://github.com/rsvalerio/ops/commit/03bef71d68b5a7b57d844f7aff7d27120a2b08b0)) - [@rsvalerio](https://github.com/rsvalerio)
+- remove deps command from pre-commit - ([1c73c7d](https://github.com/rsvalerio/ops/commit/1c73c7d385516e137652764d9e2743e165513f99)) - [@rsvalerio](https://github.com/rsvalerio)
+- replace direct cargo calls with ops, split into 6 parallel jobs - ([db0d81b](https://github.com/rsvalerio/ops/commit/db0d81b86b0a87a67610600f3cfc1f1414b35f34)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- remove `[commands.deps]` from .ops.toml (default cmd now) - ([7a407fe](https://github.com/rsvalerio/ops/commit/7a407fe976c990cfc95b4b863ece0d94a2377f00)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.8.0](https://github.com/rsvalerio/ops/compare/744cf131812604d82bff48e0370fbc20e9db81df..v0.8.0) - 2026-03-25
 #### 🚀 Features
 - (**config**) make verify command run in parallel by default - ([85c04e5](https://github.com/rsvalerio/ops/commit/85c04e5dc22907eb1f44895209d994f7decf4b35)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
