@@ -8,27 +8,33 @@ This project uses automated release management with two tools:
 ## How It Works
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Release Workflow                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  1. Conventional Commits    2. Release Gate          3. Binary Release      │
-│  ────────────────────────   ──────────────────       ─────────────────      │
-│                                                                             │
-│  feat: add new command  ──► CI checks for feat/fix ──► cog bump --auto      │
-│  fix: resolve crash         commits since last tag      • CHANGELOG update  │
-│  docs: update readme        │                           • Cargo.toml bump   │
-│  chore: update deps         │ feat/fix found?           • Git tag           │
-│                             │  yes ──► bump + release       │               │
-│                             │  no  ──► skip (commits        ▼               │
-│                             │         accumulate for   cargo-dist           │
-│                             │         next release)    • GitHub release     │
-│                                                        • macOS binaries     │
-│                                                        • Linux binaries     │
-│                                                        • Shell installer    │
-│                                                        • Homebrew formula   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                              Release Workflow                              │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                            │
+│  1. Feature Branch + PR     2. CI (6 parallel checks)  3. Merge to Main    │
+│  ────────────────────────   ──────────────────────────  ─────────────────  │
+│                                                                            │
+│  git checkout -b feat/x     Format ─┐                  PR merged to main   │
+│  git commit (conventional)  Check  ─┤                       │              │
+│  git push + open PR         Lint   ─┼─► all must pass       ▼              │
+│       │                     Build  ─┤   to merge       4. Auto Bump        │
+│       ▼                     Test   ─┤   ──────────────────────────────     │
+│  Ruleset enforces:          Deps   ─┘   cog bump --auto                    │
+│  • required status checks                • CHANGELOG update                │
+│  • review thread resolution              • Cargo.toml bump                 │
+│  • signed commits                        • Git tag (v*.*.*)                │
+│                                               │                            │
+│                                               ▼                            │
+│                                          5. Binary Release                 │
+│                                          ─────────────────                 │
+│                                          cargo-dist                        │
+│                                          • GitHub release                  │
+│                                          • macOS/Linux binaries            │
+│                                          • Shell installer                 │
+│                                          • Homebrew formula                │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Conventional Commits
@@ -79,59 +85,43 @@ Breaking changes normally trigger a **major** version bump (e.g. 1.x.x → 2.0.0
 
 **0.y.z caveat:** With `cog bump --auto`, Cocogitto [does not move a 0.y.z project to 1.0.0 automatically](https://docs.cocogitto.io/guide/bump.html), even if commits include breaking changes. When you are ready to leave **0.x**, bump explicitly, for example `cog bump --version 1.0.0`.
 
-### Examples
-
-Using `git commit`:
-
-```bash
-# Feature (minor bump)
-git commit -m "feat: add parallel command execution"
-
-# Feature with scope (minor bump)
-git commit -m "feat(cli): add --verbose flag"
-
-# Bug fix (patch bump)
-git commit -m "fix: prevent crash on empty config"
-
-# Documentation (no bump, included in next changelog)
-git commit -m "docs: add installation instructions"
-
-# Breaking change (major bump on 1.x+; see 0.y.z caveat above)
-git commit -m "feat!: require explicit stack selection"
-```
-
-Or using `cog commit` for guided semantic commits (validates format automatically):
-
-```bash
-# Feature (minor bump)
-cog commit feat "add parallel command execution"
-
-# Feature with scope (minor bump)
-cog commit feat(cli) "add --verbose flag"
-
-# Bug fix (patch bump)
-cog commit fix "prevent crash on empty config"
-
-# Documentation (no bump, included in next changelog)
-cog commit docs "add installation instructions"
-```
-
 ## Creating a Release
 
-Releases are fully automated:
+Releases are fully automated. The `main` branch is protected by a GitHub ruleset that requires all status checks to pass and review threads to be resolved before merging.
 
-### 1. Push Commits to Main
+### 1. Create a Feature Branch and PR
 
-Use conventional commit messages:
+Use conventional commit messages on a feature branch:
 
 ```bash
+git checkout -b feat/my-feature
 git commit -m "feat: add new theme option"
-git push origin main
+git push -u origin feat/my-feature
+gh pr create
 ```
 
-### 2. Automatic Version Bump
+### 2. CI Status Checks (6 parallel jobs)
 
-The [Bump workflow](../.github/workflows/bump.yml) runs when the **CI** workflow completes successfully on `main` (`workflow_run`). It only runs for this upstream repo (`github.repository_owner == 'rsvalerio'`); forks do not auto-bump.
+The [CI workflow](../.github/workflows/ci.yml) runs on every PR and produces six required status checks that must all pass before merge:
+
+| Check | Command | Description |
+|-------|---------|-------------|
+| **Format** | `ops fmt` | Format all code |
+| **Check** | `ops check` | Check all targets |
+| **Lint** | `ops clippy` | Lint with clippy |
+| **Build** | `ops build` | Build all targets |
+| **Test** | `ops test` | Run all tests |
+| **Deps** | `ops deps` | Check dependencies, advisories, licenses, bans and sources |
+
+CI installs `ops` from the latest GitHub release via [`jaxxstorm/action-install-gh-release`](https://github.com/jaxxstorm/action-install-gh-release), and `cargo-edit`/`cargo-deny` via [`taiki-e/install-action`](https://github.com/taiki-e/install-action) (for the Deps job).
+
+### 3. Merge PR to Main
+
+Once all checks pass and review threads are resolved, merge the PR into `main`.
+
+### 4. Automatic Version Bump
+
+The [Bump workflow](../.github/workflows/bump.yml) runs when the **CI** workflow completes successfully on `main` (`workflow_run`). It only runs for this upstream repo (`github.repository_owner == 'rsvalerio'`); forks do not auto-bump. The bump commit uses `[skip ci]` to avoid retriggering CI.
 
 The job runs `cog bump --auto`, which:
 1. Analyzes conventional commits since the last tag
@@ -141,6 +131,8 @@ The job runs `cog bump --auto`, which:
 5. **post_bump_hooks**: pushes the commit and tag to remote, which triggers cargo-dist
 
 If there is nothing to release (no `feat` / `fix` / breaking commits since the last tag), `cog bump --auto` does not create a new version commit or tag.
+
+> **Note:** The bump bot pushes directly to `main` via the bypass actor in the ruleset (RepositoryRole actor_id 1 with `bypass_mode: always`).
 
 ### Manual Release (Emergency)
 
