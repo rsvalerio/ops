@@ -17,6 +17,8 @@ install-path = "CARGO_HOME"
 hosting = "github"
 # Use .tar.gz instead of .tar.xz for broader compatibility
 compression = "gzip"
+# Build with all features so the released binary includes stack-rust (deps, about, etc.)
+all-features = true
 # Whether to install an updater program
 install-updater = false
 # Homebrew tap for formula publishing
