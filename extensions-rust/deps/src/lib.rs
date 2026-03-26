@@ -619,13 +619,26 @@ pub fn run_deps(
 }
 
 /// Returns true if the report contains any error- or warning-level issues.
+/// Duplicate crate bans (warnings) are excluded — they are informational.
 fn has_issues(report: &DepsReport) -> bool {
     let is_actionable = |s: &str| matches!(s, "error" | "warning");
 
-    report.deny.advisories.iter().any(|e| is_actionable(&e.severity))
-        || report.deny.licenses.iter().any(|e| is_actionable(&e.severity))
-        || report.deny.bans.iter().any(|e| is_actionable(&e.severity))
-        || report.deny.sources.iter().any(|e| is_actionable(&e.severity))
+    report
+        .deny
+        .advisories
+        .iter()
+        .any(|e| is_actionable(&e.severity))
+        || report
+            .deny
+            .licenses
+            .iter()
+            .any(|e| is_actionable(&e.severity))
+        || report.deny.bans.iter().any(|e| e.severity == "error")
+        || report
+            .deny
+            .sources
+            .iter()
+            .any(|e| is_actionable(&e.severity))
 }
 
 // ── Extension + DataProvider ────────────────────────────────────────────────
