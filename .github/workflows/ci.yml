@@ -11,26 +11,6 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          rustflags: ""
-      - run: cargo check --all-targets --all-features
-
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          components: clippy
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-
   fmt:
     name: Format
     runs-on: ubuntu-latest
@@ -40,7 +20,65 @@ jobs:
         with:
           components: rustfmt
           rustflags: ""
-      - run: cargo fmt -- --check
+      - name: Install ops
+        uses: jaxxstorm/action-install-gh-release@v1
+        with:
+          repo: rsvalerio/cargo-ops
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Format all code
+        run: ops fmt
+
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: Install ops
+        uses: jaxxstorm/action-install-gh-release@v1
+        with:
+          repo: rsvalerio/cargo-ops
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check all targets
+        run: ops check
+
+  clippy:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
+      - name: Install ops
+        uses: jaxxstorm/action-install-gh-release@v1
+        with:
+          repo: rsvalerio/cargo-ops
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Lint with clippy
+        run: ops clippy
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: Install ops
+        uses: jaxxstorm/action-install-gh-release@v1
+        with:
+          repo: rsvalerio/cargo-ops
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build all targets
+        run: ops build
 
   test:
     name: Test
@@ -50,16 +88,32 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
-      - run: cargo test --all-features
+      - name: Install ops
+        uses: jaxxstorm/action-install-gh-release@v1
+        with:
+          repo: rsvalerio/cargo-ops
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run all tests
+        run: ops test
 
-  audit:
-    name: Security Audit
+  deps:
+    name: Deps
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
-      - uses: rustsec/audit-check@v2
+      - name: Install cargo-edit and cargo-deny
+        uses: taiki-e/install-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tool: cargo-edit,cargo-deny
+      - name: Install ops
+        uses: jaxxstorm/action-install-gh-release@v1
+        with:
+          repo: rsvalerio/cargo-ops
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check dependencies, advisories, licenses, bans and sources in the workspace
+        run: ops deps
