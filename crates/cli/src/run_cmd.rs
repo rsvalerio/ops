@@ -8,6 +8,7 @@ use ops_core::config::CommandSpec;
 use ops_runner::command::is_sensitive_env_key;
 use ops_runner::command::StepResult;
 use ops_runner::display::ProgressDisplay;
+use ops_runner::terminal::EchoGuard;
 
 use crate::registry::{as_ext_refs, builtin_extensions, register_extension_commands};
 
@@ -47,6 +48,8 @@ fn run_commands(names: &[&str], dry_run: bool) -> anyhow::Result<ExitCode> {
     let mut display =
         ProgressDisplay::new(runner.output_config(), display_map, &runner.config().themes)?;
 
+    let _echo_guard = EchoGuard::disable_echo();
+
     let rt = tokio::runtime::Runtime::new()?;
     let results: Vec<StepResult> = rt.block_on(async {
         runner
@@ -54,6 +57,7 @@ fn run_commands(names: &[&str], dry_run: bool) -> anyhow::Result<ExitCode> {
             .await
     });
 
+    drop(_echo_guard);
     log_step_results(&results);
 
     let success = results.iter().all(|r| r.success);
@@ -205,6 +209,8 @@ fn run_command_cli(
     let mut display =
         ProgressDisplay::new(runner.output_config(), display_map, &runner.config().themes)?;
 
+    let _echo_guard = EchoGuard::disable_echo();
+
     let rt = tokio::runtime::Runtime::new()?;
     let results: Vec<StepResult> = rt.block_on(async {
         runner
@@ -212,6 +218,7 @@ fn run_command_cli(
             .await
     })?;
 
+    drop(_echo_guard);
     log_step_results(&results);
 
     let success = results.iter().all(|r| r.success);

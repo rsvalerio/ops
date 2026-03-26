@@ -2179,6 +2179,7 @@ dependencies = [
  "anyhow",
  "indexmap",
  "indicatif",
+ "libc",
  "ops-core",
  "ops-extension",
  "ops-runner",
