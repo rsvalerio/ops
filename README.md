@@ -83,6 +83,16 @@ Config is merged in order: built-in defaults → global config → local `.ops.t
 - **Extension architecture** — compile-time extensions; build your own ops
 - **Parallel execution** — run command groups concurrently with `parallel = true`
 
+### Backlog
+
+- Review codebase looking for bad design, high cognitive load and lack of rust idioms and best practices
+- Support conventional commit related commands: check git-cliff and cocogitto
+- Support release related commands: check cargo-dist and go-releaser
+- Make the about page "themed"
+- Make the dashboard page "themed"
+- Make the about page stack agnostic, with abstractions, each stack fill it up
+- Make the dashboard page stack agnostic, with abstractions, each stack fill it up
+
 ## Contributing
 
 This project uses [Conventional Commits](https://www.conventionalcommits.org/). Only `feat` and `fix` commits trigger a release.
