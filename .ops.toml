@@ -6,11 +6,6 @@ theme = "compact"
 program = "cargo"
 args = ["install", "--path", "crates/cli", "--force", "--all-features"]
 
-[commands.deps]
-program = "ops"
-args = ["deps"]
-help = "Check dependencies, advisories, licenses, bans and sources in the workspace"
-
 [commands.pre-commit]
 commands = ["deps", "verify"]
 fail_fast = true
