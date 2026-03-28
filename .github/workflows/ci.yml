@@ -23,9 +23,7 @@ jobs:
       - name: Install ops
         uses: jaxxstorm/action-install-gh-release@v1
         with:
-          repo: rsvalerio/cargo-ops
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          repo: rsvalerio/ops
       - name: Format all code
         run: ops fmt
 
@@ -40,9 +38,7 @@ jobs:
       - name: Install ops
         uses: jaxxstorm/action-install-gh-release@v1
         with:
-          repo: rsvalerio/cargo-ops
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          repo: rsvalerio/ops
       - name: Check all targets
         run: ops check
 
@@ -57,9 +53,7 @@ jobs:
       - name: Install ops
         uses: jaxxstorm/action-install-gh-release@v1
         with:
-          repo: rsvalerio/cargo-ops
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          repo: rsvalerio/ops
       - name: Lint with clippy
         run: ops clippy
 
@@ -74,9 +68,7 @@ jobs:
       - name: Install ops
         uses: jaxxstorm/action-install-gh-release@v1
         with:
-          repo: rsvalerio/cargo-ops
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          repo: rsvalerio/ops
       - name: Build all targets
         run: ops build
 
@@ -91,29 +83,25 @@ jobs:
       - name: Install ops
         uses: jaxxstorm/action-install-gh-release@v1
         with:
-          repo: rsvalerio/cargo-ops
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          repo: rsvalerio/ops
       - name: Run all tests
         run: ops test
 
-  # deps:
-  #   name: Deps
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions-rust-lang/setup-rust-toolchain@v1
-  #       with:
-  #         rustflags: ""
-  #     - name: Install cargo-edit and cargo-deny
-  #       uses: taiki-e/install-action@v2
-  #       with:
-  #         tool: cargo-edit,cargo-deny
-  #     - name: Install ops
-  #       uses: jaxxstorm/action-install-gh-release@v1
-  #       with:
-  #         repo: rsvalerio/cargo-ops
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #     - name: Check dependencies, advisories, licenses, bans and sources in the workspace
-  #       run: ops deps
+  deps:
+    name: Deps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: Install cargo-edit and cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-edit,cargo-deny
+      - name: Install ops
+        uses: jaxxstorm/action-install-gh-release@v1
+        with:
+          repo: rsvalerio/ops
+      - name: Check dependencies, advisories, licenses, bans and sources in the workspace
+        run: ops deps
