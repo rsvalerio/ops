@@ -16,7 +16,7 @@ install-path = "CARGO_HOME"
 # Where to host releases
 hosting = "github"
 # Use .tar.gz instead of .tar.xz for broader compatibility
-compression = "gzip"
+unix-archive = ".tar.gz"
 # Build with all features so the released binary includes stack-rust (deps, about, etc.)
 all-features = true
 # Whether to install an updater program
