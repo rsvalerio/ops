@@ -2,6 +2,19 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.9.0](https://github.com/rsvalerio/ops/compare/455fe9f260512355eed3967cfe14a0e06b65dad1..v0.9.0) - 2026-04-05
+#### 🚀 Features
+- (**cli**) add verbose flag to show full stderr output on failure - ([ecf91df](https://github.com/rsvalerio/ops/commit/ecf91dff4f01192a07e6a31e40ced83ffd595278)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**deps**) update duplicate crates summary format and adjust test assertions - ([12a1a1e](https://github.com/rsvalerio/ops/commit/12a1a1eb669d5b06bf2bb739f21631fbfcffb56e)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**dist**) use unix-archive instead of deprecated compression key - ([89a047d](https://github.com/rsvalerio/ops/commit/89a047d35f705f24b459cc90c6a58ddb34b59c0c)) - [@rsvalerio](https://github.com/rsvalerio)
+- make `ops des` command run before commiting - ([71c3ee6](https://github.com/rsvalerio/ops/commit/71c3ee64dedeb5b4c671167acc21ba77c8a6d9a2)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔄 CI/CD
+- update release repo to rsvalerio/ops and re-enable deps job - ([455fe9f](https://github.com/rsvalerio/ops/commit/455fe9f260512355eed3967cfe14a0e06b65dad1)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.8.1](https://github.com/rsvalerio/ops/compare/8729f7b855bd617f9dc0d6473d7b4058a544514a..v0.8.1) - 2026-03-26
 #### 🐛 Bug Fixes
 - (**deps**) exclude duplicate crate bans from actionable issue checks - ([f4175bc](https://github.com/rsvalerio/ops/commit/f4175bc88a2dcadcfcc17961a9e0b8703b44b88e)) - [@rsvalerio](https://github.com/rsvalerio)
