@@ -73,6 +73,22 @@ fn run() -> anyhow::Result<ExitCode> {
         ops_core::stack::Stack::resolve(early_config.stack.as_deref(), &cwd)
     };
 
+    // If the user asked for top-level help (`ops -h` / `ops --help`), show
+    // help with dynamic commands included and exit.  We intercept before clap
+    // parsing because dynamic subcommands cannot be registered at parse time
+    // (they would shadow the `External` catch-all).
+    if is_toplevel_help(&effective_args) {
+        let mut cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
+        cmd = inject_dynamic_commands(cmd, &early_config, detected_stack);
+        let long = effective_args.iter().any(|a| a == "--help");
+        if long {
+            cmd.print_long_help()?;
+        } else {
+            cmd.print_help()?;
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
     let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
     let mut matches = cmd.get_matches_from(effective_args);
     let cli = Cli::from_arg_matches_mut(&mut matches)
@@ -136,13 +152,30 @@ fn run() -> anyhow::Result<ExitCode> {
             return run_cmd::run_external_command(&args, cli.dry_run, cli.verbose)
         }
         None => {
-            let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
-            let mut cmd = inject_dynamic_commands(cmd, &early_config, detected_stack);
+            let mut cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
+            cmd = inject_dynamic_commands(cmd, &early_config, detected_stack);
             cmd.print_help()?;
         }
     }
 
     Ok(ExitCode::SUCCESS)
+}
+
+/// Returns true when the effective args request top-level help (no subcommand).
+/// E.g. `ops -h`, `ops --help`, `ops -d --help`, but NOT `ops build -h`.
+fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
+    // Skip argv[0].  If any non-flag argument appears before -h/--help, the
+    // user is asking for subcommand help, not top-level help.
+    let mut saw_help = false;
+    for a in args.iter().skip(1) {
+        if a == "-h" || a == "--help" {
+            saw_help = true;
+        } else if !a.to_string_lossy().starts_with('-') {
+            // A positional (subcommand) appeared — not top-level help.
+            return false;
+        }
+    }
+    saw_help
 }
 
 /// Inject dynamic commands (from config and stack defaults) into the clap Command for help display.
