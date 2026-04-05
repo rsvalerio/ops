@@ -45,9 +45,6 @@ pub fn has_staged_files() -> anyhow::Result<bool> {
     Ok(!output.stdout.is_empty())
 }
 
-/// Default composite command added to `.ops.toml` when none exists.
-const DEFAULT_COMMANDS: &[&str] = &["verify"];
-
 /// Find the `.git` directory by walking up from the given path.
 pub fn find_git_dir(from: &Path) -> Option<PathBuf> {
     let mut dir = from.to_path_buf();
@@ -106,8 +103,18 @@ pub fn install_hook(git_dir: &Path, w: &mut dyn Write) -> anyhow::Result<PathBuf
 /// Ensure a `[commands.pre-commit]` entry exists in `.ops.toml`.
 ///
 /// If the config already has a `pre-commit` command, does nothing.
-/// Otherwise, adds a default composite command that runs `verify`.
-pub fn ensure_config_command(config_dir: &Path, w: &mut dyn Write) -> anyhow::Result<()> {
+/// Otherwise, adds a composite command that runs the given `selected_commands`.
+/// If `selected_commands` is empty, skips writing the entry.
+pub fn ensure_config_command(
+    config_dir: &Path,
+    selected_commands: &[String],
+    w: &mut dyn Write,
+) -> anyhow::Result<()> {
+    if selected_commands.is_empty() {
+        writeln!(w, "No commands selected; skipping .ops.toml update")?;
+        return Ok(());
+    }
+
     let config_path = config_dir.join(".ops.toml");
 
     let content = if config_path.exists() {
@@ -140,8 +147,8 @@ pub fn ensure_config_command(config_dir: &Path, w: &mut dyn Write) -> anyhow::Re
     let mut cmd = toml_edit::Table::new();
 
     let mut arr = toml_edit::Array::new();
-    for name in DEFAULT_COMMANDS {
-        arr.push(*name);
+    for name in selected_commands {
+        arr.push(name.as_str());
     }
     cmd.insert("commands", toml_edit::value(arr));
     cmd.insert("fail_fast", toml_edit::value(true));
@@ -153,7 +160,7 @@ pub fn ensure_config_command(config_dir: &Path, w: &mut dyn Write) -> anyhow::Re
     commands.insert("pre-commit", toml_edit::Item::Table(cmd));
 
     std::fs::write(&config_path, doc.to_string()).context("failed to write .ops.toml")?;
-    writeln!(w, "Added default 'pre-commit' command to .ops.toml")?;
+    writeln!(w, "Added 'pre-commit' command to .ops.toml")?;
 
     Ok(())
 }
@@ -296,8 +303,9 @@ mod tests {
     fn ensure_config_creates_command_in_empty_file() {
         let dir = tempfile::tempdir().expect("tempdir");
 
+        let selected = vec!["verify".to_string()];
         let mut buf = Vec::new();
-        ensure_config_command(dir.path(), &mut buf).expect("ensure_config_command");
+        ensure_config_command(dir.path(), &selected, &mut buf).expect("ensure_config_command");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("[commands.pre-commit]"));
@@ -305,7 +313,7 @@ mod tests {
         assert!(content.contains("fail_fast"));
 
         let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("Added default"));
+        assert!(output.contains("Added"));
     }
 
     #[test]
@@ -317,8 +325,9 @@ mod tests {
         )
         .unwrap();
 
+        let selected = vec!["verify".to_string()];
         let mut buf = Vec::new();
-        ensure_config_command(dir.path(), &mut buf).expect("ensure_config_command");
+        ensure_config_command(dir.path(), &selected, &mut buf).expect("ensure_config_command");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains(r#"commands = ["test"]"#));
@@ -336,13 +345,27 @@ mod tests {
         )
         .unwrap();
 
+        let selected = vec!["build".to_string(), "test".to_string()];
         let mut buf = Vec::new();
-        ensure_config_command(dir.path(), &mut buf).expect("ensure_config_command");
+        ensure_config_command(dir.path(), &selected, &mut buf).expect("ensure_config_command");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("theme = \"compact\""));
         assert!(content.contains("[commands.build]"));
         assert!(content.contains("[commands.pre-commit]"));
+    }
+
+    #[test]
+    fn ensure_config_empty_selection_skips() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        let mut buf = Vec::new();
+        ensure_config_command(dir.path(), &[], &mut buf).expect("ensure_config_command");
+
+        assert!(!dir.path().join(".ops.toml").exists());
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("No commands selected"));
     }
 
     // -- Extension metadata --
