@@ -16,6 +16,8 @@ stack-go = []
 stack-python = []
 stack-terraform = []
 stack-ansible = []
+stack-java-maven = []
+stack-java-gradle = []
 tokei = ["dep:ops-tokei", "duckdb"]
 coverage = ["dep:ops-test-coverage", "duckdb"]
 
