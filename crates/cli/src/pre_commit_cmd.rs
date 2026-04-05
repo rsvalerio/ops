@@ -187,7 +187,9 @@ mod tests {
 
     #[test]
     fn gather_excludes_pre_commit() {
+        let dir = tempfile::tempdir().expect("tempdir");
         let mut config = Config::default();
+        config.extensions.enabled = Some(vec![]);
         config.commands.insert(
             "pre-commit".to_string(),
             CommandSpec::Composite(ops_core::config::CompositeCommandSpec {
@@ -206,7 +208,7 @@ mod tests {
             }),
         );
 
-        let options = gather_available_commands(&config, None, std::path::Path::new("."));
+        let options = gather_available_commands(&config, None, dir.path());
         assert_eq!(options.len(), 1);
         assert_eq!(options[0].name, "build");
     }
@@ -222,7 +224,8 @@ mod tests {
             }),
         );
 
-        let options = gather_available_commands(&config, Some(Stack::Rust), std::path::Path::new("."));
+        let options =
+            gather_available_commands(&config, Some(Stack::Rust), std::path::Path::new("."));
         let names: Vec<&str> = options.iter().map(|o| o.name.as_str()).collect();
 
         // Config command present
@@ -245,7 +248,8 @@ mod tests {
             }),
         );
 
-        let options = gather_available_commands(&config, Some(Stack::Rust), std::path::Path::new("."));
+        let options =
+            gather_available_commands(&config, Some(Stack::Rust), std::path::Path::new("."));
         let build = options.iter().find(|o| o.name == "build").unwrap();
         assert!(build.description.contains("Custom build"));
     }
