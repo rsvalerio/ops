@@ -29,6 +29,7 @@ fn default_ops_file_exists_and_deserializes() {
     // columns defaults to 90% of terminal width (or 80 if not a TTY)
     assert!(c.output.columns > 0);
     assert!(c.output.show_error_detail);
+    assert_eq!(c.output.stderr_tail_lines, 5);
     // Commands are provided by stack defaults (from .default.<stack>.ops.toml), not the base file.
     assert!(
         c.commands.is_empty(),
@@ -167,6 +168,7 @@ fn merge_config_overlay_overrides_output() {
             theme: Some("compact".into()),
             columns: Some(120),
             show_error_detail: Some(false),
+            stderr_tail_lines: Some(20),
         }),
         ..Default::default()
     };
@@ -174,6 +176,7 @@ fn merge_config_overlay_overrides_output() {
     assert_eq!(base.output.theme, "compact");
     assert_eq!(base.output.columns, 120);
     assert!(!base.output.show_error_detail);
+    assert_eq!(base.output.stderr_tail_lines, 20);
 }
 
 #[test]
@@ -184,6 +187,7 @@ fn merge_config_partial_overlay_preserves_base() {
             theme: None,
             columns: Some(200),
             show_error_detail: None,
+            stderr_tail_lines: None,
         }),
         ..Default::default()
     };
@@ -193,6 +197,10 @@ fn merge_config_partial_overlay_preserves_base() {
     assert!(
         base.output.show_error_detail,
         "show_error_detail preserved from base"
+    );
+    assert_eq!(
+        base.output.stderr_tail_lines, 5,
+        "stderr_tail_lines preserved from base"
     );
     assert!(
         base.commands.contains_key("build"),
@@ -417,6 +425,7 @@ mod proptest_tests {
                     theme: "classic".into(),
                     columns: base_columns,
                     show_error_detail: true,
+                    stderr_tail_lines: 5,
                 },
                 ..Default::default()
             };
@@ -425,6 +434,7 @@ mod proptest_tests {
                     theme: None,
                     columns: Some(overlay_columns),
                     show_error_detail: None,
+                    stderr_tail_lines: None,
                 }),
                 ..Default::default()
             };

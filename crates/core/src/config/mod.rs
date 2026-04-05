@@ -111,6 +111,7 @@ pub struct OutputConfigOverlay {
     pub theme: Option<String>,
     pub columns: Option<u16>,
     pub show_error_detail: Option<bool>,
+    pub stderr_tail_lines: Option<usize>,
 }
 
 /// Output and theme settings.
@@ -131,6 +132,13 @@ pub struct OutputConfig {
     /// below the failed step line. When false, only the step line with failure icon is shown.
     #[serde(default = "serde_defaults::default_true")]
     pub show_error_detail: bool,
+    /// Maximum number of stderr tail lines to show in error details.
+    /// Default: 5. Use `--verbose` to show all lines.
+    #[serde(
+        default = "default_stderr_tail_lines",
+        skip_serializing_if = "is_default_stderr_tail_lines"
+    )]
+    pub stderr_tail_lines: usize,
 }
 
 impl Default for OutputConfig {
@@ -139,6 +147,7 @@ impl Default for OutputConfig {
             theme: default_theme(),
             columns: default_columns(),
             show_error_detail: true,
+            stderr_tail_lines: default_stderr_tail_lines(),
         }
     }
 }
@@ -155,6 +164,14 @@ fn default_columns() -> u16 {
 
 fn is_default_columns(v: &u16) -> bool {
     *v == default_columns()
+}
+
+fn default_stderr_tail_lines() -> usize {
+    5
+}
+
+fn is_default_stderr_tail_lines(v: &usize) -> bool {
+    *v == default_stderr_tail_lines()
 }
 
 /// Command definition: either a single exec or a composite of multiple commands.
@@ -338,6 +355,7 @@ fn merge_output(base: &mut OutputConfig, overlay: &OutputConfigOverlay) {
     merge_field(&mut base.theme, overlay.theme.clone());
     merge_field(&mut base.columns, overlay.columns);
     merge_field(&mut base.show_error_detail, overlay.show_error_detail);
+    merge_field(&mut base.stderr_tail_lines, overlay.stderr_tail_lines);
 }
 
 /// Merge overlay into base — only explicitly-set values overwrite.

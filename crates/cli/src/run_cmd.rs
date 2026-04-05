@@ -12,19 +12,26 @@ use ops_runner::terminal::EchoGuard;
 
 use crate::registry::{as_ext_refs, builtin_extensions, register_extension_commands};
 
-pub(crate) fn run_external_command(args: &[OsString], dry_run: bool) -> anyhow::Result<ExitCode> {
+pub(crate) fn run_external_command(
+    args: &[OsString],
+    dry_run: bool,
+    verbose: bool,
+) -> anyhow::Result<ExitCode> {
     let names: Vec<&str> = args.iter().filter_map(|s| s.to_str()).collect();
     if names.is_empty() {
         anyhow::bail!("missing command name");
     }
     if names.len() == 1 {
-        return run_command(names[0], dry_run);
+        return run_command(names[0], dry_run, verbose);
     }
-    run_commands(&names, dry_run)
+    run_commands(&names, dry_run, verbose)
 }
 
-fn run_commands(names: &[&str], dry_run: bool) -> anyhow::Result<ExitCode> {
-    let (config, cwd) = crate::load_config_and_cwd()?;
+fn run_commands(names: &[&str], dry_run: bool, verbose: bool) -> anyhow::Result<ExitCode> {
+    let (mut config, cwd) = crate::load_config_and_cwd()?;
+    if verbose {
+        config.output.stderr_tail_lines = usize::MAX;
+    }
     let mut runner = ops_runner::command::CommandRunner::new(config, cwd);
     setup_extensions(&mut runner)?;
 
@@ -114,8 +121,11 @@ fn log_step_results(results: &[StepResult]) {
 }
 
 #[tracing::instrument(skip_all, fields(command = %name))]
-fn run_command(name: &str, dry_run: bool) -> anyhow::Result<ExitCode> {
-    let (config, cwd) = crate::load_config_and_cwd()?;
+fn run_command(name: &str, dry_run: bool, verbose: bool) -> anyhow::Result<ExitCode> {
+    let (mut config, cwd) = crate::load_config_and_cwd()?;
+    if verbose {
+        config.output.stderr_tail_lines = usize::MAX;
+    }
     let mut runner = ops_runner::command::CommandRunner::new(config, cwd);
     setup_extensions(&mut runner)?;
 
@@ -342,7 +352,7 @@ args = ["test"]
 "#,
             );
 
-            let result = run_command("nonexistent", false);
+            let result = run_command("nonexistent", false, false);
             assert!(
                 result.is_err(),
                 "run_command should return error for unknown command"
@@ -359,7 +369,7 @@ args = ["test"]
 "#,
             );
 
-            let result = run_command("echo_test", false);
+            let result = run_command("echo_test", false, false);
             assert!(result.is_ok(), "run_command should not error");
             let exit_code = result.unwrap();
             assert_eq!(
@@ -383,7 +393,7 @@ args = []"#
                 fail_cmd
             ));
 
-            let result = run_command("fail_cmd", false);
+            let result = run_command("fail_cmd", false, false);
             assert!(result.is_ok(), "run_command should not error");
             let exit_code = result.unwrap();
             assert_eq!(
@@ -405,7 +415,7 @@ commands = ["a"]
 "#,
             );
 
-            let result = run_command("a", false);
+            let result = run_command("a", false, false);
             assert!(result.is_err(), "run_command should return error for cycle");
         }
     }

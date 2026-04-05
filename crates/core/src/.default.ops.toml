@@ -6,6 +6,7 @@ theme = "classic"
 # columns auto-detected from terminal width (90%); override with a fixed value:
 # columns = 120
 show_error_detail = true
+# stderr_tail_lines = 5  # number of stderr lines shown on failure; use --verbose for all
 
 # Built-in themes (classic and compact). Override by redefining or add new themes.
 [themes.classic]

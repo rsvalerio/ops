@@ -19,8 +19,9 @@ use std::time::Duration;
 /// 80ms = ~12.5 FPS, which appears smooth without excessive wakeups.
 const SPINNER_TICK_INTERVAL_MS: u64 = 80;
 
-/// Number of stderr tail lines to show in error details.
-const STDERR_TAIL_LINES: usize = 5;
+/// Default number of stderr tail lines to show in error details.
+#[cfg(test)]
+const DEFAULT_STDERR_TAIL_LINES: usize = 5;
 
 /// Write to stderr, logging at debug level on failure.
 ///
@@ -44,6 +45,7 @@ pub struct RenderConfig {
     pub columns: u16,
     pub is_tty: bool,
     pub show_error_detail: bool,
+    pub stderr_tail_lines: usize,
 }
 
 /// Renders error detail blocks for failed steps.
@@ -68,8 +70,8 @@ impl<'a> ErrorDetailRenderer<'a> {
         self.theme.render_error_detail(&detail, self.columns)
     }
 
-    pub fn extract_stderr_tail(stderr_lines: &[String]) -> Vec<String> {
-        tail_lines(stderr_lines, STDERR_TAIL_LINES).to_vec()
+    pub fn extract_stderr_tail(stderr_lines: &[String], max_lines: usize) -> Vec<String> {
+        tail_lines(stderr_lines, max_lines).to_vec()
     }
 }
 
@@ -172,6 +174,7 @@ impl ProgressDisplay {
                 columns: output.columns,
                 is_tty,
                 show_error_detail: output.show_error_detail,
+                stderr_tail_lines: output.stderr_tail_lines,
             },
             multi,
             bars: Vec::new(),
@@ -441,6 +444,7 @@ impl ProgressDisplay {
                 .get(id)
                 .map(|v| v.as_slice())
                 .unwrap_or(&[]),
+            self.render.stderr_tail_lines,
         );
         let renderer = ErrorDetailRenderer::new(self.render.theme.as_ref(), self.render.columns);
         let detail_lines = renderer.render(message, &stderr_tail);
@@ -716,11 +720,13 @@ mod tests {
                 columns: 100,
                 show_error_detail: false,
                 theme: "compact".into(),
+                stderr_tail_lines: 10,
             },
             &[],
         );
         assert_eq!(display.render.columns, 100);
         assert!(!display.render.show_error_detail);
+        assert_eq!(display.render.stderr_tail_lines, 10);
     }
 
     #[test]
@@ -754,8 +760,8 @@ mod tests {
         #[test]
         fn extract_stderr_tail_extracts_correct_count() {
             let lines: Vec<String> = (1..=10).map(|i| format!("line {}", i)).collect();
-            let tail = ErrorDetailRenderer::extract_stderr_tail(&lines);
-            assert_eq!(tail.len(), STDERR_TAIL_LINES);
+            let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, DEFAULT_STDERR_TAIL_LINES);
+            assert_eq!(tail.len(), DEFAULT_STDERR_TAIL_LINES);
             assert_eq!(tail[0], "line 6");
             assert_eq!(tail[4], "line 10");
         }
@@ -763,7 +769,7 @@ mod tests {
         #[test]
         fn extract_stderr_tail_handles_fewer_lines() {
             let lines: Vec<String> = vec!["a".into(), "b".into()];
-            let tail = ErrorDetailRenderer::extract_stderr_tail(&lines);
+            let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, DEFAULT_STDERR_TAIL_LINES);
             assert_eq!(tail.len(), 2);
             assert_eq!(tail[0], "a");
             assert_eq!(tail[1], "b");
@@ -772,8 +778,15 @@ mod tests {
         #[test]
         fn extract_stderr_tail_handles_empty() {
             let lines: Vec<String> = vec![];
-            let tail = ErrorDetailRenderer::extract_stderr_tail(&lines);
+            let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, DEFAULT_STDERR_TAIL_LINES);
             assert!(tail.is_empty());
+        }
+
+        #[test]
+        fn extract_stderr_tail_unlimited_returns_all() {
+            let lines: Vec<String> = (1..=100).map(|i| format!("line {}", i)).collect();
+            let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, usize::MAX);
+            assert_eq!(tail.len(), 100);
         }
 
         #[test]

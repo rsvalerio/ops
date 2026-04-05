@@ -133,7 +133,7 @@ fn run() -> anyhow::Result<ExitCode> {
             }
         }
         Some(CoreSubcommand::External(args)) => {
-            return run_cmd::run_external_command(&args, cli.dry_run)
+            return run_cmd::run_external_command(&args, cli.dry_run, cli.verbose)
         }
         None => {
             let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
@@ -250,7 +250,7 @@ fn run_pre_commit(action: Option<PreCommitAction>, all: bool) -> anyhow::Result<
             }
             // Run the configured `pre-commit` command from .ops.toml
             let args = vec![std::ffi::OsString::from("pre-commit")];
-            run_cmd::run_external_command(&args, false)
+            run_cmd::run_external_command(&args, false, false)
         }
     }
 }

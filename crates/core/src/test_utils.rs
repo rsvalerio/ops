@@ -164,6 +164,11 @@ impl TestConfigBuilder {
         self
     }
 
+    pub fn stderr_tail_lines(mut self, n: usize) -> Self {
+        self.output.stderr_tail_lines = n;
+        self
+    }
+
     pub fn build(self) -> crate::config::Config {
         crate::config::Config {
             output: self.output,

@@ -24,6 +24,10 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub dry_run: bool,
 
+    /// Show full stderr output on failure (overrides stderr_tail_lines config).
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+
     #[command(subcommand)]
     pub subcommand: Option<Subcommand>,
 }
