@@ -17,7 +17,11 @@ impl std::fmt::Display for CommandOption {
     }
 }
 
-fn gather_available_commands(config: &Config, stack: Option<Stack>) -> Vec<CommandOption> {
+fn gather_available_commands(
+    config: &Config,
+    stack: Option<Stack>,
+    cwd: &std::path::Path,
+) -> Vec<CommandOption> {
     let mut seen = std::collections::HashSet::new();
     let mut options = Vec::new();
 
@@ -47,6 +51,23 @@ fn gather_available_commands(config: &Config, stack: Option<Stack>) -> Vec<Comma
         }
     }
 
+    // Extension commands (lowest priority, deduped)
+    if let Ok(exts) = crate::registry::builtin_extensions(config, cwd) {
+        let ext_refs = crate::registry::as_ext_refs(&exts);
+        let mut cmd_registry = ops_extension::CommandRegistry::new();
+        crate::registry::register_extension_commands(&ext_refs, &mut cmd_registry);
+        for (name, spec) in &cmd_registry {
+            if name == "pre-commit" || seen.contains(name) {
+                continue;
+            }
+            seen.insert(name.clone());
+            options.push(CommandOption {
+                name: name.clone(),
+                description: command_description(spec),
+            });
+        }
+    }
+
     options
 }
 
@@ -68,7 +89,7 @@ pub fn run_pre_commit_install() -> anyhow::Result<()> {
     let config = ops_core::config::load_config().unwrap_or_default();
     let stack = Stack::resolve(config.stack.as_deref(), &cwd);
 
-    let options = gather_available_commands(&config, stack);
+    let options = gather_available_commands(&config, stack, &cwd);
 
     let selected = if options.is_empty() {
         writeln!(
@@ -185,7 +206,7 @@ mod tests {
             }),
         );
 
-        let options = gather_available_commands(&config, None);
+        let options = gather_available_commands(&config, None, std::path::Path::new("."));
         assert_eq!(options.len(), 1);
         assert_eq!(options[0].name, "build");
     }
@@ -201,7 +222,7 @@ mod tests {
             }),
         );
 
-        let options = gather_available_commands(&config, Some(Stack::Rust));
+        let options = gather_available_commands(&config, Some(Stack::Rust), std::path::Path::new("."));
         let names: Vec<&str> = options.iter().map(|o| o.name.as_str()).collect();
 
         // Config command present
@@ -224,7 +245,7 @@ mod tests {
             }),
         );
 
-        let options = gather_available_commands(&config, Some(Stack::Rust));
+        let options = gather_available_commands(&config, Some(Stack::Rust), std::path::Path::new("."));
         let build = options.iter().find(|o| o.name == "build").unwrap();
         assert!(build.description.contains("Custom build"));
     }
