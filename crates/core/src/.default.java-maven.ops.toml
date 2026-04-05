@@ -1,0 +1,27 @@
+# Default commands for Java stack (Maven).
+
+[commands.compile]
+program = "./mvnw"
+args = ["compile"]
+help = "Compile sources"
+
+[commands.build]
+program = "./mvnw"
+args = ["package", "-DskipTests"]
+help = "Build the project"
+
+[commands.test]
+program = "./mvnw"
+args = ["test"]
+help = "Run all tests"
+
+[commands.clean]
+program = "./mvnw"
+args = ["clean"]
+help = "Clean build artifacts"
+
+[commands.verify]
+commands = ["compile", "test"]
+parallel = false
+fail_fast = true
+help = "Run compile, test"

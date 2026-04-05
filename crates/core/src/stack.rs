@@ -19,6 +19,10 @@ pub enum Stack {
     Python,
     Terraform,
     Ansible,
+    #[strum(serialize = "java-maven")]
+    JavaMaven,
+    #[strum(serialize = "java-gradle")]
+    JavaGradle,
     Generic,
 }
 
@@ -35,6 +39,8 @@ impl Stack {
             Stack::Python => &["pyproject.toml", "setup.py", "requirements.txt"],
             Stack::Terraform => &["main.tf", "terraform.tf"],
             Stack::Ansible => &["site.yml", "playbook.yml", "ansible.cfg"],
+            Stack::JavaMaven => &["pom.xml"],
+            Stack::JavaGradle => &["build.gradle", "build.gradle.kts"],
             Stack::Generic => &[],
         }
     }
@@ -57,6 +63,8 @@ impl Stack {
             Stack::Python,
             Stack::Terraform,
             Stack::Ansible,
+            Stack::JavaGradle,
+            Stack::JavaMaven,
         ];
 
         let mut current = start.to_path_buf();
@@ -100,6 +108,14 @@ impl Stack {
                 env!("CARGO_MANIFEST_DIR"),
                 "/src/.default.ansible.ops.toml"
             ))),
+            Stack::JavaMaven => Some(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/.default.java-maven.ops.toml"
+            ))),
+            Stack::JavaGradle => Some(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/.default.java-gradle.ops.toml"
+            ))),
             Stack::Generic => None,
         }
     }
@@ -128,6 +144,8 @@ mod tests {
             Stack::Python,
             Stack::Terraform,
             Stack::Ansible,
+            Stack::JavaMaven,
+            Stack::JavaGradle,
             Stack::Generic,
         ] {
             assert_eq!(stack.as_str().parse::<Stack>(), Ok(stack));
@@ -250,6 +268,35 @@ mod tests {
     }
 
     #[test]
+    fn detect_finds_pom_xml() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("pom.xml"), "<project/>").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::JavaMaven));
+    }
+
+    #[test]
+    fn detect_finds_build_gradle() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("build.gradle"), "").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::JavaGradle));
+    }
+
+    #[test]
+    fn detect_finds_build_gradle_kts() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("build.gradle.kts"), "").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::JavaGradle));
+    }
+
+    #[test]
+    fn gradle_prioritized_over_maven() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("build.gradle"), "").expect("write");
+        std::fs::write(dir.path().join("pom.xml"), "<project/>").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::JavaGradle));
+    }
+
+    #[test]
     fn each_stack_default_toml_parses_and_includes_verify() {
         for stack in [
             Stack::Rust,
@@ -258,6 +305,8 @@ mod tests {
             Stack::Python,
             Stack::Terraform,
             Stack::Ansible,
+            Stack::JavaMaven,
+            Stack::JavaGradle,
         ] {
             let cmds = stack.default_commands();
             assert!(

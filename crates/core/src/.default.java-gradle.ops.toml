@@ -1,0 +1,27 @@
+# Default commands for Java stack (Gradle).
+
+[commands.compile]
+program = "./gradlew"
+args = ["compileJava"]
+help = "Compile sources"
+
+[commands.build]
+program = "./gradlew"
+args = ["build", "-x", "test"]
+help = "Build the project"
+
+[commands.test]
+program = "./gradlew"
+args = ["test"]
+help = "Run all tests"
+
+[commands.clean]
+program = "./gradlew"
+args = ["clean"]
+help = "Clean build artifacts"
+
+[commands.verify]
+commands = ["compile", "test"]
+parallel = false
+fail_fast = true
+help = "Run compile, test"
