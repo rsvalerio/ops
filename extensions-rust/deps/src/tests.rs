@@ -272,14 +272,14 @@ fn format_report_duplicate_crates_shows_totals_only() {
         },
     };
     let output = format_report(&report);
-    assert!(output.contains("Duplicate Crates (2):"));
+    assert!(output.contains("Duplicate Crates:"));
     // Should NOT list individual crate names
     assert!(!output.contains("hashbrown"));
     assert!(!output.contains("syn"));
-    // Should show severity totals
+    // Should show severity totals on same line
     assert!(output.contains("1 error"));
     assert!(output.contains("1 warning"));
-    assert!(output.contains("usually harmless"));
+    assert!(output.contains("transitive, usually harmless"));
 }
 
 // -- Schema tests --

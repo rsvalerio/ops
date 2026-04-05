@@ -539,17 +539,11 @@ fn format_bans_summary(out: &mut String, bans: &[BanEntry]) {
         }
 
         out.push_str(&format!(
-            "{P}{} ({}): {}\n\n",
+            "{P}{}: {} {}\n\n",
             title,
-            bans.len(),
-            parts.join(", ")
+            parts.join(", "),
+            dim("(transitive, usually harmless)")
         ));
-
-        let advice = "Duplicate versions are common in transitive dependencies and usually harmless.\nThey add binary size but rarely cause issues. Run `cargo update` to try to reduce them.";
-        for line in advice.lines() {
-            out.push_str(&format!("{P}    {} {}\n", dim("\u{1f4a1}"), dim(line)));
-        }
-        out.push('\n');
     }
 }
 
