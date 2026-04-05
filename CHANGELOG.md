@@ -2,6 +2,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.10.0](https://github.com/rsvalerio/ops/compare/ef7bd75040bc49127d6091c90646bd3936f2a989..v0.10.0) - 2026-04-05
+#### 🚀 Features
+- (**cli**) add stack-java-maven and stack-java-gradle feature flags - ([b0bff7c](https://github.com/rsvalerio/ops/commit/b0bff7c6147811367996011182af85473a66dd49)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) add java-maven and java-gradle stack detection and defaults - ([ef7bd75](https://github.com/rsvalerio/ops/commit/ef7bd75040bc49127d6091c90646bd3936f2a989)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**pre-commit**) interactive command selection during hook install - ([05a2c2c](https://github.com/rsvalerio/ops/commit/05a2c2ca0a20a353caf1775486f81eef850fd34e)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**cli**) show dynamic commands in top-level help output - ([a866521](https://github.com/rsvalerio/ops/commit/a8665215e014d318e2574408b7521357ab63ca39)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**pre-commit**) use temporary directory for command gathering tests - ([0910d5d](https://github.com/rsvalerio/ops/commit/0910d5d8cde52d93ca08460d680211ad981ea460)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.9.0](https://github.com/rsvalerio/ops/compare/455fe9f260512355eed3967cfe14a0e06b65dad1..v0.9.0) - 2026-04-05
 #### 🚀 Features
 - (**cli**) add verbose flag to show full stderr output on failure - ([ecf91df](https://github.com/rsvalerio/ops/commit/ecf91dff4f01192a07e6a31e40ced83ffd595278)) - [@rsvalerio](https://github.com/rsvalerio)
