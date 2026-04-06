@@ -1,101 +1,48 @@
-//! About command: displays workspace/project identity card.
-//! Dashboard command: comprehensive project health page.
+//! Rust stack implementation for the about system.
+//!
+//! Provides:
+//! - `project_identity` data provider (Rust-specific project identity)
+//! - `dashboard` command (comprehensive project health page)
 //!
 //! Split into submodules by responsibility (CQ-001):
+//! - `identity`: Rust project_identity data provider
 //! - `text_util`: formatting, padding, truncation, wrapping
 //! - `cards`: crate card rendering and grid layout
 //! - `query`: data fetching from DuckDB/providers
-//! - `format`: section formatters shared by about and dashboard
+//! - `format`: section formatters for dashboard
 //! - `dashboard`: dashboard orchestration and new section formatters
 
 pub(crate) mod cards;
 pub mod dashboard;
 pub(crate) mod format;
+pub(crate) mod identity;
 pub(crate) mod query;
 pub(crate) mod text_util;
 
-use ops_cargo_toml::CargoToml;
-use ops_extension::Context;
-
-use format::AboutContext;
-use query::{query_loc_data, resolve_member_globs};
-
 pub use dashboard::{run_dashboard, DashboardOptions};
 
-/// Options for the about command display.
-pub struct AboutOptions {
-    /// Force re-collection of data (ignores cached results).
-    pub refresh: bool,
-}
+pub const NAME: &str = "about-rust";
+pub const DESCRIPTION: &str = "Rust project identity and dashboard";
+pub const SHORTNAME: &str = "about-rs";
+pub const DATA_PROVIDER_NAME: &str = "project_identity";
 
-/// Run the about command, displaying a quick project identity card.
-///
-/// Uses `Config::default()` intentionally — the about command only needs
-/// extension data providers (cargo_toml), not user-configured commands or themes.
-///
-/// Accepts a `DataRegistry` from the caller (the CLI crate builds the registry).
-pub fn run_about(
-    data_registry: &ops_extension::DataRegistry,
-    opts: &AboutOptions,
-) -> anyhow::Result<()> {
-    let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(ops_core::config::Config::default());
-    let mut ctx = Context::new(config, cwd.clone());
-    if opts.refresh {
-        ctx.refresh = true;
-    }
-
-    let value = ctx.get_or_provide("cargo_toml", data_registry)?;
-    let mut manifest: CargoToml = serde_json::from_value((*value).clone())?;
-
-    // Expand workspace member globs (e.g. "crates/*") to actual directory paths
-    if let Some(ws) = &mut manifest.workspace {
-        ws.members = resolve_member_globs(&ws.members, &cwd);
-    }
-
-    let loc_data = query_loc_data(&manifest, &mut ctx, data_registry);
-
-    let output = format::format_about(&AboutContext {
-        manifest: &manifest,
-        cwd: &cwd,
-        loc_data: loc_data.as_ref(),
-    });
-
-    println!("{}", output);
-
-    Ok(())
-}
-
-pub const NAME: &str = "about";
-pub const DESCRIPTION: &str = "Cargo workspace about command and data provider";
-pub const SHORTNAME: &str = "about";
-pub const DATA_PROVIDER_NAME: &str = "about";
-
-pub struct AboutExtension;
+pub struct AboutRustExtension;
 
 ops_extension::impl_extension! {
-    AboutExtension,
+    AboutRustExtension,
     name: NAME,
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: ops_extension::ExtensionType::DATASOURCE | ops_extension::ExtensionType::COMMAND,
-    command_names: &["about", "dashboard"],
+    stack: Some(ops_extension::Stack::Rust),
+    command_names: &["dashboard"],
     data_provider_name: Some(DATA_PROVIDER_NAME),
-    register_commands: |_self, registry| {
-        use ops_core::config::ExecCommandSpec;
-
-        registry.insert(
-            "about".to_string(),
-            ops_core::config::CommandSpec::Exec(ExecCommandSpec {
-                program: "ops".to_string(),
-                args: vec!["about".to_string()],
-                ..Default::default()
-            }),
-        );
+    register_commands: |_self, _registry| {},
+    register_data_providers: |_self, registry| {
+        registry.register(DATA_PROVIDER_NAME, Box::new(identity::RustIdentityProvider));
     },
-    register_data_providers: |_self, _registry| {},
-    factory: ABOUT_FACTORY = |_, _| {
-        Some((NAME, Box::new(AboutExtension)))
+    factory: ABOUT_RUST_FACTORY = |_, _| {
+        Some((NAME, Box::new(AboutRustExtension)))
     },
 }
 
@@ -1123,42 +1070,6 @@ mod tests {
         assert!(matches!(coverage_color(79.9), Color::Yellow));
         assert!(matches!(coverage_color(80.0), Color::Green));
         assert!(matches!(coverage_color(100.0), Color::Green));
-    }
-
-    #[test]
-    fn format_about_minimal() {
-        let manifest = test_workspace_manifest(vec![]);
-        let cwd = std::path::PathBuf::from("/test");
-        let ctx = AboutContext {
-            manifest: &manifest,
-            cwd: &cwd,
-            loc_data: None,
-        };
-        let output = format_about(&ctx);
-        assert!(output.contains("workspace")); // header present
-        assert!(!output.contains("CRATES"));
-        assert!(!output.contains("DEPENDENCIES"));
-    }
-
-    #[test]
-    fn format_about_with_loc_data() {
-        let manifest =
-            test_workspace_manifest(vec!["crates/a".to_string(), "crates/b".to_string()]);
-        let cwd = std::path::PathBuf::from("/test");
-        let loc_data = super::query::LocData {
-            project_total: 2500,
-            per_crate: HashMap::new(),
-            project_file_count: 15,
-            per_crate_files: HashMap::new(),
-        };
-        let ctx = AboutContext {
-            manifest: &manifest,
-            cwd: &cwd,
-            loc_data: Some(&loc_data),
-        };
-        let output = format_about(&ctx);
-        assert!(output.contains("2,500"));
-        assert!(output.contains("file"));
     }
 
     #[test]

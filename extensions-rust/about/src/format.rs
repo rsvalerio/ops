@@ -13,38 +13,6 @@ use super::cards::{
 use super::query::{CoverageData, DepsTreeData};
 use super::text_util::{format_number, pad_header, tty_style};
 
-pub(crate) struct AboutContext<'a> {
-    pub(crate) manifest: &'a CargoToml,
-    pub(crate) cwd: &'a std::path::Path,
-    pub(crate) loc_data: Option<&'a super::query::LocData>,
-}
-
-pub(crate) fn format_about(ctx: &AboutContext<'_>) -> String {
-    let AboutContext {
-        manifest,
-        cwd,
-        loc_data,
-    } = ctx;
-    let project_loc = loc_data.map(|d| d.project_total);
-    let project_file_count = loc_data.map(|d| d.project_file_count);
-
-    let mut lines = Vec::new();
-
-    lines.extend(format_header(&manifest.package));
-    lines.extend(format_description(&manifest.package));
-    lines.extend(format_workspace_info(
-        manifest,
-        cwd,
-        project_loc,
-        project_file_count,
-        None,
-    ));
-    lines.extend(format_authors(&manifest.package));
-    lines.extend(format_repository(&manifest.package));
-
-    lines.join("\n")
-}
-
 /// Extract an optional field from the root package, returning `default` if absent.
 fn pkg_field<'a>(
     root_pkg: &'a Option<ops_cargo_toml::Package>,
@@ -200,41 +168,6 @@ pub(crate) fn format_coverage_table(
     }
 
     table.to_string()
-}
-
-pub(crate) fn format_authors(root_pkg: &Option<ops_cargo_toml::Package>) -> Vec<String> {
-    let authors = root_pkg
-        .as_ref()
-        .and_then(|p| p.authors.value())
-        .filter(|a| !a.is_empty());
-
-    match authors {
-        Some(list) => {
-            let is_tty = io::stdout().is_terminal();
-            let mut lines = vec![String::new()];
-            let label = if list.len() == 1 { "author" } else { "authors" };
-            lines.push(format!(
-                "  \u{25b8} {}      {}",
-                label,
-                tty_style(&list.join(", "), dim, is_tty)
-            ));
-            lines
-        }
-        None => vec![],
-    }
-}
-
-pub(crate) fn format_repository(root_pkg: &Option<ops_cargo_toml::Package>) -> Vec<String> {
-    match root_pkg.as_ref().and_then(|p| p.repository.as_str()) {
-        Some(url) => {
-            let is_tty = io::stdout().is_terminal();
-            vec![
-                String::new(),
-                format!("  \u{25b8} repository  {}", tty_style(url, dim, is_tty)),
-            ]
-        }
-        None => vec![],
-    }
 }
 
 pub(crate) fn format_crates_section(
