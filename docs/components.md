@@ -301,3 +301,129 @@ Classic                                    Compact
 ```
 
 Key difference: Classic uses `✅` (width 2) for success; compact uses `✓` (width 1). This changes icon-column padding and error-detail gutter width.
+
+---
+
+## 10. About Card
+
+**What:** Project identity card rendered by `ops about`. Shows project name, version, stack badge, description, and key metrics. Data comes from a stack-specific `project_identity` data provider; when none is available, a minimal fallback is built from filesystem detection + tokei.
+
+**Visual example (Rust project, with provider):**
+```text
+  ops v0.10.0                                 Rust · Edition 2021 · Apache-2.0
+
+  Batteries-included task runner
+
+  ▸ project      /Users/dev/ops
+  ▸ crates       16
+  ▸ code         21,324 loc
+  ▸ files        96 files
+  ▸ author       Alice
+  ▸ repository   https://github.com/user/ops
+```
+
+**Visual example (Go project, fallback — no provider):**
+```text
+  openbao                                                                   Go
+
+  ▸ project   /Users/dev/openbao
+  ▸ code      142,857 loc
+  ▸ files     1,203 files
+```
+
+### Card Layout
+
+The about card has two sections: a **header** and **fields**.
+
+**Header** (rendered as the first 1-3 lines):
+
+```
+  {name} [v{version}]                    {stack_label} [· {stack_detail}] [· {license}]
+  ╰─ title ──────────╯                   ╰─────────────── badge ─────────────────────╯
+
+  [{description}]
+```
+
+- **title** (left): `{name}` or `{name} v{version}` when version is available
+- **badge** (right-aligned): `{stack_label}` joined with optional `{stack_detail}` and `{license}` by ` · `
+- **description**: shown on a separate line below, only when present
+
+**Fields** (rendered as `▸`-bulleted key-value pairs):
+
+| Field | Key | Value | When shown |
+|-------|-----|-------|------------|
+| Project path | `project` | Absolute path to workspace root | Always |
+| Module count | `{module_label}` | Count (e.g. "16") | When `module_count` is set |
+| Lines of code | `code` | `{n} loc` with comma formatting | When `loc` is set |
+| File count | `files` | `{n} file(s)` | When `file_count > 0` |
+| Authors | `author`/`authors` | Comma-separated list | When non-empty |
+| Repository | `repository` | URL | When present |
+
+### ProjectIdentity Field Reference
+
+Each field in `ProjectIdentity` maps to a specific data source per stack. Stacks without a dedicated `project_identity` provider use the **fallback** column.
+
+| Field | Rust | Node | Go | Python | Java Maven | Java Gradle | Fallback |
+|-------|------|------|----|--------|------------|-------------|----------|
+| `name` | `[package].name` / `[workspace.package].name` | `name` | module path | `[project].name` | `<artifactId>` | `rootProject.name` | Directory name |
+| `version` | `[package].version` / `[workspace.package].version` | `version` | — | `[project].version` | `<version>` | `version` | — |
+| `description` | `[package].description` / `[workspace.package].description` | `description` | — | `[project].description` | `<description>` | — | — |
+| `stack_label` | `"Rust"` | `"Node"` | `"Go"` | `"Python"` | `"Java"` | `"Java"` | Auto-detected |
+| `stack_detail` | `"Edition {edition}"` | `"ESM"` / `"CJS"` | `"Go {version}"` | `"{version}"` | `"Maven"` | `"Gradle"` | — |
+| `license` | `[package].license` / `[workspace.package].license` | `license` | — | `[project].license` | `<licenses>` | — | — |
+| `project_path` | `cwd` | `cwd` | `cwd` | `cwd` | `cwd` | `cwd` | `cwd` |
+| `module_count` | `[workspace].members` count | `workspaces` count | `use` in `go.work` | — | `<modules>` count | `include` count | — |
+| `module_label` | `"crates"` | `"packages"` | `"modules"` | `"packages"` | `"modules"` | `"subprojects"` | `"modules"` |
+| `loc` | tokei | tokei | tokei | tokei | tokei | tokei | tokei |
+| `file_count` | tokei | tokei | tokei | tokei | tokei | tokei | tokei |
+| `authors` | `[package].authors` / `[workspace.package].authors` | `author` + `contributors` | — | `[project].authors` | `<developers>` | — | — |
+| `repository` | `[package].repository` / `[workspace.package].repository` | `repository.url` | — | `[project].urls.Repository` | `<scm><url>` | — | — |
+
+> **Note:** Only the **Rust** column is currently implemented (via `extensions-rust/about/src/identity.rs`). Other stacks use the fallback path, which provides `name`, `stack_label`, `project_path`, `loc`, and `file_count` (via tokei/DuckDB). The other columns show the *intended* data sources for future stack providers.
+
+### Module Terminology Per Stack
+
+Each stack has its own term for sub-projects within a workspace/monorepo:
+
+| Stack | Label | Source | Concept |
+|-------|-------|--------|---------|
+| Rust | `"crates"` | `[workspace].members` in `Cargo.toml` | Workspace members |
+| Node | `"packages"` | `workspaces` in `package.json` | npm/yarn/pnpm workspaces |
+| Go | `"modules"` | `use` directives in `go.work` | Go workspace modules |
+| Python | `"packages"` | Project-dependent (no standard) | Namespace packages |
+| Java Maven | `"modules"` | `<modules>` in parent `pom.xml` | Multi-module project |
+| Java Gradle | `"subprojects"` | `include` in `settings.gradle` | Composite build projects |
+
+### Data Flow
+
+1. Generic about extension (`extensions/about/`) pre-initializes `duckdb` and `tokei` providers (best-effort)
+2. Queries `"project_identity"` from the data registry (stack-specific provider)
+3. If no provider is registered, builds a fallback identity from filesystem detection (directory name, detected stack)
+4. If `loc` is still missing, enriches from DuckDB/tokei (works for all stacks when compiled with `duckdb`+`tokei` features)
+5. Converts `ProjectIdentity` to `AboutCard` and renders
+
+### Implementing a Stack Provider
+
+Register a `DataProvider` with name `"project_identity"` returning a JSON-serialized `ProjectIdentity`. The provider should parse the stack's manifest file and map fields to the canonical schema.
+
+Example (Rust): `extensions-rust/about/src/identity.rs`
+
+```rust
+pub(crate) struct MyStackIdentityProvider;
+
+impl DataProvider for MyStackIdentityProvider {
+    fn name(&self) -> &'static str { "project_identity" }
+
+    fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+        // 1. Parse your stack's manifest (e.g. package.json, go.mod)
+        // 2. Build ProjectIdentity with stack-native labels
+        // 3. Return serde_json::to_value(&identity)
+    }
+}
+```
+
+Register it in your stack extension's `register_data_providers`.
+
+**Configuration:** `output.columns` controls the width available for right-aligning the badge.
+
+**Implementation:** `AboutCard::from_identity()` and `AboutCard::render()` in `crates/core/src/project_identity.rs`. Generic extension at `extensions/about/src/lib.rs`.

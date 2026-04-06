@@ -46,8 +46,8 @@ Instructions for AI coding agents working on this project.
   - `crates/runner/src/display.rs` - ProgressDisplay for step rendering with indicatif
   - `crates/extension/src/lib.rs` - Extension trait, CommandRegistry, DataRegistry, Context
   - `crates/cli/src/theme_cmd.rs` - Theme management CLI (list, select)
-  - `extensions/` - Optional extensions (duckdb, tokei)
-  - `extensions-rust/` - Rust-specific extensions (about, cargo-toml, metadata, tools, etc.)
+  - `extensions/` - Generic extensions (about, duckdb, pre-commit, tokei)
+  - `extensions-rust/` - Stack-specific extensions (about-rust, cargo-toml, metadata, tools, etc.)
 
 ## Testing instructions
 
