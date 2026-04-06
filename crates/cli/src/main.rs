@@ -1,5 +1,20 @@
 //! CLI entry point and orchestration for ops.
 
+// Force the linker to retain extension crates that only register via linkme
+// distributed slices (no other symbols are referenced from the main binary).
+#[cfg(feature = "stack-go")]
+extern crate ops_about_go;
+#[cfg(any(feature = "stack-java-maven", feature = "stack-java-gradle"))]
+extern crate ops_about_java;
+#[cfg(feature = "stack-rust")]
+extern crate ops_cargo_update;
+#[cfg(feature = "stack-rust")]
+extern crate ops_metadata;
+#[cfg(feature = "coverage")]
+extern crate ops_test_coverage;
+#[cfg(feature = "tokei")]
+extern crate ops_tokei;
+
 mod args;
 mod extension_cmd;
 mod init_cmd;
@@ -109,12 +124,12 @@ fn run() -> anyhow::Result<ExitCode> {
         Some(CoreSubcommand::Extension { action }) => run_extension(action)?,
         Some(CoreSubcommand::NewCommand) => new_command_cmd::run_new_command()?,
         Some(CoreSubcommand::PreCommit { all, action }) => return run_pre_commit(action, all),
-        #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::About { refresh }) => {
             let (config, cwd) = load_config_and_cwd()?;
             let registry = crate::registry::build_data_registry(&config, &cwd)?;
+            let columns = config.output.columns;
             let opts = ops_about::AboutOptions { refresh };
-            ops_about::run_about(&registry, &opts)?;
+            ops_about::run_about(&registry, &opts, columns)?;
         }
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Deps { refresh }) => {
@@ -131,11 +146,11 @@ fn run() -> anyhow::Result<ExitCode> {
             let (config, cwd) = load_config_and_cwd()?;
             let registry = crate::registry::build_data_registry(&config, &cwd)?;
             let tools = ops_tools::collect_tools(&config.tools);
-            let opts = ops_about::DashboardOptions {
+            let opts = ops_about_rust::DashboardOptions {
                 skip_coverage,
                 refresh,
             };
-            ops_about::run_dashboard(&registry, &opts, &tools)?;
+            ops_about_rust::run_dashboard(&registry, &opts, &tools)?;
         }
         Some(CoreSubcommand::Tools { action }) => {
             #[cfg(feature = "stack-rust")]

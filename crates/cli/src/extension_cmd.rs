@@ -30,6 +30,49 @@ fn run_extension_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Partition extensions: generic (no stack) first, then grouped by stack.
+    let mut generic: Vec<(&str, &dyn ops_extension::Extension)> = Vec::new();
+    let mut by_stack: indexmap::IndexMap<
+        ops_core::stack::Stack,
+        Vec<(&str, &dyn ops_extension::Extension)>,
+    > = indexmap::IndexMap::new();
+
+    for (config_name, ext) in &compiled {
+        let entry = (*config_name, ext.as_ref());
+        match ext.stack() {
+            None => generic.push(entry),
+            Some(s) => by_stack.entry(s).or_default().push(entry),
+        }
+    }
+
+    if !generic.is_empty() {
+        writeln!(w, "Generic extensions:")?;
+        write_extension_table(w, &generic)?;
+    }
+
+    for (stack, exts) in &by_stack {
+        if !generic.is_empty() || by_stack.len() > 1 {
+            writeln!(w)?;
+        }
+        writeln!(w, "{} extensions:", capitalize(stack.as_str()))?;
+        write_extension_table(w, exts)?;
+    }
+
+    Ok(())
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
+}
+
+fn write_extension_table(
+    w: &mut dyn Write,
+    exts: &[(&str, &dyn ops_extension::Extension)],
+) -> anyhow::Result<()> {
     let mut table = OpsTable::new();
     table.set_header(vec![
         "Name",
@@ -40,8 +83,8 @@ fn run_extension_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
         "Description",
     ]);
 
-    for (config_name, ext) in &compiled {
-        table.add_row(build_extension_row(&table, config_name, ext.as_ref()));
+    for (config_name, ext) in exts {
+        table.add_row(build_extension_row(&table, config_name, *ext));
     }
 
     table.set_max_width(5, 40);

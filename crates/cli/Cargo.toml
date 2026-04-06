@@ -9,15 +9,15 @@ license.workspace = true
 
 [features]
 default = []
-duckdb = ["dep:ops-duckdb", "ops-extension/duckdb"]
-stack-rust = ["dep:ops-about", "dep:ops-cargo-toml", "dep:ops-cargo-update", "dep:ops-deps", "dep:ops-metadata", "dep:ops-tools", "duckdb"]
+duckdb = ["dep:ops-duckdb", "ops-extension/duckdb", "ops-about/duckdb"]
+stack-rust = ["dep:ops-about-rust", "dep:ops-cargo-toml", "dep:ops-cargo-update", "dep:ops-deps", "dep:ops-metadata", "dep:ops-tools", "duckdb"]
 stack-node = []
-stack-go = []
+stack-go = ["dep:ops-about-go"]
 stack-python = []
 stack-terraform = []
 stack-ansible = []
-stack-java-maven = []
-stack-java-gradle = []
+stack-java-maven = ["dep:ops-about-java"]
+stack-java-gradle = ["dep:ops-about-java"]
 tokei = ["dep:ops-tokei", "duckdb"]
 coverage = ["dep:ops-test-coverage", "duckdb"]
 
@@ -28,7 +28,10 @@ ops-runner = { workspace = true }
 ops-tools = { workspace = true, optional = true }
 ops-duckdb = { workspace = true, optional = true }
 ops-tokei = { workspace = true, optional = true }
-ops-about = { workspace = true, optional = true }
+ops-about = { workspace = true }
+ops-about-rust = { workspace = true, optional = true }
+ops-about-go = { workspace = true, optional = true }
+ops-about-java = { workspace = true, optional = true }
 ops-cargo-toml = { workspace = true, optional = true }
 ops-cargo-update = { workspace = true, optional = true }
 ops-deps = { workspace = true, optional = true }

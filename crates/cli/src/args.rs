@@ -64,8 +64,7 @@ pub enum CoreSubcommand {
         #[command(subcommand)]
         action: ExtensionAction,
     },
-    /// Display workspace/project identity card.
-    #[cfg(feature = "stack-rust")]
+    /// Display project identity card.
     About {
         /// Force re-collection of data (ignores cached results).
         #[arg(long)]
@@ -158,8 +157,6 @@ pub type Subcommand = CoreSubcommand;
 /// Unlisted commands are always visible.
 fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
     &[
-        #[cfg(feature = "stack-rust")]
-        ("about", Stack::Rust),
         #[cfg(feature = "stack-rust")]
         ("dashboard", Stack::Rust),
         #[cfg(feature = "stack-rust")]
