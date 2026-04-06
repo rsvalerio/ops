@@ -2,7 +2,8 @@
 
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, Config};
-use ops_core::stack::Stack;
+// Re-export for use in `impl_extension!` macro expansions (the macro uses `$crate::Stack`).
+pub use ops_core::stack::Stack;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -75,6 +76,7 @@ pub struct ExtensionInfo {
     pub types: ExtensionType,
     pub command_names: &'static [&'static str],
     pub data_provider_name: Option<&'static str>,
+    pub stack: Option<Stack>,
 }
 
 /// Registry of command ID → CommandSpec (from config + extensions).
@@ -368,6 +370,7 @@ pub trait Extension: Send + Sync {
             types: self.types(),
             command_names: self.command_names(),
             data_provider_name: self.data_provider_name(),
+            stack: self.stack(),
         }
     }
 
@@ -403,7 +406,7 @@ pub trait Extension: Send + Sync {
 #[macro_export]
 macro_rules! impl_extension {
     // Internal rule: shared accessor methods (DUP-036 fix)
-    (@accessors $struct:ty, $name:expr, $desc:expr, $short:expr, $types:expr, $dp:expr $(, command_names: $cn:expr)?) => {
+    (@accessors $struct:ty, $name:expr, $desc:expr, $short:expr, $types:expr, $dp:expr $(, stack: $stack:expr)? $(, command_names: $cn:expr)?) => {
         fn name(&self) -> &'static str {
             $name
         }
@@ -416,6 +419,11 @@ macro_rules! impl_extension {
         fn types(&self) -> $crate::ExtensionType {
             $types
         }
+        $(
+            fn stack(&self) -> Option<$crate::Stack> {
+                $stack
+            }
+        )?
         $(
             fn command_names(&self) -> &'static [&'static str] {
                 $cn
@@ -433,6 +441,7 @@ macro_rules! impl_extension {
         description: $desc:expr,
         shortname: $short:expr,
         types: $types:expr,
+        $(stack: $stack:expr,)?
         $(command_names: $cn:expr,)?
         data_provider_name: $dp:expr,
         register_commands: |$self_cmd:ident, $reg_cmd:ident| $cmd_body:block,
@@ -440,7 +449,7 @@ macro_rules! impl_extension {
         factory: $factory_ident:ident = $factory_fn:expr $(,)?
     ) => {
         impl $crate::Extension for $struct {
-            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, command_names: $cn)?);
+            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, stack: $stack)? $(, command_names: $cn)?);
             fn register_commands(&self, registry: &mut $crate::CommandRegistry) {
                 let $self_cmd = self;
                 let $reg_cmd = registry;
@@ -464,13 +473,14 @@ macro_rules! impl_extension {
         description: $desc:expr,
         shortname: $short:expr,
         types: $types:expr,
+        $(stack: $stack:expr,)?
         $(command_names: $cn:expr,)?
         data_provider_name: $dp:expr,
         register_commands: |$self_cmd:ident, $reg_cmd:ident| $cmd_body:block,
         register_data_providers: |$self_dp:ident, $reg_dp:ident| $dp_body:block $(,)?
     ) => {
         impl $crate::Extension for $struct {
-            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, command_names: $cn)?);
+            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, stack: $stack)? $(, command_names: $cn)?);
             fn register_commands(&self, registry: &mut $crate::CommandRegistry) {
                 let $self_cmd = self;
                 let $reg_cmd = registry;
@@ -491,13 +501,14 @@ macro_rules! impl_extension {
         description: $desc:expr,
         shortname: $short:expr,
         types: $types:expr,
+        $(stack: $stack:expr,)?
         $(command_names: $cn:expr,)?
         data_provider_name: $dp:expr,
         register_data_providers: |$self_dp:ident, $reg_dp:ident| $dp_body:block,
         factory: $factory_ident:ident = $factory_fn:expr $(,)?
     ) => {
         impl $crate::Extension for $struct {
-            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, command_names: $cn)?);
+            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, stack: $stack)? $(, command_names: $cn)?);
             fn register_commands(&self, _registry: &mut $crate::CommandRegistry) {}
             fn register_data_providers(&self, registry: &mut $crate::DataRegistry) {
                 let $self_dp = self;
@@ -517,12 +528,13 @@ macro_rules! impl_extension {
         description: $desc:expr,
         shortname: $short:expr,
         types: $types:expr,
+        $(stack: $stack:expr,)?
         $(command_names: $cn:expr,)?
         data_provider_name: $dp:expr,
         register_data_providers: |$self_dp:ident, $reg_dp:ident| $dp_body:block $(,)?
     ) => {
         impl $crate::Extension for $struct {
-            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, command_names: $cn)?);
+            $crate::impl_extension!(@accessors $struct, $name, $desc, $short, $types, $dp $(, stack: $stack)? $(, command_names: $cn)?);
             fn register_commands(&self, _registry: &mut $crate::CommandRegistry) {}
             fn register_data_providers(&self, registry: &mut $crate::DataRegistry) {
                 let $self_dp = self;
