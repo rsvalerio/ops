@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "extensions/*", "extensions-rust/*"]
+members = ["crates/*", "extensions/*", "extensions-rust/*", "extensions-go/*", "extensions-java/*"]
 default-members = ["crates/cli"]
 resolver = "2"
 
@@ -15,7 +15,10 @@ ops-theme = { path = "crates/theme" }
 ops-runner = { path = "crates/runner" }
 ops-duckdb = { path = "extensions/duckdb" }
 ops-tokei = { path = "extensions/tokei" }
-ops-about = { path = "extensions-rust/about" }
+ops-about = { path = "extensions/about" }
+ops-about-rust = { path = "extensions-rust/about" }
+ops-about-go = { path = "extensions-go/about" }
+ops-about-java = { path = "extensions-java/about" }
 ops-cargo-toml = { path = "extensions-rust/cargo-toml" }
 ops-cargo-update = { path = "extensions-rust/cargo-update" }
 ops-deps = { path = "extensions-rust/deps" }

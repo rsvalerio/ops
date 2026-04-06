@@ -2016,6 +2016,9 @@ dependencies = [
  "indexmap",
  "inquire",
  "ops-about",
+ "ops-about-go",
+ "ops-about-java",
+ "ops-about-rust",
  "ops-cargo-toml",
  "ops-cargo-update",
  "ops-core",
@@ -2040,6 +2043,42 @@ dependencies = [
 
 [[package]]
 name = "ops-about"
+version = "0.10.0"
+dependencies = [
+ "anyhow",
+ "linkme",
+ "ops-core",
+ "ops-duckdb",
+ "ops-extension",
+ "serde_json",
+]
+
+[[package]]
+name = "ops-about-go"
+version = "0.10.0"
+dependencies = [
+ "anyhow",
+ "linkme",
+ "ops-core",
+ "ops-extension",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "ops-about-java"
+version = "0.10.0"
+dependencies = [
+ "anyhow",
+ "linkme",
+ "ops-core",
+ "ops-extension",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "ops-about-rust"
 version = "0.10.0"
 dependencies = [
  "anyhow",

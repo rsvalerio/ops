@@ -1,0 +1,18 @@
+[package]
+name = "ops-about"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+duckdb = ["dep:ops-duckdb", "ops-extension/duckdb"]
+
+[dependencies]
+ops-core = { workspace = true }
+ops-extension = { workspace = true }
+ops-duckdb = { workspace = true, optional = true }
+linkme = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
