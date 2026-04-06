@@ -199,6 +199,7 @@ ops_extension::impl_extension! {
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: ExtensionType::DATASOURCE,
+    stack: Some(ops_extension::Stack::Rust),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
         registry.register(DATA_PROVIDER_NAME, Box::new(CargoUpdateProvider));

@@ -20,6 +20,7 @@ ops_extension::impl_extension! {
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: ExtensionType::COMMAND,
+    stack: Some(ops_extension::Stack::Rust),
     data_provider_name: None,
     register_data_providers: |_self, _registry| {},
     factory: TOOLS_FACTORY = |_, _| {
