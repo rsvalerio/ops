@@ -2,6 +2,26 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.11.0](https://github.com/rsvalerio/ops/compare/65a421f791f9f910d01d481d49b10b505125564b..v0.11.0) - 2026-04-07
+#### 🚀 Features
+- (**about**) add generic multi-stack about extension - ([6ad34c3](https://github.com/rsvalerio/ops/commit/6ad34c3a2010905cdde4aa21a6a8fd6e1d8530f8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-go**) add Go project identity extension stub - ([4be68c0](https://github.com/rsvalerio/ops/commit/4be68c02305ee47ea5d66aec59a6e59e85b03660)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-java**) add Java project identity extension stub - ([6658cd2](https://github.com/rsvalerio/ops/commit/6658cd26639749141dcab39d9e56d87ab90cd668)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) make about command stack-agnostic and group extension list by stack - ([8367e62](https://github.com/rsvalerio/ops/commit/8367e62e4fa6ab54eaf9418788e5203be27a6831)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) add ProjectIdentity and AboutCard types - ([65a421f](https://github.com/rsvalerio/ops/commit/65a421f791f9f910d01d481d49b10b505125564b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) add optional stack field to ExtensionInfo and impl_extension! macro - ([8d2e1f8](https://github.com/rsvalerio/ops/commit/8d2e1f86849c738e1f0ac4e2d1b29482ca7d95d6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-go**) parse local replace directives in go.mod - ([f5ec719](https://github.com/rsvalerio/ops/commit/f5ec7193282a406045b744de72e3b95cd9a03324)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**about**) document AboutCard layout, ProjectIdentity schema, and data flow - ([c7087e0](https://github.com/rsvalerio/ops/commit/c7087e0c5372b653b4badc0709af100236698042)) - [@rsvalerio](https://github.com/rsvalerio)
+- update instructions and examples for verify/qa split - ([46406ff](https://github.com/rsvalerio/ops/commit/46406ff7636f1c95cae582bfe9e35c74757eee37)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about**) simplify card layout to inline title · badge - ([8a15df5](https://github.com/rsvalerio/ops/commit/8a15df534ab9b23bdf8377dc848c2541c8f540da)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-rust**) rename ops-about to ops-about-rust and extract RustIdentityProvider - ([7dec318](https://github.com/rsvalerio/ops/commit/7dec318548b386389a3077303ee7c69e22ab1a3a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**commands**) split verify into static checks and qa into quality assurance - ([91396d7](https://github.com/rsvalerio/ops/commit/91396d7caa0f1447e198b78df1c9558381d1c8f2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust**) tag all Rust extensions with Stack::Rust - ([4af433f](https://github.com/rsvalerio/ops/commit/4af433fd72f9ee5c3a7d19c988b3a2949680722d)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.10.0](https://github.com/rsvalerio/ops/compare/ef7bd75040bc49127d6091c90646bd3936f2a989..v0.10.0) - 2026-04-05
 #### 🚀 Features
 - (**cli**) add stack-java-maven and stack-java-gradle feature flags - ([b0bff7c](https://github.com/rsvalerio/ops/commit/b0bff7c6147811367996011182af85473a66dd49)) - [@rsvalerio](https://github.com/rsvalerio)
