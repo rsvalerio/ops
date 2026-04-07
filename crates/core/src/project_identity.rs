@@ -115,43 +115,17 @@ impl AboutCard {
     /// Render the about card as styled text lines.
     ///
     /// Uses ANSI colors when stdout is a TTY.
-    pub fn render(&self, columns: u16) -> String {
+    pub fn render(&self, _columns: u16) -> String {
         let is_tty = io::stdout().is_terminal();
         let mut lines = Vec::new();
 
-        // Title + badge on the same line, right-aligned badge
-        let title = if is_tty {
-            cyan(&self.title)
+        // Inline: title · badge
+        let header = if is_tty {
+            format!("{} \u{00b7} {}", cyan(&self.title), dim(&self.badge))
         } else {
-            self.title.clone()
+            format!("{} \u{00b7} {}", self.title, self.badge)
         };
-        let gap = columns
-            .saturating_sub(self.title.len() as u16)
-            .saturating_sub(self.badge.len() as u16)
-            .saturating_sub(4) as usize; // 2 indent + 2 margin
-        if gap > 2 {
-            let badge = if is_tty {
-                dim(&self.badge)
-            } else {
-                self.badge.clone()
-            };
-            lines.push(format!(
-                "  {}{:>width$}",
-                title,
-                badge,
-                width = gap + self.badge.len()
-            ));
-        } else {
-            lines.push(format!("  {}", title));
-            lines.push(format!(
-                "  {}",
-                if is_tty {
-                    dim(&self.badge)
-                } else {
-                    self.badge.clone()
-                }
-            ));
-        }
+        lines.push(format!("  {}", header));
 
         // Description
         if let Some(desc) = &self.description {
