@@ -21,7 +21,13 @@ args = ["run", "lint"]
 help = "Lint the codebase"
 
 [commands.verify]
-commands = ["install", "lint", "build", "test"]
+commands = ["install", "lint", "build"]
 parallel = false
 fail_fast = true
-help = "Run install, lint, build, test"
+help = "Run install, lint, build"
+
+[commands.qa]
+commands = ["test"]
+parallel = false
+fail_fast = true
+help = "Run test"

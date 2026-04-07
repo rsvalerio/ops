@@ -16,7 +16,13 @@ args = []
 help = "Run tests"
 
 [commands.verify]
-commands = ["format", "lint", "test"]
+commands = ["format", "lint"]
 parallel = false
 fail_fast = true
-help = "Run format, lint, test"
+help = "Run format, lint"
+
+[commands.qa]
+commands = ["test"]
+parallel = false
+fail_fast = true
+help = "Run test"

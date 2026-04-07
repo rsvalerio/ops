@@ -21,7 +21,13 @@ args = ["clean"]
 help = "Clean build artifacts"
 
 [commands.verify]
-commands = ["compile", "test"]
+commands = ["compile"]
 parallel = false
 fail_fast = true
-help = "Run compile, test"
+help = "Run compile"
+
+[commands.qa]
+commands = ["test"]
+parallel = false
+fail_fast = true
+help = "Run test"

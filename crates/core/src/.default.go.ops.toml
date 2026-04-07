@@ -21,7 +21,13 @@ args = ["test", "./..."]
 help = "Run all tests"
 
 [commands.verify]
-commands = ["fmt", "vet", "build", "test"]
+commands = ["fmt", "build"]
 parallel = false
 fail_fast = true
-help = "Run fmt, vet, build, test"
+help = "Run fmt, build"
+
+[commands.qa]
+commands = ["test", "vet"]
+parallel = false
+fail_fast = true
+help = "Run test, vet"

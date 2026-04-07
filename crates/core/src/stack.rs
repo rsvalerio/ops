@@ -321,4 +321,23 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn stacks_with_test_define_qa() {
+        for stack in [
+            Stack::Rust,
+            Stack::Node,
+            Stack::Go,
+            Stack::Python,
+            Stack::JavaMaven,
+            Stack::JavaGradle,
+        ] {
+            let cmds = stack.default_commands();
+            assert!(
+                cmds.contains_key("qa"),
+                "stack {} default TOML must define qa",
+                stack.as_str()
+            );
+        }
+    }
 }

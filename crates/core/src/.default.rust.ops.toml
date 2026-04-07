@@ -26,7 +26,13 @@ args = ["test", "--all", "--all-features"]
 help = "Run all tests"
 
 [commands.verify]
-commands = ["fmt", "check", "clippy", "build", "test"]
+commands = ["fmt", "check", "clippy", "build"]
 parallel = true
 fail_fast = true
-help = "Run fmt, check, clippy, build, test"
+help = "Run fmt, check, clippy, build"
+
+[commands.qa]
+commands = ["test", "deps"]
+parallel = true
+fail_fast = true
+help = "Run test, deps"

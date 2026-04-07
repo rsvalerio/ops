@@ -7,7 +7,7 @@ program = "cargo"
 args = ["install", "--path", "crates/cli", "--force", "--all-features"]
 
 [commands.pre-commit]
-commands = ["verify","deps"]
+commands = ["verify","qa"]
 fail_fast = true
 parallel = true
-help = "Check dependencies, advisories, licenses, bans and sources also run verify (build, clippy, test) commands before committing"
+help = "Run verify (fmt, check, clippy, build) and qa (test, deps) before committing"
