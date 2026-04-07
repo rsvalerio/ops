@@ -1,7 +1,8 @@
 //! Go stack `project_identity` provider.
 //!
-//! Parses `go.mod` for module name and Go version, and `go.work` for
-//! workspace modules. Provides a [`ProjectIdentity`] for the generic about command.
+//! Parses `go.mod` for module name, Go version, and local `replace` directives.
+//! Parses `go.work` for workspace modules. Provides a [`ProjectIdentity`] for
+//! the generic about command.
 
 use std::path::Path;
 
@@ -54,8 +55,19 @@ impl DataProvider for GoIdentityProvider {
         let go_version = go_mod.as_ref().and_then(|m| m.go_version.clone());
         let stack_detail = go_version.map(|v| format!("Go {v}"));
 
-        // Module count from go.work (workspace) or None for single-module projects.
-        let module_count = go_work.as_ref().map(|w| w.use_dirs.len());
+        // Module count: workspace modules take precedence, otherwise count local replaces + 1 for main module.
+        let module_count = if let Some(ref work) = go_work {
+            Some(work.use_dirs.len())
+        } else if let Some(ref m) = go_mod {
+            let count = 1 + m.local_replaces.len();
+            if count > 1 {
+                Some(count)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         let identity = ProjectIdentity {
             name,
@@ -82,12 +94,14 @@ impl DataProvider for GoIdentityProvider {
 struct GoMod {
     module: String,
     go_version: Option<String>,
+    local_replaces: Vec<String>,
 }
 
 fn parse_go_mod(project_root: &Path) -> Option<GoMod> {
     let content = std::fs::read_to_string(project_root.join("go.mod")).ok()?;
     let mut module = None;
     let mut go_version = None;
+    let mut local_replaces = Vec::new();
 
     for line in content.lines() {
         let line = line.trim();
@@ -95,16 +109,21 @@ fn parse_go_mod(project_root: &Path) -> Option<GoMod> {
             module = Some(rest.trim().to_string());
         } else if let Some(rest) = line.strip_prefix("go ") {
             go_version = Some(rest.trim().to_string());
-        }
-        // Stop after we have both — they're always near the top.
-        if module.is_some() && go_version.is_some() {
-            break;
+        } else if let Some(rest) = line.strip_prefix("replace ") {
+            // Parse: replace module/path => ./local/path
+            if let Some(pos) = rest.find("=>") {
+                let target = rest[pos + 2..].trim();
+                if target.starts_with("./") {
+                    local_replaces.push(target.to_string());
+                }
+            }
         }
     }
 
     module.map(|m| GoMod {
         module: m,
         go_version,
+        local_replaces,
     })
 }
 
@@ -185,6 +204,19 @@ mod tests {
     fn parse_go_mod_missing() {
         let dir = tempfile::tempdir().unwrap();
         assert!(parse_go_mod(dir.path()).is_none());
+    }
+
+    #[test]
+    fn parse_go_mod_local_replaces() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module github.com/openbao/openbao\n\ngo 1.25.7\n\nreplace github.com/openbao/openbao/api/v2 => ./api\n\nreplace github.com/openbao/openbao/sdk/v2 => ./sdk\n",
+        )
+        .unwrap();
+        let m = parse_go_mod(dir.path()).unwrap();
+        assert_eq!(m.module, "github.com/openbao/openbao");
+        assert_eq!(m.local_replaces, vec!["./api", "./sdk"]);
     }
 
     #[test]
