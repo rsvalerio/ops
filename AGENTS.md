@@ -2,7 +2,7 @@
 
 Instructions for AI coding agents working on this project.
 
-**Every time a rust file (`*.rs`) is changed, make sure to run `ops verify; ops install`. If error or warning are reported, fix it and run verify and install again.**
+**Every time a rust file (`*.rs`) is changed, make sure to run `ops verify; ops qa; ops install`. If error or warning are reported, fix it and run verify, qa and install again.**
 
 ## Project overview
 
@@ -27,7 +27,8 @@ Instructions for AI coding agents working on this project.
 - **Tests:** `cargo test`
 - **Lint:** `cargo clippy --all-targets -- -D warnings`
 - **Format:** `cargo fmt` (check only: `cargo fmt -- --check`)
-- **Full verify:** `ops verify` runs build → clippy → test in sequence
+- **Verify:** `ops verify` runs fmt → check → clippy → build
+- **QA:** `ops qa` runs test → deps
 
 **Every time a rust file (`*.rs`) is changed, make sure to run `cargo install --path crates/cli --force` after passing `cargo clippy --all-targets -- -D warnings`.**
 
@@ -83,7 +84,7 @@ Configuration is merged (later overrides earlier):
 4. `.ops.d/*.toml` files (sorted alphabetically; good for separating themes, commands)
 5. Environment variables `CARGO_OPS_*`
 
-`ops init` writes a merged template: base config plus the detected stack's default commands (so e.g. in a Rust project the generated `.ops.toml` already contains `[commands.build]`, `[commands.clippy]`, `[commands.verify]`, etc.).
+`ops init` writes a merged template: base config plus the detected stack's default commands (so e.g. in a Rust project the generated `.ops.toml` already contains `[commands.build]`, `[commands.clippy]`, `[commands.verify]`, `[commands.qa]`, etc.).
 
 ### Split config with `.ops.d/`
 
@@ -110,7 +111,12 @@ program = "cargo"
 args = ["build", "--all-targets"]
 
 [commands.verify]
-commands = ["build", "clippy", "test"]
-parallel = false
+commands = ["fmt", "check", "clippy", "build"]
+parallel = true
 fail_fast = true   # stop on first failure (default: true)
+
+[commands.qa]
+commands = ["test", "deps"]
+parallel = true
+fail_fast = true
 ```

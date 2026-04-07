@@ -25,8 +25,11 @@ ops init
 # Run a command
 ops build
 
-# Run a command group
+# Run static checks (fmt, check, clippy, build)
 ops verify
+
+# Run tests and quality checks
+ops qa
 
 # Add a new command interactively
 ops new-command "cargo fmt --check"
@@ -51,13 +54,14 @@ program = "cargo"
 args = ["test"]
 
 [commands.verify]
-commands = ["build", "clippy", "test"]
-parallel = false
+commands = ["fmt", "check", "clippy", "build"]
+parallel = true
 fail_fast = true
 
-[commands.lint]
-commands = ["fmt", "clippy", "check"]
+[commands.qa]
+commands = ["test", "deps"]
 parallel = true
+fail_fast = true
 ```
 
 Config is merged in order: built-in defaults → global config → local `.ops.toml` → env. When run inside a project with a detected stack (e.g. Rust), `ops init` pre-fills stack-specific commands.
