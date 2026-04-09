@@ -234,7 +234,11 @@ fn inject_dynamic_commands(
             .help()
             .map(|s| s.to_string())
             .unwrap_or_else(|| spec.display_cmd_fallback());
-        cmd = cmd.subcommand(clap::Command::new(leak(name.clone())).about(leak(about)));
+        let mut sub = clap::Command::new(leak(name.clone())).about(leak(about));
+        for alias in spec.aliases() {
+            sub = sub.visible_alias(leak(alias.clone()));
+        }
+        cmd = cmd.subcommand(sub);
     }
 
     // Stack default commands.
@@ -247,7 +251,11 @@ fn inject_dynamic_commands(
                 .help()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| spec.display_cmd_fallback());
-            cmd = cmd.subcommand(clap::Command::new(leak(name)).about(leak(about)));
+            let mut sub = clap::Command::new(leak(name)).about(leak(about));
+            for alias in spec.aliases() {
+                sub = sub.visible_alias(leak(alias.clone()));
+            }
+            cmd = cmd.subcommand(sub);
         }
     }
 

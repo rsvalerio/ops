@@ -58,6 +58,35 @@ fn expand_to_leaves_unknown() {
     assert!(runner.expand_to_leaves("unknown").is_none());
 }
 
+#[test]
+fn resolve_by_alias() {
+    let mut commands = HashMap::new();
+    let mut spec = exec_spec("cargo", &["build"]);
+    spec.aliases = vec!["b".to_string(), "compile".to_string()];
+    commands.insert("build".to_string(), CommandSpec::Exec(spec));
+    let runner = test_runner(commands);
+
+    // Resolve by canonical name
+    assert!(runner.resolve("build").is_some());
+    // Resolve by alias
+    assert!(runner.resolve("b").is_some());
+    assert!(runner.resolve("compile").is_some());
+    // Unknown still returns None
+    assert!(runner.resolve("unknown").is_none());
+}
+
+#[test]
+fn expand_to_leaves_via_alias() {
+    let mut commands = HashMap::new();
+    let mut spec = exec_spec("cargo", &["build"]);
+    spec.aliases = vec!["b".to_string()];
+    commands.insert("build".to_string(), CommandSpec::Exec(spec));
+    let runner = test_runner(commands);
+
+    let plan = runner.expand_to_leaves("b").expect("alias must resolve");
+    assert_eq!(plan, vec!["build"]);
+}
+
 #[tokio::test]
 async fn run_plan_echo_success() {
     let mut runner = test_runner(HashMap::new());
@@ -465,6 +494,7 @@ mod proptest_tests {
                     parallel: false,
                     fail_fast: true,
                     help: None,
+                    aliases: Vec::new(),
                 }),
             );
             let runner = test_runner(commands);
@@ -1183,6 +1213,7 @@ mod depth_limit_tests {
                     parallel: false,
                     fail_fast: true,
                     help: None,
+                    aliases: Vec::new(),
                 }),
             );
         }

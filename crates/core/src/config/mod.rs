@@ -37,6 +37,19 @@ pub struct Config {
     pub tools: IndexMap<String, ToolSpec>,
 }
 
+impl Config {
+    /// Find the canonical command name for an alias.
+    /// Returns `Some(command_name)` if the alias matches a command's aliases list.
+    pub fn resolve_alias(&self, alias: &str) -> Option<&str> {
+        for (name, spec) in &self.commands {
+            if spec.aliases().iter().any(|a| a == alias) {
+                return Some(name.as_str());
+            }
+        }
+        None
+    }
+}
+
 /// Extension configuration.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -191,6 +204,14 @@ impl CommandSpec {
         }
     }
 
+    /// Return the aliases for this command.
+    pub fn aliases(&self) -> &[String] {
+        match self {
+            CommandSpec::Exec(e) => &e.aliases,
+            CommandSpec::Composite(c) => &c.aliases,
+        }
+    }
+
     /// Fallback description when no `help` text is set.
     pub fn display_cmd_fallback(&self) -> String {
         match self {
@@ -217,6 +238,9 @@ pub struct ExecCommandSpec {
     /// Short help text shown in `ops --help`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub help: Option<String>,
+    /// Alternative names that can be used to invoke this command.
+    #[serde(default, alias = "alias", skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
 }
 
 impl ExecCommandSpec {
@@ -251,6 +275,9 @@ pub struct CompositeCommandSpec {
     /// Short help text shown in `ops --help`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub help: Option<String>,
+    /// Alternative names that can be used to invoke this command.
+    #[serde(default, alias = "alias", skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
 }
 
 /// Command identifier (name used in config and CLI).

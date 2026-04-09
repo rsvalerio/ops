@@ -160,13 +160,57 @@ impl CommandRunner {
         }
     }
 
-    /// Resolve a command by ID (config first, then stack defaults, then extension).
+    /// Resolve a command by ID or alias (config first, then stack defaults, then extension, then aliases).
     pub fn resolve(&self, id: &str) -> Option<&CommandSpec> {
         self.config
             .commands
             .get(id)
             .or(self.stack_commands.get(id))
             .or(self.extension_commands.get(id))
+            .or_else(|| self.resolve_alias(id))
+    }
+
+    /// Return the canonical command name for a given ID or alias.
+    /// If the ID is already a direct command name, returns it as-is.
+    /// If it matches an alias, returns the canonical name.
+    fn canonical_id<'a>(&'a self, id: &'a str) -> &'a str {
+        if self.config.commands.contains_key(id)
+            || self.stack_commands.contains_key(id)
+            || self.extension_commands.contains_key(id)
+        {
+            return id;
+        }
+        if let Some(name) = self.config.resolve_alias(id) {
+            return name;
+        }
+        for (name, spec) in &self.stack_commands {
+            if spec.aliases().iter().any(|a| a == id) {
+                return name.as_str();
+            }
+        }
+        for (name, spec) in &self.extension_commands {
+            if spec.aliases().iter().any(|a| a == id) {
+                return name.as_str();
+            }
+        }
+        id
+    }
+
+    /// Look up a command by alias across all command sources.
+    fn resolve_alias(&self, alias: &str) -> Option<&CommandSpec> {
+        // Config commands
+        if let Some(name) = self.config.resolve_alias(alias) {
+            return self.config.commands.get(name);
+        }
+        // Stack default commands
+        self.stack_commands
+            .values()
+            .find(|spec| spec.aliases().iter().any(|a| a == alias))
+            .or_else(|| {
+                self.extension_commands
+                    .values()
+                    .find(|spec| spec.aliases().iter().any(|a| a == alias))
+            })
     }
 
     /// List all available command IDs (config first, then stack, then extension commands; sorted for stable order).
@@ -219,11 +263,12 @@ impl CommandRunner {
             );
             return None;
         }
-        let spec = self.resolve(id)?;
+        let canonical = self.canonical_id(id);
+        let spec = self.resolve(canonical)?;
         match spec {
-            CommandSpec::Exec(_) => Some(vec![id.to_string()]),
+            CommandSpec::Exec(_) => Some(vec![canonical.to_string()]),
             CommandSpec::Composite(c) => {
-                if !visited.insert(id.to_string()) {
+                if !visited.insert(canonical.to_string()) {
                     return None; // cycle detected
                 }
                 let mut out = Vec::new();

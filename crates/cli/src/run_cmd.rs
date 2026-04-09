@@ -490,6 +490,7 @@ commands = ["a"]
                             parallel: false,
                             fail_fast: true,
                             help: None,
+                            aliases: Vec::new(),
                         },
                     ),
                 )

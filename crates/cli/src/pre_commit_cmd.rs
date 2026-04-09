@@ -197,6 +197,7 @@ mod tests {
                 parallel: false,
                 fail_fast: true,
                 help: None,
+                aliases: Vec::new(),
             }),
         );
         config.commands.insert(
