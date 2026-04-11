@@ -251,10 +251,7 @@ fn print_categorized_help(
             continue;
         }
         let name = sub.get_name().to_string();
-        let about = sub
-            .get_about()
-            .map(|s| s.to_string())
-            .unwrap_or_default();
+        let about = sub.get_about().map(|s| s.to_string()).unwrap_or_default();
         let category = builtin_category(&name).map(|s| s.to_string());
         entries.push(CmdEntry {
             name,
@@ -308,11 +305,7 @@ fn print_categorized_help(
     });
 
     // -- Build the grouped sections string ----------------------------------
-    let max_name_width = entries
-        .iter()
-        .map(|e| e.name.len())
-        .max()
-        .unwrap_or(0);
+    let max_name_width = entries.iter().map(|e| e.name.len()).max().unwrap_or(0);
 
     let mut grouped = String::new();
     let mut current_category: Option<Option<&str>> = None;
