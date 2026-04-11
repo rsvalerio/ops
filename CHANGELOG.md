@@ -2,6 +2,35 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.12.0](https://github.com/rsvalerio/ops/compare/c60e0fec6b4cf0099ea9bef877ff514742d59492..v0.12.0) - 2026-04-11
+#### 🚀 Features
+- (**commands**) add category field and grouped help output - ([ae14e44](https://github.com/rsvalerio/ops/commit/ae14e44b6f4abe495b1bead79a588500e4d04d09)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**commands**) add alias support for exec and composite commands - ([c60e0fe](https://github.com/rsvalerio/ops/commit/c60e0fec6b4cf0099ea9bef877ff514742d59492)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.6 (1M context)
+- (**hooks**) split pre-commit into run-before-commit and run-before-push - ([95319e9](https://github.com/rsvalerio/ops/commit/95319e94be79c441e69a5a9a06b22317dfe5a961)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**ci**) add verbose flag to test command - ([34d2674](https://github.com/rsvalerio/ops/commit/34d26745aaa98f54cc0e3339c79c8543f5ac2d3b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**ci**) disable sccache wrapper in bump workflow - ([46844a4](https://github.com/rsvalerio/ops/commit/46844a4c17a8a8c1ff31066b5866b34d05cce68e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**ci**) remove --verbose from ops - ([025178f](https://github.com/rsvalerio/ops/commit/025178f8595bc81187104f86fb435605b320c4ab)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) ensure all commands have a default category - ([4125a2a](https://github.com/rsvalerio/ops/commit/4125a2a25441193cd3fe734a17d1ff5044c12bcd)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- update Cargo and build configuration - ([78a04ae](https://github.com/rsvalerio/ops/commit/78a04ae1c4461ca364f13201542f9a3a43edef08)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔄 CI/CD
+- add sccache-action to build jobs for improved caching - ([52e6fbb](https://github.com/rsvalerio/ops/commit/52e6fbb52ff986f581d3e1a0b30ef2d871b523bb)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**cli**) extract build_runner and print_exec_spec, fix CommandId types - ([8144752](https://github.com/rsvalerio/ops/commit/814475278c05747708e3e134125da24a123d8f3b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) update commands for extension refactoring - ([f260734](https://github.com/rsvalerio/ops/commit/f2607341c40d214d88bf4b8fcc3ef82203fbf382)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) extract loader and merge logic - ([f76224f](https://github.com/rsvalerio/ops/commit/f76224f9c80bd03afe42ee0f7b677538ef6cfd3c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) update project identity and extension content - ([ea1baca](https://github.com/rsvalerio/ops/commit/ea1bacaa4a8a5676fd14300367d51c24e24251fd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) extract modules and simplify extension system - ([66d0d5f](https://github.com/rsvalerio/ops/commit/66d0d5fb620c10e3ed7a71b4b6845e25853cd605)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) refactor command execution and display - ([eab6582](https://github.com/rsvalerio/ops/commit/eab6582adac19bd898ebfd34b81fb422d11d954a)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- remove not used files - ([28638e7](https://github.com/rsvalerio/ops/commit/28638e7033b2571d6f404277927a7257177b6c7c)) - [@rsvalerio](https://github.com/rsvalerio)
+- add project management and backlog tooling - ([8a5be94](https://github.com/rsvalerio/ops/commit/8a5be943a1abad92aa876c730f3b38c52dbc5cdf)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🎨 Styling
+- (**cli**) format print_categorized_help function - ([29c078b](https://github.com/rsvalerio/ops/commit/29c078be036a7f8933f4a1350d71e3286cf2d5e5)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.11.0](https://github.com/rsvalerio/ops/compare/65a421f791f9f910d01d481d49b10b505125564b..v0.11.0) - 2026-04-07
 #### 🚀 Features
 - (**about**) add generic multi-stack about extension - ([6ad34c3](https://github.com/rsvalerio/ops/commit/6ad34c3a2010905cdde4aa21a6a8fd6e1d8530f8)) - [@rsvalerio](https://github.com/rsvalerio)
