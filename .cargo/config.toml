@@ -1,7 +1,4 @@
 [build]
-# sccache handles caching at crate level - no need for incremental here
-# Don't set codegen-units via rustflags - let profiles control per-profile
-rustc-wrapper = "sccache"
-
-# Disable incremental compilation to avoid cache misses (when using sccache)
+# Disable incremental compilation to improve sccache hit rates in CI.
+# Don't set codegen-units via rustflags - let profiles control per-profile.
 incremental = false
