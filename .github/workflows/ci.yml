@@ -75,6 +75,11 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      # Verbose cargo invocations (compile lines, `rustc` commands).
+      CARGO_TERM_VERBOSE: true
+      # Ops CLI tracing (stderr); merges with `RUST_LOG` if set.
+      OPS_LOG_LEVEL: debug
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -85,7 +90,7 @@ jobs:
         with:
           repo: rsvalerio/ops
       - name: Run all tests
-        run: ops test
+        run: ops test --verbose
 
   deps:
     name: Deps

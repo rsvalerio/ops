@@ -1,0 +1,4 @@
+[build]
+# sccache handles caching at crate level - no need for incremental here
+# Don't set codegen-units via rustflags - let profiles control per-profile
+rustc-wrapper = "sccache"

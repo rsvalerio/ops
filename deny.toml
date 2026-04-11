@@ -34,5 +34,5 @@ multiple-versions = "warn"
 wildcards = "allow"
 
 [sources]
-unknown-registry = "warn"
-unknown-git = "warn"
+unknown-registry = "deny"
+unknown-git = "deny"

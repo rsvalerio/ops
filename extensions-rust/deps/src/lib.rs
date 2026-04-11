@@ -650,7 +650,7 @@ ops_extension::impl_extension! {
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_commands: |_self, registry| {
         registry.insert(
-            "deps".to_string(),
+            "deps".to_string().into(),
             ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec {
                 program: "ops".to_string(),
                 args: vec!["deps".to_string()],

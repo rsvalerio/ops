@@ -24,7 +24,8 @@ ops-cargo-update = { path = "extensions-rust/cargo-update" }
 ops-deps = { path = "extensions-rust/deps" }
 ops-metadata = { path = "extensions-rust/metadata" }
 ops-tools = { path = "extensions-rust/tools" }
-ops-pre-commit = { path = "extensions/pre-commit" }
+ops-run-before-commit = { path = "extensions/run-before-commit" }
+ops-run-before-push = { path = "extensions/run-before-push" }
 ops-test-coverage = { path = "extensions-rust/test-coverage" }
 linkme = "0.3"
 serde = { version = "1", features = ["derive"] }

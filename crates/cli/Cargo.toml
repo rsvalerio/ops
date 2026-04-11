@@ -37,7 +37,8 @@ ops-cargo-update = { workspace = true, optional = true }
 ops-deps = { workspace = true, optional = true }
 ops-metadata = { workspace = true, optional = true }
 ops-test-coverage = { workspace = true, optional = true }
-ops-pre-commit = { workspace = true }
+ops-run-before-commit = { workspace = true }
+ops-run-before-push = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 inquire = "0.9"

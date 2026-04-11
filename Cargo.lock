@@ -2026,7 +2026,8 @@ dependencies = [
  "ops-duckdb",
  "ops-extension",
  "ops-metadata",
- "ops-pre-commit",
+ "ops-run-before-commit",
+ "ops-run-before-push",
  "ops-runner",
  "ops-test-coverage",
  "ops-tokei",
@@ -2201,7 +2202,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "ops-pre-commit"
+name = "ops-run-before-commit"
+version = "0.11.0"
+dependencies = [
+ "anyhow",
+ "linkme",
+ "ops-extension",
+ "tempfile",
+ "toml_edit 0.25.8+spec-1.1.0",
+]
+
+[[package]]
+name = "ops-run-before-push"
 version = "0.11.0"
 dependencies = [
  "anyhow",
