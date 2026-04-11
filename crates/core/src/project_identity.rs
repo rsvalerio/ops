@@ -4,8 +4,6 @@
 //! returning a [`ProjectIdentity`] as JSON. The generic about command
 //! deserializes it and converts to an [`AboutCard`] for themed rendering.
 
-use std::io::{self, IsTerminal};
-
 use serde::{Deserialize, Serialize};
 
 use crate::style::{cyan, dim};
@@ -114,9 +112,8 @@ impl AboutCard {
 
     /// Render the about card as styled text lines.
     ///
-    /// Uses ANSI colors when stdout is a TTY.
-    pub fn render(&self, _columns: u16) -> String {
-        let is_tty = io::stdout().is_terminal();
+    /// Pass `is_tty = true` to enable ANSI colors in the output.
+    pub fn render(&self, _columns: u16, is_tty: bool) -> String {
         let mut lines = Vec::new();
 
         // Inline: title · badge
@@ -239,5 +236,105 @@ mod tests {
         assert_eq!(card.badge, "Generic");
         assert!(card.description.is_none());
         assert_eq!(card.fields.len(), 1); // just project path
+    }
+
+    fn sample_identity() -> ProjectIdentity {
+        ProjectIdentity {
+            name: "ops".to_string(),
+            version: Some("0.10.0".to_string()),
+            description: Some("Task runner".to_string()),
+            stack_label: "Rust".to_string(),
+            stack_detail: Some("Edition 2021".to_string()),
+            license: Some("Apache-2.0".to_string()),
+            project_path: "/home/user/ops".to_string(),
+            module_count: Some(15),
+            module_label: "crates".to_string(),
+            loc: Some(21324),
+            file_count: Some(96),
+            authors: vec!["Alice".to_string()],
+            repository: Some("https://github.com/user/ops".to_string()),
+        }
+    }
+
+    #[test]
+    fn render_non_tty_contains_title_and_badge() {
+        let card = AboutCard::from_identity(&sample_identity());
+        let output = card.render(80, false);
+        assert!(output.contains("ops v0.10.0"), "got: {output}");
+        assert!(output.contains("Rust"), "got: {output}");
+        assert!(output.contains("Apache-2.0"), "got: {output}");
+    }
+
+    #[test]
+    fn render_non_tty_contains_fields() {
+        let card = AboutCard::from_identity(&sample_identity());
+        let output = card.render(80, false);
+        assert!(output.contains("/home/user/ops"), "got: {output}");
+        assert!(output.contains("21,324 loc"), "got: {output}");
+        assert!(output.contains("96 files"), "got: {output}");
+        assert!(output.contains("Alice"), "got: {output}");
+    }
+
+    #[test]
+    fn render_non_tty_contains_description() {
+        let card = AboutCard::from_identity(&sample_identity());
+        let output = card.render(80, false);
+        assert!(output.contains("Task runner"), "got: {output}");
+    }
+
+    #[test]
+    fn render_tty_contains_ansi_escapes() {
+        let card = AboutCard::from_identity(&sample_identity());
+        let output = card.render(80, true);
+        // ANSI escape codes start with \x1b[
+        assert!(
+            output.contains("\x1b["),
+            "TTY output should contain ANSI escapes: {output}"
+        );
+    }
+
+    #[test]
+    fn render_non_tty_no_ansi_escapes() {
+        let card = AboutCard::from_identity(&sample_identity());
+        let output = card.render(80, false);
+        assert!(
+            !output.contains("\x1b["),
+            "non-TTY output should not contain ANSI escapes: {output}"
+        );
+    }
+
+    #[test]
+    fn render_minimal_card_no_description() {
+        let id = ProjectIdentity {
+            name: "bare".to_string(),
+            version: None,
+            description: None,
+            stack_label: "Generic".to_string(),
+            stack_detail: None,
+            license: None,
+            project_path: "/tmp".to_string(),
+            module_count: None,
+            module_label: "modules".to_string(),
+            loc: None,
+            file_count: None,
+            authors: vec![],
+            repository: None,
+        };
+        let card = AboutCard::from_identity(&id);
+        let output = card.render(80, false);
+        assert!(output.contains("bare"), "got: {output}");
+        assert!(output.contains("/tmp"), "got: {output}");
+        // Only 1 field (project), no blank description line
+        assert_eq!(output.matches('\n').count(), 2); // header, blank, field
+    }
+
+    #[test]
+    fn file_count_singular() {
+        let mut id = sample_identity();
+        id.file_count = Some(1);
+        let card = AboutCard::from_identity(&id);
+        let output = card.render(80, false);
+        assert!(output.contains("1 file"), "got: {output}");
+        assert!(!output.contains("1 files"), "should be singular: {output}");
     }
 }

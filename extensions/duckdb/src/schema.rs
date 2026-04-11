@@ -47,6 +47,7 @@ pub fn get_source_checksum(
 }
 
 /// Upsert a data_sources row after a load.
+#[allow(clippy::too_many_arguments)]
 pub fn upsert_data_source(
     db: &DuckDb,
     source_name: &str,

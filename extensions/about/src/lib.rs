@@ -4,6 +4,8 @@
 //! returning [`ops_core::project_identity::ProjectIdentity`] as JSON.
 //! When no provider is available, a minimal identity is built from the filesystem.
 
+use std::io::IsTerminal;
+
 use ops_core::project_identity::{AboutCard, ProjectIdentity};
 use ops_extension::{DataProviderError, ExtensionType};
 
@@ -23,7 +25,7 @@ ops_extension::impl_extension! {
     data_provider_name: None,
     register_commands: |_self, registry| {
         registry.insert(
-            "about".to_string(),
+            "about".into(),
             ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec {
                 program: "ops".to_string(),
                 args: vec!["about".to_string()],
@@ -75,7 +77,8 @@ pub fn run_about(
     }
 
     let card = AboutCard::from_identity(&identity);
-    println!("{}", card.render(columns));
+    let is_tty = std::io::stdout().is_terminal();
+    println!("{}", card.render(columns, is_tty));
 
     Ok(())
 }
