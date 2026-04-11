@@ -1,5 +1,5 @@
 [package]
-name = "ops-pre-commit"
+name = "ops-run-before-push"
 publish = false
 version.workspace = true
 edition.workspace = true

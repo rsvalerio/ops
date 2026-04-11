@@ -89,16 +89,27 @@ pub enum CoreSubcommand {
     },
     /// Interactively add a new command to `.ops.toml`.
     NewCommand,
-    /// Install and manage git pre-commit hooks.
+    /// Setup git pre-commit hook to run an ops command of your choice.
     ///
-    /// Without a subcommand, runs pre-commit checks on staged files only.
-    /// Use `--all` to check the entire workspace.
-    PreCommit {
-        /// Run checks on all files, not just staged ones.
+    /// Without a subcommand, runs checks on all files.
+    /// Use `--changed-only` to limit to staged files.
+    RunBeforeCommit {
+        /// Only check staged files instead of the entire workspace.
         #[arg(long)]
-        all: bool,
+        changed_only: bool,
         #[command(subcommand)]
-        action: Option<PreCommitAction>,
+        action: Option<RunBeforeCommitAction>,
+    },
+    /// Setup git pre-push hook to run an ops command of your choice.
+    ///
+    /// Without a subcommand, runs checks on all files.
+    /// Use `--changed-only` to limit to changed files.
+    RunBeforePush {
+        /// Only check changed files instead of the entire workspace.
+        #[arg(long)]
+        changed_only: bool,
+        #[command(subcommand)]
+        action: Option<RunBeforePushAction>,
     },
     /// Install and manage cargo development tools.
     Tools {
@@ -128,10 +139,17 @@ pub enum ExtensionAction {
     Show { name: Option<String> },
 }
 
-/// Pre-commit hook management subcommands.
+/// Run-before-commit hook management subcommands.
 #[derive(clap::Subcommand, Debug, Clone)]
-pub enum PreCommitAction {
+pub enum RunBeforeCommitAction {
     /// Install the git pre-commit hook and add a default command to `.ops.toml`.
+    Install,
+}
+
+/// Run-before-push hook management subcommands.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum RunBeforePushAction {
+    /// Install the git pre-push hook and add a default command to `.ops.toml`.
     Install,
 }
 

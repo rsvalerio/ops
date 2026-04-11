@@ -17,14 +17,17 @@ extern crate ops_tokei;
 
 mod args;
 mod extension_cmd;
+mod hook_shared;
 mod init_cmd;
 mod new_command_cmd;
-mod pre_commit_cmd;
 mod registry;
+mod run_before_commit_cmd;
+mod run_before_push_cmd;
 mod run_cmd;
 mod theme_cmd;
 #[cfg(feature = "stack-rust")]
 mod tools_cmd;
+mod tty;
 
 #[cfg(test)]
 mod test_utils;
@@ -106,10 +109,16 @@ fn run() -> anyhow::Result<ExitCode> {
 
     let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
     let mut matches = cmd.get_matches_from(effective_args);
-    let cli = Cli::from_arg_matches_mut(&mut matches)
-        .map_err(|e: clap::Error| e.exit())
-        .unwrap();
+    let cli = Cli::from_arg_matches_mut(&mut matches).unwrap_or_else(|e: clap::Error| e.exit());
 
+    dispatch(cli, &early_config, detected_stack)
+}
+
+fn dispatch(
+    cli: Cli,
+    early_config: &ops_core::config::Config,
+    detected_stack: Option<ops_core::stack::Stack>,
+) -> anyhow::Result<ExitCode> {
     match cli.subcommand {
         Some(CoreSubcommand::Init {
             force,
@@ -123,7 +132,14 @@ fn run() -> anyhow::Result<ExitCode> {
         Some(CoreSubcommand::Theme { action }) => run_theme(action)?,
         Some(CoreSubcommand::Extension { action }) => run_extension(action)?,
         Some(CoreSubcommand::NewCommand) => new_command_cmd::run_new_command()?,
-        Some(CoreSubcommand::PreCommit { all, action }) => return run_pre_commit(action, all),
+        Some(CoreSubcommand::RunBeforeCommit {
+            changed_only,
+            action,
+        }) => return run_before_commit(action, changed_only),
+        Some(CoreSubcommand::RunBeforePush {
+            changed_only,
+            action,
+        }) => return run_before_push(action, changed_only),
         Some(CoreSubcommand::About { refresh }) => {
             let (config, cwd) = load_config_and_cwd()?;
             let registry = crate::registry::build_data_registry(&config, &cwd)?;
@@ -168,7 +184,7 @@ fn run() -> anyhow::Result<ExitCode> {
         }
         None => {
             let mut cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
-            cmd = inject_dynamic_commands(cmd, &early_config, detected_stack);
+            cmd = inject_dynamic_commands(cmd, early_config, detected_stack);
             cmd.print_help()?;
         }
     }
@@ -201,7 +217,6 @@ fn inject_dynamic_commands(
 ) -> clap::Command {
     use std::collections::HashSet;
 
-    // Built-in subcommand names to skip.
     let builtins: HashSet<&str> = [
         "init",
         "theme",
@@ -211,7 +226,8 @@ fn inject_dynamic_commands(
         "dashboard",
         "deps",
         "tools",
-        "pre-commit",
+        "run-before-commit",
+        "run-before-push",
         "help",
     ]
     .into_iter()
@@ -225,38 +241,28 @@ fn inject_dynamic_commands(
         Box::leak(s.into_boxed_str())
     }
 
-    // Config commands first (higher priority).
-    for (name, spec) in &config.commands {
-        if builtins.contains(name.as_str()) || !seen.insert(name.clone()) {
+    // Collect all command sources: config first (higher priority), then stack defaults.
+    let stack_commands = stack.map(|s| s.default_commands()).unwrap_or_default();
+    let sources: Vec<(&str, &ops_core::config::CommandSpec)> = config
+        .commands
+        .iter()
+        .map(|(n, s)| (n.as_str(), s))
+        .chain(stack_commands.iter().map(|(n, s)| (n.as_str(), s)))
+        .collect();
+
+    for (name, spec) in sources {
+        if builtins.contains(name) || !seen.insert(name.to_string()) {
             continue;
         }
         let about = spec
             .help()
             .map(|s| s.to_string())
             .unwrap_or_else(|| spec.display_cmd_fallback());
-        let mut sub = clap::Command::new(leak(name.clone())).about(leak(about));
+        let mut sub = clap::Command::new(leak(name.to_string())).about(leak(about));
         for alias in spec.aliases() {
             sub = sub.visible_alias(leak(alias.clone()));
         }
         cmd = cmd.subcommand(sub);
-    }
-
-    // Stack default commands.
-    if let Some(stack) = stack {
-        for (name, spec) in stack.default_commands() {
-            if builtins.contains(name.as_str()) || !seen.insert(name.clone()) {
-                continue;
-            }
-            let about = spec
-                .help()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| spec.display_cmd_fallback());
-            let mut sub = clap::Command::new(leak(name)).about(leak(about));
-            for alias in spec.aliases() {
-                sub = sub.visible_alias(leak(alias.clone()));
-            }
-            cmd = cmd.subcommand(sub);
-        }
     }
 
     cmd
@@ -282,30 +288,92 @@ fn run_extension(action: ExtensionAction) -> anyhow::Result<()> {
     }
 }
 
-fn run_pre_commit(action: Option<PreCommitAction>, all: bool) -> anyhow::Result<ExitCode> {
+/// Prompt the user to run `ops <hook> install` when the hook command is not configured.
+fn prompt_hook_install(hook_name: &str) -> anyhow::Result<ExitCode> {
+    let _ = writeln!(
+        std::io::stderr(),
+        "No '{hook_name}' command configured in .ops.toml."
+    );
+    if !crate::tty::is_stdout_tty() {
+        let _ = writeln!(
+            std::io::stderr(),
+            "Run `ops {hook_name} install` to set it up."
+        );
+        return Ok(ExitCode::FAILURE);
+    }
+    let answer = inquire::Confirm::new(&format!("Run `ops {hook_name} install` now?"))
+        .with_default(true)
+        .prompt()?;
+    if answer {
+        let status = std::process::Command::new(std::env::current_exe()?)
+            .args([hook_name, "install"])
+            .status()?;
+        if status.success() {
+            return Ok(ExitCode::SUCCESS);
+        }
+        return Ok(ExitCode::FAILURE);
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn run_before_commit(
+    action: Option<RunBeforeCommitAction>,
+    changed_only: bool,
+) -> anyhow::Result<ExitCode> {
     match action {
-        Some(PreCommitAction::Install) => {
-            pre_commit_cmd::run_pre_commit_install()?;
+        Some(RunBeforeCommitAction::Install) => {
+            run_before_commit_cmd::run_before_commit_install()?;
             Ok(ExitCode::SUCCESS)
         }
         None => {
-            if ops_pre_commit::should_skip() {
+            let config = ops_core::config::load_config().unwrap_or_default();
+            if !config.commands.contains_key("run-before-commit") {
+                return prompt_hook_install("run-before-commit");
+            }
+            if ops_run_before_commit::should_skip() {
                 let _ = writeln!(
                     std::io::stderr(),
-                    "[pre-commit] {}=1 — skipping",
-                    ops_pre_commit::SKIP_ENV_VAR
+                    "[run-before-commit] {}=1 — skipping",
+                    ops_run_before_commit::SKIP_ENV_VAR
                 );
                 return Ok(ExitCode::SUCCESS);
             }
-            if !all && !ops_pre_commit::has_staged_files()? {
+            if changed_only && !ops_run_before_commit::has_staged_files()? {
                 let _ = writeln!(
                     std::io::stderr(),
-                    "[pre-commit] no staged files — skipping (use --all to check everything)"
+                    "[run-before-commit] no staged files — skipping"
                 );
                 return Ok(ExitCode::SUCCESS);
             }
-            // Run the configured `pre-commit` command from .ops.toml
-            let args = vec![std::ffi::OsString::from("pre-commit")];
+            let args = vec![std::ffi::OsString::from("run-before-commit")];
+            run_cmd::run_external_command(&args, false, false)
+        }
+    }
+}
+
+fn run_before_push(
+    action: Option<RunBeforePushAction>,
+    _changed_only: bool,
+) -> anyhow::Result<ExitCode> {
+    match action {
+        Some(RunBeforePushAction::Install) => {
+            run_before_push_cmd::run_before_push_install()?;
+            Ok(ExitCode::SUCCESS)
+        }
+        None => {
+            let config = ops_core::config::load_config().unwrap_or_default();
+            if !config.commands.contains_key("run-before-push") {
+                return prompt_hook_install("run-before-push");
+            }
+            if ops_run_before_push::should_skip() {
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "[run-before-push] {}=1 — skipping",
+                    ops_run_before_push::SKIP_ENV_VAR
+                );
+                return Ok(ExitCode::SUCCESS);
+            }
+            let args = vec![std::ffi::OsString::from("run-before-push")];
             run_cmd::run_external_command(&args, false, false)
         }
     }

@@ -1,4 +1,4 @@
-//! Pre-commit hook extension: install and manage git pre-commit hooks.
+//! Run-before-push hook extension: install and manage git pre-push hooks.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -6,43 +6,34 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use ops_extension::ExtensionType;
 
-pub const NAME: &str = "pre-commit";
-pub const DESCRIPTION: &str = "Install and manage git pre-commit hooks";
-pub const SHORTNAME: &str = "pre-commit";
+pub const NAME: &str = "run-before-push";
+pub const DESCRIPTION: &str = "Setup git pre-push hook to run an ops command of your choice";
+pub const SHORTNAME: &str = "run-before-push";
 
-pub struct PreCommitExtension;
+pub struct RunBeforePushExtension;
 
 ops_extension::impl_extension! {
-    PreCommitExtension,
+    RunBeforePushExtension,
     name: NAME,
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: ExtensionType::COMMAND,
     data_provider_name: None,
     register_data_providers: |_self, _registry| {},
-    factory: PRE_COMMIT_FACTORY = |_, _| {
-        Some((NAME, Box::new(PreCommitExtension)))
+    factory: RUN_BEFORE_PUSH_FACTORY = |_, _| {
+        Some((NAME, Box::new(RunBeforePushExtension)))
     },
 }
 
-/// The shell script installed as `.git/hooks/pre-commit`.
-const HOOK_SCRIPT: &str = "#!/usr/bin/env bash\nexec ops pre-commit\n";
+/// The shell script installed as `.git/hooks/pre-push`.
+const HOOK_SCRIPT: &str = "#!/usr/bin/env bash\nexec ops run-before-push\n";
 
-/// Environment variable that skips the pre-commit check when set to "1".
-pub const SKIP_ENV_VAR: &str = "SKIP_OPS_VERIFY";
+/// Environment variable that skips the run-before-push check when set to "1".
+pub const SKIP_ENV_VAR: &str = "SKIP_OPS_RUN_BEFORE_PUSH";
 
-/// Returns `true` if `SKIP_OPS_VERIFY=1` is set.
+/// Returns `true` if `SKIP_OPS_RUN_BEFORE_PUSH=1` is set.
 pub fn should_skip() -> bool {
     std::env::var(SKIP_ENV_VAR).is_ok_and(|v| v == "1")
-}
-
-/// Returns `true` if there are any staged files in the git index.
-pub fn has_staged_files() -> anyhow::Result<bool> {
-    let output = std::process::Command::new("git")
-        .args(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
-        .output()
-        .context("failed to run git diff --cached")?;
-    Ok(!output.stdout.is_empty())
 }
 
 /// Find the `.git` directory by walking up from the given path.
@@ -59,14 +50,14 @@ pub fn find_git_dir(from: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Install the git pre-commit hook.
+/// Install the git pre-push hook.
 ///
 /// Returns the path to the created hook file.
 pub fn install_hook(git_dir: &Path, w: &mut dyn Write) -> anyhow::Result<PathBuf> {
     let hooks_dir = git_dir.join("hooks");
     std::fs::create_dir_all(&hooks_dir).context("failed to create .git/hooks directory")?;
 
-    let hook_path = hooks_dir.join("pre-commit");
+    let hook_path = hooks_dir.join("pre-push");
 
     if hook_path.exists() {
         let existing =
@@ -75,12 +66,12 @@ pub fn install_hook(git_dir: &Path, w: &mut dyn Write) -> anyhow::Result<PathBuf
             writeln!(w, "Hook already installed at {}", hook_path.display())?;
             return Ok(hook_path);
         }
-        if existing.contains("ops pre-commit") {
+        if existing.contains("ops run-before-push") || existing.contains("ops before-push") {
             // Old/outdated ops hook — overwrite it below
             writeln!(w, "Updating outdated ops hook at {}", hook_path.display())?;
         } else {
             anyhow::bail!(
-                "a pre-commit hook already exists at {} and was not installed by ops. \
+                "a pre-push hook already exists at {} and was not installed by ops. \
                  Remove it manually or back it up before running install.",
                 hook_path.display()
             );
@@ -100,9 +91,9 @@ pub fn install_hook(git_dir: &Path, w: &mut dyn Write) -> anyhow::Result<PathBuf
     Ok(hook_path)
 }
 
-/// Ensure a `[commands.pre-commit]` entry exists in `.ops.toml`.
+/// Ensure a `[commands.run-before-push]` entry exists in `.ops.toml`.
 ///
-/// If the config already has a `pre-commit` command, does nothing.
+/// If the config already has a `run-before-push` command, does nothing.
 /// Otherwise, adds a composite command that runs the given `selected_commands`.
 /// If `selected_commands` is empty, skips writing the entry.
 pub fn ensure_config_command(
@@ -127,10 +118,10 @@ pub fn ensure_config_command(
         .parse::<toml_edit::DocumentMut>()
         .unwrap_or_else(|_| toml_edit::DocumentMut::new());
 
-    // Check if pre-commit command already exists
+    // Check if run-before-push command already exists
     if let Some(commands) = doc.get("commands").and_then(|c| c.as_table()) {
-        if commands.contains_key("pre-commit") {
-            writeln!(w, "Command 'pre-commit' already defined in .ops.toml")?;
+        if commands.contains_key("run-before-push") {
+            writeln!(w, "Command 'run-before-push' already defined in .ops.toml")?;
             return Ok(());
         }
     }
@@ -154,13 +145,13 @@ pub fn ensure_config_command(
     cmd.insert("fail_fast", toml_edit::value(true));
     cmd.insert(
         "help",
-        toml_edit::value("Run pre-commit checks before committing"),
+        toml_edit::value("Run run-before-push checks before pushing"),
     );
 
-    commands.insert("pre-commit", toml_edit::Item::Table(cmd));
+    commands.insert("run-before-push", toml_edit::Item::Table(cmd));
 
     std::fs::write(&config_path, doc.to_string()).context("failed to write .ops.toml")?;
-    writeln!(w, "Added 'pre-commit' command to .ops.toml")?;
+    writeln!(w, "Added 'run-before-push' command to .ops.toml")?;
 
     Ok(())
 }
@@ -172,8 +163,8 @@ mod tests {
     // -- HOOK_SCRIPT --
 
     #[test]
-    fn hook_script_contains_ops_pre_commit() {
-        assert!(HOOK_SCRIPT.contains("ops pre-commit"));
+    fn hook_script_contains_ops_run_before_push() {
+        assert!(HOOK_SCRIPT.contains("ops run-before-push"));
     }
 
     #[test]
@@ -183,7 +174,6 @@ mod tests {
 
     #[test]
     fn should_skip_returns_false_by_default() {
-        // env var not set in test => false
         std::env::remove_var(SKIP_ENV_VAR);
         assert!(!should_skip());
     }
@@ -228,7 +218,7 @@ mod tests {
 
         assert!(path.exists());
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("ops pre-commit"));
+        assert!(content.contains("ops run-before-push"));
 
         #[cfg(unix)]
         {
@@ -246,7 +236,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
-        std::fs::write(git_dir.join("hooks/pre-commit"), HOOK_SCRIPT).unwrap();
+        std::fs::write(git_dir.join("hooks/pre-push"), HOOK_SCRIPT).unwrap();
 
         let mut buf = Vec::new();
         let path = install_hook(&git_dir, &mut buf).expect("install_hook");
@@ -262,8 +252,29 @@ mod tests {
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(
-            git_dir.join("hooks/pre-commit"),
-            "#!/bin/sh\necho old\nops pre-commit\n",
+            git_dir.join("hooks/pre-push"),
+            "#!/bin/sh\necho old\nops run-before-push\n",
+        )
+        .unwrap();
+
+        let mut buf = Vec::new();
+        let path = install_hook(&git_dir, &mut buf).expect("install_hook");
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, HOOK_SCRIPT);
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("Updating outdated"));
+    }
+
+    #[test]
+    fn install_hook_updates_legacy_before_push_hook() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(
+            git_dir.join("hooks/pre-push"),
+            "#!/bin/sh\nexec ops before-push\n",
         )
         .unwrap();
 
@@ -282,11 +293,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
-        std::fs::write(
-            git_dir.join("hooks/pre-commit"),
-            "#!/bin/sh\necho foreign\n",
-        )
-        .unwrap();
+        std::fs::write(git_dir.join("hooks/pre-push"), "#!/bin/sh\necho foreign\n").unwrap();
 
         let mut buf = Vec::new();
         let result = install_hook(&git_dir, &mut buf);
@@ -308,7 +315,7 @@ mod tests {
         ensure_config_command(dir.path(), &selected, &mut buf).expect("ensure_config_command");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert!(content.contains("[commands.pre-commit]"));
+        assert!(content.contains("[commands.run-before-push]"));
         assert!(content.contains("verify"));
         assert!(content.contains("fail_fast"));
 
@@ -317,11 +324,11 @@ mod tests {
     }
 
     #[test]
-    fn ensure_config_preserves_existing_pre_commit() {
+    fn ensure_config_preserves_existing_run_before_push() {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join(".ops.toml"),
-            "[commands.pre-commit]\ncommands = [\"test\"]\n",
+            "[commands.run-before-push]\ncommands = [\"test\"]\n",
         )
         .unwrap();
 
@@ -352,7 +359,7 @@ mod tests {
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("theme = \"compact\""));
         assert!(content.contains("[commands.build]"));
-        assert!(content.contains("[commands.pre-commit]"));
+        assert!(content.contains("[commands.run-before-push]"));
     }
 
     #[test]
@@ -372,8 +379,8 @@ mod tests {
 
     #[test]
     fn extension_constants() {
-        assert_eq!(NAME, "pre-commit");
-        assert_eq!(SHORTNAME, "pre-commit");
+        assert_eq!(NAME, "run-before-push");
+        assert_eq!(SHORTNAME, "run-before-push");
         assert!(!DESCRIPTION.is_empty());
     }
 }
