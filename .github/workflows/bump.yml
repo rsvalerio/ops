@@ -39,5 +39,10 @@ jobs:
       #   pre_bump_hooks:  cargo set-version (updates Cargo.toml)
       #   post_bump_hooks: git push + git push origin <tag>
       # See cog.toml for hook definitions.
+      #
+      # RUSTC_WRAPPER="" overrides .cargo/config.toml's rustc-wrapper = "sccache"
+      # since sccache is not installed in this job.
       - name: Run cog bump --auto
         run: cog -vvv bump --auto
+        env:
+          RUSTC_WRAPPER: ""
