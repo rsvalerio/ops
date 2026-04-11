@@ -26,6 +26,7 @@ fn merge_output(base: &mut OutputConfig, overlay: &OutputConfigOverlay) {
     merge_field(&mut base.columns, overlay.columns);
     merge_field(&mut base.show_error_detail, overlay.show_error_detail);
     merge_field(&mut base.stderr_tail_lines, overlay.stderr_tail_lines);
+    merge_field(&mut base.category_order, overlay.category_order.clone());
 }
 
 /// Merge overlay into base — only explicitly-set values overwrite.

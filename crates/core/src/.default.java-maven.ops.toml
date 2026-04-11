@@ -4,30 +4,36 @@
 program = "./mvnw"
 args = ["compile"]
 help = "Compile sources"
+category = "Build"
 
 [commands.build]
 program = "./mvnw"
 args = ["package", "-DskipTests"]
 help = "Build the project"
+category = "Build"
 
 [commands.test]
 program = "./mvnw"
 args = ["test"]
 help = "Run all tests"
+category = "Code Quality"
 
 [commands.clean]
 program = "./mvnw"
 args = ["clean"]
 help = "Clean build artifacts"
+category = "Build"
 
 [commands.verify]
 commands = ["compile"]
 parallel = false
 fail_fast = true
 help = "Run compile"
+category = "Code Quality"
 
 [commands.qa]
 commands = ["test"]
 parallel = false
 fail_fast = true
 help = "Run test"
+category = "Code Quality"

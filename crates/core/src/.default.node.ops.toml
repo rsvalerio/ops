@@ -4,30 +4,36 @@
 program = "npm"
 args = ["install"]
 help = "Install dependencies"
+category = "Build"
 
 [commands.build]
 program = "npm"
 args = ["run", "build"]
 help = "Build the project"
+category = "Build"
 
 [commands.test]
 program = "npm"
 args = ["test"]
 help = "Run tests"
+category = "Code Quality"
 
 [commands.lint]
 program = "npm"
 args = ["run", "lint"]
 help = "Lint the codebase"
+category = "Code Quality"
 
 [commands.verify]
 commands = ["install", "lint", "build"]
 parallel = false
 fail_fast = true
 help = "Run install, lint, build"
+category = "Code Quality"
 
 [commands.qa]
 commands = ["test"]
 parallel = false
 fail_fast = true
 help = "Run test"
+category = "Code Quality"

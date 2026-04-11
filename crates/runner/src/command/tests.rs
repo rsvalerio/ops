@@ -488,6 +488,7 @@ mod proptest_tests {
                     fail_fast: true,
                     help: None,
                     aliases: Vec::new(),
+                    category: None,
                 }),
             );
             let runner = test_runner(commands);
@@ -1213,6 +1214,7 @@ mod depth_limit_tests {
                     fail_fast: true,
                     help: None,
                     aliases: Vec::new(),
+                    category: None,
                 }),
             );
         }

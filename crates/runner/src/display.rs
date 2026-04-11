@@ -747,6 +747,7 @@ mod tests {
                 show_error_detail: false,
                 theme: "compact".into(),
                 stderr_tail_lines: 10,
+                category_order: Vec::new(),
             },
             &[],
         );

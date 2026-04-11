@@ -4,25 +4,30 @@
 program = "ruff"
 args = ["format", "."]
 help = "Format all code"
+category = "Code Quality"
 
 [commands.lint]
 program = "ruff"
 args = ["check", "."]
 help = "Lint the codebase"
+category = "Code Quality"
 
 [commands.test]
 program = "pytest"
 args = []
 help = "Run tests"
+category = "Code Quality"
 
 [commands.verify]
 commands = ["format", "lint"]
 parallel = false
 fail_fast = true
 help = "Run format, lint"
+category = "Code Quality"
 
 [commands.qa]
 commands = ["test"]
 parallel = false
 fail_fast = true
 help = "Run test"
+category = "Code Quality"

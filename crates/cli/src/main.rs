@@ -96,14 +96,9 @@ fn run() -> anyhow::Result<ExitCode> {
     // parsing because dynamic subcommands cannot be registered at parse time
     // (they would shadow the `External` catch-all).
     if is_toplevel_help(&effective_args) {
-        let mut cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
-        cmd = inject_dynamic_commands(cmd, &early_config, detected_stack);
+        let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
         let long = effective_args.iter().any(|a| a == "--help");
-        if long {
-            cmd.print_long_help()?;
-        } else {
-            cmd.print_help()?;
-        }
+        print_categorized_help(cmd, &early_config, detected_stack, long);
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -183,9 +178,8 @@ fn dispatch(
             return run_cmd::run_external_command(&args, cli.dry_run, cli.verbose)
         }
         None => {
-            let mut cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
-            cmd = inject_dynamic_commands(cmd, early_config, detected_stack);
-            cmd.print_help()?;
+            let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
+            print_categorized_help(cmd, early_config, detected_stack, false);
         }
     }
 
@@ -209,39 +203,67 @@ fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
     saw_help
 }
 
-/// Inject dynamic commands (from config and stack defaults) into the clap Command for help display.
-fn inject_dynamic_commands(
+/// Category assigned to built-in (clap-defined) subcommands.
+fn builtin_category(name: &str) -> Option<&'static str> {
+    match name {
+        "about" | "dashboard" => Some("Insights"),
+        "deps" => Some("Code Quality"),
+        "init" | "theme" | "extension" | "tools" => Some("Setup"),
+        _ => None, // "help" stays uncategorized
+    }
+}
+
+/// Print help with all commands (built-in and dynamic) grouped by category.
+///
+/// Collects built-in subcommands from the clap `Command`, merges them with
+/// config/stack dynamic commands, groups everything by category, and renders
+/// a unified help output.
+fn print_categorized_help(
     mut cmd: clap::Command,
     config: &ops_core::config::Config,
     stack: Option<ops_core::stack::Stack>,
-) -> clap::Command {
+    long: bool,
+) {
     use std::collections::HashSet;
+    use std::fmt::Write;
 
-    let builtins: HashSet<&str> = [
-        "init",
-        "theme",
-        "extension",
-        "new-command",
-        "about",
-        "dashboard",
-        "deps",
-        "tools",
-        "run-before-commit",
-        "run-before-push",
-        "help",
-    ]
-    .into_iter()
-    .collect();
+    // -- Collect built-in commands from clap (name, about, category) --------
+    // Build the clap command so subcommand metadata is fully resolved.
+    cmd.build();
 
-    let mut seen = HashSet::new();
+    let builtin_names: HashSet<String> = cmd
+        .get_subcommands()
+        .filter(|sub| !sub.is_hide_set())
+        .map(|sub| sub.get_name().to_string())
+        .collect();
 
-    // Helper: leak a String into a &'static str.
-    // Safe here because this runs once at process exit (help display).
-    fn leak(s: String) -> &'static str {
-        Box::leak(s.into_boxed_str())
+    struct CmdEntry {
+        name: String,
+        about: String,
+        category: Option<String>,
     }
 
-    // Collect all command sources: config first (higher priority), then stack defaults.
+    let mut entries: Vec<CmdEntry> = Vec::new();
+
+    // Add visible built-in subcommands.
+    for sub in cmd.get_subcommands() {
+        if sub.is_hide_set() {
+            continue;
+        }
+        let name = sub.get_name().to_string();
+        let about = sub
+            .get_about()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let category = builtin_category(&name).map(|s| s.to_string());
+        entries.push(CmdEntry {
+            name,
+            about,
+            category,
+        });
+    }
+
+    // -- Collect dynamic commands (config + stack defaults) ------------------
     let stack_commands = stack.map(|s| s.default_commands()).unwrap_or_default();
     let sources: Vec<(&str, &ops_core::config::CommandSpec)> = config
         .commands
@@ -250,22 +272,92 @@ fn inject_dynamic_commands(
         .chain(stack_commands.iter().map(|(n, s)| (n.as_str(), s)))
         .collect();
 
+    let mut seen: HashSet<String> = builtin_names;
     for (name, spec) in sources {
-        if builtins.contains(name) || !seen.insert(name.to_string()) {
+        if !seen.insert(name.to_string()) {
             continue;
         }
         let about = spec
             .help()
             .map(|s| s.to_string())
             .unwrap_or_else(|| spec.display_cmd_fallback());
-        let mut sub = clap::Command::new(leak(name.to_string())).about(leak(about));
-        for alias in spec.aliases() {
-            sub = sub.visible_alias(leak(alias.clone()));
-        }
-        cmd = cmd.subcommand(sub);
+        entries.push(CmdEntry {
+            name: name.to_string(),
+            about,
+            category: spec.category().map(|s| s.to_string()),
+        });
     }
 
-    cmd
+    // -- Sort by category_order, then alphabetically, uncategorized last ------
+    let category_order = &config.output.category_order;
+    let cat_rank = |cat: Option<&str>| -> usize {
+        match cat {
+            None => usize::MAX,
+            Some(c) => category_order
+                .iter()
+                .position(|o| o == c)
+                .unwrap_or(usize::MAX - 1),
+        }
+    };
+    entries.sort_by(|a, b| {
+        let ra = cat_rank(a.category.as_deref());
+        let rb = cat_rank(b.category.as_deref());
+        ra.cmp(&rb)
+            .then_with(|| a.category.cmp(&b.category))
+            .then(a.name.cmp(&b.name))
+    });
+
+    // -- Build the grouped sections string ----------------------------------
+    let max_name_width = entries
+        .iter()
+        .map(|e| e.name.len())
+        .max()
+        .unwrap_or(0);
+
+    let mut grouped = String::new();
+    let mut current_category: Option<Option<&str>> = None;
+    for entry in &entries {
+        let cat = entry.category.as_deref();
+        if current_category.as_ref() != Some(&cat) {
+            let heading = cat.unwrap_or("Commands");
+            writeln!(grouped, "\n{heading}:").unwrap();
+            current_category = Some(cat);
+        }
+        writeln!(
+            grouped,
+            "  {:<width$}  {}",
+            entry.name,
+            entry.about,
+            width = max_name_width
+        )
+        .unwrap();
+    }
+
+    // -- Render clap help and replace the Commands section -------------------
+    // Hide all subcommands so clap only renders about/usage/options.
+    for name in cmd
+        .get_subcommands()
+        .map(|s| s.get_name().to_string())
+        .collect::<Vec<_>>()
+    {
+        cmd = cmd.mut_subcommand(&name, |sub| sub.hide(true));
+    }
+
+    let help_str = if long {
+        cmd.render_long_help().to_string()
+    } else {
+        cmd.render_help().to_string()
+    };
+
+    // Insert grouped commands before the "Options:" section.
+    if let Some(pos) = help_str.find("\nOptions:") {
+        print!("{}", &help_str[..pos]);
+        print!("{grouped}");
+        print!("{}", &help_str[pos..]);
+    } else {
+        print!("{help_str}");
+        print!("{grouped}");
+    }
 }
 
 pub(crate) fn load_config_and_cwd() -> anyhow::Result<(ops_core::config::Config, PathBuf)> {

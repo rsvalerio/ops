@@ -4,24 +4,29 @@
 program = "terraform"
 args = ["init"]
 help = "Initialize Terraform"
+category = "Build"
 
 [commands.fmt]
 program = "terraform"
 args = ["fmt", "-recursive"]
 help = "Format all files"
+category = "Code Quality"
 
 [commands.validate]
 program = "terraform"
 args = ["validate"]
 help = "Validate configuration"
+category = "Code Quality"
 
 [commands.plan]
 program = "terraform"
 args = ["plan"]
 help = "Show execution plan"
+category = "Code Quality"
 
 [commands.verify]
 commands = ["fmt", "validate"]
 parallel = false
 fail_fast = true
 help = "Run fmt, validate"
+category = "Code Quality"

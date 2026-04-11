@@ -140,6 +140,7 @@ pub struct OutputConfigOverlay {
     pub columns: Option<u16>,
     pub show_error_detail: Option<bool>,
     pub stderr_tail_lines: Option<usize>,
+    pub category_order: Option<Vec<String>>,
 }
 
 /// Output and theme settings.
@@ -167,6 +168,11 @@ pub struct OutputConfig {
         skip_serializing_if = "is_default_stderr_tail_lines"
     )]
     pub stderr_tail_lines: usize,
+    /// Display order of command categories in help output.
+    /// Categories listed here appear first, in the given order.
+    /// Unlisted categories are appended alphabetically after.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub category_order: Vec<String>,
 }
 
 impl Default for OutputConfig {
@@ -176,6 +182,7 @@ impl Default for OutputConfig {
             columns: default_columns(),
             show_error_detail: true,
             stderr_tail_lines: default_stderr_tail_lines(),
+            category_order: Vec::new(),
         }
     }
 }
@@ -223,6 +230,14 @@ impl CommandSpec {
         }
     }
 
+    /// Return the category for this command, if any.
+    pub fn category(&self) -> Option<&str> {
+        match self {
+            CommandSpec::Exec(e) => e.category.as_deref(),
+            CommandSpec::Composite(c) => c.category.as_deref(),
+        }
+    }
+
     /// Return the aliases for this command.
     pub fn aliases(&self) -> &[String] {
         match self {
@@ -260,6 +275,9 @@ pub struct ExecCommandSpec {
     /// Alternative names that can be used to invoke this command.
     #[serde(default, alias = "alias", skip_serializing_if = "Vec::is_empty")]
     pub aliases: Vec<String>,
+    /// Category for grouping in help output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 impl ExecCommandSpec {
@@ -305,6 +323,9 @@ pub struct CompositeCommandSpec {
     /// Alternative names that can be used to invoke this command.
     #[serde(default, alias = "alias", skip_serializing_if = "Vec::is_empty")]
     pub aliases: Vec<String>,
+    /// Category for grouping in help output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 /// Command identifier (name used in config and CLI).

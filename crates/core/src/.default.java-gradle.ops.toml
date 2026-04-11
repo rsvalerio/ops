@@ -4,30 +4,36 @@
 program = "./gradlew"
 args = ["compileJava"]
 help = "Compile sources"
+category = "Build"
 
 [commands.build]
 program = "./gradlew"
 args = ["build", "-x", "test"]
 help = "Build the project"
+category = "Build"
 
 [commands.test]
 program = "./gradlew"
 args = ["test"]
 help = "Run all tests"
+category = "Code Quality"
 
 [commands.clean]
 program = "./gradlew"
 args = ["clean"]
 help = "Clean build artifacts"
+category = "Build"
 
 [commands.verify]
 commands = ["compile"]
 parallel = false
 fail_fast = true
 help = "Run compile"
+category = "Code Quality"
 
 [commands.qa]
 commands = ["test"]
 parallel = false
 fail_fast = true
 help = "Run test"
+category = "Code Quality"

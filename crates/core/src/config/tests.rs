@@ -169,6 +169,7 @@ fn merge_config_overlay_overrides_output() {
             columns: Some(120),
             show_error_detail: Some(false),
             stderr_tail_lines: Some(20),
+            category_order: None,
         }),
         ..Default::default()
     };
@@ -188,6 +189,7 @@ fn merge_config_partial_overlay_preserves_base() {
             columns: Some(200),
             show_error_detail: None,
             stderr_tail_lines: None,
+            category_order: None,
         }),
         ..Default::default()
     };
@@ -426,6 +428,7 @@ mod proptest_tests {
                     columns: base_columns,
                     show_error_detail: true,
                     stderr_tail_lines: 5,
+                    category_order: Vec::new(),
                 },
                 ..Default::default()
             };
@@ -435,6 +438,7 @@ mod proptest_tests {
                     columns: Some(overlay_columns),
                     show_error_detail: None,
                     stderr_tail_lines: None,
+                    category_order: None,
                 }),
                 ..Default::default()
             };

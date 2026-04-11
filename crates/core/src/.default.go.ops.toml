@@ -4,30 +4,36 @@
 program = "go"
 args = ["fmt", "./..."]
 help = "Format all code"
+category = "Code Quality"
 
 [commands.vet]
 program = "go"
 args = ["vet", "./..."]
 help = "Vet all packages"
+category = "Code Quality"
 
 [commands.build]
 program = "go"
 args = ["build", "./..."]
 help = "Build all packages"
+category = "Build"
 
 [commands.test]
 program = "go"
 args = ["test", "./..."]
 help = "Run all tests"
+category = "Code Quality"
 
 [commands.verify]
 commands = ["fmt", "build"]
 parallel = false
 fail_fast = true
 help = "Run fmt, build"
+category = "Code Quality"
 
 [commands.qa]
 commands = ["test", "vet"]
 parallel = false
 fail_fast = true
 help = "Run test, vet"
+category = "Code Quality"

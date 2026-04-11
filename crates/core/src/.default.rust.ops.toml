@@ -4,35 +4,42 @@
 program = "cargo"
 args = ["fmt", "--all"]
 help = "Format all code"
+category = "Code Quality"
 
 [commands.check]
 program = "cargo"
 args = ["check", "--all", "--all-features"]
 help = "Check all targets"
+category = "Code Quality"
 
 [commands.clippy]
 program = "cargo"
 args = ["clippy", "--all", "--all-features", "--", "-D", "warnings"]
 help = "Lint with clippy"
+category = "Code Quality"
 
 [commands.build]
 program = "cargo"
 args = ["build", "--all", "--all-features"]
 help = "Build all targets"
+category = "Build"
 
 [commands.test]
 program = "cargo"
 args = ["test", "--all", "--all-features"]
 help = "Run all tests"
+category = "Code Quality"
 
 [commands.verify]
 commands = ["fmt", "check", "clippy", "build"]
 parallel = true
 fail_fast = true
 help = "Run fmt, check, clippy, build"
+category = "Code Quality"
 
 [commands.qa]
 commands = ["test", "deps"]
 parallel = true
 fail_fast = true
 help = "Run test, deps"
+category = "Code Quality"

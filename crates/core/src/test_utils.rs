@@ -71,6 +71,7 @@ pub fn composite_cmd(commands: &[&str]) -> CompositeCommandSpec {
         fail_fast: true,
         help: None,
         aliases: Vec::new(),
+        category: None,
     }
 }
 
@@ -83,6 +84,7 @@ pub fn parallel_cmd(commands: &[&str]) -> CompositeCommandSpec {
         fail_fast: true,
         help: None,
         aliases: Vec::new(),
+        category: None,
     }
 }
 

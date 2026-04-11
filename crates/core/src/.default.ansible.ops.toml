@@ -4,14 +4,17 @@
 program = "ansible-lint"
 args = []
 help = "Lint playbooks"
+category = "Code Quality"
 
 [commands.check]
 program = "ansible-playbook"
 args = ["--check", "site.yml"]
 help = "Dry-run playbook"
+category = "Code Quality"
 
 [commands.verify]
 commands = ["lint"]
 parallel = false
 fail_fast = true
 help = "Run lint"
+category = "Code Quality"

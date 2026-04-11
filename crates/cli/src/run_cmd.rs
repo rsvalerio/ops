@@ -496,6 +496,7 @@ commands = ["a"]
                             fail_fast: true,
                             help: None,
                             aliases: Vec::new(),
+                            category: None,
                         },
                     ),
                 )
