@@ -49,7 +49,7 @@ mod tests {
     #[test]
     fn runner_event_serializes_to_json() {
         let event = RunnerEvent::PlanStarted {
-            command_ids: vec!["build".to_string(), "test".to_string()],
+            command_ids: vec!["build".into(), "test".into()],
         };
         let json = serde_json::to_string(&event).expect("should serialize");
         assert!(json.contains("PlanStarted"));
@@ -60,7 +60,7 @@ mod tests {
     #[test]
     fn step_finished_serializes_with_duration() {
         let event = RunnerEvent::StepFinished {
-            id: "cargo build".to_string(),
+            id: "cargo build".into(),
             duration_secs: 1.234,
             display_cmd: Some("cargo build --release".to_string()),
         };
@@ -72,7 +72,7 @@ mod tests {
     #[test]
     fn step_failed_serializes_with_message() {
         let event = RunnerEvent::StepFailed {
-            id: "test".to_string(),
+            id: "test".into(),
             duration_secs: 0.5,
             message: "exit status: 101".to_string(),
             display_cmd: None,
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn step_output_serializes_stderr_flag() {
         let event = RunnerEvent::StepOutput {
-            id: "build".to_string(),
+            id: "build".into(),
             line: "warning: unused variable".to_string(),
             stderr: true,
         };
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn step_skipped_serializes() {
         let event = RunnerEvent::StepSkipped {
-            id: "lint".to_string(),
+            id: "lint".into(),
             display_cmd: Some("cargo clippy".to_string()),
         };
         let json = serde_json::to_string(&event).expect("should serialize");

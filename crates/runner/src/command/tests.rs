@@ -90,13 +90,10 @@ fn expand_to_leaves_via_alias() {
 #[tokio::test]
 async fn run_plan_echo_success() {
     let mut runner = test_runner(HashMap::new());
-    runner.register_commands(vec![(
-        "echo_hi".to_string(),
-        CommandSpec::Exec(echo_cmd("hi")),
-    )]);
+    runner.register_commands(vec![("echo_hi".into(), CommandSpec::Exec(echo_cmd("hi")))]);
     let mut events = Vec::new();
     let results = runner
-        .run_plan(&["echo_hi".to_string()], &mut |e| events.push(e))
+        .run_plan(&["echo_hi".into()], true, &mut |e| events.push(e))
         .await;
     assert!(results.iter().all(|r| r.success));
     events.assert_has_event(
@@ -158,9 +155,7 @@ async fn run_plan_parallel_success() {
     let runner = test_runner(commands);
     let mut events = Vec::new();
     let results = runner
-        .run_plan_parallel(&["e1".to_string(), "e2".to_string()], true, &mut |e| {
-            events.push(e)
-        })
+        .run_plan_parallel(&["e1".into(), "e2".into()], true, &mut |e| events.push(e))
         .await;
     assert!(results.iter().all(|r| r.success));
     assert!(events
@@ -188,7 +183,7 @@ async fn run_plan_parallel_verify_event_content() {
     let runner = test_runner(commands);
     let mut events = Vec::new();
     let results = runner
-        .run_plan_parallel(&["echo_a".to_string()], false, &mut |e| events.push(e))
+        .run_plan_parallel(&["echo_a".into()], false, &mut |e| events.push(e))
         .await;
 
     assert!(
@@ -244,9 +239,7 @@ async fn run_plan_parallel_fail_fast_emits_failure() {
     let runner = test_runner(commands);
     let mut events = Vec::new();
     let results = runner
-        .run_plan_parallel(&["ok".to_string(), "fail".to_string()], true, &mut |e| {
-            events.push(e)
-        })
+        .run_plan_parallel(&["ok".into(), "fail".into()], true, &mut |e| events.push(e))
         .await;
     assert!(!results.iter().all(|r| r.success), "run should fail");
     assert!(
@@ -277,7 +270,7 @@ async fn run_plan_parallel_no_fail_fast() {
     let runner = test_runner(commands);
     let mut events = Vec::new();
     let results = runner
-        .run_plan_parallel(&["ok".to_string(), "fail".to_string()], false, &mut |e| {
+        .run_plan_parallel(&["ok".into(), "fail".into()], false, &mut |e| {
             events.push(e)
         })
         .await;
@@ -305,7 +298,7 @@ async fn run_plan_unknown_command_emits_failure() {
     let runner = test_runner(HashMap::new());
     let mut events = Vec::new();
     let results = runner
-        .run_plan(&["nonexistent".to_string()], &mut |e| events.push(e))
+        .run_plan(&["nonexistent".into()], true, &mut |e| events.push(e))
         .await;
     assert!(!results.iter().all(|r| r.success));
     let failed = events
@@ -380,10 +373,10 @@ async fn run_unknown_command_returns_error() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn exec_standalone_skips_when_abort_set() {
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::channel(16);
     let abort = Arc::new(AtomicBool::new(true));
     let spec = echo_cmd("should not run");
-    let result = exec_standalone("skipped".to_string(), spec, PathBuf::from("."), tx, abort).await;
+    let result = exec_standalone("skipped".into(), spec, PathBuf::from("."), tx, abort).await;
     assert!(result.success);
     assert_eq!(result.duration, Duration::ZERO);
     let event = rx.recv().await.expect("should receive one event");
@@ -404,7 +397,7 @@ async fn run_plan_parallel_resolution_failure() {
     let runner = test_runner(commands);
     let mut events = Vec::new();
     let results = runner
-        .run_plan_parallel(&["comp".to_string()], true, &mut |e| events.push(e))
+        .run_plan_parallel(&["comp".into()], true, &mut |e| events.push(e))
         .await;
     assert!(!results.iter().all(|r| r.success), "should fail");
     assert!(events
@@ -501,9 +494,9 @@ mod proptest_tests {
             let result = runner.expand_to_leaves(&name);
             prop_assert!(result.is_some());
             let leaves = result.unwrap();
-            prop_assert!(leaves.contains(&cmd1));
-            prop_assert!(leaves.contains(&cmd2));
-            prop_assert!(!leaves.contains(&name));
+            prop_assert!(leaves.iter().any(|l| l == cmd1.as_str()));
+            prop_assert!(leaves.iter().any(|l| l == cmd2.as_str()));
+            prop_assert!(!leaves.iter().any(|l| l == name.as_str()));
         }
 
         #[test]
@@ -696,7 +689,10 @@ mod build_command_error_tests {
         spec.cwd = Some(PathBuf::from("relative/path"));
         let cmd = build_command(&spec, std::path::Path::new("/base"));
         let current_dir = cmd.as_std().get_current_dir();
-        assert!(current_dir.is_some());
+        assert_eq!(
+            current_dir,
+            Some(std::path::Path::new("/base/relative/path"))
+        );
     }
 
     #[test]
@@ -734,6 +730,9 @@ mod build_command_error_tests {
         let cmd = build_command(&spec, std::path::Path::new("."));
         let args: Vec<_> = cmd.as_std().get_args().collect();
         assert_eq!(args.len(), 3);
+        assert_eq!(args[0], "arg with spaces");
+        assert_eq!(args[1], "arg'with'quotes");
+        assert_eq!(args[2], "arg\"with\"double");
     }
 }
 
@@ -922,8 +921,8 @@ mod error_path_tests {
         );
         let runner = test_runner(commands);
         let ids = runner.list_command_ids();
-        assert!(ids.contains(&"build".to_string()));
-        assert!(ids.contains(&"test".to_string()));
+        assert!(ids.contains(&"build".into()));
+        assert!(ids.contains(&"test".into()));
         assert!(
             ids.len() >= 2,
             "should have at least build and test commands"
@@ -934,11 +933,11 @@ mod error_path_tests {
     fn list_command_ids_with_extension_commands() {
         let mut runner = test_runner(HashMap::new());
         runner.register_commands(vec![(
-            "ext_cmd".to_string(),
+            "ext_cmd".into(),
             CommandSpec::Exec(exec_spec("echo", &["ext"])),
         )]);
         let ids = runner.list_command_ids();
-        assert!(ids.contains(&"ext_cmd".to_string()));
+        assert!(ids.contains(&"ext_cmd".into()));
     }
 }
 
@@ -1013,11 +1012,9 @@ mod parallel_timing_tests {
         let mut events = Vec::new();
         let start = std::time::Instant::now();
         let results = runner
-            .run_plan_parallel(
-                &["sleep_a".to_string(), "sleep_b".to_string()],
-                true,
-                &mut |e| events.push(e),
-            )
+            .run_plan_parallel(&["sleep_a".into(), "sleep_b".into()], true, &mut |e| {
+                events.push(e)
+            })
             .await;
         let elapsed = start.elapsed();
 
@@ -1046,11 +1043,9 @@ mod parallel_failure_tests {
         let runner = test_runner(commands);
         let mut events = Vec::new();
         let results = runner
-            .run_plan_parallel(
-                &["fail1".to_string(), "fail2".to_string()],
-                false,
-                &mut |e| events.push(e),
-            )
+            .run_plan_parallel(&["fail1".into(), "fail2".into()], false, &mut |e| {
+                events.push(e)
+            })
             .await;
 
         assert!(
@@ -1086,10 +1081,10 @@ mod parallel_infra_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn spawn_parallel_tasks_creates_correct_count() {
-        let steps = vec![
-            ("cmd1".to_string(), echo_cmd("a")),
-            ("cmd2".to_string(), echo_cmd("b")),
-            ("cmd3".to_string(), echo_cmd("c")),
+        let steps: Vec<(CommandId, _)> = vec![
+            ("cmd1".into(), echo_cmd("a")),
+            ("cmd2".into(), echo_cmd("b")),
+            ("cmd3".into(), echo_cmd("c")),
         ];
         let (rx, _abort, join_set) = CommandRunner::spawn_parallel_tasks(steps, PathBuf::from("."));
         drop(rx);
@@ -1099,19 +1094,21 @@ mod parallel_infra_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn handle_parallel_events_receives_all() {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(16);
         let abort = Arc::new(AtomicBool::new(false));
 
         tx.send(RunnerEvent::StepStarted {
             id: "a".into(),
             display_cmd: None,
         })
+        .await
         .unwrap();
         tx.send(RunnerEvent::StepFinished {
             id: "a".into(),
             duration_secs: 0.1,
             display_cmd: None,
         })
+        .await
         .unwrap();
         drop(tx);
 
@@ -1123,7 +1120,7 @@ mod parallel_infra_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn handle_parallel_events_sets_abort_on_fail_fast() {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(16);
         let abort = Arc::new(AtomicBool::new(false));
 
         tx.send(RunnerEvent::StepFailed {
@@ -1132,6 +1129,7 @@ mod parallel_infra_tests {
             message: "error".into(),
             display_cmd: None,
         })
+        .await
         .unwrap();
         drop(tx);
 
@@ -1149,7 +1147,7 @@ mod parallel_infra_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn handle_parallel_events_no_abort_without_fail_fast() {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(16);
         let abort = Arc::new(AtomicBool::new(false));
 
         tx.send(RunnerEvent::StepFailed {
@@ -1158,6 +1156,7 @@ mod parallel_infra_tests {
             message: "error".into(),
             display_cmd: None,
         })
+        .await
         .unwrap();
         drop(tx);
 

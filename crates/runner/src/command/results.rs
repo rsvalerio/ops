@@ -16,7 +16,7 @@ pub struct StepResult {
 
 impl StepResult {
     /// DUP-003: Private helper to construct base StepResult with common defaults.
-    fn new(id: impl Into<String>, success: bool, duration: Duration) -> Self {
+    fn new(id: impl Into<CommandId>, success: bool, duration: Duration) -> Self {
         Self {
             id: id.into(),
             success,
@@ -28,7 +28,7 @@ impl StepResult {
     }
 
     /// Construct a failure result for an IO/timeout error (no captured output).
-    pub fn failure(id: &str, duration: Duration, message: String) -> Self {
+    pub fn failure(id: impl Into<CommandId>, duration: Duration, message: String) -> Self {
         Self {
             message: Some(message),
             ..Self::new(id, false, duration)
@@ -36,7 +36,7 @@ impl StepResult {
     }
 
     /// Construct a result for a skipped command (abort flag set).
-    pub fn skipped(id: impl Into<String>) -> Self {
+    pub fn skipped(id: impl Into<CommandId>) -> Self {
         Self::new(id, true, Duration::ZERO)
     }
 
@@ -55,6 +55,7 @@ impl StepResult {
 /// outlive the original `std::process::Output`. For most CLI outputs (which are
 /// typically small), this overhead is negligible. If processing very large outputs
 /// (e.g., >1MB), consider streaming output directly instead of buffering.
+#[derive(Debug)]
 pub struct CommandOutput {
     pub success: bool,
     pub stdout: String,
@@ -117,7 +118,7 @@ mod tests {
     #[test]
     fn step_result_clone_produces_equal_copy() {
         let original = StepResult {
-            id: "test".to_string(),
+            id: "test".into(),
             success: true,
             duration: Duration::from_secs(5),
             stdout: "output".to_string(),

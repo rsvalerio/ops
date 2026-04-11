@@ -13,6 +13,10 @@ use std::io::IsTerminal;
 /// command execution.
 ///
 /// On non-TTY stderr or if termios operations fail, the guard is a no-op.
+///
+/// TEST-5: Platform-specific terminal control via libc termios. Tested manually;
+/// unit tests would require a PTY or mock which exceeds the complexity budget
+/// for ~60 lines of platform-specific code.
 pub struct EchoGuard {
     #[cfg(unix)]
     original: Option<libc::termios>,

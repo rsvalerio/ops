@@ -49,7 +49,12 @@ use tracing::warn;
 pub fn build_command(spec: &ExecCommandSpec, cwd: &std::path::Path) -> Command {
     let mut cmd = Command::new(&spec.program);
     cmd.args(&spec.args);
-    cmd.current_dir(spec.cwd.as_deref().unwrap_or(cwd));
+    let resolved_cwd = match spec.cwd.as_deref() {
+        Some(p) if p.is_relative() => cwd.join(p),
+        Some(p) => p.to_path_buf(),
+        None => cwd.to_path_buf(),
+    };
+    cmd.current_dir(&resolved_cwd);
     for (k, v) in &spec.env {
         warn_if_sensitive_env(k, v);
         cmd.env(k, v);
@@ -223,7 +228,7 @@ pub fn emit_output_events(
     for (output, is_stderr) in [(stdout, false), (stderr, true)] {
         for line in output.lines() {
             emit(RunnerEvent::StepOutput {
-                id: id.to_string(),
+                id: id.into(),
                 line: line.to_string(),
                 stderr: is_stderr,
             });
@@ -241,13 +246,13 @@ pub fn emit_step_completion(
 ) {
     if output.success {
         emit(RunnerEvent::StepFinished {
-            id: id.to_string(),
+            id: id.into(),
             duration_secs: duration.as_secs_f64(),
             display_cmd,
         });
     } else {
         emit(RunnerEvent::StepFailed {
-            id: id.to_string(),
+            id: id.into(),
             duration_secs: duration.as_secs_f64(),
             message: output.status_message.clone(),
             display_cmd,
@@ -258,7 +263,7 @@ pub fn emit_step_completion(
 /// Build StepResult from command output.
 pub fn build_step_result(id: &str, duration: Duration, output: CommandOutput) -> StepResult {
     StepResult {
-        id: id.to_string(),
+        id: id.into(),
         success: output.success,
         duration,
         stdout: output.stdout,
@@ -280,7 +285,7 @@ pub async fn exec_command(
 ) -> StepResult {
     let display_cmd = Some(spec.display_cmd().into_owned());
     emit(RunnerEvent::StepStarted {
-        id: id.to_string(),
+        id: id.into(),
         display_cmd: display_cmd.clone(),
     });
     let start = Instant::now();
@@ -292,7 +297,7 @@ pub async fn exec_command(
             let duration = start.elapsed();
             let msg = e.to_string();
             emit(RunnerEvent::StepFailed {
-                id: id.to_string(),
+                id: id.into(),
                 duration_secs: duration.as_secs_f64(),
                 message: msg.clone(),
                 display_cmd,
@@ -312,25 +317,25 @@ pub async fn exec_standalone(
     id: CommandId,
     spec: ExecCommandSpec,
     cwd: PathBuf,
-    tx: mpsc::UnboundedSender<RunnerEvent>,
+    tx: mpsc::Sender<RunnerEvent>,
     abort: Arc<AtomicBool>,
 ) -> StepResult {
     if abort.load(Ordering::Acquire) {
         let display_cmd = Some(spec.display_cmd().into_owned());
         if tx
-            .send(RunnerEvent::StepSkipped {
+            .try_send(RunnerEvent::StepSkipped {
                 id: id.clone(),
                 display_cmd,
             })
             .is_err()
         {
-            warn!(id = %id, "failed to send StepSkipped event: receiver dropped");
+            warn!(id = %id, "failed to send StepSkipped event: receiver dropped or full");
         }
         return StepResult::skipped(id);
     }
     exec_command(&id, &spec, &cwd, &mut |ev| {
-        if tx.send(ev).is_err() {
-            warn!(id = %id, "failed to send event: receiver dropped");
+        if tx.try_send(ev).is_err() {
+            warn!(id = %id, "failed to send event: receiver dropped or full");
         }
     })
     .await
@@ -339,7 +344,7 @@ pub async fn exec_standalone(
 /// Emit a zero-duration StepFailed event for resolution errors (unknown or composite-in-leaf).
 pub fn emit_instant_failure(id: &str, message: &str, on_event: &mut impl FnMut(RunnerEvent)) {
     on_event(RunnerEvent::StepFailed {
-        id: id.to_string(),
+        id: id.into(),
         duration_secs: 0.0,
         message: message.to_string(),
         display_cmd: None,

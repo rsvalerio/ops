@@ -77,7 +77,7 @@ pub struct CommandRunner {
     config: Arc<Config>,
     cwd: PathBuf,
     stack_commands: IndexMap<CommandId, CommandSpec>,
-    extension_commands: std::collections::HashMap<CommandId, CommandSpec>,
+    extension_commands: IndexMap<CommandId, CommandSpec>,
     data_registry: DataRegistry,
     data_cache: std::collections::HashMap<String, Arc<serde_json::Value>>,
     detected_stack: Option<Stack>,
@@ -87,7 +87,7 @@ impl CommandRunner {
     pub fn new(config: Config, cwd: PathBuf) -> Self {
         let detected_stack = Stack::resolve(config.stack.as_deref(), &cwd);
 
-        let stack_commands = if let Some(stack) = detected_stack {
+        let stack_commands: IndexMap<CommandId, CommandSpec> = if let Some(stack) = detected_stack {
             let defaults = stack.default_commands();
             debug!(
                 stack = stack.as_str(),
@@ -95,6 +95,9 @@ impl CommandRunner {
                 "loaded stack default commands"
             );
             defaults
+                .into_iter()
+                .map(|(k, v)| (CommandId::from(k), v))
+                .collect()
         } else {
             IndexMap::new()
         };
@@ -103,7 +106,7 @@ impl CommandRunner {
             config: Arc::new(config),
             cwd,
             stack_commands,
-            extension_commands: std::collections::HashMap::new(),
+            extension_commands: IndexMap::new(),
             data_registry: DataRegistry::new(),
             data_cache: std::collections::HashMap::new(),
             detected_stack,
@@ -220,7 +223,7 @@ impl CommandRunner {
         ids.extend(self.extension_commands.keys().map(|s| s.as_str()));
         ids.sort_unstable();
         ids.dedup();
-        ids.iter().map(|s| s.to_string()).collect()
+        ids.iter().map(|s| CommandId::from(*s)).collect()
     }
 
     /// Expand to a flat list of exec-only command IDs (no composites), so run_plan need not recurse.
@@ -266,7 +269,7 @@ impl CommandRunner {
         let canonical = self.canonical_id(id);
         let spec = self.resolve(canonical)?;
         match spec {
-            CommandSpec::Exec(_) => Some(vec![canonical.to_string()]),
+            CommandSpec::Exec(_) => Some(vec![CommandId::from(canonical)]),
             CommandSpec::Composite(c) => {
                 if !visited.insert(canonical.to_string()) {
                     return None; // cycle detected
@@ -314,11 +317,13 @@ impl CommandRunner {
         }
     }
 
-    /// Run a flat list of exec command IDs sequentially; stop on first failure.
+    /// Run a flat list of exec command IDs sequentially.
+    /// When `fail_fast` is true, stop on first failure.
     #[instrument(skip(self, on_event))]
     pub async fn run_plan(
         &self,
         command_ids: &[CommandId],
+        fail_fast: bool,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> Vec<StepResult> {
         let lifecycle = PlanLifecycle::begin(command_ids, on_event);
@@ -327,7 +332,7 @@ impl CommandRunner {
         for id in command_ids {
             let (result, should_stop) = self.execute_step(id, on_event).await;
             results.push(result);
-            if should_stop {
+            if fail_fast && should_stop {
                 break;
             }
         }
@@ -386,34 +391,38 @@ impl CommandRunner {
         results
     }
 
+    /// Maximum concurrent parallel tasks. Caps resource usage (file descriptors,
+    /// processes) for configs with many parallel commands.
+    const MAX_PARALLEL: usize = 32;
+
     /// Spawn parallel tasks into a JoinSet, returning the receiver and abort flag.
     ///
-    /// # Memory Considerations
-    ///
-    /// Uses an unbounded channel for event streaming. This is acceptable because:
-    /// - Events are consumed immediately by the main task
-    /// - Each event is small (typically < 1KB)
-    /// - The number of parallel commands is typically small (< 100)
-    ///
-    /// If memory becomes a concern with very large parallel groups,
-    /// consider splitting into smaller batches or adding a config option
-    /// for maximum parallelism.
+    /// Concurrency is capped at `MAX_PARALLEL` via a semaphore to prevent
+    /// resource exhaustion with large parallel groups.
     pub(crate) fn spawn_parallel_tasks(
         steps: Vec<(CommandId, ExecCommandSpec)>,
         cwd: PathBuf,
     ) -> (
-        mpsc::UnboundedReceiver<RunnerEvent>,
+        mpsc::Receiver<RunnerEvent>,
         Arc<AtomicBool>,
         tokio::task::JoinSet<StepResult>,
     ) {
-        let (tx, rx) = mpsc::unbounded_channel();
+        // Bounded channel provides backpressure. Each step emits ~3-4 events
+        // (Started, Output*, Finished/Failed), so 256 is generous for typical
+        // parallel groups while preventing unbounded memory growth.
+        let (tx, rx) = mpsc::channel(256);
         let abort = Arc::new(AtomicBool::new(false));
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(Self::MAX_PARALLEL));
         let mut join_set = tokio::task::JoinSet::new();
         for (id, spec) in steps {
             let tx = tx.clone();
             let abort = Arc::clone(&abort);
             let cwd_clone = cwd.clone();
-            join_set.spawn(async move { exec_standalone(id, spec, cwd_clone, tx, abort).await });
+            let sem = Arc::clone(&semaphore);
+            join_set.spawn(async move {
+                let _permit = sem.acquire().await.expect("semaphore closed");
+                exec_standalone(id, spec, cwd_clone, tx, abort).await
+            });
         }
         drop(tx);
         (rx, abort, join_set)
@@ -421,7 +430,7 @@ impl CommandRunner {
 
     /// Receive events from parallel execution, handling fail_fast abort.
     pub(crate) async fn handle_parallel_events(
-        mut rx: mpsc::UnboundedReceiver<RunnerEvent>,
+        mut rx: mpsc::Receiver<RunnerEvent>,
         fail_fast: bool,
         abort: Arc<AtomicBool>,
         on_event: &mut impl FnMut(RunnerEvent),
@@ -489,7 +498,8 @@ impl CommandRunner {
             CommandSpec::Composite(c) if c.parallel => {
                 self.run_plan_parallel(&plan, c.fail_fast, on_event).await
             }
-            _ => self.run_plan(&plan, on_event).await,
+            CommandSpec::Composite(c) => self.run_plan(&plan, c.fail_fast, on_event).await,
+            _ => self.run_plan(&plan, true, on_event).await,
         };
         Ok(results)
     }

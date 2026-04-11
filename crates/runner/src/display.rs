@@ -1,7 +1,7 @@
 //! Progress display: step-line rendering, progress bars, and CLI event handling.
 
 use crate::command::RunnerEvent;
-use ops_core::config;
+use ops_core::config::{self, CommandId};
 use ops_core::output::{tail_lines, ErrorDetail, StepLine, StepStatus};
 use ops_theme::{self as theme, ThemeConfig};
 
@@ -108,7 +108,9 @@ pub struct ProgressDisplay {
     bars: Vec<ProgressBar>,
     steps: Vec<(String, String)>,
     step_stderr: HashMap<String, Vec<String>>,
-    pending_style: ProgressStyle,
+    // PERF-3: `running_style` is cloned per progress bar because `indicatif::ProgressBar::with_style`
+    // takes ownership. Acceptable for typical step counts (<20 commands).
+    // `pending_style` was removed — it's trivially reconstructed via `pending_style()`.
     running_style: ProgressStyle,
     display_map: HashMap<String, String>,
     footer_separator: Option<ProgressBar>,
@@ -118,6 +120,11 @@ pub struct ProgressDisplay {
 }
 
 impl ProgressDisplay {
+    /// Build a fresh pending style. Trivial template avoids storing a field just to clone it.
+    fn pending_style() -> ProgressStyle {
+        ProgressStyle::with_template("{msg}").expect("static pending template")
+    }
+
     fn is_stderr_tty() -> bool {
         std::io::stderr().is_terminal()
     }
@@ -147,8 +154,6 @@ impl ProgressDisplay {
         });
         let resolved_theme = theme::resolve_theme(&output.theme, custom_themes)?;
         let left_pad_str = " ".repeat(resolved_theme.left_pad());
-        let pending_style = ProgressStyle::with_template("{msg}")
-            .with_context(|| format!("invalid pending template for theme '{}'", output.theme))?;
         let padded_running_template =
             format!("{}{}", left_pad_str, resolved_theme.running_template());
         let running_style = ProgressStyle::with_template(&padded_running_template)
@@ -180,7 +185,6 @@ impl ProgressDisplay {
             bars: Vec::new(),
             steps: Vec::new(),
             step_stderr: HashMap::new(),
-            pending_style,
             running_style,
             display_map,
             footer_separator: None,
@@ -221,7 +225,7 @@ impl ProgressDisplay {
     }
 
     fn finish_bar(&self, bar: &ProgressBar, line: &str) {
-        bar.set_style(self.pending_style.clone());
+        bar.set_style(Self::pending_style());
         bar.finish_with_message(line.to_string());
         self.write_non_tty(line);
     }
@@ -265,26 +269,41 @@ impl ProgressDisplay {
         }
     }
 
-    fn on_plan_started(&mut self, command_ids: &[String]) {
+    fn on_plan_started(&mut self, command_ids: &[CommandId]) {
+        let ids_as_strings: Vec<String> = command_ids.iter().map(|id| id.to_string()).collect();
         self.steps = command_ids
             .iter()
             .map(|id| {
-                let display = self.display_map.get(id).cloned().unwrap_or_else(|| {
-                    tracing::trace!(id = %id, "display_map fallback: using id as display");
-                    id.clone()
-                });
-                (id.clone(), display)
+                let id_str = id.to_string();
+                let display = self
+                    .display_map
+                    .get(id.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        tracing::trace!(id = %id, "display_map fallback: using id as display");
+                        id_str.clone()
+                    });
+                (id_str, display)
             })
             .collect();
 
         let header_lines = self
             .render
             .theme
-            .render_plan_header(command_ids, self.render.columns);
+            .render_plan_header(&ids_as_strings, self.render.columns);
         for line in &header_lines {
             self.emit_line(line);
         }
 
+        self.create_pending_bars();
+
+        self.total_steps = command_ids.len();
+        self.completed_steps = 0;
+
+        self.create_footer();
+    }
+
+    fn create_pending_bars(&mut self) {
         let pending_lines: Vec<String> = self
             .steps
             .iter()
@@ -302,18 +321,16 @@ impl ProgressDisplay {
         for line in &pending_lines {
             let pb = self.multi.add(
                 ProgressBar::new_spinner()
-                    .with_style(self.pending_style.clone())
+                    .with_style(Self::pending_style())
                     .with_message(line.clone()),
             );
             pb.tick();
             self.write_non_tty(line);
             self.bars.push(pb);
         }
+    }
 
-        self.total_steps = command_ids.len();
-        self.completed_steps = 0;
-
-        // Add footer separator and progress bar below all steps
+    fn create_footer(&mut self) {
         let separator = self
             .render
             .theme
@@ -325,14 +342,14 @@ impl ProgressDisplay {
         };
 
         let sep_pb = self.multi.add(ProgressBar::new(0));
-        sep_pb.set_style(self.pending_style.clone());
+        sep_pb.set_style(Self::pending_style());
         sep_pb.finish_with_message(separator_message);
         self.footer_separator = Some(sep_pb);
 
         let footer_msg = self.render_footer_message();
         let footer_pb = self.multi.add(
             ProgressBar::new(0)
-                .with_style(self.pending_style.clone())
+                .with_style(Self::pending_style())
                 .with_message(footer_msg),
         );
         footer_pb.tick();
@@ -453,7 +470,7 @@ impl ProgressDisplay {
             let mut anchor = self.bars[i].clone();
             for detail_line in &detail_lines {
                 let pb = self.multi.insert_after(&anchor, ProgressBar::new(0));
-                pb.set_style(self.pending_style.clone());
+                pb.set_style(Self::pending_style());
                 pb.finish_with_message(detail_line.clone());
                 anchor = pb;
             }
@@ -465,7 +482,24 @@ impl ProgressDisplay {
     }
 
     fn on_run_finished(&mut self, duration_secs: f64, success: bool) {
-        let summary = if self.total_steps > 0 {
+        let summary = self.format_summary(duration_secs, success);
+
+        // If we have a footer bar from on_plan_started, finalize it in place.
+        if let Some(ref fb) = self.footer_bar {
+            fb.finish_with_message(summary.clone());
+            self.write_non_tty(&summary);
+            return;
+        }
+
+        // Fallback: no footer (e.g. no plan was started), create bars inline.
+        self.render_fallback_separator();
+
+        let summary_pb = self.multi.add(ProgressBar::new(0));
+        self.finish_bar(&summary_pb, &summary);
+    }
+
+    fn format_summary(&self, duration_secs: f64, success: bool) -> String {
+        if self.total_steps > 0 {
             let label = if success { "Done" } else { "Failed" };
             let elapsed = theme::format_duration(duration_secs);
             format!(
@@ -479,41 +513,32 @@ impl ProgressDisplay {
             )
         } else {
             self.render.theme.render_summary(success, duration_secs)
-        };
+        }
+    }
 
-        // If we have a footer bar from on_plan_started, finalize it in place.
-        if let Some(ref fb) = self.footer_bar {
-            fb.finish_with_message(summary.clone());
-            // Non-TTY: write only the final summary (no transient separator/footer)
-            self.write_non_tty(&summary);
-        } else {
-            // Fallback: no footer (e.g. no plan was started), create bars as before.
-            let separator = self
-                .render
-                .theme
-                .render_summary_separator(self.render.columns);
+    fn render_fallback_separator(&self) {
+        let separator = self
+            .render
+            .theme
+            .render_summary_separator(self.render.columns);
+
+        if self.render.is_tty {
             let separator_message = if separator.is_empty() {
                 " ".to_string()
             } else {
-                separator.clone()
+                separator
             };
-
-            if self.render.is_tty {
-                let pb = if let Some(last_bar) = self.bars.last() {
-                    self.multi.insert_after(last_bar, ProgressBar::new(0))
-                } else {
-                    self.multi.add(ProgressBar::new(0))
-                };
-                pb.set_style(self.pending_style.clone());
-                pb.finish_with_message(separator_message);
-            } else if separator.is_empty() {
-                write_stderr(None);
-            } else if let Err(e) = write!(io::stderr(), "{}", separator) {
-                tracing::debug!(error = %e, "stderr write failed");
-            }
-
-            let summary_pb = self.multi.add(ProgressBar::new(0));
-            self.finish_bar(&summary_pb, &summary);
+            let pb = if let Some(last_bar) = self.bars.last() {
+                self.multi.insert_after(last_bar, ProgressBar::new(0))
+            } else {
+                self.multi.add(ProgressBar::new(0))
+            };
+            pb.set_style(Self::pending_style());
+            pb.finish_with_message(separator_message);
+        } else if separator.is_empty() {
+            write_stderr(None);
+        } else if let Err(e) = write!(io::stderr(), "{}", separator) {
+            tracing::debug!(error = %e, "stderr write failed");
         }
     }
 }
@@ -576,7 +601,7 @@ mod tests {
 
         // Non-TTY: events go to stderr (we just verify no panics and state is correct)
         display.handle_event(RunnerEvent::PlanStarted {
-            command_ids: vec!["echo_hi".to_string()],
+            command_ids: vec!["echo_hi".into()],
         });
         assert_eq!(display.steps.len(), 1);
         assert_eq!(display.step_index("echo_hi"), Some(0));
@@ -590,19 +615,19 @@ mod tests {
         );
 
         display.handle_event(RunnerEvent::StepStarted {
-            id: "echo_hi".to_string(),
+            id: "echo_hi".into(),
             display_cmd: Some("echo hi".to_string()),
         });
 
         display.handle_event(RunnerEvent::StepOutput {
-            id: "echo_hi".to_string(),
+            id: "echo_hi".into(),
             line: "some error output".to_string(),
             stderr: true,
         });
         assert_eq!(display.step_stderr["echo_hi"].len(), 1);
 
         display.handle_event(RunnerEvent::StepFinished {
-            id: "echo_hi".to_string(),
+            id: "echo_hi".into(),
             duration_secs: 0.05,
             display_cmd: Some("echo hi".to_string()),
         });
@@ -624,19 +649,19 @@ mod tests {
         );
 
         display.handle_event(RunnerEvent::PlanStarted {
-            command_ids: vec!["fail_cmd".to_string()],
+            command_ids: vec!["fail_cmd".into()],
         });
         display.handle_event(RunnerEvent::StepStarted {
-            id: "fail_cmd".to_string(),
+            id: "fail_cmd".into(),
             display_cmd: Some("false".to_string()),
         });
         display.handle_event(RunnerEvent::StepOutput {
-            id: "fail_cmd".to_string(),
+            id: "fail_cmd".into(),
             line: "error: something went wrong".to_string(),
             stderr: true,
         });
         display.handle_event(RunnerEvent::StepFailed {
-            id: "fail_cmd".to_string(),
+            id: "fail_cmd".into(),
             duration_secs: 0.01,
             message: "exit status: 1".to_string(),
             display_cmd: Some("false".to_string()),
@@ -677,6 +702,7 @@ mod tests {
 
     #[test]
     fn emit_line_handles_empty_string() {
+        // Verifies no-panic on empty input edge case.
         let display = test_display(&[]);
         display.emit_line("");
     }
@@ -686,20 +712,20 @@ mod tests {
         let mut display = test_display(&[("cmd", "test cmd")]);
 
         display.handle_event(RunnerEvent::PlanStarted {
-            command_ids: vec!["cmd".to_string()],
+            command_ids: vec!["cmd".into()],
         });
         display.handle_event(RunnerEvent::StepOutput {
-            id: "cmd".to_string(),
+            id: "cmd".into(),
             line: "stderr line 1".to_string(),
             stderr: true,
         });
         display.handle_event(RunnerEvent::StepOutput {
-            id: "cmd".to_string(),
+            id: "cmd".into(),
             line: "stdout line".to_string(),
             stderr: false,
         });
         display.handle_event(RunnerEvent::StepOutput {
-            id: "cmd".to_string(),
+            id: "cmd".into(),
             line: "stderr line 2".to_string(),
             stderr: true,
         });
@@ -734,14 +760,14 @@ mod tests {
         let mut display = test_display(&[("skip_cmd", "skipped command")]);
 
         display.handle_event(RunnerEvent::PlanStarted {
-            command_ids: vec!["skip_cmd".to_string()],
+            command_ids: vec!["skip_cmd".into()],
         });
         display.handle_event(RunnerEvent::StepStarted {
-            id: "skip_cmd".to_string(),
+            id: "skip_cmd".into(),
             display_cmd: Some("skipped command".to_string()),
         });
         display.handle_event(RunnerEvent::StepSkipped {
-            id: "skip_cmd".to_string(),
+            id: "skip_cmd".into(),
             display_cmd: Some("skipped command".to_string()),
         });
         display.handle_event(RunnerEvent::RunFinished {
@@ -794,7 +820,7 @@ mod tests {
             let mut display = test_display(&[]);
 
             display.handle_event(RunnerEvent::PlanStarted {
-                command_ids: vec!["known".to_string()],
+                command_ids: vec!["known".into()],
             });
 
             let result = display.finish_step("unknown", StepStatus::Succeeded, 1.0, None);
@@ -803,6 +829,7 @@ mod tests {
 
         #[test]
         fn write_stderr_handles_none_and_some() {
+            // Verifies no-panic on both None and Some inputs.
             write_stderr(None);
             write_stderr(Some("test line"));
         }
@@ -964,16 +991,16 @@ mod tests {
             let mut display = test_display(&[]);
 
             display.handle_event(RunnerEvent::PlanStarted {
-                command_ids: vec!["known_cmd".to_string()],
+                command_ids: vec!["known_cmd".into()],
             });
 
             display.handle_event(RunnerEvent::StepStarted {
-                id: "unknown_cmd".to_string(),
+                id: "unknown_cmd".into(),
                 display_cmd: Some("unknown command".to_string()),
             });
 
             display.handle_event(RunnerEvent::StepFinished {
-                id: "unknown_cmd".to_string(),
+                id: "unknown_cmd".into(),
                 duration_secs: 0.1,
                 display_cmd: Some("unknown command".to_string()),
             });
@@ -989,11 +1016,11 @@ mod tests {
             let mut display = test_display(&[]);
 
             display.handle_event(RunnerEvent::PlanStarted {
-                command_ids: vec!["cmd1".to_string()],
+                command_ids: vec!["cmd1".into()],
             });
 
             display.handle_event(RunnerEvent::StepOutput {
-                id: "non_existent_cmd".to_string(),
+                id: "non_existent_cmd".into(),
                 line: "some output".to_string(),
                 stderr: true,
             });
@@ -1010,12 +1037,12 @@ mod tests {
             let mut display = test_display(&[]);
 
             display.handle_event(RunnerEvent::PlanStarted {
-                command_ids: vec!["known".to_string()],
+                command_ids: vec!["known".into()],
             });
 
             // finish_step is called internally via on_step_finished -- trigger it with unknown ID
             display.handle_event(RunnerEvent::StepFinished {
-                id: "never_registered".to_string(),
+                id: "never_registered".into(),
                 duration_secs: 1.0,
                 display_cmd: None,
             });
@@ -1033,11 +1060,11 @@ mod tests {
             );
 
             display.handle_event(RunnerEvent::PlanStarted {
-                command_ids: vec!["known".to_string()],
+                command_ids: vec!["known".into()],
             });
 
             display.handle_event(RunnerEvent::StepFailed {
-                id: "unknown_failed".to_string(),
+                id: "unknown_failed".into(),
                 duration_secs: 0.1,
                 message: "exit status 1".to_string(),
                 display_cmd: Some("unknown failed cmd".to_string()),
