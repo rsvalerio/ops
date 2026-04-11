@@ -209,7 +209,7 @@ fn builtin_category(name: &str) -> Option<&'static str> {
         "about" | "dashboard" => Some("Insights"),
         "deps" => Some("Code Quality"),
         "init" | "theme" | "extension" | "tools" => Some("Setup"),
-        _ => None, // "help" stays uncategorized
+        _ => Some("Commands"),
     }
 }
 
@@ -281,7 +281,7 @@ fn print_categorized_help(
         entries.push(CmdEntry {
             name: name.to_string(),
             about,
-            category: spec.category().map(|s| s.to_string()),
+            category: Some(spec.category().unwrap_or("Commands").to_string()),
         });
     }
 
