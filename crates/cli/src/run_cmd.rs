@@ -27,13 +27,18 @@ pub(crate) fn run_external_command(
     run_commands(&names, dry_run, verbose)
 }
 
-fn run_commands(names: &[&str], dry_run: bool, verbose: bool) -> anyhow::Result<ExitCode> {
+fn build_runner(verbose: bool) -> anyhow::Result<ops_runner::command::CommandRunner> {
     let (mut config, cwd) = crate::load_config_and_cwd()?;
     if verbose {
         config.output.stderr_tail_lines = usize::MAX;
     }
     let mut runner = ops_runner::command::CommandRunner::new(config, cwd);
     setup_extensions(&mut runner)?;
+    Ok(runner)
+}
+
+fn run_commands(names: &[&str], dry_run: bool, verbose: bool) -> anyhow::Result<ExitCode> {
+    let runner = build_runner(verbose)?;
 
     if dry_run {
         for name in names {
@@ -43,7 +48,7 @@ fn run_commands(names: &[&str], dry_run: bool, verbose: bool) -> anyhow::Result<
     }
 
     // Merge leaf IDs from all commands into a single plan.
-    let mut all_leaf_ids: Vec<String> = Vec::new();
+    let mut all_leaf_ids: Vec<ops_core::config::CommandId> = Vec::new();
     for name in names {
         let leaf_ids = runner
             .expand_to_leaves(name)
@@ -60,7 +65,9 @@ fn run_commands(names: &[&str], dry_run: bool, verbose: bool) -> anyhow::Result<
     let rt = tokio::runtime::Runtime::new()?;
     let results: Vec<StepResult> = rt.block_on(async {
         runner
-            .run_plan(&all_leaf_ids, &mut |event| display.handle_event(event))
+            .run_plan(&all_leaf_ids, true, &mut |event| {
+                display.handle_event(event)
+            })
             .await
     });
 
@@ -97,11 +104,11 @@ fn display_cmd_for(runner: &ops_runner::command::CommandRunner, id: &str) -> Str
 /// Build a display map from command IDs to their display strings.
 fn build_display_map(
     runner: &ops_runner::command::CommandRunner,
-    leaf_ids: &[String],
+    leaf_ids: &[ops_core::config::CommandId],
 ) -> std::collections::HashMap<String, String> {
     leaf_ids
         .iter()
-        .map(|id| (id.clone(), display_cmd_for(runner, id)))
+        .map(|id| (id.to_string(), display_cmd_for(runner, id)))
         .collect()
 }
 
@@ -122,12 +129,7 @@ fn log_step_results(results: &[StepResult]) {
 
 #[tracing::instrument(skip_all, fields(command = %name))]
 fn run_command(name: &str, dry_run: bool, verbose: bool) -> anyhow::Result<ExitCode> {
-    let (mut config, cwd) = crate::load_config_and_cwd()?;
-    if verbose {
-        config.output.stderr_tail_lines = usize::MAX;
-    }
-    let mut runner = ops_runner::command::CommandRunner::new(config, cwd);
-    setup_extensions(&mut runner)?;
+    let mut runner = build_runner(verbose)?;
 
     if dry_run {
         return run_command_dry_run(&runner, name);
@@ -171,29 +173,7 @@ fn run_command_dry_run_to(
     for (i, id) in leaf_ids.iter().enumerate() {
         writeln!(w, "\n  [{}] {}", i + 1, id)?;
         match runner.resolve(id) {
-            Some(CommandSpec::Exec(e)) => {
-                writeln!(w, "      program: {}", e.program)?;
-                if !e.args.is_empty() {
-                    writeln!(w, "      args:    {}", e.args.join(" "))?;
-                }
-                if !e.env.is_empty() {
-                    writeln!(w, "      env:")?;
-                    for (k, v) in &e.env {
-                        let display_val = if is_sensitive_env_key(k) {
-                            "***REDACTED***"
-                        } else {
-                            v
-                        };
-                        writeln!(w, "        {}={}", k, display_val)?;
-                    }
-                }
-                if let Some(cwd) = &e.cwd {
-                    writeln!(w, "      cwd:     {}", cwd.display())?;
-                }
-                if let Some(timeout) = e.timeout_secs {
-                    writeln!(w, "      timeout: {}s", timeout)?;
-                }
-            }
+            Some(CommandSpec::Exec(e)) => print_exec_spec(w, e)?,
             Some(CommandSpec::Composite(_)) => {
                 writeln!(w, "      (composite - should have been expanded)")?;
             }
@@ -204,6 +184,31 @@ fn run_command_dry_run_to(
     }
 
     Ok(ExitCode::SUCCESS)
+}
+
+fn print_exec_spec(w: &mut dyn Write, e: &ops_core::config::ExecCommandSpec) -> anyhow::Result<()> {
+    writeln!(w, "      program: {}", e.program)?;
+    if !e.args.is_empty() {
+        writeln!(w, "      args:    {}", e.args.join(" "))?;
+    }
+    if !e.env.is_empty() {
+        writeln!(w, "      env:")?;
+        for (k, v) in &e.env {
+            let display_val = if is_sensitive_env_key(k) {
+                "***REDACTED***"
+            } else {
+                v
+            };
+            writeln!(w, "        {}={}", k, display_val)?;
+        }
+    }
+    if let Some(cwd) = &e.cwd {
+        writeln!(w, "      cwd:     {}", cwd.display())?;
+    }
+    if let Some(timeout) = e.timeout_secs {
+        writeln!(w, "      timeout: {}s", timeout)?;
+    }
+    Ok(())
 }
 
 fn run_command_cli(
