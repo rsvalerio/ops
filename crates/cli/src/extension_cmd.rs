@@ -1,12 +1,13 @@
 //! `cargo ops extension` - extension management commands.
 
-use std::io::{self, IsTerminal, Write};
+use std::io::Write;
 
 use ops_core::style;
 use ops_core::table::{Cell, Color, OpsTable};
 use ops_extension::{CommandRegistry, DataProviderSchema};
 
 use crate::registry::{build_data_registry, collect_compiled_extensions};
+use crate::tty::SelectOption;
 
 fn format_list(items: &[String]) -> String {
     if items.is_empty() {
@@ -93,14 +94,9 @@ fn write_extension_table(
     Ok(())
 }
 
-/// Build a table row for a single extension.
-fn build_extension_row(
-    table: &OpsTable,
-    config_name: &str,
-    ext: &dyn ops_extension::Extension,
-) -> Vec<Cell> {
+/// Collect extension type flags and registered command names.
+fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<String>) {
     let info = ext.info();
-
     let mut types = Vec::new();
     if info.types.is_datasource() {
         types.push("DATASOURCE".to_string());
@@ -108,10 +104,20 @@ fn build_extension_row(
     if info.types.is_command() {
         types.push("COMMAND".to_string());
     }
-
     let mut cmd_registry = CommandRegistry::new();
     ext.register_commands(&mut cmd_registry);
     let commands: Vec<String> = cmd_registry.keys().map(|s| s.to_string()).collect();
+    (types, commands)
+}
+
+/// Build a table row for a single extension.
+fn build_extension_row(
+    table: &OpsTable,
+    config_name: &str,
+    ext: &dyn ops_extension::Extension,
+) -> Vec<Cell> {
+    let info = ext.info();
+    let (types, commands) = extension_summary(ext);
 
     let data_provider = info
         .data_provider_name
@@ -134,13 +140,8 @@ fn build_extension_row(
     ]
 }
 
-/// Default TTY check using stdout.
-fn is_stdout_tty() -> bool {
-    io::stdout().is_terminal()
-}
-
 pub fn run_extension_show(name: Option<&str>) -> anyhow::Result<()> {
-    run_extension_show_with_tty_check(name, is_stdout_tty)
+    run_extension_show_with_tty_check(name, crate::tty::is_stdout_tty)
 }
 
 fn run_extension_show_with_tty_check<F>(name: Option<&str>, is_tty: F) -> anyhow::Result<()>
@@ -161,9 +162,9 @@ where
                 anyhow::bail!("no extensions compiled in");
             }
 
-            let options: Vec<ExtensionOption> = compiled
+            let options: Vec<SelectOption> = compiled
                 .iter()
-                .map(|(config_name, ext)| ExtensionOption {
+                .map(|(config_name, ext)| SelectOption {
                     name: config_name.to_string(),
                     description: ext.info().description.to_string(),
                 })
@@ -205,18 +206,7 @@ fn print_extension_details(
     let info = ext.info();
     let table = OpsTable::new();
     let is_tty = table.is_tty();
-
-    let mut types = Vec::new();
-    if info.types.is_datasource() {
-        types.push("DATASOURCE".to_string());
-    }
-    if info.types.is_command() {
-        types.push("COMMAND".to_string());
-    }
-
-    let mut cmd_registry = CommandRegistry::new();
-    ext.register_commands(&mut cmd_registry);
-    let commands: Vec<String> = cmd_registry.keys().map(|s| s.to_string()).collect();
+    let (types, commands) = extension_summary(ext);
 
     let data_provider = info
         .data_provider_name
@@ -296,27 +286,22 @@ fn print_provider_info(
     Ok(())
 }
 
-struct ExtensionOption {
-    name: String,
-    description: String,
-}
-
-impl std::fmt::Display for ExtensionOption {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} - {}", self.name, self.description)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn run_extension_list_succeeds() {
+    fn run_extension_list_outputs_extensions() {
         let (_dir, _guard) = crate::test_utils::with_temp_config("");
 
-        let result = run_extension_list();
-        assert!(result.is_ok(), "run_extension_list should succeed");
+        let mut buf = Vec::new();
+        run_extension_list_to(&mut buf).expect("should succeed");
+        let output = String::from_utf8(buf).unwrap();
+        // Should contain table headers or extension names
+        assert!(
+            output.contains("Name") || output.contains("extensions"),
+            "should produce meaningful output: {output}"
+        );
     }
 
     #[test]

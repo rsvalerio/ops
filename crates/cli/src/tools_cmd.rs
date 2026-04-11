@@ -145,11 +145,38 @@ fn run_tools_install_to(
 
     writeln!(w, "Installing {} missing tool(s)...\n", missing.len())?;
 
+    let (installed, failed) = install_missing_tools(&missing, &tools_to_install, w, err)?;
+
+    writeln!(w)?;
+    let already_present = tools.len() - missing.len();
+    if failed > 0 {
+        writeln!(
+            w,
+            "Done: {} installed, {} failed, {} already present",
+            installed, failed, already_present
+        )?;
+        Ok(ExitCode::FAILURE)
+    } else {
+        writeln!(
+            w,
+            "Done: {} installed, {} already present",
+            installed, already_present
+        )?;
+        Ok(ExitCode::SUCCESS)
+    }
+}
+
+fn install_missing_tools(
+    missing: &[&ToolInfo],
+    specs: &IndexMap<String, ToolSpec>,
+    w: &mut dyn Write,
+    err: &mut dyn Write,
+) -> anyhow::Result<(usize, usize)> {
     let mut installed = 0;
     let mut failed = 0;
 
-    for tool in &missing {
-        let Some(spec) = tools_to_install.get(&tool.name) else {
+    for tool in missing {
+        let Some(spec) = specs.get(&tool.name) else {
             writeln!(
                 err,
                 "  {} internal error: spec not found for {}",
@@ -179,25 +206,7 @@ fn run_tools_install_to(
         }
     }
 
-    writeln!(w)?;
-    if failed > 0 {
-        writeln!(
-            w,
-            "Done: {} installed, {} failed, {} already present",
-            installed,
-            failed,
-            tools.len() - missing.len()
-        )?;
-        Ok(ExitCode::FAILURE)
-    } else {
-        writeln!(
-            w,
-            "Done: {} installed, {} already present",
-            installed,
-            tools.len() - missing.len()
-        )?;
-        Ok(ExitCode::SUCCESS)
-    }
+    Ok((installed, failed))
 }
 
 #[cfg(test)]

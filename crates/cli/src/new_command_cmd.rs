@@ -1,26 +1,19 @@
 //! `ops new-command` — interactively add a command to `.ops.toml`.
 
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use anyhow::Context;
 
-/// Default TTY check using stdout.
-fn is_stdout_tty() -> bool {
-    io::stdout().is_terminal()
-}
-
 pub fn run_new_command() -> anyhow::Result<()> {
-    run_new_command_with_tty_check(is_stdout_tty)
+    run_new_command_with_tty_check(crate::tty::is_stdout_tty)
 }
 
 fn run_new_command_with_tty_check<F>(is_tty: F) -> anyhow::Result<()>
 where
     F: FnOnce() -> bool,
 {
-    if !is_tty() {
-        anyhow::bail!("new-command requires an interactive terminal");
-    }
+    crate::tty::require_tty_with("new-command", is_tty)?;
 
     let full_command = inquire::Text::new("Full command:")
         .with_help_message("e.g. cargo install --path crates/cli --force --all-features")
@@ -91,20 +84,6 @@ fn append_command_to_config(name: &str, program: &str, args: &[String]) -> anyho
         );
     }
 
-    // Build the command table
-    let mut cmd_table = toml_edit::InlineTable::new();
-    cmd_table.insert("program", program.into());
-
-    let mut args_array = toml_edit::Array::new();
-    for arg in args {
-        args_array.push(arg.as_str());
-    }
-
-    if !args.is_empty() {
-        cmd_table.insert("args", toml_edit::Value::Array(args_array));
-    }
-
-    // Use a regular table instead of inline for readability
     let mut cmd = toml_edit::Table::new();
     cmd.insert("program", toml_edit::value(program));
     if !args.is_empty() {

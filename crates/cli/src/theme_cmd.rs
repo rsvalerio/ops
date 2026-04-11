@@ -1,6 +1,6 @@
 //! `cargo ops theme` - theme management commands.
 
-use std::io::{self, IsTerminal, Write};
+use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -51,7 +51,7 @@ pub fn run_theme_list() -> anyhow::Result<()> {
 
 fn run_theme_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
     let config = config::load_config()?;
-    let is_tty = io::stdout().is_terminal();
+    let is_tty = crate::tty::is_stdout_tty();
 
     let options = collect_theme_options(&config);
 
@@ -83,11 +83,6 @@ fn run_theme_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Default TTY check using stdout.
-fn is_stdout_tty() -> bool {
-    io::stdout().is_terminal()
-}
-
 /// Interactively selects a theme and updates `.ops.toml`.
 ///
 /// Requires an interactive terminal. Shows a selection prompt with all
@@ -104,16 +99,14 @@ fn is_stdout_tty() -> bool {
 /// 2. Use a TTY emulation library
 /// 3. Run manual testing with `cargo ops theme select`
 pub fn run_theme_select() -> anyhow::Result<()> {
-    run_theme_select_with_tty_check(is_stdout_tty)
+    run_theme_select_with_tty_check(crate::tty::is_stdout_tty)
 }
 
 fn run_theme_select_with_tty_check<F>(is_tty: F) -> anyhow::Result<()>
 where
     F: FnOnce() -> bool,
 {
-    if !is_tty() {
-        anyhow::bail!("theme select requires an interactive terminal");
-    }
+    crate::tty::require_tty_with("theme select", is_tty)?;
 
     let config = config::load_config()?;
     let options = collect_theme_options(&config);
@@ -361,41 +354,44 @@ theme = "compact"
         use super::*;
 
         #[test]
-        fn run_theme_list_outputs_themes() {
-            let (_dir, _guard) = crate::test_utils::with_temp_config(
-                r#"[output]
-theme = "classic"
-
-[themes]
-my-custom = { description = "My custom theme", icon_succeeded = "✓" }
-"#,
-            );
-
-            let result = run_theme_list();
-            assert!(result.is_ok(), "run_theme_list should succeed");
-        }
-
-        #[test]
         fn run_theme_list_includes_builtin_themes() {
             let (_dir, _guard) = crate::test_utils::with_temp_config("");
 
-            let result = run_theme_list();
-            assert!(result.is_ok());
+            let mut buf = Vec::new();
+            run_theme_list_to(&mut buf).expect("should succeed");
+            let output = String::from_utf8(buf).unwrap();
+            assert!(output.contains("classic"), "should list classic: {output}");
+            assert!(output.contains("compact"), "should list compact: {output}");
         }
 
         #[test]
-        fn run_theme_list_marks_custom_themes() {
-            let (_dir, _guard) = crate::test_utils::with_temp_config(
-                r#"[output]
-theme = "classic"
-
-[themes]
-custom-one = { description = "Custom", icon_succeeded = "✓" }
-"#,
+        fn collect_theme_options_includes_custom() {
+            let mut config = ops_core::config::Config::default();
+            config.themes.insert(
+                "my-custom".to_string(),
+                ops_core::config::theme_types::ThemeConfig {
+                    description: Some("My custom theme".to_string()),
+                    ..ops_core::config::theme_types::ThemeConfig::classic()
+                },
             );
+            let options = collect_theme_options(&config);
+            let names: Vec<&str> = options.iter().map(|o| o.name.as_str()).collect();
+            assert!(
+                names.contains(&"my-custom"),
+                "should include custom theme: {names:?}"
+            );
+            let custom = options.iter().find(|o| o.name == "my-custom").unwrap();
+            assert!(custom.is_custom, "custom theme should be marked as custom");
+        }
 
-            let result = run_theme_list();
-            assert!(result.is_ok());
+        #[test]
+        fn collect_theme_options_marks_builtin_correctly() {
+            let config: ops_core::config::Config =
+                toml::from_str(ops_core::config::default_ops_toml()).unwrap();
+            let options = collect_theme_options(&config);
+            for opt in &options {
+                assert!(!opt.is_custom, "{} should not be marked custom", opt.name);
+            }
         }
     }
 }
