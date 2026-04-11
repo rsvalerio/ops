@@ -20,6 +20,7 @@ jobs:
         with:
           components: rustfmt
           rustflags: ""
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install ops
         uses: jaxxstorm/action-install-gh-release@v1
         with:
@@ -35,6 +36,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install ops
         uses: jaxxstorm/action-install-gh-release@v1
         with:
@@ -50,6 +52,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install ops
         uses: jaxxstorm/action-install-gh-release@v1
         with:
@@ -65,6 +68,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install ops
         uses: jaxxstorm/action-install-gh-release@v1
         with:
@@ -85,6 +89,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install ops
         uses: jaxxstorm/action-install-gh-release@v1
         with:
@@ -100,6 +105,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install cargo-edit and cargo-deny
         uses: taiki-e/install-action@v2
         with:
