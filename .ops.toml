@@ -6,8 +6,13 @@ theme = "compact"
 program = "cargo"
 args = ["install", "--path", "crates/cli", "--force", "--all-features"]
 
-[commands.pre-commit]
-commands = ["verify","qa"]
+[commands.run-before-commit]
+commands = ["verify"]
 fail_fast = true
-parallel = true
-help = "Run verify (fmt, check, clippy, build) and qa (test, deps) before committing"
+help = "Run run-before-commit checks before committing"
+
+[commands.run-before-push]
+commands = ["qa"]
+fail_fast = true
+help = "Run run-before-push checks before pushing"
+
