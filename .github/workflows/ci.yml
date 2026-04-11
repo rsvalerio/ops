@@ -95,7 +95,7 @@ jobs:
         with:
           repo: rsvalerio/ops
       - name: Run all tests
-        run: ops test --verbose
+        run: ops test
 
   deps:
     name: Deps
