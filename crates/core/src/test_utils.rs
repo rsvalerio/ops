@@ -180,6 +180,7 @@ impl TestConfigBuilder {
             data: crate::config::DataConfig::default(),
             themes: IndexMap::new(),
             extensions: crate::config::ExtensionConfig::default(),
+            about: crate::config::AboutConfig::default(),
             stack: None,
             tools: IndexMap::new(),
         }
@@ -302,6 +303,7 @@ impl ConfigOverlayBuilder {
             data: None,
             themes: self.themes,
             extensions: self.extensions,
+            about: None,
             stack: None,
             tools: None,
         }
