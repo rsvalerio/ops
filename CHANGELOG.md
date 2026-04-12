@@ -2,6 +2,18 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.13.0](https://github.com/rsvalerio/ops/compare/3527e3e86ca59b23e3f3b616b178442aa4030e0f..v0.13.0) - 2026-04-12
+#### 🚀 Features
+- (**about**) add field visibility filtering and new metadata fields - ([b9bf9be](https://github.com/rsvalerio/ops/commit/b9bf9be5af05a5b1079a7cb3826df307e402f06c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) add setup command for interactive field configuration - ([3527e3e](https://github.com/rsvalerio/ops/commit/3527e3e86ca59b23e3f3b616b178442aa4030e0f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) add queries for dependency count, coverage, and language detection - ([6a2ccd1](https://github.com/rsvalerio/ops/commit/6a2ccd11c8bbdf8994a6a9fb304c3a978e2a901a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions**) implement about metadata for language stacks - ([b42cb38](https://github.com/rsvalerio/ops/commit/b42cb38faeb0dd7ef7f65cfb6de7a5f841fb5a39)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**run**) support parallel execution and fail_fast settings from composite commands - ([06a74a4](https://github.com/rsvalerio/ops/commit/06a74a47a408b691e8db574456eb8f086b126d7f)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- update dependencies and test utilities - ([c0f55ef](https://github.com/rsvalerio/ops/commit/c0f55efbf174f31c7a80810f6366dc4667043c91)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.12.0](https://github.com/rsvalerio/ops/compare/c60e0fec6b4cf0099ea9bef877ff514742d59492..v0.12.0) - 2026-04-11
 #### 🚀 Features
 - (**commands**) add category field and grouped help output - ([ae14e44](https://github.com/rsvalerio/ops/commit/ae14e44b6f4abe495b1bead79a588500e4d04d09)) - [@rsvalerio](https://github.com/rsvalerio)
