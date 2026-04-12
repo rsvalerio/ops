@@ -36,6 +36,8 @@ pub struct Config {
     pub themes: IndexMap<String, ThemeConfig>,
     #[serde(default, skip_serializing_if = "ExtensionConfig::is_default")]
     pub extensions: ExtensionConfig,
+    #[serde(default, skip_serializing_if = "AboutConfig::is_default")]
+    pub about: AboutConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
@@ -80,6 +82,21 @@ impl ExtensionConfig {
     }
 }
 
+/// About card display settings.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AboutConfig {
+    /// Fields to display on the about card. None = show all fields.
+    /// Values: "project", "modules", "code", "files", "authors", "repository"
+    pub fields: Option<Vec<String>>,
+}
+
+impl AboutConfig {
+    fn is_default(&self) -> bool {
+        self.fields.is_none()
+    }
+}
+
 /// Data storage settings (DuckDB path).
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -112,6 +129,8 @@ pub struct ConfigOverlay {
     #[serde(default)]
     pub extensions: Option<ExtensionConfigOverlay>,
     #[serde(default)]
+    pub about: Option<AboutConfigOverlay>,
+    #[serde(default)]
     pub stack: Option<String>,
     #[serde(default)]
     pub tools: Option<IndexMap<String, ToolSpec>>,
@@ -122,6 +141,13 @@ pub struct ConfigOverlay {
 #[serde(deny_unknown_fields)]
 pub struct ExtensionConfigOverlay {
     pub enabled: Option<Vec<String>>,
+}
+
+/// Overlay for about settings.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AboutConfigOverlay {
+    pub fields: Option<Vec<String>>,
 }
 
 /// Overlay for data settings.

@@ -44,6 +44,49 @@ pub struct ProjectIdentity {
     pub authors: Vec<String>,
     /// Repository URL.
     pub repository: Option<String>,
+    /// Homepage URL (distinct from repository).
+    #[serde(default)]
+    pub homepage: Option<String>,
+    /// Minimum supported Rust version / language version.
+    #[serde(default)]
+    pub msrv: Option<String>,
+    /// Total dependency count.
+    #[serde(default)]
+    pub dependency_count: Option<usize>,
+    /// Test coverage percentage (0.0–100.0).
+    #[serde(default)]
+    pub coverage_percent: Option<f64>,
+    /// Languages used in the project (e.g. ["Rust", "TOML"]).
+    #[serde(default)]
+    pub languages: Vec<String>,
+}
+
+/// Metadata for a field that can appear on the about card.
+pub struct AboutFieldDef {
+    /// Identifier used in config (e.g. "project", "code").
+    pub id: &'static str,
+    /// Human-readable label for interactive prompts.
+    pub label: &'static str,
+    /// Short description shown in the MultiSelect prompt.
+    pub description: &'static str,
+}
+
+/// Map a field key to its emoji prefix.
+fn field_emoji(key: &str) -> &'static str {
+    match key {
+        "project" => "\u{1f4c1}",                         // 📁
+        "crates" | "packages" | "modules" => "\u{1f4e6}", // 📦
+        "code" => "\u{1f4dd}",                            // 📝
+        "files" => "\u{1f4c4}",                           // 📄
+        "author" | "authors" => "\u{1f464}",              // 👤
+        "repository" => "\u{1f517}",                      // 🔗
+        "homepage" => "\u{1f310}",                        // 🌐
+        "msrv" => "\u{2699}\u{fe0f}",                     // ⚙️
+        "dependencies" => "\u{1f9e9}",                    // 🧩
+        "coverage" => "\u{1f9ea}",                        // 🧪
+        "languages" => "\u{1f4ac}",                       // 💬
+        _ => "\u{25b8}",                                  // ▸ fallback
+    }
 }
 
 /// Rendering-ready about card, derived from [`ProjectIdentity`].
@@ -59,6 +102,10 @@ pub struct AboutCard {
 
 impl AboutCard {
     pub fn from_identity(id: &ProjectIdentity) -> Self {
+        Self::from_identity_filtered(id, None)
+    }
+
+    pub fn from_identity_filtered(id: &ProjectIdentity, visible_fields: Option<&[String]>) -> Self {
         let title = match &id.version {
             Some(v) => format!("{} v{}", id.name, v),
             None => id.name.clone(),
@@ -73,24 +120,40 @@ impl AboutCard {
         }
         let badge = badge_parts.join(" \u{00b7} ");
 
-        let mut fields = vec![("project".to_string(), id.project_path.clone())];
+        let show = |field_id: &str| -> bool {
+            match visible_fields {
+                None => true,
+                Some(fields) => fields.iter().any(|f| f == field_id),
+            }
+        };
 
-        if let Some(count) = id.module_count {
-            fields.push((id.module_label.clone(), count.to_string()));
+        let mut fields = Vec::new();
+
+        if show("project") {
+            fields.push(("project".to_string(), id.project_path.clone()));
         }
-        if let Some(loc) = id.loc {
-            fields.push(("code".to_string(), format!("{} loc", format_number(loc))));
-        }
-        if let Some(files) = id.file_count {
-            if files > 0 {
-                let suffix = if files != 1 { "s" } else { "" };
-                fields.push((
-                    "files".to_string(),
-                    format!("{} file{}", format_number(files), suffix),
-                ));
+        if show("modules") {
+            if let Some(count) = id.module_count {
+                fields.push((id.module_label.clone(), count.to_string()));
             }
         }
-        if !id.authors.is_empty() {
+        if show("code") {
+            if let Some(loc) = id.loc {
+                fields.push(("code".to_string(), format!("{} loc", format_number(loc))));
+            }
+        }
+        if show("files") {
+            if let Some(files) = id.file_count {
+                if files > 0 {
+                    let suffix = if files != 1 { "s" } else { "" };
+                    fields.push((
+                        "files".to_string(),
+                        format!("{} file{}", format_number(files), suffix),
+                    ));
+                }
+            }
+        }
+        if show("authors") && !id.authors.is_empty() {
             let label = if id.authors.len() == 1 {
                 "author"
             } else {
@@ -98,8 +161,37 @@ impl AboutCard {
             };
             fields.push((label.to_string(), id.authors.join(", ")));
         }
-        if let Some(url) = &id.repository {
-            fields.push(("repository".to_string(), url.clone()));
+        if show("repository") {
+            if let Some(url) = &id.repository {
+                fields.push(("repository".to_string(), url.clone()));
+            }
+        }
+        if show("homepage") {
+            if let Some(url) = &id.homepage {
+                fields.push(("homepage".to_string(), url.clone()));
+            }
+        }
+        if show("msrv") {
+            if let Some(msrv) = &id.msrv {
+                fields.push(("msrv".to_string(), msrv.clone()));
+            }
+        }
+        if show("dependencies") {
+            if let Some(count) = id.dependency_count {
+                let suffix = if count != 1 { "ies" } else { "y" };
+                fields.push((
+                    "dependencies".to_string(),
+                    format!("{} dependenc{}", format_number(count as i64), suffix),
+                ));
+            }
+        }
+        if show("coverage") {
+            if let Some(pct) = id.coverage_percent {
+                fields.push(("coverage".to_string(), format!("{:.1}%", pct)));
+            }
+        }
+        if show("languages") && !id.languages.is_empty() {
+            fields.push(("languages".to_string(), id.languages.join(", ")));
         }
 
         Self {
@@ -136,8 +228,10 @@ impl AboutCard {
             let max_key_len = self.fields.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
             for (key, value) in &self.fields {
                 let styled_value = if is_tty { dim(value) } else { value.clone() };
+                let emoji = field_emoji(key);
                 lines.push(format!(
-                    "  \u{25b8} {:<width$} {}",
+                    "  {} {:<width$} {}",
+                    emoji,
                     key,
                     styled_value,
                     width = max_key_len + 2
@@ -197,6 +291,11 @@ mod tests {
             file_count: Some(96),
             authors: vec!["Alice".to_string()],
             repository: Some("https://github.com/user/ops".to_string()),
+            homepage: None,
+            msrv: None,
+            dependency_count: None,
+            coverage_percent: None,
+            languages: vec![],
         };
         let card = AboutCard::from_identity(&id);
         assert_eq!(card.title, "ops v0.10.0");
@@ -230,6 +329,11 @@ mod tests {
             file_count: None,
             authors: vec![],
             repository: None,
+            homepage: None,
+            msrv: None,
+            dependency_count: None,
+            coverage_percent: None,
+            languages: vec![],
         };
         let card = AboutCard::from_identity(&id);
         assert_eq!(card.title, "myproject");
@@ -253,6 +357,11 @@ mod tests {
             file_count: Some(96),
             authors: vec!["Alice".to_string()],
             repository: Some("https://github.com/user/ops".to_string()),
+            homepage: None,
+            msrv: None,
+            dependency_count: None,
+            coverage_percent: None,
+            languages: vec![],
         }
     }
 
@@ -319,6 +428,11 @@ mod tests {
             file_count: None,
             authors: vec![],
             repository: None,
+            homepage: None,
+            msrv: None,
+            dependency_count: None,
+            coverage_percent: None,
+            languages: vec![],
         };
         let card = AboutCard::from_identity(&id);
         let output = card.render(80, false);

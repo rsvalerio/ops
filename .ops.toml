@@ -16,3 +16,34 @@ commands = ["qa"]
 fail_fast = true
 help = "Run run-before-push checks before pushing"
 
+[commands.review-rust-idioms]
+program = "claude"
+args = ["--name", "rust-idioms", "--model", "opus", "-p", "'/rust-idioms @crates '"]
+category = "Code Quality"
+
+[commands.review-rust-code-duplication]
+program = "claude"
+args = ["--name", "rust-code-duplication", "--model", "opus", "-p", "'/rust-code-duplication @crates '"]
+category = "Code Quality"
+
+[commands.review-rust-code-quality]
+program = "claude"
+args = ["--name", "rust-code-quality", "--model", "opus", "-p", "'/rust-code-quality @crates '"]
+category = "Code Quality"
+
+[commands.review-rust-security]
+program = "claude"
+args = ["--name", "rust-security", "--model", "opus", "-p", "'/rust-security @crates '"]
+category = "Code Quality"
+
+[commands.review-rust-test-quality]
+program = "claude"
+args = ["--name", "rust-test-quality", "--model", "opus", "-p", "'/rust-test-quality @crates '"]
+category = "Code Quality"
+
+[commands.review-all]
+commands = ["review-rust-idioms", "review-rust-code-duplication", "review-rust-code-quality", "review-rust-security", "review-rust-test-quality"]
+parallel = true
+help = "Run all Rust review skills against crates"
+category = "Code Quality"
+

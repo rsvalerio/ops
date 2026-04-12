@@ -40,6 +40,7 @@ pub fn merge_config(base: &mut Config, overlay: &ConfigOverlay) {
         data,
         themes,
         extensions,
+        about,
         stack,
         tools,
     } = overlay;
@@ -57,6 +58,11 @@ pub fn merge_config(base: &mut Config, overlay: &ConfigOverlay) {
     if let Some(ext_overlay) = extensions {
         if let Some(enabled) = &ext_overlay.enabled {
             base.extensions.enabled = Some(enabled.clone());
+        }
+    }
+    if let Some(about_overlay) = about {
+        if let Some(fields) = &about_overlay.fields {
+            base.about.fields = Some(fields.clone());
         }
     }
     if let Some(s) = stack {

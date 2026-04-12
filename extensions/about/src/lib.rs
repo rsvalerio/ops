@@ -42,6 +42,7 @@ ops_extension::impl_extension! {
 /// Options for the about command.
 pub struct AboutOptions {
     pub refresh: bool,
+    pub visible_fields: Option<Vec<String>>,
 }
 
 /// Run the generic about command.
@@ -71,12 +72,16 @@ pub fn run_about(
         Err(e) => return Err(e.into()),
     };
 
-    // Enrich with LOC data from DuckDB if the provider didn't include it.
-    if identity.loc.is_none() {
-        enrich_loc_from_db(&ctx, &mut identity);
+    // Enrich with DuckDB data if the provider didn't include it.
+    if identity.loc.is_none()
+        || identity.dependency_count.is_none()
+        || identity.coverage_percent.is_none()
+        || identity.languages.is_empty()
+    {
+        enrich_from_db(&ctx, &mut identity);
     }
 
-    let card = AboutCard::from_identity(&identity);
+    let card = AboutCard::from_identity_filtered(&identity, opts.visible_fields.as_deref());
     let is_tty = std::io::stdout().is_terminal();
     println!("{}", card.render(columns, is_tty));
 
@@ -85,7 +90,7 @@ pub fn run_about(
 
 /// Enrich identity with LOC/file count from DuckDB if available.
 #[cfg(feature = "duckdb")]
-fn enrich_loc_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) {
+fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) {
     let db = match ctx
         .db
         .as_ref()
@@ -103,10 +108,29 @@ fn enrich_loc_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdenti
             identity.file_count = Some(files);
         }
     }
+    if identity.dependency_count.is_none() {
+        if let Ok(count) = ops_duckdb::sql::query_dependency_count(db) {
+            if count > 0 {
+                identity.dependency_count = Some(count);
+            }
+        }
+    }
+    if identity.coverage_percent.is_none() {
+        if let Ok(cov) = ops_duckdb::sql::query_project_coverage(db) {
+            if cov.lines_count > 0 {
+                identity.coverage_percent = Some(cov.lines_percent);
+            }
+        }
+    }
+    if identity.languages.is_empty() {
+        if let Ok(langs) = ops_duckdb::sql::query_project_languages(db) {
+            identity.languages = langs;
+        }
+    }
 }
 
 #[cfg(not(feature = "duckdb"))]
-fn enrich_loc_from_db(_ctx: &ops_extension::Context, _identity: &mut ProjectIdentity) {}
+fn enrich_from_db(_ctx: &ops_extension::Context, _identity: &mut ProjectIdentity) {}
 
 /// Build a minimal identity from the filesystem when no stack provider exists.
 fn build_fallback_identity(cwd: &std::path::Path) -> ProjectIdentity {
@@ -136,6 +160,11 @@ fn build_fallback_identity(cwd: &std::path::Path) -> ProjectIdentity {
         file_count: None,
         authors: vec![],
         repository: None,
+        homepage: None,
+        msrv: None,
+        dependency_count: None,
+        coverage_percent: None,
+        languages: vec![],
     }
 }
 
