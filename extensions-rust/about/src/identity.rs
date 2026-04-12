@@ -5,7 +5,7 @@
 //! with Rust-specific fields (crates, edition, etc.).
 
 use ops_cargo_toml::{CargoToml, CargoTomlProvider};
-use ops_core::project_identity::ProjectIdentity;
+use ops_core::project_identity::{AboutFieldDef, ProjectIdentity};
 use ops_extension::{Context, DataProvider, DataProviderError};
 
 use crate::query::resolve_member_globs;
@@ -17,6 +17,66 @@ pub(crate) struct RustIdentityProvider;
 impl DataProvider for RustIdentityProvider {
     fn name(&self) -> &'static str {
         PROVIDER_NAME
+    }
+
+    fn about_fields(&self) -> Vec<AboutFieldDef> {
+        vec![
+            AboutFieldDef {
+                id: "project",
+                label: "Project path",
+                description: "Absolute path to project root",
+            },
+            AboutFieldDef {
+                id: "modules",
+                label: "Crate count",
+                description: "Number of workspace crates",
+            },
+            AboutFieldDef {
+                id: "code",
+                label: "Lines of code",
+                description: "Total lines of code (from tokei)",
+            },
+            AboutFieldDef {
+                id: "files",
+                label: "File count",
+                description: "Total source file count",
+            },
+            AboutFieldDef {
+                id: "authors",
+                label: "Authors",
+                description: "Project author(s)",
+            },
+            AboutFieldDef {
+                id: "repository",
+                label: "Repository",
+                description: "Repository URL",
+            },
+            AboutFieldDef {
+                id: "homepage",
+                label: "Homepage",
+                description: "Project homepage URL",
+            },
+            AboutFieldDef {
+                id: "msrv",
+                label: "MSRV",
+                description: "Minimum supported Rust version",
+            },
+            AboutFieldDef {
+                id: "dependencies",
+                label: "Dependencies",
+                description: "Total dependency count",
+            },
+            AboutFieldDef {
+                id: "coverage",
+                label: "Coverage",
+                description: "Test coverage percentage",
+            },
+            AboutFieldDef {
+                id: "languages",
+                label: "Languages",
+                description: "Languages used in the project",
+            },
+        ]
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
@@ -76,6 +136,18 @@ impl DataProvider for RustIdentityProvider {
         // Try LOC from DuckDB if available
         let (loc, file_count) = query_loc_from_db(ctx);
 
+        let homepage = pkg
+            .and_then(|p| p.homepage.as_str())
+            .or(ws_pkg.and_then(|wp| wp.homepage.as_deref()))
+            .map(|s| s.to_string());
+        let msrv = pkg
+            .and_then(|p| p.rust_version.as_str())
+            .or(ws_pkg.and_then(|wp| wp.rust_version.as_deref()))
+            .map(|s| s.to_string());
+
+        let dependency_count = query_dependency_count(ctx);
+        let (coverage_percent, languages) = query_coverage_and_languages(ctx);
+
         let identity = ProjectIdentity {
             name,
             version,
@@ -90,6 +162,11 @@ impl DataProvider for RustIdentityProvider {
             file_count,
             authors,
             repository,
+            homepage,
+            msrv,
+            dependency_count,
+            coverage_percent,
+            languages,
         };
 
         serde_json::to_value(&identity).map_err(DataProviderError::from)
@@ -100,6 +177,36 @@ fn dir_name(path: &std::path::Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "project".to_string())
+}
+
+/// Try to get dependency count from DuckDB.
+fn query_dependency_count(ctx: &Context) -> Option<usize> {
+    let db = ctx
+        .db
+        .as_ref()
+        .and_then(|h| h.as_any().downcast_ref::<ops_duckdb::DuckDb>())?;
+    ops_duckdb::sql::query_dependency_count(db).ok()
+}
+
+/// Try to get coverage percentage and language list from DuckDB.
+fn query_coverage_and_languages(ctx: &Context) -> (Option<f64>, Vec<String>) {
+    let db = match ctx
+        .db
+        .as_ref()
+        .and_then(|h| h.as_any().downcast_ref::<ops_duckdb::DuckDb>())
+    {
+        Some(db) => db,
+        None => return (None, vec![]),
+    };
+
+    let coverage = ops_duckdb::sql::query_project_coverage(db)
+        .ok()
+        .filter(|c| c.lines_count > 0)
+        .map(|c| c.lines_percent);
+
+    let languages = ops_duckdb::sql::query_project_languages(db).unwrap_or_default();
+
+    (coverage, languages)
 }
 
 /// Try to get project LOC and file count from DuckDB.

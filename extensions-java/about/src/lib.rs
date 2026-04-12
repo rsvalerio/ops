@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use ops_core::project_identity::ProjectIdentity;
+use ops_core::project_identity::{AboutFieldDef, ProjectIdentity};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 
 // --- Maven ---
@@ -63,9 +63,36 @@ ops_extension::impl_extension! {
 
 struct MavenIdentityProvider;
 
+const JAVA_ABOUT_FIELDS: &[(&str, &str, &str)] = &[
+    ("project", "Project path", "Absolute path to project root"),
+    ("modules", "Module count", "Number of project modules"),
+    ("code", "Lines of code", "Total lines of code (from tokei)"),
+    ("files", "File count", "Total source file count"),
+    ("authors", "Authors", "Project author(s)"),
+    ("repository", "Repository", "Repository URL"),
+    ("homepage", "Homepage", "Project homepage URL"),
+    ("coverage", "Coverage", "Test coverage percentage"),
+    ("languages", "Languages", "Languages used in the project"),
+];
+
+fn java_about_fields() -> Vec<AboutFieldDef> {
+    JAVA_ABOUT_FIELDS
+        .iter()
+        .map(|(id, label, description)| AboutFieldDef {
+            id,
+            label,
+            description,
+        })
+        .collect()
+}
+
 impl DataProvider for MavenIdentityProvider {
     fn name(&self) -> &'static str {
         "project_identity"
+    }
+
+    fn about_fields(&self) -> Vec<AboutFieldDef> {
+        java_about_fields()
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
@@ -93,6 +120,11 @@ impl DataProvider for MavenIdentityProvider {
             file_count: None,
             authors: pom.developers,
             repository: pom.scm_url,
+            homepage: None,
+            msrv: None,
+            dependency_count: None,
+            coverage_percent: None,
+            languages: vec![],
         };
 
         serde_json::to_value(&identity).map_err(DataProviderError::from)
@@ -288,6 +320,10 @@ fn extract_xml_value(line: &str, tag: &str) -> Option<String> {
 struct GradleIdentityProvider;
 
 impl DataProvider for GradleIdentityProvider {
+    fn about_fields(&self) -> Vec<AboutFieldDef> {
+        java_about_fields()
+    }
+
     fn name(&self) -> &'static str {
         "project_identity"
     }
@@ -326,6 +362,11 @@ impl DataProvider for GradleIdentityProvider {
             file_count: None,
             authors: vec![],
             repository: None,
+            homepage: None,
+            msrv: None,
+            dependency_count: None,
+            coverage_percent: None,
+            languages: vec![],
         };
 
         serde_json::to_value(&identity).map_err(DataProviderError::from)

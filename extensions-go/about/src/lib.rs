@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use ops_core::project_identity::ProjectIdentity;
+use ops_core::project_identity::{AboutFieldDef, ProjectIdentity};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 
 const NAME: &str = "about-go";
@@ -37,6 +37,51 @@ struct GoIdentityProvider;
 impl DataProvider for GoIdentityProvider {
     fn name(&self) -> &'static str {
         DATA_PROVIDER_NAME
+    }
+
+    fn about_fields(&self) -> Vec<AboutFieldDef> {
+        vec![
+            AboutFieldDef {
+                id: "project",
+                label: "Project path",
+                description: "Absolute path to project root",
+            },
+            AboutFieldDef {
+                id: "modules",
+                label: "Module count",
+                description: "Number of workspace modules",
+            },
+            AboutFieldDef {
+                id: "code",
+                label: "Lines of code",
+                description: "Total lines of code (from tokei)",
+            },
+            AboutFieldDef {
+                id: "files",
+                label: "File count",
+                description: "Total source file count",
+            },
+            AboutFieldDef {
+                id: "authors",
+                label: "Authors",
+                description: "Project author(s)",
+            },
+            AboutFieldDef {
+                id: "repository",
+                label: "Repository",
+                description: "Repository URL",
+            },
+            AboutFieldDef {
+                id: "coverage",
+                label: "Coverage",
+                description: "Test coverage percentage",
+            },
+            AboutFieldDef {
+                id: "languages",
+                label: "Languages",
+                description: "Languages used in the project",
+            },
+        ]
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
@@ -83,6 +128,11 @@ impl DataProvider for GoIdentityProvider {
             file_count: None,
             authors: vec![],
             repository: None,
+            homepage: None,
+            msrv: None,
+            dependency_count: None,
+            coverage_percent: None,
+            languages: vec![],
         };
 
         serde_json::to_value(&identity).map_err(DataProviderError::from)

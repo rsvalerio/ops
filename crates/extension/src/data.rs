@@ -2,6 +2,7 @@
 
 use crate::error::DataProviderError;
 use ops_core::config::Config;
+use ops_core::project_identity::AboutFieldDef;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -62,6 +63,14 @@ pub trait DataProvider: Send + Sync {
     fn schema(&self) -> DataProviderSchema {
         DataProviderSchema::default()
     }
+
+    /// Returns the about-card fields this provider supports.
+    ///
+    /// Stack-specific `project_identity` providers override this to declare
+    /// which fields appear in `ops about setup`. Default: empty (no fields).
+    fn about_fields(&self) -> Vec<AboutFieldDef> {
+        vec![]
+    }
 }
 
 /// Registry of provider name → DataProvider.
@@ -100,6 +109,13 @@ impl DataRegistry {
             .collect();
         result.sort_by_key(|(name, _)| *name);
         result
+    }
+
+    /// Returns about-card field declarations from the named provider.
+    pub fn about_fields(&self, provider_name: &str) -> Vec<AboutFieldDef> {
+        self.get(provider_name)
+            .map(|p| p.about_fields())
+            .unwrap_or_default()
     }
 
     pub fn provide(
