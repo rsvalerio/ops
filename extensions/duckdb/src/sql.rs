@@ -411,6 +411,71 @@ pub fn query_project_loc(db: &DuckDb) -> anyhow::Result<i64> {
     Ok(loc)
 }
 
+/// Query total dependency count from `crate_dependencies`.
+pub fn query_dependency_count(db: &DuckDb) -> anyhow::Result<usize> {
+    use anyhow::Context;
+
+    let conn = db
+        .lock()
+        .context("acquiring db lock for query_dependency_count")?;
+
+    if !table_exists(&conn, "crate_dependencies")? {
+        return Ok(0);
+    }
+
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(DISTINCT dependency_name) FROM crate_dependencies",
+            [],
+            |row: &duckdb::Row| row.get(0),
+        )
+        .context("querying dependency count")?;
+
+    Ok(count as usize)
+}
+
+/// Query distinct languages from `tokei_files` with LOC percentage, ordered by total LOC descending.
+///
+/// Returns formatted strings like `"Rust 85.2%"`. Languages under 0.1% are omitted.
+pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<String>> {
+    use anyhow::Context;
+
+    let conn = db
+        .lock()
+        .context("acquiring db lock for query_project_languages")?;
+
+    if !table_exists(&conn, "tokei_files")? {
+        return Ok(vec![]);
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT language, \
+                    ROUND(SUM(code) * 100.0 / NULLIF((SELECT SUM(code) FROM tokei_files), 0), 1) AS pct \
+             FROM tokei_files \
+             GROUP BY language \
+             ORDER BY SUM(code) DESC",
+        )
+        .context("preparing query_project_languages")?;
+
+    let rows = stmt
+        .query_map([], |row: &duckdb::Row| {
+            let lang: String = row.get(0)?;
+            let pct: f64 = row.get(1)?;
+            Ok((lang, pct))
+        })
+        .context("querying project languages")?;
+
+    let mut languages = Vec::new();
+    for row in rows {
+        let (lang, pct) = row.context("reading language row")?;
+        if pct >= 0.1 {
+            languages.push(format!("{lang} {pct:.1}%"));
+        }
+    }
+    Ok(languages)
+}
+
 /// Query per-crate lines of code from `tokei_files`.
 ///
 /// Returns a map of member path -> total code lines. Members with no matching
