@@ -49,11 +49,21 @@ fn run_commands(names: &[&str], dry_run: bool, verbose: bool) -> anyhow::Result<
 
     // Merge leaf IDs from all commands into a single plan.
     let mut all_leaf_ids: Vec<ops_core::config::CommandId> = Vec::new();
+    let mut any_parallel = false;
+    let mut fail_fast = true;
     for name in names {
         let leaf_ids = runner
             .expand_to_leaves(name)
             .ok_or_else(|| anyhow::anyhow!("unknown command: {}", name))?;
         all_leaf_ids.extend(leaf_ids);
+        if let Some(CommandSpec::Composite(c)) = runner.resolve(name) {
+            if c.parallel {
+                any_parallel = true;
+            }
+            if !c.fail_fast {
+                fail_fast = false;
+            }
+        }
     }
 
     let display_map = build_display_map(&runner, &all_leaf_ids);
@@ -64,11 +74,19 @@ fn run_commands(names: &[&str], dry_run: bool, verbose: bool) -> anyhow::Result<
 
     let rt = tokio::runtime::Runtime::new()?;
     let results: Vec<StepResult> = rt.block_on(async {
-        runner
-            .run_plan(&all_leaf_ids, true, &mut |event| {
-                display.handle_event(event)
-            })
-            .await
+        if any_parallel {
+            runner
+                .run_plan_parallel(&all_leaf_ids, fail_fast, &mut |event| {
+                    display.handle_event(event)
+                })
+                .await
+        } else {
+            runner
+                .run_plan(&all_leaf_ids, fail_fast, &mut |event| {
+                    display.handle_event(event)
+                })
+                .await
+        }
     });
 
     drop(_echo_guard);
