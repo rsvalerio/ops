@@ -15,6 +15,7 @@ extern crate ops_test_coverage;
 #[cfg(feature = "tokei")]
 extern crate ops_tokei;
 
+mod about_cmd;
 mod args;
 mod extension_cmd;
 mod hook_shared;
@@ -135,12 +136,20 @@ fn dispatch(
             changed_only,
             action,
         }) => return run_before_push(action, changed_only),
-        Some(CoreSubcommand::About { refresh }) => {
+        Some(CoreSubcommand::About { refresh, action }) => {
             let (config, cwd) = load_config_and_cwd()?;
             let registry = crate::registry::build_data_registry(&config, &cwd)?;
-            let columns = config.output.columns;
-            let opts = ops_about::AboutOptions { refresh };
-            ops_about::run_about(&registry, &opts, columns)?;
+            match action {
+                Some(AboutAction::Setup) => about_cmd::run_about_setup(&registry)?,
+                None => {
+                    let columns = config.output.columns;
+                    let opts = ops_about::AboutOptions {
+                        refresh,
+                        visible_fields: config.about.fields.clone(),
+                    };
+                    ops_about::run_about(&registry, &opts, columns)?;
+                }
+            }
         }
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Deps { refresh }) => {

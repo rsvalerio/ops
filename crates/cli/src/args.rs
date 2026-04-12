@@ -69,6 +69,8 @@ pub enum CoreSubcommand {
         /// Force re-collection of data (ignores cached results).
         #[arg(long)]
         refresh: bool,
+        #[command(subcommand)]
+        action: Option<AboutAction>,
     },
     /// Dependency health: upgrades, advisories, licenses, bans, sources.
     #[cfg(feature = "stack-rust")]
@@ -128,6 +130,13 @@ pub enum ThemeAction {
     List,
     /// Interactively select a theme.
     Select,
+}
+
+/// About subcommands.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum AboutAction {
+    /// Interactively choose which fields to show on the about card.
+    Setup,
 }
 
 /// Extension management subcommands.
