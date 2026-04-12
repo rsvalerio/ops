@@ -1,4 +1,0 @@
-[build]
-# Disable incremental compilation to improve sccache hit rates in CI.
-# Don't set codegen-units via rustflags - let profiles control per-profile.
-incremental = false
