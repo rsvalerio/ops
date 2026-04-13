@@ -89,7 +89,6 @@ pub(crate) fn run_cargo_llvm_cov(working_dir: &Path) -> io::Result<Output> {
             "llvm-cov",
             "--workspace",
             "--no-cfg-coverage",
-            "--all-features",
             "--tests",
             "--json",
         ])
