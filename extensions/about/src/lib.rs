@@ -65,6 +65,15 @@ pub fn run_about(
     // These are best-effort — they may not be compiled in.
     let _ = ctx.get_or_provide("duckdb", data_registry);
     let _ = ctx.get_or_provide("tokei", data_registry);
+    if opts.refresh {
+        match ctx.get_or_provide("coverage", data_registry) {
+            Ok(_) => {}
+            Err(DataProviderError::NotFound(_)) => {} // not compiled in
+            Err(e) => {
+                eprintln!("  \u{26a0}\u{fe0f} coverage collection failed: {e:#}");
+            }
+        }
+    }
 
     let mut identity = match ctx.get_or_provide("project_identity", data_registry) {
         Ok(value) => serde_json::from_value::<ProjectIdentity>((*value).clone())?,

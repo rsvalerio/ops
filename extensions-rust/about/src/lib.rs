@@ -392,7 +392,7 @@ mod tests {
             },
             per_crate,
         };
-        let output = format_coverage_table(&ws, &coverage_data);
+        let output = format_coverage_table(&ws, &coverage_data, std::path::Path::new("/tmp"));
 
         assert!(output.contains("Core"), "should contain crate name");
         assert!(output.contains("Cli"), "should contain crate name");
@@ -441,7 +441,7 @@ mod tests {
             },
             per_crate,
         };
-        let output = format_coverage_table(&ws, &coverage_data);
+        let output = format_coverage_table(&ws, &coverage_data, std::path::Path::new("/tmp"));
 
         assert!(output.contains("Core"), "should contain crate with data");
         assert!(!output.contains("Cli"), "should skip crate with zero lines");
@@ -494,7 +494,7 @@ mod tests {
             },
             per_crate,
         };
-        let output = format_coverage_table(&ws, &coverage_data);
+        let output = format_coverage_table(&ws, &coverage_data, std::path::Path::new("/tmp"));
 
         assert!(
             output.contains("\u{2705}"),
@@ -1138,7 +1138,7 @@ mod tests {
             },
             per_crate: HashMap::new(),
         };
-        let output = format_coverage_table(&ws, &coverage_data);
+        let output = format_coverage_table(&ws, &coverage_data, std::path::Path::new("/tmp"));
         // Should still produce a table header but no data rows
         assert!(!output.contains("Core"));
     }

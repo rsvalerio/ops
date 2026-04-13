@@ -143,6 +143,7 @@ fn format_dashboard(ctx: &DashboardContext<'_>) -> String {
     lines.extend(format_dashboard_coverage_section(
         ctx.manifest,
         ctx.coverage_data,
+        ctx.cwd,
     ));
 
     // 8. Toolchain & Tools
@@ -190,6 +191,7 @@ fn format_language_stats_section(stats: Option<&[LanguageStat]>) -> Vec<String> 
 fn format_dashboard_coverage_section(
     manifest: &CargoToml,
     coverage_data: Option<&CoverageData>,
+    workspace_root: &std::path::Path,
 ) -> Vec<String> {
     let cov_data = match coverage_data {
         Some(d) if d.project.lines_count > 0 => d,
@@ -218,7 +220,7 @@ fn format_dashboard_coverage_section(
     lines.push(String::new());
 
     lines.extend(
-        crate::format::format_coverage_table(ws, cov_data)
+        crate::format::format_coverage_table(ws, cov_data, workspace_root)
             .lines()
             .map(|l| format!("    {l}")),
     );
@@ -355,7 +357,10 @@ members = ["crates/core", "crates/cli"]
     #[test]
     fn format_dashboard_coverage_section_none() {
         let manifest = test_manifest();
-        assert!(format_dashboard_coverage_section(&manifest, None).is_empty());
+        assert!(
+            format_dashboard_coverage_section(&manifest, None, std::path::Path::new("/tmp"))
+                .is_empty()
+        );
     }
 
     #[test]
@@ -378,7 +383,8 @@ members = ["crates/core", "crates/cli"]
             },
             per_crate,
         };
-        let result = format_dashboard_coverage_section(&manifest, Some(&cov));
+        let result =
+            format_dashboard_coverage_section(&manifest, Some(&cov), std::path::Path::new("/tmp"));
         let output = result.join("\n");
         assert!(output.contains("TEST COVERAGE"), "got: {output}");
         assert!(output.contains("85.0%"), "got: {output}");

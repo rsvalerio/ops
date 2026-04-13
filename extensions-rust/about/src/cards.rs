@@ -51,6 +51,17 @@ pub(crate) fn format_crate_name(member: &str) -> String {
     }
 }
 
+/// Resolve the display name for a workspace member.
+///
+/// Reads the package name from the member's Cargo.toml if `workspace_root` is
+/// provided, falling back to [`format_crate_name`] when the file is missing or
+/// has no `[package]` section.
+pub(crate) fn resolve_crate_display_name(member: &str, workspace_root: &std::path::Path) -> String {
+    let toml_path = workspace_root.join(member).join("Cargo.toml");
+    let (pkg_name, _, _) = read_crate_metadata(&toml_path);
+    pkg_name.unwrap_or_else(|| format_crate_name(member))
+}
+
 pub(crate) fn load_crate_infos(
     members: &[&str],
     workspace_root: &std::path::Path,

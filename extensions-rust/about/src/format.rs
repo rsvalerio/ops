@@ -8,7 +8,8 @@ use ops_core::style::{cyan, dim};
 use ops_cargo_toml::CargoToml;
 
 use super::cards::{
-    format_crate_name, layout_cards_in_grid, load_crate_infos, render_card, CardLayoutConfig,
+    layout_cards_in_grid, load_crate_infos, render_card, resolve_crate_display_name,
+    CardLayoutConfig,
 };
 use super::query::{CoverageData, DepsTreeData};
 use super::text_util::{format_number, pad_header, tty_style};
@@ -101,7 +102,7 @@ pub(crate) fn format_workspace_info(
                 if !ws.members.is_empty() && !cov_data.per_crate.is_empty() {
                     lines.push(String::new());
                     lines.extend(
-                        format_coverage_table(ws, cov_data)
+                        format_coverage_table(ws, cov_data, cwd)
                             .lines()
                             .map(|l| format!("    {l}")),
                     );
@@ -138,6 +139,7 @@ pub(crate) fn coverage_color(pct: f64) -> ops_core::table::Color {
 pub(crate) fn format_coverage_table(
     ws: &ops_cargo_toml::Workspace,
     cov_data: &CoverageData,
+    workspace_root: &std::path::Path,
 ) -> String {
     use ops_core::table::OpsTable;
 
@@ -154,7 +156,7 @@ pub(crate) fn format_coverage_table(
             }
             let icon = coverage_icon(cov.lines_percent);
             let color = coverage_color(cov.lines_percent);
-            let name = format_crate_name(member);
+            let name = resolve_crate_display_name(member, workspace_root);
             let pct = format!("{:.1}%", cov.lines_percent);
 
             table.add_row(vec![

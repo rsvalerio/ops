@@ -186,9 +186,11 @@ impl AboutCard {
             }
         }
         if show("coverage") {
-            if let Some(pct) = id.coverage_percent {
-                fields.push(("coverage".to_string(), format!("{:.1}%", pct)));
-            }
+            let value = match id.coverage_percent {
+                Some(pct) => format!("{:.1}%", pct),
+                None => "\u{26a0}\u{fe0f} run 'ops about --refresh' to collect".to_string(),
+            };
+            fields.push(("coverage".to_string(), value));
         }
         if show("languages") && !id.languages.is_empty() {
             fields.push(("languages".to_string(), id.languages.join(", ")));
@@ -301,7 +303,7 @@ mod tests {
         assert_eq!(card.title, "ops v0.10.0");
         assert_eq!(card.badge, "Rust \u{00b7} Edition 2021 \u{00b7} Apache-2.0");
         assert_eq!(card.description, Some("Task runner".to_string()));
-        assert_eq!(card.fields.len(), 6); // project, crates, code, files, author, repository
+        assert_eq!(card.fields.len(), 7); // project, crates, code, files, author, repository, coverage
         assert_eq!(
             card.fields[0],
             ("project".to_string(), "/home/user/ops".to_string())
@@ -339,7 +341,7 @@ mod tests {
         assert_eq!(card.title, "myproject");
         assert_eq!(card.badge, "Generic");
         assert!(card.description.is_none());
-        assert_eq!(card.fields.len(), 1); // just project path
+        assert_eq!(card.fields.len(), 2); // project path + coverage hint
     }
 
     fn sample_identity() -> ProjectIdentity {
@@ -438,8 +440,8 @@ mod tests {
         let output = card.render(80, false);
         assert!(output.contains("bare"), "got: {output}");
         assert!(output.contains("/tmp"), "got: {output}");
-        // Only 1 field (project), no blank description line
-        assert_eq!(output.matches('\n').count(), 2); // header, blank, field
+        // 2 fields (project + coverage hint), no description line
+        assert_eq!(output.matches('\n').count(), 3); // header, blank, field, field
     }
 
     #[test]
