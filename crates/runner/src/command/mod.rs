@@ -163,37 +163,43 @@ impl CommandRunner {
         }
     }
 
-    /// Resolve a command by ID or alias (config first, then stack defaults, then extension, then aliases).
-    pub fn resolve(&self, id: &str) -> Option<&CommandSpec> {
+    /// Look up a command by ID across all stores (config → stack → extension).
+    fn find_in_stores(&self, id: &str) -> Option<&CommandSpec> {
         self.config
             .commands
             .get(id)
-            .or(self.stack_commands.get(id))
-            .or(self.extension_commands.get(id))
-            .or_else(|| self.resolve_alias(id))
+            .or_else(|| self.stack_commands.get(id))
+            .or_else(|| self.extension_commands.get(id))
+    }
+
+    /// Check if a command ID exists in any store.
+    fn exists_in_stores(&self, id: &str) -> bool {
+        self.config.commands.contains_key(id)
+            || self.stack_commands.contains_key(id)
+            || self.extension_commands.contains_key(id)
+    }
+
+    /// Resolve a command by ID or alias (config first, then stack defaults, then extension, then aliases).
+    pub fn resolve(&self, id: &str) -> Option<&CommandSpec> {
+        self.find_in_stores(id).or_else(|| self.resolve_alias(id))
     }
 
     /// Return the canonical command name for a given ID or alias.
     /// If the ID is already a direct command name, returns it as-is.
     /// If it matches an alias, returns the canonical name.
     fn canonical_id<'a>(&'a self, id: &'a str) -> &'a str {
-        if self.config.commands.contains_key(id)
-            || self.stack_commands.contains_key(id)
-            || self.extension_commands.contains_key(id)
-        {
+        if self.exists_in_stores(id) {
             return id;
         }
         if let Some(name) = self.config.resolve_alias(id) {
             return name;
         }
-        for (name, spec) in &self.stack_commands {
-            if spec.aliases().iter().any(|a| a == id) {
-                return name.as_str();
-            }
-        }
-        for (name, spec) in &self.extension_commands {
-            if spec.aliases().iter().any(|a| a == id) {
-                return name.as_str();
+        // Search aliases in stack and extension commands
+        for src in [&self.stack_commands, &self.extension_commands] {
+            for (name, spec) in src {
+                if spec.aliases().iter().any(|a| a == id) {
+                    return name.as_str();
+                }
             }
         }
         id
@@ -201,26 +207,29 @@ impl CommandRunner {
 
     /// Look up a command by alias across all command sources.
     fn resolve_alias(&self, alias: &str) -> Option<&CommandSpec> {
-        // Config commands
+        // Config aliases use a dedicated method (separate alias map)
         if let Some(name) = self.config.resolve_alias(alias) {
             return self.config.commands.get(name);
         }
-        // Stack default commands
-        self.stack_commands
-            .values()
-            .find(|spec| spec.aliases().iter().any(|a| a == alias))
-            .or_else(|| {
-                self.extension_commands
-                    .values()
+        // Stack and extension commands: search by spec aliases
+        [&self.stack_commands, &self.extension_commands]
+            .into_iter()
+            .find_map(|src| {
+                src.values()
                     .find(|spec| spec.aliases().iter().any(|a| a == alias))
             })
     }
 
     /// List all available command IDs (config first, then stack, then extension commands; sorted for stable order).
     pub fn list_command_ids(&self) -> Vec<CommandId> {
-        let mut ids: Vec<&str> = self.config.commands.keys().map(|s| s.as_str()).collect();
-        ids.extend(self.stack_commands.keys().map(|s| s.as_str()));
-        ids.extend(self.extension_commands.keys().map(|s| s.as_str()));
+        let mut ids: Vec<&str> = self
+            .config
+            .commands
+            .keys()
+            .map(|s| s.as_str())
+            .chain(self.stack_commands.keys().map(|s| s.as_str()))
+            .chain(self.extension_commands.keys().map(|s| s.as_str()))
+            .collect();
         ids.sort_unstable();
         ids.dedup();
         ids.iter().map(|s| CommandId::from(*s)).collect()
@@ -403,14 +412,15 @@ impl CommandRunner {
         steps: Vec<(CommandId, ExecCommandSpec)>,
         cwd: PathBuf,
     ) -> (
-        mpsc::Receiver<RunnerEvent>,
+        mpsc::UnboundedReceiver<RunnerEvent>,
         Arc<AtomicBool>,
         tokio::task::JoinSet<StepResult>,
     ) {
-        // Bounded channel provides backpressure. Each step emits ~3-4 events
-        // (Started, Output*, Finished/Failed), so 256 is generous for typical
-        // parallel groups while preventing unbounded memory growth.
-        let (tx, rx) = mpsc::channel(256);
+        // Unbounded channel: events must not be dropped because lost
+        // StepFinished/StepFailed events corrupt the progress display, and
+        // tracing::warn! on drop conflicts with indicatif's stderr control.
+        // Memory is bounded by actual subprocess output which is finite.
+        let (tx, rx) = mpsc::unbounded_channel();
         let abort = Arc::new(AtomicBool::new(false));
         let semaphore = Arc::new(tokio::sync::Semaphore::new(Self::MAX_PARALLEL));
         let mut join_set = tokio::task::JoinSet::new();
@@ -430,7 +440,7 @@ impl CommandRunner {
 
     /// Receive events from parallel execution, handling fail_fast abort.
     pub(crate) async fn handle_parallel_events(
-        mut rx: mpsc::Receiver<RunnerEvent>,
+        mut rx: mpsc::UnboundedReceiver<RunnerEvent>,
         fail_fast: bool,
         abort: Arc<AtomicBool>,
         on_event: &mut impl FnMut(RunnerEvent),

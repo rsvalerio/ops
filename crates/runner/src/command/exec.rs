@@ -39,7 +39,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 use tokio::sync::mpsc;
-use tracing::warn;
 
 /// Build a tokio Command from an exec spec and working directory.
 ///
@@ -317,26 +316,19 @@ pub async fn exec_standalone(
     id: CommandId,
     spec: ExecCommandSpec,
     cwd: PathBuf,
-    tx: mpsc::Sender<RunnerEvent>,
+    tx: mpsc::UnboundedSender<RunnerEvent>,
     abort: Arc<AtomicBool>,
 ) -> StepResult {
     if abort.load(Ordering::Acquire) {
         let display_cmd = Some(spec.display_cmd().into_owned());
-        if tx
-            .try_send(RunnerEvent::StepSkipped {
-                id: id.clone(),
-                display_cmd,
-            })
-            .is_err()
-        {
-            warn!(id = %id, "failed to send StepSkipped event: receiver dropped or full");
-        }
+        let _ = tx.send(RunnerEvent::StepSkipped {
+            id: id.clone(),
+            display_cmd,
+        });
         return StepResult::skipped(id);
     }
     exec_command(&id, &spec, &cwd, &mut |ev| {
-        if tx.try_send(ev).is_err() {
-            warn!(id = %id, "failed to send event: receiver dropped or full");
-        }
+        let _ = tx.send(ev);
     })
     .await
 }

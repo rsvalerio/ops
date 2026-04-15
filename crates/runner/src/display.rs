@@ -269,22 +269,24 @@ impl ProgressDisplay {
         }
     }
 
+    fn resolve_step_display(&self, id: &CommandId) -> (String, String) {
+        let id_str = id.to_string();
+        let display = self
+            .display_map
+            .get(id.as_str())
+            .cloned()
+            .unwrap_or_else(|| {
+                tracing::trace!(id = %id, "display_map fallback: using id as display");
+                id_str.clone()
+            });
+        (id_str, display)
+    }
+
     fn on_plan_started(&mut self, command_ids: &[CommandId]) {
         let ids_as_strings: Vec<String> = command_ids.iter().map(|id| id.to_string()).collect();
         self.steps = command_ids
             .iter()
-            .map(|id| {
-                let id_str = id.to_string();
-                let display = self
-                    .display_map
-                    .get(id.as_str())
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        tracing::trace!(id = %id, "display_map fallback: using id as display");
-                        id_str.clone()
-                    });
-                (id_str, display)
-            })
+            .map(|id| self.resolve_step_display(id))
             .collect();
 
         let header_lines = self

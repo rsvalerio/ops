@@ -373,7 +373,7 @@ async fn run_unknown_command_returns_error() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn exec_standalone_skips_when_abort_set() {
-    let (tx, mut rx) = mpsc::channel(16);
+    let (tx, mut rx) = mpsc::unbounded_channel();
     let abort = Arc::new(AtomicBool::new(true));
     let spec = echo_cmd("should not run");
     let result = exec_standalone("skipped".into(), spec, PathBuf::from("."), tx, abort).await;
@@ -1095,21 +1095,19 @@ mod parallel_infra_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn handle_parallel_events_receives_all() {
-        let (tx, rx) = mpsc::channel(16);
+        let (tx, rx) = mpsc::unbounded_channel();
         let abort = Arc::new(AtomicBool::new(false));
 
         tx.send(RunnerEvent::StepStarted {
             id: "a".into(),
             display_cmd: None,
         })
-        .await
         .unwrap();
         tx.send(RunnerEvent::StepFinished {
             id: "a".into(),
             duration_secs: 0.1,
             display_cmd: None,
         })
-        .await
         .unwrap();
         drop(tx);
 
@@ -1121,7 +1119,7 @@ mod parallel_infra_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn handle_parallel_events_sets_abort_on_fail_fast() {
-        let (tx, rx) = mpsc::channel(16);
+        let (tx, rx) = mpsc::unbounded_channel();
         let abort = Arc::new(AtomicBool::new(false));
 
         tx.send(RunnerEvent::StepFailed {
@@ -1130,7 +1128,6 @@ mod parallel_infra_tests {
             message: "error".into(),
             display_cmd: None,
         })
-        .await
         .unwrap();
         drop(tx);
 
@@ -1148,7 +1145,7 @@ mod parallel_infra_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn handle_parallel_events_no_abort_without_fail_fast() {
-        let (tx, rx) = mpsc::channel(16);
+        let (tx, rx) = mpsc::unbounded_channel();
         let abort = Arc::new(AtomicBool::new(false));
 
         tx.send(RunnerEvent::StepFailed {
@@ -1157,7 +1154,6 @@ mod parallel_infra_tests {
             message: "error".into(),
             display_cmd: None,
         })
-        .await
         .unwrap();
         drop(tx);
 
