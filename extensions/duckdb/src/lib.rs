@@ -45,6 +45,13 @@ where
     fallback_fn(ctx).map_err(Into::into)
 }
 
+/// Extract the [`DuckDb`] handle from a context by downcasting from the trait object.
+pub fn get_db(ctx: &Context) -> Option<&DuckDb> {
+    ctx.db
+        .as_ref()
+        .and_then(|h| h.as_any().downcast_ref::<DuckDb>())
+}
+
 pub const NAME: &str = "duckdb";
 #[allow(dead_code)]
 pub const DESCRIPTION: &str = "Per-project DuckDB database for data collection";

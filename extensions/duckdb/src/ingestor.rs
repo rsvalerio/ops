@@ -78,8 +78,8 @@ impl SidecarIngestorConfig {
                 [],
                 |row: &duckdb::Row| row.get::<_, i64>(0),
             )
-            .map_err(|e| crate::error::DbError::query_failed(self.count_label, e))?
-            as u64;
+            .map_err(|e| crate::error::DbError::query_failed(self.count_label, e))
+            .map(|v| u64::try_from(v).unwrap_or(0))?;
 
         let workspace_root = crate::sql::read_workspace_sidecar(data_dir, self.name)?;
         drop(conn);
