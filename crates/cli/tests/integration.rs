@@ -483,7 +483,7 @@ timeout_secs = 5
     );
 }
 
-// -- About / Dashboard smoke tests (require stack-rust; run with --features stack-rust) --
+// -- About smoke tests (require stack-rust; run with --features stack-rust) --
 
 #[test]
 #[cfg_attr(not(feature = "stack-rust"), ignore)]
@@ -499,17 +499,6 @@ fn cli_about_shows_header() {
 #[cfg_attr(not(feature = "stack-rust"), ignore)]
 fn cli_about_refresh_flag() {
     ops().arg("about").arg("--refresh").assert().success();
-}
-
-#[test]
-#[cfg_attr(not(feature = "stack-rust"), ignore)]
-fn cli_dashboard_shows_sections() {
-    ops()
-        .arg("dashboard")
-        .arg("--skip-coverage")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("ops"));
 }
 
 // -- TQ-017: Malformed .ops.d/ handling --

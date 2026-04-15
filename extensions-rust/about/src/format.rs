@@ -1,4 +1,4 @@
-//! Formatting: section renderers for the about dashboard output.
+//! Formatting: section renderers for about page output.
 
 use std::collections::HashMap;
 use std::io::{self, IsTerminal};
@@ -53,6 +53,7 @@ pub(crate) fn format_description(root_pkg: &Option<ops_cargo_toml::Package>) -> 
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn format_workspace_info(
     manifest: &CargoToml,
     cwd: &std::path::Path,

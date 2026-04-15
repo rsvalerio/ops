@@ -2,27 +2,27 @@
 //!
 //! Provides:
 //! - `project_identity` data provider (Rust-specific project identity)
-//! - `dashboard` command (comprehensive project health page)
+//! - About subpages (coverage, code, dependencies, crates)
 //!
 //! Split into submodules by responsibility (CQ-001):
 //! - `identity`: Rust project_identity data provider
 //! - `text_util`: formatting, padding, truncation, wrapping
 //! - `cards`: crate card rendering and grid layout
 //! - `query`: data fetching from DuckDB/providers
-//! - `format`: section formatters for dashboard
-//! - `dashboard`: dashboard orchestration and new section formatters
+//! - `format`: section formatters for about pages
+//! - `pages`: about subpage orchestration and section formatters
 
 pub(crate) mod cards;
-pub mod dashboard;
 pub(crate) mod format;
 pub(crate) mod identity;
+pub mod pages;
 pub(crate) mod query;
 pub(crate) mod text_util;
 
-pub use dashboard::{run_dashboard, DashboardOptions};
+pub use pages::{run_about_page, AboutPage};
 
 pub const NAME: &str = "about-rust";
-pub const DESCRIPTION: &str = "Rust project identity and dashboard";
+pub const DESCRIPTION: &str = "Rust project identity and about pages";
 pub const SHORTNAME: &str = "about-rs";
 pub const DATA_PROVIDER_NAME: &str = "project_identity";
 
@@ -33,9 +33,9 @@ ops_extension::impl_extension! {
     name: NAME,
     description: DESCRIPTION,
     shortname: SHORTNAME,
-    types: ops_extension::ExtensionType::DATASOURCE | ops_extension::ExtensionType::COMMAND,
+    types: ops_extension::ExtensionType::DATASOURCE,
     stack: Some(ops_extension::Stack::Rust),
-    command_names: &["dashboard"],
+    command_names: &[],
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_commands: |_self, _registry| {},
     register_data_providers: |_self, registry| {

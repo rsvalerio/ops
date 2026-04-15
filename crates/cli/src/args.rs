@@ -79,16 +79,6 @@ pub enum CoreSubcommand {
         #[arg(long)]
         refresh: bool,
     },
-    /// Display comprehensive project health dashboard.
-    #[cfg(feature = "stack-rust")]
-    Dashboard {
-        /// Skip test coverage collection.
-        #[arg(long)]
-        skip_coverage: bool,
-        /// Force re-collection of data (ignores cached results).
-        #[arg(long)]
-        refresh: bool,
-    },
     /// Interactively add a new command to `.ops.toml`.
     NewCommand,
     /// Setup git pre-commit hook to run an ops command of your choice.
@@ -137,6 +127,14 @@ pub enum ThemeAction {
 pub enum AboutAction {
     /// Interactively choose which fields to show on the about card.
     Setup,
+    /// Display detailed test coverage table.
+    Coverage,
+    /// Display code statistics (lines of code, languages).
+    Code,
+    /// Display dependency tree.
+    Dependencies,
+    /// Display crate cards.
+    Crates,
 }
 
 /// Extension management subcommands.
@@ -184,8 +182,6 @@ pub type Subcommand = CoreSubcommand;
 /// Unlisted commands are always visible.
 fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
     &[
-        #[cfg(feature = "stack-rust")]
-        ("dashboard", Stack::Rust),
         #[cfg(feature = "stack-rust")]
         ("deps", Stack::Rust),
         #[cfg(feature = "stack-rust")]
@@ -316,6 +312,143 @@ mod tests {
         let args: Vec<OsString> = vec!["ops".into()];
         let result = preprocess_args(args);
         assert_eq!(result, vec![OsString::from("ops")]);
+    }
+
+    // -- hide_irrelevant_commands --
+
+    #[test]
+    fn hide_irrelevant_commands_preserves_non_stack_commands() {
+        let cmd = Cli::command();
+        let result = hide_irrelevant_commands(cmd, None);
+        // Non-stack-specific commands like init, about should remain visible
+        for sub in result.get_subcommands() {
+            let name = sub.get_name();
+            if name == "init" || name == "about" || name == "theme" || name == "extension" {
+                assert!(
+                    !sub.is_hide_set(),
+                    "{name} should remain visible regardless of stack"
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "stack-rust")]
+    #[test]
+    fn hide_irrelevant_commands_no_stack_hides_stack_specific() {
+        let cmd = Cli::command();
+        let hidden_cmd = hide_irrelevant_commands(cmd, None);
+        for sub in hidden_cmd.get_subcommands() {
+            let name = sub.get_name();
+            if name == "deps" || name == "tools" {
+                assert!(
+                    sub.is_hide_set(),
+                    "{name} should be hidden when no stack detected"
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "stack-rust")]
+    #[test]
+    fn hide_irrelevant_commands_matching_stack_shows() {
+        let cmd = Cli::command();
+        let visible_cmd = hide_irrelevant_commands(cmd, Some(Stack::Rust));
+        for sub in visible_cmd.get_subcommands() {
+            let name = sub.get_name();
+            if name == "deps" || name == "tools" {
+                assert!(
+                    !sub.is_hide_set(),
+                    "{name} should be visible for Rust stack"
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "stack-rust")]
+    #[test]
+    fn hide_irrelevant_commands_wrong_stack_hides() {
+        let cmd = Cli::command();
+        let hidden_cmd = hide_irrelevant_commands(cmd, Some(Stack::Go));
+        for sub in hidden_cmd.get_subcommands() {
+            let name = sub.get_name();
+            if name == "deps" || name == "tools" {
+                assert!(sub.is_hide_set(), "{name} should be hidden for Go stack");
+            }
+        }
+    }
+
+    // -- parse subcommand edge cases --
+
+    #[test]
+    fn parse_dry_run_flag() {
+        let cli = Cli::parse_from(["ops", "-d", "build"]);
+        assert!(cli.dry_run);
+    }
+
+    #[test]
+    fn parse_verbose_flag() {
+        let cli = Cli::parse_from(["ops", "-v", "build"]);
+        assert!(cli.verbose);
+    }
+
+    #[test]
+    fn parse_about_with_refresh() {
+        let cli = Cli::parse_from(["ops", "about", "--refresh"]);
+        match cli.subcommand {
+            Some(CoreSubcommand::About { refresh, action }) => {
+                assert!(refresh);
+                assert!(action.is_none());
+            }
+            other => panic!("expected About with refresh, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_about_setup() {
+        let cli = Cli::parse_from(["ops", "about", "setup"]);
+        match cli.subcommand {
+            Some(CoreSubcommand::About { action, .. }) => {
+                assert!(matches!(action, Some(AboutAction::Setup)));
+            }
+            other => panic!("expected About Setup, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_theme_list() {
+        let cli = Cli::parse_from(["ops", "theme", "list"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(CoreSubcommand::Theme {
+                action: ThemeAction::List
+            })
+        ));
+    }
+
+    #[test]
+    fn parse_run_before_commit_with_changed_only() {
+        let cli = Cli::parse_from(["ops", "run-before-commit", "--changed-only"]);
+        match cli.subcommand {
+            Some(CoreSubcommand::RunBeforeCommit {
+                changed_only,
+                action,
+            }) => {
+                assert!(changed_only);
+                assert!(action.is_none());
+            }
+            other => panic!("expected RunBeforeCommit, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_run_before_commit_install() {
+        let cli = Cli::parse_from(["ops", "run-before-commit", "install"]);
+        match cli.subcommand {
+            Some(CoreSubcommand::RunBeforeCommit { action, .. }) => {
+                assert!(matches!(action, Some(RunBeforeCommitAction::Install)));
+            }
+            other => panic!("expected RunBeforeCommit Install, got {:?}", other),
+        }
     }
 
     #[test]

@@ -139,11 +139,6 @@ fn dispatch(
         Some(CoreSubcommand::About { refresh, action }) => run_about(refresh, action)?,
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Deps { refresh }) => run_deps(refresh)?,
-        #[cfg(feature = "stack-rust")]
-        Some(CoreSubcommand::Dashboard {
-            skip_coverage,
-            refresh,
-        }) => run_dashboard(skip_coverage, refresh)?,
         Some(CoreSubcommand::Tools { action }) => {
             #[cfg(feature = "stack-rust")]
             {
@@ -187,7 +182,7 @@ fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
 /// Category assigned to built-in (clap-defined) subcommands.
 fn builtin_category(name: &str) -> Option<&'static str> {
     match name {
-        "about" | "dashboard" => Some("Insights"),
+        "about" => Some("Insights"),
         "deps" => Some("Code Quality"),
         "init" | "theme" | "extension" | "tools" => Some("Setup"),
         _ => Some("Commands"),
@@ -364,6 +359,31 @@ fn run_about(refresh: bool, action: Option<AboutAction>) -> anyhow::Result<()> {
     let registry = crate::registry::build_data_registry(&config, &cwd)?;
     match action {
         Some(AboutAction::Setup) => about_cmd::run_about_setup(&registry),
+        #[cfg(feature = "stack-rust")]
+        Some(AboutAction::Coverage) => {
+            ops_about_rust::run_about_page(&registry, ops_about_rust::AboutPage::Coverage)
+        }
+        #[cfg(feature = "stack-rust")]
+        Some(AboutAction::Code) => {
+            ops_about_rust::run_about_page(&registry, ops_about_rust::AboutPage::Code)
+        }
+        #[cfg(feature = "stack-rust")]
+        Some(AboutAction::Dependencies) => {
+            ops_about_rust::run_about_page(&registry, ops_about_rust::AboutPage::Dependencies)
+        }
+        #[cfg(feature = "stack-rust")]
+        Some(AboutAction::Crates) => {
+            ops_about_rust::run_about_page(&registry, ops_about_rust::AboutPage::Crates)
+        }
+        #[cfg(not(feature = "stack-rust"))]
+        Some(
+            AboutAction::Coverage
+            | AboutAction::Code
+            | AboutAction::Dependencies
+            | AboutAction::Crates,
+        ) => {
+            anyhow::bail!("about subpages require the stack-rust feature");
+        }
         None => {
             let columns = config.output.columns;
             let opts = ops_about::AboutOptions {
@@ -381,18 +401,6 @@ fn run_deps(refresh: bool) -> anyhow::Result<()> {
     let registry = crate::registry::build_data_registry(&config, &cwd)?;
     let opts = ops_deps::DepsOptions { refresh };
     ops_deps::run_deps(&registry, &opts)
-}
-
-#[cfg(feature = "stack-rust")]
-fn run_dashboard(skip_coverage: bool, refresh: bool) -> anyhow::Result<()> {
-    let (config, cwd) = load_config_and_cwd()?;
-    let registry = crate::registry::build_data_registry(&config, &cwd)?;
-    let tools = ops_tools::collect_tools(&config.tools);
-    let opts = ops_about_rust::DashboardOptions {
-        skip_coverage,
-        refresh,
-    };
-    ops_about_rust::run_dashboard(&registry, &opts, &tools)
 }
 
 fn run_theme(action: ThemeAction) -> anyhow::Result<()> {
@@ -497,6 +505,248 @@ fn run_before_push(
             let args = vec![std::ffi::OsString::from("run-before-push")];
             run_cmd::run_external_command(&args, false, false)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- is_toplevel_help --
+
+    fn os(args: &[&str]) -> Vec<std::ffi::OsString> {
+        args.iter().map(|s| std::ffi::OsString::from(*s)).collect()
+    }
+
+    #[test]
+    fn is_toplevel_help_short() {
+        assert!(is_toplevel_help(&os(&["ops", "-h"])));
+    }
+
+    #[test]
+    fn is_toplevel_help_long() {
+        assert!(is_toplevel_help(&os(&["ops", "--help"])));
+    }
+
+    #[test]
+    fn is_toplevel_help_with_flags() {
+        assert!(is_toplevel_help(&os(&["ops", "-d", "--help"])));
+    }
+
+    #[test]
+    fn is_toplevel_help_subcommand_help_short() {
+        assert!(!is_toplevel_help(&os(&["ops", "build", "-h"])));
+    }
+
+    #[test]
+    fn is_toplevel_help_subcommand_help_long() {
+        assert!(!is_toplevel_help(&os(&["ops", "build", "--help"])));
+    }
+
+    #[test]
+    fn is_toplevel_help_no_help_flag() {
+        assert!(!is_toplevel_help(&os(&["ops", "-d"])));
+    }
+
+    #[test]
+    fn is_toplevel_help_no_args() {
+        assert!(!is_toplevel_help(&os(&["ops"])));
+    }
+
+    // -- builtin_category --
+
+    #[test]
+    fn builtin_category_about() {
+        assert_eq!(builtin_category("about"), Some("Insights"));
+    }
+
+    #[test]
+    fn builtin_category_deps() {
+        assert_eq!(builtin_category("deps"), Some("Code Quality"));
+    }
+
+    #[test]
+    fn builtin_category_setup_commands() {
+        for name in &["init", "theme", "extension", "tools"] {
+            assert_eq!(builtin_category(name), Some("Setup"), "failed for {name}");
+        }
+    }
+
+    #[test]
+    fn builtin_category_unknown_returns_commands() {
+        assert_eq!(builtin_category("build"), Some("Commands"));
+        assert_eq!(builtin_category("verify"), Some("Commands"));
+    }
+
+    // -- sort_entries_by_category --
+
+    fn entry(name: &str, category: Option<&str>) -> CmdEntry {
+        CmdEntry {
+            name: name.to_string(),
+            about: String::new(),
+            category: category.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn sort_entries_by_category_respects_order() {
+        let mut entries = vec![
+            entry("tools", Some("Setup")),
+            entry("build", Some("Commands")),
+            entry("about", Some("Insights")),
+        ];
+        let order = vec![
+            "Commands".to_string(),
+            "Insights".to_string(),
+            "Setup".to_string(),
+        ];
+        sort_entries_by_category(&mut entries, &order);
+        assert_eq!(entries[0].name, "build");
+        assert_eq!(entries[1].name, "about");
+        assert_eq!(entries[2].name, "tools");
+    }
+
+    #[test]
+    fn sort_entries_by_category_alphabetical_within_category() {
+        let mut entries = vec![
+            entry("test", Some("Commands")),
+            entry("build", Some("Commands")),
+            entry("verify", Some("Commands")),
+        ];
+        sort_entries_by_category(&mut entries, &["Commands".to_string()]);
+        assert_eq!(entries[0].name, "build");
+        assert_eq!(entries[1].name, "test");
+        assert_eq!(entries[2].name, "verify");
+    }
+
+    #[test]
+    fn sort_entries_by_category_uncategorized_last() {
+        let mut entries = vec![entry("mystery", None), entry("build", Some("Commands"))];
+        sort_entries_by_category(&mut entries, &["Commands".to_string()]);
+        assert_eq!(entries[0].name, "build");
+        assert_eq!(entries[1].name, "mystery");
+    }
+
+    #[test]
+    fn sort_entries_by_category_unknown_category_before_uncategorized() {
+        let mut entries = vec![
+            entry("mystery", None),
+            entry("lint", Some("UnknownCat")),
+            entry("build", Some("Commands")),
+        ];
+        sort_entries_by_category(&mut entries, &["Commands".to_string()]);
+        assert_eq!(entries[0].name, "build");
+        assert_eq!(entries[1].name, "lint");
+        assert_eq!(entries[2].name, "mystery");
+    }
+
+    // -- render_grouped_sections --
+
+    #[test]
+    fn render_grouped_sections_groups_by_category() {
+        let entries = vec![
+            entry("build", Some("Commands")),
+            entry("test", Some("Commands")),
+            entry("about", Some("Insights")),
+        ];
+        let output = render_grouped_sections(&entries);
+        assert!(output.contains("\nCommands:\n"));
+        assert!(output.contains("\nInsights:\n"));
+        assert!(output.contains("  build"));
+        assert!(output.contains("  test"));
+        assert!(output.contains("  about"));
+    }
+
+    #[test]
+    fn render_grouped_sections_aligns_names() {
+        let entries = vec![
+            entry("ab", Some("Commands")),
+            entry("longname", Some("Commands")),
+        ];
+        let output = render_grouped_sections(&entries);
+        // Both names should have the same alignment width
+        assert!(output.contains("  ab      "));
+        assert!(output.contains("  longname"));
+    }
+
+    #[test]
+    fn render_grouped_sections_uncategorized_shows_commands_heading() {
+        let entries = vec![entry("mystery", None)];
+        let output = render_grouped_sections(&entries);
+        assert!(output.contains("\nCommands:\n"));
+    }
+
+    #[test]
+    fn render_grouped_sections_empty_entries() {
+        let entries: Vec<CmdEntry> = vec![];
+        let output = render_grouped_sections(&entries);
+        assert!(output.is_empty());
+    }
+
+    // -- collect_command_entries --
+
+    #[test]
+    fn collect_command_entries_includes_dynamic_commands() {
+        let mut cmd = clap::Command::new("ops");
+        cmd = cmd.subcommand(clap::Command::new("init").about("Initialize config"));
+
+        let mut config = ops_core::config::Config::default();
+        config.commands.insert(
+            "build".to_string(),
+            ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec {
+                program: "cargo".to_string(),
+                args: vec!["build".to_string()],
+                ..Default::default()
+            }),
+        );
+
+        let entries = collect_command_entries(&cmd, &config, None);
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"init"), "should include built-in init");
+        assert!(names.contains(&"build"), "should include dynamic build");
+    }
+
+    #[test]
+    fn collect_command_entries_deduplicates() {
+        let mut cmd = clap::Command::new("ops");
+        cmd = cmd.subcommand(clap::Command::new("build").about("Built-in build"));
+
+        let mut config = ops_core::config::Config::default();
+        config.commands.insert(
+            "build".to_string(),
+            ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec {
+                program: "make".to_string(),
+                ..Default::default()
+            }),
+        );
+
+        let entries = collect_command_entries(&cmd, &config, None);
+        let build_count = entries.iter().filter(|e| e.name == "build").count();
+        assert_eq!(build_count, 1, "build should appear only once");
+    }
+
+    #[test]
+    fn collect_command_entries_hides_hidden_subcommands() {
+        let mut cmd = clap::Command::new("ops");
+        cmd = cmd.subcommand(clap::Command::new("visible").about("Visible"));
+        cmd = cmd.subcommand(clap::Command::new("hidden").about("Hidden").hide(true));
+
+        let config = ops_core::config::Config::default();
+        let entries = collect_command_entries(&cmd, &config, None);
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"visible"));
+        assert!(!names.contains(&"hidden"));
+    }
+
+    #[test]
+    fn collect_command_entries_with_stack_adds_defaults() {
+        let cmd = clap::Command::new("ops");
+        let config = ops_core::config::Config::default();
+        let entries = collect_command_entries(&cmd, &config, Some(ops_core::stack::Stack::Rust));
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        // Rust stack should add default commands like build, test, verify
+        assert!(names.contains(&"build"), "should include Rust stack build");
+        assert!(names.contains(&"test"), "should include Rust stack test");
     }
 }
 

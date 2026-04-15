@@ -7,7 +7,7 @@ use super::text_util::{
     format_number, get_terminal_width, pad_to_width_plain, truncate_to_width, tty_style, wrap_text,
 };
 
-/// Layout constants for the about dashboard.
+/// Layout constants for about pages.
 pub(crate) struct CardLayoutConfig;
 
 impl CardLayoutConfig {
