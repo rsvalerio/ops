@@ -2,6 +2,19 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.15.0](https://github.com/rsvalerio/ops/compare/e7bc4fee0f411fd102cbdfa0fff048e2467016c3..v0.15.0) - 2026-04-15
+#### 🚀 Features
+- (**config**) add show_output option for inline command output - ([f8b9a68](https://github.com/rsvalerio/ops/commit/f8b9a687acaf76d72514e40ae146688dff2015e2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) add variable expansion for command specs - ([e7bc4fe](https://github.com/rsvalerio/ops/commit/e7bc4fee0f411fd102cbdfa0fff048e2467016c3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) wire variable expansion and show_output into execution pipeline - ([c98b13f](https://github.com/rsvalerio/ops/commit/c98b13ff067e4dd74d97ffd8e3c18c4d1d4bb34d)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**about**) add tests for about and deps extensions - ([4eb8199](https://github.com/rsvalerio/ops/commit/4eb8199709f504ac54d9d5f882be186c3128b43f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) add unit tests for extension, hook, and init commands - ([830d6b1](https://github.com/rsvalerio/ops/commit/830d6b16420947104f0b36f4a3222c7161059217)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**cli,about-rust**) replace dashboard command with about subpages - ([7cca3a7](https://github.com/rsvalerio/ops/commit/7cca3a77013ea2202fa7e82038a77611feacfce6)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.14.0](https://github.com/rsvalerio/ops/compare/505910c2401bf7aa092869406ac4e6cc6243e551..v0.14.0) - 2026-04-15
 #### 🚀 Features
 - (**about**) add coverage refresh hints and improve crate metadata resolution - ([34a3154](https://github.com/rsvalerio/ops/commit/34a31545411f1ea6418a544265522ef2baf05d0e)) - [@rsvalerio](https://github.com/rsvalerio)
