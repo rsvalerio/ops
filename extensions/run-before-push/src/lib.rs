@@ -3,8 +3,8 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
 use ops_extension::ExtensionType;
+use ops_hook_common::HookConfig;
 
 pub const NAME: &str = "run-before-push";
 pub const DESCRIPTION: &str = "Setup git pre-push hook to run an ops command of your choice";
@@ -31,64 +31,33 @@ const HOOK_SCRIPT: &str = "#!/usr/bin/env bash\nexec ops run-before-push\n";
 /// Environment variable that skips the run-before-push check when set to "1".
 pub const SKIP_ENV_VAR: &str = "SKIP_OPS_RUN_BEFORE_PUSH";
 
+/// Hook configuration for the run-before-push extension.
+pub fn hook_config() -> HookConfig {
+    HookConfig {
+        name: NAME,
+        hook_filename: "pre-push",
+        hook_script: HOOK_SCRIPT,
+        skip_env_var: SKIP_ENV_VAR,
+        legacy_markers: &["ops run-before-push", "ops before-push"],
+        command_help: "Run run-before-push checks before pushing",
+    }
+}
+
 /// Returns `true` if `SKIP_OPS_RUN_BEFORE_PUSH=1` is set.
 pub fn should_skip() -> bool {
-    std::env::var(SKIP_ENV_VAR).is_ok_and(|v| v == "1")
+    ops_hook_common::should_skip(&hook_config())
 }
 
 /// Find the `.git` directory by walking up from the given path.
 pub fn find_git_dir(from: &Path) -> Option<PathBuf> {
-    let mut dir = from.to_path_buf();
-    loop {
-        let candidate = dir.join(".git");
-        if candidate.is_dir() {
-            return Some(candidate);
-        }
-        if !dir.pop() {
-            return None;
-        }
-    }
+    ops_hook_common::find_git_dir(from)
 }
 
 /// Install the git pre-push hook.
 ///
 /// Returns the path to the created hook file.
 pub fn install_hook(git_dir: &Path, w: &mut dyn Write) -> anyhow::Result<PathBuf> {
-    let hooks_dir = git_dir.join("hooks");
-    std::fs::create_dir_all(&hooks_dir).context("failed to create .git/hooks directory")?;
-
-    let hook_path = hooks_dir.join("pre-push");
-
-    if hook_path.exists() {
-        let existing =
-            std::fs::read_to_string(&hook_path).context("failed to read existing hook")?;
-        if existing == HOOK_SCRIPT {
-            writeln!(w, "Hook already installed at {}", hook_path.display())?;
-            return Ok(hook_path);
-        }
-        if existing.contains("ops run-before-push") || existing.contains("ops before-push") {
-            // Old/outdated ops hook — overwrite it below
-            writeln!(w, "Updating outdated ops hook at {}", hook_path.display())?;
-        } else {
-            anyhow::bail!(
-                "a pre-push hook already exists at {} and was not installed by ops. \
-                 Remove it manually or back it up before running install.",
-                hook_path.display()
-            );
-        }
-    }
-
-    std::fs::write(&hook_path, HOOK_SCRIPT).context("failed to write hook")?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&hook_path, std::fs::Permissions::from_mode(0o755))
-            .context("failed to make hook executable")?;
-    }
-
-    writeln!(w, "Installed hook at {}", hook_path.display())?;
-    Ok(hook_path)
+    ops_hook_common::install_hook(&hook_config(), git_dir, w)
 }
 
 /// Ensure a `[commands.run-before-push]` entry exists in `.ops.toml`.
@@ -101,59 +70,7 @@ pub fn ensure_config_command(
     selected_commands: &[String],
     w: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    if selected_commands.is_empty() {
-        writeln!(w, "No commands selected; skipping .ops.toml update")?;
-        return Ok(());
-    }
-
-    let config_path = config_dir.join(".ops.toml");
-
-    let content = if config_path.exists() {
-        std::fs::read_to_string(&config_path).context("failed to read .ops.toml")?
-    } else {
-        String::new()
-    };
-
-    let mut doc = content
-        .parse::<toml_edit::DocumentMut>()
-        .unwrap_or_else(|_| toml_edit::DocumentMut::new());
-
-    // Check if run-before-push command already exists
-    if let Some(commands) = doc.get("commands").and_then(|c| c.as_table()) {
-        if commands.contains_key("run-before-push") {
-            writeln!(w, "Command 'run-before-push' already defined in .ops.toml")?;
-            return Ok(());
-        }
-    }
-
-    // Ensure [commands] table exists
-    if !doc.contains_key("commands") {
-        doc["commands"] = toml_edit::Item::Table(toml_edit::Table::new());
-    }
-
-    let commands = doc["commands"]
-        .as_table_mut()
-        .context("commands is not a table")?;
-
-    let mut cmd = toml_edit::Table::new();
-
-    let mut arr = toml_edit::Array::new();
-    for name in selected_commands {
-        arr.push(name.as_str());
-    }
-    cmd.insert("commands", toml_edit::value(arr));
-    cmd.insert("fail_fast", toml_edit::value(true));
-    cmd.insert(
-        "help",
-        toml_edit::value("Run run-before-push checks before pushing"),
-    );
-
-    commands.insert("run-before-push", toml_edit::Item::Table(cmd));
-
-    std::fs::write(&config_path, doc.to_string()).context("failed to write .ops.toml")?;
-    writeln!(w, "Added 'run-before-push' command to .ops.toml")?;
-
-    Ok(())
+    ops_hook_common::ensure_config_command(&hook_config(), config_dir, selected_commands, w)
 }
 
 #[cfg(test)]
