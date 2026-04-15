@@ -4,6 +4,7 @@ use std::io::Write;
 
 use ops_core::style;
 use ops_core::table::{Cell, Color, OpsTable};
+use ops_core::text::capitalize;
 use ops_extension::{CommandRegistry, DataProviderSchema};
 
 use crate::registry::{build_data_registry, collect_compiled_extensions};
@@ -60,14 +61,6 @@ fn run_extension_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-    }
 }
 
 fn write_extension_table(

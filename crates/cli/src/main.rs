@@ -136,42 +136,14 @@ fn dispatch(
             changed_only,
             action,
         }) => return run_before_push(action, changed_only),
-        Some(CoreSubcommand::About { refresh, action }) => {
-            let (config, cwd) = load_config_and_cwd()?;
-            let registry = crate::registry::build_data_registry(&config, &cwd)?;
-            match action {
-                Some(AboutAction::Setup) => about_cmd::run_about_setup(&registry)?,
-                None => {
-                    let columns = config.output.columns;
-                    let opts = ops_about::AboutOptions {
-                        refresh,
-                        visible_fields: config.about.fields.clone(),
-                    };
-                    ops_about::run_about(&registry, &opts, columns)?;
-                }
-            }
-        }
+        Some(CoreSubcommand::About { refresh, action }) => run_about(refresh, action)?,
         #[cfg(feature = "stack-rust")]
-        Some(CoreSubcommand::Deps { refresh }) => {
-            let (config, cwd) = load_config_and_cwd()?;
-            let registry = crate::registry::build_data_registry(&config, &cwd)?;
-            let opts = ops_deps::DepsOptions { refresh };
-            ops_deps::run_deps(&registry, &opts)?;
-        }
+        Some(CoreSubcommand::Deps { refresh }) => run_deps(refresh)?,
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Dashboard {
             skip_coverage,
             refresh,
-        }) => {
-            let (config, cwd) = load_config_and_cwd()?;
-            let registry = crate::registry::build_data_registry(&config, &cwd)?;
-            let tools = ops_tools::collect_tools(&config.tools);
-            let opts = ops_about_rust::DashboardOptions {
-                skip_coverage,
-                refresh,
-            };
-            ops_about_rust::run_dashboard(&registry, &opts, &tools)?;
-        }
+        }) => run_dashboard(skip_coverage, refresh)?,
         Some(CoreSubcommand::Tools { action }) => {
             #[cfg(feature = "stack-rust")]
             {
@@ -222,39 +194,31 @@ fn builtin_category(name: &str) -> Option<&'static str> {
     }
 }
 
-/// Print help with all commands (built-in and dynamic) grouped by category.
+/// A command entry used for categorized help output.
+struct CmdEntry {
+    name: String,
+    about: String,
+    category: Option<String>,
+}
+
+/// Collect built-in clap subcommands and dynamic config/stack commands into a
+/// unified list of [`CmdEntry`] values.
 ///
-/// Collects built-in subcommands from the clap `Command`, merges them with
-/// config/stack dynamic commands, groups everything by category, and renders
-/// a unified help output.
-fn print_categorized_help(
-    mut cmd: clap::Command,
+/// Built-in subcommands are drawn from visible clap subcommands; dynamic
+/// commands come from the user config and the detected stack defaults.
+/// Duplicates (config overriding a stack default, or a dynamic name matching a
+/// built-in) are suppressed so each command appears at most once.
+fn collect_command_entries(
+    cmd: &clap::Command,
     config: &ops_core::config::Config,
     stack: Option<ops_core::stack::Stack>,
-    long: bool,
-) {
+) -> Vec<CmdEntry> {
     use std::collections::HashSet;
-    use std::fmt::Write;
-
-    // -- Collect built-in commands from clap (name, about, category) --------
-    // Build the clap command so subcommand metadata is fully resolved.
-    cmd.build();
-
-    let builtin_names: HashSet<String> = cmd
-        .get_subcommands()
-        .filter(|sub| !sub.is_hide_set())
-        .map(|sub| sub.get_name().to_string())
-        .collect();
-
-    struct CmdEntry {
-        name: String,
-        about: String,
-        category: Option<String>,
-    }
 
     let mut entries: Vec<CmdEntry> = Vec::new();
 
-    // Add visible built-in subcommands.
+    // Visible built-in subcommands.
+    let mut seen: HashSet<String> = HashSet::new();
     for sub in cmd.get_subcommands() {
         if sub.is_hide_set() {
             continue;
@@ -262,6 +226,7 @@ fn print_categorized_help(
         let name = sub.get_name().to_string();
         let about = sub.get_about().map(|s| s.to_string()).unwrap_or_default();
         let category = builtin_category(&name).map(|s| s.to_string());
+        seen.insert(name.clone());
         entries.push(CmdEntry {
             name,
             about,
@@ -269,7 +234,7 @@ fn print_categorized_help(
         });
     }
 
-    // -- Collect dynamic commands (config + stack defaults) ------------------
+    // Dynamic commands (config + stack defaults).
     let stack_commands = stack.map(|s| s.default_commands()).unwrap_or_default();
     let sources: Vec<(&str, &ops_core::config::CommandSpec)> = config
         .commands
@@ -278,15 +243,11 @@ fn print_categorized_help(
         .chain(stack_commands.iter().map(|(n, s)| (n.as_str(), s)))
         .collect();
 
-    let mut seen: HashSet<String> = builtin_names;
     for (name, spec) in sources {
         if !seen.insert(name.to_string()) {
             continue;
         }
-        let about = spec
-            .help()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| spec.display_cmd_fallback());
+        let about = hook_shared::command_description(spec);
         entries.push(CmdEntry {
             name: name.to_string(),
             about,
@@ -294,8 +255,13 @@ fn print_categorized_help(
         });
     }
 
-    // -- Sort by category_order, then alphabetically, uncategorized last ------
-    let category_order = &config.output.category_order;
+    entries
+}
+
+/// Sort command entries by category rank (per `category_order`), then by
+/// category name, then alphabetically by command name.  Uncategorized entries
+/// sort last.
+fn sort_entries_by_category(entries: &mut [CmdEntry], category_order: &[String]) {
     let cat_rank = |cat: Option<&str>| -> usize {
         match cat {
             None => usize::MAX,
@@ -312,13 +278,18 @@ fn print_categorized_help(
             .then_with(|| a.category.cmp(&b.category))
             .then(a.name.cmp(&b.name))
     });
+}
 
-    // -- Build the grouped sections string ----------------------------------
+/// Render sorted command entries into a grouped-sections string suitable for
+/// insertion into the help output.
+fn render_grouped_sections(entries: &[CmdEntry]) -> String {
+    use std::fmt::Write;
+
     let max_name_width = entries.iter().map(|e| e.name.len()).max().unwrap_or(0);
-
     let mut grouped = String::new();
     let mut current_category: Option<Option<&str>> = None;
-    for entry in &entries {
+
+    for entry in entries {
         let cat = entry.category.as_deref();
         if current_category.as_ref() != Some(&cat) {
             let heading = cat.unwrap_or("Commands");
@@ -335,7 +306,27 @@ fn print_categorized_help(
         .unwrap();
     }
 
-    // -- Render clap help and replace the Commands section -------------------
+    grouped
+}
+
+/// Print help with all commands (built-in and dynamic) grouped by category.
+///
+/// Collects built-in subcommands from the clap `Command`, merges them with
+/// config/stack dynamic commands, groups everything by category, and renders
+/// a unified help output.
+fn print_categorized_help(
+    mut cmd: clap::Command,
+    config: &ops_core::config::Config,
+    stack: Option<ops_core::stack::Stack>,
+    long: bool,
+) {
+    // Build the clap command so subcommand metadata is fully resolved.
+    cmd.build();
+
+    let mut entries = collect_command_entries(&cmd, config, stack);
+    sort_entries_by_category(&mut entries, &config.output.category_order);
+    let grouped = render_grouped_sections(&entries);
+
     // Hide all subcommands so clap only renders about/usage/options.
     for name in cmd
         .get_subcommands()
@@ -366,6 +357,42 @@ pub(crate) fn load_config_and_cwd() -> anyhow::Result<(ops_core::config::Config,
     let config = ops_core::config::load_config()?;
     let cwd = std::env::current_dir()?;
     Ok((config, cwd))
+}
+
+fn run_about(refresh: bool, action: Option<AboutAction>) -> anyhow::Result<()> {
+    let (config, cwd) = load_config_and_cwd()?;
+    let registry = crate::registry::build_data_registry(&config, &cwd)?;
+    match action {
+        Some(AboutAction::Setup) => about_cmd::run_about_setup(&registry),
+        None => {
+            let columns = config.output.columns;
+            let opts = ops_about::AboutOptions {
+                refresh,
+                visible_fields: config.about.fields.clone(),
+            };
+            ops_about::run_about(&registry, &opts, columns)
+        }
+    }
+}
+
+#[cfg(feature = "stack-rust")]
+fn run_deps(refresh: bool) -> anyhow::Result<()> {
+    let (config, cwd) = load_config_and_cwd()?;
+    let registry = crate::registry::build_data_registry(&config, &cwd)?;
+    let opts = ops_deps::DepsOptions { refresh };
+    ops_deps::run_deps(&registry, &opts)
+}
+
+#[cfg(feature = "stack-rust")]
+fn run_dashboard(skip_coverage: bool, refresh: bool) -> anyhow::Result<()> {
+    let (config, cwd) = load_config_and_cwd()?;
+    let registry = crate::registry::build_data_registry(&config, &cwd)?;
+    let tools = ops_tools::collect_tools(&config.tools);
+    let opts = ops_about_rust::DashboardOptions {
+        skip_coverage,
+        refresh,
+    };
+    ops_about_rust::run_dashboard(&registry, &opts, &tools)
 }
 
 fn run_theme(action: ThemeAction) -> anyhow::Result<()> {
