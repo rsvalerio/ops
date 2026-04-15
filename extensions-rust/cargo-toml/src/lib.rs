@@ -62,7 +62,7 @@ mod types;
 #[allow(unused_imports)]
 pub use types::{
     CargoToml, DepSpec, DetailedDepSpec, InheritanceError, Package, PublishSpec, ReadmeSpec,
-    Workspace,
+    Workspace, WorkspacePackage,
 };
 
 use anyhow::Context as _;
