@@ -1,9 +1,10 @@
 ---
 id: TASK-0023
 title: Hook extension crates are near-identical copies
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-04-11 18:30:00'
+updated_date: '2026-04-15 09:56'
 labels:
   - rust-code-duplication
   - CD
@@ -17,6 +18,7 @@ dependencies: []
 
 ## Description
 
+<!-- SECTION:DESCRIPTION:BEGIN -->
 **Location**: `extensions/run-before-commit/src/lib.rs:28-172`, `extensions/run-before-push/src/lib.rs:28-157`
 **Anchor**: `fn find_git_dir`, `fn install_hook`, `fn ensure_config_command`, `fn should_skip`
 **Impact**: The two hook extension crates share ~115 lines of production code that are structurally identical, differing only in hook name strings ("pre-commit" vs "pre-push", "run-before-commit" vs "run-before-push"). Four functions are near-copies:
@@ -36,3 +38,4 @@ TASK-0004 (Done) addressed the CLI-side install orchestration in `crates/cli/src
 Each extension crate would then reduce to: constants + extension metadata + a call to the shared functions. Test code is also duplicated but defers to rust-test-quality per DUP-10.
 
 DUP-1: `find_git_dir` is a verbatim 12-line copy. DUP-2: 4 functions with similar structure differing only in string literals.
+<!-- SECTION:DESCRIPTION:END -->
