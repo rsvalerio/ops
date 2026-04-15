@@ -121,6 +121,41 @@ mod tests {
     }
 
     #[test]
+    fn run_init_force_overwrite_message() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join(".ops.toml"), "existing").unwrap();
+        let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
+        let mut buf = Vec::new();
+        run_init_to(true, default_sections(), &mut buf).expect("run_init_to");
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("Created .ops.toml"),
+            "force overwrite should produce creation message, got: {output}"
+        );
+        // Verify the file was actually overwritten
+        let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
+        assert!(
+            content.contains("[output]"),
+            "should be new content, got: {content}"
+        );
+    }
+
+    #[test]
+    fn run_init_to_output_message_commands_no_stack() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // No Cargo.toml, no package.json — no stack detected
+        let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
+        let mut buf = Vec::new();
+        let sections = ops_core::config::InitSections::from_flags(true, false, true);
+        run_init_to(false, sections, &mut buf).expect("run_init_to");
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("Add commands"),
+            "no-stack message expected, got: {output}"
+        );
+    }
+
+    #[test]
     fn run_init_to_output_message_with_commands_and_rust_stack() {
         let dir = tempfile::tempdir().expect("tempdir");
         // Write a Cargo.toml so Stack::detect returns Some(Rust)

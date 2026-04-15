@@ -168,6 +168,11 @@ impl TestConfigBuilder {
         self
     }
 
+    pub fn show_output(mut self, show: bool) -> Self {
+        self.output.show_output = show;
+        self
+    }
+
     pub fn stderr_tail_lines(mut self, n: usize) -> Self {
         self.output.stderr_tail_lines = n;
         self

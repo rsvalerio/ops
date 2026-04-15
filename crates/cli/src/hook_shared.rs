@@ -161,6 +161,59 @@ mod tests {
         config
     }
 
+    // -- command_description --
+
+    #[test]
+    fn command_description_exec_with_help() {
+        let spec = CommandSpec::Exec(ExecCommandSpec {
+            program: "cargo".to_string(),
+            args: vec!["build".to_string()],
+            help: Some("Build the project".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(command_description(&spec), "Build the project");
+    }
+
+    #[test]
+    fn command_description_exec_without_help() {
+        let spec = CommandSpec::Exec(ExecCommandSpec {
+            program: "cargo".to_string(),
+            args: vec!["build".to_string(), "--release".to_string()],
+            ..Default::default()
+        });
+        let desc = command_description(&spec);
+        assert!(desc.contains("cargo"), "got: {desc}");
+        assert!(desc.contains("build"), "got: {desc}");
+    }
+
+    #[test]
+    fn command_description_composite_with_help() {
+        let spec = CommandSpec::Composite(CompositeCommandSpec {
+            commands: vec!["build".to_string(), "test".to_string()],
+            parallel: false,
+            fail_fast: true,
+            help: Some("Build and test".to_string()),
+            aliases: Vec::new(),
+            category: None,
+        });
+        assert_eq!(command_description(&spec), "Build and test");
+    }
+
+    #[test]
+    fn command_description_composite_without_help() {
+        let spec = CommandSpec::Composite(CompositeCommandSpec {
+            commands: vec!["build".to_string(), "test".to_string()],
+            parallel: false,
+            fail_fast: true,
+            help: None,
+            aliases: Vec::new(),
+            category: None,
+        });
+        let desc = command_description(&spec);
+        // Should fall back to display_cmd_fallback which shows the composite commands
+        assert!(!desc.is_empty(), "description should not be empty");
+    }
+
     #[test]
     fn gather_excludes_hook_command() {
         let dir = tempfile::tempdir().expect("tempdir");

@@ -337,6 +337,77 @@ mod tests {
             .contains("interactive terminal"));
     }
 
+    // -- print_provider_info --
+
+    #[test]
+    fn print_provider_info_with_fields() {
+        let schema = DataProviderSchema {
+            description: "Test provider",
+            fields: vec![
+                ops_extension::DataField {
+                    name: "field_a",
+                    type_name: "String",
+                    description: "First field",
+                },
+                ops_extension::DataField {
+                    name: "field_b",
+                    type_name: "Vec<u32>",
+                    description: "Second field",
+                },
+            ],
+        };
+        let mut buf = Vec::new();
+        print_provider_info(&mut buf, "test_provider", &schema).expect("should succeed");
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("test_provider") || output.contains("PROVIDER"));
+        assert!(output.contains("Test provider"));
+        assert!(output.contains("field_a"));
+        assert!(output.contains("field_b"));
+    }
+
+    #[test]
+    fn print_provider_info_empty_fields() {
+        let schema = DataProviderSchema {
+            description: "Empty provider",
+            fields: vec![],
+        };
+        let mut buf = Vec::new();
+        print_provider_info(&mut buf, "empty", &schema).expect("should succeed");
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("No fields documented"));
+    }
+
+    // -- extension_summary --
+
+    #[cfg(feature = "stack-rust")]
+    #[test]
+    fn extension_summary_returns_types_and_commands() {
+        let config = ops_core::config::Config::default();
+        let cwd = std::path::Path::new(".");
+        let compiled = collect_compiled_extensions(&config, cwd);
+        if let Some((_, ext)) = compiled.first() {
+            let (types, _commands) = extension_summary(ext.as_ref());
+            assert!(!types.is_empty(), "extension should have at least one type");
+        }
+    }
+
+    // -- run_extension_list edge cases --
+
+    #[test]
+    fn run_extension_list_with_no_extensions() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config(
+            r#"
+[extensions]
+enabled = []
+"#,
+        );
+        // With empty enabled list, collect_compiled_extensions still returns all,
+        // but the list output should still work
+        let mut buf = Vec::new();
+        let result = run_extension_list_to(&mut buf);
+        assert!(result.is_ok());
+    }
+
     #[test]
     fn format_list_empty_returns_dash() {
         let items: Vec<String> = vec![];
