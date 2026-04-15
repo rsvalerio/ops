@@ -68,11 +68,9 @@ pub(crate) fn maybe_spinner(message: &str) -> Option<indicatif::ProgressBar> {
     Some(sp)
 }
 
-/// Extract the DuckDb handle from context (DUP-007).
+/// Extract the DuckDb handle from context.
 fn get_db(ctx: &Context) -> Option<&ops_duckdb::DuckDb> {
-    ctx.db
-        .as_ref()
-        .and_then(|h| h.as_any().downcast_ref::<ops_duckdb::DuckDb>())
+    ops_duckdb::get_db(ctx)
 }
 
 /// Expand workspace member glob patterns (e.g. `crates/*`) into actual directory paths
@@ -278,5 +276,91 @@ pub(crate) fn query_language_stats(
         None
     } else {
         Some(stats)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_member_globs_expands_glob() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+
+        std::fs::create_dir_all(root.join("crates/foo")).unwrap();
+        std::fs::write(
+            root.join("crates/foo/Cargo.toml"),
+            "[package]\nname=\"foo\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("crates/bar")).unwrap();
+        std::fs::write(
+            root.join("crates/bar/Cargo.toml"),
+            "[package]\nname=\"bar\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("crates/not-a-crate")).unwrap();
+
+        let members = vec!["crates/*".to_string()];
+        let resolved = resolve_member_globs(&members, root);
+
+        assert_eq!(resolved.len(), 2);
+        assert!(resolved.contains(&"crates/bar".to_string()));
+        assert!(resolved.contains(&"crates/foo".to_string()));
+        assert_eq!(resolved[0], "crates/bar");
+        assert_eq!(resolved[1], "crates/foo");
+    }
+
+    #[test]
+    fn resolve_member_globs_non_glob_passthrough() {
+        let members = vec!["crates/core".to_string(), "crates/cli".to_string()];
+        let resolved = resolve_member_globs(&members, std::path::Path::new("/nonexistent"));
+        assert_eq!(
+            resolved,
+            vec!["crates/cli".to_string(), "crates/core".to_string()]
+        );
+    }
+
+    #[test]
+    fn resolve_member_globs_mixed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+
+        std::fs::create_dir_all(root.join("crates/foo")).unwrap();
+        std::fs::write(
+            root.join("crates/foo/Cargo.toml"),
+            "[package]\nname=\"foo\"\n",
+        )
+        .unwrap();
+
+        let members = vec!["explicit".to_string(), "crates/*".to_string()];
+        let resolved = resolve_member_globs(&members, root);
+
+        assert_eq!(resolved.len(), 2);
+        assert!(resolved.contains(&"explicit".to_string()));
+        assert!(resolved.contains(&"crates/foo".to_string()));
+    }
+
+    #[test]
+    fn resolve_member_globs_no_matching_dirs() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        // Create the parent dir but no children with Cargo.toml
+        std::fs::create_dir_all(root.join("crates")).unwrap();
+
+        let members = vec!["crates/*".to_string()];
+        let resolved = resolve_member_globs(&members, root);
+        assert!(resolved.is_empty());
+    }
+
+    #[test]
+    fn resolve_member_globs_nonexistent_glob_parent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        // Don't create the "crates" directory at all
+        let members = vec!["crates/*".to_string()];
+        let resolved = resolve_member_globs(&members, root);
+        assert!(resolved.is_empty());
     }
 }

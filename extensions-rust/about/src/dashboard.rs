@@ -273,6 +273,7 @@ fn format_toolchain_section(toolchain: Option<&str>, tools: &[ToolInfo]) -> Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::format::test_workspace_manifest;
     use std::collections::HashMap;
 
     fn test_manifest() -> CargoToml {
@@ -388,5 +389,108 @@ members = ["crates/core", "crates/cli"]
         let output = result.join("\n");
         assert!(output.contains("TEST COVERAGE"), "got: {output}");
         assert!(output.contains("85.0%"), "got: {output}");
+    }
+
+    #[test]
+    fn format_dashboard_basic() {
+        let toml_str = r#"
+[package]
+name = "test-project"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "A test project"
+
+[workspace]
+members = ["crates/core", "crates/cli"]
+"#;
+        let manifest: ops_cargo_toml::CargoToml =
+            toml::from_str(toml_str).expect("test manifest should parse");
+
+        let cwd = std::path::PathBuf::from("/test/workspace");
+        let output = format_dashboard(&DashboardContext {
+            manifest: &manifest,
+            cwd: &cwd,
+            loc_data: None,
+            deps_data: None,
+            deps_tree: None,
+            coverage_data: None,
+            language_stats: None,
+            toolchain: None,
+            tools: &[],
+        });
+
+        assert!(
+            output.contains("test-project"),
+            "should contain project name"
+        );
+        assert!(output.contains("v0.1.0"), "should contain version");
+        assert!(output.contains("2021"), "should contain edition");
+        assert!(output.contains("MIT"), "should contain license");
+        assert!(
+            output.contains("A test project"),
+            "should contain description"
+        );
+    }
+
+    #[test]
+    fn format_dashboard_with_loc_and_coverage() {
+        let manifest = test_workspace_manifest(vec!["crates/core".to_string()]);
+        let loc_data = LocData {
+            project_total: 5000,
+            per_crate: HashMap::new(),
+            project_file_count: 42,
+            per_crate_files: HashMap::new(),
+        };
+        let cwd = std::path::PathBuf::from("/test/workspace");
+        let output = format_dashboard(&DashboardContext {
+            manifest: &manifest,
+            cwd: &cwd,
+            loc_data: Some(&loc_data),
+            deps_data: None,
+            deps_tree: None,
+            coverage_data: None,
+            language_stats: None,
+            toolchain: None,
+            tools: &[],
+        });
+
+        assert!(output.contains("5,000"), "should contain LOC");
+        assert!(output.contains("42"), "should contain file count");
+    }
+
+    #[test]
+    fn format_dashboard_with_language_stats() {
+        let manifest = test_workspace_manifest(vec!["crates/a".to_string()]);
+        let stats = vec![
+            LanguageStat {
+                language: "Rust".to_string(),
+                loc: 10000,
+                file_count: 50,
+            },
+            LanguageStat {
+                language: "TOML".to_string(),
+                loc: 500,
+                file_count: 10,
+            },
+        ];
+        let cwd = std::path::PathBuf::from("/test");
+        let output = format_dashboard(&DashboardContext {
+            manifest: &manifest,
+            cwd: &cwd,
+            loc_data: None,
+            deps_data: None,
+            deps_tree: None,
+            coverage_data: None,
+            language_stats: Some(&stats),
+            toolchain: None,
+            tools: &[],
+        });
+
+        assert!(
+            output.contains("CODE STATISTICS"),
+            "should contain stats section"
+        );
+        assert!(output.contains("Rust"), "should contain Rust");
     }
 }

@@ -1,21 +1,7 @@
 //! Text utilities: formatting, padding, truncation, and wrapping.
 
 use ops_core::output::display_width;
-
-pub(crate) fn format_number(n: i64) -> String {
-    if n < 0 {
-        return format!("-{}", format_number(-n));
-    }
-    let s = n.to_string();
-    let mut result = String::new();
-    for (i, ch) in s.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 {
-            result.push(',');
-        }
-        result.push(ch);
-    }
-    result.chars().rev().collect()
-}
+pub(crate) use ops_core::text::format_number;
 
 pub(crate) fn get_terminal_width() -> usize {
     std::env::var("COLUMNS")
@@ -112,4 +98,146 @@ pub(crate) fn pad_header(left: &str, right: &str) -> String {
 
     let padding = target_content_width.saturating_sub(left_display + right_display + 1);
     format!("{}{}{} ", left, " ".repeat(padding), right)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cards::CardLayoutConfig;
+    use ops_core::output::display_width;
+
+    #[test]
+    fn truncate_to_width_short_string() {
+        assert_eq!(truncate_to_width("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_to_width_exact_fit() {
+        assert_eq!(truncate_to_width("hello", 5), "hell\u{2026}");
+    }
+
+    #[test]
+    fn truncate_to_width_needs_truncation() {
+        assert_eq!(truncate_to_width("hello world", 6), "hello\u{2026}");
+    }
+
+    #[test]
+    fn truncate_to_width_very_short_max() {
+        let result = truncate_to_width("hello", 1);
+        assert_eq!(result, "\u{2026}");
+    }
+
+    #[test]
+    fn truncate_to_width_empty() {
+        assert_eq!(truncate_to_width("", 10), "");
+    }
+
+    #[test]
+    fn wrap_text_single_line() {
+        let result = wrap_text("hello world", 20, 2);
+        assert_eq!(result, vec!["hello world"]);
+    }
+
+    #[test]
+    fn wrap_text_multiple_lines() {
+        let result = wrap_text("one two three four five", 10, 3);
+        assert!(result.len() <= 3);
+        for line in &result {
+            assert!(display_width(line) <= 10);
+        }
+    }
+
+    #[test]
+    fn wrap_text_respects_max_lines() {
+        let result = wrap_text("one two three four five six seven eight", 5, 2);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn wrap_text_empty() {
+        let result = wrap_text("", 10, 2);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn wrap_text_max_lines_zero() {
+        let result = wrap_text("hello world", 20, 0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn wrap_text_long_word_exceeds_width() {
+        let result = wrap_text("superlongword short", 5, 3);
+        assert!(!result.is_empty());
+        assert!(result[0].contains("superlongword") || result[0].contains("super"));
+    }
+
+    #[test]
+    fn pad_to_width_adds_padding() {
+        let result = pad_to_width_plain("hi", 5);
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn pad_to_width_already_wide() {
+        let result = pad_to_width_plain("hello", 3);
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn char_display_width_ascii() {
+        assert_eq!(char_display_width('a'), 1);
+        assert_eq!(char_display_width(' '), 1);
+    }
+
+    #[test]
+    fn char_display_width_wide() {
+        assert_eq!(char_display_width('\u{6f22}'), 2);
+    }
+
+    #[test]
+    fn char_display_width_zero_width() {
+        assert_eq!(char_display_width('\u{200D}'), 0);
+    }
+
+    #[test]
+    fn tty_style_applies_when_tty() {
+        let styled = tty_style("hello", ops_core::style::cyan, true);
+        assert!(styled.contains("hello"));
+        assert!(styled.contains("\x1b["));
+    }
+
+    #[test]
+    fn tty_style_passthrough_when_not_tty() {
+        let result = tty_style("hello", ops_core::style::cyan, false);
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn get_terminal_width_default() {
+        let saved = std::env::var("COLUMNS").ok();
+        std::env::remove_var("COLUMNS");
+        let width = get_terminal_width();
+        assert_eq!(width, 120);
+        if let Some(v) = saved {
+            std::env::set_var("COLUMNS", v);
+        }
+    }
+
+    #[test]
+    fn pad_header_balances_left_and_right() {
+        let result = pad_header("Left", "Right");
+        assert!(result.starts_with("Left"));
+        assert!(result.ends_with("Right "));
+        assert!(result.len() <= CardLayoutConfig::BOX_WIDTH);
+    }
+
+    #[test]
+    fn pad_header_long_strings() {
+        let left = "A".repeat(60);
+        let right = "B".repeat(60);
+        let result = pad_header(&left, &right);
+        assert!(result.contains(&left));
+        assert!(result.contains(&right));
+    }
 }
