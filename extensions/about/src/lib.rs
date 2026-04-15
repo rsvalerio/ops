@@ -7,6 +7,7 @@
 use std::io::IsTerminal;
 
 use ops_core::project_identity::{AboutCard, ProjectIdentity};
+use ops_core::text::{capitalize, dir_name};
 use ops_extension::{DataProviderError, ExtensionType};
 
 const NAME: &str = "about";
@@ -100,11 +101,7 @@ pub fn run_about(
 /// Enrich identity with LOC/file count from DuckDB if available.
 #[cfg(feature = "duckdb")]
 fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) {
-    let db = match ctx
-        .db
-        .as_ref()
-        .and_then(|h| h.as_any().downcast_ref::<ops_duckdb::DuckDb>())
-    {
+    let db = match ops_duckdb::get_db(ctx) {
         Some(db) => db,
         None => return,
     };
@@ -145,10 +142,7 @@ fn enrich_from_db(_ctx: &ops_extension::Context, _identity: &mut ProjectIdentity
 fn build_fallback_identity(cwd: &std::path::Path) -> ProjectIdentity {
     use ops_core::stack::Stack;
 
-    let name = cwd
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "project".to_string());
+    let name = dir_name(cwd).to_string();
 
     let stack = Stack::detect(cwd);
     let stack_label = stack
@@ -157,31 +151,10 @@ fn build_fallback_identity(cwd: &std::path::Path) -> ProjectIdentity {
 
     ProjectIdentity {
         name,
-        version: None,
-        description: None,
         stack_label,
-        stack_detail: None,
-        license: None,
         project_path: cwd.display().to_string(),
-        module_count: None,
         module_label: "modules".to_string(),
-        loc: None,
-        file_count: None,
-        authors: vec![],
-        repository: None,
-        homepage: None,
-        msrv: None,
-        dependency_count: None,
-        coverage_percent: None,
-        languages: vec![],
-    }
-}
-
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        ..Default::default()
     }
 }
 

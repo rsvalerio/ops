@@ -6,7 +6,8 @@
 
 use std::path::Path;
 
-use ops_core::project_identity::{AboutFieldDef, ProjectIdentity};
+use ops_core::project_identity::{base_about_fields, AboutFieldDef, ProjectIdentity};
+use ops_core::text::dir_name;
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 
 const NAME: &str = "about-go";
@@ -40,48 +41,7 @@ impl DataProvider for GoIdentityProvider {
     }
 
     fn about_fields(&self) -> Vec<AboutFieldDef> {
-        vec![
-            AboutFieldDef {
-                id: "project",
-                label: "Project path",
-                description: "Absolute path to project root",
-            },
-            AboutFieldDef {
-                id: "modules",
-                label: "Module count",
-                description: "Number of workspace modules",
-            },
-            AboutFieldDef {
-                id: "code",
-                label: "Lines of code",
-                description: "Total lines of code (from tokei)",
-            },
-            AboutFieldDef {
-                id: "files",
-                label: "File count",
-                description: "Total source file count",
-            },
-            AboutFieldDef {
-                id: "authors",
-                label: "Authors",
-                description: "Project author(s)",
-            },
-            AboutFieldDef {
-                id: "repository",
-                label: "Repository",
-                description: "Repository URL",
-            },
-            AboutFieldDef {
-                id: "coverage",
-                label: "Coverage",
-                description: "Test coverage percentage",
-            },
-            AboutFieldDef {
-                id: "languages",
-                label: "Languages",
-                description: "Languages used in the project",
-            },
-        ]
+        base_about_fields()
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
@@ -116,23 +76,12 @@ impl DataProvider for GoIdentityProvider {
 
         let identity = ProjectIdentity {
             name,
-            version: None,
-            description: None,
             stack_label: "Go".to_string(),
             stack_detail,
-            license: None,
             project_path: cwd.display().to_string(),
             module_count,
             module_label: "modules".to_string(),
-            loc: None,
-            file_count: None,
-            authors: vec![],
-            repository: None,
-            homepage: None,
-            msrv: None,
-            dependency_count: None,
-            coverage_percent: None,
-            languages: vec![],
+            ..Default::default()
         };
 
         serde_json::to_value(&identity).map_err(DataProviderError::from)
@@ -216,12 +165,6 @@ fn parse_go_work(project_root: &Path) -> Option<GoWork> {
     } else {
         Some(GoWork { use_dirs })
     }
-}
-
-fn dir_name(path: &Path) -> &str {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("project")
 }
 
 #[cfg(test)]
