@@ -2052,6 +2052,7 @@ dependencies = [
  "ops-duckdb",
  "ops-extension",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -2134,6 +2135,7 @@ dependencies = [
  "proptest",
  "serde",
  "serial_test",
+ "shellexpand",
  "strum 0.28.0",
  "tempfile",
  "terminal_size",
@@ -3205,6 +3207,12 @@ checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
 ]
+
+[[package]]
+name = "shellexpand"
+version = "3.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32824fab5e16e6c4d86dc1ba84489390419a39f97699852b66480bb87d297ed8"
 
 [[package]]
 name = "shlex"
