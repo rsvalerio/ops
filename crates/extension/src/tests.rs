@@ -297,46 +297,22 @@ fn context_working_directory() {
 }
 
 // --- Extension trait defaults ---
+// Verifies all default implementations return expected values and that
+// info() correctly aggregates them. Consolidated from per-method tests.
 
 #[test]
-fn extension_default_description_is_empty() {
+fn extension_defaults_and_info_aggregation() {
     let ext = TestExtension;
+
+    // Individual defaults
     assert_eq!(ext.description(), "");
-}
-
-#[test]
-fn extension_default_shortname_equals_name() {
-    let ext = TestExtension;
     assert_eq!(ext.shortname(), ext.name());
-}
-
-#[test]
-fn extension_default_types_is_empty() {
-    let ext = TestExtension;
     assert_eq!(ext.types(), ExtensionType::empty());
-}
-
-#[test]
-fn extension_default_command_names_is_empty() {
-    let ext = TestExtension;
     assert!(ext.command_names().is_empty());
-}
-
-#[test]
-fn extension_default_data_provider_name_is_none() {
-    let ext = TestExtension;
     assert!(ext.data_provider_name().is_none());
-}
-
-#[test]
-fn extension_default_stack_is_none() {
-    let ext = TestExtension;
     assert!(ext.stack().is_none());
-}
 
-#[test]
-fn extension_info_aggregates_defaults() {
-    let ext = TestExtension;
+    // info() aggregates all defaults
     let info = ext.info();
     assert_eq!(info.name, "test_ext");
     assert_eq!(info.shortname, "test_ext");
@@ -344,11 +320,8 @@ fn extension_info_aggregates_defaults() {
     assert_eq!(info.types, ExtensionType::empty());
     assert!(info.command_names.is_empty());
     assert!(info.data_provider_name.is_none());
-}
 
-#[test]
-fn extension_default_register_data_providers_is_noop() {
-    let ext = TestExtension;
+    // register_data_providers is a no-op
     let mut registry = DataRegistry::new();
     ext.register_data_providers(&mut registry);
     assert!(registry.provider_names().is_empty());
@@ -450,6 +423,55 @@ fn data_provider_error_is_clone() {
     let err = DataProviderError::computation_failed("clone me");
     let cloned = err.clone();
     assert_eq!(err.to_string(), cloned.to_string());
+}
+
+// --- DataRegistry::about_fields ---
+
+struct AboutFieldProvider;
+impl DataProvider for AboutFieldProvider {
+    fn name(&self) -> &'static str {
+        "identity"
+    }
+    fn provide(&self, _ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+        Ok(serde_json::json!({}))
+    }
+    fn about_fields(&self) -> Vec<ops_core::project_identity::AboutFieldDef> {
+        vec![
+            ops_core::project_identity::AboutFieldDef {
+                id: "project",
+                label: "Project",
+                description: "Project name",
+            },
+            ops_core::project_identity::AboutFieldDef {
+                id: "version",
+                label: "Version",
+                description: "Project version",
+            },
+        ]
+    }
+}
+
+#[test]
+fn data_registry_about_fields_returns_provider_fields() {
+    let mut registry = DataRegistry::new();
+    registry.register("identity", Box::new(AboutFieldProvider));
+    let fields = registry.about_fields("identity");
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].id, "project");
+    assert_eq!(fields[1].id, "version");
+}
+
+#[test]
+fn data_registry_about_fields_unknown_provider_returns_empty() {
+    let registry = DataRegistry::new();
+    let fields = registry.about_fields("nonexistent");
+    assert!(fields.is_empty());
+}
+
+#[test]
+fn data_provider_default_about_fields_is_empty() {
+    let provider = StubProvider;
+    assert!(provider.about_fields().is_empty());
 }
 
 // --- DataRegistry::default ---
