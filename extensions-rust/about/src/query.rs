@@ -14,6 +14,7 @@ use ops_extension::Context;
 use ops_cargo_toml::CargoToml;
 
 /// LOC data for display — always has project total, workspaces also get per-crate.
+#[allow(dead_code)]
 pub(crate) struct LocData {
     /// Total LOC for the whole project (shown in workspace info).
     pub(crate) project_total: i64,
@@ -362,5 +363,82 @@ mod tests {
         let members = vec!["crates/*".to_string()];
         let resolved = resolve_member_globs(&members, root);
         assert!(resolved.is_empty());
+    }
+
+    #[test]
+    fn resolve_member_globs_empty_members() {
+        let resolved = resolve_member_globs(&[], std::path::Path::new("/nonexistent"));
+        assert!(resolved.is_empty());
+    }
+
+    #[test]
+    fn resolve_member_globs_sorted_output() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+
+        // Create members in reverse alphabetical order
+        for name in &["zebra", "alpha", "middle"] {
+            std::fs::create_dir_all(root.join(format!("crates/{name}"))).unwrap();
+            std::fs::write(
+                root.join(format!("crates/{name}/Cargo.toml")),
+                format!("[package]\nname=\"{name}\"\n"),
+            )
+            .unwrap();
+        }
+
+        let members = vec!["crates/*".to_string()];
+        let resolved = resolve_member_globs(&members, root);
+
+        assert_eq!(resolved.len(), 3);
+        assert_eq!(resolved[0], "crates/alpha");
+        assert_eq!(resolved[1], "crates/middle");
+        assert_eq!(resolved[2], "crates/zebra");
+    }
+
+    #[test]
+    fn resolve_member_globs_ignores_files_not_dirs() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+
+        std::fs::create_dir_all(root.join("crates")).unwrap();
+        // Create a file (not a directory) in crates/
+        std::fs::write(root.join("crates/not-a-dir"), "some content").unwrap();
+        // Create a valid crate dir
+        std::fs::create_dir_all(root.join("crates/real")).unwrap();
+        std::fs::write(
+            root.join("crates/real/Cargo.toml"),
+            "[package]\nname=\"real\"\n",
+        )
+        .unwrap();
+
+        let members = vec!["crates/*".to_string()];
+        let resolved = resolve_member_globs(&members, root);
+
+        assert_eq!(resolved, vec!["crates/real"]);
+    }
+
+    #[test]
+    fn resolve_member_globs_deep_glob_prefix() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+
+        std::fs::create_dir_all(root.join("extensions/rust/foo")).unwrap();
+        std::fs::write(
+            root.join("extensions/rust/foo/Cargo.toml"),
+            "[package]\nname=\"foo\"\n",
+        )
+        .unwrap();
+
+        let members = vec!["extensions/rust/*".to_string()];
+        let resolved = resolve_member_globs(&members, root);
+
+        assert_eq!(resolved, vec!["extensions/rust/foo"]);
+    }
+
+    #[test]
+    fn maybe_spinner_returns_none_in_non_tty() {
+        // In test environments, stderr is not a TTY
+        let result = maybe_spinner("test message");
+        assert!(result.is_none());
     }
 }

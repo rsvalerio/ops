@@ -171,4 +171,113 @@ mod tests {
         assert!(id.version.is_none());
         assert!(id.module_count.is_none());
     }
+
+    #[test]
+    fn fallback_identity_module_label_is_modules() {
+        let cwd = std::path::Path::new("/tmp/test");
+        let id = build_fallback_identity(cwd);
+        assert_eq!(id.module_label, "modules");
+    }
+
+    #[test]
+    fn fallback_identity_defaults_are_empty() {
+        let cwd = std::path::Path::new("/tmp/test");
+        let id = build_fallback_identity(cwd);
+        assert!(id.description.is_none());
+        assert!(id.license.is_none());
+        assert!(id.repository.is_none());
+        assert!(id.homepage.is_none());
+        assert!(id.msrv.is_none());
+        assert!(id.loc.is_none());
+        assert!(id.file_count.is_none());
+        assert!(id.dependency_count.is_none());
+        assert!(id.coverage_percent.is_none());
+        assert!(id.languages.is_empty());
+        assert!(id.authors.is_empty());
+        assert!(id.stack_detail.is_none());
+    }
+
+    #[test]
+    fn fallback_identity_detects_rust_stack() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "").unwrap();
+        let id = build_fallback_identity(dir.path());
+        assert_eq!(id.stack_label, "Rust");
+    }
+
+    #[test]
+    fn fallback_identity_detects_go_stack() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module test").unwrap();
+        let id = build_fallback_identity(dir.path());
+        assert_eq!(id.stack_label, "Go");
+    }
+
+    #[test]
+    fn fallback_identity_detects_node_stack() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        let id = build_fallback_identity(dir.path());
+        assert_eq!(id.stack_label, "Node");
+    }
+
+    #[test]
+    fn fallback_identity_detects_python_stack() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("pyproject.toml"), "").unwrap();
+        let id = build_fallback_identity(dir.path());
+        assert_eq!(id.stack_label, "Python");
+    }
+
+    #[test]
+    fn fallback_identity_generic_when_no_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = build_fallback_identity(dir.path());
+        assert_eq!(id.stack_label, "Generic");
+    }
+
+    #[test]
+    fn fallback_identity_name_from_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let expected = dir
+            .path()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let id = build_fallback_identity(dir.path());
+        assert_eq!(id.name, expected);
+    }
+
+    #[test]
+    fn about_options_fields() {
+        let opts = AboutOptions {
+            refresh: true,
+            visible_fields: Some(vec!["project".to_string(), "code".to_string()]),
+        };
+        assert!(opts.refresh);
+        assert_eq!(opts.visible_fields.unwrap().len(), 2);
+
+        let opts_default = AboutOptions {
+            refresh: false,
+            visible_fields: None,
+        };
+        assert!(!opts_default.refresh);
+        assert!(opts_default.visible_fields.is_none());
+    }
+
+    #[cfg(not(feature = "duckdb"))]
+    #[test]
+    fn enrich_from_db_noop_without_duckdb() {
+        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
+        let mut identity = ProjectIdentity::default();
+        enrich_from_db(&ctx, &mut identity);
+        // Should be a no-op — all fields remain default
+        assert!(identity.loc.is_none());
+        assert!(identity.file_count.is_none());
+        assert!(identity.dependency_count.is_none());
+        assert!(identity.coverage_percent.is_none());
+        assert!(identity.languages.is_empty());
+    }
 }

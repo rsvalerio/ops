@@ -13,4 +13,5 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 
 [dev-dependencies]
+ops-extension = { workspace = true, features = ["test-support"] }
 tempfile = "3"

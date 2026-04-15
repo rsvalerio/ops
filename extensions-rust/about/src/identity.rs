@@ -461,4 +461,169 @@ edition = "2021"
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
         assert!(provider.provide(&mut ctx).is_err());
     }
+
+    fn parse_pkg(toml_str: &str) -> CargoToml {
+        toml::from_str(toml_str).expect("test toml should parse")
+    }
+
+    #[test]
+    fn resolve_field_prefers_package_over_workspace() {
+        let manifest = parse_pkg(
+            r#"
+[package]
+name = "test"
+version = "1.0.0"
+description = "pkg desc"
+
+[workspace.package]
+description = "ws desc"
+"#,
+        );
+        let pkg = manifest.package.as_ref();
+        let ws_pkg = manifest.workspace.as_ref().and_then(|w| w.package.as_ref());
+        let result = resolve_field(
+            pkg,
+            ws_pkg,
+            |p| p.description.as_str(),
+            |wp| wp.description.as_deref(),
+        );
+        assert_eq!(result.as_deref(), Some("pkg desc"));
+    }
+
+    #[test]
+    fn resolve_field_falls_back_to_workspace_when_no_package() {
+        // When there is no [package] at all, resolve_field should use workspace
+        let manifest = parse_pkg(
+            r#"
+[workspace.package]
+description = "ws desc"
+"#,
+        );
+        let ws_pkg = manifest.workspace.as_ref().and_then(|w| w.package.as_ref());
+        let result = resolve_field(
+            None,
+            ws_pkg,
+            |p: &ops_cargo_toml::Package| p.description.as_str(),
+            |wp| wp.description.as_deref(),
+        );
+        assert_eq!(result.as_deref(), Some("ws desc"));
+    }
+
+    #[test]
+    fn resolve_field_returns_none_when_both_none() {
+        let result: Option<String> = resolve_field(
+            None,
+            None,
+            |p: &ops_cargo_toml::Package| p.description.as_str(),
+            |wp: &ops_cargo_toml::WorkspacePackage| wp.description.as_deref(),
+        );
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn resolve_field_no_package_uses_workspace() {
+        let manifest = parse_pkg(
+            r#"
+[workspace.package]
+version = "2.0.0"
+"#,
+        );
+        let ws_pkg = manifest.workspace.as_ref().and_then(|w| w.package.as_ref());
+        let result = resolve_field(
+            None,
+            ws_pkg,
+            |p: &ops_cargo_toml::Package| p.version.as_str(),
+            |wp| wp.version.as_deref(),
+        );
+        assert_eq!(result.as_deref(), Some("2.0.0"));
+    }
+
+    #[test]
+    fn resolve_field_no_package_no_workspace() {
+        let result: Option<String> = resolve_field(
+            None,
+            None,
+            |p: &ops_cargo_toml::Package| p.version.as_str(),
+            |wp: &ops_cargo_toml::WorkspacePackage| wp.version.as_deref(),
+        );
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn identity_provide_minimal_package_has_empty_optional_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"
+[package]
+name = "minimal"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        let provider = RustIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = provider.provide(&mut ctx).unwrap();
+        let id: ops_core::project_identity::ProjectIdentity =
+            serde_json::from_value(value).unwrap();
+
+        assert_eq!(id.name, "minimal");
+        assert_eq!(id.version.as_deref(), Some("0.1.0"));
+        // With serde defaults, InheritableString fields default to empty string
+        // which resolve_field treats as a valid (non-None) value
+        assert!(id.authors.is_empty());
+        assert!(id.module_count.is_none());
+    }
+
+    #[test]
+    fn identity_provide_workspace_authors_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("crates/lib")).unwrap();
+        std::fs::write(
+            dir.path().join("crates/lib/Cargo.toml"),
+            "[package]\nname = \"lib\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"
+[workspace]
+members = ["crates/lib"]
+
+[workspace.package]
+version = "1.0.0"
+authors = ["Alice", "Bob"]
+"#,
+        )
+        .unwrap();
+
+        let provider = RustIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = provider.provide(&mut ctx).unwrap();
+        let id: ops_core::project_identity::ProjectIdentity =
+            serde_json::from_value(value).unwrap();
+
+        assert_eq!(id.authors, vec!["Alice", "Bob"]);
+    }
+
+    #[test]
+    fn identity_stack_label_is_always_rust() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let provider = RustIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = provider.provide(&mut ctx).unwrap();
+        let id: ops_core::project_identity::ProjectIdentity =
+            serde_json::from_value(value).unwrap();
+
+        assert_eq!(id.stack_label, "Rust");
+        assert_eq!(id.module_label, "crates");
+    }
 }
