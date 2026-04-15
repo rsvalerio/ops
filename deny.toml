@@ -5,7 +5,9 @@ targets = []
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 # term_size is pulled in by tokei 14.0.0 (latest) — no fix available upstream
-ignore = ["RUSTSEC-2020-0163"]
+# rand 0.8.5 unsoundness with custom logger — transitive via tera/duckdb/rust_decimal;
+# this project never uses rand::rng() with a custom logger, so no exploitable path exists
+ignore = ["RUSTSEC-2020-0163", "RUSTSEC-2026-0097"]
 
 [licenses]
 allow = [
