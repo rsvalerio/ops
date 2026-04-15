@@ -75,10 +75,116 @@ impl DataIngestor for MetadataIngestor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn metadata_ingestor_name() {
         let ingestor = MetadataIngestor;
         assert_eq!(ingestor.name(), "metadata");
+    }
+
+    #[test]
+    fn metadata_collect_fails_with_nonexistent_directory() {
+        let ingestor = MetadataIngestor;
+        let ctx =
+            ops_extension::Context::test_context(PathBuf::from("/nonexistent/path/to/project"));
+        let data_dir = tempfile::tempdir().unwrap();
+        let result = ingestor.collect(&ctx, data_dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn metadata_checksum_fails_when_file_missing() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let ingestor = MetadataIngestor;
+        let result = ingestor.checksum(data_dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn metadata_load_with_sample_data() {
+        let data_dir = tempfile::tempdir().unwrap();
+
+        // Write a minimal cargo metadata JSON file.
+        // All nullable string fields use explicit strings so DuckDB schema inference
+        // picks up the correct types (null-only columns get inferred as integers).
+        let metadata_json = serde_json::json!({
+            "packages": [{
+                "name": "test-crate",
+                "version": "0.1.0",
+                "id": "test-crate 0.1.0 (path+file:///test)",
+                "source": "registry+https://github.com/rust-lang/crates.io-index",
+                "dependencies": [{
+                    "name": "serde",
+                    "source": "registry+https://github.com/rust-lang/crates.io-index",
+                    "req": "^1.0",
+                    "kind": "normal",
+                    "optional": false,
+                    "uses_default_features": true,
+                    "features": [],
+                    "target": "",
+                    "rename": "",
+                    "registry": ""
+                }],
+                "targets": [],
+                "features": {},
+                "manifest_path": "/test/Cargo.toml",
+                "metadata": {},
+                "publish": [],
+                "authors": [],
+                "categories": [],
+                "keywords": [],
+                "readme": "",
+                "repository": "",
+                "homepage": "",
+                "documentation": "",
+                "edition": "2021",
+                "links": "",
+                "default_run": "",
+                "rust_version": "",
+                "license": "",
+                "license_file": "",
+                "description": ""
+            }],
+            "workspace_members": [
+                "test-crate 0.1.0 (path+file:///test)"
+            ],
+            "workspace_default_members": [
+                "test-crate 0.1.0 (path+file:///test)"
+            ],
+            "resolve": {"nodes": [], "root": ""},
+            "target_directory": "/test/target",
+            "version": 1,
+            "workspace_root": "/test",
+            "metadata": {}
+        });
+        let json_path = data_dir.path().join("metadata.json");
+        std::fs::write(
+            &json_path,
+            serde_json::to_vec_pretty(&metadata_json).unwrap(),
+        )
+        .unwrap();
+
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let ingestor = MetadataIngestor;
+        let result = ingestor.load(data_dir.path(), &db);
+        assert!(result.is_ok());
+        let load_result = result.unwrap();
+        assert_eq!(load_result.source_name, "metadata");
+        assert_eq!(load_result.record_count, 1);
+
+        // Verify the view was created
+        let conn = db.lock().unwrap();
+        let dep_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM crate_dependencies WHERE dependency_name = 'serde'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(dep_count, 1);
+
+        // Verify JSON file was cleaned up
+        assert!(!json_path.exists());
     }
 }
