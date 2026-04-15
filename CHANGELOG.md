@@ -2,6 +2,40 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.14.0](https://github.com/rsvalerio/ops/compare/505910c2401bf7aa092869406ac4e6cc6243e551..v0.14.0) - 2026-04-15
+#### 🚀 Features
+- (**about**) add coverage refresh hints and improve crate metadata resolution - ([34a3154](https://github.com/rsvalerio/ops/commit/34a31545411f1ea6418a544265522ef2baf05d0e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) add configurable rendering and step line theme - ([e49c55d](https://github.com/rsvalerio/ops/commit/e49c55d6bb149352c111e9ee6775f374a2b261d0)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**extension**) update test suite - ([ba56951](https://github.com/rsvalerio/ops/commit/ba56951617b34b381546895481abb4b20cf1d731)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**gitignore**) update ignored files - ([c345da8](https://github.com/rsvalerio/ops/commit/c345da8ebacaa88af00a080df190dea9e0b8a375)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**cli**) simplify main.rs and extension commands - ([a234b65](https://github.com/rsvalerio/ops/commit/a234b654178d5b680c8413b8d29c9e7aa86b4d8c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) add config merge and update identity/stack - ([3ef2806](https://github.com/rsvalerio/ops/commit/3ef28065a1c9cd765408cba35c3d314adf4a7bdb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions**) update about extensions - ([9e661bc](https://github.com/rsvalerio/ops/commit/9e661bc51b0d36d393b2bfba29fbcccb43431ae1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-java/about**) simplify about extension - ([d1138ae](https://github.com/rsvalerio/ops/commit/d1138ae564d3dbd676a75db82aeb0d1a02fef9cf)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/about**) decompose lib.rs into focused modules - ([1ed1c72](https://github.com/rsvalerio/ops/commit/1ed1c72ce4363baaebdba57459f0f22680c041e1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/deps**) extract metadata ingestor module - ([70f7d1d](https://github.com/rsvalerio/ops/commit/70f7d1db9dfc91391a6629a439a38d4ae9c8f9e3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/test-coverage**) extract ingestor module - ([7044598](https://github.com/rsvalerio/ops/commit/7044598c5883973a8b9637846077f9f3e5b076f1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/duckdb**) remove sql.rs and simplify lib.rs - ([0501d04](https://github.com/rsvalerio/ops/commit/0501d0472b36f628590cb9825d8a4ecd61fe1dfb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/hooks**) update run-before-commit and run-before-push - ([ceaea45](https://github.com/rsvalerio/ops/commit/ceaea45c7f2725db5bb467a5de5180b8cf59f2a4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) update command execution and display - ([efc188e](https://github.com/rsvalerio/ops/commit/efc188e8b3f39eec9fd9540e2c6e55140c99f0e4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) simplify lib.rs - ([7007bd8](https://github.com/rsvalerio/ops/commit/7007bd85f75999d7af4c34d0cf7d3d291443b90f)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) archive completed tasks - ([4544d71](https://github.com/rsvalerio/ops/commit/4544d7144fafd195802aa6d128528cd41c4fd779)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) add remaining analysis and refactor tasks - ([2c9cea0](https://github.com/rsvalerio/ops/commit/2c9cea0caf4042d1bf7d0407dd9f250c35f0817b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) add architecture and duplication analysis tasks - ([0a8047f](https://github.com/rsvalerio/ops/commit/0a8047f04cb7ff0325965414f68d3a905c7f90c0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) add quality and security analysis tasks - ([0cbdd96](https://github.com/rsvalerio/ops/commit/0cbdd968b6b5b545dd2c89423be208408da19e60)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) update task descriptions - ([285ca62](https://github.com/rsvalerio/ops/commit/285ca62aa92793fa56febd69fe1f21299056e19a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) move 22 completed tasks to archive - ([505910c](https://github.com/rsvalerio/ops/commit/505910c2401bf7aa092869406ac4e6cc6243e551)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-toml**) fix extension cargo parsing - ([456dcfc](https://github.com/rsvalerio/ops/commit/456dcfc2a0b38a96acbc7ed8012990a1ce580f57)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) update dependencies and security config - ([3e49ce3](https://github.com/rsvalerio/ops/commit/3e49ce3eb7ed2dea431dc9e727029ceaeb1b711c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**test-coverage**) remove unused code - ([1c495c2](https://github.com/rsvalerio/ops/commit/1c495c2978c129004f9309eccbd5cc14f5bc019a)) - [@rsvalerio](https://github.com/rsvalerio)
+- remove commit script - ([31c1164](https://github.com/rsvalerio/ops/commit/31c1164aa0ebf86695200e3bd6a3d10038319906)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.13.0](https://github.com/rsvalerio/ops/compare/3527e3e86ca59b23e3f3b616b178442aa4030e0f..v0.13.0) - 2026-04-12
 #### 🚀 Features
 - (**about**) add field visibility filtering and new metadata fields - ([b9bf9be](https://github.com/rsvalerio/ops/commit/b9bf9be5af05a5b1079a7cb3826df307e402f06c)) - [@rsvalerio](https://github.com/rsvalerio)
