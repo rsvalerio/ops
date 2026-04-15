@@ -7,6 +7,7 @@ theme = "classic"
 # columns = 120
 show_error_detail = true
 category_order = ["Commands", "Build", "Code Quality", "Insights", "Setup"]
+# show_output = false  # print command stdout/stderr inline below each step line
 # stderr_tail_lines = 5  # number of stderr lines shown on failure; use --verbose for all
 
 # Built-in themes (classic and compact). Override by redefining or add new themes.

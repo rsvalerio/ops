@@ -25,6 +25,7 @@ fn merge_output(base: &mut OutputConfig, overlay: &OutputConfigOverlay) {
     merge_field(&mut base.theme, overlay.theme.clone());
     merge_field(&mut base.columns, overlay.columns);
     merge_field(&mut base.show_error_detail, overlay.show_error_detail);
+    merge_field(&mut base.show_output, overlay.show_output);
     merge_field(&mut base.stderr_tail_lines, overlay.stderr_tail_lines);
     merge_field(&mut base.category_order, overlay.category_order.clone());
 }
@@ -139,6 +140,7 @@ mod tests {
             theme: Some("compact".to_string()),
             columns: None,
             show_error_detail: Some(false),
+            show_output: None,
             stderr_tail_lines: None,
             category_order: None,
         };
@@ -155,6 +157,7 @@ mod tests {
             theme: "custom".to_string(),
             columns: 120,
             show_error_detail: false,
+            show_output: false,
             stderr_tail_lines: 10,
             category_order: vec!["dev".to_string()],
         };
