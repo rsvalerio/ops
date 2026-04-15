@@ -191,7 +191,7 @@ fn run_command_dry_run_to(
     for (i, id) in leaf_ids.iter().enumerate() {
         writeln!(w, "\n  [{}] {}", i + 1, id)?;
         match runner.resolve(id) {
-            Some(CommandSpec::Exec(e)) => print_exec_spec(w, e)?,
+            Some(CommandSpec::Exec(e)) => print_exec_spec(w, e, runner.variables())?,
             Some(CommandSpec::Composite(_)) => {
                 writeln!(w, "      (composite - should have been expanded)")?;
             }
@@ -204,24 +204,33 @@ fn run_command_dry_run_to(
     Ok(ExitCode::SUCCESS)
 }
 
-fn print_exec_spec(w: &mut dyn Write, e: &ops_core::config::ExecCommandSpec) -> anyhow::Result<()> {
-    writeln!(w, "      program: {}", e.program)?;
+fn print_exec_spec(
+    w: &mut dyn Write,
+    e: &ops_core::config::ExecCommandSpec,
+    vars: &ops_core::expand::Variables,
+) -> anyhow::Result<()> {
+    writeln!(w, "      program: {}", vars.expand(&e.program))?;
     if !e.args.is_empty() {
-        writeln!(w, "      args:    {}", e.args.join(" "))?;
+        let expanded: Vec<_> = e.args.iter().map(|a| vars.expand(a).into_owned()).collect();
+        writeln!(w, "      args:    {}", expanded.join(" "))?;
     }
     if !e.env.is_empty() {
         writeln!(w, "      env:")?;
         for (k, v) in &e.env {
             let display_val = if is_sensitive_env_key(k) {
-                "***REDACTED***"
+                "***REDACTED***".to_string()
             } else {
-                v
+                vars.expand(v).into_owned()
             };
             writeln!(w, "        {}={}", k, display_val)?;
         }
     }
     if let Some(cwd) = &e.cwd {
-        writeln!(w, "      cwd:     {}", cwd.display())?;
+        writeln!(
+            w,
+            "      cwd:     {}",
+            vars.expand(&cwd.display().to_string())
+        )?;
     }
     if let Some(timeout) = e.timeout_secs {
         writeln!(w, "      timeout: {}s", timeout)?;
@@ -496,6 +505,82 @@ commands = ["a"]
 
             assert_eq!(display_cmd_for(&runner, "ext_cmd"), "echo ext");
         }
+    }
+
+    // -- run_external_command --
+
+    mod run_external_command_tests {
+        use super::*;
+
+        #[test]
+        fn run_external_command_empty_args_errors() {
+            let args: Vec<OsString> = vec![];
+            let result = run_external_command(&args, false, false);
+            assert!(result.is_err());
+            assert!(result.unwrap_err().to_string().contains("missing command"));
+        }
+
+        #[test]
+        fn run_external_command_single_command_dry_run() {
+            let (_dir, _guard) = crate::test_utils::with_temp_config(
+                r#"
+[commands.echo_test]
+program = "echo"
+args = ["hello"]
+"#,
+            );
+            let args: Vec<OsString> = vec![OsString::from("echo_test")];
+            let result = run_external_command(&args, true, false);
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), ExitCode::SUCCESS);
+        }
+
+        #[test]
+        fn run_external_command_multi_command_dry_run() {
+            let (_dir, _guard) = crate::test_utils::with_temp_config(
+                r#"
+[commands.build]
+program = "echo"
+args = ["build"]
+
+[commands.test]
+program = "echo"
+args = ["test"]
+"#,
+            );
+            let args: Vec<OsString> = vec![OsString::from("build"), OsString::from("test")];
+            let result = run_external_command(&args, true, false);
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), ExitCode::SUCCESS);
+        }
+
+        #[test]
+        fn run_external_command_single_unknown_errors() {
+            let (_dir, _guard) = crate::test_utils::with_temp_config("");
+            let args: Vec<OsString> = vec![OsString::from("nonexistent")];
+            let result = run_external_command(&args, false, false);
+            assert!(result.is_err());
+        }
+    }
+
+    // -- log_step_results --
+
+    #[test]
+    fn log_step_results_does_not_panic() {
+        let results = vec![StepResult {
+            id: "test".into(),
+            success: true,
+            duration: std::time::Duration::from_millis(100),
+            stdout: "output".to_string(),
+            stderr: String::new(),
+            message: None,
+        }];
+        log_step_results(&results);
+    }
+
+    #[test]
+    fn log_step_results_empty() {
+        log_step_results(&[]);
     }
 
     mod run_command_dry_run_tests {

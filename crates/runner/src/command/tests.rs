@@ -6,6 +6,7 @@ use crate::command::exec::{build_command, emit_output_events, exec_standalone};
 use crate::command::results::StepResult;
 use crate::test_support::{test_runner, EventAssertions};
 use ops_core::config::CommandSpec;
+use ops_core::expand::Variables;
 use ops_core::test_utils::{
     composite_cmd, echo_cmd, exec_spec, exec_spec_with_cwd, false_cmd, parallel_cmd, sleep_cmd,
     true_cmd,
@@ -16,6 +17,10 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+
+fn test_vars() -> Variables {
+    Variables::from_env(std::path::Path::new("."))
+}
 
 fn runner_with_test_commands() -> CommandRunner {
     let mut commands = HashMap::new();
@@ -376,7 +381,15 @@ async fn exec_standalone_skips_when_abort_set() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let abort = Arc::new(AtomicBool::new(true));
     let spec = echo_cmd("should not run");
-    let result = exec_standalone("skipped".into(), spec, PathBuf::from("."), tx, abort).await;
+    let result = exec_standalone(
+        "skipped".into(),
+        spec,
+        PathBuf::from("."),
+        test_vars(),
+        tx,
+        abort,
+    )
+    .await;
     assert!(result.success);
     assert_eq!(result.duration, Duration::ZERO);
     let event = rx.recv().await.expect("should receive one event");
@@ -420,7 +433,7 @@ fn step_result_failure_creates_correct_result() {
 #[test]
 fn build_command_sets_program_and_args() {
     let spec = exec_spec("cargo", &["build", "--release"]);
-    let cmd = build_command(&spec, std::path::Path::new("."));
+    let cmd = build_command(&spec, std::path::Path::new("."), &test_vars());
     assert_eq!(cmd.as_std().get_program(), "cargo");
     let args: Vec<_> = cmd.as_std().get_args().collect();
     assert_eq!(args, vec!["build", "--release"]);
@@ -431,7 +444,7 @@ fn build_command_uses_spec_cwd_when_provided() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     let mut spec = exec_spec("echo", &["test"]);
     spec.cwd = Some(temp_dir.path().to_path_buf());
-    let cmd = build_command(&spec, std::path::Path::new("."));
+    let cmd = build_command(&spec, std::path::Path::new("."), &test_vars());
     assert_eq!(cmd.as_std().get_current_dir(), Some(temp_dir.path()));
 }
 
@@ -662,7 +675,7 @@ mod exec_unit_tests {
         let mut spec = exec_spec("echo", &["test"]);
         spec.env
             .insert("MY_VAR".to_string(), "my_value".to_string());
-        let cmd = build_command(&spec, std::path::Path::new("."));
+        let cmd = build_command(&spec, std::path::Path::new("."), &test_vars());
         let env = cmd.as_std().get_envs().collect::<Vec<_>>();
         assert!(
             env.iter().any(|(k, _)| k.to_string_lossy() == "MY_VAR"),
@@ -680,7 +693,7 @@ mod build_command_error_tests {
     fn build_command_with_nonexistent_cwd_still_builds() {
         let mut spec = exec_spec("echo", &["test"]);
         spec.cwd = Some(PathBuf::from("/nonexistent/path/that/does/not/exist"));
-        let cmd = build_command(&spec, std::path::Path::new("."));
+        let cmd = build_command(&spec, std::path::Path::new("."), &test_vars());
         assert_eq!(cmd.as_std().get_program(), "echo");
     }
 
@@ -688,7 +701,7 @@ mod build_command_error_tests {
     fn build_command_with_relative_cwd() {
         let mut spec = exec_spec("echo", &["test"]);
         spec.cwd = Some(PathBuf::from("relative/path"));
-        let cmd = build_command(&spec, std::path::Path::new("/base"));
+        let cmd = build_command(&spec, std::path::Path::new("/base"), &test_vars());
         let current_dir = cmd.as_std().get_current_dir();
         assert_eq!(
             current_dir,
@@ -700,7 +713,7 @@ mod build_command_error_tests {
     fn build_command_with_absolute_cwd() {
         let mut spec = exec_spec("echo", &["test"]);
         spec.cwd = Some(PathBuf::from("/absolute/path"));
-        let cmd = build_command(&spec, std::path::Path::new("/base"));
+        let cmd = build_command(&spec, std::path::Path::new("/base"), &test_vars());
         let current_dir = cmd.as_std().get_current_dir();
         assert_eq!(current_dir, Some(std::path::Path::new("/absolute/path")));
     }
@@ -708,7 +721,7 @@ mod build_command_error_tests {
     #[test]
     fn build_command_with_empty_args() {
         let spec = exec_spec("echo", &[]);
-        let cmd = build_command(&spec, std::path::Path::new("."));
+        let cmd = build_command(&spec, std::path::Path::new("."), &test_vars());
         assert_eq!(cmd.as_std().get_program(), "echo");
         let args: Vec<_> = cmd.as_std().get_args().collect();
         assert!(args.is_empty());
@@ -717,7 +730,7 @@ mod build_command_error_tests {
     #[test]
     fn build_command_with_many_args() {
         let spec = exec_spec("echo", &["a", "b", "c", "d", "e"]);
-        let cmd = build_command(&spec, std::path::Path::new("."));
+        let cmd = build_command(&spec, std::path::Path::new("."), &test_vars());
         let args: Vec<_> = cmd.as_std().get_args().collect();
         assert_eq!(args.len(), 5);
     }
@@ -728,7 +741,7 @@ mod build_command_error_tests {
             "echo",
             &["arg with spaces", "arg'with'quotes", "arg\"with\"double"],
         );
-        let cmd = build_command(&spec, std::path::Path::new("."));
+        let cmd = build_command(&spec, std::path::Path::new("."), &test_vars());
         let args: Vec<_> = cmd.as_std().get_args().collect();
         assert_eq!(args.len(), 3);
         assert_eq!(args[0], "arg with spaces");
@@ -1087,7 +1100,8 @@ mod parallel_infra_tests {
             ("cmd2".into(), echo_cmd("b")),
             ("cmd3".into(), echo_cmd("c")),
         ];
-        let (rx, _abort, join_set) = CommandRunner::spawn_parallel_tasks(steps, PathBuf::from("."));
+        let (rx, _abort, join_set) =
+            CommandRunner::spawn_parallel_tasks(steps, PathBuf::from("."), test_vars());
         drop(rx);
         let results = CommandRunner::collect_join_results(join_set).await;
         assert_eq!(results.len(), 3);

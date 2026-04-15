@@ -33,6 +33,7 @@
 use super::events::RunnerEvent;
 use super::results::{CommandOutput, StepResult};
 use ops_core::config::{CommandId, ExecCommandSpec};
+use ops_core::expand::Variables;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -45,18 +46,32 @@ use tokio::sync::mpsc;
 /// Note: `current_dir` is validated by the OS when the command is spawned — if the
 /// path does not exist, `Command::output()` returns an `io::Error` that propagates
 /// through the existing error handling in `exec_command`.
-pub fn build_command(spec: &ExecCommandSpec, cwd: &std::path::Path) -> Command {
-    let mut cmd = Command::new(&spec.program);
-    cmd.args(&spec.args);
+pub fn build_command(spec: &ExecCommandSpec, cwd: &std::path::Path, vars: &Variables) -> Command {
+    let mut cmd = Command::new(vars.expand(&spec.program).as_ref());
+    let expanded_args: Vec<_> = spec
+        .args
+        .iter()
+        .map(|a| vars.expand(a).into_owned())
+        .collect();
+    cmd.args(&expanded_args);
     let resolved_cwd = match spec.cwd.as_deref() {
-        Some(p) if p.is_relative() => cwd.join(p),
-        Some(p) => p.to_path_buf(),
+        Some(p) => {
+            let lossy = p.to_string_lossy();
+            let expanded = vars.expand(&lossy);
+            let ep = std::path::PathBuf::from(expanded.as_ref());
+            if ep.is_relative() {
+                cwd.join(ep)
+            } else {
+                ep
+            }
+        }
         None => cwd.to_path_buf(),
     };
     cmd.current_dir(&resolved_cwd);
     for (k, v) in &spec.env {
-        warn_if_sensitive_env(k, v);
-        cmd.env(k, v);
+        let expanded_v = vars.expand(v);
+        warn_if_sensitive_env(k, &expanded_v);
+        cmd.env(k, expanded_v.as_ref());
     }
     cmd.kill_on_drop(true);
     cmd
@@ -280,6 +295,7 @@ pub async fn exec_command(
     id: &str,
     spec: &ExecCommandSpec,
     cwd: &std::path::Path,
+    vars: &Variables,
     emit: &mut impl FnMut(RunnerEvent),
 ) -> StepResult {
     let display_cmd = Some(spec.display_cmd().into_owned());
@@ -289,7 +305,7 @@ pub async fn exec_command(
     });
     let start = Instant::now();
 
-    let cmd = build_command(spec, cwd);
+    let cmd = build_command(spec, cwd, vars);
     let output = match execute_with_timeout(cmd, spec.timeout()).await {
         Ok(o) => CommandOutput::from_raw(o),
         Err(e) => {
@@ -312,10 +328,12 @@ pub async fn exec_command(
 }
 
 /// Standalone exec used by parallel plan: runs one command, sends events via channel, respects abort flag.
+#[allow(clippy::too_many_arguments)]
 pub async fn exec_standalone(
     id: CommandId,
     spec: ExecCommandSpec,
     cwd: PathBuf,
+    vars: Variables,
     tx: mpsc::UnboundedSender<RunnerEvent>,
     abort: Arc<AtomicBool>,
 ) -> StepResult {
@@ -327,7 +345,7 @@ pub async fn exec_standalone(
         });
         return StepResult::skipped(id);
     }
-    exec_command(&id, &spec, &cwd, &mut |ev| {
+    exec_command(&id, &spec, &cwd, &vars, &mut |ev| {
         let _ = tx.send(ev);
     })
     .await

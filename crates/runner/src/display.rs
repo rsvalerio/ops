@@ -45,6 +45,7 @@ pub struct RenderConfig {
     pub columns: u16,
     pub is_tty: bool,
     pub show_error_detail: bool,
+    pub show_output: bool,
     pub stderr_tail_lines: usize,
 }
 
@@ -179,6 +180,7 @@ impl ProgressDisplay {
                 columns: output.columns,
                 is_tty,
                 show_error_detail: output.show_error_detail,
+                show_output: output.show_output,
                 stderr_tail_lines: output.stderr_tail_lines,
             },
             multi,
@@ -388,7 +390,10 @@ impl ProgressDisplay {
             self.step_stderr
                 .entry(id.to_string())
                 .or_default()
-                .push(line);
+                .push(line.clone());
+        }
+        if self.render.show_output {
+            self.emit_line(&line);
         }
     }
 
@@ -747,6 +752,7 @@ mod tests {
             config::OutputConfig {
                 columns: 100,
                 show_error_detail: false,
+                show_output: false,
                 theme: "compact".into(),
                 stderr_tail_lines: 10,
                 category_order: Vec::new(),

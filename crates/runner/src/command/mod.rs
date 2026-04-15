@@ -39,6 +39,7 @@ pub use results::StepResult;
 use exec::{exec_command, exec_standalone, resolution_failure};
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, Config, ExecCommandSpec, OutputConfig};
+use ops_core::expand::Variables;
 use ops_core::stack::Stack;
 use ops_extension::{DataProviderError, DataRegistry};
 use std::path::PathBuf;
@@ -76,6 +77,7 @@ impl PlanLifecycle {
 pub struct CommandRunner {
     config: Arc<Config>,
     cwd: PathBuf,
+    vars: Variables,
     stack_commands: IndexMap<CommandId, CommandSpec>,
     extension_commands: IndexMap<CommandId, CommandSpec>,
     data_registry: DataRegistry,
@@ -102,9 +104,12 @@ impl CommandRunner {
             IndexMap::new()
         };
 
+        let vars = Variables::from_env(&cwd);
+
         Self {
             config: Arc::new(config),
             cwd,
+            vars,
             stack_commands,
             extension_commands: IndexMap::new(),
             data_registry: DataRegistry::new(),
@@ -126,6 +131,11 @@ impl CommandRunner {
     /// Output/theme config for formatting step lines.
     pub fn output_config(&self) -> &OutputConfig {
         &self.config.output
+    }
+
+    /// Variable expansion context for command specs.
+    pub fn variables(&self) -> &Variables {
+        &self.vars
     }
 
     /// Detected or configured stack.
@@ -300,7 +310,7 @@ impl CommandRunner {
         spec: &ExecCommandSpec,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> StepResult {
-        exec_command(id, spec, &self.cwd, on_event).await
+        exec_command(id, spec, &self.cwd, &self.vars, on_event).await
     }
 
     /// Execute a single step in a sequential plan, returning the result and whether to stop.
@@ -411,6 +421,7 @@ impl CommandRunner {
     pub(crate) fn spawn_parallel_tasks(
         steps: Vec<(CommandId, ExecCommandSpec)>,
         cwd: PathBuf,
+        vars: Variables,
     ) -> (
         mpsc::UnboundedReceiver<RunnerEvent>,
         Arc<AtomicBool>,
@@ -428,10 +439,11 @@ impl CommandRunner {
             let tx = tx.clone();
             let abort = Arc::clone(&abort);
             let cwd_clone = cwd.clone();
+            let vars_clone = vars.clone();
             let sem = Arc::clone(&semaphore);
             join_set.spawn(async move {
                 let _permit = sem.acquire().await.expect("semaphore closed");
-                exec_standalone(id, spec, cwd_clone, tx, abort).await
+                exec_standalone(id, spec, cwd_clone, vars_clone, tx, abort).await
             });
         }
         drop(tx);
@@ -482,7 +494,8 @@ impl CommandRunner {
             }
         };
 
-        let (rx, abort, join_set) = Self::spawn_parallel_tasks(steps, self.cwd.clone());
+        let (rx, abort, join_set) =
+            Self::spawn_parallel_tasks(steps, self.cwd.clone(), self.vars.clone());
         Self::handle_parallel_events(rx, fail_fast, abort, on_event).await;
         let results = Self::collect_join_results(join_set).await;
 
