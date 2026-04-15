@@ -16,7 +16,7 @@ use crate::style::{cyan, dim};
 ///
 /// Fields like `loc` and `file_count` come from tokei (via DuckDB) and are
 /// enriched by the generic about command when the provider doesn't set them.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProjectIdentity {
     /// Project name. Rust: `[package].name`, Node: `name`, fallback: directory name.
     pub name: String,
@@ -69,6 +69,34 @@ pub struct AboutFieldDef {
     pub label: &'static str,
     /// Short description shown in the MultiSelect prompt.
     pub description: &'static str,
+}
+
+/// Common about-field definitions shared by all stack identity providers.
+///
+/// Each tuple is `(id, label, description)`. Stack-specific providers can call
+/// [`base_about_fields`] to get these as `Vec<AboutFieldDef>` and append any
+/// extras (e.g. Rust adds `homepage`, `msrv`, `dependencies`).
+pub const BASE_ABOUT_FIELDS: &[(&str, &str, &str)] = &[
+    ("project", "Project path", "Absolute path to project root"),
+    ("modules", "Module count", "Number of project modules"),
+    ("code", "Lines of code", "Total lines of code (from tokei)"),
+    ("files", "File count", "Total source file count"),
+    ("authors", "Authors", "Project author(s)"),
+    ("repository", "Repository", "Repository URL"),
+    ("coverage", "Coverage", "Test coverage percentage"),
+    ("languages", "Languages", "Languages used in the project"),
+];
+
+/// Convert [`BASE_ABOUT_FIELDS`] into a `Vec<AboutFieldDef>`.
+pub fn base_about_fields() -> Vec<AboutFieldDef> {
+    BASE_ABOUT_FIELDS
+        .iter()
+        .map(|(id, label, description)| AboutFieldDef {
+            id,
+            label,
+            description,
+        })
+        .collect()
 }
 
 /// Map a field key to its emoji prefix.
@@ -127,32 +155,52 @@ impl AboutCard {
             }
         };
 
-        let mut fields = Vec::new();
+        // Data-driven field specs: (filter_id, label, optional_value).
+        // Formatting is applied inline; None values are skipped.
+        let field_specs: Vec<(&str, String, Option<String>)> = vec![
+            ("project", "project".into(), Some(id.project_path.clone())),
+            (
+                "modules",
+                id.module_label.clone(),
+                id.module_count.map(|c| c.to_string()),
+            ),
+            (
+                "code",
+                "code".into(),
+                id.loc.map(|l| format!("{} loc", format_number(l))),
+            ),
+            (
+                "files",
+                "files".into(),
+                id.file_count.and_then(|f| {
+                    (f > 0).then(|| {
+                        format!("{} file{}", format_number(f), if f != 1 { "s" } else { "" })
+                    })
+                }),
+            ),
+            ("repository", "repository".into(), id.repository.clone()),
+            ("homepage", "homepage".into(), id.homepage.clone()),
+            ("msrv", "msrv".into(), id.msrv.clone()),
+            (
+                "dependencies",
+                "dependencies".into(),
+                id.dependency_count.map(|c| {
+                    format!(
+                        "{} dependenc{}",
+                        format_number(c as i64),
+                        if c != 1 { "ies" } else { "y" }
+                    )
+                }),
+            ),
+        ];
 
-        if show("project") {
-            fields.push(("project".to_string(), id.project_path.clone()));
-        }
-        if show("modules") {
-            if let Some(count) = id.module_count {
-                fields.push((id.module_label.clone(), count.to_string()));
-            }
-        }
-        if show("code") {
-            if let Some(loc) = id.loc {
-                fields.push(("code".to_string(), format!("{} loc", format_number(loc))));
-            }
-        }
-        if show("files") {
-            if let Some(files) = id.file_count {
-                if files > 0 {
-                    let suffix = if files != 1 { "s" } else { "" };
-                    fields.push((
-                        "files".to_string(),
-                        format!("{} file{}", format_number(files), suffix),
-                    ));
-                }
-            }
-        }
+        let mut fields: Vec<(String, String)> = field_specs
+            .into_iter()
+            .filter(|(fid, _, _)| show(fid))
+            .filter_map(|(_, label, val)| val.map(|v| (label, v)))
+            .collect();
+
+        // Special cases with unique logic: dynamic label, always-present, or Vec join.
         if show("authors") && !id.authors.is_empty() {
             let label = if id.authors.len() == 1 {
                 "author"
@@ -160,30 +208,6 @@ impl AboutCard {
                 "authors"
             };
             fields.push((label.to_string(), id.authors.join(", ")));
-        }
-        if show("repository") {
-            if let Some(url) = &id.repository {
-                fields.push(("repository".to_string(), url.clone()));
-            }
-        }
-        if show("homepage") {
-            if let Some(url) = &id.homepage {
-                fields.push(("homepage".to_string(), url.clone()));
-            }
-        }
-        if show("msrv") {
-            if let Some(msrv) = &id.msrv {
-                fields.push(("msrv".to_string(), msrv.clone()));
-            }
-        }
-        if show("dependencies") {
-            if let Some(count) = id.dependency_count {
-                let suffix = if count != 1 { "ies" } else { "y" };
-                fields.push((
-                    "dependencies".to_string(),
-                    format!("{} dependenc{}", format_number(count as i64), suffix),
-                ));
-            }
         }
         if show("coverage") {
             let value = match id.coverage_percent {
@@ -245,37 +269,11 @@ impl AboutCard {
     }
 }
 
-/// Format a number with comma separators (e.g. 1234 → "1,234").
-fn format_number(n: i64) -> String {
-    let s = n.to_string();
-    let mut result = String::with_capacity(s.len() + s.len() / 3);
-    for (i, c) in s.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 {
-            result.push(',');
-        }
-        result.push(c);
-    }
-    result.chars().rev().collect()
-}
+use crate::text::format_number;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn format_number_small() {
-        assert_eq!(format_number(42), "42");
-    }
-
-    #[test]
-    fn format_number_thousands() {
-        assert_eq!(format_number(1234), "1,234");
-    }
-
-    #[test]
-    fn format_number_millions() {
-        assert_eq!(format_number(1_234_567), "1,234,567");
-    }
 
     #[test]
     fn about_card_from_identity_full() {

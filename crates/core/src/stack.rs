@@ -32,17 +32,7 @@ impl Stack {
     }
 
     pub fn manifest_files(&self) -> &[&str] {
-        match self {
-            Stack::Rust => &["Cargo.toml"],
-            Stack::Node => &["package.json"],
-            Stack::Go => &["go.mod"],
-            Stack::Python => &["pyproject.toml", "setup.py", "requirements.txt"],
-            Stack::Terraform => &["main.tf", "terraform.tf"],
-            Stack::Ansible => &["site.yml", "playbook.yml", "ansible.cfg"],
-            Stack::JavaMaven => &["pom.xml"],
-            Stack::JavaGradle => &["build.gradle", "build.gradle.kts"],
-            Stack::Generic => &[],
-        }
+        self.metadata().0
     }
 
     /// DUP-001: Resolve stack from config override or auto-detection.
@@ -83,40 +73,72 @@ impl Stack {
 
     /// Embedded TOML content for this stack's default commands, or None for Generic.
     fn default_commands_toml(&self) -> Option<&'static str> {
+        self.metadata().1
+    }
+
+    /// Single source of truth for per-stack metadata: (manifest_files, default_commands_toml).
+    ///
+    /// Consolidates two parallel match blocks (CD-11) so that adding a new stack
+    /// requires updating exactly one match arm.
+    fn metadata(&self) -> (&[&str], Option<&'static str>) {
         match self {
-            Stack::Rust => Some(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/.default.rust.ops.toml"
-            ))),
-            Stack::Node => Some(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/.default.node.ops.toml"
-            ))),
-            Stack::Go => Some(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/.default.go.ops.toml"
-            ))),
-            Stack::Python => Some(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/.default.python.ops.toml"
-            ))),
-            Stack::Terraform => Some(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/.default.terraform.ops.toml"
-            ))),
-            Stack::Ansible => Some(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/.default.ansible.ops.toml"
-            ))),
-            Stack::JavaMaven => Some(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/.default.java-maven.ops.toml"
-            ))),
-            Stack::JavaGradle => Some(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/.default.java-gradle.ops.toml"
-            ))),
-            Stack::Generic => None,
+            Stack::Rust => (
+                &["Cargo.toml"],
+                Some(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/src/.default.rust.ops.toml"
+                ))),
+            ),
+            Stack::Node => (
+                &["package.json"],
+                Some(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/src/.default.node.ops.toml"
+                ))),
+            ),
+            Stack::Go => (
+                &["go.mod"],
+                Some(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/src/.default.go.ops.toml"
+                ))),
+            ),
+            Stack::Python => (
+                &["pyproject.toml", "setup.py", "requirements.txt"],
+                Some(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/src/.default.python.ops.toml"
+                ))),
+            ),
+            Stack::Terraform => (
+                &["main.tf", "terraform.tf"],
+                Some(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/src/.default.terraform.ops.toml"
+                ))),
+            ),
+            Stack::Ansible => (
+                &["site.yml", "playbook.yml", "ansible.cfg"],
+                Some(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/src/.default.ansible.ops.toml"
+                ))),
+            ),
+            Stack::JavaMaven => (
+                &["pom.xml"],
+                Some(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/src/.default.java-maven.ops.toml"
+                ))),
+            ),
+            Stack::JavaGradle => (
+                &["build.gradle", "build.gradle.kts"],
+                Some(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/src/.default.java-gradle.ops.toml"
+                ))),
+            ),
+            Stack::Generic => (&[], None),
         }
     }
 
