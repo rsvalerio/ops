@@ -7,6 +7,7 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use ops_extension::ExtensionType;
 use std::process::Command;
+use std::time::Duration;
 
 pub const NAME: &str = "tools";
 pub const DESCRIPTION: &str = "Install and manage cargo development tools";
@@ -139,7 +140,37 @@ pub fn check_tool_status(name: &str, spec: &ToolSpec) -> ToolStatus {
     }
 }
 
+const DEFAULT_INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
+
+fn run_with_timeout(
+    mut child: std::process::Child,
+    timeout: Duration,
+    label: &str,
+) -> anyhow::Result<std::process::ExitStatus> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait().context("subprocess wait failed")? {
+            Some(status) => return Ok(status),
+            None => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    anyhow::bail!("{} timed out after {} seconds", label, timeout.as_secs());
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
+    }
+}
+
 pub fn install_cargo_tool(name: &str, package: Option<&str>) -> anyhow::Result<()> {
+    install_cargo_tool_with_timeout(name, package, DEFAULT_INSTALL_TIMEOUT)
+}
+
+fn install_cargo_tool_with_timeout(
+    name: &str,
+    package: Option<&str>,
+    timeout: Duration,
+) -> anyhow::Result<()> {
     let mut args = vec!["install"];
     if let Some(pkg) = package {
         args.push(pkg);
@@ -148,12 +179,11 @@ pub fn install_cargo_tool(name: &str, package: Option<&str>) -> anyhow::Result<(
     } else {
         args.push(name);
     }
-
-    let status = Command::new("cargo")
+    let child = Command::new("cargo")
         .args(&args)
-        .status()
-        .context("failed to run cargo install")?;
-
+        .spawn()
+        .context("failed to spawn cargo install")?;
+    let status = run_with_timeout(child, timeout, &format!("cargo install {name}"))?;
     if status.success() {
         Ok(())
     } else {
@@ -162,11 +192,19 @@ pub fn install_cargo_tool(name: &str, package: Option<&str>) -> anyhow::Result<(
 }
 
 pub fn install_rustup_component(component: &str, toolchain: &str) -> anyhow::Result<()> {
-    let status = Command::new("rustup")
-        .args(["component", "add", component, "--toolchain", toolchain])
-        .status()
-        .context("failed to run rustup component add")?;
+    install_rustup_component_with_timeout(component, toolchain, DEFAULT_INSTALL_TIMEOUT)
+}
 
+fn install_rustup_component_with_timeout(
+    component: &str,
+    toolchain: &str,
+    timeout: Duration,
+) -> anyhow::Result<()> {
+    let child = Command::new("rustup")
+        .args(["component", "add", component, "--toolchain", toolchain])
+        .spawn()
+        .context("failed to spawn rustup component add")?;
+    let status = run_with_timeout(child, timeout, &format!("rustup component add {component}"))?;
     if status.success() {
         Ok(())
     } else {
@@ -496,6 +534,7 @@ mod tests {
     // --- Integration tests (require rustup/cargo in PATH) ---
 
     #[test]
+    #[ignore = "requires rustup installed; run with: cargo test -- --ignored"]
     fn get_active_toolchain_returns_some() {
         let tc = get_active_toolchain();
         assert!(
@@ -510,6 +549,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires rustup installed; run with: cargo test -- --ignored"]
     fn check_binary_installed_finds_rustup() {
         assert!(check_binary_installed("rustup"));
     }
@@ -520,6 +560,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires rustup + cargo-fmt installed; run with: cargo test -- --ignored"]
     fn check_cargo_tool_installed_fmt() {
         // cargo-fmt ships with rustup, should always be present
         assert!(check_cargo_tool_installed("cargo-fmt"));
@@ -531,6 +572,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires rustup + rustfmt component installed; run with: cargo test -- --ignored"]
     fn check_rustup_component_installed_rustfmt() {
         assert!(check_rustup_component_installed("rustfmt"));
     }
@@ -545,6 +587,7 @@ mod tests {
     // --- check_tool_status ---
 
     #[test]
+    #[ignore = "requires rustup + cargo-fmt installed; run with: cargo test -- --ignored"]
     fn check_tool_status_simple_installed() {
         let spec = ToolSpec::Simple("Format code".to_string());
         assert_eq!(check_tool_status("cargo-fmt", &spec), ToolStatus::Installed);
@@ -560,6 +603,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires rustup + clippy component installed; run with: cargo test -- --ignored"]
     fn check_tool_status_extended_with_rustup_component() {
         let spec = ToolSpec::Extended(ExtendedToolSpec {
             description: "Clippy lints".to_string(),
@@ -574,6 +618,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires rustup installed; run with: cargo test -- --ignored"]
     fn check_tool_status_system_binary() {
         let spec = ToolSpec::Extended(ExtendedToolSpec {
             description: "Rust toolchain manager".to_string(),
@@ -622,6 +667,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires rustup + cargo-fmt installed; run with: cargo test -- --ignored"]
     fn collect_tools_preserves_order() {
         let mut tools = IndexMap::new();
         tools.insert(
@@ -642,6 +688,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires rustup + clippy component installed; run with: cargo test -- --ignored"]
     fn collect_tools_with_rustup_component() {
         let mut tools = IndexMap::new();
         tools.insert(
@@ -676,6 +723,32 @@ mod tests {
             err.contains("cannot be auto-installed"),
             "expected 'cannot be auto-installed', got: {err}"
         );
+    }
+
+    #[test]
+    fn run_with_timeout_fires_on_hung_subprocess() {
+        let child = Command::new("sh")
+            .args(["-c", "sleep 60"])
+            .spawn()
+            .expect("sh must be available");
+        let result = run_with_timeout(child, Duration::from_millis(400), "cargo install fake");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("timed out"),
+            "expected timeout error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn run_with_timeout_succeeds_for_fast_subprocess() {
+        let child = Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .expect("sh must be available");
+        let status = run_with_timeout(child, Duration::from_secs(5), "sh exit 0")
+            .expect("fast process should not time out");
+        assert!(status.success());
     }
 
     // --- Extension metadata ---

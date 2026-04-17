@@ -102,37 +102,66 @@ pub(crate) fn resolve_member_globs(members: &[String], workspace_root: &Path) ->
     resolved
 }
 
+/// Bootstrap the required data providers, logging on failure. Returns `None` on any error.
+fn bootstrap_providers(
+    ctx: &mut Context,
+    data_registry: &ops_extension::DataRegistry,
+    providers: &[(&str, &str)],
+) -> Option<()> {
+    for (name, label) in providers {
+        if let Err(e) = ctx.get_or_provide(name, data_registry) {
+            tracing::debug!("{label}: {e:#}");
+            return None;
+        }
+    }
+    Some(())
+}
+
+/// Run a per-crate query, logging and returning an empty map on failure.
+fn try_per_crate<T, F>(
+    label: &str,
+    strs: Option<&[&str]>,
+    f: F,
+) -> std::collections::HashMap<String, T>
+where
+    F: FnOnce(&[&str]) -> anyhow::Result<std::collections::HashMap<String, T>>,
+{
+    strs.and_then(|s| match f(s) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            tracing::debug!("{label}: {e:#}");
+            None
+        }
+    })
+    .unwrap_or_default()
+}
+
 pub(crate) fn query_loc_data(
     manifest: &CargoToml,
     ctx: &mut Context,
     data_registry: &ops_extension::DataRegistry,
 ) -> Option<LocData> {
-    if let Err(e) = ctx.get_or_provide("duckdb", data_registry) {
-        tracing::debug!("loc: duckdb provider failed: {e:#}");
-        return None;
-    }
-    if let Err(e) = ctx.get_or_provide("tokei", data_registry) {
-        tracing::debug!("loc: tokei provider failed: {e:#}");
-        return None;
-    }
+    bootstrap_providers(
+        ctx,
+        data_registry,
+        &[
+            ("duckdb", "loc: duckdb provider failed"),
+            ("tokei", "loc: tokei provider failed"),
+        ],
+    )?;
 
     let db = get_db(ctx)?;
 
-    let project_total = match query_project_loc(db) {
-        Ok(v) => v,
-        Err(e) => {
+    let project_total = query_project_loc(db)
+        .map_err(|e| {
             tracing::debug!("loc: query_project_loc failed: {e:#}");
-            return None;
-        }
-    };
+        })
+        .ok()?;
 
-    let project_file_count = match query_project_file_count(db) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::debug!("loc: query_project_file_count failed: {e:#}");
-            0
-        }
-    };
+    let project_file_count = query_project_file_count(db).unwrap_or_else(|e| {
+        tracing::debug!("loc: query_project_file_count failed: {e:#}");
+        0
+    });
 
     let member_strs: Option<Vec<&str>> = manifest
         .workspace
@@ -140,27 +169,14 @@ pub(crate) fn query_loc_data(
         .filter(|ws| !ws.members.is_empty())
         .map(|ws| ws.members.iter().map(|s| s.as_str()).collect());
 
-    let per_crate = member_strs
-        .as_deref()
-        .and_then(|strs| match query_crate_loc(db, strs) {
-            Ok(v) => Some(v),
-            Err(e) => {
-                tracing::debug!("loc: query_crate_loc failed: {e:#}");
-                None
-            }
-        })
-        .unwrap_or_default();
-
-    let per_crate_files = member_strs
-        .as_deref()
-        .and_then(|strs| match query_crate_file_count(db, strs) {
-            Ok(v) => Some(v),
-            Err(e) => {
-                tracing::debug!("loc: query_crate_file_count failed: {e:#}");
-                None
-            }
-        })
-        .unwrap_or_default();
+    let per_crate = try_per_crate("loc: query_crate_loc failed", member_strs.as_deref(), |s| {
+        query_crate_loc(db, s)
+    });
+    let per_crate_files = try_per_crate(
+        "loc: query_crate_file_count failed",
+        member_strs.as_deref(),
+        |s| query_crate_file_count(db, s),
+    );
 
     Some(LocData {
         project_total,

@@ -10,9 +10,6 @@ const PIPELINE: SidecarIngestorConfig = SidecarIngestorConfig {
     name: "coverage",
     json_filename: "coverage_files.json",
     count_table: "coverage_files",
-    create_label: "coverage_files create",
-    view_label: "coverage_summary view",
-    count_label: "coverage_files count",
 };
 
 pub struct CoverageIngestor;

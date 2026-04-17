@@ -55,14 +55,17 @@
 //! 4. **Support configuration** via builder pattern if needed (e.g., custom paths)
 //! 5. **Document the data contract** clearly so consumers know what to expect
 
+mod inheritance;
 #[cfg(test)]
 mod tests;
 mod types;
 
 #[allow(unused_imports)]
+pub use inheritance::InheritanceError;
+#[allow(unused_imports)]
 pub use types::{
-    CargoToml, DepSpec, DetailedDepSpec, InheritanceError, Package, PublishSpec, ReadmeSpec,
-    Workspace, WorkspacePackage,
+    CargoToml, DepSpec, DetailedDepSpec, Package, PublishSpec, ReadmeSpec, Workspace,
+    WorkspacePackage,
 };
 
 use anyhow::Context as _;
