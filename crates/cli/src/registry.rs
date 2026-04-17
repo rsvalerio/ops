@@ -75,30 +75,27 @@ pub fn builtin_extensions(
         debug!("no stack detected, loading generic extensions only");
     }
 
-    match &config.extensions.enabled {
-        Some(enabled) => {
-            for name in enabled {
-                if !available.contains_key(name.as_str()) {
-                    anyhow::bail!(
-                        "extension '{}' enabled in config but not compiled in; available: {}",
-                        name,
-                        available.keys().cloned().collect::<Vec<_>>().join(", ")
-                    );
-                }
-            }
-            let exts: Vec<Box<dyn Extension>> = enabled
-                .iter()
-                .filter_map(|name| available.remove(name.as_str()))
-                .collect();
-            debug!(count = exts.len(), "extensions loaded from config");
-            Ok(exts)
-        }
-        None => {
-            let exts: Vec<Box<dyn Extension>> = available.into_values().collect();
-            debug!(count = exts.len(), "stack-filtered extensions loaded");
-            Ok(exts)
+    let Some(enabled) = &config.extensions.enabled else {
+        let exts: Vec<Box<dyn Extension>> = available.into_values().collect();
+        debug!(count = exts.len(), "stack-filtered extensions loaded");
+        return Ok(exts);
+    };
+
+    for name in enabled {
+        if !available.contains_key(name.as_str()) {
+            anyhow::bail!(
+                "extension '{}' enabled in config but not compiled in; available: {}",
+                name,
+                available.keys().cloned().collect::<Vec<_>>().join(", ")
+            );
         }
     }
+    let exts: Vec<Box<dyn Extension>> = enabled
+        .iter()
+        .filter_map(|name| available.remove(name.as_str()))
+        .collect();
+    debug!(count = exts.len(), "extensions loaded from config");
+    Ok(exts)
 }
 
 fn register_with_extensions<R, F>(

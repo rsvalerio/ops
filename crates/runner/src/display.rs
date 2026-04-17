@@ -77,6 +77,14 @@ impl<'a> ErrorDetailRenderer<'a> {
     }
 }
 
+/// Named constructor arguments for `ProgressDisplay::new`.
+pub struct DisplayOptions<'a> {
+    pub output: &'a config::OutputConfig,
+    pub display_map: HashMap<String, String>,
+    pub custom_themes: &'a IndexMap<String, ThemeConfig>,
+    pub tap: Option<PathBuf>,
+}
+
 /// Encapsulates progress bar state and rendering for the CLI event loop.
 ///
 /// # Architecture (CQ-008)
@@ -132,40 +140,17 @@ impl ProgressDisplay {
         std::io::stderr().is_terminal()
     }
 
-    pub fn new(
-        output: &config::OutputConfig,
-        display_map: HashMap<String, String>,
-        custom_themes: &IndexMap<String, ThemeConfig>,
-        tap: Option<PathBuf>,
-    ) -> anyhow::Result<Self> {
-        Self::new_with_tty_check(output, display_map, custom_themes, tap, Self::is_stderr_tty)
-    }
-
-    fn new_with_tty_check<F>(
-        output: &config::OutputConfig,
-        display_map: HashMap<String, String>,
-        custom_themes: &IndexMap<String, ThemeConfig>,
-        tap: Option<PathBuf>,
-        is_tty_fn: F,
-    ) -> anyhow::Result<Self>
-    where
-        F: FnOnce() -> bool,
-    {
-        let is_tty = is_tty_fn();
-        let multi = MultiProgress::with_draw_target(if is_tty {
-            ProgressDrawTarget::stderr()
-        } else {
-            ProgressDrawTarget::hidden()
-        });
-        let resolved_theme = theme::resolve_theme(&output.theme, custom_themes)?;
+    fn build_running_style(
+        resolved_theme: &dyn theme::StepLineTheme,
+        theme_name: &str,
+    ) -> anyhow::Result<ProgressStyle> {
         let left_pad_str = " ".repeat(resolved_theme.left_pad());
-        let padded_running_template =
-            format!("{}{}", left_pad_str, resolved_theme.running_template());
-        let running_style = ProgressStyle::with_template(&padded_running_template)
+        let padded = format!("{}{}", left_pad_str, resolved_theme.running_template());
+        let style = ProgressStyle::with_template(&padded)
             .with_context(|| {
                 format!(
                     "invalid running_template for theme '{}': {}",
-                    output.theme,
+                    theme_name,
                     resolved_theme.running_template()
                 )
             })?
@@ -177,14 +162,42 @@ impl ProgressDisplay {
                     theme::format_duration(state.elapsed().as_secs_f64())
                 );
             });
+        Ok(style)
+    }
 
-        let tap_file = tap.and_then(|path| match File::create(&path) {
+    fn open_tap_file(path: PathBuf) -> Option<File> {
+        match File::create(&path) {
             Ok(f) => Some(f),
             Err(e) => {
                 tracing::warn!(path = %path.display(), error = %e, "failed to open tap file");
                 None
             }
+        }
+    }
+
+    pub fn new(opts: DisplayOptions<'_>) -> anyhow::Result<Self> {
+        Self::new_with_tty_check(opts, Self::is_stderr_tty)
+    }
+
+    fn new_with_tty_check<F>(opts: DisplayOptions<'_>, is_tty_fn: F) -> anyhow::Result<Self>
+    where
+        F: FnOnce() -> bool,
+    {
+        let DisplayOptions {
+            output,
+            display_map,
+            custom_themes,
+            tap,
+        } = opts;
+        let is_tty = is_tty_fn();
+        let multi = MultiProgress::with_draw_target(if is_tty {
+            ProgressDrawTarget::stderr()
+        } else {
+            ProgressDrawTarget::hidden()
         });
+        let resolved_theme = theme::resolve_theme(&output.theme, custom_themes)?;
+        let running_style = Self::build_running_style(resolved_theme.as_ref(), &output.theme)?;
+        let tap_file = tap.and_then(Self::open_tap_file);
 
         Ok(Self {
             render: RenderConfig {
@@ -448,22 +461,22 @@ impl ProgressDisplay {
         self.finish_step(id, StepStatus::Skipped, 0.0, display_cmd);
     }
 
-    /// Handle a step failure event: render failure line and optional error details.
-    ///
-    /// CQ-010: This method has 4 levels of nesting due to the combination of:
-    /// - TTY vs non-TTY output paths
-    /// - Error detail display toggle
-    /// - Multi-line error detail rendering
-    ///
-    /// The `ErrorDetailRenderer` has been extracted to handle the formatting logic,
-    /// but the control flow remains here because:
-    ///
-    /// 1. TTY path needs access to `multi` and `bars` for inline insertion
-    /// 2. Non-TTY path needs direct stderr access
-    /// 3. Both paths share the same error detail extraction
-    ///
-    /// Future refactoring could extract `render_error_details_tty()` and
-    /// `render_error_details_non_tty()` helper methods if this grows.
+    fn render_error_details_tty(&mut self, bar_index: usize, detail_lines: &[String]) {
+        let mut anchor = self.bars[bar_index].clone();
+        for detail_line in detail_lines {
+            let pb = self.multi.insert_after(&anchor, ProgressBar::new(0));
+            pb.set_style(Self::pending_style());
+            pb.finish_with_message(detail_line.clone());
+            anchor = pb;
+        }
+    }
+
+    fn render_error_details_non_tty(detail_lines: &[String]) {
+        for detail_line in detail_lines {
+            write_stderr(Some(detail_line));
+        }
+    }
+
     fn on_step_failed(
         &mut self,
         id: &str,
@@ -490,17 +503,9 @@ impl ProgressDisplay {
         let detail_lines = renderer.render(message, &stderr_tail);
 
         if self.render.is_tty {
-            let mut anchor = self.bars[i].clone();
-            for detail_line in &detail_lines {
-                let pb = self.multi.insert_after(&anchor, ProgressBar::new(0));
-                pb.set_style(Self::pending_style());
-                pb.finish_with_message(detail_line.clone());
-                anchor = pb;
-            }
+            self.render_error_details_tty(i, &detail_lines);
         } else {
-            for detail_line in &detail_lines {
-                write_stderr(Some(detail_line));
-            }
+            Self::render_error_details_non_tty(&detail_lines);
         }
     }
 
@@ -615,8 +620,13 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         let custom_themes = test_themes();
-        ProgressDisplay::new(&output, display_map, &custom_themes, None)
-            .expect("test display construct")
+        ProgressDisplay::new(DisplayOptions {
+            output: &output,
+            display_map,
+            custom_themes: &custom_themes,
+            tap: None,
+        })
+        .expect("test display construct")
     }
 
     #[test]
@@ -718,10 +728,12 @@ mod tests {
         };
         let custom_themes = test_themes();
         let display = ProgressDisplay::new_with_tty_check(
-            &output,
-            HashMap::new(),
-            &custom_themes,
-            None,
+            DisplayOptions {
+                output: &output,
+                display_map: HashMap::new(),
+                custom_themes: &custom_themes,
+                tap: None,
+            },
             || false,
         )
         .expect("should construct");
@@ -745,9 +757,13 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         let custom_themes = test_themes();
-        let mut display =
-            ProgressDisplay::new(&output, display_map, &custom_themes, Some(tap_path.clone()))
-                .expect("should construct with tap");
+        let mut display = ProgressDisplay::new(DisplayOptions {
+            output: &output,
+            display_map,
+            custom_themes: &custom_themes,
+            tap: Some(tap_path.clone()),
+        })
+        .expect("should construct with tap");
 
         display.handle_event(RunnerEvent::PlanStarted {
             command_ids: vec!["cmd".into()],
@@ -1036,7 +1052,12 @@ mod tests {
                 ..config::OutputConfig::default()
             };
             let custom_themes = IndexMap::new();
-            let result = ProgressDisplay::new(&output, HashMap::new(), &custom_themes, None);
+            let result = ProgressDisplay::new(DisplayOptions {
+                output: &output,
+                display_map: HashMap::new(),
+                custom_themes: &custom_themes,
+                tap: None,
+            });
 
             match result {
                 Err(e) => {

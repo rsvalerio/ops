@@ -8,7 +8,7 @@ use std::process::ExitCode;
 use ops_core::config::CommandSpec;
 use ops_runner::command::is_sensitive_env_key;
 use ops_runner::command::StepResult;
-use ops_runner::display::ProgressDisplay;
+use ops_runner::display::{DisplayOptions, ProgressDisplay};
 use ops_runner::terminal::EchoGuard;
 
 use crate::registry::{as_ext_refs, builtin_extensions, register_extension_commands};
@@ -39,23 +39,12 @@ fn build_runner(verbose: bool) -> anyhow::Result<ops_runner::command::CommandRun
     Ok(runner)
 }
 
-fn run_commands(
+/// Merge leaf IDs from multiple command names into a single plan.
+fn merge_plan(
+    runner: &ops_runner::command::CommandRunner,
     names: &[&str],
-    dry_run: bool,
-    verbose: bool,
-    tap: Option<PathBuf>,
-) -> anyhow::Result<ExitCode> {
-    let runner = build_runner(verbose)?;
-
-    if dry_run {
-        for name in names {
-            run_command_dry_run(&runner, name)?;
-        }
-        return Ok(ExitCode::SUCCESS);
-    }
-
-    // Merge leaf IDs from all commands into a single plan.
-    let mut all_leaf_ids: Vec<ops_core::config::CommandId> = Vec::new();
+) -> anyhow::Result<(Vec<ops_core::config::CommandId>, bool, bool)> {
+    let mut all_leaf_ids = Vec::new();
     let mut any_parallel = false;
     let mut fail_fast = true;
     for name in names {
@@ -72,20 +61,44 @@ fn run_commands(
             }
         }
     }
+    Ok((all_leaf_ids, any_parallel, fail_fast))
+}
 
+/// Create a tokio Runtime, run the async closure on it, and return the result.
+fn run_with_runtime<F, T>(f: F) -> anyhow::Result<T>
+where
+    F: std::future::Future<Output = anyhow::Result<T>>,
+{
+    tokio::runtime::Runtime::new()?.block_on(f)
+}
+
+fn run_commands(
+    names: &[&str],
+    dry_run: bool,
+    verbose: bool,
+    tap: Option<PathBuf>,
+) -> anyhow::Result<ExitCode> {
+    let runner = build_runner(verbose)?;
+
+    if dry_run {
+        for name in names {
+            run_command_dry_run(&runner, name)?;
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let (all_leaf_ids, any_parallel, fail_fast) = merge_plan(&runner, names)?;
     let display_map = build_display_map(&runner, &all_leaf_ids);
-    let mut display = ProgressDisplay::new(
-        runner.output_config(),
+    let mut display = ProgressDisplay::new(DisplayOptions {
+        output: runner.output_config(),
         display_map,
-        &runner.config().themes,
+        custom_themes: &runner.config().themes,
         tap,
-    )?;
+    })?;
 
     let _echo_guard = EchoGuard::disable_echo();
-
-    let rt = tokio::runtime::Runtime::new()?;
-    let results: Vec<StepResult> = rt.block_on(async {
-        if any_parallel {
+    let results: Vec<StepResult> = run_with_runtime(async {
+        Ok(if any_parallel {
             runner
                 .run_plan_parallel(&all_leaf_ids, fail_fast, &mut |event| {
                     display.handle_event(event)
@@ -97,18 +110,17 @@ fn run_commands(
                     display.handle_event(event)
                 })
                 .await
-        }
-    });
-
+        })
+    })?;
     drop(_echo_guard);
     log_step_results(&results);
 
     let success = results.iter().all(|r| r.success);
-    if success {
-        Ok(ExitCode::SUCCESS)
+    Ok(if success {
+        ExitCode::SUCCESS
     } else {
-        Ok(ExitCode::FAILURE)
-    }
+        ExitCode::FAILURE
+    })
 }
 
 fn setup_extensions(runner: &mut ops_runner::command::CommandRunner) -> anyhow::Result<()> {
@@ -226,9 +238,8 @@ fn print_exec_spec(
     vars: &ops_core::expand::Variables,
 ) -> anyhow::Result<()> {
     writeln!(w, "      program: {}", vars.expand(&e.program))?;
-    if !e.args.is_empty() {
-        let expanded: Vec<_> = e.args.iter().map(|a| vars.expand(a).into_owned()).collect();
-        writeln!(w, "      args:    {}", expanded.join(" "))?;
+    if let Some(args) = e.expanded_args_display(vars) {
+        writeln!(w, "      args:    {}", args)?;
     }
     if !e.env.is_empty() {
         writeln!(w, "      env:")?;
@@ -265,22 +276,19 @@ fn run_command_cli(
 
     let display_map = build_display_map(runner, &leaf_ids);
 
-    let mut display = ProgressDisplay::new(
-        runner.output_config(),
+    let mut display = ProgressDisplay::new(DisplayOptions {
+        output: runner.output_config(),
         display_map,
-        &runner.config().themes,
+        custom_themes: &runner.config().themes,
         tap,
-    )?;
+    })?;
 
     let _echo_guard = EchoGuard::disable_echo();
-
-    let rt = tokio::runtime::Runtime::new()?;
-    let results: Vec<StepResult> = rt.block_on(async {
+    let results: Vec<StepResult> = run_with_runtime(async {
         runner
             .run(name, &mut |event| display.handle_event(event))
             .await
     })?;
-
     drop(_echo_guard);
     log_step_results(&results);
 

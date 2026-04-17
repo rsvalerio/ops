@@ -173,6 +173,21 @@ impl CommandRunner {
         }
     }
 
+    /// Stack and extension command sources (config excluded; its aliases use a dedicated map).
+    fn non_config_sources(&self) -> [&IndexMap<CommandId, CommandSpec>; 2] {
+        [&self.stack_commands, &self.extension_commands]
+    }
+
+    /// Iterator over all command keys across config → stack → extension.
+    fn all_command_keys(&self) -> impl Iterator<Item = &str> {
+        self.config
+            .commands
+            .keys()
+            .map(|s| s.as_str())
+            .chain(self.stack_commands.keys().map(|k| k.as_str()))
+            .chain(self.extension_commands.keys().map(|k| k.as_str()))
+    }
+
     /// Look up a command by ID across all stores (config → stack → extension).
     fn find_in_stores(&self, id: &str) -> Option<&CommandSpec> {
         self.config
@@ -204,8 +219,7 @@ impl CommandRunner {
         if let Some(name) = self.config.resolve_alias(id) {
             return name;
         }
-        // Search aliases in stack and extension commands
-        for src in [&self.stack_commands, &self.extension_commands] {
+        for src in self.non_config_sources() {
             for (name, spec) in src {
                 if spec.aliases().iter().any(|a| a == id) {
                     return name.as_str();
@@ -221,25 +235,15 @@ impl CommandRunner {
         if let Some(name) = self.config.resolve_alias(alias) {
             return self.config.commands.get(name);
         }
-        // Stack and extension commands: search by spec aliases
-        [&self.stack_commands, &self.extension_commands]
-            .into_iter()
-            .find_map(|src| {
-                src.values()
-                    .find(|spec| spec.aliases().iter().any(|a| a == alias))
-            })
+        self.non_config_sources().into_iter().find_map(|src| {
+            src.values()
+                .find(|spec| spec.aliases().iter().any(|a| a == alias))
+        })
     }
 
     /// List all available command IDs (config first, then stack, then extension commands; sorted for stable order).
     pub fn list_command_ids(&self) -> Vec<CommandId> {
-        let mut ids: Vec<&str> = self
-            .config
-            .commands
-            .keys()
-            .map(|s| s.as_str())
-            .chain(self.stack_commands.keys().map(|s| s.as_str()))
-            .chain(self.extension_commands.keys().map(|s| s.as_str()))
-            .collect();
+        let mut ids: Vec<&str> = self.all_command_keys().collect();
         ids.sort_unstable();
         ids.dedup();
         ids.iter().map(|s| CommandId::from(*s)).collect()
@@ -434,16 +438,18 @@ impl CommandRunner {
         let (tx, rx) = mpsc::unbounded_channel();
         let abort = Arc::new(AtomicBool::new(false));
         let semaphore = Arc::new(tokio::sync::Semaphore::new(Self::MAX_PARALLEL));
+        let cwd = Arc::new(cwd);
+        let vars = Arc::new(vars);
         let mut join_set = tokio::task::JoinSet::new();
         for (id, spec) in steps {
             let tx = tx.clone();
             let abort = Arc::clone(&abort);
-            let cwd_clone = cwd.clone();
-            let vars_clone = vars.clone();
+            let cwd = Arc::clone(&cwd);
+            let vars = Arc::clone(&vars);
             let sem = Arc::clone(&semaphore);
             join_set.spawn(async move {
                 let _permit = sem.acquire().await.expect("semaphore closed");
-                exec_standalone(id, spec, cwd_clone, vars_clone, tx, abort).await
+                exec_standalone(id, spec, cwd, vars, tx, abort).await
             });
         }
         drop(tx);

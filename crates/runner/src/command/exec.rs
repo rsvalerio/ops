@@ -41,7 +41,31 @@ use std::time::{Duration, Instant};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
+/// Lexically normalize a path by resolving `.` and `..` components without I/O.
+fn normalize_path(p: &std::path::Path) -> std::path::PathBuf {
+    use std::path::Component;
+    let mut out = std::path::PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push(c);
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// Build a tokio Command from an exec spec and working directory.
+///
+/// ## SEC-004: cwd traversal guard
+///
+/// If a relative `cwd` in the spec resolves outside the workspace root (e.g. via `../`),
+/// a warning is logged. The command is still spawned — `ops` trusts `.ops.toml` like `make`
+/// trusts a Makefile — but the warning surfaces unintentional escapes.
 ///
 /// Note: `current_dir` is validated by the OS when the command is spawned — if the
 /// path does not exist, `Command::output()` returns an `io::Error` that propagates
@@ -60,7 +84,17 @@ pub fn build_command(spec: &ExecCommandSpec, cwd: &std::path::Path, vars: &Varia
             let expanded = vars.expand(&lossy);
             let ep = std::path::PathBuf::from(expanded.as_ref());
             if ep.is_relative() {
-                cwd.join(ep)
+                let joined = cwd.join(&ep);
+                let normalized = normalize_path(&joined);
+                if !normalized.starts_with(cwd) {
+                    tracing::warn!(
+                        cwd = %cwd.display(),
+                        spec_cwd = %ep.display(),
+                        resolved = %normalized.display(),
+                        "SEC-004: spec cwd escapes workspace root"
+                    );
+                }
+                joined
             } else {
                 ep
             }
@@ -332,8 +366,8 @@ pub async fn exec_command(
 pub async fn exec_standalone(
     id: CommandId,
     spec: ExecCommandSpec,
-    cwd: PathBuf,
-    vars: Variables,
+    cwd: Arc<PathBuf>,
+    vars: Arc<Variables>,
     tx: mpsc::UnboundedSender<RunnerEvent>,
     abort: Arc<AtomicBool>,
 ) -> StepResult {

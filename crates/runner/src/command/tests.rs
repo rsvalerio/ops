@@ -384,8 +384,8 @@ async fn exec_standalone_skips_when_abort_set() {
     let result = exec_standalone(
         "skipped".into(),
         spec,
-        PathBuf::from("."),
-        test_vars(),
+        Arc::new(PathBuf::from(".")),
+        Arc::new(test_vars()),
         tx,
         abort,
     )

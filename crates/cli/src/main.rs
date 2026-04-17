@@ -86,9 +86,24 @@ fn run() -> anyhow::Result<ExitCode> {
     let effective_args = preprocess_args(args);
 
     // Load config early so stack detection and help output can use it.
-    let early_config = ops_core::config::load_config().unwrap_or_default();
+    let early_config = match ops_core::config::load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to load config; using defaults");
+            ops_core::config::Config::default()
+        }
+    };
     let detected_stack = {
-        let cwd = std::env::current_dir().unwrap_or_default();
+        let cwd = match std::env::current_dir() {
+            Ok(d) => d,
+            Err(e) => {
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "ops: error: could not determine working directory: {e}"
+                );
+                return Ok(ExitCode::FAILURE);
+            }
+        };
         ops_core::stack::Stack::resolve(early_config.stack.as_deref(), &cwd)
     };
 
@@ -338,13 +353,14 @@ fn print_categorized_help(
     };
 
     // Insert grouped commands before the "Options:" section.
+    let mut stdout = std::io::stdout();
     if let Some(pos) = help_str.find("\nOptions:") {
-        print!("{}", &help_str[..pos]);
-        print!("{grouped}");
-        print!("{}", &help_str[pos..]);
+        let _ = write!(stdout, "{}", &help_str[..pos]);
+        let _ = write!(stdout, "{grouped}");
+        let _ = write!(stdout, "{}", &help_str[pos..]);
     } else {
-        print!("{help_str}");
-        print!("{grouped}");
+        let _ = write!(stdout, "{help_str}");
+        let _ = write!(stdout, "{grouped}");
     }
 }
 
@@ -390,7 +406,7 @@ fn run_about(refresh: bool, action: Option<AboutAction>) -> anyhow::Result<()> {
                 refresh,
                 visible_fields: config.about.fields.clone(),
             };
-            ops_about::run_about(&registry, &opts, columns)
+            ops_about::run_about(&registry, &opts, columns, &cwd, &mut std::io::stdout())
         }
     }
 }
@@ -455,7 +471,9 @@ fn run_before_commit(
             Ok(ExitCode::SUCCESS)
         }
         None => {
-            let config = ops_core::config::load_config().unwrap_or_default();
+            let config = ops_core::config::load_config().map_err(|e| {
+                anyhow::anyhow!("failed to load config for run-before-commit check: {e}")
+            })?;
             if !config.commands.contains_key("run-before-commit") {
                 return prompt_hook_install("run-before-commit");
             }
@@ -490,7 +508,9 @@ fn run_before_push(
             Ok(ExitCode::SUCCESS)
         }
         None => {
-            let config = ops_core::config::load_config().unwrap_or_default();
+            let config = ops_core::config::load_config().map_err(|e| {
+                anyhow::anyhow!("failed to load config for run-before-push check: {e}")
+            })?;
             if !config.commands.contains_key("run-before-push") {
                 return prompt_hook_install("run-before-push");
             }

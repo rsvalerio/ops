@@ -358,6 +358,25 @@ program = "echo"
     );
 }
 
+// -- TASK-0068: run-before-commit/push with malformed config surfaces error --
+
+#[test]
+fn cli_run_before_commit_with_malformed_toml_fails() {
+    with_ops_toml(
+        r#"
+[commands.broken
+program = "echo"
+"#,
+        |path| {
+            ops()
+                .arg("run-before-commit")
+                .current_dir(path)
+                .assert()
+                .failure();
+        },
+    );
+}
+
 // -- TQ-017: Theme list command --
 
 #[test]
