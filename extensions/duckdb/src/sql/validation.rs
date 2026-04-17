@@ -19,11 +19,10 @@ pub enum SqlError {
 /// All current call sites pass `&'static str` literals, but this provides
 /// defense-in-depth against future misuse.
 pub fn validate_identifier(name: &str) -> Result<(), SqlError> {
-    if name.is_empty() {
-        return Err(SqlError::InvalidIdentifier(name.to_string()));
-    }
     let mut chars = name.chars();
-    let first = chars.next().unwrap();
+    let Some(first) = chars.next() else {
+        return Err(SqlError::InvalidIdentifier(name.to_string()));
+    };
     if !first.is_ascii_alphabetic() && first != '_' {
         return Err(SqlError::InvalidIdentifier(name.to_string()));
     }

@@ -33,9 +33,6 @@ pub struct SidecarIngestorConfig {
     pub name: &'static str,
     pub json_filename: &'static str,
     pub count_table: &'static str,
-    pub create_label: &'static str,
-    pub view_label: &'static str,
-    pub count_label: &'static str,
 }
 
 #[allow(dead_code)]
@@ -68,9 +65,9 @@ impl SidecarIngestorConfig {
         let conn = db.lock()?;
 
         conn.execute(create_sql, [])
-            .map_err(|e| crate::error::DbError::query_failed(self.create_label, e))?;
+            .map_err(|e| crate::error::DbError::query_failed(format!("{} create", self.name), e))?;
         conn.execute(view_sql, [])
-            .map_err(|e| crate::error::DbError::query_failed(self.view_label, e))?;
+            .map_err(|e| crate::error::DbError::query_failed(format!("{} view", self.name), e))?;
 
         let record_count: u64 = conn
             .query_row(
@@ -78,7 +75,9 @@ impl SidecarIngestorConfig {
                 [],
                 |row: &duckdb::Row| row.get::<_, i64>(0),
             )
-            .map_err(|e| crate::error::DbError::query_failed(self.count_label, e))
+            .map_err(|e| {
+                crate::error::DbError::query_failed(format!("{} count", self.count_table), e)
+            })
             .map(|v| u64::try_from(v).unwrap_or(0))?;
 
         let workspace_root = crate::sql::read_workspace_sidecar(data_dir, self.name)?;
@@ -164,4 +163,150 @@ pub trait DataIngestor: Send + Sync {
     /// Returns a hash (typically SHA-256) of the source data. If this
     /// matches the stored checksum, `load()` may be skipped.
     fn checksum(&self, data_dir: &Path) -> DbResult<String>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{connection::DuckDb, error::DbError};
+    use std::io::Write;
+
+    #[test]
+    fn load_result_success() {
+        let result = LoadResult::success("test_source", 100);
+        assert_eq!(result.source_name, "test_source");
+        assert_eq!(result.record_count, 100);
+    }
+
+    struct MockIngestor {
+        name: &'static str,
+    }
+
+    impl DataIngestor for MockIngestor {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+
+        fn collect(&self, _ctx: &Context, data_dir: &Path) -> DbResult<()> {
+            let json_path = data_dir.join("data.json");
+            let mut file = std::fs::File::create(&json_path).map_err(DbError::Io)?;
+            write!(file, r#"{{"test": "data"}}"#).map_err(DbError::Io)?;
+            Ok(())
+        }
+
+        fn load(&self, data_dir: &Path, _db: &DuckDb) -> DbResult<LoadResult> {
+            let json_path = data_dir.join("data.json");
+            if json_path.exists() {
+                Ok(LoadResult::success(self.name, 1))
+            } else {
+                Ok(LoadResult::success(self.name, 0))
+            }
+        }
+
+        fn checksum(&self, data_dir: &Path) -> DbResult<String> {
+            let json_path = data_dir.join("data.json");
+            if json_path.exists() {
+                Ok("mock_checksum".to_string())
+            } else {
+                Ok("empty".to_string())
+            }
+        }
+    }
+
+    #[test]
+    fn data_ingestor_trait_collect() {
+        let ingestor = MockIngestor { name: "test" };
+        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let ctx = Context::new(config, std::path::PathBuf::from("."));
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        ingestor
+            .collect(&ctx, temp_dir.path())
+            .expect("collect should succeed");
+        assert!(temp_dir.path().join("data.json").exists());
+    }
+
+    #[test]
+    fn data_ingestor_trait_checksum() {
+        let ingestor = MockIngestor { name: "test" };
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+
+        assert_eq!(ingestor.checksum(temp_dir.path()).unwrap(), "empty");
+        std::fs::write(temp_dir.path().join("data.json"), r#"{"test": "data"}"#).unwrap();
+        assert_eq!(ingestor.checksum(temp_dir.path()).unwrap(), "mock_checksum");
+    }
+
+    #[test]
+    fn data_ingestor_trait_load() {
+        let ingestor = MockIngestor { name: "test" };
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let db = DuckDb::open_in_memory().expect("db");
+        std::fs::write(temp_dir.path().join("data.json"), r#"{"test": "data"}"#).unwrap();
+        let result = ingestor
+            .load(temp_dir.path(), &db)
+            .expect("load should succeed");
+        assert_eq!(result.source_name, "test");
+        assert_eq!(result.record_count, 1);
+    }
+
+    mod ingestor_error_tests {
+        use super::*;
+
+        struct FailingCollectIngestor;
+
+        impl DataIngestor for FailingCollectIngestor {
+            fn name(&self) -> &'static str {
+                "failing_collect"
+            }
+            fn collect(&self, _ctx: &Context, _data_dir: &Path) -> DbResult<()> {
+                Err(DbError::Io(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "collect failed",
+                )))
+            }
+            fn load(&self, _data_dir: &Path, _db: &DuckDb) -> DbResult<LoadResult> {
+                Ok(LoadResult::success(self.name(), 0))
+            }
+            fn checksum(&self, _data_dir: &Path) -> DbResult<String> {
+                Ok("test".to_string())
+            }
+        }
+
+        #[test]
+        fn ingestor_collect_error_propagates() {
+            let ingestor = FailingCollectIngestor;
+            let config = std::sync::Arc::new(ops_core::config::Config::default());
+            let ctx = Context::new(config, std::path::PathBuf::from("."));
+            let temp_dir = tempfile::tempdir().expect("tempdir");
+            let result = ingestor.collect(&ctx, temp_dir.path());
+            assert!(result.is_err());
+            assert!(result.unwrap_err().to_string().contains("collect failed"));
+        }
+
+        struct FailingChecksumIngestor;
+
+        impl DataIngestor for FailingChecksumIngestor {
+            fn name(&self) -> &'static str {
+                "failing_checksum"
+            }
+            fn collect(&self, _ctx: &Context, data_dir: &Path) -> DbResult<()> {
+                std::fs::create_dir_all(data_dir).map_err(DbError::Io)?;
+                Ok(())
+            }
+            fn load(&self, _data_dir: &Path, _db: &DuckDb) -> DbResult<LoadResult> {
+                Ok(LoadResult::success(self.name(), 0))
+            }
+            fn checksum(&self, data_dir: &Path) -> DbResult<String> {
+                let path = data_dir.join("nonexistent.json");
+                std::fs::read(&path).map_err(DbError::Io)?;
+                Ok("unreachable".to_string())
+            }
+        }
+
+        #[test]
+        fn ingestor_checksum_missing_file_error() {
+            let ingestor = FailingChecksumIngestor;
+            let temp_dir = tempfile::tempdir().expect("tempdir");
+            assert!(ingestor.checksum(temp_dir.path()).is_err());
+        }
+    }
 }

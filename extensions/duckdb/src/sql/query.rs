@@ -4,7 +4,7 @@ use crate::DuckDb;
 use std::collections::HashMap;
 
 use super::ingest::table_exists;
-use super::validation::{escape_sql_string, validate_path_chars};
+use super::validation::validate_path_chars;
 
 /// Per-crate coverage data from `coverage_files`.
 #[derive(Debug, Clone)]
@@ -24,6 +24,60 @@ impl CrateCoverage {
     }
 }
 
+/// Returns the SELECT column expressions for coverage SUM/CASE aggregation.
+/// Pass `""` for direct table queries or `"c."` for aliased joins.
+fn coverage_col_select(prefix: &str) -> String {
+    format!(
+        "COALESCE(SUM({prefix}lines_count), 0), \
+         COALESCE(SUM({prefix}lines_covered), 0), \
+         CASE WHEN SUM({prefix}lines_count) > 0 \
+             THEN ROUND(SUM({prefix}lines_covered) * 100.0 / SUM({prefix}lines_count), 2) \
+             ELSE 0.0 END"
+    )
+}
+
+/// Query spec bundling table name, SQL, and diagnostic label for `query_rows_fold`.
+struct QuerySpec<'a> {
+    table: &'a str,
+    sql: &'a str,
+    label: &'a str,
+}
+
+/// Lock, check-table, execute no-param SQL, accumulate rows into T.
+/// Returns `init` when the table doesn't exist.
+fn query_rows_fold<V, T, RM, FA>(
+    db: &DuckDb,
+    spec: &QuerySpec<'_>,
+    row_mapper: RM,
+    init: T,
+    mut fold_fn: FA,
+) -> anyhow::Result<T>
+where
+    RM: Fn(&duckdb::Row<'_>) -> Result<V, duckdb::Error>,
+    FA: FnMut(&mut T, V),
+{
+    use anyhow::Context;
+    let label = spec.label;
+    let conn = db
+        .lock()
+        .with_context(|| format!("acquiring db lock for {label}"))?;
+    if !table_exists(&conn, spec.table)? {
+        return Ok(init);
+    }
+    let mut stmt = conn
+        .prepare(spec.sql)
+        .with_context(|| format!("preparing {label}"))?;
+    let rows = stmt
+        .query_map([], |row| row_mapper(row))
+        .with_context(|| format!("querying {label}"))?;
+    let mut acc = init;
+    for row in rows {
+        let v = row.with_context(|| format!("reading {label} row"))?;
+        fold_fn(&mut acc, v);
+    }
+    Ok(acc)
+}
+
 /// Shared scaffolding: lock db, check table exists, run a scalar aggregate query.
 /// Returns `Ok(0)` if the table doesn't exist.
 fn query_project_scalar(db: &DuckDb, table: &str, sql: &str, label: &str) -> anyhow::Result<i64> {
@@ -31,7 +85,7 @@ fn query_project_scalar(db: &DuckDb, table: &str, sql: &str, label: &str) -> any
 
     let conn = db
         .lock()
-        .context(format!("acquiring db lock for {label}"))?;
+        .with_context(|| format!("acquiring db lock for {label}"))?;
 
     if !table_exists(&conn, table)? {
         return Ok(0);
@@ -42,11 +96,15 @@ fn query_project_scalar(db: &DuckDb, table: &str, sql: &str, label: &str) -> any
 }
 
 /// Result of preparing per-crate query scaffolding.
-/// `Ready` means the table exists and the VALUES clause is built.
+/// `Ready` carries the lock, a `(?),...,(?)` placeholder clause, and the paths to bind.
 enum PerCrateSetup<'a> {
     Empty,
     NoTable,
-    Ready(std::sync::MutexGuard<'a, duckdb::Connection>, String),
+    Ready(
+        std::sync::MutexGuard<'a, duckdb::Connection>,
+        String,
+        Vec<String>,
+    ),
 }
 
 /// Shared scaffolding: validate paths, lock db, check table exists, build VALUES CTE.
@@ -68,18 +126,48 @@ fn prepare_per_crate<'a>(
 
     let conn = db
         .lock()
-        .context(format!("acquiring db lock for {label}"))?;
+        .with_context(|| format!("acquiring db lock for {label}"))?;
 
     if !table_exists(&conn, table)? {
         return Ok(PerCrateSetup::NoTable);
     }
 
-    let values: Vec<String> = member_paths
+    let placeholders = member_paths
         .iter()
-        .map(|p| format!("('{}')", escape_sql_string(p)))
-        .collect();
+        .map(|_| "(?)")
+        .collect::<Vec<_>>()
+        .join(", ");
+    let paths: Vec<String> = member_paths.iter().map(|p| p.to_string()).collect();
 
-    Ok(PerCrateSetup::Ready(conn, values.join(", ")))
+    Ok(PerCrateSetup::Ready(conn, placeholders, paths))
+}
+
+/// Execute a per-crate SQL with bound path params and collect rows via a row-mapper.
+fn collect_per_crate_map<T, F>(
+    conn: &duckdb::Connection,
+    sql: &str,
+    label: &str,
+    params: &[String],
+    row_mapper: F,
+) -> anyhow::Result<HashMap<String, T>>
+where
+    F: Fn(&duckdb::Row<'_>) -> Result<(String, T), duckdb::Error>,
+{
+    use anyhow::Context;
+    let mut stmt = conn
+        .prepare(sql)
+        .with_context(|| format!("preparing {label}"))?;
+    let rows = stmt
+        .query_map(duckdb::params_from_iter(params.iter()), |row| {
+            row_mapper(row)
+        })
+        .with_context(|| format!("querying {label}"))?;
+    let mut result = HashMap::new();
+    for row in rows {
+        let (path, val) = row.with_context(|| format!("reading {label} row"))?;
+        result.insert(path, val);
+    }
+    Ok(result)
 }
 
 /// Parameters for a per-crate i64 query.
@@ -97,43 +185,29 @@ struct PerCrateI64Query<'a> {
 /// LEFT JOIN on `starts_with`, GROUP BY, collect into HashMap<String, i64>.
 /// Returns zeroed map if table doesn't exist, empty map if no member_paths.
 fn query_per_crate_i64(q: &PerCrateI64Query<'_>) -> anyhow::Result<HashMap<String, i64>> {
-    use anyhow::Context;
+    let (conn, placeholders, paths) =
+        match prepare_per_crate(q.db, q.table, q.member_paths, q.label)? {
+            PerCrateSetup::Empty => return Ok(HashMap::new()),
+            PerCrateSetup::NoTable => {
+                return Ok(q.member_paths.iter().map(|p| (p.to_string(), 0)).collect())
+            }
+            PerCrateSetup::Ready(conn, placeholders, paths) => (conn, placeholders, paths),
+        };
 
-    let (conn, values) = match prepare_per_crate(q.db, q.table, q.member_paths, q.label)? {
-        PerCrateSetup::Empty => return Ok(HashMap::new()),
-        PerCrateSetup::NoTable => {
-            return Ok(q.member_paths.iter().map(|p| (p.to_string(), 0)).collect())
-        }
-        PerCrateSetup::Ready(conn, values) => (conn, values),
-    };
-
-    let table = q.table;
-    let select_expr = q.select_expr;
-    let join_alias = q.join_alias;
-    let join_column = q.join_column;
-    let label = q.label;
+    let (table, select_expr, join_alias, join_column, label) =
+        (q.table, q.select_expr, q.join_alias, q.join_column, q.label);
 
     let sql = format!(
-        "WITH members(path) AS (VALUES {values}) \
+        "WITH members(path) AS (VALUES {placeholders}) \
          SELECT m.path, {select_expr} \
          FROM members m \
          LEFT JOIN {table} {join_alias} ON starts_with({join_alias}.{join_column}, m.path || '/') \
          GROUP BY m.path",
     );
 
-    let mut stmt = conn.prepare(&sql).context(format!("preparing {label}"))?;
-    let rows = stmt
-        .query_map([], |row: &duckdb::Row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })
-        .context(format!("querying {label}"))?;
-
-    let mut result = HashMap::new();
-    for row in rows {
-        let (path, val) = row.context(format!("reading {label} row"))?;
-        result.insert(path, val);
-    }
-    Ok(result)
+    collect_per_crate_map(&conn, &sql, label, &paths, |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })
 }
 
 /// Query total file count across the whole project from `tokei_files`.
@@ -256,22 +330,14 @@ pub fn query_project_coverage(db: &DuckDb) -> anyhow::Result<CrateCoverage> {
         return Ok(CrateCoverage::zero());
     }
 
-    conn.query_row(
-        "SELECT COALESCE(SUM(lines_count), 0), \
-                COALESCE(SUM(lines_covered), 0), \
-                CASE WHEN SUM(lines_count) > 0 \
-                    THEN ROUND(SUM(lines_covered) * 100.0 / SUM(lines_count), 2) \
-                    ELSE 0.0 END \
-         FROM coverage_files",
-        [],
-        |row: &duckdb::Row| {
-            Ok(CrateCoverage {
-                lines_count: row.get(0)?,
-                lines_covered: row.get(1)?,
-                lines_percent: row.get(2)?,
-            })
-        },
-    )
+    let sql = format!("SELECT {} FROM coverage_files", coverage_col_select(""));
+    conn.query_row(&sql, [], |row: &duckdb::Row| {
+        Ok(CrateCoverage {
+            lines_count: row.get(0)?,
+            lines_covered: row.get(1)?,
+            lines_percent: row.get(2)?,
+        })
+    })
     .context("querying project coverage")
 }
 
@@ -285,58 +351,45 @@ pub fn query_crate_coverage(
     member_paths: &[&str],
     workspace_root: &str,
 ) -> anyhow::Result<HashMap<String, CrateCoverage>> {
-    use anyhow::Context;
-
     validate_path_chars(workspace_root)?;
 
     let label = "query_crate_coverage";
-    let (conn, values) = match prepare_per_crate(db, "coverage_files", member_paths, label)? {
-        PerCrateSetup::Empty => return Ok(HashMap::new()),
-        PerCrateSetup::NoTable => {
-            return Ok(member_paths
-                .iter()
-                .map(|p| (p.to_string(), CrateCoverage::zero()))
-                .collect())
-        }
-        PerCrateSetup::Ready(conn, values) => (conn, values),
-    };
+    let (conn, placeholders, mut paths) =
+        match prepare_per_crate(db, "coverage_files", member_paths, label)? {
+            PerCrateSetup::Empty => return Ok(HashMap::new()),
+            PerCrateSetup::NoTable => {
+                return Ok(member_paths
+                    .iter()
+                    .map(|p| (p.to_string(), CrateCoverage::zero()))
+                    .collect())
+            }
+            PerCrateSetup::Ready(conn, placeholders, paths) => (conn, placeholders, paths),
+        };
 
-    let escaped_root = escape_sql_string(workspace_root);
+    // workspace_root is the last bound parameter (? after VALUES placeholders)
+    paths.push(workspace_root.to_string());
+
     let sql = format!(
-        "WITH members(path) AS (VALUES {values}) \
-         SELECT m.path, \
-                COALESCE(SUM(c.lines_count), 0), \
-                COALESCE(SUM(c.lines_covered), 0), \
-                CASE WHEN SUM(c.lines_count) > 0 \
-                    THEN ROUND(SUM(c.lines_covered) * 100.0 / SUM(c.lines_count), 2) \
-                    ELSE 0.0 END \
+        "WITH members(path) AS (VALUES {placeholders}) \
+         SELECT m.path, {} \
          FROM members m \
          LEFT JOIN coverage_files c \
              ON starts_with(c.filename, m.path || '/') \
-             OR starts_with(c.filename, '{escaped_root}' || '/' || m.path || '/') \
+             OR starts_with(c.filename, ? || '/' || m.path || '/') \
          GROUP BY m.path",
+        coverage_col_select("c.")
     );
 
-    let mut stmt = conn.prepare(&sql).context(format!("preparing {label}"))?;
-    let rows = stmt
-        .query_map([], |row: &duckdb::Row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                CrateCoverage {
-                    lines_count: row.get(1)?,
-                    lines_covered: row.get(2)?,
-                    lines_percent: row.get(3)?,
-                },
-            ))
-        })
-        .context(format!("querying {label}"))?;
-
-    let mut result = HashMap::new();
-    for row in rows {
-        let (path, cov) = row.context(format!("reading {label} row"))?;
-        result.insert(path, cov);
-    }
-    Ok(result)
+    collect_per_crate_map(&conn, &sql, label, &paths, |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            CrateCoverage {
+                lines_count: row.get(1)?,
+                lines_covered: row.get(2)?,
+                lines_percent: row.get(3)?,
+            },
+        ))
+    })
 }
 
 /// Query per-crate external dependencies (name + version_req) from `crate_dependencies` view.
@@ -344,44 +397,30 @@ pub fn query_crate_coverage(
 /// Returns a map of crate_name -> Vec<(dep_name, version_req)>, sorted by dep name.
 /// Returns an empty map if the view doesn't exist (graceful degradation).
 pub fn query_crate_deps(db: &DuckDb) -> anyhow::Result<HashMap<String, Vec<(String, String)>>> {
-    use anyhow::Context;
-
-    let conn = db
-        .lock()
-        .context("acquiring db lock for query_crate_deps")?;
-
-    if !table_exists(&conn, "crate_dependencies")? {
-        return Ok(HashMap::new());
-    }
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT crate_name, dependency_name, version_req \
-             FROM crate_dependencies \
-             WHERE dependency_kind = 'normal' \
-             ORDER BY crate_name, dependency_name",
-        )
-        .context("preparing query_crate_deps")?;
-
-    let rows = stmt
-        .query_map([], |row: &duckdb::Row| {
+    query_rows_fold(
+        db,
+        &QuerySpec {
+            table: "crate_dependencies",
+            sql: "SELECT crate_name, dependency_name, version_req \
+                  FROM crate_dependencies \
+                  WHERE dependency_kind = 'normal' \
+                  ORDER BY crate_name, dependency_name",
+            label: "query_crate_deps",
+        },
+        |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
             ))
-        })
-        .context("querying crate deps")?;
-
-    let mut result: HashMap<String, Vec<(String, String)>> = HashMap::new();
-    for row in rows {
-        let (crate_name, dep_name, version_req) = row.context("reading crate dep row")?;
-        result
-            .entry(crate_name)
-            .or_default()
-            .push((dep_name, version_req));
-    }
-    Ok(result)
+        },
+        HashMap::new(),
+        |map, (crate_name, dep_name, version_req)| {
+            map.entry(crate_name)
+                .or_default()
+                .push((dep_name, version_req));
+        },
+    )
 }
 
 /// Query per-crate external dependency counts from `crate_dependencies` view.
@@ -389,37 +428,22 @@ pub fn query_crate_deps(db: &DuckDb) -> anyhow::Result<HashMap<String, Vec<(Stri
 /// Returns a map of package name -> normal dependency count.
 /// Returns an empty map if the view doesn't exist (graceful degradation).
 pub fn query_crate_dep_counts(db: &DuckDb) -> anyhow::Result<HashMap<String, i64>> {
-    use anyhow::Context;
-
-    let conn = db
-        .lock()
-        .context("acquiring db lock for query_crate_dep_counts")?;
-
-    if !table_exists(&conn, "crate_dependencies")? {
-        return Ok(HashMap::new());
-    }
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT crate_name, COUNT(*) AS dep_count \
-             FROM crate_dependencies \
-             WHERE dependency_kind = 'normal' \
-             GROUP BY crate_name",
-        )
-        .context("preparing query_crate_dep_counts")?;
-
-    let rows = stmt
-        .query_map([], |row: &duckdb::Row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })
-        .context("querying crate dep counts")?;
-
-    let mut result = HashMap::new();
-    for row in rows {
-        let (name, count) = row.context("reading crate dep count row")?;
-        result.insert(name, count);
-    }
-    Ok(result)
+    query_rows_fold(
+        db,
+        &QuerySpec {
+            table: "crate_dependencies",
+            sql: "SELECT crate_name, COUNT(*) AS dep_count \
+                  FROM crate_dependencies \
+                  WHERE dependency_kind = 'normal' \
+                  GROUP BY crate_name",
+            label: "query_crate_dep_counts",
+        },
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        HashMap::new(),
+        |map, (name, count)| {
+            map.insert(name, count);
+        },
+    )
 }
 
 #[cfg(test)]

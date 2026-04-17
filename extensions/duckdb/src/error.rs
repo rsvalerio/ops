@@ -17,7 +17,7 @@ pub enum DbError {
 
     #[error("{context}: {source}")]
     QueryFailed {
-        context: &'static str,
+        context: String,
         #[source]
         source: duckdb::Error,
     },
@@ -30,8 +30,11 @@ pub enum DbError {
 }
 
 impl DbError {
-    pub fn query_failed(context: &'static str, source: duckdb::Error) -> Self {
-        DbError::QueryFailed { context, source }
+    pub fn query_failed(context: impl Into<String>, source: duckdb::Error) -> Self {
+        DbError::QueryFailed {
+            context: context.into(),
+            source,
+        }
     }
 }
 
@@ -63,5 +66,14 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("record count overflow"));
         assert!(msg.contains(&u64::MAX.to_string()));
+    }
+
+    #[test]
+    fn db_error_query_failed_context() {
+        let err = DbError::query_failed(
+            "test_op",
+            duckdb::Error::InvalidParameterName("test".into()),
+        );
+        assert!(err.to_string().contains("test_op"));
     }
 }

@@ -184,11 +184,10 @@ where
 /// Drop a table if it exists (used by refresh to force re-collection).
 fn drop_table_if_exists(db: &DuckDb, table_name: &str) -> Result<(), anyhow::Error> {
     use anyhow::Context;
-    validate_path_chars(table_name)?;
-    let escaped = escape_sql_string(table_name);
+    validate_identifier(table_name)?;
     let conn = db.lock().context("acquiring db lock for drop")?;
-    conn.execute_batch(&format!("DROP TABLE IF EXISTS \"{}\"", escaped))
-        .with_context(|| format!("dropping table {}", table_name))?;
+    conn.execute_batch(&format!("DROP TABLE IF EXISTS \"{table_name}\""))
+        .with_context(|| format!("dropping table {table_name}"))?;
     Ok(())
 }
 
@@ -321,6 +320,36 @@ mod tests {
         let c1 = checksum_file(&path).expect("checksum1");
         let c2 = checksum_file(&path).expect("checksum2");
         assert_eq!(c1, c2, "checksum should be deterministic");
+    }
+
+    // --- drop_table_if_exists validation (SEC-12) ---
+
+    #[test]
+    fn drop_table_rejects_whitespace() {
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        init_schema(&db).expect("init_schema");
+        assert!(drop_table_if_exists(&db, "my table").is_err());
+    }
+
+    #[test]
+    fn drop_table_rejects_dots() {
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        init_schema(&db).expect("init_schema");
+        assert!(drop_table_if_exists(&db, "schema.table").is_err());
+    }
+
+    #[test]
+    fn drop_table_rejects_dashes() {
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        init_schema(&db).expect("init_schema");
+        assert!(drop_table_if_exists(&db, "my-table").is_err());
+    }
+
+    #[test]
+    fn drop_table_rejects_injection() {
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        init_schema(&db).expect("init_schema");
+        assert!(drop_table_if_exists(&db, "t; DROP TABLE users; --").is_err());
     }
 
     // --- create_table_from_json_sql validation ---
