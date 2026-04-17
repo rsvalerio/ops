@@ -2,6 +2,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.16.0](https://github.com/rsvalerio/ops/compare/f53d781aad8795eabb8ed1e33bdf6f83a3c3b2b9..v0.16.0) - 2026-04-17
+#### 🚀 Features
+- (**cli,runner**) add --tap flag to capture raw command output to file - ([5a783c0](https://github.com/rsvalerio/ops/commit/5a783c04aa3db11a731f7b1c8aeab07b2a82a37e)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**core**) remove unused show_output config field - ([25e2b71](https://github.com/rsvalerio/ops/commit/25e2b7190be4c78f8e15c18961d53befc88f3250)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) archive completed analysis tasks (0023-0060) - ([f53d781](https://github.com/rsvalerio/ops/commit/f53d781aad8795eabb8ed1e33bdf6f83a3c3b2b9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) consolidate code-review commands in .ops.toml - ([4028bff](https://github.com/rsvalerio/ops/commit/4028bff0a3f68a7c81c99221f1d62fe7c62e04d0)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.15.0](https://github.com/rsvalerio/ops/compare/e7bc4fee0f411fd102cbdfa0fff048e2467016c3..v0.15.0) - 2026-04-15
 #### 🚀 Features
 - (**config**) add show_output option for inline command output - ([f8b9a68](https://github.com/rsvalerio/ops/commit/f8b9a687acaf76d72514e40ae146688dff2015e2)) - [@rsvalerio](https://github.com/rsvalerio)
