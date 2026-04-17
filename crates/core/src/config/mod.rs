@@ -165,7 +165,6 @@ pub struct OutputConfigOverlay {
     pub theme: Option<String>,
     pub columns: Option<u16>,
     pub show_error_detail: Option<bool>,
-    pub show_output: Option<bool>,
     pub stderr_tail_lines: Option<usize>,
     pub category_order: Option<Vec<String>>,
 }
@@ -188,10 +187,6 @@ pub struct OutputConfig {
     /// below the failed step line. When false, only the step line with failure icon is shown.
     #[serde(default = "serde_defaults::default_true")]
     pub show_error_detail: bool,
-    /// When true, print command stdout and stderr inline below each step line.
-    /// Default: false (output is captured silently; only stderr tail shown on failure).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub show_output: bool,
     /// Maximum number of stderr tail lines to show in error details.
     /// Default: 5. Use `--verbose` to show all lines.
     #[serde(
@@ -212,7 +207,6 @@ impl Default for OutputConfig {
             theme: default_theme(),
             columns: default_columns(),
             show_error_detail: true,
-            show_output: false,
             stderr_tail_lines: default_stderr_tail_lines(),
             category_order: Vec::new(),
         }
