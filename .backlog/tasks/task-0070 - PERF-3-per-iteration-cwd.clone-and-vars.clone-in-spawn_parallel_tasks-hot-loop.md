@@ -3,10 +3,10 @@ id: TASK-0070
 title: >-
   PERF-3: per-iteration cwd.clone and vars.clone in spawn_parallel_tasks hot
   loop
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:30'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:06'
 labels:
   - rust-codereview
   - perf
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Wrap Variables and cwd in Arc once in spawn_parallel_tasks and clone the Arc per task
+- [x] #1 Wrap Variables and cwd in Arc once in spawn_parallel_tasks and clone the Arc per task
 - [ ] #2 Or document a benchmark showing clone cost is negligible
 <!-- AC:END -->

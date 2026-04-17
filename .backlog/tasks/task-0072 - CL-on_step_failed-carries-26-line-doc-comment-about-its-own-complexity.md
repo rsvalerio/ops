@@ -1,10 +1,10 @@
 ---
 id: TASK-0072
 title: 'CL: on_step_failed carries 26-line doc comment about its own complexity'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:32'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 16:06'
 labels:
   - rust-codereview
   - cl
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract render_error_details_tty and render_error_details_non_tty per the doc promise
-- [ ] #2 Drop the nesting-explanation block once the helpers exist
+- [x] #1 Extract render_error_details_tty and render_error_details_non_tty per the doc promise
+- [x] #2 Drop the nesting-explanation block once the helpers exist
 <!-- AC:END -->

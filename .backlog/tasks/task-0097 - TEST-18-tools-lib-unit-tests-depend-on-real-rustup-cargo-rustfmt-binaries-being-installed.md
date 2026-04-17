@@ -3,10 +3,10 @@ id: TASK-0097
 title: >-
   TEST-18: tools lib unit tests depend on real rustup/cargo/rustfmt binaries
   being installed
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:56'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 16:17'
 labels:
   - rust-code-review
   - test-quality
@@ -26,8 +26,8 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Subprocess invocations (rustup component list, cargo --list, rustup show active-toolchain) are extracted behind a small trait or function-pointer so tests can inject fake stdout
-- [ ] #2 Existing parser-level tests (is_in_cargo_list, parse_active_toolchain, is_component_in_list) remain as pure-string tests without subprocess calls
-- [ ] #3 Tests that genuinely need rustup/rustfmt are either removed (covered by the parser tests + doctests) or marked #[ignore = "requires rustup + rustfmt installed, run with: cargo test -- --ignored"] with a documented reason
-- [ ] #4 cargo test passes on an environment with rustup uninstalled
+- [x] #1 Subprocess invocations (rustup component list, cargo --list, rustup show active-toolchain) are extracted behind a small trait or function-pointer so tests can inject fake stdout
+- [x] #2 Existing parser-level tests (is_in_cargo_list, parse_active_toolchain, is_component_in_list) remain as pure-string tests without subprocess calls
+- [x] #3 Tests that genuinely need rustup/rustfmt are either removed (covered by the parser tests + doctests) or marked #[ignore = "requires rustup + rustfmt installed, run with: cargo test -- --ignored"] with a documented reason
+- [x] #4 cargo test passes on an environment with rustup uninstalled
 <!-- AC:END -->

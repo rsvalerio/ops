@@ -1,10 +1,10 @@
 ---
 id: TASK-0076
 title: 'SEC-11: ExecCommandSpec cwd joined to workspace without traversal check'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:32'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:07'
 labels:
   - rust-codereview
   - sec
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Canonicalize the resolved cwd and log a warning (or bail) when it escapes workspace root
+- [x] #1 Canonicalize the resolved cwd and log a warning (or bail) when it escapes workspace root
 - [ ] #2 Document the decision alongside SEC-001/002/003 security notes
 <!-- AC:END -->

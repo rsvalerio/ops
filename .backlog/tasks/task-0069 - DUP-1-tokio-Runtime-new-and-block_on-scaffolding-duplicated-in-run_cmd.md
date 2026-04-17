@@ -1,10 +1,10 @@
 ---
 id: TASK-0069
 title: 'DUP-1: tokio Runtime::new and block_on scaffolding duplicated in run_cmd'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:30'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:10'
 labels:
   - rust-codereview
   - dup
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract a single helper (e.g. run_with_runtime) that owns the Runtime and takes an async closure
+- [x] #1 Extract a single helper (e.g. run_with_runtime) that owns the Runtime and takes an async closure
 - [ ] #2 Both run_commands and run_command_cli delegate to the helper
 <!-- AC:END -->

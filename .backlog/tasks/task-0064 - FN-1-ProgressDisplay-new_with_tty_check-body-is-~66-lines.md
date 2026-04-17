@@ -1,10 +1,10 @@
 ---
 id: TASK-0064
 title: 'FN-1: ProgressDisplay::new_with_tty_check body is ~66 lines'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:30'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 16:06'
 labels:
   - rust-codereview
   - fn
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract build_running_style(theme) and open_tap_file(path) helpers
-- [ ] #2 Body under 50 lines
+- [x] #1 Extract build_running_style(theme) and open_tap_file(path) helpers
+- [x] #2 Body under 50 lines
 <!-- AC:END -->

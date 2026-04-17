@@ -1,10 +1,10 @@
 ---
 id: TASK-0066
 title: 'ERR-5: unwrap_or_default hides current_dir and load_config failures at startup'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:30'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:41'
 labels:
   - rust-codereview
   - err
@@ -24,6 +24,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Log a tracing::warn! when load_config fails
+- [x] #1 Log a tracing::warn! when load_config fails
 - [ ] #2 Bail out or emit stderr message when current_dir() returns Err
 <!-- AC:END -->

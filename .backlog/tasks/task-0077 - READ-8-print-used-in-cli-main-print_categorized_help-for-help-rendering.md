@@ -1,10 +1,10 @@
 ---
 id: TASK-0077
 title: 'READ-8: print! used in cli/main print_categorized_help for help rendering'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:32'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 16:06'
 labels:
   - rust-codereview
   - read
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace print!() calls with writeln!(std::io::stdout(), ...)
-- [ ] #2 Consider taking a &mut dyn Write so tests can assert on help rendering
+- [x] #1 Replace print!() calls with writeln!(std::io::stdout(), ...)
+- [x] #2 Consider taking a &mut dyn Write so tests can assert on help rendering
 <!-- AC:END -->

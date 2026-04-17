@@ -3,10 +3,10 @@ id: TASK-0096
 title: >-
   FN-1: query_loc_data in about/query.rs exceeds 50 lines and mixes provider
   init, two query layers, and assembly
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:55'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 14:56'
 labels:
   - rust-code-review
   - complexity

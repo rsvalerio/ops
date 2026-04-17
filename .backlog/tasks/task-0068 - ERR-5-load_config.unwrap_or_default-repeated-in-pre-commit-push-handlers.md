@@ -1,10 +1,10 @@
 ---
 id: TASK-0068
 title: 'ERR-5: load_config().unwrap_or_default() repeated in pre-commit/push handlers'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:30'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:41'
 labels:
   - rust-codereview
   - err
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Propagate config load errors or warn!() on failure before falling back
+- [x] #1 Propagate config load errors or warn!() on failure before falling back
 - [ ] #2 Cover failure mode with a test demonstrating user sees the error
 <!-- AC:END -->

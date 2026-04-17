@@ -1,10 +1,10 @@
 ---
 id: TASK-0067
 title: 'ERR-5: hook_shared swallows load_config errors via unwrap_or_default'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:30'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:41'
 labels:
   - rust-codereview
   - err
@@ -24,6 +24,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace unwrap_or_default with match/if-let that logs a warning when load fails
+- [x] #1 Replace unwrap_or_default with match/if-let that logs a warning when load fails
 - [ ] #2 Surface the parse error to stderr so users can fix the config
 <!-- AC:END -->

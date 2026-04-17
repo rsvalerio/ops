@@ -1,10 +1,10 @@
 ---
 id: TASK-0090
 title: 'FN-1: run_about orchestrates too many concerns (~46 lines, 6 branches)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:33'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:48'
 labels:
   - rust-codereview
   - fn

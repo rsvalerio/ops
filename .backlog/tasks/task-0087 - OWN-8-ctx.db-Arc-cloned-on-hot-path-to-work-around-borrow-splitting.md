@@ -1,10 +1,10 @@
 ---
 id: TASK-0087
 title: 'OWN-8: ctx.db Arc cloned on hot path to work around borrow splitting'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:33'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 14:56'
 labels:
   - rust-codereview
   - own

@@ -3,10 +3,10 @@ id: TASK-0086
 title: >-
   DUP-1: hook tests duplicate install_hook/ensure_config assertions across 3
   files
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:33'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:05'
 labels:
   - rust-codereview
   - dup
@@ -26,6 +26,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Remove the per-hook install_hook/ensure_config tests and keep only hook-common parameterized tests
+- [x] #1 Remove the per-hook install_hook/ensure_config tests and keep only hook-common parameterized tests
 - [ ] #2 Retain only wrapper-specific tests (HOOK_SCRIPT content, should_skip env var name) in each hook crate
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-0062
 title: 'FN-1: run_commands mixes plan merging, runtime and display setup in 71 lines'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:30'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:10'
 labels:
   - rust-codereview
   - fn
@@ -24,7 +24,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract a pure plan-merge helper returning (leaf_ids, any_parallel, fail_fast)
+- [x] #1 Extract a pure plan-merge helper returning (leaf_ids, any_parallel, fail_fast)
 - [ ] #2 Extract the tokio runtime block into a helper taking a closure selecting parallel vs sequential
 - [ ] #3 Body under 50 lines
 <!-- AC:END -->

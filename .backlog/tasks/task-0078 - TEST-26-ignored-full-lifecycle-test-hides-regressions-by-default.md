@@ -1,10 +1,10 @@
 ---
 id: TASK-0078
 title: 'TEST-26: #[ignore]d full-lifecycle test hides regressions by default'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:32'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:12'
 labels:
   - rust-codereview
   - test
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Run this test in CI via a dedicated --ignored pass
+- [x] #1 Run this test in CI via a dedicated --ignored pass
 - [ ] #2 Or refactor to mock subprocess so the test can run by default
 <!-- AC:END -->

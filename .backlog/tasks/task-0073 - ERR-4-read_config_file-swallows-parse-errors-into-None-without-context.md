@@ -1,10 +1,10 @@
 ---
 id: TASK-0073
 title: 'ERR-4: read_config_file swallows parse errors into None without context'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:32'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:30'
 labels:
   - rust-codereview
   - err
@@ -24,6 +24,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Change return type to anyhow::Result<Option<ConfigOverlay>> with .with_context(...)
+- [x] #1 Change return type to anyhow::Result<Option<ConfigOverlay>> with .with_context(...)
 - [ ] #2 Callers explicitly handle parse errors (fail fast or warn once)
 <!-- AC:END -->

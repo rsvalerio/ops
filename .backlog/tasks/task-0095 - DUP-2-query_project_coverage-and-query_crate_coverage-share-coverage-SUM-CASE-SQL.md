@@ -3,10 +3,10 @@ id: TASK-0095
 title: >-
   DUP-2: query_project_coverage and query_crate_coverage share coverage SUM/CASE
   SQL
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:33'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 14:56'
 labels:
   - rust-codereview
   - dup

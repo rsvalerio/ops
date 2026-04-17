@@ -3,10 +3,10 @@ id: TASK-0099
 title: >-
   ASYNC-6: install_tool / install_cargo_tool / install_rustup_component have no
   timeout on subprocess
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:57'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 16:17'
 labels:
   - rust-code-review
   - async
@@ -28,8 +28,8 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 install_cargo_tool and install_rustup_component enforce a configurable wall-clock timeout (default: generous, e.g. 10 min) around the subprocess, returning a clear error on timeout
-- [ ] #2 Timeout is surfaced as a distinct error message ("cargo install <name> timed out after N seconds"), not a generic failure
-- [ ] #3 Tests cover the timeout path using a mocked long-running subprocess (e.g.  spawned by a shell) without requiring real cargo
-- [ ] #4 AGENTS-style run of All tools already installed on a throttled mirror surfaces the timeout within the configured limit instead of hanging
+- [x] #1 install_cargo_tool and install_rustup_component enforce a configurable wall-clock timeout (default: generous, e.g. 10 min) around the subprocess, returning a clear error on timeout
+- [x] #2 Timeout is surfaced as a distinct error message ("cargo install <name> timed out after N seconds"), not a generic failure
+- [x] #3 Tests cover the timeout path using a mocked long-running subprocess (e.g.  spawned by a shell) without requiring real cargo
+- [x] #4 AGENTS-style run of All tools already installed on a throttled mirror surfaces the timeout within the configured limit instead of hanging
 <!-- AC:END -->

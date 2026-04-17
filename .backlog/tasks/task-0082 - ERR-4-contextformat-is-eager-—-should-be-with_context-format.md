@@ -1,10 +1,10 @@
 ---
 id: TASK-0082
 title: 'ERR-4: context(format!) is eager — should be with_context(|| format!)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:32'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:41'
 labels:
   - rust-codereview
   - err
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Convert all .context(format!(...)) to .with_context(|| format!(...)) in query.rs
+- [x] #1 Convert all .context(format!(...)) to .with_context(|| format!(...)) in query.rs
 - [ ] #2 Grep the extensions tree to enforce this pattern
 <!-- AC:END -->

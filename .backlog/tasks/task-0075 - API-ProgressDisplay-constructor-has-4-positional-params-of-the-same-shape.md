@@ -1,10 +1,10 @@
 ---
 id: TASK-0075
 title: 'API: ProgressDisplay constructor has 4 positional params of the same shape'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:32'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 16:06'
 labels:
   - rust-codereview
   - api
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Introduce a DisplayOptions struct or builder so call-sites are self-documenting
-- [ ] #2 Call-sites in run_cmd.rs updated and readable
+- [x] #1 Introduce a DisplayOptions struct or builder so call-sites are self-documenting
+- [x] #2 Call-sites in run_cmd.rs updated and readable
 <!-- AC:END -->

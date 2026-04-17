@@ -1,10 +1,10 @@
 ---
 id: TASK-0091
 title: 'ERR-10: DuckDB extension boundary erases anyhow chain into Box<dyn Error>'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:33'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 14:56'
 labels:
   - rust-codereview
   - err

@@ -1,10 +1,10 @@
 ---
 id: TASK-0080
 title: 'SEC-12: VALUES CTE built by concatenating escaped member paths into SQL'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:32'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 14:56'
 labels:
   - rust-codereview
   - sec

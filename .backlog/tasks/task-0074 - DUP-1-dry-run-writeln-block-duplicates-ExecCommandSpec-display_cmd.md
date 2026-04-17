@@ -1,10 +1,10 @@
 ---
 id: TASK-0074
 title: 'DUP-1: dry-run writeln! block duplicates ExecCommandSpec::display_cmd'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:32'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:12'
 labels:
   - rust-codereview
   - dup
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Reuse ExecCommandSpec::display_cmd() (or extract a shared formatter) for program/args part
+- [x] #1 Reuse ExecCommandSpec::display_cmd() (or extract a shared formatter) for program/args part
 - [ ] #2 Keep only env/cwd/timeout lines unique to dry-run
 <!-- AC:END -->

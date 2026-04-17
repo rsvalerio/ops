@@ -1,10 +1,10 @@
 ---
 id: TASK-0085
 title: 'DUP-2: query_crate_deps and query_crate_dep_counts share 90% scaffolding'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:32'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 14:56'
 labels:
   - rust-codereview
   - dup

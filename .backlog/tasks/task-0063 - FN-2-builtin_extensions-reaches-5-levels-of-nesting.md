@@ -1,10 +1,10 @@
 ---
 id: TASK-0063
 title: 'FN-2: builtin_extensions reaches 5 levels of nesting'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:30'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:48'
 labels:
   - rust-codereview
   - fn

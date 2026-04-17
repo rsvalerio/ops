@@ -1,10 +1,10 @@
 ---
 id: TASK-0061
 title: 'FN-1: from_identity_filtered exceeds 50-line body with inline field building'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:30'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:48'
 labels:
   - rust-codereview
   - fn

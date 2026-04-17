@@ -1,10 +1,10 @@
 ---
 id: TASK-0071
 title: 'DUP-2: canonical_id/resolve_alias/list_command_ids repeat 3-source iteration'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:32'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:08'
 labels:
   - rust-codereview
   - dup
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Introduce a command_sources() iterator or small struct aggregating the three maps
+- [x] #1 Introduce a command_sources() iterator or small struct aggregating the three maps
 - [ ] #2 Rewrite canonical_id/resolve_alias/list_command_ids in terms of the shared abstraction
 <!-- AC:END -->

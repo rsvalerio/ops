@@ -1,10 +1,10 @@
 ---
 id: TASK-0094
 title: 'PERF-3: validate_path_chars + escape_sql_string double-scan each member path'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:33'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 14:56'
 labels:
   - rust-codereview
   - perf

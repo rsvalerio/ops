@@ -1,7 +1,7 @@
 ---
 id: TASK-0092
 title: 'TEST-1: test_datasource_extension! macro hides test assertions'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:33'
 updated_date: '2026-04-17 12:07'
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Document the set of assertions in the macro or expand key ones inline
-- [ ] #2 Add a direct test that asserts TokeiExtension.extension_types() == DATASOURCE
+- [x] #1 Document the set of assertions in the macro or expand key ones inline
+- [x] #2 Add a direct test that asserts TokeiExtension.extension_types() == DATASOURCE
 <!-- AC:END -->

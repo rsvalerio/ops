@@ -3,10 +3,10 @@ id: TASK-0098
 title: >-
   ARCH-1: cargo-toml/types.rs is 557 lines mixing type definitions with
   workspace inheritance logic
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 11:56'
-updated_date: '2026-04-17 12:07'
+updated_date: '2026-04-17 15:48'
 labels:
   - rust-code-review
   - architecture
