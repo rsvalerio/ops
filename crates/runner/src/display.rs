@@ -10,7 +10,9 @@ use indexmap::IndexMap;
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
+use std::fs::File;
 use std::io::{self, IsTerminal, Write};
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// Spinner tick interval in milliseconds.
@@ -45,7 +47,6 @@ pub struct RenderConfig {
     pub columns: u16,
     pub is_tty: bool,
     pub show_error_detail: bool,
-    pub show_output: bool,
     pub stderr_tail_lines: usize,
 }
 
@@ -118,6 +119,7 @@ pub struct ProgressDisplay {
     footer_bar: Option<ProgressBar>,
     completed_steps: usize,
     total_steps: usize,
+    tap_file: Option<File>,
 }
 
 impl ProgressDisplay {
@@ -134,14 +136,16 @@ impl ProgressDisplay {
         output: &config::OutputConfig,
         display_map: HashMap<String, String>,
         custom_themes: &IndexMap<String, ThemeConfig>,
+        tap: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
-        Self::new_with_tty_check(output, display_map, custom_themes, Self::is_stderr_tty)
+        Self::new_with_tty_check(output, display_map, custom_themes, tap, Self::is_stderr_tty)
     }
 
     fn new_with_tty_check<F>(
         output: &config::OutputConfig,
         display_map: HashMap<String, String>,
         custom_themes: &IndexMap<String, ThemeConfig>,
+        tap: Option<PathBuf>,
         is_tty_fn: F,
     ) -> anyhow::Result<Self>
     where
@@ -174,13 +178,20 @@ impl ProgressDisplay {
                 );
             });
 
+        let tap_file = tap.and_then(|path| match File::create(&path) {
+            Ok(f) => Some(f),
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "failed to open tap file");
+                None
+            }
+        });
+
         Ok(Self {
             render: RenderConfig {
                 theme: resolved_theme,
                 columns: output.columns,
                 is_tty,
                 show_error_detail: output.show_error_detail,
-                show_output: output.show_output,
                 stderr_tail_lines: output.stderr_tail_lines,
             },
             multi,
@@ -193,6 +204,7 @@ impl ProgressDisplay {
             footer_bar: None,
             completed_steps: 0,
             total_steps: 0,
+            tap_file,
         })
     }
 
@@ -385,6 +397,12 @@ impl ProgressDisplay {
         self.bars[i].enable_steady_tick(Duration::from_millis(SPINNER_TICK_INTERVAL_MS));
     }
 
+    fn tap_line(&mut self, line: &str) {
+        if let Some(ref mut f) = self.tap_file {
+            let _ = writeln!(f, "{}", line);
+        }
+    }
+
     fn on_step_output(&mut self, id: &str, line: String, stderr: bool) {
         if stderr {
             self.step_stderr
@@ -392,9 +410,7 @@ impl ProgressDisplay {
                 .or_default()
                 .push(line.clone());
         }
-        if self.render.show_output {
-            self.emit_line(&line);
-        }
+        self.tap_line(&line);
     }
 
     fn finish_step(
@@ -599,7 +615,8 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         let custom_themes = test_themes();
-        ProgressDisplay::new(&output, display_map, &custom_themes).expect("test display construct")
+        ProgressDisplay::new(&output, display_map, &custom_themes, None)
+            .expect("test display construct")
     }
 
     #[test]
@@ -700,9 +717,14 @@ mod tests {
             ..config::OutputConfig::default()
         };
         let custom_themes = test_themes();
-        let display =
-            ProgressDisplay::new_with_tty_check(&output, HashMap::new(), &custom_themes, || false)
-                .expect("should construct");
+        let display = ProgressDisplay::new_with_tty_check(
+            &output,
+            HashMap::new(),
+            &custom_themes,
+            None,
+            || false,
+        )
+        .expect("should construct");
         assert!(!display.render.is_tty);
         display.emit_line("test line");
     }
@@ -712,6 +734,55 @@ mod tests {
         // Verifies no-panic on empty input edge case.
         let display = test_display(&[]);
         display.emit_line("");
+    }
+
+    #[test]
+    fn tap_file_captures_raw_output() {
+        let tap_path = std::env::temp_dir().join("ops_tap_test.log");
+        let output = config::OutputConfig::default();
+        let display_map: HashMap<String, String> = [("cmd", "echo hello")]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let custom_themes = test_themes();
+        let mut display =
+            ProgressDisplay::new(&output, display_map, &custom_themes, Some(tap_path.clone()))
+                .expect("should construct with tap");
+
+        display.handle_event(RunnerEvent::PlanStarted {
+            command_ids: vec!["cmd".into()],
+        });
+        display.handle_event(RunnerEvent::StepOutput {
+            id: "cmd".into(),
+            line: "hello world".to_string(),
+            stderr: false,
+        });
+        display.handle_event(RunnerEvent::StepOutput {
+            id: "cmd".into(),
+            line: "error line".to_string(),
+            stderr: true,
+        });
+
+        // Drop to flush
+        drop(display);
+
+        let contents = std::fs::read_to_string(&tap_path).expect("read tap file");
+        assert!(
+            contents.contains("hello world"),
+            "tap should contain stdout: {contents}"
+        );
+        assert!(
+            contents.contains("error line"),
+            "tap should contain stderr: {contents}"
+        );
+
+        let _ = std::fs::remove_file(&tap_path);
+    }
+
+    #[test]
+    fn tap_none_produces_no_file() {
+        let display = test_display(&[("cmd", "test")]);
+        assert!(display.tap_file.is_none());
     }
 
     #[test]
@@ -752,7 +823,6 @@ mod tests {
             config::OutputConfig {
                 columns: 100,
                 show_error_detail: false,
-                show_output: false,
                 theme: "compact".into(),
                 stderr_tail_lines: 10,
                 category_order: Vec::new(),
@@ -966,7 +1036,7 @@ mod tests {
                 ..config::OutputConfig::default()
             };
             let custom_themes = IndexMap::new();
-            let result = ProgressDisplay::new(&output, HashMap::new(), &custom_themes);
+            let result = ProgressDisplay::new(&output, HashMap::new(), &custom_themes, None);
 
             match result {
                 Err(e) => {

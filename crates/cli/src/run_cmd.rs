@@ -2,6 +2,7 @@
 
 use std::ffi::OsString;
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use ops_core::config::CommandSpec;
@@ -16,15 +17,16 @@ pub(crate) fn run_external_command(
     args: &[OsString],
     dry_run: bool,
     verbose: bool,
+    tap: Option<PathBuf>,
 ) -> anyhow::Result<ExitCode> {
     let names: Vec<&str> = args.iter().filter_map(|s| s.to_str()).collect();
     if names.is_empty() {
         anyhow::bail!("missing command name");
     }
     if names.len() == 1 {
-        return run_command(names[0], dry_run, verbose);
+        return run_command(names[0], dry_run, verbose, tap);
     }
-    run_commands(&names, dry_run, verbose)
+    run_commands(&names, dry_run, verbose, tap)
 }
 
 fn build_runner(verbose: bool) -> anyhow::Result<ops_runner::command::CommandRunner> {
@@ -37,7 +39,12 @@ fn build_runner(verbose: bool) -> anyhow::Result<ops_runner::command::CommandRun
     Ok(runner)
 }
 
-fn run_commands(names: &[&str], dry_run: bool, verbose: bool) -> anyhow::Result<ExitCode> {
+fn run_commands(
+    names: &[&str],
+    dry_run: bool,
+    verbose: bool,
+    tap: Option<PathBuf>,
+) -> anyhow::Result<ExitCode> {
     let runner = build_runner(verbose)?;
 
     if dry_run {
@@ -67,8 +74,12 @@ fn run_commands(names: &[&str], dry_run: bool, verbose: bool) -> anyhow::Result<
     }
 
     let display_map = build_display_map(&runner, &all_leaf_ids);
-    let mut display =
-        ProgressDisplay::new(runner.output_config(), display_map, &runner.config().themes)?;
+    let mut display = ProgressDisplay::new(
+        runner.output_config(),
+        display_map,
+        &runner.config().themes,
+        tap,
+    )?;
 
     let _echo_guard = EchoGuard::disable_echo();
 
@@ -146,14 +157,19 @@ fn log_step_results(results: &[StepResult]) {
 }
 
 #[tracing::instrument(skip_all, fields(command = %name))]
-fn run_command(name: &str, dry_run: bool, verbose: bool) -> anyhow::Result<ExitCode> {
+fn run_command(
+    name: &str,
+    dry_run: bool,
+    verbose: bool,
+    tap: Option<PathBuf>,
+) -> anyhow::Result<ExitCode> {
     let mut runner = build_runner(verbose)?;
 
     if dry_run {
         return run_command_dry_run(&runner, name);
     }
 
-    let success = run_command_cli(&mut runner, name)?;
+    let success = run_command_cli(&mut runner, name, tap)?;
 
     if success {
         Ok(ExitCode::SUCCESS)
@@ -241,6 +257,7 @@ fn print_exec_spec(
 fn run_command_cli(
     runner: &mut ops_runner::command::CommandRunner,
     name: &str,
+    tap: Option<PathBuf>,
 ) -> anyhow::Result<bool> {
     let leaf_ids = runner
         .expand_to_leaves(name)
@@ -248,8 +265,12 @@ fn run_command_cli(
 
     let display_map = build_display_map(runner, &leaf_ids);
 
-    let mut display =
-        ProgressDisplay::new(runner.output_config(), display_map, &runner.config().themes)?;
+    let mut display = ProgressDisplay::new(
+        runner.output_config(),
+        display_map,
+        &runner.config().themes,
+        tap,
+    )?;
 
     let _echo_guard = EchoGuard::disable_echo();
 
@@ -384,7 +405,7 @@ args = ["test"]
 "#,
             );
 
-            let result = run_command("nonexistent", false, false);
+            let result = run_command("nonexistent", false, false, None);
             assert!(
                 result.is_err(),
                 "run_command should return error for unknown command"
@@ -401,7 +422,7 @@ args = ["test"]
 "#,
             );
 
-            let result = run_command("echo_test", false, false);
+            let result = run_command("echo_test", false, false, None);
             assert!(result.is_ok(), "run_command should not error");
             let exit_code = result.unwrap();
             assert_eq!(
@@ -425,7 +446,7 @@ args = []"#
                 fail_cmd
             ));
 
-            let result = run_command("fail_cmd", false, false);
+            let result = run_command("fail_cmd", false, false, None);
             assert!(result.is_ok(), "run_command should not error");
             let exit_code = result.unwrap();
             assert_eq!(
@@ -447,7 +468,7 @@ commands = ["a"]
 "#,
             );
 
-            let result = run_command("a", false, false);
+            let result = run_command("a", false, false, None);
             assert!(result.is_err(), "run_command should return error for cycle");
         }
     }
@@ -515,7 +536,7 @@ commands = ["a"]
         #[test]
         fn run_external_command_empty_args_errors() {
             let args: Vec<OsString> = vec![];
-            let result = run_external_command(&args, false, false);
+            let result = run_external_command(&args, false, false, None);
             assert!(result.is_err());
             assert!(result.unwrap_err().to_string().contains("missing command"));
         }
@@ -530,7 +551,7 @@ args = ["hello"]
 "#,
             );
             let args: Vec<OsString> = vec![OsString::from("echo_test")];
-            let result = run_external_command(&args, true, false);
+            let result = run_external_command(&args, true, false, None);
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), ExitCode::SUCCESS);
         }
@@ -549,7 +570,7 @@ args = ["test"]
 "#,
             );
             let args: Vec<OsString> = vec![OsString::from("build"), OsString::from("test")];
-            let result = run_external_command(&args, true, false);
+            let result = run_external_command(&args, true, false, None);
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), ExitCode::SUCCESS);
         }
@@ -558,7 +579,7 @@ args = ["test"]
         fn run_external_command_single_unknown_errors() {
             let (_dir, _guard) = crate::test_utils::with_temp_config("");
             let args: Vec<OsString> = vec![OsString::from("nonexistent")];
-            let result = run_external_command(&args, false, false);
+            let result = run_external_command(&args, false, false, None);
             assert!(result.is_err());
         }
     }

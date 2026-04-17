@@ -1,6 +1,7 @@
 //! CLI argument definitions, subcommand enums, and arg preprocessing.
 
 use std::ffi::OsString;
+use std::path::PathBuf;
 
 pub use clap::{CommandFactory, Parser};
 use ops_core::stack::Stack;
@@ -27,6 +28,10 @@ pub struct Cli {
     /// Show full stderr output on failure (overrides stderr_tail_lines config).
     #[arg(short, long, global = true)]
     pub verbose: bool,
+
+    /// Capture raw command output to a file.
+    #[arg(long, global = true, value_name = "FILE")]
+    pub tap: Option<PathBuf>,
 
     #[command(subcommand)]
     pub subcommand: Option<Subcommand>,
@@ -383,6 +388,18 @@ mod tests {
     fn parse_dry_run_flag() {
         let cli = Cli::parse_from(["ops", "-d", "build"]);
         assert!(cli.dry_run);
+    }
+
+    #[test]
+    fn parse_tap_flag() {
+        let cli = Cli::parse_from(["ops", "--tap", "out.log", "build"]);
+        assert_eq!(cli.tap, Some(PathBuf::from("out.log")));
+    }
+
+    #[test]
+    fn parse_no_tap_flag() {
+        let cli = Cli::parse_from(["ops", "build"]);
+        assert!(cli.tap.is_none());
     }
 
     #[test]

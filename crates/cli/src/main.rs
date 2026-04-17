@@ -151,7 +151,7 @@ fn dispatch(
             }
         }
         Some(CoreSubcommand::External(args)) => {
-            return run_cmd::run_external_command(&args, cli.dry_run, cli.verbose)
+            return run_cmd::run_external_command(&args, cli.dry_run, cli.verbose, cli.tap)
         }
         None => {
             let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
@@ -475,7 +475,7 @@ fn run_before_commit(
                 return Ok(ExitCode::SUCCESS);
             }
             let args = vec![std::ffi::OsString::from("run-before-commit")];
-            run_cmd::run_external_command(&args, false, false)
+            run_cmd::run_external_command(&args, false, false, None)
         }
     }
 }
@@ -503,7 +503,7 @@ fn run_before_push(
                 return Ok(ExitCode::SUCCESS);
             }
             let args = vec![std::ffi::OsString::from("run-before-push")];
-            run_cmd::run_external_command(&args, false, false)
+            run_cmd::run_external_command(&args, false, false, None)
         }
     }
 }
