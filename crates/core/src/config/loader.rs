@@ -41,9 +41,13 @@ pub fn load_config() -> anyhow::Result<Config> {
     load_global_config(&mut config);
 
     let local_path = PathBuf::from(".ops.toml");
-    if let Some(overlay) = read_config_file(&local_path) {
-        debug!(path = %local_path.display(), "merging local config");
-        merge_config(&mut config, &overlay);
+    match read_config_file(&local_path) {
+        Ok(Some(overlay)) => {
+            debug!(path = %local_path.display(), "merging local config");
+            merge_config(&mut config, &overlay);
+        }
+        Ok(None) => {}
+        Err(e) => return Err(e),
     }
 
     merge_conf_d(&mut config);
@@ -56,30 +60,18 @@ pub fn load_config() -> anyhow::Result<Config> {
     Ok(config)
 }
 
-pub fn read_config_file(path: &Path) -> Option<ConfigOverlay> {
+pub fn read_config_file(path: &Path) -> anyhow::Result<Option<ConfigOverlay>> {
     let s = match std::fs::read_to_string(path) {
         Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => {
-            tracing::warn!(
-                path = %path.display(),
-                error = %e,
-                "config file read error"
-            );
-            return None;
+            return Err(e)
+                .with_context(|| format!("failed to read config file: {}", path.display()));
         }
     };
-    match toml::from_str(&s) {
-        Ok(c) => Some(c),
-        Err(e) => {
-            tracing::error!(
-                path = %path.display(),
-                error = %e,
-                "config file parse error — check TOML syntax"
-            );
-            None
-        }
-    }
+    let overlay = toml::from_str(&s)
+        .with_context(|| format!("failed to parse config file: {}", path.display()))?;
+    Ok(Some(overlay))
 }
 
 /// Read sorted `.toml` files from a directory, returning None if the directory
@@ -111,9 +103,13 @@ fn merge_conf_d(config: &mut Config) {
         return;
     };
     for path in files {
-        if let Some(overlay) = read_config_file(&path) {
-            debug!(path = %path.display(), "merging conf.d config");
-            merge_config(config, &overlay);
+        match read_config_file(&path) {
+            Ok(Some(overlay)) => {
+                debug!(path = %path.display(), "merging conf.d config");
+                merge_config(config, &overlay);
+            }
+            Ok(None) => {}
+            Err(e) => tracing::warn!(error = %e, "skipping conf.d file"),
         }
     }
 }
@@ -138,10 +134,17 @@ fn load_global_config(config: &mut Config) {
     };
     let to_try = [global_path.with_extension("toml"), global_path];
     for path in &to_try {
-        if let Some(overlay) = read_config_file(path) {
-            debug!(path = %path.display(), "merging global config");
-            merge_config(config, &overlay);
-            return;
+        match read_config_file(path) {
+            Ok(Some(overlay)) => {
+                debug!(path = %path.display(), "merging global config");
+                merge_config(config, &overlay);
+                return;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "skipping global config file");
+                return;
+            }
         }
     }
 }

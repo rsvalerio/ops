@@ -128,6 +128,69 @@ pub struct AboutCard {
     pub fields: Vec<(String, String)>,
 }
 
+fn std_field_specs(id: &ProjectIdentity) -> Vec<(&'static str, String, Option<String>)> {
+    vec![
+        ("project", "project".into(), Some(id.project_path.clone())),
+        (
+            "modules",
+            id.module_label.clone(),
+            id.module_count.map(|c| c.to_string()),
+        ),
+        (
+            "code",
+            "code".into(),
+            id.loc.map(|l| format!("{} loc", format_number(l))),
+        ),
+        (
+            "files",
+            "files".into(),
+            id.file_count.and_then(|f| {
+                (f > 0)
+                    .then(|| format!("{} file{}", format_number(f), if f != 1 { "s" } else { "" }))
+            }),
+        ),
+        ("repository", "repository".into(), id.repository.clone()),
+        ("homepage", "homepage".into(), id.homepage.clone()),
+        ("msrv", "msrv".into(), id.msrv.clone()),
+        (
+            "dependencies",
+            "dependencies".into(),
+            id.dependency_count.map(|c| {
+                format!(
+                    "{} dependenc{}",
+                    format_number(c as i64),
+                    if c != 1 { "ies" } else { "y" }
+                )
+            }),
+        ),
+    ]
+}
+
+fn push_special_fields(
+    fields: &mut Vec<(String, String)>,
+    id: &ProjectIdentity,
+    show: impl Fn(&str) -> bool,
+) {
+    if show("authors") && !id.authors.is_empty() {
+        let label = if id.authors.len() == 1 {
+            "author"
+        } else {
+            "authors"
+        };
+        fields.push((label.to_string(), id.authors.join(", ")));
+    }
+    if show("coverage") {
+        let value = match id.coverage_percent {
+            Some(pct) => format!("{:.1}%", pct),
+            None => "\u{26a0}\u{fe0f} run 'ops about --refresh' to collect".to_string(),
+        };
+        fields.push(("coverage".to_string(), value));
+    }
+    if show("languages") && !id.languages.is_empty() {
+        fields.push(("languages".to_string(), id.languages.join(", ")));
+    }
+}
+
 impl AboutCard {
     pub fn from_identity(id: &ProjectIdentity) -> Self {
         Self::from_identity_filtered(id, None)
@@ -155,70 +218,13 @@ impl AboutCard {
             }
         };
 
-        // Data-driven field specs: (filter_id, label, optional_value).
-        // Formatting is applied inline; None values are skipped.
-        let field_specs: Vec<(&str, String, Option<String>)> = vec![
-            ("project", "project".into(), Some(id.project_path.clone())),
-            (
-                "modules",
-                id.module_label.clone(),
-                id.module_count.map(|c| c.to_string()),
-            ),
-            (
-                "code",
-                "code".into(),
-                id.loc.map(|l| format!("{} loc", format_number(l))),
-            ),
-            (
-                "files",
-                "files".into(),
-                id.file_count.and_then(|f| {
-                    (f > 0).then(|| {
-                        format!("{} file{}", format_number(f), if f != 1 { "s" } else { "" })
-                    })
-                }),
-            ),
-            ("repository", "repository".into(), id.repository.clone()),
-            ("homepage", "homepage".into(), id.homepage.clone()),
-            ("msrv", "msrv".into(), id.msrv.clone()),
-            (
-                "dependencies",
-                "dependencies".into(),
-                id.dependency_count.map(|c| {
-                    format!(
-                        "{} dependenc{}",
-                        format_number(c as i64),
-                        if c != 1 { "ies" } else { "y" }
-                    )
-                }),
-            ),
-        ];
-
-        let mut fields: Vec<(String, String)> = field_specs
+        let mut fields: Vec<(String, String)> = std_field_specs(id)
             .into_iter()
             .filter(|(fid, _, _)| show(fid))
             .filter_map(|(_, label, val)| val.map(|v| (label, v)))
             .collect();
 
-        // Special cases with unique logic: dynamic label, always-present, or Vec join.
-        if show("authors") && !id.authors.is_empty() {
-            let label = if id.authors.len() == 1 {
-                "author"
-            } else {
-                "authors"
-            };
-            fields.push((label.to_string(), id.authors.join(", ")));
-        }
-        if show("coverage") {
-            let value = match id.coverage_percent {
-                Some(pct) => format!("{:.1}%", pct),
-                None => "\u{26a0}\u{fe0f} run 'ops about --refresh' to collect".to_string(),
-            };
-            fields.push(("coverage".to_string(), value));
-        }
-        if show("languages") && !id.languages.is_empty() {
-            fields.push(("languages".to_string(), id.languages.join(", ")));
-        }
+        push_special_fields(&mut fields, id, show);
 
         Self {
             title,

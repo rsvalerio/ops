@@ -331,6 +331,21 @@ impl ExecCommandSpec {
             std::borrow::Cow::Owned(format!("{} {}", self.program, self.args.join(" ")))
         }
     }
+
+    /// Expand and join args for display; returns None when args is empty.
+    pub fn expanded_args_display(&self, vars: &crate::expand::Variables) -> Option<String> {
+        if self.args.is_empty() {
+            None
+        } else {
+            Some(
+                self.args
+                    .iter()
+                    .map(|a| vars.expand(a).into_owned())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            )
+        }
+    }
 }
 
 /// Composite command: runs multiple commands (sequential or parallel).

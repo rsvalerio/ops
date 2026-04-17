@@ -312,7 +312,9 @@ args = ["hi"]
 "#,
     )
     .unwrap();
-    let overlay = read_config_file(&path).expect("valid toml should parse");
+    let overlay = read_config_file(&path)
+        .expect("valid toml should parse")
+        .expect("file should be present");
     let output = overlay.output.expect("output section present");
     assert_eq!(output.theme, Some("compact".to_string()));
     assert_eq!(output.columns, Some(100));
@@ -324,18 +326,24 @@ args = ["hi"]
 }
 
 #[test]
-fn read_config_file_invalid_toml_returns_none() {
+fn read_config_file_invalid_toml_returns_err() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("bad.toml");
     std::fs::write(&path, "not valid { toml }}}").unwrap();
-    assert!(read_config_file(&path).is_none());
+    assert!(
+        read_config_file(&path).is_err(),
+        "invalid TOML should return Err"
+    );
 }
 
 #[test]
-fn read_config_file_missing_returns_none() {
+fn read_config_file_missing_returns_ok_none() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("nonexistent.toml");
-    assert!(read_config_file(&path).is_none());
+    assert!(
+        matches!(read_config_file(&path), Ok(None)),
+        "missing file should return Ok(None)"
+    );
 }
 
 #[test]
@@ -515,7 +523,7 @@ mod read_config_file_error_paths {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
 
         let result = read_config_file(&path);
-        assert!(result.is_none(), "permission denied should return None");
+        assert!(result.is_err(), "permission denied should return Err");
 
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
     }
