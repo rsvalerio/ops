@@ -4,7 +4,8 @@
 //! returning [`ops_core::project_identity::ProjectIdentity`] as JSON.
 //! When no provider is available, a minimal identity is built from the filesystem.
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
+use std::path::Path;
 
 use ops_core::project_identity::{AboutCard, ProjectIdentity};
 use ops_core::text::{capitalize, dir_name};
@@ -54,35 +55,16 @@ pub fn run_about(
     data_registry: &ops_extension::DataRegistry,
     opts: &AboutOptions,
     columns: u16,
+    cwd: &Path,
+    writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let cwd = std::env::current_dir()?;
     let config = std::sync::Arc::new(ops_core::config::Config::default());
-    let mut ctx = ops_extension::Context::new(config, cwd.clone());
-    if opts.refresh {
-        ctx.refresh = true;
-    }
+    let mut ctx = ops_extension::Context::new(config, cwd.to_path_buf());
+    ctx.refresh = opts.refresh;
 
-    // Pre-initialize generic data sources so stack providers can query them.
-    // These are best-effort — they may not be compiled in.
-    let _ = ctx.get_or_provide("duckdb", data_registry);
-    let _ = ctx.get_or_provide("tokei", data_registry);
-    if opts.refresh {
-        match ctx.get_or_provide("coverage", data_registry) {
-            Ok(_) => {}
-            Err(DataProviderError::NotFound(_)) => {} // not compiled in
-            Err(e) => {
-                eprintln!("  \u{26a0}\u{fe0f} coverage collection failed: {e:#}");
-            }
-        }
-    }
+    warm_generic_providers(&mut ctx, data_registry, opts.refresh);
+    let mut identity = resolve_identity(&mut ctx, data_registry, cwd)?;
 
-    let mut identity = match ctx.get_or_provide("project_identity", data_registry) {
-        Ok(value) => serde_json::from_value::<ProjectIdentity>((*value).clone())?,
-        Err(DataProviderError::NotFound(_)) => build_fallback_identity(&cwd),
-        Err(e) => return Err(e.into()),
-    };
-
-    // Enrich with DuckDB data if the provider didn't include it.
     if identity.loc.is_none()
         || identity.dependency_count.is_none()
         || identity.coverage_percent.is_none()
@@ -93,9 +75,36 @@ pub fn run_about(
 
     let card = AboutCard::from_identity_filtered(&identity, opts.visible_fields.as_deref());
     let is_tty = std::io::stdout().is_terminal();
-    println!("{}", card.render(columns, is_tty));
+    writeln!(writer, "{}", card.render(columns, is_tty))?;
 
     Ok(())
+}
+
+fn warm_generic_providers(
+    ctx: &mut ops_extension::Context,
+    data_registry: &ops_extension::DataRegistry,
+    refresh: bool,
+) {
+    let _ = ctx.get_or_provide("duckdb", data_registry);
+    let _ = ctx.get_or_provide("tokei", data_registry);
+    if refresh {
+        match ctx.get_or_provide("coverage", data_registry) {
+            Ok(_) | Err(DataProviderError::NotFound(_)) => {}
+            Err(e) => tracing::warn!("coverage collection failed: {e:#}"),
+        }
+    }
+}
+
+fn resolve_identity(
+    ctx: &mut ops_extension::Context,
+    data_registry: &ops_extension::DataRegistry,
+    cwd: &Path,
+) -> anyhow::Result<ProjectIdentity> {
+    match ctx.get_or_provide("project_identity", data_registry) {
+        Ok(value) => Ok(serde_json::from_value::<ProjectIdentity>((*value).clone())?),
+        Err(DataProviderError::NotFound(_)) => Ok(build_fallback_identity(cwd)),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// Enrich identity with LOC/file count from DuckDB if available.

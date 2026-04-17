@@ -2,15 +2,23 @@
 
 use super::*;
 use ops_duckdb::{init_schema, DataIngestor, DuckDb};
-use ops_extension::Extension;
+use ops_extension::{Extension, ExtensionType};
 
 // -- Extension trait tests --
 
+// Macro generates two tests:
+//   - extension_name: TokeiExtension.name() == "tokei"
+//   - extension_registers_data_provider: registry.get("tokei").is_some() after register_data_providers
 ops_extension::test_datasource_extension!(
     TokeiExtension,
     name: "tokei",
     data_provider: "tokei"
 );
+
+#[test]
+fn tokei_extension_type_is_datasource() {
+    assert_eq!(TokeiExtension.types(), ExtensionType::DATASOURCE);
+}
 
 #[test]
 fn tokei_extension_stack_is_none() {

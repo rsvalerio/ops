@@ -103,101 +103,15 @@ mod tests {
         assert!(HOOK_SCRIPT.starts_with("#!/usr/bin/env bash"));
     }
 
+    // -- should_skip --
+
     #[test]
     fn should_skip_returns_false_by_default() {
-        // env var not set in test => false
         std::env::remove_var(SKIP_ENV_VAR);
         assert!(!should_skip());
     }
 
-    // -- find_git_dir --
-
-    #[test]
-    fn find_git_dir_in_current() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir(dir.path().join(".git")).unwrap();
-        let result = find_git_dir(dir.path());
-        assert_eq!(result, Some(dir.path().join(".git")));
-    }
-
-    #[test]
-    fn find_git_dir_in_parent() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir(dir.path().join(".git")).unwrap();
-        let sub = dir.path().join("sub");
-        std::fs::create_dir(&sub).unwrap();
-        let result = find_git_dir(&sub);
-        assert_eq!(result, Some(dir.path().join(".git")));
-    }
-
-    #[test]
-    fn find_git_dir_not_found() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let result = find_git_dir(dir.path());
-        assert!(result.is_none());
-    }
-
-    // -- install_hook --
-
-    #[test]
-    fn install_hook_creates_executable_file() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let git_dir = dir.path().join(".git");
-        std::fs::create_dir(&git_dir).unwrap();
-
-        let mut buf = Vec::new();
-        let path = install_hook(&git_dir, &mut buf).expect("install_hook");
-
-        assert!(path.exists());
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("ops run-before-commit"));
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-            assert!(mode & 0o111 != 0, "hook should be executable");
-        }
-
-        let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("Installed hook"));
-    }
-
-    #[test]
-    fn install_hook_idempotent_when_ops_hook_exists() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let git_dir = dir.path().join(".git");
-        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
-        std::fs::write(git_dir.join("hooks/pre-commit"), HOOK_SCRIPT).unwrap();
-
-        let mut buf = Vec::new();
-        let path = install_hook(&git_dir, &mut buf).expect("install_hook");
-
-        assert!(path.exists());
-        let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("already installed"));
-    }
-
-    #[test]
-    fn install_hook_updates_outdated_ops_hook() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let git_dir = dir.path().join(".git");
-        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
-        std::fs::write(
-            git_dir.join("hooks/pre-commit"),
-            "#!/bin/sh\necho old\nops run-before-commit\n",
-        )
-        .unwrap();
-
-        let mut buf = Vec::new();
-        let path = install_hook(&git_dir, &mut buf).expect("install_hook");
-
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(content, HOOK_SCRIPT);
-
-        let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("Updating outdated"));
-    }
+    // -- install_hook: wrapper-specific legacy markers --
 
     #[test]
     fn install_hook_updates_legacy_before_commit_hook() {
@@ -239,97 +153,6 @@ mod tests {
 
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("Updating outdated"));
-    }
-
-    #[test]
-    fn install_hook_refuses_foreign_hook() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let git_dir = dir.path().join(".git");
-        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
-        std::fs::write(
-            git_dir.join("hooks/pre-commit"),
-            "#!/bin/sh\necho foreign\n",
-        )
-        .unwrap();
-
-        let mut buf = Vec::new();
-        let result = install_hook(&git_dir, &mut buf);
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("not installed by ops"));
-    }
-
-    // -- ensure_config_command --
-
-    #[test]
-    fn ensure_config_creates_command_in_empty_file() {
-        let dir = tempfile::tempdir().expect("tempdir");
-
-        let selected = vec!["verify".to_string()];
-        let mut buf = Vec::new();
-        ensure_config_command(dir.path(), &selected, &mut buf).expect("ensure_config_command");
-
-        let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert!(content.contains("[commands.run-before-commit]"));
-        assert!(content.contains("verify"));
-        assert!(content.contains("fail_fast"));
-
-        let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("Added"));
-    }
-
-    #[test]
-    fn ensure_config_preserves_existing_run_before_commit() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join(".ops.toml"),
-            "[commands.run-before-commit]\ncommands = [\"test\"]\n",
-        )
-        .unwrap();
-
-        let selected = vec!["verify".to_string()];
-        let mut buf = Vec::new();
-        ensure_config_command(dir.path(), &selected, &mut buf).expect("ensure_config_command");
-
-        let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert!(content.contains(r#"commands = ["test"]"#));
-
-        let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("already defined"));
-    }
-
-    #[test]
-    fn ensure_config_appends_to_existing_config() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join(".ops.toml"),
-            "[output]\ntheme = \"compact\"\n\n[commands.build]\nprogram = \"cargo\"\nargs = [\"build\"]\n",
-        )
-        .unwrap();
-
-        let selected = vec!["build".to_string(), "test".to_string()];
-        let mut buf = Vec::new();
-        ensure_config_command(dir.path(), &selected, &mut buf).expect("ensure_config_command");
-
-        let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert!(content.contains("theme = \"compact\""));
-        assert!(content.contains("[commands.build]"));
-        assert!(content.contains("[commands.run-before-commit]"));
-    }
-
-    #[test]
-    fn ensure_config_empty_selection_skips() {
-        let dir = tempfile::tempdir().expect("tempdir");
-
-        let mut buf = Vec::new();
-        ensure_config_command(dir.path(), &[], &mut buf).expect("ensure_config_command");
-
-        assert!(!dir.path().join(".ops.toml").exists());
-
-        let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("No commands selected"));
     }
 
     // -- Extension metadata --

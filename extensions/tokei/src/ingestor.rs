@@ -10,9 +10,6 @@ const PIPELINE: SidecarIngestorConfig = SidecarIngestorConfig {
     name: "tokei",
     json_filename: "tokei_files.json",
     count_table: "tokei_files",
-    create_label: "tokei_files create",
-    view_label: "tokei_languages view",
-    count_label: "tokei_files count",
 };
 
 pub struct TokeiIngestor;
