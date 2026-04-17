@@ -2053,6 +2053,7 @@ dependencies = [
  "ops-extension",
  "serde_json",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]

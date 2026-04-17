@@ -97,6 +97,8 @@ jobs:
           repo: rsvalerio/ops
       - name: Run all tests
         run: ops --verbose test
+      - name: Run ignored integration tests
+        run: cargo test -p ops -- --ignored
 
   deps:
     name: Deps
