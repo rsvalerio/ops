@@ -1,42 +1,79 @@
-# Default commands for Python stack.
+# Default commands for Python stack (uv).
 
-[commands.format]
-program = "ruff"
-args = ["format", "."]
-help = "Format all code"
+[commands.sync]
+program = "uv"
+args = ["sync", "--extra", "dev"]
+help = "Install and sync dependencies"
+category = "Build"
+
+[commands.ruff-fix]
+program = "uv"
+args = ["run", "ruff", "check", "--fix", "."]
+help = "Auto-fix lint issues with ruff"
+category = "Code Quality"
+
+[commands.black-fmt]
+program = "uv"
+args = ["run", "black", "."]
+help = "Format with black"
+category = "Code Quality"
+
+[commands.fmt]
+commands = ["ruff-fix", "black-fmt"]
+parallel = false
+fail_fast = true
+help = "Run ruff --fix then black"
+category = "Code Quality"
+
+[commands.ruff]
+program = "uv"
+args = ["run", "ruff", "check", "."]
+help = "Lint with ruff"
+category = "Code Quality"
+
+[commands.black]
+program = "uv"
+args = ["run", "black", "--check", "."]
+help = "Check formatting with black"
 category = "Code Quality"
 
 [commands.lint]
-program = "ruff"
-args = ["check", "."]
-help = "Lint the codebase"
+commands = ["ruff", "black"]
+parallel = true
+fail_fast = true
+help = "Run ruff check and black --check"
+category = "Code Quality"
+
+[commands.type]
+program = "uv"
+args = ["run", "pyright"]
+help = "Type-check with pyright"
 category = "Code Quality"
 
 [commands.test]
-program = "pytest"
-args = []
-help = "Run tests"
+program = "uv"
+args = ["run", "pytest", "-q"]
+help = "Run tests with pytest"
 category = "Code Quality"
+
+[commands.clean]
+program = "rm"
+args = ["-rf", ".pytest_cache", ".ruff_cache", ".pyright", "build", "dist"]
+help = "Remove caches and build artifacts"
+category = "Build"
 
 # Baseline suggestion — uncomment and adjust to opt in.
 # [commands.build]
-# program = "python"
-# args = ["-m", "build"]
-# help = "Build sdist and wheel (requires 'build' package)"
-# category = "Build"
-
-# Baseline suggestion — uncomment and adjust to opt in (destructive).
-# [commands.clean]
-# program = "rm"
-# args = ["-rf", ".pytest_cache", "dist", "build", "__pycache__"]
-# help = "Remove caches and build artifacts"
+# program = "uv"
+# args = ["build"]
+# help = "Build sdist and wheel"
 # category = "Build"
 
 [commands.verify]
-commands = ["format", "lint"]
+commands = ["fmt", "lint", "type"]
 parallel = false
 fail_fast = true
-help = "Run format, lint"
+help = "Run fmt, lint, type"
 category = "Code Quality"
 
 [commands.qa]
