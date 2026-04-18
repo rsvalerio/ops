@@ -790,6 +790,40 @@ mod boxed_layout_tests {
     }
 
     #[test]
+    fn boxed_step_with_duration_matches_border_width() {
+        // Regression: render() overshot by one column when a duration was present,
+        // causing the right `│` of a completed step to land past the border `╮`/`╯`.
+        let theme = boxed_theme();
+        let columns = 60u16;
+        let reserve = theme.step_column_reserve();
+        let effective = columns - reserve;
+        let step = StepLine {
+            status: StepStatus::Succeeded,
+            label: "cargo build".to_string(),
+            elapsed: Some(1.23),
+        };
+        let inner = theme.render(&step, effective);
+        let wrapped = theme.wrap_step_line(&inner, "█", columns);
+        let plain = strip_ansi(&wrapped);
+        assert_eq!(
+            ops_core::output::display_width(&plain),
+            columns as usize,
+            "wrapped width: {plain}"
+        );
+
+        let top = strip_ansi(
+            &theme
+                .box_top_border(snap(1, 1, 1.23, true, columns))
+                .unwrap(),
+        );
+        assert_eq!(
+            ops_core::output::display_width(&top),
+            ops_core::output::display_width(&plain),
+            "step width must equal border width"
+        );
+    }
+
+    #[test]
     fn wrap_step_line_reserves_seven_columns_and_pads_to_width() {
         let theme = boxed_theme();
         assert_eq!(theme.step_column_reserve(), 7);

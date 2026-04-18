@@ -363,7 +363,7 @@ pub trait StepLineTheme: Send + Sync {
             let dots = sep.to_string().repeat(sep_count.saturating_sub(1));
             format!(" {}{}", dots, ' ')
         } else {
-            let dots = sep.to_string().repeat(sep_count);
+            let dots = sep.to_string().repeat(sep_count.saturating_sub(1));
             format!(" {}", dots)
         }
     }
