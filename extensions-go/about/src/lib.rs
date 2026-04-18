@@ -1,8 +1,9 @@
-//! Go stack `project_identity` provider.
+//! Go stack `project_identity` + `project_units` providers.
 //!
 //! Parses `go.mod` for module name, Go version, and local `replace` directives.
-//! Parses `go.work` for workspace modules. Provides a [`ProjectIdentity`] for
-//! the generic about command.
+//! Parses `go.work` for workspace modules.
+
+mod modules;
 
 use std::path::Path;
 
@@ -27,6 +28,7 @@ ops_extension::impl_extension! {
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
         registry.register(DATA_PROVIDER_NAME, Box::new(GoIdentityProvider));
+        registry.register(modules::PROVIDER_NAME, Box::new(modules::GoUnitsProvider));
     },
     factory: GO_ABOUT_FACTORY = |_, _| {
         Some((NAME, Box::new(AboutGoExtension)))

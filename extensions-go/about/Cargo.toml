@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
+ops-about = { workspace = true }
 linkme = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
