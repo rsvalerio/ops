@@ -375,31 +375,15 @@ fn run_about(refresh: bool, action: Option<AboutAction>) -> anyhow::Result<()> {
     let registry = crate::registry::build_data_registry(&config, &cwd)?;
     match action {
         Some(AboutAction::Setup) => about_cmd::run_about_setup(&registry),
-        #[cfg(feature = "stack-rust")]
-        Some(AboutAction::Coverage) => {
-            ops_about_rust::run_about_page(&registry, ops_about_rust::AboutPage::Coverage)
-        }
-        #[cfg(feature = "stack-rust")]
+        #[cfg(feature = "duckdb")]
+        Some(AboutAction::Code) => ops_about::run_about_code(&registry),
+        #[cfg(not(feature = "duckdb"))]
         Some(AboutAction::Code) => {
-            ops_about_rust::run_about_page(&registry, ops_about_rust::AboutPage::Code)
+            anyhow::bail!("about code requires the duckdb feature");
         }
-        #[cfg(feature = "stack-rust")]
-        Some(AboutAction::Dependencies) => {
-            ops_about_rust::run_about_page(&registry, ops_about_rust::AboutPage::Dependencies)
-        }
-        #[cfg(feature = "stack-rust")]
-        Some(AboutAction::Crates) => {
-            ops_about_rust::run_about_page(&registry, ops_about_rust::AboutPage::Crates)
-        }
-        #[cfg(not(feature = "stack-rust"))]
-        Some(
-            AboutAction::Coverage
-            | AboutAction::Code
-            | AboutAction::Dependencies
-            | AboutAction::Crates,
-        ) => {
-            anyhow::bail!("about subpages require the stack-rust feature");
-        }
+        Some(AboutAction::Crates | AboutAction::Modules) => ops_about::run_about_units(&registry),
+        Some(AboutAction::Coverage) => ops_about::run_about_coverage(&registry),
+        Some(AboutAction::Dependencies) => ops_about::run_about_deps(&registry),
         None => {
             let columns = config.output.columns;
             let opts = ops_about::AboutOptions {

@@ -140,6 +140,8 @@ pub enum AboutAction {
     Dependencies,
     /// Display crate cards.
     Crates,
+    /// Display workspace modules (go.work / go.mod).
+    Modules,
 }
 
 /// Extension management subcommands.
