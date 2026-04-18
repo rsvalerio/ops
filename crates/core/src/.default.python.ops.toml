@@ -18,6 +18,20 @@ args = []
 help = "Run tests"
 category = "Code Quality"
 
+# Baseline suggestion — uncomment and adjust to opt in.
+# [commands.build]
+# program = "python"
+# args = ["-m", "build"]
+# help = "Build sdist and wheel (requires 'build' package)"
+# category = "Build"
+
+# Baseline suggestion — uncomment and adjust to opt in (destructive).
+# [commands.clean]
+# program = "rm"
+# args = ["-rf", ".pytest_cache", "dist", "build", "__pycache__"]
+# help = "Remove caches and build artifacts"
+# category = "Build"
+
 [commands.verify]
 commands = ["format", "lint"]
 parallel = false

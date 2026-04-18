@@ -24,6 +24,12 @@ args = ["test", "./..."]
 help = "Run all tests"
 category = "Code Quality"
 
+[commands.clean]
+program = "go"
+args = ["clean", "./..."]
+help = "Remove build artifacts"
+category = "Build"
+
 [commands.verify]
 commands = ["fmt", "build"]
 parallel = false

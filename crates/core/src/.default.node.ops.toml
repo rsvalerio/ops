@@ -24,6 +24,20 @@ args = ["run", "lint"]
 help = "Lint the codebase"
 category = "Code Quality"
 
+# Baseline suggestion — uncomment and adjust to opt in.
+# [commands.fmt]
+# program = "npx"
+# args = ["prettier", "--write", "."]
+# help = "Format all code"
+# category = "Code Quality"
+
+# Baseline suggestion — uncomment and adjust to opt in (destructive).
+# [commands.clean]
+# program = "rm"
+# args = ["-rf", "node_modules", "dist"]
+# help = "Remove build artifacts and deps"
+# category = "Build"
+
 [commands.verify]
 commands = ["install", "lint", "build"]
 parallel = false

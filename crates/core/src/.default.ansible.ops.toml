@@ -12,9 +12,44 @@ args = ["--check", "site.yml"]
 help = "Dry-run playbook"
 category = "Code Quality"
 
+# Baseline suggestion — uncomment and adjust to opt in (requires ansible-lint --fix).
+# [commands.fmt]
+# program = "ansible-lint"
+# args = ["--fix"]
+# help = "Auto-fix lint findings"
+# category = "Code Quality"
+
+# Baseline suggestion — Ansible has no native build step.
+# [commands.build]
+# program = "ansible-galaxy"
+# args = ["collection", "build"]
+# help = "Build collection artifact (no-op for plain playbooks)"
+# category = "Build"
+
+# Baseline suggestion — uncomment and adjust to opt in (requires molecule).
+# [commands.test]
+# program = "molecule"
+# args = ["test"]
+# help = "Run molecule test suite"
+# category = "Code Quality"
+
+# Baseline suggestion — uncomment and adjust to opt in (destructive).
+# [commands.clean]
+# program = "rm"
+# args = ["-rf", ".ansible", "*.retry"]
+# help = "Remove ansible caches"
+# category = "Build"
+
 [commands.verify]
-commands = ["lint"]
+commands = ["lint", "check"]
 parallel = false
 fail_fast = true
-help = "Run lint"
+help = "Run lint, check"
+category = "Code Quality"
+
+[commands.qa]
+commands = ["check"]
+parallel = false
+fail_fast = true
+help = "Run check (dry-run)"
 category = "Code Quality"

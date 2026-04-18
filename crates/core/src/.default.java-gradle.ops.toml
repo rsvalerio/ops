@@ -24,6 +24,20 @@ args = ["clean"]
 help = "Clean build artifacts"
 category = "Build"
 
+# Baseline suggestion — uncomment and adjust to opt in (requires spotless plugin).
+# [commands.fmt]
+# program = "./gradlew"
+# args = ["spotlessApply"]
+# help = "Format all code (requires spotless plugin)"
+# category = "Code Quality"
+
+# Baseline suggestion — uncomment and adjust to opt in (requires spotless or checkstyle plugin).
+# [commands.lint]
+# program = "./gradlew"
+# args = ["spotlessCheck"]
+# help = "Lint sources (requires spotless or checkstyle plugin)"
+# category = "Code Quality"
+
 [commands.verify]
 commands = ["compile"]
 parallel = false

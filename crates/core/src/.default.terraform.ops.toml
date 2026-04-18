@@ -24,9 +24,44 @@ args = ["plan"]
 help = "Show execution plan"
 category = "Code Quality"
 
+# Baseline suggestion — uncomment and adjust to opt in (requires tflint).
+# [commands.lint]
+# program = "tflint"
+# args = []
+# help = "Lint Terraform configuration"
+# category = "Code Quality"
+
+# Baseline suggestion — Terraform has no 'build'; 'plan' is the closest analogue.
+# [commands.build]
+# program = "terraform"
+# args = ["plan"]
+# help = "Produce execution plan (closest to 'build')"
+# category = "Build"
+
+# Baseline suggestion — requires Terraform 1.6+.
+# [commands.test]
+# program = "terraform"
+# args = ["test"]
+# help = "Run terraform test suite"
+# category = "Code Quality"
+
+# Baseline suggestion — uncomment and adjust to opt in (destructive).
+# [commands.clean]
+# program = "rm"
+# args = ["-rf", ".terraform", ".terraform.lock.hcl"]
+# help = "Remove provider cache and lock file"
+# category = "Build"
+
 [commands.verify]
 commands = ["fmt", "validate"]
 parallel = false
 fail_fast = true
 help = "Run fmt, validate"
+category = "Code Quality"
+
+[commands.qa]
+commands = ["plan"]
+parallel = false
+fail_fast = true
+help = "Run plan"
 category = "Code Quality"

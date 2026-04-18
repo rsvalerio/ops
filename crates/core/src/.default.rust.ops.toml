@@ -30,6 +30,12 @@ args = ["test", "--all", "--all-features"]
 help = "Run all tests"
 category = "Code Quality"
 
+[commands.clean]
+program = "cargo"
+args = ["clean"]
+help = "Remove build artifacts"
+category = "Build"
+
 [commands.verify]
 commands = ["fmt", "check", "clippy", "build"]
 parallel = true

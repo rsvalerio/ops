@@ -319,12 +319,14 @@ mod tests {
     }
 
     #[test]
-    fn stacks_with_test_define_qa() {
+    fn every_stack_defines_qa() {
         for stack in [
             Stack::Rust,
             Stack::Node,
             Stack::Go,
             Stack::Python,
+            Stack::Terraform,
+            Stack::Ansible,
             Stack::JavaMaven,
             Stack::JavaGradle,
         ] {
