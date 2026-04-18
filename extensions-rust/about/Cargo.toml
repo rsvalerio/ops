@@ -12,6 +12,7 @@ ops-about = { workspace = true, features = ["duckdb"] }
 linkme = { workspace = true }
 ops-duckdb = { workspace = true }
 ops-cargo-toml = { workspace = true }
+ops-git = { workspace = true }
 ops-tools = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }

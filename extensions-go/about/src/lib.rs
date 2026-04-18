@@ -76,6 +76,8 @@ impl DataProvider for GoIdentityProvider {
             None
         };
 
+        let repository = ops_git::GitInfo::collect(&cwd).remote_url;
+
         let identity = ProjectIdentity {
             name,
             stack_label: "Go".to_string(),
@@ -83,6 +85,7 @@ impl DataProvider for GoIdentityProvider {
             project_path: cwd.display().to_string(),
             module_count,
             module_label: "modules".to_string(),
+            repository,
             ..Default::default()
         };
 
@@ -350,6 +353,50 @@ mod tests {
         assert_eq!(id.stack_label, "Go");
         assert!(id.stack_detail.is_none());
         assert!(id.module_count.is_none());
+    }
+
+    #[test]
+    fn provide_populates_repository_from_git_remote() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module github.com/openbao/openbao\n\ngo 1.21\n",
+        )
+        .unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        std::fs::write(
+            git_dir.join("config"),
+            "[remote \"origin\"]\n\turl = https://github.com/openbao/openbao.git\n",
+        )
+        .unwrap();
+
+        let provider = GoIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = provider.provide(&mut ctx).unwrap();
+        let id: ProjectIdentity = serde_json::from_value(value).unwrap();
+
+        assert_eq!(
+            id.repository.as_deref(),
+            Some("https://github.com/openbao/openbao")
+        );
+    }
+
+    #[test]
+    fn provide_no_git_leaves_repository_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/foo\n\ngo 1.21\n",
+        )
+        .unwrap();
+
+        let provider = GoIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = provider.provide(&mut ctx).unwrap();
+        let id: ProjectIdentity = serde_json::from_value(value).unwrap();
+
+        assert!(id.repository.is_none());
     }
 
     #[test]

@@ -36,8 +36,8 @@ impl DataProvider for GradleIdentityProvider {
 
         let subproject_count = settings.as_ref().map(|s| s.includes.len());
 
-        // Use group as a hint for the repository if available.
         let _ = group;
+        let repository = ops_git::GitInfo::collect(&cwd).remote_url;
 
         let identity = ProjectIdentity {
             name,
@@ -48,6 +48,7 @@ impl DataProvider for GradleIdentityProvider {
             project_path: cwd.display().to_string(),
             module_count: subproject_count.filter(|&c| c > 0),
             module_label: "subprojects".to_string(),
+            repository,
             ..Default::default()
         };
 

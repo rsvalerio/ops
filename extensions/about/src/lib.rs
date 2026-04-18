@@ -276,7 +276,7 @@ mod tests {
     fn about_options_fields() {
         let opts = AboutOptions {
             refresh: true,
-            visible_fields: Some(vec!["project".to_string(), "code".to_string()]),
+            visible_fields: Some(vec!["project".to_string(), "codebase".to_string()]),
         };
         assert!(opts.refresh);
         assert_eq!(opts.visible_fields.unwrap().len(), 2);

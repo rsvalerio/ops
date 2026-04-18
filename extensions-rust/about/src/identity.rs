@@ -50,14 +50,6 @@ impl DataProvider for RustIdentityProvider {
         fields.insert(
             insert_pos + 1,
             AboutFieldDef {
-                id: "msrv",
-                label: "MSRV",
-                description: "Minimum supported Rust version",
-            },
-        );
-        fields.insert(
-            insert_pos + 2,
-            AboutFieldDef {
                 id: "dependencies",
                 label: "Dependencies",
                 description: "Total dependency count",
@@ -116,7 +108,9 @@ impl DataProvider for RustIdentityProvider {
             ws_pkg,
             |p| p.repository.as_str(),
             |wp| wp.repository.as_deref(),
-        );
+        )
+        .filter(|s| !s.is_empty())
+        .or_else(|| ops_git::GitInfo::collect(&cwd).remote_url);
         let homepage = resolve_field(
             pkg,
             ws_pkg,
@@ -226,17 +220,16 @@ mod tests {
         assert_eq!(
             ids,
             vec![
+                "stack",
+                "license",
                 "project",
                 "modules",
-                "code",
-                "files",
-                "authors",
+                "codebase",
                 "repository",
+                "authors",
                 "homepage",
-                "msrv",
                 "dependencies",
                 "coverage",
-                "languages"
             ]
         );
     }
@@ -282,6 +275,62 @@ authors = ["Alice <alice@example.com>"]
         assert_eq!(id.authors, vec!["Alice <alice@example.com>"]);
         assert_eq!(id.module_label, "crates");
         assert!(id.module_count.is_none()); // no workspace
+    }
+
+    #[test]
+    fn identity_manifest_repository_wins_over_git() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"
+[package]
+name = "my-crate"
+version = "0.1.0"
+repository = "https://example.com/manifest-wins"
+"#,
+        )
+        .unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        std::fs::write(
+            git_dir.join("config"),
+            "[remote \"origin\"]\n\turl = https://github.com/other/repo.git\n",
+        )
+        .unwrap();
+
+        let provider = RustIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let id: ProjectIdentity =
+            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert_eq!(
+            id.repository.as_deref(),
+            Some("https://example.com/manifest-wins")
+        );
+    }
+
+    #[test]
+    fn identity_git_fills_repository_when_manifest_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"my-crate\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        std::fs::write(
+            git_dir.join("config"),
+            "[remote \"origin\"]\n\turl = git@github.com:o/r.git\n",
+        )
+        .unwrap();
+
+        let provider = RustIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let id: ProjectIdentity =
+            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert_eq!(id.repository.as_deref(), Some("https://github.com/o/r"));
     }
 
     #[test]

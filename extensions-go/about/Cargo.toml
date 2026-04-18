@@ -9,6 +9,7 @@ license.workspace = true
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
 ops-about = { workspace = true }
+ops-git = { workspace = true }
 linkme = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }

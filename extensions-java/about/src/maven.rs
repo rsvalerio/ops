@@ -41,7 +41,10 @@ impl DataProvider for MavenIdentityProvider {
             },
             module_label: "modules".to_string(),
             authors: pom.developers,
-            repository: pom.scm_url,
+            repository: pom
+                .scm_url
+                .filter(|s| !s.is_empty())
+                .or_else(|| ops_git::GitInfo::collect(&cwd).remote_url),
             ..Default::default()
         };
 
