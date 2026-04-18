@@ -2025,6 +2025,7 @@ dependencies = [
  "ops-deps",
  "ops-duckdb",
  "ops-extension",
+ "ops-git",
  "ops-metadata",
  "ops-run-before-commit",
  "ops-run-before-push",
@@ -2066,6 +2067,7 @@ dependencies = [
  "ops-about",
  "ops-core",
  "ops-extension",
+ "ops-git",
  "serde_json",
  "tempfile",
 ]
@@ -2078,6 +2080,7 @@ dependencies = [
  "linkme",
  "ops-core",
  "ops-extension",
+ "ops-git",
  "serde_json",
  "tempfile",
 ]
@@ -2093,6 +2096,7 @@ dependencies = [
  "ops-core",
  "ops-duckdb",
  "ops-extension",
+ "ops-git",
  "ops-tools",
  "serde_json",
  "tempfile",
@@ -2188,6 +2192,18 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "ops-git"
+version = "0.16.0"
+dependencies = [
+ "linkme",
+ "ops-core",
+ "ops-extension",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
