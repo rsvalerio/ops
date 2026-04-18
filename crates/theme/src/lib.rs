@@ -8,12 +8,14 @@
 mod configurable;
 mod render;
 mod step_line_theme;
+pub mod style;
 
 pub use configurable::ConfigurableTheme;
 pub use ops_core::config::theme_types;
 pub use ops_core::config::theme_types::{ErrorBlockChars, PlanHeaderStyle, ThemeConfig};
 pub use render::render_error_block;
-pub use step_line_theme::{format_duration, StepLineTheme};
+pub use step_line_theme::{format_duration, BoxSnapshot, StepLineTheme};
+pub use style::{apply_style, strip_ansi};
 
 use indexmap::IndexMap;
 

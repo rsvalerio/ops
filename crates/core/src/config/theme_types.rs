@@ -17,6 +17,17 @@ pub enum PlanHeaderStyle {
     Tree,
 }
 
+/// Overall layout for step output.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutKind {
+    /// Classic flat layout: one line per step, footer summary.
+    #[default]
+    Flat,
+    /// Full enclosing box with live header summary and a vertical progress column.
+    Boxed,
+}
+
 /// Box-drawing characters for error detail blocks.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ErrorBlockChars {
@@ -84,6 +95,27 @@ pub struct ThemeConfig {
     /// Number of spaces to prepend to all rendered output lines (left margin).
     #[serde(default = "default_left_pad")]
     pub left_pad: usize,
+    /// Optional prefix printed before "Running:" in plain plan headers (e.g. "🚀 ").
+    #[serde(default)]
+    pub plan_header_prefix: String,
+    /// ANSI color spec for the plan header line (e.g. "bold bright_white").
+    #[serde(default)]
+    pub header_color: String,
+    /// ANSI color spec for the command label on completed/pending step lines.
+    #[serde(default)]
+    pub label_color: String,
+    /// ANSI color spec for the separator fill between label and duration.
+    #[serde(default)]
+    pub separator_color: String,
+    /// ANSI color spec for the trailing duration.
+    #[serde(default)]
+    pub duration_color: String,
+    /// ANSI color spec for the final summary line ("Done N/N in …").
+    #[serde(default)]
+    pub summary_color: String,
+    /// Overall layout kind (flat or boxed). Defaults to flat for backward compatibility.
+    #[serde(default)]
+    pub layout_kind: LayoutKind,
 }
 
 fn default_left_pad() -> usize {
@@ -115,6 +147,13 @@ impl ThemeConfig {
             },
             description: Some("Bold tree-style with box-drawing chars".into()),
             left_pad: 1,
+            plan_header_prefix: String::new(),
+            header_color: String::new(),
+            label_color: String::new(),
+            separator_color: String::new(),
+            duration_color: String::new(),
+            summary_color: String::new(),
+            layout_kind: LayoutKind::Flat,
         }
     }
 
@@ -137,6 +176,13 @@ impl ThemeConfig {
             error_block: ErrorBlockChars::default(),
             description: Some("Minimal with dot separators".into()),
             left_pad: 1,
+            plan_header_prefix: String::new(),
+            header_color: String::new(),
+            label_color: String::new(),
+            separator_color: String::new(),
+            duration_color: String::new(),
+            summary_color: String::new(),
+            layout_kind: LayoutKind::Flat,
         }
     }
 

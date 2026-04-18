@@ -3,7 +3,7 @@
 use crate::command::RunnerEvent;
 use ops_core::config::{self, CommandId};
 use ops_core::output::{tail_lines, ErrorDetail, StepLine, StepStatus};
-use ops_theme::{self as theme, ThemeConfig};
+use ops_theme::{self as theme, BoxSnapshot, ThemeConfig};
 
 use anyhow::Context;
 use indexmap::IndexMap;
@@ -13,7 +13,7 @@ use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Spinner tick interval in milliseconds.
 ///
@@ -125,8 +125,11 @@ pub struct ProgressDisplay {
     display_map: HashMap<String, String>,
     footer_separator: Option<ProgressBar>,
     footer_bar: Option<ProgressBar>,
+    header_bar: Option<ProgressBar>,
     completed_steps: usize,
+    failed_steps: usize,
     total_steps: usize,
+    run_started_at: Option<Instant>,
     tap_file: Option<File>,
 }
 
@@ -215,8 +218,11 @@ impl ProgressDisplay {
             display_map,
             footer_separator: None,
             footer_bar: None,
+            header_bar: None,
             completed_steps: 0,
+            failed_steps: 0,
             total_steps: 0,
+            run_started_at: None,
             tap_file,
         })
     }
@@ -316,33 +322,110 @@ impl ProgressDisplay {
             .map(|id| self.resolve_step_display(id))
             .collect();
 
-        let header_lines = self
+        self.total_steps = command_ids.len();
+        self.completed_steps = 0;
+        self.failed_steps = 0;
+        self.run_started_at = Some(Instant::now());
+
+        let is_boxed = self
             .render
             .theme
-            .render_plan_header(&ids_as_strings, self.render.columns);
-        for line in &header_lines {
-            self.emit_line(line);
+            .box_top_border(BoxSnapshot::new(
+                0,
+                self.total_steps,
+                0.0,
+                true,
+                self.render.columns,
+            ))
+            .is_some();
+
+        if !is_boxed {
+            let header_lines = self
+                .render
+                .theme
+                .render_plan_header(&ids_as_strings, self.render.columns);
+            for line in &header_lines {
+                self.emit_line(line);
+            }
+        }
+
+        // For boxed layout, emit the top border as a live-updating header bar first,
+        // so subsequent step bars appear below it.
+        if is_boxed {
+            self.create_header_bar();
         }
 
         self.create_pending_bars();
 
-        self.total_steps = command_ids.len();
-        self.completed_steps = 0;
-
         self.create_footer();
+    }
+
+    fn create_header_bar(&mut self) {
+        let msg = self.render_header_message();
+        let pb = self.multi.add(
+            ProgressBar::new(0)
+                .with_style(Self::pending_style())
+                .with_message(msg.clone()),
+        );
+        pb.tick();
+        self.write_non_tty(&msg);
+        self.header_bar = Some(pb);
+    }
+
+    fn render_header_message(&self) -> String {
+        let elapsed = self
+            .run_started_at
+            .map(|t| t.elapsed().as_secs_f64())
+            .unwrap_or(0.0);
+        let success_so_far = self.failed_steps == 0;
+        self.render
+            .theme
+            .box_top_border(BoxSnapshot::new(
+                self.completed_steps,
+                self.total_steps,
+                elapsed,
+                success_so_far,
+                self.render.columns,
+            ))
+            .unwrap_or_default()
+    }
+
+    /// Compute the vertical-progress cell glyph for row `row`.
+    /// `█` = done, `▓` = current/running, `░` = pending.
+    fn progress_cell(&self, row: usize) -> &'static str {
+        if row < self.completed_steps {
+            "█"
+        } else if row == self.completed_steps {
+            "▓"
+        } else {
+            "░"
+        }
+    }
+
+    /// Render a step with the theme, reserving columns for the box frame and
+    /// wrapping the result for boxed layouts. Row is used to pick the cell glyph.
+    fn render_and_wrap_step(&self, row: usize, step: &StepLine) -> String {
+        let reserve = self.render.theme.step_column_reserve();
+        let effective = self.render.columns.saturating_sub(reserve);
+        let inner = self.render.theme.render(step, effective);
+        let cell = self.progress_cell(row);
+        self.render
+            .theme
+            .wrap_step_line(&inner, cell, self.render.columns)
     }
 
     fn create_pending_bars(&mut self) {
         let pending_lines: Vec<String> = self
             .steps
             .iter()
-            .map(|(_, display)| {
+            .enumerate()
+            .map(|(i, (_, display))| {
                 let step = StepLine {
                     status: StepStatus::Pending,
                     label: display.clone(),
                     elapsed: None,
                 };
-                self.render.theme.render(&step, self.render.columns)
+                self.render_and_wrap_step(i, &step)
             })
             .collect();
 
@@ -360,6 +443,20 @@ impl ProgressDisplay {
     }
 
     fn create_footer(&mut self) {
+        let is_boxed = self.header_bar.is_some();
+        if is_boxed {
+            // Boxed layout: no classic footer — the bottom border is emitted at
+            // RunFinished and replaces both separator and summary.
+            let footer_pb = self.multi.add(
+                ProgressBar::new(0)
+                    .with_style(Self::pending_style())
+                    .with_message(String::new()),
+            );
+            footer_pb.tick();
+            self.footer_bar = Some(footer_pb);
+            return;
+        }
+
         let separator = self
             .render
             .theme
@@ -404,10 +501,23 @@ impl ProgressDisplay {
             label: self.steps[i].1.clone(),
             elapsed: None,
         };
-        let line = self.render.theme.render(&step, self.render.columns);
+        // Running rows can't be wrapped in a full right-rail box because the
+        // spinner+elapsed template is dynamic-width. Render un-wrapped so the
+        // running template (which may itself include a left rail glyph) drives
+        // the line; the box frame resumes on completion.
+        let reserve = self.render.theme.step_column_reserve();
+        let effective = self.render.columns.saturating_sub(reserve);
+        let line = self.render.theme.render(&step, effective);
         self.bars[i].set_style(self.running_style.clone());
         self.bars[i].set_message(line);
         self.bars[i].enable_steady_tick(Duration::from_millis(SPINNER_TICK_INTERVAL_MS));
+        self.refresh_header_bar();
+    }
+
+    fn refresh_header_bar(&self) {
+        if let Some(ref hb) = self.header_bar {
+            hb.set_message(self.render_header_message());
+        }
     }
 
     fn tap_line(&mut self, line: &str) {
@@ -441,14 +551,19 @@ impl ProgressDisplay {
             label: display.to_string(),
             elapsed: Some(duration_secs),
         };
-        let line = self.render.theme.render(&step, self.render.columns);
-        self.finish_bar(&self.bars[i], &line);
-
+        // Count the step as complete before rendering so its row's progress
+        // cell shows the "done" glyph (█) instead of the "current" glyph (▓).
         self.completed_steps += 1;
+        if matches!(status, StepStatus::Failed) {
+            self.failed_steps += 1;
+        }
+        let line = self.render_and_wrap_step(i, &step);
+        self.finish_bar(&self.bars[i], &line);
         if let Some(ref fb) = self.footer_bar {
             let msg = self.render_footer_message();
             fb.set_message(msg);
         }
+        self.refresh_header_bar();
 
         Some(i)
     }
@@ -510,6 +625,27 @@ impl ProgressDisplay {
     }
 
     fn on_run_finished(&mut self, duration_secs: f64, success: bool) {
+        // Boxed layout: finalize header bar to "Done" state and emit bottom border.
+        if let Some(bottom) = self.render.theme.box_bottom_border(BoxSnapshot::new(
+            self.completed_steps,
+            self.total_steps,
+            duration_secs,
+            success,
+            self.render.columns,
+        )) {
+            if let Some(ref hb) = self.header_bar {
+                hb.finish_with_message(self.render_header_message());
+            }
+            if let Some(ref fb) = self.footer_bar {
+                fb.finish_with_message(bottom.clone());
+                self.write_non_tty(&bottom);
+            } else {
+                let pb = self.multi.add(ProgressBar::new(0));
+                self.finish_bar(&pb, &bottom);
+            }
+            return;
+        }
+
         let summary = self.format_summary(duration_secs, success);
 
         // If we have a footer bar from on_plan_started, finalize it in place.
@@ -530,14 +666,16 @@ impl ProgressDisplay {
         if self.total_steps > 0 {
             let label = if success { "Done" } else { "Failed" };
             let elapsed = theme::format_duration(duration_secs);
+            let body = format!(
+                "{} {}/{} in {}",
+                label, self.completed_steps, self.total_steps, elapsed
+            );
+            let colored = theme::apply_style(&body, self.render.theme.summary_color());
             format!(
-                "{}{}{} {}/{} in {}",
+                "{}{}{}",
                 self.render.theme.left_pad_str(),
                 self.render.theme.summary_prefix(),
-                label,
-                self.completed_steps,
-                self.total_steps,
-                elapsed
+                colored
             )
         } else {
             self.render.theme.render_summary(success, duration_secs)

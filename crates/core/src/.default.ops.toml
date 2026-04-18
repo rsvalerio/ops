@@ -56,6 +56,67 @@ mid = "│"
 bottom = "╰─"
 rail = ""
 
+[themes.flux]
+description = "Modern automation: emoji status, heavy flow line, full color palette"
+icon_pending = "⏸"
+icon_running = ""
+icon_succeeded = "✅"
+icon_failed = "💥"
+icon_skipped = "⏭"
+separator_char = "━"
+step_indent = "  ▸ "
+running_template = "  ▸ {spinner:.magenta}{msg:.cyan} {elapsed:.yellow.dim}"
+tick_chars = "⣾⣽⣻⢿⡿⣟⣯⣷ "
+running_template_overhead = 7
+plan_header_style = "plain"
+plan_header_prefix = "🚀 "
+header_color = "bold bright_white"
+label_color = "cyan"
+separator_color = "bright_black"
+duration_color = "yellow dim"
+summary_prefix = "⚡ "
+summary_separator = ""
+summary_color = "bold green"
+left_pad = 1
+
+[themes.flux.error_block]
+top = "╭─"
+mid = "│"
+bottom = "╰─"
+rail = ""
+
+[themes.studio]
+description = "Boxed frame with live summary header and vertical progress column"
+icon_pending = "◇"
+icon_running = ""
+icon_succeeded = "✓"
+icon_failed = "✖"
+icon_skipped = "⊘"
+separator_char = "."
+step_indent = "  "
+# Running rows keep a left rail + running cell; the spinner template is dynamic-width
+# so no right rail on running rows (it resumes once the step completes).
+running_template = "│ ▓  {spinner:.magenta}{msg:.cyan} {elapsed:.yellow.dim}"
+tick_chars = "⠁⠂⠄⡀⢀⠠⠐⠈ "
+running_template_overhead = 9
+plan_header_style = "plain"
+plan_header_prefix = "⚡ "
+header_color = "bold bright_white"
+label_color = "cyan"
+separator_color = "bright_black"
+duration_color = "yellow dim"
+summary_prefix = ""
+summary_separator = ""
+summary_color = "bold green"
+left_pad = 0
+layout_kind = "boxed"
+
+[themes.studio.error_block]
+top = "├─"
+mid = "│"
+bottom = "└─"
+rail = "│"
+
 # [stack]
 # Explicitly set the stack (optional; auto-detected by default)
 # stack = "rust"   # rust, node, go, python, terraform, ansible, generic

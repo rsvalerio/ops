@@ -3,6 +3,7 @@
 use ops_core::output::{display_width, ErrorDetail, StepLine, StepStatus, ALL_STATUSES};
 
 use super::render::render_error_block;
+use super::style::apply_style;
 use ops_core::config::theme_types::ErrorBlockChars;
 
 /// Format a duration in seconds into a human-friendly string.
@@ -23,6 +24,46 @@ pub fn format_duration(secs: f64) -> String {
         let mins = remaining / 60;
         let secs_part = remaining % 60;
         format!("{}h{}m{}s", hours, mins, secs_part)
+    }
+}
+
+/// Snapshot of run-plan progress passed to the boxed layout border methods.
+///
+/// Grouping these fields into a struct keeps the trait method signatures narrow
+/// (clippy `too_many_arguments`) and lets the caller compute each value once.
+#[derive(Debug, Clone, Copy)]
+pub struct BoxSnapshot<'a> {
+    /// Number of steps completed so far.
+    pub completed: usize,
+    /// Total steps in the plan.
+    pub total: usize,
+    /// Elapsed seconds since the plan started (wall-clock).
+    pub elapsed_secs: f64,
+    /// Whether the run has been fully successful up to this point.
+    pub success: bool,
+    /// Terminal columns available for the border.
+    pub columns: u16,
+    /// Reserved for future fields without breaking the signature.
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl<'a> BoxSnapshot<'a> {
+    /// Construct a snapshot from raw fields.
+    pub fn new(
+        completed: usize,
+        total: usize,
+        elapsed_secs: f64,
+        success: bool,
+        columns: u16,
+    ) -> Self {
+        Self {
+            completed,
+            total,
+            elapsed_secs,
+            success,
+            columns,
+            _marker: std::marker::PhantomData,
+        }
     }
 }
 
@@ -90,6 +131,36 @@ pub trait StepLineTheme: Send + Sync {
     /// Icon string for the given step status.
     fn status_icon(&self, status: StepStatus) -> &str;
 
+    /// ANSI color spec for the plan header text. Empty = no color.
+    fn header_color(&self) -> &str {
+        ""
+    }
+
+    /// ANSI color spec for the command label on completed/pending step lines.
+    fn label_color(&self) -> &str {
+        ""
+    }
+
+    /// ANSI color spec for the separator fill between label and duration.
+    fn separator_color(&self) -> &str {
+        ""
+    }
+
+    /// ANSI color spec for the trailing duration on step lines.
+    fn duration_color(&self) -> &str {
+        ""
+    }
+
+    /// ANSI color spec for the final summary line.
+    fn summary_color(&self) -> &str {
+        ""
+    }
+
+    /// Optional prefix printed before "Running:" in plain plan headers.
+    fn plan_header_prefix(&self) -> &str {
+        ""
+    }
+
     /// Lines to print when a run plan starts: optional upper space, header, then blank before steps.
     /// Default: one blank line (upper space), "Running: id1, id2, ...", then one blank before steps.
     fn render_plan_header(&self, command_ids: &[String], _columns: u16) -> Vec<String> {
@@ -155,13 +226,46 @@ pub trait StepLineTheme: Send + Sync {
     /// Render the final summary line.
     fn render_summary(&self, success: bool, elapsed_secs: f64) -> String {
         let label = if success { "Done" } else { "Failed" };
+        let body = format!("{} in {}", label, format_duration(elapsed_secs));
+        let colored = apply_style(&body, self.summary_color());
         format!(
-            "{}{}{} in {}",
+            "{}{}{}",
             self.left_pad_str(),
             self.summary_prefix(),
-            label,
-            format_duration(elapsed_secs)
+            colored
         )
+    }
+
+    /// Optional top border of a boxed layout, including a live summary.
+    ///
+    /// Returning `Some` opts in to the "boxed" layout: `ProgressDisplay` will render
+    /// this string as the header bar (instead of the classic plan header), update it
+    /// each time a step completes, and call [`Self::wrap_step_line`] for each step.
+    /// Returning `None` preserves the classic flat layout.
+    fn box_top_border(&self, _snap: BoxSnapshot<'_>) -> Option<String> {
+        None
+    }
+
+    /// Optional bottom border of a boxed layout, rendered on run finish.
+    fn box_bottom_border(&self, _snap: BoxSnapshot<'_>) -> Option<String> {
+        None
+    }
+
+    /// Number of terminal columns reserved by the frame on a step line, subtracted
+    /// from the columns budget before calling [`Self::render`]. Default: 0.
+    ///
+    /// Boxed themes override this to reserve room for `│ cell  … │`.
+    fn step_column_reserve(&self) -> u16 {
+        0
+    }
+
+    /// Wrap a rendered step line in the boxed frame, with a vertical-progress cell
+    /// on the left. Default: identity (returns `inner` unchanged).
+    ///
+    /// `progress_cell` is a single-width glyph representing the overall plan progress
+    /// for this row (e.g. `"█"` done, `"▓"` current, `"░"` pending).
+    fn wrap_step_line(&self, inner: &str, _progress_cell: &str, _columns: u16) -> String {
+        inner.to_string()
     }
 
     /// Render error details as lines displayed below a failed step.
@@ -177,12 +281,14 @@ pub trait StepLineTheme: Send + Sync {
     /// Render a full step line: "  {icon} {label} {separator...} {elapsed}".
     fn render(&self, step: &StepLine, columns: u16) -> String {
         let is_running = step.status == StepStatus::Running;
-        let prefix = self.render_prefix(step, is_running);
-        let duration_str = step
+        // Plain prefix drives layout math (width calc must not include ANSI escapes).
+        let plain_prefix = self.render_prefix(step, is_running);
+        let plain_duration = step
             .elapsed
             .map(|d| self.format_elapsed(d))
             .unwrap_or_default();
-        let separator = self.render_separator(&prefix, &duration_str, columns as usize, is_running);
+        let plain_separator =
+            self.render_separator(&plain_prefix, &plain_duration, columns as usize, is_running);
         // Running steps get left_pad from the running_template in display.rs;
         // non-running steps (pending/completed) need it here since their template is plain "{msg}".
         let pad = if is_running {
@@ -191,10 +297,29 @@ pub trait StepLineTheme: Send + Sync {
             self.left_pad_str()
         };
 
-        if duration_str.is_empty() {
-            format!("{}{}{}", pad, prefix, separator)
+        // Re-emit prefix with the label segment colored (icon + padding stay plain).
+        let icon = self.status_icon(step.status);
+        let icon_width = display_width(icon);
+        let max_icon_width = self.icon_column_width();
+        let (indent, spinner_cols) = if is_running {
+            ("", 1usize)
         } else {
-            format!("{}{}{} {}", pad, prefix, separator, duration_str)
+            (self.step_indent(), 0usize)
+        };
+        let icon_pad = " ".repeat(max_icon_width.saturating_sub(icon_width + spinner_cols));
+        let colored_label = apply_style(&step.label, self.label_color());
+        let colored_prefix = format!("{}{}{} {}", indent, icon, icon_pad, colored_label);
+
+        let colored_separator = apply_style(&plain_separator, self.separator_color());
+
+        if plain_duration.is_empty() {
+            format!("{}{}{}", pad, colored_prefix, colored_separator)
+        } else {
+            let colored_duration = apply_style(&plain_duration, self.duration_color());
+            format!(
+                "{}{}{} {}",
+                pad, colored_prefix, colored_separator, colored_duration
+            )
         }
     }
 

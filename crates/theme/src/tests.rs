@@ -105,6 +105,39 @@ fn classic_plan_header_tree() {
 }
 
 #[test]
+fn plain_header_with_prefix_emits_prefix() {
+    let mut cfg = ThemeConfig::compact();
+    cfg.plan_header_prefix = "🚀 ".into();
+    let theme = ConfigurableTheme(cfg);
+    let lines = theme.render_plan_header(&["build".into(), "test".into()], 80);
+    assert_eq!(lines[1], " 🚀 Running: build, test");
+}
+
+#[test]
+fn label_color_does_not_affect_non_tty_output() {
+    // Tests run in non-TTY context, so label_color should not insert escapes.
+    let mut cfg = ThemeConfig::compact();
+    cfg.label_color = "cyan".into();
+    let theme = ConfigurableTheme(cfg);
+    let line = render_line(&theme, StepStatus::Succeeded, "cargo build", Some(0.5));
+    assert!(
+        !line.contains('\x1b'),
+        "non-TTY test output must not contain ANSI escapes"
+    );
+    assert!(line.contains("cargo build"));
+}
+
+#[test]
+fn summary_color_does_not_affect_non_tty_output() {
+    let mut cfg = ThemeConfig::compact();
+    cfg.summary_color = "bold green".into();
+    let theme = ConfigurableTheme(cfg);
+    let s = theme.render_summary(true, 1.0);
+    assert!(!s.contains('\x1b'));
+    assert!(s.contains("Done"));
+}
+
+#[test]
 fn compact_plan_header_plain() {
     let theme = ConfigurableTheme(ThemeConfig::compact());
     let ids = vec!["build".into(), "test".into()];
@@ -674,5 +707,101 @@ mod left_pad_tests {
             padded_line.starts_with("    ✓"),
             "should have 2-space pad + step_indent"
         );
+    }
+}
+
+mod boxed_layout_tests {
+    use super::*;
+    use crate::step_line_theme::BoxSnapshot;
+    use ops_core::config::theme_types::LayoutKind;
+
+    fn snap(
+        completed: usize,
+        total: usize,
+        elapsed: f64,
+        success: bool,
+        columns: u16,
+    ) -> BoxSnapshot<'static> {
+        BoxSnapshot::new(completed, total, elapsed, success, columns)
+    }
+
+    fn boxed_theme() -> ConfigurableTheme {
+        ConfigurableTheme(ThemeConfig {
+            layout_kind: LayoutKind::Boxed,
+            left_pad: 0,
+            ..ThemeConfig::compact()
+        })
+    }
+
+    #[test]
+    fn flat_theme_returns_no_borders() {
+        let theme = ConfigurableTheme(ThemeConfig::compact());
+        assert!(theme.box_top_border(snap(0, 5, 0.0, true, 80)).is_none());
+        assert!(theme.box_bottom_border(snap(5, 5, 1.0, true, 80)).is_none());
+        assert_eq!(theme.step_column_reserve(), 0);
+        assert_eq!(theme.wrap_step_line("hello", "█", 80), "hello");
+    }
+
+    #[test]
+    fn boxed_top_border_spans_columns() {
+        let theme = boxed_theme();
+        let top = theme
+            .box_top_border(snap(2, 5, 12.4, true, 60))
+            .expect("boxed theme returns top");
+        // Visible width (after stripping ANSI) must equal columns.
+        let plain = strip_ansi(&top);
+        assert_eq!(ops_core::output::display_width(&plain), 60, "got: {top}");
+        assert!(plain.starts_with("╭─"), "top corner: {plain}");
+        assert!(plain.ends_with("╮"), "top corner end: {plain}");
+        assert!(plain.contains("Running 2/5"), "contains progress: {plain}");
+    }
+
+    #[test]
+    fn boxed_bottom_border_shows_done_when_success() {
+        let theme = boxed_theme();
+        let bottom = theme
+            .box_bottom_border(snap(5, 5, 94.0, true, 60))
+            .expect("boxed theme returns bottom");
+        let plain = strip_ansi(&bottom);
+        assert!(plain.contains("Done 5/5"), "got: {plain}");
+        assert!(plain.starts_with("╰─"));
+        assert!(plain.ends_with("╯"));
+    }
+
+    #[test]
+    fn boxed_bottom_border_shows_failed_when_not_success() {
+        let theme = boxed_theme();
+        let bottom = theme
+            .box_bottom_border(snap(3, 5, 2.0, false, 50))
+            .expect("boxed theme returns bottom");
+        let plain = strip_ansi(&bottom);
+        assert!(plain.contains("Failed 3/5"), "got: {plain}");
+    }
+
+    #[test]
+    fn boxed_top_border_switches_verb_when_all_complete() {
+        let theme = boxed_theme();
+        let running = strip_ansi(&theme.box_top_border(snap(2, 5, 1.0, true, 50)).unwrap());
+        assert!(running.contains("Running 2/5"));
+        let done = strip_ansi(&theme.box_top_border(snap(5, 5, 1.0, true, 50)).unwrap());
+        assert!(done.contains("Done 5/5"));
+        let failing = strip_ansi(&theme.box_top_border(snap(2, 5, 1.0, false, 50)).unwrap());
+        assert!(failing.contains("Failing 2/5"));
+    }
+
+    #[test]
+    fn wrap_step_line_reserves_seven_columns_and_pads_to_width() {
+        let theme = boxed_theme();
+        assert_eq!(theme.step_column_reserve(), 7);
+        let wrapped = theme.wrap_step_line("  ✓ cargo build 1.23s", "█", 60);
+        let plain = strip_ansi(&wrapped);
+        // Wrapped line should be exactly `columns` wide.
+        assert_eq!(
+            ops_core::output::display_width(&plain),
+            60,
+            "wrap width: {plain}"
+        );
+        assert!(plain.starts_with("│ █  "), "prefix: {plain}");
+        assert!(plain.ends_with(" │"), "suffix: {plain}");
     }
 }
