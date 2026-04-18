@@ -2054,6 +2054,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
+ "unicode-width",
 ]
 
 [[package]]
@@ -2062,6 +2063,7 @@ version = "0.16.0"
 dependencies = [
  "anyhow",
  "linkme",
+ "ops-about",
  "ops-core",
  "ops-extension",
  "serde_json",
@@ -2085,8 +2087,8 @@ name = "ops-about-rust"
 version = "0.16.0"
 dependencies = [
  "anyhow",
- "indicatif",
  "linkme",
+ "ops-about",
  "ops-cargo-toml",
  "ops-core",
  "ops-duckdb",
@@ -2096,7 +2098,6 @@ dependencies = [
  "tempfile",
  "toml 1.0.7+spec-1.1.0",
  "tracing",
- "unicode-width",
 ]
 
 [[package]]
