@@ -101,6 +101,7 @@ pub enum CoreSubcommand {
     ///
     /// Without a subcommand, runs checks on all files.
     /// Use `--changed-only` to limit to changed files.
+    #[command(next_help_heading = "Setup")]
     RunBeforePush {
         /// Only check changed files instead of the entire workspace.
         #[arg(long)]

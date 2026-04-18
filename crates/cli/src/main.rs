@@ -7,7 +7,12 @@ extern crate ops_about_go;
 #[cfg(any(feature = "stack-java-maven", feature = "stack-java-gradle"))]
 extern crate ops_about_java;
 #[cfg(feature = "stack-rust")]
+extern crate ops_about_rust;
+#[cfg(feature = "stack-rust")]
+extern crate ops_cargo_toml;
+#[cfg(feature = "stack-rust")]
 extern crate ops_cargo_update;
+extern crate ops_git;
 #[cfg(feature = "stack-rust")]
 extern crate ops_metadata;
 #[cfg(feature = "coverage")]
@@ -199,7 +204,9 @@ fn builtin_category(name: &str) -> Option<&'static str> {
     match name {
         "about" => Some("Insights"),
         "deps" => Some("Code Quality"),
-        "init" | "theme" | "extension" | "tools" => Some("Setup"),
+        "init" | "theme" | "extension" | "tools" | "run-before-commit" | "run-before-push" => {
+            Some("Setup")
+        }
         _ => Some("Commands"),
     }
 }
@@ -571,7 +578,14 @@ mod tests {
 
     #[test]
     fn builtin_category_setup_commands() {
-        for name in &["init", "theme", "extension", "tools"] {
+        for name in &[
+            "init",
+            "theme",
+            "extension",
+            "tools",
+            "run-before-commit",
+            "run-before-push",
+        ] {
             assert_eq!(builtin_category(name), Some("Setup"), "failed for {name}");
         }
     }
