@@ -68,16 +68,46 @@ Config is merged in order: built-in defaults → global config → local `.ops.t
 
 ## Commands
 
+### Stack-agnostic CLI (same on every stack)
+
 | Command | Description |
 |---------|-------------|
 | `ops <name>` | Run a configured command or command group |
-| `ops init` | Create `.ops.toml` (use `--force` to overwrite) |
+| `ops init` | Create `.ops.toml` (use `--force` to overwrite; `--commands` emits stack defaults) |
 | `ops new-command` | Add a new command from a command line string |
 | `ops theme list\|select` | List or select output themes |
 | `ops extension list\|show` | List compiled-in extensions |
-| `ops about` | Project identity card (Rust stacks) |
-| `ops dashboard` | Project health dashboard (Rust stacks) |
-| `ops tools list\|check\|install` | Manage dev tools (Rust stacks) |
+| `ops about [setup\|code\|coverage\|dependencies\|crates\|modules]` | Project identity card and subpages |
+| `ops run-before-commit [install]` | Pre-commit hook runner |
+| `ops run-before-push [install]` | Pre-push hook runner |
+
+### Stack-gated CLI
+
+| Command | Available on |
+|---------|--------------|
+| `ops deps` | Rust |
+| `ops tools list\|check\|install` | Rust |
+| `ops about coverage` / `dependencies` | Rust |
+| `ops about crates` / `modules` | Rust, Go |
+
+### Stack command baseline
+
+Every supported stack ships the same 7-command contract via `ops init --commands`.
+A `✓` means the command is active by default; `*` means it's emitted commented-out
+as a suggestion you can uncomment and adjust.
+
+| Command | Rust | Node | Go | Python | TF | Ansible | Java-M | Java-G |
+|---------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `fmt`       | ✓ (cargo fmt) | * (prettier)   | ✓ (go fmt) | ✓ (ruff format, key `format`) | ✓ (tf fmt) | * (ansible-lint --fix) | * (spotless) | * (spotless) |
+| `lint`      | ✓ (cargo clippy, key `clippy`) | ✓ (npm run lint) | ✓ (go vet, key `vet`) | ✓ (ruff check) | * (tflint) | ✓ (ansible-lint) | * (spotless/checkstyle) | * (spotless/checkstyle) |
+| `build`     | ✓ | ✓ | ✓ | * (python -m build) | * (terraform plan) | * (galaxy build) | ✓ | ✓ |
+| `test`      | ✓ | ✓ | ✓ | ✓ (pytest) | * (terraform test) | * (molecule test) | ✓ | ✓ |
+| `clean`     | ✓ (cargo clean) | * (rm node_modules dist) | ✓ (go clean) | * (rm caches) | * (rm .terraform) | * (rm .ansible) | ✓ | ✓ |
+| `verify`    | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `qa`        | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+Commented suggestions show up verbatim when you run `ops init --commands`, so you can
+opt in by uncommenting, or remap to the tool your project actually uses.
 
 ## Features
 

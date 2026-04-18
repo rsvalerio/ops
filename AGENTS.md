@@ -98,6 +98,31 @@ For better organization, place additional config files in `.ops.d/`:
 
 Files are merged in alphabetical order after `.ops.toml`. Each file uses the same format.
 
+### Stack defaults
+
+Per-stack defaults live in `crates/core/src/.default.<stack>.ops.toml`, embedded via
+`include_str!` in `crates/core/src/stack.rs`. Supported stacks: `rust`, `node`, `go`,
+`python`, `terraform`, `ansible`, `java-maven`, `java-gradle`.
+
+Every stack ships the same **7-command baseline**: `fmt`, `lint`, `build`, `test`,
+`clean`, `verify`, `qa`. When a stack has no obvious default for one of these, the
+template emits the command as a commented-out suggestion using this convention:
+
+```toml
+# Baseline suggestion — uncomment and adjust to opt in.
+# [commands.build]
+# program = "..."
+# args = [...]
+# help = "..."
+# category = "Build"
+```
+
+When adding a new stack or editing templates, preserve the baseline — the tests in
+`stack.rs` (`each_stack_default_toml_parses_and_includes_verify`, `every_stack_defines_qa`)
+enforce presence of `verify` and `qa` for every stack. Prefer idiomatic command names
+(Rust `clippy`, Go `vet`, Python `format`) over forced uniformity; these satisfy
+baseline `lint`/`fmt` intent without renaming well-known per-stack tools.
+
 Example `.ops.toml`:
 
 ```toml
