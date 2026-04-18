@@ -4,6 +4,20 @@
 //! returning [`ops_core::project_identity::ProjectIdentity`] as JSON.
 //! When no provider is available, a minimal identity is built from the filesystem.
 
+pub mod cards;
+pub mod coverage;
+pub mod deps;
+pub mod text_util;
+pub mod units;
+pub use coverage::run_about_coverage;
+pub use deps::run_about_deps;
+pub use units::run_about_units;
+
+#[cfg(feature = "duckdb")]
+pub mod code;
+#[cfg(feature = "duckdb")]
+pub use code::run_about_code;
+
 use std::io::{IsTerminal, Write};
 use std::path::Path;
 
