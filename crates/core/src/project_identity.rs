@@ -430,9 +430,10 @@ impl AboutCard {
     ///
     /// Pass `is_tty = true` to enable ANSI colors in the output.
     pub fn render(&self, _columns: u16, is_tty: bool) -> String {
-        let mut lines = vec![String::new()];
+        let mut lines: Vec<String> = Vec::new();
 
         if let Some(desc) = &self.description {
+            lines.push(String::new());
             lines.push(format!("  {}", desc));
         }
 
