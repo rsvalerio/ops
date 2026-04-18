@@ -61,6 +61,78 @@ pub struct ProjectIdentity {
     pub languages: Vec<String>,
 }
 
+/// A sub-unit of a project (crate, module, package, workspace member).
+///
+/// Stack-specific extensions provide a `"project_units"` data provider returning
+/// `Vec<ProjectUnit>` as JSON. The generic `about units` subpage renders these
+/// as a grid of cards.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectUnit {
+    /// Display name (typically capitalized or from package metadata).
+    pub name: String,
+    /// Relative path from the project root.
+    pub path: String,
+    /// Semver/version string, if applicable.
+    #[serde(default)]
+    pub version: Option<String>,
+    /// Short description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Lines of code.
+    #[serde(default)]
+    pub loc: Option<i64>,
+    /// Source file count.
+    #[serde(default)]
+    pub file_count: Option<i64>,
+    /// Dependency count.
+    #[serde(default)]
+    pub dep_count: Option<i64>,
+}
+
+/// Lines-covered / total for a coverage report.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct CoverageStats {
+    pub lines_percent: f64,
+    pub lines_covered: i64,
+    pub lines_count: i64,
+}
+
+/// Coverage breakdown for a single unit (crate/module/package).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UnitCoverage {
+    /// Display name for the unit (typically resolved from stack metadata).
+    pub unit_name: String,
+    /// Relative path of the unit from the project root.
+    pub unit_path: String,
+    pub stats: CoverageStats,
+}
+
+/// Project-wide coverage, optionally broken down by unit.
+///
+/// Returned by the `"project_coverage"` data provider.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectCoverage {
+    pub total: CoverageStats,
+    #[serde(default)]
+    pub units: Vec<UnitCoverage>,
+}
+
+/// Direct dependencies of a single unit.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UnitDeps {
+    pub unit_name: String,
+    /// (dependency name, version requirement) pairs.
+    pub deps: Vec<(String, String)>,
+}
+
+/// Project-wide dependency tree, keyed by unit.
+///
+/// Returned by the `"project_dependencies"` data provider.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectDependencies {
+    pub units: Vec<UnitDeps>,
+}
+
 /// Metadata for a field that can appear on the about card.
 pub struct AboutFieldDef {
     /// Identifier used in config (e.g. "project", "code").
