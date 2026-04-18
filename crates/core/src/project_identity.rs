@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::style::{cyan, dim};
+use crate::style::dim;
 
 /// Canonical project identity returned by stack-specific data providers.
 ///
@@ -149,14 +149,22 @@ pub struct AboutFieldDef {
 /// [`base_about_fields`] to get these as `Vec<AboutFieldDef>` and append any
 /// extras (e.g. Rust adds `homepage`, `msrv`, `dependencies`).
 pub const BASE_ABOUT_FIELDS: &[(&str, &str, &str)] = &[
-    ("project", "Project path", "Absolute path to project root"),
+    (
+        "stack",
+        "Stack",
+        "Language/stack and variant (e.g. Edition 2021)",
+    ),
+    ("license", "License", "SPDX license identifier"),
+    ("project", "Project", "Project name, version, and path"),
     ("modules", "Module count", "Number of project modules"),
-    ("code", "Lines of code", "Total lines of code (from tokei)"),
-    ("files", "File count", "Total source file count"),
-    ("authors", "Authors", "Project author(s)"),
+    (
+        "codebase",
+        "Codebase",
+        "LOC, file count, and language mix (from tokei)",
+    ),
     ("repository", "Repository", "Repository URL"),
+    ("authors", "Authors", "Project author(s)"),
     ("coverage", "Coverage", "Test coverage percentage"),
-    ("languages", "Languages", "Languages used in the project"),
 ];
 
 /// Convert [`BASE_ABOUT_FIELDS`] into a `Vec<AboutFieldDef>`.
@@ -171,69 +179,193 @@ pub fn base_about_fields() -> Vec<AboutFieldDef> {
         .collect()
 }
 
-/// Map a field key to its emoji prefix.
-fn field_emoji(key: &str) -> &'static str {
+/// Map a field (key, value) pair to its emoji prefix. The `stack` field is
+/// value-aware so each language gets its own glyph.
+fn field_emoji(key: &str, value: &str) -> &'static str {
     match key {
-        "project" => "\u{1f4c1}",                         // 📁
+        "stack" => stack_emoji(value),
+        "license" => "\u{1f4dc}",                         // 📜
+        "project" => "\u{1f3f7}\u{fe0f}",                 // 🏷️
         "crates" | "packages" | "modules" => "\u{1f4e6}", // 📦
-        "code" => "\u{1f4dd}",                            // 📝
-        "files" => "\u{1f4c4}",                           // 📄
+        "codebase" => "\u{1f4dd}",                        // 📝
         "author" | "authors" => "\u{1f464}",              // 👤
         "repository" => "\u{1f517}",                      // 🔗
         "homepage" => "\u{1f310}",                        // 🌐
-        "msrv" => "\u{2699}\u{fe0f}",                     // ⚙️
         "dependencies" => "\u{1f9e9}",                    // 🧩
         "coverage" => "\u{1f9ea}",                        // 🧪
-        "languages" => "\u{1f4ac}",                       // 💬
         _ => "\u{25b8}",                                  // ▸ fallback
     }
 }
 
+/// Language-specific emoji derived from the stack label (first token of the
+/// `stack` field value, e.g. `"Rust · Edition 2021"` → `"Rust"` → 🦀).
+fn stack_emoji(value: &str) -> &'static str {
+    let label = value.split_whitespace().next().unwrap_or("");
+    match label {
+        "Rust" => "\u{1f980}",               // 🦀
+        "Go" => "\u{1f439}",                 // 🐹
+        "Node" | "JavaScript" => "\u{2b22}", // ⬢
+        "Python" => "\u{1f40d}",             // 🐍
+        "Java" => "\u{2615}",                // ☕
+        "Terraform" => "\u{1f4a0}",          // 💠
+        "Ansible" => "\u{1f170}\u{fe0f}",    // 🅰️
+        _ => "\u{1f4da}",                    // 📚 generic
+    }
+}
+
+/// Shorten long language names for the compact codebase field.
+fn short_language_name(name: &str) -> &str {
+    match name {
+        "JavaScript" => "JS",
+        "TypeScript" => "TS",
+        "Protocol Buffers" => "Protobuf",
+        "Handlebars" => "HBS",
+        other => other,
+    }
+}
+
+/// Compose the `languages` tail of the codebase field: keep the top 3 entries
+/// and roll the rest into `+N more`. Each input is already formatted as
+/// `"Language X.Y%"` by the data provider.
+fn format_language_mix(langs: &[String], top_n: usize) -> String {
+    if langs.is_empty() {
+        return String::new();
+    }
+    let shortened: Vec<String> = langs
+        .iter()
+        .map(|entry| match entry.rsplit_once(' ') {
+            Some((name, pct)) => format!("{} {}", short_language_name(name), pct),
+            None => entry.clone(),
+        })
+        .collect();
+    if shortened.len() <= top_n {
+        return shortened.join(", ");
+    }
+    let head = shortened[..top_n].join(", ");
+    let rest = shortened.len() - top_n;
+    format!("{}, +{} more", head, rest)
+}
+
+/// Compose the multi-line `stack` field value: language label, optional
+/// stack detail (e.g. "Edition 2021"), and optional MSRV.
+fn compose_stack_value(id: &ProjectIdentity) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if !id.stack_label.is_empty() {
+        parts.push(id.stack_label.clone());
+    }
+    if let Some(d) = &id.stack_detail {
+        if !d.is_empty() {
+            parts.push(d.clone());
+        }
+    }
+    if let Some(msrv) = &id.msrv {
+        if !msrv.is_empty() {
+            parts.push(format!("{} (msrv)", msrv));
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n"))
+    }
+}
+
+/// Compose the multi-line `project` field value: name, optional version
+/// line, and project path.
+fn compose_project_value(id: &ProjectIdentity) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if !id.name.is_empty() {
+        parts.push(id.name.clone());
+    }
+    if let Some(v) = &id.version {
+        if !v.is_empty() {
+            parts.push(format!("v{}", v));
+        }
+    }
+    if !id.project_path.is_empty() {
+        parts.push(id.project_path.clone());
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n"))
+    }
+}
+
+/// Compose the single `codebase` field value from LOC, file count, and
+/// language mix. Returns `None` when none of the inputs are present.
+fn compose_codebase_value(id: &ProjectIdentity) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(loc) = id.loc {
+        parts.push(format!("{} loc", format_number(loc)));
+    }
+    if let Some(f) = id.file_count {
+        if f > 0 {
+            parts.push(format!(
+                "{} file{}",
+                format_number(f),
+                if f != 1 { "s" } else { "" }
+            ));
+        }
+    }
+    let langs = format_language_mix(&id.languages, 3);
+    if !langs.is_empty() {
+        parts.push(langs);
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n"))
+    }
+}
+
 /// Rendering-ready about card, derived from [`ProjectIdentity`].
+///
+/// Everything that used to live in a title/badge header (name, version, stack,
+/// license) is now rendered as ordinary fields.
 pub struct AboutCard {
-    /// e.g. "ops v0.10.0"
-    pub title: String,
-    /// e.g. "Rust · Apache-2.0"
-    pub badge: String,
     pub description: Option<String>,
-    /// Key-value fields: [("project", "/path/..."), ("crates", "15"), ...]
+    /// Key-value fields: [("name", "ops v0.10.0"), ("stack", "Rust · Edition 2021"), ("project", "/path"), ...]
     pub fields: Vec<(String, String)>,
 }
 
 fn std_field_specs(id: &ProjectIdentity) -> Vec<(&'static str, String, Option<String>)> {
+    let stack_value = compose_stack_value(id);
+    let project_value = compose_project_value(id);
     vec![
-        ("project", "project".into(), Some(id.project_path.clone())),
+        ("project", "project".into(), project_value),
+        ("stack", "stack".into(), stack_value),
+        (
+            "license",
+            "license".into(),
+            id.license.clone().filter(|s| !s.is_empty()),
+        ),
         (
             "modules",
             id.module_label.clone(),
             id.module_count.map(|c| c.to_string()),
         ),
-        (
-            "code",
-            "code".into(),
-            id.loc.map(|l| format!("{} loc", format_number(l))),
-        ),
-        (
-            "files",
-            "files".into(),
-            id.file_count.and_then(|f| {
-                (f > 0)
-                    .then(|| format!("{} file{}", format_number(f), if f != 1 { "s" } else { "" }))
-            }),
-        ),
-        ("repository", "repository".into(), id.repository.clone()),
-        ("homepage", "homepage".into(), id.homepage.clone()),
-        ("msrv", "msrv".into(), id.msrv.clone()),
+        ("codebase", "codebase".into(), compose_codebase_value(id)),
         (
             "dependencies",
             "dependencies".into(),
-            id.dependency_count.map(|c| {
+            id.dependency_count.filter(|&c| c > 0).map(|c| {
                 format!(
                     "{} dependenc{}",
                     format_number(c as i64),
                     if c != 1 { "ies" } else { "y" }
                 )
             }),
+        ),
+        (
+            "repository",
+            "repository".into(),
+            id.repository.clone().filter(|s| !s.is_empty()),
+        ),
+        (
+            "homepage",
+            "homepage".into(),
+            id.homepage.clone().filter(|s| !s.is_empty()),
         ),
     ]
 }
@@ -242,6 +374,7 @@ fn push_special_fields(
     fields: &mut Vec<(String, String)>,
     id: &ProjectIdentity,
     show: impl Fn(&str) -> bool,
+    explicit_filter: bool,
 ) {
     if show("authors") && !id.authors.is_empty() {
         let label = if id.authors.len() == 1 {
@@ -251,15 +384,18 @@ fn push_special_fields(
         };
         fields.push((label.to_string(), id.authors.join(", ")));
     }
+    // Coverage: show the percentage when known. When unknown, only render the
+    // "not collected" placeholder if the user has explicitly asked for the
+    // coverage field via config (visible_fields); otherwise hide it so the
+    // card stays compact for stacks that haven't wired up coverage yet.
     if show("coverage") {
-        let value = match id.coverage_percent {
-            Some(pct) => format!("{:.1}%", pct),
-            None => "\u{26a0}\u{fe0f} run 'ops about --refresh' to collect".to_string(),
-        };
-        fields.push(("coverage".to_string(), value));
-    }
-    if show("languages") && !id.languages.is_empty() {
-        fields.push(("languages".to_string(), id.languages.join(", ")));
+        match id.coverage_percent {
+            Some(pct) => fields.push(("coverage".to_string(), format!("{:.1}%", pct))),
+            None if explicit_filter => {
+                fields.push(("coverage".to_string(), "not collected".to_string()));
+            }
+            None => {}
+        }
     }
 }
 
@@ -269,20 +405,6 @@ impl AboutCard {
     }
 
     pub fn from_identity_filtered(id: &ProjectIdentity, visible_fields: Option<&[String]>) -> Self {
-        let title = match &id.version {
-            Some(v) => format!("{} v{}", id.name, v),
-            None => id.name.clone(),
-        };
-
-        let mut badge_parts = vec![id.stack_label.clone()];
-        if let Some(detail) = &id.stack_detail {
-            badge_parts.push(detail.clone());
-        }
-        if let Some(license) = &id.license {
-            badge_parts.push(license.clone());
-        }
-        let badge = badge_parts.join(" \u{00b7} ");
-
         let show = |field_id: &str| -> bool {
             match visible_fields {
                 None => true,
@@ -296,11 +418,9 @@ impl AboutCard {
             .filter_map(|(_, label, val)| val.map(|v| (label, v)))
             .collect();
 
-        push_special_fields(&mut fields, id, show);
+        push_special_fields(&mut fields, id, show, visible_fields.is_some());
 
         Self {
-            title,
-            badge,
             description: id.description.clone(),
             fields,
         }
@@ -310,36 +430,39 @@ impl AboutCard {
     ///
     /// Pass `is_tty = true` to enable ANSI colors in the output.
     pub fn render(&self, _columns: u16, is_tty: bool) -> String {
-        let mut lines = Vec::new();
+        let mut lines = vec![String::new()];
 
-        // Inline: title · badge
-        let header = if is_tty {
-            format!("{} \u{00b7} {}", cyan(&self.title), dim(&self.badge))
-        } else {
-            format!("{} \u{00b7} {}", self.title, self.badge)
-        };
-        lines.push(format!("  {}", header));
-
-        // Description
         if let Some(desc) = &self.description {
-            lines.push(String::new());
             lines.push(format!("  {}", desc));
         }
 
-        // Fields
         if !self.fields.is_empty() {
-            lines.push(String::new());
+            if !lines.is_empty() {
+                lines.push(String::new());
+            }
             let max_key_len = self.fields.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+            // Continuation indent: 2 leading + 2 emoji cols + 1 space + key width + 1 space.
+            let cont_indent = " ".repeat(2 + 2 + 1 + (max_key_len + 2) + 1);
             for (key, value) in &self.fields {
-                let styled_value = if is_tty { dim(value) } else { value.clone() };
-                let emoji = field_emoji(key);
+                let emoji = field_emoji(key, value);
+                let mut value_lines = value.split('\n');
+                let first = value_lines.next().unwrap_or("");
+                let styled_first = if is_tty {
+                    dim(first)
+                } else {
+                    first.to_string()
+                };
                 lines.push(format!(
                     "  {} {:<width$} {}",
                     emoji,
                     key,
-                    styled_value,
+                    styled_first,
                     width = max_key_len + 2
                 ));
+                for cont in value_lines {
+                    let styled = if is_tty { dim(cont) } else { cont.to_string() };
+                    lines.push(format!("{}{}", cont_indent, styled));
+                }
             }
         }
 
@@ -376,18 +499,29 @@ mod tests {
             languages: vec![],
         };
         let card = AboutCard::from_identity(&id);
-        assert_eq!(card.title, "ops v0.10.0");
-        assert_eq!(card.badge, "Rust \u{00b7} Edition 2021 \u{00b7} Apache-2.0");
         assert_eq!(card.description, Some("Task runner".to_string()));
-        assert_eq!(card.fields.len(), 7); // project, crates, code, files, author, repository, coverage
+        // project, stack, license, crates, codebase, repository, author
+        // (no coverage — hidden when empty + all-fields mode)
+        assert_eq!(card.fields.len(), 7);
         assert_eq!(
             card.fields[0],
-            ("project".to_string(), "/home/user/ops".to_string())
+            (
+                "project".to_string(),
+                "ops\nv0.10.0\n/home/user/ops".to_string()
+            )
         );
-        assert_eq!(card.fields[1], ("crates".to_string(), "15".to_string()));
+        assert_eq!(
+            card.fields[1],
+            ("stack".to_string(), "Rust\nEdition 2021".to_string())
+        );
         assert_eq!(
             card.fields[2],
-            ("code".to_string(), "21,324 loc".to_string())
+            ("license".to_string(), "Apache-2.0".to_string())
+        );
+        assert_eq!(card.fields[3], ("crates".to_string(), "15".to_string()));
+        assert_eq!(
+            card.fields[4],
+            ("codebase".to_string(), "21,324 loc\n96 files".to_string())
         );
     }
 
@@ -414,10 +548,95 @@ mod tests {
             languages: vec![],
         };
         let card = AboutCard::from_identity(&id);
-        assert_eq!(card.title, "myproject");
-        assert_eq!(card.badge, "Generic");
         assert!(card.description.is_none());
-        assert_eq!(card.fields.len(), 2); // project path + coverage hint
+        // project, stack — no license, no coverage (empty).
+        assert_eq!(card.fields.len(), 2);
+        assert_eq!(
+            card.fields[0],
+            (
+                "project".to_string(),
+                "myproject\n/tmp/myproject".to_string()
+            )
+        );
+        assert_eq!(card.fields[1], ("stack".to_string(), "Generic".to_string()));
+    }
+
+    #[test]
+    fn about_card_codebase_with_languages() {
+        let id = ProjectIdentity {
+            name: "openbao".to_string(),
+            version: None,
+            description: None,
+            stack_label: "Go".to_string(),
+            stack_detail: None,
+            license: None,
+            project_path: "/p".to_string(),
+            module_count: Some(7),
+            module_label: "modules".to_string(),
+            loc: Some(555_910),
+            file_count: Some(4_929),
+            authors: vec![],
+            repository: None,
+            homepage: None,
+            msrv: None,
+            dependency_count: None,
+            coverage_percent: None,
+            languages: vec![
+                "Go 77.7%".into(),
+                "JavaScript 11.5%".into(),
+                "Handlebars 3.9%".into(),
+                "YAML 2.6%".into(),
+                "SVG 1.2%".into(),
+            ],
+        };
+        let card = AboutCard::from_identity(&id);
+        let codebase = card
+            .fields
+            .iter()
+            .find(|(k, _)| k == "codebase")
+            .expect("codebase field")
+            .1
+            .clone();
+        assert_eq!(
+            codebase,
+            "555,910 loc\n4,929 files\nGo 77.7%, JS 11.5%, HBS 3.9%, +2 more"
+        );
+    }
+
+    #[test]
+    fn about_card_coverage_hidden_when_empty() {
+        let id = ProjectIdentity {
+            name: "x".into(),
+            stack_label: "Rust".into(),
+            project_path: "/p".into(),
+            module_label: "crates".into(),
+            coverage_percent: None,
+            ..Default::default()
+        };
+        let card = AboutCard::from_identity(&id);
+        assert!(card.fields.iter().all(|(k, _)| k != "coverage"));
+    }
+
+    #[test]
+    fn about_card_coverage_shown_when_explicitly_selected() {
+        let id = ProjectIdentity {
+            name: "x".into(),
+            stack_label: "Rust".into(),
+            project_path: "/p".into(),
+            module_label: "crates".into(),
+            coverage_percent: None,
+            ..Default::default()
+        };
+        let card = AboutCard::from_identity_filtered(
+            &id,
+            Some(&["project".to_string(), "coverage".to_string()]),
+        );
+        let cov = card
+            .fields
+            .iter()
+            .find(|(k, _)| k == "coverage")
+            .expect("coverage");
+        assert_eq!(cov.1, "not collected");
     }
 
     fn sample_identity() -> ProjectIdentity {
@@ -444,10 +663,11 @@ mod tests {
     }
 
     #[test]
-    fn render_non_tty_contains_title_and_badge() {
+    fn render_non_tty_contains_identity_fields() {
         let card = AboutCard::from_identity(&sample_identity());
         let output = card.render(80, false);
-        assert!(output.contains("ops v0.10.0"), "got: {output}");
+        assert!(output.contains("ops"), "got: {output}");
+        assert!(output.contains("v0.10.0"), "got: {output}");
         assert!(output.contains("Rust"), "got: {output}");
         assert!(output.contains("Apache-2.0"), "got: {output}");
     }
@@ -516,8 +736,8 @@ mod tests {
         let output = card.render(80, false);
         assert!(output.contains("bare"), "got: {output}");
         assert!(output.contains("/tmp"), "got: {output}");
-        // 2 fields (project + coverage hint), no description line
-        assert_eq!(output.matches('\n').count(), 3); // header, blank, field, field
+        // stack, project — project spans 2 lines (name + path). 3 output lines.
+        assert_eq!(output.matches('\n').count(), 2);
     }
 
     #[test]

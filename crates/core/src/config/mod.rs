@@ -87,7 +87,7 @@ impl ExtensionConfig {
 #[serde(deny_unknown_fields)]
 pub struct AboutConfig {
     /// Fields to display on the about card. None = show all fields.
-    /// Values: "project", "modules", "code", "files", "authors", "repository"
+    /// Values: "project", "modules", "codebase", "authors", "repository", "coverage"
     pub fields: Option<Vec<String>>,
 }
 

@@ -110,7 +110,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
-        let fields = vec!["project".to_string(), "code".to_string()];
+        let fields = vec!["project".to_string(), "codebase".to_string()];
         save_about_fields(&fields).expect("save should succeed");
 
         let config_path = dir.path().join(".ops.toml");
@@ -118,7 +118,7 @@ mod tests {
         let content = std::fs::read_to_string(&config_path).unwrap();
         assert!(content.contains("[about]"), "got: {content}");
         assert!(content.contains("project"), "got: {content}");
-        assert!(content.contains("code"), "got: {content}");
+        assert!(content.contains("codebase"), "got: {content}");
     }
 
     #[test]
@@ -151,14 +151,14 @@ mod tests {
 
         let fields = vec![
             "project".to_string(),
-            "code".to_string(),
-            "files".to_string(),
+            "codebase".to_string(),
+            "repository".to_string(),
         ];
         save_about_fields(&fields).expect("save should succeed");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert!(content.contains("code"), "got: {content}");
-        assert!(content.contains("files"), "got: {content}");
+        assert!(content.contains("codebase"), "got: {content}");
+        assert!(content.contains("repository"), "got: {content}");
     }
 
     #[test]

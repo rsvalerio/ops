@@ -229,14 +229,14 @@ mod tests {
         let mut base = Config::default();
         let overlay = ConfigOverlay {
             about: Some(super::super::AboutConfigOverlay {
-                fields: Some(vec!["project".to_string(), "code".to_string()]),
+                fields: Some(vec!["project".to_string(), "codebase".to_string()]),
             }),
             ..Default::default()
         };
         merge_config(&mut base, &overlay);
         assert_eq!(
             base.about.fields,
-            Some(vec!["project".to_string(), "code".to_string()])
+            Some(vec!["project".to_string(), "codebase".to_string()])
         );
     }
 
