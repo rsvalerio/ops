@@ -1,25 +1,24 @@
 //! Rust stack implementation for the about system.
 //!
-//! Provides:
-//! - `project_identity` data provider (Rust-specific project identity)
-//! - About subpages (coverage, code, dependencies, crates)
+//! Provides Rust-specific data providers (identity, units, coverage,
+//! dependencies). All about subpages (units, coverage, dependencies, code)
+//! are rendered by the generic `ops_about` crate — this crate only supplies
+//! data.
 //!
-//! Split into submodules by responsibility (CQ-001):
-//! - `identity`: Rust project_identity data provider
-//! - `text_util`: formatting, padding, truncation, wrapping
-//! - `cards`: crate card rendering and grid layout
-//! - `query`: data fetching from DuckDB/providers
-//! - `format`: section formatters for about pages
-//! - `pages`: about subpage orchestration and section formatters
+//! Split into submodules by responsibility:
+//! - `identity`: `project_identity` data provider
+//! - `units`: `project_units` data provider (workspace members)
+//! - `coverage_provider`: `project_coverage` data provider
+//! - `deps_provider`: `project_dependencies` data provider
+//!
+//! Shared rendering for about subpages (units, coverage, dependencies, code)
+//! lives in the generic `ops_about` crate.
 
-pub(crate) mod cards;
-pub(crate) mod format;
+pub(crate) mod coverage_provider;
+pub(crate) mod deps_provider;
 pub(crate) mod identity;
-pub mod pages;
 pub(crate) mod query;
-pub(crate) mod text_util;
-
-pub use pages::{run_about_page, AboutPage};
+pub(crate) mod units;
 
 pub const NAME: &str = "about-rust";
 pub const DESCRIPTION: &str = "Rust project identity and about pages";
@@ -40,6 +39,15 @@ ops_extension::impl_extension! {
     register_commands: |_self, _registry| {},
     register_data_providers: |_self, registry| {
         registry.register(DATA_PROVIDER_NAME, Box::new(identity::RustIdentityProvider));
+        registry.register(units::PROVIDER_NAME, Box::new(units::RustUnitsProvider));
+        registry.register(
+            coverage_provider::PROVIDER_NAME,
+            Box::new(coverage_provider::RustCoverageProvider),
+        );
+        registry.register(
+            deps_provider::PROVIDER_NAME,
+            Box::new(deps_provider::RustDepsProvider),
+        );
     },
     factory: ABOUT_RUST_FACTORY = |_, _| {
         Some((NAME, Box::new(AboutRustExtension)))
