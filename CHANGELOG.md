@@ -2,6 +2,27 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.17.0](https://github.com/rsvalerio/ops/compare/8d5782c941dad96f203b0983ffa44f484eab2709..v0.17.0) - 2026-04-18
+#### 🚀 Features
+- (**about-go**) add project_units data provider for Go modules - ([36195aa](https://github.com/rsvalerio/ops/commit/36195aaf79d7dd6be9d101ae54d50e433e3a193d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) add ProjectUnit, CoverageStats, and deps data types for about subpages - ([6d0e913](https://github.com/rsvalerio/ops/commit/6d0e9134a8c61be7f86e36f98c85af63a9331f4a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) add boxed layout, ANSI styling, and flux/studio themes - ([f2084d4](https://github.com/rsvalerio/ops/commit/f2084d473881cb6e09cd243e493a2a4b0199945c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) add boxed layout, ANSI styling, and flux/studio themes - ([d889b1d](https://github.com/rsvalerio/ops/commit/d889b1dc8a6047b8d416c1c9ea9f0528129e5c89)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about**) extract cards, coverage, deps, and units into generic extensions/about - ([b67bc57](https://github.com/rsvalerio/ops/commit/b67bc576251254081dcd4710cd6cb1729c97323f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) simplify about subpage routing to use generic ops_about calls - ([69ea84c](https://github.com/rsvalerio/ops/commit/69ea84cbabe03d276e4cae832532ca5f1d0be330)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli,runner**) extract hook logic and simplify command execution - ([16852fa](https://github.com/rsvalerio/ops/commit/16852fae5413fcc64215fc625dee728906188f69)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) improve config loading, stack, and project identity - ([8cf757c](https://github.com/rsvalerio/ops/commit/8cf757c4c9cbffb20388e0d29e9e477ca3365d8f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) simplify query, ingest, validation, and error handling - ([9370cae](https://github.com/rsvalerio/ops/commit/9370cae7c6859fcd284d44e199c23766fc29de82)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions**) simplify about, run-before-commit, run-before-push, and tokei - ([076a4b4](https://github.com/rsvalerio/ops/commit/076a4b477c8987d8cac38c3baaa26cb5f49658fb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust**) extract cargo-toml inheritance and simplify about, tools, test-coverage - ([4f1c09d](https://github.com/rsvalerio/ops/commit/4f1c09d871d03409a8914c264dbd4db9e61265ef)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) update task descriptions and add wave 5-10 plans - ([8d5782c](https://github.com/rsvalerio/ops/commit/8d5782c941dad96f203b0983ffa44f484eab2709)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**ci**) update CI workflow and lockfile - ([c3c1fdc](https://github.com/rsvalerio/ops/commit/c3c1fdc73080bb05dcdc54e533a5bd6251af360e)) - [@rsvalerio](https://github.com/rsvalerio)
+- update Cargo.lock - ([0b92247](https://github.com/rsvalerio/ops/commit/0b92247b75cb09517ece86251c8feb6dff976d7c)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.16.0](https://github.com/rsvalerio/ops/compare/f53d781aad8795eabb8ed1e33bdf6f83a3c3b2b9..v0.16.0) - 2026-04-17
 #### 🚀 Features
 - (**cli,runner**) add --tap flag to capture raw command output to file - ([5a783c0](https://github.com/rsvalerio/ops/commit/5a783c04aa3db11a731f7b1c8aeab07b2a82a37e)) - [@rsvalerio](https://github.com/rsvalerio)
