@@ -10,7 +10,7 @@ ops-core = { workspace = true }
 ops-extension = { workspace = true, features = ["duckdb"] }
 linkme = { workspace = true }
 ops-duckdb = { workspace = true }
-duckdb = "1.10501"
+duckdb = "1.10502"
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 

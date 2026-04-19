@@ -9,7 +9,7 @@ license.workspace = true
 ops-core = { workspace = true }
 ops-extension = { workspace = true, features = ["duckdb"] }
 linkme = { workspace = true }
-duckdb = { version = "1.10501", features = ["bundled"] }
+duckdb = { version = "1.10502", features = ["bundled"] }
 sha2 = "0.10"
 hex = "0.4"
 serde_json = { workspace = true }
