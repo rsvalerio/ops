@@ -1,9 +1,10 @@
 ---
 id: TASK-0106
 title: 'CROSS-STACK-1: Uniform `ops lint` dispatcher across stacks'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-04-18 10:12'
+updated_date: '2026-04-19 17:26'
 labels:
   - cross-stack
   - enhancement

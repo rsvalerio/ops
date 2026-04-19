@@ -1,9 +1,10 @@
 ---
 id: TASK-0107
 title: 'CROSS-STACK-2: Add Node and Python about extensions'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-04-18 10:13'
+updated_date: '2026-04-19 18:18'
 labels:
   - cross-stack
   - feature
