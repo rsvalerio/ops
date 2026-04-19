@@ -2043,6 +2043,7 @@ dependencies = [
  "ops-about",
  "ops-about-go",
  "ops-about-java",
+ "ops-about-node",
  "ops-about-python",
  "ops-about-rust",
  "ops-cargo-toml",
@@ -2107,6 +2108,21 @@ dependencies = [
  "ops-core",
  "ops-extension",
  "ops-git",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "ops-about-node"
+version = "0.17.0"
+dependencies = [
+ "anyhow",
+ "linkme",
+ "ops-about",
+ "ops-core",
+ "ops-extension",
+ "ops-git",
+ "serde",
  "serde_json",
  "tempfile",
 ]

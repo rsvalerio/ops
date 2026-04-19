@@ -6,6 +6,8 @@
 extern crate ops_about_go;
 #[cfg(any(feature = "stack-java-maven", feature = "stack-java-gradle"))]
 extern crate ops_about_java;
+#[cfg(feature = "stack-node")]
+extern crate ops_about_node;
 #[cfg(feature = "stack-python")]
 extern crate ops_about_python;
 #[cfg(feature = "stack-rust")]

@@ -13,7 +13,7 @@ rust-version.workspace = true
 default = []
 duckdb = ["dep:ops-duckdb", "ops-extension/duckdb", "ops-about/duckdb"]
 stack-rust = ["dep:ops-about-rust", "dep:ops-cargo-toml", "dep:ops-cargo-update", "dep:ops-deps", "dep:ops-metadata", "dep:ops-tools", "duckdb"]
-stack-node = []
+stack-node = ["dep:ops-about-node"]
 stack-go = ["dep:ops-about-go"]
 stack-python = ["dep:ops-about-python"]
 stack-terraform = []
@@ -34,6 +34,7 @@ ops-about = { workspace = true }
 ops-git = { workspace = true }
 ops-about-rust = { workspace = true, optional = true }
 ops-about-go = { workspace = true, optional = true }
+ops-about-node = { workspace = true, optional = true }
 ops-about-java = { workspace = true, optional = true }
 ops-about-python = { workspace = true, optional = true }
 ops-cargo-toml = { workspace = true, optional = true }
