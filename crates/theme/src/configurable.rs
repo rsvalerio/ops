@@ -101,13 +101,44 @@ impl StepLineTheme for ConfigurableTheme {
         }
     }
 
-    fn render_error_detail(&self, detail: &ErrorDetail, _columns: u16) -> Vec<String> {
-        render_error_block(
+    fn render_error_detail(&self, detail: &ErrorDetail, columns: u16) -> Vec<String> {
+        let lines = render_error_block(
             detail,
             self.icon_column_width(),
             &self.0.error_block,
             self.left_pad(),
-        )
+        );
+        if !matches!(self.0.layout_kind, LayoutKind::Boxed) {
+            return lines;
+        }
+        // Boxed: align the mid column under the step label column and close the
+        // right frame border. The rail char already matches the frame's left
+        // border; we just need extra indent after it so `top`/`mid`/`bottom`
+        // land in the same column as the step icon.
+        let rail_width = display_width(&self.0.error_block.rail);
+        let target_gutter = BOX_STEP_RESERVE as usize - 2 + display_width(self.step_indent());
+        let extra_indent = target_gutter.saturating_sub(rail_width + 3);
+        let inject = " ".repeat(extra_indent);
+        let pad = self.left_pad_str();
+        let prefix_with_rail = format!("{}{}", pad, self.0.error_block.rail);
+
+        let outer = columns as usize;
+        let right_target = outer.saturating_sub(self.left_pad()).saturating_sub(2);
+        lines
+            .into_iter()
+            .map(|line| {
+                let reindented =
+                    if !self.0.error_block.rail.is_empty() && line.starts_with(&prefix_with_rail) {
+                        let (head, tail) = line.split_at(prefix_with_rail.len());
+                        format!("{head}{inject}{tail}")
+                    } else {
+                        line
+                    };
+                let visible = display_width(&strip_ansi(&reindented));
+                let fill = right_target.saturating_sub(visible);
+                format!("{reindented}{spaces} │", spaces = " ".repeat(fill))
+            })
+            .collect()
     }
 
     fn step_column_reserve(&self) -> u16 {
@@ -121,21 +152,31 @@ impl StepLineTheme for ConfigurableTheme {
         if !matches!(self.0.layout_kind, LayoutKind::Boxed) {
             return None;
         }
-        let verb = if !snap.success {
-            "Failing"
-        } else if snap.completed == snap.total && snap.total > 0 {
-            "Done"
+        let title = if !snap.command_ids.is_empty() {
+            format!(
+                " {}Running: {} ",
+                self.0.plan_header_prefix,
+                snap.command_ids.join(", ")
+            )
         } else {
-            "Running"
+            // Fallback for callers that don't provide command IDs (e.g. older tests):
+            // keep the progress/elapsed title so behavior is still meaningful.
+            let verb = if !snap.success {
+                "Failing"
+            } else if snap.completed == snap.total && snap.total > 0 {
+                "Done"
+            } else {
+                "Running"
+            };
+            format!(
+                " {}{} {}/{} · {} ",
+                self.0.plan_header_prefix,
+                verb,
+                snap.completed,
+                snap.total,
+                format_duration(snap.elapsed_secs)
+            )
         };
-        let title = format!(
-            " {}{} {}/{} · {} ",
-            self.0.plan_header_prefix,
-            verb,
-            snap.completed,
-            snap.total,
-            format_duration(snap.elapsed_secs)
-        );
         Some(build_horizontal_border(
             &title,
             "╭─",

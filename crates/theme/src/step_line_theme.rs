@@ -43,12 +43,12 @@ pub struct BoxSnapshot<'a> {
     pub success: bool,
     /// Terminal columns available for the border.
     pub columns: u16,
-    /// Reserved for future fields without breaking the signature.
-    pub _marker: std::marker::PhantomData<&'a ()>,
+    /// Command IDs of the plan, for headers that list them (e.g. `Running: build, test`).
+    pub command_ids: &'a [String],
 }
 
 impl<'a> BoxSnapshot<'a> {
-    /// Construct a snapshot from raw fields.
+    /// Construct a snapshot from raw fields. `command_ids` defaults to empty.
     pub fn new(
         completed: usize,
         total: usize,
@@ -62,8 +62,14 @@ impl<'a> BoxSnapshot<'a> {
             elapsed_secs,
             success,
             columns,
-            _marker: std::marker::PhantomData,
+            command_ids: &[],
         }
+    }
+
+    /// Attach command IDs to the snapshot (builder style).
+    pub fn with_command_ids(mut self, command_ids: &'a [String]) -> Self {
+        self.command_ids = command_ids;
+        self
     }
 }
 

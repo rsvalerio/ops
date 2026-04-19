@@ -779,6 +779,15 @@ mod boxed_layout_tests {
     }
 
     #[test]
+    fn boxed_top_border_lists_command_ids_when_provided() {
+        let theme = boxed_theme();
+        let ids = vec!["build".to_string(), "test".to_string()];
+        let snap = snap(0, 2, 0.0, true, 60).with_command_ids(&ids);
+        let top = strip_ansi(&theme.box_top_border(snap).expect("top"));
+        assert!(top.contains("Running: build, test"), "got: {top}");
+    }
+
+    #[test]
     fn boxed_top_border_switches_verb_when_all_complete() {
         let theme = boxed_theme();
         let running = strip_ansi(&theme.box_top_border(snap(2, 5, 1.0, true, 50)).unwrap());
@@ -820,6 +829,57 @@ mod boxed_layout_tests {
             ops_core::output::display_width(&top),
             ops_core::output::display_width(&plain),
             "step width must equal border width"
+        );
+    }
+
+    #[test]
+    fn boxed_error_detail_has_right_border() {
+        let theme = boxed_theme();
+        let detail = ErrorDetail {
+            message: "exit status: 1".to_string(),
+            stderr_tail: vec!["boom".to_string()],
+        };
+        let lines = theme.render_error_detail(&detail, 60);
+        for line in &lines {
+            let plain = strip_ansi(line);
+            assert_eq!(
+                ops_core::output::display_width(&plain),
+                60,
+                "error detail line width: {plain}"
+            );
+            assert!(plain.ends_with(" │"), "right border: {plain}");
+        }
+    }
+
+    #[test]
+    fn boxed_error_detail_aligns_mid_with_label_column() {
+        // Studio-like theme: rail mirrors the frame's left border, and the
+        // top/mid/bottom glyphs must land under the step-label column
+        // (box prefix `│ █  ` + step_indent).
+        let theme = ConfigurableTheme(ThemeConfig {
+            layout_kind: LayoutKind::Boxed,
+            left_pad: 0,
+            error_block: ops_core::config::theme_types::ErrorBlockChars {
+                top: "├─".into(),
+                mid: "│".into(),
+                bottom: "└─".into(),
+                rail: "│".into(),
+            },
+            ..ThemeConfig::compact()
+        });
+        let detail = ErrorDetail {
+            message: "exit status: 1".to_string(),
+            stderr_tail: vec![],
+        };
+        let lines = theme.render_error_detail(&detail, 80);
+        let plain_top = strip_ansi(&lines[0]);
+        let plain_mid = strip_ansi(&lines[1]);
+        // Expect rail + 6 spaces + glyph → glyph lands at column 7, matching
+        // where the step icon sits under `│ █    ✖ ...`.
+        assert!(plain_top.starts_with("│      ├─"), "got: {plain_top}");
+        assert!(
+            plain_mid.starts_with("│      │ exit status: 1"),
+            "got: {plain_mid}"
         );
     }
 
