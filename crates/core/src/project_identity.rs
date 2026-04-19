@@ -184,16 +184,16 @@ pub fn base_about_fields() -> Vec<AboutFieldDef> {
 fn field_emoji(key: &str, value: &str) -> &'static str {
     match key {
         "stack" => stack_emoji(value),
-        "license" => "\u{1f4dc}",                         // 📜
-        "project" => "\u{1f3f7}\u{fe0f}",                 // 🏷️
-        "crates" | "packages" | "modules" => "\u{1f4e6}", // 📦
-        "codebase" => "\u{1f4dd}",                        // 📝
-        "author" | "authors" => "\u{1f464}",              // 👤
-        "repository" => "\u{1f517}",                      // 🔗
-        "homepage" => "\u{1f310}",                        // 🌐
-        "dependencies" => "\u{1f9e9}",                    // 🧩
-        "coverage" => "\u{1f9ea}",                        // 🧪
-        _ => "\u{25b8}",                                  // ▸ fallback
+        "license" => "\u{1f4dc}",         // 📜
+        "project" => "\u{1f3f7}\u{fe0f}", // 🏷️
+        "crates" | "packages" | "modules" | "subprojects" => "\u{1f4e6}", // 📦
+        "codebase" => "\u{1f4dd}",        // 📝
+        "author" | "authors" => "\u{1f464}", // 👤
+        "repository" => "\u{1f517}",      // 🔗
+        "homepage" => "\u{1f310}",        // 🌐
+        "dependencies" => "\u{1f9e9}",    // 🧩
+        "coverage" => "\u{1f9ea}",        // 🧪
+        _ => "\u{25b8}",                  // ▸ fallback
     }
 }
 
