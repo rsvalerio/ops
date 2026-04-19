@@ -94,11 +94,14 @@ icon_failed = "✖"
 icon_skipped = "⊘"
 separator_char = "."
 step_indent = "  "
-# Running rows keep a left rail + running cell; the spinner template is dynamic-width
-# so no right rail on running rows (it resumes once the step completes).
-running_template = "│ ▓  {spinner:.magenta}{msg:.cyan} {elapsed:.yellow.dim}"
+# Running rows include both left and right rails. `{elapsed:>6}` reserves a
+# fixed 6-column field for indicatif's human-duration output (covers `1s` ..
+# `99m59s` / `999d`), so the right border stays at the same column regardless
+# of how long the step has been running.
+# Overhead = chrome (`│ ▓  ` + ` ` + ` │` = 8) + spinner (1) + elapsed (6) = 15.
+running_template = "│ ▓  {spinner:.magenta}{msg:.cyan} {elapsed:>6.yellow.dim} │"
 tick_chars = "⠁⠂⠄⡀⢀⠠⠐⠈ "
-running_template_overhead = 9
+running_template_overhead = 15
 plan_header_style = "plain"
 plan_header_prefix = "⚡ "
 header_color = "bold bright_white"
