@@ -1,8 +1,11 @@
-//! Python stack `project_identity` provider.
+//! Python stack `project_identity` + `project_units` providers.
 //!
 //! Parses `pyproject.toml` (PEP 621) for name, version, description, license,
 //! authors, Python requirement, homepage, and repository. Detects uv by the
 //! presence of `uv.lock` or `[tool.uv]` and surfaces it in the stack detail.
+//! Workspace members come from `[tool.uv.workspace].members`.
+
+mod units;
 
 use std::path::Path;
 
@@ -28,6 +31,7 @@ ops_extension::impl_extension! {
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
         registry.register(DATA_PROVIDER_NAME, Box::new(PythonIdentityProvider));
+        registry.register(units::PROVIDER_NAME, Box::new(units::PythonUnitsProvider));
     },
     factory: PYTHON_ABOUT_FACTORY = |_, _| {
         Some((NAME, Box::new(AboutPythonExtension)))

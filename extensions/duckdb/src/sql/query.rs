@@ -3,6 +3,8 @@
 use crate::DuckDb;
 use std::collections::HashMap;
 
+use ops_core::project_identity::LanguageStat;
+
 use super::ingest::table_exists;
 use super::validation::validate_path_chars;
 
@@ -260,10 +262,10 @@ pub fn query_dependency_count(db: &DuckDb) -> anyhow::Result<usize> {
     Ok(usize::try_from(count).unwrap_or(0))
 }
 
-/// Query distinct languages from `tokei_files` with LOC percentage, ordered by total LOC descending.
-///
-/// Returns formatted strings like `"Rust 85.2%"`. Languages under 0.1% are omitted.
-pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<String>> {
+/// Query per-language breakdown from `tokei_files`: LOC, file count, and
+/// percentages of both. Ordered by LOC descending. Languages contributing
+/// under 0.1% of total LOC are omitted.
+pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>> {
     use anyhow::Context;
 
     let conn = db
@@ -277,7 +279,10 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<String>> {
     let mut stmt = conn
         .prepare(
             "SELECT language, \
-                    ROUND(SUM(code) * 100.0 / NULLIF((SELECT SUM(code) FROM tokei_files), 0), 1) AS pct \
+                    SUM(code) AS loc, \
+                    COUNT(*) AS files, \
+                    ROUND(SUM(code) * 100.0 / NULLIF((SELECT SUM(code) FROM tokei_files), 0), 1) AS loc_pct, \
+                    ROUND(COUNT(*) * 100.0 / NULLIF((SELECT COUNT(*) FROM tokei_files), 0), 1) AS files_pct \
              FROM tokei_files \
              GROUP BY language \
              ORDER BY SUM(code) DESC",
@@ -286,17 +291,21 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<String>> {
 
     let rows = stmt
         .query_map([], |row: &duckdb::Row| {
-            let lang: String = row.get(0)?;
-            let pct: f64 = row.get(1)?;
-            Ok((lang, pct))
+            Ok(LanguageStat {
+                name: row.get(0)?,
+                loc: row.get(1)?,
+                files: row.get(2)?,
+                loc_pct: row.get(3)?,
+                files_pct: row.get(4)?,
+            })
         })
         .context("querying project languages")?;
 
     let mut languages = Vec::new();
     for row in rows {
-        let (lang, pct) = row.context("reading language row")?;
-        if pct >= 0.1 {
-            languages.push(format!("{lang} {pct:.1}%"));
+        let stat = row.context("reading language row")?;
+        if stat.loc_pct >= 0.1 {
+            languages.push(stat);
         }
     }
     Ok(languages)
@@ -801,8 +810,12 @@ mod tests {
 
         let langs = query_project_languages(&db).expect("query should work");
         assert_eq!(langs.len(), 2);
-        assert!(langs[0].starts_with("Rust"));
-        assert!(langs[1].starts_with("TOML"));
+        assert_eq!(langs[0].name, "Rust");
+        assert_eq!(langs[0].loc, 950);
+        assert_eq!(langs[0].files, 2);
+        assert_eq!(langs[1].name, "TOML");
+        assert_eq!(langs[1].loc, 50);
+        assert_eq!(langs[1].files, 1);
     }
 
     #[test]
@@ -823,7 +836,7 @@ mod tests {
         let langs = query_project_languages(&db).expect("query should work");
         // Markdown is ~0.005% which is < 0.1%, should be omitted
         assert_eq!(langs.len(), 1);
-        assert!(langs[0].starts_with("Rust"));
+        assert_eq!(langs[0].name, "Rust");
     }
 
     #[test]

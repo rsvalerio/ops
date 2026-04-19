@@ -5,7 +5,7 @@
 //! with Rust-specific fields (crates, edition, etc.).
 
 use ops_cargo_toml::{CargoToml, CargoTomlProvider};
-use ops_core::project_identity::{base_about_fields, AboutFieldDef, ProjectIdentity};
+use ops_core::project_identity::{base_about_fields, AboutFieldDef, LanguageStat, ProjectIdentity};
 use ops_core::text::dir_name;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
@@ -174,7 +174,7 @@ fn query_dependency_count(ctx: &Context) -> Option<usize> {
 }
 
 /// Try to get coverage percentage and language list from DuckDB.
-fn query_coverage_and_languages(ctx: &Context) -> (Option<f64>, Vec<String>) {
+fn query_coverage_and_languages(ctx: &Context) -> (Option<f64>, Vec<LanguageStat>) {
     let db = match ops_duckdb::get_db(ctx) {
         Some(db) => db,
         None => return (None, vec![]),

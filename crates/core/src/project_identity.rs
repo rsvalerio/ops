@@ -56,9 +56,25 @@ pub struct ProjectIdentity {
     /// Test coverage percentage (0.0–100.0).
     #[serde(default)]
     pub coverage_percent: Option<f64>,
-    /// Languages used in the project (e.g. ["Rust", "TOML"]).
+    /// Languages used in the project, with LOC and file counts plus percentages.
+    /// Ordered by LOC descending.
     #[serde(default)]
-    pub languages: Vec<String>,
+    pub languages: Vec<LanguageStat>,
+}
+
+/// Per-language breakdown entry derived from tokei data.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LanguageStat {
+    /// Language name (e.g. "Rust", "TOML").
+    pub name: String,
+    /// Lines of code in this language.
+    pub loc: i64,
+    /// Number of files in this language.
+    pub files: i64,
+    /// Percentage of total project LOC (0.0–100.0).
+    pub loc_pct: f64,
+    /// Percentage of total project files (0.0–100.0).
+    pub files_pct: f64,
 }
 
 /// A sub-unit of a project (crate, module, package, workspace member).
@@ -224,26 +240,84 @@ fn short_language_name(name: &str) -> &str {
     }
 }
 
-/// Compose the `languages` tail of the codebase field: keep the top 3 entries
-/// and roll the rest into `+N more`. Each input is already formatted as
-/// `"Language X.Y%"` by the data provider.
-fn format_language_mix(langs: &[String], top_n: usize) -> String {
-    if langs.is_empty() {
-        return String::new();
+/// Per-language glyph for the codebase breakdown. Falls back to a generic
+/// document icon when no specific mapping is known.
+fn language_emoji(name: &str) -> &'static str {
+    match name {
+        "Rust" => "\u{1f980}",                                   // 🦀
+        "Go" => "\u{1f439}",                                     // 🐹
+        "Python" => "\u{1f40d}",                                 // 🐍
+        "Java" => "\u{2615}",                                    // ☕
+        "JavaScript" | "Node" => "\u{1f7e8}",                    // 🟨
+        "TypeScript" => "\u{1f537}",                             // 🔷
+        "Ruby" => "\u{1f48e}",                                   // 💎
+        "Shell" | "Bash" | "Zsh" | "Fish" | "Sh" => "\u{1f41a}", // 🐚
+        "HTML" => "\u{1f310}",                                   // 🌐
+        "CSS" | "SCSS" | "Sass" | "Less" => "\u{1f3a8}",         // 🎨
+        "SVG" => "\u{1f5bc}\u{fe0f}",                            // 🖼️
+        "Markdown" => "\u{1f4c4}",                               // 📄
+        "YAML" => "\u{1f9fe}",                                   // 🧾
+        "TOML" => "\u{1f527}",                                   // 🔧
+        "JSON" => "\u{1f4cb}",                                   // 📋
+        "XML" => "\u{1f9be}",                                    // 🦾 (loose)
+        "SQL" => "\u{1f5c4}\u{fe0f}",                            // 🗄️
+        "Dockerfile" | "Docker" => "\u{1f433}",                  // 🐳
+        "Makefile" | "CMake" => "\u{1f6e0}\u{fe0f}",             // 🛠️
+        "Handlebars" => "\u{1fa84}",                             // 🪄
+        "Protocol Buffers" => "\u{1f4e6}",                       // 📦
+        "Terraform" | "HCL" => "\u{1f4a0}",                      // 💠
+        "Ansible" => "\u{1f170}\u{fe0f}",                        // 🅰️
+        "Kotlin" => "\u{1f7e3}",                                 // 🟣
+        "Swift" => "\u{1f426}",                                  // 🐦
+        "C" | "C++" | "C Header" => "\u{1f52c}",                 // 🔬 (loose)
+        "C#" => "\u{1f3b5}",                                     // 🎵 (loose play on sharp)
+        _ => "\u{1f4c4}",                                        // 📄 generic
     }
-    let shortened: Vec<String> = langs
+}
+
+/// Render per-language breakdown lines for a single metric. Keeps top-N and
+/// rolls the rest into a "+N more" line. `value_fn` extracts either loc or
+/// file count, `pct_fn` extracts the matching percentage.
+fn format_language_breakdown(
+    langs: &[LanguageStat],
+    top_n: usize,
+    value_fn: impl Fn(&LanguageStat) -> i64,
+    pct_fn: impl Fn(&LanguageStat) -> f64,
+) -> Vec<String> {
+    if langs.is_empty() {
+        return Vec::new();
+    }
+    let name_width = langs
         .iter()
-        .map(|entry| match entry.rsplit_once(' ') {
-            Some((name, pct)) => format!("{} {}", short_language_name(name), pct),
-            None => entry.clone(),
+        .take(top_n)
+        .map(|l| short_language_name(&l.name).len())
+        .max()
+        .unwrap_or(0);
+    let value_width = langs
+        .iter()
+        .take(top_n)
+        .map(|l| format_number(value_fn(l)).len())
+        .max()
+        .unwrap_or(0);
+    let mut lines: Vec<String> = langs
+        .iter()
+        .take(top_n)
+        .map(|l| {
+            format!(
+                "  {} {:<name_w$}  {:>val_w$} ({:.1}%)",
+                language_emoji(&l.name),
+                short_language_name(&l.name),
+                format_number(value_fn(l)),
+                pct_fn(l),
+                name_w = name_width,
+                val_w = value_width,
+            )
         })
         .collect();
-    if shortened.len() <= top_n {
-        return shortened.join(", ");
+    if langs.len() > top_n {
+        lines.push(format!("  (+{} more)", langs.len() - top_n));
     }
-    let head = shortened[..top_n].join(", ");
-    let rest = shortened.len() - top_n;
-    format!("{}, +{} more", head, rest)
+    lines
 }
 
 /// Compose the multi-line `stack` field value: language label, optional
@@ -292,12 +366,19 @@ fn compose_project_value(id: &ProjectIdentity) -> Option<String> {
     }
 }
 
-/// Compose the single `codebase` field value from LOC, file count, and
-/// language mix. Returns `None` when none of the inputs are present.
+/// Compose the `codebase` field value as two blocks: total LOC with a
+/// per-language breakdown, then total file count with a per-language
+/// breakdown. Returns `None` when none of the inputs are present.
 fn compose_codebase_value(id: &ProjectIdentity) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
     if let Some(loc) = id.loc {
         parts.push(format!("{} loc", format_number(loc)));
+        parts.extend(format_language_breakdown(
+            &id.languages,
+            3,
+            |l| l.loc,
+            |l| l.loc_pct,
+        ));
     }
     if let Some(f) = id.file_count {
         if f > 0 {
@@ -306,11 +387,13 @@ fn compose_codebase_value(id: &ProjectIdentity) -> Option<String> {
                 format_number(f),
                 if f != 1 { "s" } else { "" }
             ));
+            parts.extend(format_language_breakdown(
+                &id.languages,
+                3,
+                |l| l.files,
+                |l| l.files_pct,
+            ));
         }
-    }
-    let langs = format_language_mix(&id.languages, 3);
-    if !langs.is_empty() {
-        parts.push(langs);
     }
     if parts.is_empty() {
         None
@@ -583,11 +666,41 @@ mod tests {
             dependency_count: None,
             coverage_percent: None,
             languages: vec![
-                "Go 77.7%".into(),
-                "JavaScript 11.5%".into(),
-                "Handlebars 3.9%".into(),
-                "YAML 2.6%".into(),
-                "SVG 1.2%".into(),
+                LanguageStat {
+                    name: "Go".into(),
+                    loc: 432_000,
+                    files: 3_800,
+                    loc_pct: 77.7,
+                    files_pct: 77.1,
+                },
+                LanguageStat {
+                    name: "JavaScript".into(),
+                    loc: 64_000,
+                    files: 600,
+                    loc_pct: 11.5,
+                    files_pct: 12.2,
+                },
+                LanguageStat {
+                    name: "Handlebars".into(),
+                    loc: 21_600,
+                    files: 300,
+                    loc_pct: 3.9,
+                    files_pct: 6.1,
+                },
+                LanguageStat {
+                    name: "YAML".into(),
+                    loc: 14_500,
+                    files: 150,
+                    loc_pct: 2.6,
+                    files_pct: 3.0,
+                },
+                LanguageStat {
+                    name: "SVG".into(),
+                    loc: 6_700,
+                    files: 79,
+                    loc_pct: 1.2,
+                    files_pct: 1.6,
+                },
             ],
         };
         let card = AboutCard::from_identity(&id);
@@ -598,10 +711,14 @@ mod tests {
             .expect("codebase field")
             .1
             .clone();
-        assert_eq!(
-            codebase,
-            "555,910 loc\n4,929 files\nGo 77.7%, JS 11.5%, HBS 3.9%, +2 more"
-        );
+        // Two-block layout: total LOC + top-3 breakdown, then files + top-3 breakdown.
+        assert!(codebase.starts_with("555,910 loc\n"), "got: {codebase}");
+        assert!(codebase.contains("Go  "), "got: {codebase}");
+        assert!(codebase.contains("(77.7%)"), "got: {codebase}");
+        assert!(codebase.contains("JS  "), "got: {codebase}");
+        assert!(codebase.contains("HBS "), "got: {codebase}");
+        assert!(codebase.contains("(+2 more)"), "got: {codebase}");
+        assert!(codebase.contains("4,929 files"), "got: {codebase}");
     }
 
     #[test]
