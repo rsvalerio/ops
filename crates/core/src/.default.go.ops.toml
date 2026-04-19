@@ -9,6 +9,7 @@ category = "Code Quality"
 [commands.vet]
 program = "go"
 args = ["vet", "./..."]
+aliases = ["lint"]
 help = "Vet all packages"
 category = "Code Quality"
 

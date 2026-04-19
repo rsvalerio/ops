@@ -319,6 +319,43 @@ mod tests {
     }
 
     #[test]
+    fn rust_clippy_aliased_to_lint() {
+        let cmds = Stack::Rust.default_commands();
+        let clippy = cmds.get("clippy").expect("clippy must exist");
+        assert!(
+            clippy.aliases().iter().any(|a| a == "lint"),
+            "rust clippy must alias `lint`"
+        );
+        assert!(
+            !cmds.contains_key("lint"),
+            "rust must not define a duplicate top-level `lint` command"
+        );
+    }
+
+    #[test]
+    fn go_vet_aliased_to_lint() {
+        let cmds = Stack::Go.default_commands();
+        let vet = cmds.get("vet").expect("vet must exist");
+        assert!(
+            vet.aliases().iter().any(|a| a == "lint"),
+            "go vet must alias `lint`"
+        );
+        assert!(
+            !cmds.contains_key("lint"),
+            "go must not define a duplicate top-level `lint` command"
+        );
+    }
+
+    #[test]
+    fn python_defines_lint_composite() {
+        let cmds = Stack::Python.default_commands();
+        assert!(
+            cmds.contains_key("lint"),
+            "python must define `lint` composite"
+        );
+    }
+
+    #[test]
     fn every_stack_defines_qa() {
         for stack in [
             Stack::Rust,

@@ -15,6 +15,7 @@ category = "Code Quality"
 [commands.clippy]
 program = "cargo"
 args = ["clippy", "--all", "--all-features", "--", "-D", "warnings"]
+aliases = ["lint"]
 help = "Lint with clippy"
 category = "Code Quality"
 
