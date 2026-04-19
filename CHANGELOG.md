@@ -2,6 +2,37 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.18.0](https://github.com/rsvalerio/ops/compare/f1fc9ef05e345f92189305b206c8dc652305ac07..v0.18.0) - 2026-04-19
+#### 🚀 Features
+- (**about**) enrich language stats with per-language LOC, files, and percentages - ([c36a458](https://github.com/rsvalerio/ops/commit/c36a458c839f29c1ae35dacf696c202e1a6be6fb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) use ops-git for repository URL across stack extensions - ([dd31eea](https://github.com/rsvalerio/ops/commit/dd31eeaccf2591360c7b633b3e493f8495777dfa)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) redesign project identity with stack-aware fields and per-language emoji - ([ca94855](https://github.com/rsvalerio/ops/commit/ca948552b01d1d7cd58805e50405fc60bc2da71f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) alias lint to clippy in Rust and vet in Go defaults - ([0c59719](https://github.com/rsvalerio/ops/commit/0c597198fd59dca4781fdf0dbdd8bc05f9cb510c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) add 7-command baseline to all stack default configs - ([01787a1](https://github.com/rsvalerio/ops/commit/01787a136c6c0a077fa685f0aed2a7f02331acb6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git**) add ops-git extension for repository detection - ([f1fc9ef](https://github.com/rsvalerio/ops/commit/f1fc9ef05e345f92189305b206c8dc652305ac07)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**node**) add about-node extension for project identity and units - ([78705b1](https://github.com/rsvalerio/ops/commit/78705b1e830e4799a3f0dc49e49e5d6e5e28d0da)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python**) add about-python extension for project identity - ([1510e44](https://github.com/rsvalerio/ops/commit/1510e44c5343f536605af8bd5977c127d1d76e35)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python**) restructure default commands around uv workflow - ([35b7835](https://github.com/rsvalerio/ops/commit/35b783587cd5813d42c9e63c3958c3bd3130a443)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) add live bottom border and command-IDs header to boxed layout - ([b003c6c](https://github.com/rsvalerio/ops/commit/b003c6cd6ceeff3db4667ddb51ce9c0a519b447c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**about**) map subprojects key to package emoji - ([524a79c](https://github.com/rsvalerio/ops/commit/524a79c01851dbb6ec8b6ebbc8dfc48c6c403ee7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) remove spurious leading blank line in card render - ([3c7e4b9](https://github.com/rsvalerio/ops/commit/3c7e4b98dbd1d472ec2be26c55ea027ce6ffd79b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) drive progress glyphs from step status for parallel plans - ([cc00bcb](https://github.com/rsvalerio/ops/commit/cc00bcbbb2c9e4d723d088f59bef3655371486fc)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) add right rail to running-row template with fixed-width elapsed - ([bb1883d](https://github.com/rsvalerio/ops/commit/bb1883d65c13a3b65aef08b71b87fb67114e49af)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) prevent step-line border overshoot when duration is present - ([e11580a](https://github.com/rsvalerio/ops/commit/e11580a7f13da590395255480b2d0a4b2f4619ea)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- update command reference and stack defaults guide - ([e562e4a](https://github.com/rsvalerio/ops/commit/e562e4a033db8e60f2bab961a6bd8ed279a5346e)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**cli**) register ops-git and categorize hook commands as Setup - ([ccd3b00](https://github.com/rsvalerio/ops/commit/ccd3b002f78d2b3e80382335b93bcd5bd5c83fd1)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) mark CROSS-STACK-1 and CROSS-STACK-2 tasks as Done - ([e846a21](https://github.com/rsvalerio/ops/commit/e846a21995ea94507797e6f0e8425c484ff630bd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) add cross-stack task definitions - ([278c585](https://github.com/rsvalerio/ops/commit/278c5851450f6d96cdb1cbbc62e717f31ac7e04b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) switch default theme to studio - ([54d42d1](https://github.com/rsvalerio/ops/commit/54d42d1a467007384bd1c2d279595b596809051d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) bump duckdb to 1.10502 - ([cd1108b](https://github.com/rsvalerio/ops/commit/cd1108b58150318cb419ac08bc002657235d06be)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) bump ops-git to 0.17.0 - ([a6c648f](https://github.com/rsvalerio/ops/commit/a6c648f51dc0ef09f59594a54097a19913d9839a)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.17.0](https://github.com/rsvalerio/ops/compare/8d5782c941dad96f203b0983ffa44f484eab2709..v0.17.0) - 2026-04-18
 #### 🚀 Features
 - (**about-go**) add project_units data provider for Go modules - ([36195aa](https://github.com/rsvalerio/ops/commit/36195aaf79d7dd6be9d101ae54d50e433e3a193d)) - [@rsvalerio](https://github.com/rsvalerio)
