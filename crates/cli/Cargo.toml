@@ -15,7 +15,7 @@ duckdb = ["dep:ops-duckdb", "ops-extension/duckdb", "ops-about/duckdb"]
 stack-rust = ["dep:ops-about-rust", "dep:ops-cargo-toml", "dep:ops-cargo-update", "dep:ops-deps", "dep:ops-metadata", "dep:ops-tools", "duckdb"]
 stack-node = []
 stack-go = ["dep:ops-about-go"]
-stack-python = []
+stack-python = ["dep:ops-about-python"]
 stack-terraform = []
 stack-ansible = []
 stack-java-maven = ["dep:ops-about-java"]
@@ -35,6 +35,7 @@ ops-git = { workspace = true }
 ops-about-rust = { workspace = true, optional = true }
 ops-about-go = { workspace = true, optional = true }
 ops-about-java = { workspace = true, optional = true }
+ops-about-python = { workspace = true, optional = true }
 ops-cargo-toml = { workspace = true, optional = true }
 ops-cargo-update = { workspace = true, optional = true }
 ops-deps = { workspace = true, optional = true }
