@@ -1,5 +1,5 @@
 [output]
-theme = "compact"
+theme = "studio"
 #theme = "classic"
 
 [commands.install]
