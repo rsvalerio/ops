@@ -393,25 +393,27 @@ impl ProgressDisplay {
             .unwrap_or_default()
     }
 
-    /// Compute the vertical-progress cell glyph for row `row`.
-    /// `█` = done, `▓` = current/running, `░` = pending.
-    fn progress_cell(&self, row: usize) -> &'static str {
-        if row < self.completed_steps {
-            "█"
-        } else if row == self.completed_steps {
-            "▓"
-        } else {
-            "░"
+    /// Compute the vertical-progress cell glyph for a step in `status`.
+    /// `█` = done (succeeded/failed/skipped), `▓` = running, `░` = pending.
+    ///
+    /// Driven by the step's own status rather than row vs. completed-count, so
+    /// parallel plans where steps finish out of order still show the right
+    /// glyph per row.
+    fn progress_cell(status: StepStatus) -> &'static str {
+        match status {
+            StepStatus::Pending => "░",
+            StepStatus::Running => "▓",
+            StepStatus::Succeeded | StepStatus::Failed | StepStatus::Skipped => "█",
         }
     }
 
     /// Render a step with the theme, reserving columns for the box frame and
-    /// wrapping the result for boxed layouts. Row is used to pick the cell glyph.
-    fn render_and_wrap_step(&self, row: usize, step: &StepLine) -> String {
+    /// wrapping the result for boxed layouts.
+    fn render_and_wrap_step(&self, step: &StepLine) -> String {
         let reserve = self.render.theme.step_column_reserve();
         let effective = self.render.columns.saturating_sub(reserve);
         let inner = self.render.theme.render(step, effective);
-        let cell = self.progress_cell(row);
+        let cell = Self::progress_cell(step.status);
         self.render
             .theme
             .wrap_step_line(&inner, cell, self.render.columns)
@@ -421,14 +423,13 @@ impl ProgressDisplay {
         let pending_lines: Vec<String> = self
             .steps
             .iter()
-            .enumerate()
-            .map(|(i, (_, display))| {
+            .map(|(_, display)| {
                 let step = StepLine {
                     status: StepStatus::Pending,
                     label: display.clone(),
                     elapsed: None,
                 };
-                self.render_and_wrap_step(i, &step)
+                self.render_and_wrap_step(&step)
             })
             .collect();
 
@@ -589,7 +590,7 @@ impl ProgressDisplay {
         if matches!(status, StepStatus::Failed) {
             self.failed_steps += 1;
         }
-        let line = self.render_and_wrap_step(i, &step);
+        let line = self.render_and_wrap_step(&step);
         self.finish_bar(&self.bars[i], &line);
         if let Some(ref fb) = self.footer_bar {
             let msg = self.render_footer_message();
