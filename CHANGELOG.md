@@ -2,6 +2,25 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.18.1](https://github.com/rsvalerio/ops/compare/f44e91fd623b0a6d98fbe3c8f0a2e3fc666cd3ac..v0.18.1) - 2026-04-20
+#### 🐛 Bug Fixes
+- (**cargo-toml**) remove redundant map_err DataProviderError conversions - ([8be5970](https://github.com/rsvalerio/ops/commit/8be59706a2cd9a7decb02a4d595f808e59553b59)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) validate and quote SQL identifier in ingestor COUNT query - ([b8357bb](https://github.com/rsvalerio/ops/commit/b8357bb2419e262a11fc4004aaaa4ce89e1dc0a3)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**runner**) replace wall-clock timing with rendezvous in parallel execution test - ([fc40815](https://github.com/rsvalerio/ops/commit/fc40815fe6d958137baa48594d22af90f2fee4fb)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about**) extract typed structs and consolidate field resolution in identity provider - ([0dd893f](https://github.com/rsvalerio/ops/commit/0dd893fd098dff5d99cc06957cfc82b55574d0f9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) extract dispatch, help, and run_cmd into dedicated modules - ([a6a1fbd](https://github.com/rsvalerio/ops/commit/a6a1fbd24aa9bf1ba4fe343c4ec749f44bdf6d18)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) extract project_identity into submodules - ([00419a7](https://github.com/rsvalerio/ops/commit/00419a7e565c50e49d729bfbf148090824973905)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) extract query.rs into focused SQL submodules - ([c64bffa](https://github.com/rsvalerio/ops/commit/c64bffa4671f0ef20af873e53ab3bc035ae0e392)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) extract display into submodules - ([fc638d8](https://github.com/rsvalerio/ops/commit/fc638d8d59210bbdce18148ffaf8a0704a0b3b3d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-tools**) extract lib.rs into install, probe, tests, and timeout modules - ([5302507](https://github.com/rsvalerio/ops/commit/5302507eeccf7a83ec7a4425d2633b158107098b)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) add code-review findings and wave plans for waves 11–12 - ([5614c7b](https://github.com/rsvalerio/ops/commit/5614c7b6d987b3cf535a92dfd27abb7f1168675d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) mark code review waves 5–10 as Done - ([f44e91f](https://github.com/rsvalerio/ops/commit/f44e91fd623b0a6d98fbe3c8f0a2e3fc666cd3ac)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.18.0](https://github.com/rsvalerio/ops/compare/f1fc9ef05e345f92189305b206c8dc652305ac07..v0.18.0) - 2026-04-19
 #### 🚀 Features
 - (**about**) enrich language stats with per-language LOC, files, and percentages - ([c36a458](https://github.com/rsvalerio/ops/commit/c36a458c839f29c1ae35dacf696c202e1a6be6fb)) - [@rsvalerio](https://github.com/rsvalerio)
