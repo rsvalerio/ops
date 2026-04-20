@@ -184,8 +184,10 @@ mod tests {
 
     #[test]
     fn merge_config_empty_overlay_preserves_base() {
-        let mut base = Config::default();
-        base.stack = Some("java".to_string());
+        let mut base = Config {
+            stack: Some("java".to_string()),
+            ..Config::default()
+        };
         let overlay = ConfigOverlay::default();
         merge_config(&mut base, &overlay);
         assert_eq!(base.stack.as_deref(), Some("java"));
