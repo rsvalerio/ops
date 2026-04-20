@@ -189,21 +189,18 @@ impl DataProvider for CargoTomlProvider {
         let cargo_toml = root.join("Cargo.toml");
 
         let content = fs::read_to_string(&cargo_toml)
-            .with_context(|| format!("reading {}", cargo_toml.display()))
-            .map_err(DataProviderError::from)?;
+            .with_context(|| format!("reading {}", cargo_toml.display()))?;
 
         let mut manifest: CargoToml = toml::from_str(&content)
-            .with_context(|| format!("parsing {}", cargo_toml.display()))
-            .map_err(DataProviderError::from)?;
+            .with_context(|| format!("parsing {}", cargo_toml.display()))?;
 
         manifest
             .resolve_inheritance()
-            .context("resolving workspace inheritance")
-            .map_err(DataProviderError::from)?;
+            .context("resolving workspace inheritance")?;
 
         manifest.resolve_package_inheritance();
 
-        serde_json::to_value(&manifest).map_err(DataProviderError::from)
+        Ok(serde_json::to_value(&manifest)?)
     }
 
     fn schema(&self) -> DataProviderSchema {
