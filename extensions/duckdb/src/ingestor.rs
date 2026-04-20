@@ -32,6 +32,10 @@ impl LoadResult {
 pub struct SidecarIngestorConfig {
     pub name: &'static str,
     pub json_filename: &'static str,
+    /// Interpolated into a `SELECT COUNT(*) FROM "{count_table}"` query.
+    /// Must be a valid SQL identifier — the `&'static str` bound keeps this
+    /// compile-time, and `validate_identifier` enforces it at runtime in
+    /// `load_with_sidecar` as defense-in-depth if the type is ever widened.
     pub count_table: &'static str,
 }
 
@@ -69,9 +73,15 @@ impl SidecarIngestorConfig {
         conn.execute(view_sql, [])
             .map_err(|e| crate::error::DbError::query_failed(format!("{} view", self.name), e))?;
 
+        crate::sql::validate_identifier(self.count_table).unwrap_or_else(|e| {
+            panic!(
+                "SidecarIngestorConfig.count_table {:?} is not a valid SQL identifier: {}",
+                self.count_table, e
+            )
+        });
         let record_count: u64 = conn
             .query_row(
-                &format!("SELECT COUNT(*) FROM {}", self.count_table),
+                &format!("SELECT COUNT(*) FROM \"{}\"", self.count_table),
                 [],
                 |row: &duckdb::Row| row.get::<_, i64>(0),
             )
