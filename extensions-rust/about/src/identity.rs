@@ -4,6 +4,8 @@
 //! [`ProjectIdentity`](ops_core::project_identity::ProjectIdentity)
 //! with Rust-specific fields (crates, edition, etc.).
 
+use std::path::Path;
+
 use ops_cargo_toml::{CargoToml, CargoTomlProvider};
 use ops_core::project_identity::{base_about_fields, AboutFieldDef, LanguageStat, ProjectIdentity};
 use ops_core::text::dir_name;
@@ -25,6 +27,79 @@ fn resolve_field(
     pkg.and_then(&pkg_getter)
         .or_else(|| ws_pkg.and_then(&ws_getter))
         .map(|s| s.to_string())
+}
+
+/// Resolved inheritable fields from `[package]` / `[workspace.package]`.
+struct ResolvedFields {
+    version: Option<String>,
+    description: Option<String>,
+    edition: Option<String>,
+    license: Option<String>,
+    repository: Option<String>,
+    homepage: Option<String>,
+    msrv: Option<String>,
+    authors: Vec<String>,
+}
+
+/// Metrics queried from DuckDB (LOC, dependencies, coverage, languages).
+struct IdentityMetrics {
+    loc: Option<i64>,
+    file_count: Option<i64>,
+    dependency_count: Option<usize>,
+    coverage_percent: Option<f64>,
+    languages: Vec<LanguageStat>,
+}
+
+fn resolve_identity_fields(
+    pkg: Option<&ops_cargo_toml::Package>,
+    ws_pkg: Option<&ops_cargo_toml::WorkspacePackage>,
+    cwd: &Path,
+) -> ResolvedFields {
+    // Resolve one inheritable string field. `$pg` names the `Package` field
+    // (InheritableString — uses `.as_str()`), `$wg` names the corresponding
+    // `WorkspacePackage` field (`Option<String>` — uses `.as_deref()`).
+    macro_rules! r {
+        ($pg:ident, $wg:ident) => {
+            resolve_field(pkg, ws_pkg, |p| p.$pg.as_str(), |wp| wp.$wg.as_deref())
+        };
+    }
+
+    let repository = r!(repository, repository)
+        .filter(|s| !s.is_empty())
+        .or_else(|| ops_git::GitInfo::collect(cwd).remote_url);
+
+    let authors = pkg
+        .and_then(|p| p.authors.value())
+        .cloned()
+        .or_else(|| {
+            ws_pkg
+                .filter(|wp| !wp.authors.is_empty())
+                .map(|wp| wp.authors.clone())
+        })
+        .unwrap_or_default();
+
+    ResolvedFields {
+        version: r!(version, version),
+        description: r!(description, description),
+        edition: r!(edition, edition),
+        license: r!(license, license),
+        repository,
+        homepage: r!(homepage, homepage),
+        msrv: r!(rust_version, rust_version),
+        authors,
+    }
+}
+
+fn query_identity_metrics(ctx: &Context) -> IdentityMetrics {
+    let (loc, file_count) = query_loc_from_db(ctx);
+    let (coverage_percent, languages) = query_coverage_and_languages(ctx);
+    IdentityMetrics {
+        loc,
+        file_count,
+        dependency_count: query_dependency_count(ctx),
+        coverage_percent,
+        languages,
+    }
 }
 
 impl DataProvider for RustIdentityProvider {
@@ -65,8 +140,6 @@ impl DataProvider for RustIdentityProvider {
             .map_err(DataProviderError::computation_error)?;
 
         let cwd = ctx.working_directory.clone();
-
-        // Expand workspace member globs
         if let Some(ws) = &mut manifest.workspace {
             ws.members = resolve_member_globs(&ws.members, &cwd);
         }
@@ -74,93 +147,33 @@ impl DataProvider for RustIdentityProvider {
         let pkg = manifest.package.as_ref();
         let ws_pkg = manifest.workspace.as_ref().and_then(|w| w.package.as_ref());
 
-        // Try [package] first, fall back to [workspace.package] for virtual workspaces.
         let name = pkg
             .map(|p| p.name.clone())
             .unwrap_or_else(|| dir_name(&cwd).to_string());
-
-        let version = resolve_field(
-            pkg,
-            ws_pkg,
-            |p| p.version.as_str(),
-            |wp| wp.version.as_deref(),
-        );
-        let description = resolve_field(
-            pkg,
-            ws_pkg,
-            |p| p.description.as_str(),
-            |wp| wp.description.as_deref(),
-        );
-        let edition = resolve_field(
-            pkg,
-            ws_pkg,
-            |p| p.edition.as_str(),
-            |wp| wp.edition.as_deref(),
-        );
-        let license = resolve_field(
-            pkg,
-            ws_pkg,
-            |p| p.license.as_str(),
-            |wp| wp.license.as_deref(),
-        );
-        let repository = resolve_field(
-            pkg,
-            ws_pkg,
-            |p| p.repository.as_str(),
-            |wp| wp.repository.as_deref(),
-        )
-        .filter(|s| !s.is_empty())
-        .or_else(|| ops_git::GitInfo::collect(&cwd).remote_url);
-        let homepage = resolve_field(
-            pkg,
-            ws_pkg,
-            |p| p.homepage.as_str(),
-            |wp| wp.homepage.as_deref(),
-        );
-        let msrv = resolve_field(
-            pkg,
-            ws_pkg,
-            |p| p.rust_version.as_str(),
-            |wp| wp.rust_version.as_deref(),
-        );
-        let authors = pkg
-            .and_then(|p| p.authors.value())
-            .cloned()
-            .or_else(|| {
-                ws_pkg
-                    .filter(|wp| !wp.authors.is_empty())
-                    .map(|wp| wp.authors.clone())
-            })
-            .unwrap_or_default();
-
+        let fields = resolve_identity_fields(pkg, ws_pkg, &cwd);
+        let metrics = query_identity_metrics(ctx);
         let module_count = manifest.workspace.as_ref().map(|w| w.members.len());
-        let stack_detail = edition.map(|e| format!("Edition {e}"));
-
-        // Try LOC from DuckDB if available
-        let (loc, file_count) = query_loc_from_db(ctx);
-
-        let dependency_count = query_dependency_count(ctx);
-        let (coverage_percent, languages) = query_coverage_and_languages(ctx);
+        let stack_detail = fields.edition.as_ref().map(|e| format!("Edition {e}"));
 
         let identity = ProjectIdentity {
             name,
-            version,
-            description,
+            version: fields.version,
+            description: fields.description,
             stack_label: "Rust".to_string(),
             stack_detail,
-            license,
+            license: fields.license,
             project_path: cwd.display().to_string(),
             module_count,
             module_label: "crates".to_string(),
-            loc,
-            file_count,
-            authors,
-            repository,
-            homepage,
-            msrv,
-            dependency_count,
-            coverage_percent,
-            languages,
+            loc: metrics.loc,
+            file_count: metrics.file_count,
+            authors: fields.authors,
+            repository: fields.repository,
+            homepage: fields.homepage,
+            msrv: fields.msrv,
+            dependency_count: metrics.dependency_count,
+            coverage_percent: metrics.coverage_percent,
+            languages: metrics.languages,
         };
 
         serde_json::to_value(&identity).map_err(DataProviderError::from)
