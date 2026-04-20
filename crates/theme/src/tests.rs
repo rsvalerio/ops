@@ -22,6 +22,24 @@ summary_separator = ""
 left_pad = 0
 "#;
 
+/// Idempotently force-disables ANSI color for the current process via `NO_COLOR=1`.
+///
+/// `apply_style` honors `NO_COLOR` (no-color.org), so setting it ensures styling
+/// is suppressed even when tests happen to run with a real TTY (e.g. under
+/// `ops --raw test`). The value is process-global; no restoration is needed
+/// because no other test in this crate asserts that ANSI escapes are emitted
+/// through `apply_style` (color-on assertions use `apply_style_gated` directly).
+struct NoColorGuard;
+
+impl NoColorGuard {
+    fn set() -> Self {
+        // SAFETY: `std::env::set_var` is safe under the 2021 edition. Idempotent
+        // writes of the same value make races between parallel tests harmless.
+        std::env::set_var("NO_COLOR", "1");
+        Self
+    }
+}
+
 fn render_line(
     theme: &dyn StepLineTheme,
     status: StepStatus,
@@ -115,20 +133,23 @@ fn plain_header_with_prefix_emits_prefix() {
 
 #[test]
 fn label_color_does_not_affect_non_tty_output() {
-    // Tests run in non-TTY context, so label_color should not insert escapes.
+    // Force color disabled via NO_COLOR so the test is robust regardless of
+    // whether cargo test's stdio is a TTY (it is under `ops --raw test`).
+    let _g = NoColorGuard::set();
     let mut cfg = ThemeConfig::compact();
     cfg.label_color = "cyan".into();
     let theme = ConfigurableTheme(cfg);
     let line = render_line(&theme, StepStatus::Succeeded, "cargo build", Some(0.5));
     assert!(
         !line.contains('\x1b'),
-        "non-TTY test output must not contain ANSI escapes"
+        "color-disabled output must not contain ANSI escapes"
     );
     assert!(line.contains("cargo build"));
 }
 
 #[test]
 fn summary_color_does_not_affect_non_tty_output() {
+    let _g = NoColorGuard::set();
     let mut cfg = ThemeConfig::compact();
     cfg.summary_color = "bold green".into();
     let theme = ConfigurableTheme(cfg);

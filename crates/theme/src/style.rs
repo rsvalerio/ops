@@ -8,9 +8,20 @@ use std::borrow::Cow;
 use std::io::IsTerminal;
 
 /// Wrap `text` in ANSI SGR codes derived from `spec`, if stderr is a TTY
-/// and the spec contains any recognized tokens.
+/// (and `NO_COLOR` is unset) and the spec contains any recognized tokens.
+///
+/// Honors the [NO_COLOR](https://no-color.org) convention: if `NO_COLOR` is
+/// set to any non-empty value, styling is disabled regardless of TTY state.
 pub fn apply_style<'a>(text: &'a str, spec: &str) -> Cow<'a, str> {
-    apply_style_gated(text, spec, std::io::stderr().is_terminal())
+    let enabled = std::io::stderr().is_terminal() && !no_color_env();
+    apply_style_gated(text, spec, enabled)
+}
+
+/// True if `NO_COLOR` is set to any non-empty value.
+fn no_color_env() -> bool {
+    std::env::var_os("NO_COLOR")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
 }
 
 /// Same as [`apply_style`] but with explicit TTY gating — used in tests.
