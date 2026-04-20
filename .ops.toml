@@ -41,3 +41,10 @@ args = [
 ]
 category = "Code Quality"
 
+[commands.todo]
+program = "backlog"
+args = ["task", "list", "--status", "'To Do'", "--plain"]
+# [commands.todo]
+# program = "backlog"
+# args = ["task", "list", "--status", "'To", "Do'", "--plain"]
+
