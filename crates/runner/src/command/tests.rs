@@ -1014,34 +1014,54 @@ mod cycle_detection_tests {
 }
 
 /// TQ-013: Verify parallel execution actually runs commands concurrently.
+#[cfg(unix)]
 mod parallel_timing_tests {
     use super::*;
 
+    /// Each command touches its own marker, then polls for the peer's marker.
+    /// It exits 0 only if the peer's marker appears within the poll window — i.e.,
+    /// only if the peer has already started. Under parallel execution both
+    /// rendezvous near-instantly; under serial execution the first command
+    /// times out (the peer never starts while it's blocked), failing the test.
+    fn rendezvous_cmd(mine: &std::path::Path, theirs: &std::path::Path) -> ExecCommandSpec {
+        let script = format!(
+            "touch {mine}; for i in $(seq 1 50); do [ -e {theirs} ] && exit 0; sleep 0.1; done; exit 1",
+            mine = shell_escape(mine),
+            theirs = shell_escape(theirs),
+        );
+        exec_spec("sh", &["-c", &script])
+    }
+
+    fn shell_escape(p: &std::path::Path) -> String {
+        format!("'{}'", p.to_str().unwrap().replace('\'', "'\\''"))
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn run_plan_parallel_executes_concurrently() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker_a = dir.path().join("a");
+        let marker_b = dir.path().join("b");
+
         let mut commands = HashMap::new();
-        commands.insert("sleep_a".to_string(), CommandSpec::Exec(sleep_cmd(1)));
-        commands.insert("sleep_b".to_string(), CommandSpec::Exec(sleep_cmd(1)));
+        commands.insert(
+            "rdv_a".to_string(),
+            CommandSpec::Exec(rendezvous_cmd(&marker_a, &marker_b)),
+        );
+        commands.insert(
+            "rdv_b".to_string(),
+            CommandSpec::Exec(rendezvous_cmd(&marker_b, &marker_a)),
+        );
         let runner = test_runner(commands);
         let mut events = Vec::new();
-        let start = std::time::Instant::now();
         let results = runner
-            .run_plan_parallel(&["sleep_a".into(), "sleep_b".into()], true, &mut |e| {
+            .run_plan_parallel(&["rdv_a".into(), "rdv_b".into()], true, &mut |e| {
                 events.push(e)
             })
             .await;
-        let elapsed = start.elapsed();
 
         assert!(
             results.iter().all(|r| r.success),
-            "both sleeps should succeed"
-        );
-        // Two 1-second sleeps running in parallel should finish in ~1s, not ~2s.
-        // Use 1.8s as threshold to give ample margin for CI overhead.
-        assert!(
-            elapsed.as_secs_f64() < 1.8,
-            "parallel execution took {:.2}s -- expected < 1.8s (two 1s sleeps in parallel)",
-            elapsed.as_secs_f64()
+            "both commands must rendezvous — failure proves they did not run concurrently"
         );
     }
 }
