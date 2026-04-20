@@ -36,7 +36,7 @@ pub use events::RunnerEvent;
 pub use exec::is_sensitive_env_key;
 pub use results::StepResult;
 
-use exec::{exec_command, exec_standalone, resolution_failure};
+use exec::{exec_command, exec_command_raw, exec_standalone, resolution_failure};
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, Config, ExecCommandSpec, OutputConfig};
 use ops_core::expand::Variables;
@@ -362,6 +362,70 @@ impl CommandRunner {
 
         lifecycle.finish(&results, on_event);
         results
+    }
+
+    /// Run a flat list of exec command IDs sequentially with inherited stdio (raw mode).
+    ///
+    /// No `RunnerEvent`s are emitted and no `on_event` callback is accepted —
+    /// the child processes write directly to the terminal. Composites are
+    /// always run sequentially in raw mode; callers are expected to have
+    /// already expanded any composite `parallel` flag away.
+    #[instrument(skip(self))]
+    pub async fn run_plan_raw(
+        &self,
+        command_ids: &[CommandId],
+        fail_fast: bool,
+    ) -> Vec<StepResult> {
+        let mut results = Vec::new();
+        for id in command_ids {
+            let spec = match self.resolve(id.as_str()) {
+                Some(CommandSpec::Exec(e)) => e.clone(),
+                Some(CommandSpec::Composite(_)) => {
+                    results.push(StepResult::failure(
+                        id.as_str(),
+                        Duration::ZERO,
+                        format!("internal error: composite in leaf plan: {}", id),
+                    ));
+                    if fail_fast {
+                        break;
+                    }
+                    continue;
+                }
+                None => {
+                    results.push(StepResult::failure(
+                        id.as_str(),
+                        Duration::ZERO,
+                        format!("unknown command: {}", id),
+                    ));
+                    if fail_fast {
+                        break;
+                    }
+                    continue;
+                }
+            };
+            let result = exec_command_raw(id.as_str(), &spec, &self.cwd, &self.vars).await;
+            let should_stop = !result.success;
+            results.push(result);
+            if fail_fast && should_stop {
+                break;
+            }
+        }
+        results
+    }
+
+    /// Run a named command (single or composite) with inherited stdio (raw mode).
+    ///
+    /// Mirrors [`CommandRunner::run`] but always sequential and without events.
+    pub async fn run_raw(&self, command_id: &str) -> anyhow::Result<Vec<StepResult>> {
+        let plan = self
+            .expand_to_leaves(command_id)
+            .ok_or_else(|| anyhow::anyhow!("unknown command: {}", command_id))?;
+        let fail_fast = match self.resolve(command_id) {
+            Some(CommandSpec::Composite(c)) => c.fail_fast,
+            _ => true,
+        };
+        debug!(command_id, steps = plan.len(), "running command (raw)");
+        Ok(self.run_plan_raw(&plan, fail_fast).await)
     }
 
     /// Resolve command IDs to exec specs, returning Err with the offending ID on failure.

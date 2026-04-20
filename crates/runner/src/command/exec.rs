@@ -361,6 +361,58 @@ pub async fn exec_command(
     build_step_result(id, duration, output)
 }
 
+/// Raw command execution: inherits child stdio directly to the terminal.
+///
+/// Unlike [`exec_command`], this does not capture stdout/stderr — the child
+/// process writes straight to the parent's fd 1/2. No `RunnerEvent`s are
+/// emitted and the returned `StepResult` has empty stdout/stderr.
+///
+/// Exit code and timeout behavior are preserved. Used by `--raw` mode.
+pub async fn exec_command_raw(
+    id: &str,
+    spec: &ExecCommandSpec,
+    cwd: &std::path::Path,
+    vars: &Variables,
+) -> StepResult {
+    let mut cmd = build_command(spec, cwd, vars);
+    cmd.stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit());
+
+    let start = Instant::now();
+    let status_future = cmd.status();
+    let status_result = if let Some(t) = spec.timeout() {
+        match tokio::time::timeout(t, status_future).await {
+            Ok(r) => r,
+            Err(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("timed out after {}s", t.as_secs()),
+            )),
+        }
+    } else {
+        status_future.await
+    };
+    let duration = start.elapsed();
+
+    match status_result {
+        Ok(status) => {
+            if status.success() {
+                StepResult {
+                    id: id.into(),
+                    success: true,
+                    duration,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    message: None,
+                }
+            } else {
+                StepResult::failure(id, duration, status.to_string())
+            }
+        }
+        Err(e) => StepResult::failure(id, duration, e.to_string()),
+    }
+}
+
 /// Standalone exec used by parallel plan: runs one command, sends events via channel, respects abort flag.
 #[allow(clippy::too_many_arguments)]
 pub async fn exec_standalone(
