@@ -114,7 +114,7 @@ args = ["test"]
 "#,
         );
 
-        let result = run_command("nonexistent", false, false, None);
+        let result = run_command("nonexistent", false, false, None, false);
         assert!(
             result.is_err(),
             "run_command should return error for unknown command"
@@ -131,7 +131,7 @@ args = ["test"]
 "#,
         );
 
-        let result = run_command("echo_test", false, false, None);
+        let result = run_command("echo_test", false, false, None, false);
         assert!(result.is_ok(), "run_command should not error");
         let exit_code = result.unwrap();
         assert_eq!(
@@ -153,7 +153,7 @@ args = []"#
         let (_dir, _guard) =
             crate::test_utils::with_temp_config(&format!("[commands.fail_cmd]\n{}\n", fail_cmd));
 
-        let result = run_command("fail_cmd", false, false, None);
+        let result = run_command("fail_cmd", false, false, None, false);
         assert!(result.is_ok(), "run_command should not error");
         let exit_code = result.unwrap();
         assert_eq!(
@@ -175,7 +175,7 @@ commands = ["a"]
 "#,
         );
 
-        let result = run_command("a", false, false, None);
+        let result = run_command("a", false, false, None, false);
         assert!(result.is_err(), "run_command should return error for cycle");
     }
 }
@@ -243,7 +243,7 @@ mod run_external_command_tests {
     #[test]
     fn run_external_command_empty_args_errors() {
         let args: Vec<OsString> = vec![];
-        let result = run_external_command(&args, false, false, None);
+        let result = run_external_command(&args, false, false, None, false);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("missing command"));
     }
@@ -258,7 +258,7 @@ args = ["hello"]
 "#,
         );
         let args: Vec<OsString> = vec![OsString::from("echo_test")];
-        let result = run_external_command(&args, true, false, None);
+        let result = run_external_command(&args, true, false, None, false);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), ExitCode::SUCCESS);
     }
@@ -277,7 +277,7 @@ args = ["test"]
 "#,
         );
         let args: Vec<OsString> = vec![OsString::from("build"), OsString::from("test")];
-        let result = run_external_command(&args, true, false, None);
+        let result = run_external_command(&args, true, false, None, false);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), ExitCode::SUCCESS);
     }
@@ -286,7 +286,7 @@ args = ["test"]
     fn run_external_command_single_unknown_errors() {
         let (_dir, _guard) = crate::test_utils::with_temp_config("");
         let args: Vec<OsString> = vec![OsString::from("nonexistent")];
-        let result = run_external_command(&args, false, false, None);
+        let result = run_external_command(&args, false, false, None, false);
         assert!(result.is_err());
     }
 }

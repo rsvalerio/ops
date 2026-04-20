@@ -121,7 +121,7 @@ pub(crate) fn run_before_commit(
                 return Ok(ExitCode::SUCCESS);
             }
             let args = vec![std::ffi::OsString::from("run-before-commit")];
-            run_cmd::run_external_command(&args, false, false, None)
+            run_cmd::run_external_command(&args, false, false, None, false)
         }
     }
 }
@@ -151,7 +151,7 @@ pub(crate) fn run_before_push(
                 return Ok(ExitCode::SUCCESS);
             }
             let args = vec![std::ffi::OsString::from("run-before-push")];
-            run_cmd::run_external_command(&args, false, false, None)
+            run_cmd::run_external_command(&args, false, false, None, false)
         }
     }
 }

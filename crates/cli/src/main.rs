@@ -181,7 +181,7 @@ fn dispatch(
             }
         }
         Some(CoreSubcommand::External(args)) => {
-            return run_cmd::run_external_command(&args, cli.dry_run, cli.verbose, cli.tap)
+            return run_cmd::run_external_command(&args, cli.dry_run, cli.verbose, cli.tap, cli.raw)
         }
         None => {
             let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);

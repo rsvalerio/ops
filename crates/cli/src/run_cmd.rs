@@ -27,15 +27,16 @@ pub(crate) fn run_external_command(
     dry_run: bool,
     verbose: bool,
     tap: Option<PathBuf>,
+    raw: bool,
 ) -> anyhow::Result<ExitCode> {
     let names: Vec<&str> = args.iter().filter_map(|s| s.to_str()).collect();
     if names.is_empty() {
         anyhow::bail!("missing command name");
     }
     if names.len() == 1 {
-        return run_command(names[0], dry_run, verbose, tap);
+        return run_command(names[0], dry_run, verbose, tap, raw);
     }
-    run_commands(&names, dry_run, verbose, tap)
+    run_commands(&names, dry_run, verbose, tap, raw)
 }
 
 fn build_runner(verbose: bool) -> anyhow::Result<ops_runner::command::CommandRunner> {
@@ -61,6 +62,7 @@ fn run_commands(
     dry_run: bool,
     verbose: bool,
     tap: Option<PathBuf>,
+    raw: bool,
 ) -> anyhow::Result<ExitCode> {
     let runner = build_runner(verbose)?;
 
@@ -72,6 +74,21 @@ fn run_commands(
     }
 
     let (all_leaf_ids, any_parallel, fail_fast) = merge_plan(&runner, names)?;
+
+    if raw {
+        // Raw mode: child owns the terminal, no display is attached, and
+        // composite `parallel = true` is ignored (sequential only).
+        let _ = any_parallel;
+        let results: Vec<StepResult> =
+            run_with_runtime(async { Ok(runner.run_plan_raw(&all_leaf_ids, fail_fast).await) })?;
+        log_step_results(&results);
+        let success = results.iter().all(|r| r.success);
+        return Ok(if success {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        });
+    }
     let display_map = build_display_map(&runner, &all_leaf_ids);
     let mut display = ProgressDisplay::new(DisplayOptions {
         output: runner.output_config(),
@@ -125,6 +142,7 @@ fn run_command(
     dry_run: bool,
     verbose: bool,
     tap: Option<PathBuf>,
+    raw: bool,
 ) -> anyhow::Result<ExitCode> {
     let mut runner = build_runner(verbose)?;
 
@@ -132,13 +150,26 @@ fn run_command(
         return run_command_dry_run(&runner, name);
     }
 
-    let success = run_command_cli(&mut runner, name, tap)?;
+    let success = if raw {
+        run_command_raw(&runner, name)?
+    } else {
+        run_command_cli(&mut runner, name, tap)?
+    };
 
     if success {
         Ok(ExitCode::SUCCESS)
     } else {
         Ok(ExitCode::FAILURE)
     }
+}
+
+fn run_command_raw(
+    runner: &ops_runner::command::CommandRunner,
+    name: &str,
+) -> anyhow::Result<bool> {
+    let results: Vec<StepResult> = run_with_runtime(async { runner.run_raw(name).await })?;
+    log_step_results(&results);
+    Ok(results.iter().all(|r| r.success))
 }
 
 fn run_command_cli(

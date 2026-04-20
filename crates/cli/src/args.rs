@@ -33,6 +33,18 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "FILE")]
     pub tap: Option<PathBuf>,
 
+    /// Inherit child stdio directly and suppress ops' own output (like make/just).
+    ///
+    /// The child process writes straight to the terminal — colors, TUIs, and
+    /// interactive prompts work natively. ops emits no step line, spinner,
+    /// summary, or error box; only the child's output is visible. Exit code is
+    /// propagated verbatim.
+    ///
+    /// Composite commands run sequentially under `--raw` (parallel is ignored).
+    /// Cannot be combined with `--tap`.
+    #[arg(long, global = true, conflicts_with = "tap")]
+    pub raw: bool,
+
     #[command(subcommand)]
     pub subcommand: Option<Subcommand>,
 }
@@ -282,6 +294,24 @@ mod tests {
     fn parse_no_subcommand() {
         let cli = Cli::parse_from(["ops"]);
         assert!(cli.subcommand.is_none());
+    }
+
+    #[test]
+    fn parse_raw_flag() {
+        let cli = Cli::try_parse_from(["ops", "--raw", "build"]).unwrap();
+        assert!(cli.raw);
+        assert!(cli.tap.is_none());
+    }
+
+    #[test]
+    fn parse_raw_and_tap_conflicts() {
+        let err = Cli::try_parse_from(["ops", "--raw", "--tap", "out.log", "build"])
+            .expect_err("--raw and --tap must conflict");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("cannot be used with") || msg.contains("conflict"),
+            "expected conflict error, got: {msg}"
+        );
     }
 
     // -- preprocess_args --
