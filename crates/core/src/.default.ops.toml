@@ -119,6 +119,7 @@ top = "├─"
 mid = "│"
 bottom = "└─"
 rail = "│"
+color = "red dim"
 
 # [stack]
 # Explicitly set the stack (optional; auto-detected by default)

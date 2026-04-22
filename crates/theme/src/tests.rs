@@ -3,6 +3,8 @@
 use super::*;
 use indexmap::IndexMap;
 use ops_core::output::{ErrorDetail, StepLine, StepStatus};
+use ops_core::test_utils::EnvGuard;
+use serial_test::serial;
 
 /// Minimal valid ThemeConfig TOML with all required fields.
 /// Tests that need to tweak one field can append/override after this base.
@@ -21,24 +23,6 @@ summary_prefix = "→ "
 summary_separator = ""
 left_pad = 0
 "#;
-
-/// Idempotently force-disables ANSI color for the current process via `NO_COLOR=1`.
-///
-/// `apply_style` honors `NO_COLOR` (no-color.org), so setting it ensures styling
-/// is suppressed even when tests happen to run with a real TTY (e.g. under
-/// `ops --raw test`). The value is process-global; no restoration is needed
-/// because no other test in this crate asserts that ANSI escapes are emitted
-/// through `apply_style` (color-on assertions use `apply_style_gated` directly).
-struct NoColorGuard;
-
-impl NoColorGuard {
-    fn set() -> Self {
-        // SAFETY: `std::env::set_var` is safe under the 2021 edition. Idempotent
-        // writes of the same value make races between parallel tests harmless.
-        std::env::set_var("NO_COLOR", "1");
-        Self
-    }
-}
 
 fn render_line(
     theme: &dyn StepLineTheme,
@@ -132,10 +116,11 @@ fn plain_header_with_prefix_emits_prefix() {
 }
 
 #[test]
+#[serial]
 fn label_color_does_not_affect_non_tty_output() {
     // Force color disabled via NO_COLOR so the test is robust regardless of
     // whether cargo test's stdio is a TTY (it is under `ops --raw test`).
-    let _g = NoColorGuard::set();
+    let _g = EnvGuard::set("NO_COLOR", "1");
     let mut cfg = ThemeConfig::compact();
     cfg.label_color = "cyan".into();
     let theme = ConfigurableTheme(cfg);
@@ -148,8 +133,9 @@ fn label_color_does_not_affect_non_tty_output() {
 }
 
 #[test]
+#[serial]
 fn summary_color_does_not_affect_non_tty_output() {
-    let _g = NoColorGuard::set();
+    let _g = EnvGuard::set("NO_COLOR", "1");
     let mut cfg = ThemeConfig::compact();
     cfg.summary_color = "bold green".into();
     let theme = ConfigurableTheme(cfg);
@@ -885,6 +871,7 @@ mod boxed_layout_tests {
                 mid: "│".into(),
                 bottom: "└─".into(),
                 rail: "│".into(),
+                color: String::new(),
             },
             ..ThemeConfig::compact()
         });

@@ -39,6 +39,11 @@ pub struct ErrorBlockChars {
     pub bottom: String,
     /// Rail character prepended to gutter (e.g., "│" for tree style, "" for plain)
     pub rail: String,
+    /// Optional ANSI color spec applied to the `top`/`mid`/`bottom` glyphs
+    /// (the inner error-block frame). Leaves `rail` unstyled so it keeps
+    /// matching the surrounding box border.
+    #[serde(default)]
+    pub color: String,
 }
 
 impl Default for ErrorBlockChars {
@@ -48,6 +53,7 @@ impl Default for ErrorBlockChars {
             mid: "\u{2502}".into(),
             bottom: "\u{2570}\u{2500}".into(),
             rail: String::new(),
+            color: String::new(),
         }
     }
 }
@@ -144,6 +150,7 @@ impl ThemeConfig {
                 mid: "\u{2502}".into(),
                 bottom: "\u{2514}\u{2500}".into(),
                 rail: "\u{2502}".into(),
+                color: String::new(),
             },
             description: Some("Bold tree-style with box-drawing chars".into()),
             left_pad: 1,
