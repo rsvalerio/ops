@@ -306,6 +306,20 @@ impl CommandRunner {
         }
     }
 
+    /// Resolve a leaf ID to an owned [`ExecCommandSpec`], producing a unified
+    /// error message for both "unknown command" and "composite in leaf plan"
+    /// cases so sequential (`execute_step`) and raw (`run_plan_raw`) paths
+    /// stay in lockstep.
+    fn resolve_exec_leaf(&self, id: &str) -> Result<ExecCommandSpec, String> {
+        match self.resolve(id) {
+            Some(CommandSpec::Exec(e)) => Ok(e.clone()),
+            Some(CommandSpec::Composite(_)) => {
+                Err(format!("internal error: composite in leaf plan: {}", id))
+            }
+            None => Err(format!("unknown command: {}", id)),
+        }
+    }
+
     /// Run a single exec command; returns result and can stream output via callback.
     #[instrument(skip(self, on_event), fields(id = %id))]
     pub async fn run_exec(
@@ -323,20 +337,13 @@ impl CommandRunner {
         id: &str,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> (StepResult, bool) {
-        let Some(spec) = self.resolve(id) else {
-            let msg = format!("unknown command: {}", id);
-            return (resolution_failure(id, msg, on_event), true);
-        };
-        match spec {
-            CommandSpec::Exec(e) => {
-                let r = self.run_exec(id, e, on_event).await;
+        match self.resolve_exec_leaf(id) {
+            Ok(e) => {
+                let r = self.run_exec(id, &e, on_event).await;
                 let should_stop = !r.success;
                 (r, should_stop)
             }
-            CommandSpec::Composite(_) => {
-                let msg = format!("internal error: composite in leaf plan: {}", id);
-                (resolution_failure(id, msg, on_event), true)
-            }
+            Err(msg) => (resolution_failure(id, msg, on_event), true),
         }
     }
 
@@ -378,25 +385,10 @@ impl CommandRunner {
     ) -> Vec<StepResult> {
         let mut results = Vec::new();
         for id in command_ids {
-            let spec = match self.resolve(id.as_str()) {
-                Some(CommandSpec::Exec(e)) => e.clone(),
-                Some(CommandSpec::Composite(_)) => {
-                    results.push(StepResult::failure(
-                        id.as_str(),
-                        Duration::ZERO,
-                        format!("internal error: composite in leaf plan: {}", id),
-                    ));
-                    if fail_fast {
-                        break;
-                    }
-                    continue;
-                }
-                None => {
-                    results.push(StepResult::failure(
-                        id.as_str(),
-                        Duration::ZERO,
-                        format!("unknown command: {}", id),
-                    ));
+            let spec = match self.resolve_exec_leaf(id.as_str()) {
+                Ok(spec) => spec,
+                Err(msg) => {
+                    results.push(StepResult::failure(id.as_str(), Duration::ZERO, msg));
                     if fail_fast {
                         break;
                     }

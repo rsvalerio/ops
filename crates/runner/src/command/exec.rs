@@ -247,12 +247,12 @@ pub(crate) fn looks_like_uuid(value: &str) -> bool {
             .all(|p| p.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
-/// Execute a command with an optional timeout.
-pub async fn execute_with_timeout(
-    mut cmd: Command,
-    timeout: Option<Duration>,
-) -> Result<std::process::Output, std::io::Error> {
-    let future = cmd.output();
+/// Await a future with an optional timeout, mapping elapsed timeouts to an
+/// `io::ErrorKind::TimedOut` with a unified "timed out after Ns" message.
+async fn await_with_timeout<F, T>(future: F, timeout: Option<Duration>) -> Result<T, std::io::Error>
+where
+    F: std::future::Future<Output = Result<T, std::io::Error>>,
+{
     if let Some(t) = timeout {
         match tokio::time::timeout(t, future).await {
             Ok(result) => result,
@@ -264,6 +264,30 @@ pub async fn execute_with_timeout(
     } else {
         future.await
     }
+}
+
+/// Run a future to completion, tracking elapsed duration and applying an
+/// optional timeout. Shared by [`exec_command`] and [`exec_command_raw`] so
+/// both paths produce identical timeout messages and duration semantics.
+async fn run_with_timeout<F, T>(
+    future: F,
+    timeout: Option<Duration>,
+) -> (Result<T, std::io::Error>, Duration)
+where
+    F: std::future::Future<Output = Result<T, std::io::Error>>,
+{
+    let start = Instant::now();
+    let result = await_with_timeout(future, timeout).await;
+    (result, start.elapsed())
+}
+
+/// Execute a command with an optional timeout, capturing its output.
+#[cfg(test)]
+pub async fn execute_with_timeout(
+    mut cmd: Command,
+    timeout: Option<Duration>,
+) -> Result<std::process::Output, std::io::Error> {
+    await_with_timeout(cmd.output(), timeout).await
 }
 
 /// Emit StepOutput events for captured stdout and stderr.
@@ -337,13 +361,12 @@ pub async fn exec_command(
         id: id.into(),
         display_cmd: display_cmd.clone(),
     });
-    let start = Instant::now();
 
-    let cmd = build_command(spec, cwd, vars);
-    let output = match execute_with_timeout(cmd, spec.timeout()).await {
+    let mut cmd = build_command(spec, cwd, vars);
+    let (result, duration) = run_with_timeout(cmd.output(), spec.timeout()).await;
+    let output = match result {
         Ok(o) => CommandOutput::from_raw(o),
         Err(e) => {
-            let duration = start.elapsed();
             let msg = e.to_string();
             emit(RunnerEvent::StepFailed {
                 id: id.into(),
@@ -354,7 +377,6 @@ pub async fn exec_command(
             return StepResult::failure(id, duration, msg);
         }
     };
-    let duration = start.elapsed();
 
     emit_output_events(id, &output.stdout, &output.stderr, emit);
     emit_step_completion(id, duration, &output, display_cmd, emit);
@@ -379,20 +401,7 @@ pub async fn exec_command_raw(
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit());
 
-    let start = Instant::now();
-    let status_future = cmd.status();
-    let status_result = if let Some(t) = spec.timeout() {
-        match tokio::time::timeout(t, status_future).await {
-            Ok(r) => r,
-            Err(_) => Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                format!("timed out after {}s", t.as_secs()),
-            )),
-        }
-    } else {
-        status_future.await
-    };
-    let duration = start.elapsed();
+    let (status_result, duration) = run_with_timeout(cmd.status(), spec.timeout()).await;
 
     match status_result {
         Ok(status) => {
