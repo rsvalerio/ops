@@ -78,7 +78,11 @@ fn run_commands(
     if raw {
         // Raw mode: child owns the terminal, no display is attached, and
         // composite `parallel = true` is ignored (sequential only).
-        let _ = any_parallel;
+        if any_parallel {
+            tracing::warn!(
+                "--raw forces sequential execution; composite `parallel = true` is ignored"
+            );
+        }
         let results: Vec<StepResult> =
             run_with_runtime(async { Ok(runner.run_plan_raw(&all_leaf_ids, fail_fast).await) })?;
         log_step_results(&results);
