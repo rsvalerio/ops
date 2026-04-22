@@ -12,5 +12,6 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 ops-core = { workspace = true, features = ["test-support"] }
+serial_test = "3"
 tempfile = "3"
 toml = "1"
