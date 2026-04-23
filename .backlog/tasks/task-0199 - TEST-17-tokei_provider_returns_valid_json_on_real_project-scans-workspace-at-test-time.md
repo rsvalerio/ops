@@ -3,10 +3,10 @@ id: TASK-0199
 title: >-
   TEST-17: tokei_provider_returns_valid_json_on_real_project scans workspace at
   test time
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:26'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:50'
 labels:
   - rust-code-review
   - TEST
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Unit test uses tempdir with fixed content; live-scan variant is moved to tests/ or ignored
-- [ ] #2 New test is deterministic wrt tokei version and file contents
+- [x] #1 Unit test uses tempdir with fixed content; live-scan variant is moved to tests/ or ignored
+- [x] #2 New test is deterministic wrt tokei version and file contents
 <!-- AC:END -->

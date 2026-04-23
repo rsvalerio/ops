@@ -1,10 +1,10 @@
 ---
 id: TASK-0245
 title: 'ERR-2: DataProviderError variants lack documented conditions'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:35'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 08:58'
 labels:
   - rust-code-review
   - error-handling
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add /// docs to each variant explaining the conditions
-- [ ] #2 Cross-reference in DataProvider::provide docs
+- [x] #1 Add /// docs to each variant explaining the conditions
+- [x] #2 Cross-reference in DataProvider::provide docs
 <!-- AC:END -->

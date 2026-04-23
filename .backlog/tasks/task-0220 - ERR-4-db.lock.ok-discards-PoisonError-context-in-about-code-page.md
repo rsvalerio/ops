@@ -1,10 +1,10 @@
 ---
 id: TASK-0220
 title: 'ERR-4: db.lock().ok()? discards PoisonError context in about code page'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:33'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:53'
 labels:
   - rust-code-review
   - error-handling
@@ -24,6 +24,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Log the PoisonError with tracing::warn before returning None
-- [ ] #2 Add regression test asserting a warning is emitted on poisoned lock
+- [x] #1 Log the PoisonError with tracing::warn before returning None
+- [x] #2 Add regression test asserting a warning is emitted on poisoned lock
 <!-- AC:END -->

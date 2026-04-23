@@ -1,10 +1,10 @@
 ---
 id: TASK-0131
 title: 'SEC-12: extra_opts interpolated into DuckDB SQL without allowlist validation'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:16'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:31'
 labels:
   - rust-code-review
   - sec
@@ -24,6 +24,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Validate extra_opts with a whitelist (e.g., alphanumeric + underscores + '=' + ',' + digits only) or accept a typed struct/list of (key, value) pairs
-- [ ] #2 Add a test asserting that malicious extra_opts (containing quotes, semicolons, or parentheses) is rejected
+- [x] #1 Validate extra_opts with a whitelist (e.g., alphanumeric + underscores + '=' + ',' + digits only) or accept a typed struct/list of (key, value) pairs
+- [x] #2 Add a test asserting that malicious extra_opts (containing quotes, semicolons, or parentheses) is rejected
 <!-- AC:END -->

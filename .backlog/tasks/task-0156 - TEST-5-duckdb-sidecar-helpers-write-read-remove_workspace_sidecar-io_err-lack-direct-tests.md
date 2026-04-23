@@ -3,10 +3,10 @@ id: TASK-0156
 title: >-
   TEST-5: duckdb sidecar helpers (write/read/remove_workspace_sidecar, io_err)
   lack direct tests
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:23'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:40'
 labels:
   - rust-code-review
   - TEST
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 round-trip write/read/remove tests added using tempdir
-- [ ] #2 tests cover sidecar filename derivation from name parameter
+- [x] #1 round-trip write/read/remove tests added using tempdir
+- [x] #2 tests cover sidecar filename derivation from name parameter
 <!-- AC:END -->

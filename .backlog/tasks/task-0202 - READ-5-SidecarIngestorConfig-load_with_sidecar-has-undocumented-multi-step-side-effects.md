@@ -3,10 +3,10 @@ id: TASK-0202
 title: >-
   READ-5: SidecarIngestorConfig::load_with_sidecar has undocumented multi-step
   side effects
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:26'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:52'
 labels:
   - rust-code-review
   - READ
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 load_with_sidecar documents each side effect and its cleanup semantics on error
-- [ ] #2 Failure after table creation cleans up sidecar/JSON or is explicitly called out as idempotent-on-retry
+- [x] #1 load_with_sidecar documents each side effect and its cleanup semantics on error
+- [x] #2 Failure after table creation cleans up sidecar/JSON or is explicitly called out as idempotent-on-retry
 <!-- AC:END -->

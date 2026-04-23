@@ -3,10 +3,10 @@ id: TASK-0187
 title: >-
   FN-1: flatten_tokei_to_json mixes path relativization, UTF-8 conversion, and
   JSON shaping
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:47'
 labels:
   - rust-code-review
   - FN
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 flatten_tokei_to_json is split into smaller named helpers
-- [ ] #2 Per-report transformation has its own unit test
+- [x] #1 flatten_tokei_to_json is split into smaller named helpers
+- [x] #2 Per-report transformation has its own unit test
 <!-- AC:END -->

@@ -3,10 +3,10 @@ id: TASK-0196
 title: >-
   READ-8: DuckDb::lock logs poisoned mutex at lowest layer with zero caller
   context
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:26'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:49'
 labels:
   - rust-code-review
   - READ
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 DuckDb::lock no longer logs; callers that swallow the error log with context
-- [ ] #2 Poison-path log carries the query/label that failed
+- [x] #1 DuckDb::lock no longer logs; callers that swallow the error log with context
+- [x] #2 Poison-path log carries the query/label that failed
 <!-- AC:END -->

@@ -3,10 +3,10 @@ id: TASK-0173
 title: >-
   ERR-5: SidecarIngestorConfig.load_with_sidecar panics on count_table
   validation
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:41'
 labels:
   - rust-code-review
   - ERR
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 load_with_sidecar returns a DbError instead of panicking on invalid count_table
-- [ ] #2 test asserts the error path with a deliberately invalid identifier
+- [x] #1 load_with_sidecar returns a DbError instead of panicking on invalid count_table
+- [x] #2 test asserts the error path with a deliberately invalid identifier
 <!-- AC:END -->

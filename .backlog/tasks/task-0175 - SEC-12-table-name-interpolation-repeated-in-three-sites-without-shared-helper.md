@@ -1,10 +1,10 @@
 ---
 id: TASK-0175
 title: 'SEC-12: table name interpolation repeated in three sites without shared helper'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:42'
 labels:
   - rust-code-review
   - SEC
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 All table-name interpolation goes through a single validated quoting helper
-- [ ] #2 Call sites use the helper rather than ad-hoc validate_identifier plus format
+- [x] #1 All table-name interpolation goes through a single validated quoting helper
+- [x] #2 Call sites use the helper rather than ad-hoc validate_identifier plus format
 <!-- AC:END -->

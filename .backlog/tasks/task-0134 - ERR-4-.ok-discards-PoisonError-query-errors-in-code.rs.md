@@ -1,10 +1,10 @@
 ---
 id: TASK-0134
 title: 'ERR-4: .ok()? discards PoisonError / query errors in code.rs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:16'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:33'
 labels:
   - rust-code-review
   - err
@@ -24,6 +24,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace .ok()? with Result-based propagation (?, map_err + context) so PoisonError/duckdb::Error surfaces to the caller
-- [ ] #2 Log or propagate context describing what was attempted (lock acquisition, query)
+- [x] #1 Replace .ok()? with Result-based propagation (?, map_err + context) so PoisonError/duckdb::Error surfaces to the caller
+- [x] #2 Log or propagate context describing what was attempted (lock acquisition, query)
 <!-- AC:END -->

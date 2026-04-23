@@ -3,10 +3,10 @@ id: TASK-0259
 title: >-
   ERR-10: SqlError::PathTraversalNotAllowed carries a String instead of a typed
   path
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:36'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 09:17'
 labels:
   - rust-code-review
   - error-handling
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Use PathBuf in the variant
-- [ ] #2 Update tests/consumers
+- [x] #1 Use PathBuf in the variant
+- [x] #2 Update tests/consumers
 <!-- AC:END -->

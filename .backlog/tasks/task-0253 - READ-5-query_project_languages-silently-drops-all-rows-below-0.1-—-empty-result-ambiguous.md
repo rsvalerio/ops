@@ -3,10 +3,10 @@ id: TASK-0253
 title: >-
   READ-5: query_project_languages silently drops all rows below 0.1% — empty
   result ambiguous
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:35'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 09:05'
 labels:
   - rust-code-review
   - readability
@@ -26,6 +26,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Always keep top N regardless of threshold or aggregate remainder into 'other'
-- [ ] #2 Test with inputs where max loc_pct < 0.1
+- [x] #1 Always keep top N regardless of threshold or aggregate remainder into 'other'
+- [x] #2 Test with inputs where max loc_pct < 0.1
 <!-- AC:END -->

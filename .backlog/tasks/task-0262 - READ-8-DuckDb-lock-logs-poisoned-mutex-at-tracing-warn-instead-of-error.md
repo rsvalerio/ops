@@ -1,10 +1,10 @@
 ---
 id: TASK-0262
 title: 'READ-8: DuckDb::lock logs poisoned mutex at tracing::warn instead of error'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:36'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 09:17'
 labels:
   - rust-code-review
   - readability
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Use tracing::error! and include db_path
-- [ ] #2 Cross-reference task-0196 for caller context
+- [x] #1 Use tracing::error! and include db_path
+- [x] #2 Cross-reference task-0196 for caller context
 <!-- AC:END -->

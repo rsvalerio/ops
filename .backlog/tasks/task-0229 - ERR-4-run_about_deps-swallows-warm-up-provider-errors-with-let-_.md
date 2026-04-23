@@ -1,10 +1,10 @@
 ---
 id: TASK-0229
 title: 'ERR-4: run_about_deps swallows warm-up provider errors with let _ ='
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:33'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 08:56'
 labels:
   - rust-code-review
   - error-handling
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Log on Err
-- [ ] #2 Discriminate NotFound vs. real errors
+- [x] #1 Log on Err
+- [x] #2 Discriminate NotFound vs. real errors
 <!-- AC:END -->

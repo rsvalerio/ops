@@ -1,10 +1,10 @@
 ---
 id: TASK-0198
 title: 'API-1: PerCrateI64Query uses raw &str for table/alias/column — swap-prone'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:26'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:50'
 labels:
   - rust-code-review
   - API
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 SQL identifier fields use newtype wrappers with validated constructors
-- [ ] #2 Constructors enforce validate_identifier once, removing runtime checks at use sites
+- [x] #1 SQL identifier fields use newtype wrappers with validated constructors
+- [x] #2 Constructors enforce validate_identifier once, removing runtime checks at use sites
 <!-- AC:END -->

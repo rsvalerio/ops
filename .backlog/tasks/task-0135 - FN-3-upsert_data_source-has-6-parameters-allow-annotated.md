@@ -1,10 +1,10 @@
 ---
 id: TASK-0135
 title: 'FN-3: upsert_data_source has 6 parameters (allow-annotated)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:16'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:34'
 labels:
   - rust-code-review
   - fn
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Group source_name/workspace_root/source_path/record_count/checksum into a DataSourceMetadata struct
-- [ ] #2 Remove #[allow(clippy::too_many_arguments)]
+- [x] #1 Group source_name/workspace_root/source_path/record_count/checksum into a DataSourceMetadata struct
+- [x] #2 Remove #[allow(clippy::too_many_arguments)]
 <!-- AC:END -->

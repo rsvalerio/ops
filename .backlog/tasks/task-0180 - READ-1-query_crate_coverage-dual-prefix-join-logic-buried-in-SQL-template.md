@@ -1,10 +1,10 @@
 ---
 id: TASK-0180
 title: 'READ-1: query_crate_coverage dual-prefix join logic buried in SQL template'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:42'
 labels:
   - rust-code-review
   - READ
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Dual-prefix matching has a dedicated test covering both absolute and relative filename branches
-- [ ] #2 Intent of the workspace_root-prefixed join is documented inline at the SQL site
+- [x] #1 Dual-prefix matching has a dedicated test covering both absolute and relative filename branches
+- [x] #2 Intent of the workspace_root-prefixed join is documented inline at the SQL site
 <!-- AC:END -->

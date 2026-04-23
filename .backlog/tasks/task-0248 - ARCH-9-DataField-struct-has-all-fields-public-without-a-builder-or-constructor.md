@@ -3,10 +3,10 @@ id: TASK-0248
 title: >-
   ARCH-9: DataField struct has all fields public without a builder or
   constructor
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:35'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 09:02'
 labels:
   - rust-code-review
   - architecture
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Apply #[non_exhaustive] or provide DataField::new(...) + private fields
-- [ ] #2 Update data_field! macro to use constructor
+- [x] #1 Apply #[non_exhaustive] or provide DataField::new(...) + private fields
+- [x] #2 Update data_field! macro to use constructor
 <!-- AC:END -->

@@ -3,10 +3,10 @@ id: TASK-0251
 title: >-
   SEC-14: prepare_path_for_sql validates a lossy UTF-8 copy but interpolates the
   lossy form
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:35'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 09:02'
 labels:
   - rust-code-review
   - security
@@ -26,6 +26,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Reject non-UTF-8 paths with SqlError::InvalidPathChar up front
-- [ ] #2 Unit test using OsString with invalid UTF-8 returns Err
+- [x] #1 Reject non-UTF-8 paths with SqlError::InvalidPathChar up front
+- [x] #2 Unit test using OsString with invalid UTF-8 returns Err
 <!-- AC:END -->

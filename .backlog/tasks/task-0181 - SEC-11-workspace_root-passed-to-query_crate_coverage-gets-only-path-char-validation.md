@@ -3,10 +3,10 @@ id: TASK-0181
 title: >-
   SEC-11: workspace_root passed to query_crate_coverage gets only path-char
   validation
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:43'
 labels:
   - rust-code-review
   - SEC
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 workspace_root validation is consistent with prepare_path_for_sql or explicitly documented as sufficient given parameterization
-- [ ] #2 Validation helpers document which are safe standalone vs in combination
+- [x] #1 workspace_root validation is consistent with prepare_path_for_sql or explicitly documented as sufficient given parameterization
+- [x] #2 Validation helpers document which are safe standalone vs in combination
 <!-- AC:END -->

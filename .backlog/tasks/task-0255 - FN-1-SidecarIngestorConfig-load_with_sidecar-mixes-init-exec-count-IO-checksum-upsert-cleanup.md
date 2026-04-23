@@ -3,10 +3,10 @@ id: TASK-0255
 title: >-
   FN-1: SidecarIngestorConfig::load_with_sidecar mixes init, exec, count, IO,
   checksum, upsert, cleanup
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:36'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 09:14'
 labels:
   - rust-code-review
   - function-design
@@ -26,6 +26,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Split into create_tables, count_records, persist_record, cleanup_artifacts helpers
-- [ ] #2 Each helper independently testable
+- [x] #1 Split into create_tables, count_records, persist_record, cleanup_artifacts helpers
+- [x] #2 Each helper independently testable
 <!-- AC:END -->

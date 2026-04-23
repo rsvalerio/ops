@@ -3,10 +3,10 @@ id: TASK-0221
 title: >-
   ERR-1: filter_map(|r| r.ok()) silently discards per-row query errors in about
   code
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:33'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:53'
 labels:
   - rust-code-review
   - error-handling
@@ -26,6 +26,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Log each Err via tracing before dropping
-- [ ] #2 Propagate as None if any row fails
+- [x] #1 Log each Err via tracing before dropping
+- [x] #2 Propagate as None if any row fails
 <!-- AC:END -->

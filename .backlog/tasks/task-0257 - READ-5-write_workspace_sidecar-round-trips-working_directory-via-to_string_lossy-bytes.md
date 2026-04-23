@@ -3,10 +3,10 @@ id: TASK-0257
 title: >-
   READ-5: write_workspace_sidecar round-trips working_directory via
   to_string_lossy bytes
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:36'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 09:15'
 labels:
   - rust-code-review
   - readability
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Use working_directory.as_os_str().as_encoded_bytes() (or fail for non-UTF-8)
-- [ ] #2 Test with non-UTF-8 PathBuf
+- [x] #1 Use working_directory.as_os_str().as_encoded_bytes() (or fail for non-UTF-8)
+- [x] #2 Test with non-UTF-8 PathBuf
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-0228
 title: 'ERR-4: run_about_coverage swallows warm-up provider errors with let _ ='
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:33'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:56'
 labels:
   - rust-code-review
   - error-handling
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Log at debug/warn on Err
-- [ ] #2 Match errors and only ignore NotFound
+- [x] #1 Log at debug/warn on Err
+- [x] #2 Match errors and only ignore NotFound
 <!-- AC:END -->

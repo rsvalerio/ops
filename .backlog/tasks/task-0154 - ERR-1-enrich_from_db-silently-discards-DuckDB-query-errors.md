@@ -1,10 +1,10 @@
 ---
 id: TASK-0154
 title: 'ERR-1: enrich_from_db silently discards DuckDB query errors'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:22'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:40'
 labels:
   - rust-code-review
   - ERR
@@ -24,6 +24,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 enrich_from_db logs failed queries via tracing with source-error context
-- [ ] #2 a unit test asserts the logging path for at least one failing query
+- [x] #1 enrich_from_db logs failed queries via tracing with source-error context
+- [x] #2 a unit test asserts the logging path for at least one failing query
 <!-- AC:END -->

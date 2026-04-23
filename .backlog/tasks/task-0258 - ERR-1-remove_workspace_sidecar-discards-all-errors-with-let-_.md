@@ -1,10 +1,10 @@
 ---
 id: TASK-0258
 title: 'ERR-1: remove_workspace_sidecar discards all errors with let _ ='
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:36'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 09:16'
 labels:
   - rust-code-review
   - error-handling
@@ -24,6 +24,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Log via tracing::warn when remove fails (still best-effort)
-- [ ] #2 Test asserting log emission for removal failure
+- [x] #1 Log via tracing::warn when remove fails (still best-effort)
+- [x] #2 Test asserting log emission for removal failure
 <!-- AC:END -->

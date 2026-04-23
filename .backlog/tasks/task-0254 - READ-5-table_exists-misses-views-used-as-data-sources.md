@@ -1,10 +1,10 @@
 ---
 id: TASK-0254
 title: 'READ-5: table_exists misses views used as data sources'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:36'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 09:13'
 labels:
   - rust-code-review
   - readability
@@ -24,6 +24,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Query information_schema.tables + information_schema.views (UNION) or duckdb_tables()/duckdb_views()
-- [ ] #2 Regression test with a view-only schema
+- [x] #1 Query information_schema.tables + information_schema.views (UNION) or duckdb_tables()/duckdb_views()
+- [x] #2 Regression test with a view-only schema
 <!-- AC:END -->

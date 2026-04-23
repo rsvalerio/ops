@@ -1,10 +1,10 @@
 ---
 id: TASK-0263
 title: 'ERR-4: upsert_data_source silently uses to_string_lossy for source_path'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:36'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 09:18'
 labels:
   - rust-code-review
   - error-handling
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Fail fast on non-UTF-8 paths or persist as BLOB
-- [ ] #2 Test non-UTF-8 path rejected
+- [x] #1 Fail fast on non-UTF-8 paths or persist as BLOB
+- [x] #2 Test non-UTF-8 path rejected
 <!-- AC:END -->

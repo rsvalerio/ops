@@ -3,10 +3,10 @@ id: TASK-0232
 title: >-
   READ-1: collect_tokei builds Tokei with empty excluded list — includes
   target/, .git/
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:34'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 08:57'
 labels:
   - rust-code-review
   - readability
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Exclude target, .git, node_modules, .venv by default
-- [ ] #2 Add a test verifying exclusions
+- [x] #1 Exclude target, .git, node_modules, .venv by default
+- [x] #2 Add a test verifying exclusions
 <!-- AC:END -->

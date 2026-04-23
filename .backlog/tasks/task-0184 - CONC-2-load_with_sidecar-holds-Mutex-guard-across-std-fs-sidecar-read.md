@@ -1,10 +1,10 @@
 ---
 id: TASK-0184
 title: 'CONC-2: load_with_sidecar holds Mutex guard across std::fs sidecar read'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:44'
 labels:
   - rust-code-review
   - CONC
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_workspace_sidecar is invoked before acquiring the db lock or after dropping it
-- [ ] #2 Critical section of load_with_sidecar is restricted to execute/query_row calls
+- [x] #1 read_workspace_sidecar is invoked before acquiring the db lock or after dropping it
+- [x] #2 Critical section of load_with_sidecar is restricted to execute/query_row calls
 <!-- AC:END -->

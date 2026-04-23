@@ -1,10 +1,10 @@
 ---
 id: TASK-0226
 title: 'DUP-1: load_tokei duplicates TokeiIngestor::load path logic'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:33'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:55'
 labels:
   - rust-code-review
   - duplication
@@ -24,6 +24,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Remove load_tokei or delegate fully to TokeiIngestor
-- [ ] #2 Assert single ingestion entry point with a test
+- [x] #1 Remove load_tokei or delegate fully to TokeiIngestor
+- [x] #2 Assert single ingestion entry point with a test
 <!-- AC:END -->

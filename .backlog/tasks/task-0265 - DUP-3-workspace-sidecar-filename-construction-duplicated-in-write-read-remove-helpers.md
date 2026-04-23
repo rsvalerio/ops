@@ -3,10 +3,10 @@ id: TASK-0265
 title: >-
   DUP-3: workspace sidecar filename construction duplicated in write/read/remove
   helpers
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:36'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 09:19'
 labels:
   - rust-code-review
   - duplication
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract fn sidecar_path(data_dir, name) -> PathBuf used by all three
-- [ ] #2 Update callers
+- [x] #1 Extract fn sidecar_path(data_dir, name) -> PathBuf used by all three
+- [x] #2 Update callers
 <!-- AC:END -->

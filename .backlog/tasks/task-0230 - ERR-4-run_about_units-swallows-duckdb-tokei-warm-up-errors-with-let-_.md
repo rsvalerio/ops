@@ -1,10 +1,10 @@
 ---
 id: TASK-0230
 title: 'ERR-4: run_about_units swallows duckdb/tokei warm-up errors with let _ ='
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:34'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 08:57'
 labels:
   - rust-code-review
   - error-handling
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Log warnings on Err
-- [ ] #2 Only ignore DataProviderError::NotFound
+- [x] #1 Log warnings on Err
+- [x] #2 Only ignore DataProviderError::NotFound
 <!-- AC:END -->

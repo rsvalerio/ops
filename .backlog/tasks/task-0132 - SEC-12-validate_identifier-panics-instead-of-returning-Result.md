@@ -1,10 +1,10 @@
 ---
 id: TASK-0132
 title: 'SEC-12: validate_identifier panics instead of returning Result'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:16'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:32'
 labels:
   - rust-code-review
   - sec
@@ -24,6 +24,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 validate_identifier returns Result<(), IdentifierError> rather than panicking
-- [ ] #2 Callers propagate the error via ? with context
+- [x] #1 validate_identifier returns Result<(), IdentifierError> rather than panicking
+- [x] #2 Callers propagate the error via ? with context
 <!-- AC:END -->

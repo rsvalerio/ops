@@ -1,10 +1,10 @@
 ---
 id: TASK-0136
 title: 'ARCH-8: test_create_sql_validation macro is #[macro_export] from library crate'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:16'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:37'
 labels:
   - rust-code-review
   - arch
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Remove #[macro_export] or gate the macro behind a test-only feature / cfg(test)
-- [ ] #2 If other workspace crates need it, expose via a dev-dependency or test-helpers crate
+- [x] #1 Remove #[macro_export] or gate the macro behind a test-only feature / cfg(test)
+- [x] #2 If other workspace crates need it, expose via a dev-dependency or test-helpers crate
 <!-- AC:END -->

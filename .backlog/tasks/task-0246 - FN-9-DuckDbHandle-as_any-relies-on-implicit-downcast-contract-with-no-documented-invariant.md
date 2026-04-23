@@ -3,10 +3,10 @@ id: TASK-0246
 title: >-
   FN-9: DuckDbHandle::as_any relies on implicit downcast contract with no
   documented invariant
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:35'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 08:59'
 labels:
   - rust-code-review
   - function-design
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Document the expected concrete type(s)
-- [ ] #2 Provide a typed accessor method instead of raw as_any
+- [x] #1 Document the expected concrete type(s)
+- [x] #2 Provide a typed accessor method instead of raw as_any
 <!-- AC:END -->

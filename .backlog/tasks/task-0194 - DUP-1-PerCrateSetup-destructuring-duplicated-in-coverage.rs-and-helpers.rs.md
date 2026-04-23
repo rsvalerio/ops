@@ -1,10 +1,10 @@
 ---
 id: TASK-0194
 title: 'DUP-1: PerCrateSetup destructuring duplicated in coverage.rs and helpers.rs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:26'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:48'
 labels:
   - rust-code-review
   - DUP
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 PerCrateSetup unwrapping is factored into a single helper
-- [ ] #2 coverage.rs and helpers.rs call the shared helper
+- [x] #1 PerCrateSetup unwrapping is factored into a single helper
+- [x] #2 coverage.rs and helpers.rs call the shared helper
 <!-- AC:END -->

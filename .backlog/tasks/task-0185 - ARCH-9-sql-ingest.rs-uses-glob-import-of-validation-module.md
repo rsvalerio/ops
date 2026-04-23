@@ -1,10 +1,10 @@
 ---
 id: TASK-0185
 title: 'ARCH-9: sql/ingest.rs uses glob import of validation module'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 08:45'
 labels:
   - rust-code-review
   - ARCH
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Glob imports are replaced with explicit item lists in sql/ingest.rs
-- [ ] #2 sql/mod.rs re-export list is reviewed and narrowed to the intended public API
+- [x] #1 Glob imports are replaced with explicit item lists in sql/ingest.rs
+- [x] #2 sql/mod.rs re-export list is reviewed and narrowed to the intended public API
 <!-- AC:END -->
