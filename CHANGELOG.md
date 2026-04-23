@@ -2,6 +2,53 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.20.0](https://github.com/rsvalerio/ops/compare/ee0369f0f478025d48a31c1cf4acb05fd1bf082e..v0.20.0) - 2026-04-23
+#### 🚀 Features
+- (**core,theme**) add ui, config edit, and theme resolve modules - ([0034fd1](https://github.com/rsvalerio/ops/commit/0034fd14f57536cbf032ba462de8cb1986fe3aa4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**registry**) extract command registry for better code organization - ([e0b499d](https://github.com/rsvalerio/ops/commit/e0b499dfa944cda88d69d2d97f4c4e5ec14598c6)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- fix code example fence syntax and runnable examples - ([efe1e2b](https://github.com/rsvalerio/ops/commit/efe1e2bf5b45636052aa3aca5e2f03e8d1f305ad)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔄 CI/CD
+- remove ops CLI dependency from workflow steps and add install job - ([1fb0ac4](https://github.com/rsvalerio/ops/commit/1fb0ac41781aae712da4a610f545f824c8e453b3)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about**) use new edit_ops_toml and ui modules for error handling - ([d4bd1bb](https://github.com/rsvalerio/ops/commit/d4bd1bbc8b7f9118dcb909aff68ef6979e98b554)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-ext**) improve card rendering and coverage reporting - ([fd3442a](https://github.com/rsvalerio/ops/commit/fd3442a39d273917be8e4ea98886e78cb824c648)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) improve command dispatch and error handling - ([8e849de](https://github.com/rsvalerio/ops/commit/8e849dec0af4d5b48d10124153156331d0f642dc)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) improve merge logic and handle parse errors - ([d3c1127](https://github.com/rsvalerio/ops/commit/d3c11277ba86f06367da75f6da4ee6ab736b7b85)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) improve error handling and export edit_ops_toml - ([deab901](https://github.com/rsvalerio/ops/commit/deab90156ae05e34a2d812eb39d0ce758b597143)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) improve stack, table, and test utilities - ([a799ff0](https://github.com/rsvalerio/ops/commit/a799ff0944086cf79fe8e70da5db88262268e921)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) add ui exports and improve output handling - ([27d3786](https://github.com/rsvalerio/ops/commit/27d3786fb968d9af3661d3392f4876f0df53e2cc)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**crate**) unify error types and improve CLI extension handling - ([991c3c0](https://github.com/rsvalerio/ops/commit/991c3c01790734f27ba1c4867f3a8ac27d6b0a6a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**display**) improve output formatting and terminal handling - ([0eefe92](https://github.com/rsvalerio/ops/commit/0eefe92e58cff55dd54b66fc58139a9bfdd04b76)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) add SQL validation helpers, improve error handling, and refactor schema - ([621f128](https://github.com/rsvalerio/ops/commit/621f128cff9c17cb3a9dbb274e2f503f0b9bf08a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb-ext**) improve SQL ingest and query logic - ([e60e2c2](https://github.com/rsvalerio/ops/commit/e60e2c27c0bf204e140a56abebd8cc41faa1a92c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) update data registration and tests - ([9355d74](https://github.com/rsvalerio/ops/commit/9355d7412ec1c2be431b9651ce35a02725b3b41d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions**) improve error handling, critical section scoping, and dependencies - ([c5b53ad](https://github.com/rsvalerio/ops/commit/c5b53adc84b250e929336aa22e036f651104e749)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git-ext**) improve git provider - ([b23f85e](https://github.com/rsvalerio/ops/commit/b23f85e02590b0fbe428d0220025e804581402e7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**go-about-ext**) improve Go project analysis - ([1c6fb78](https://github.com/rsvalerio/ops/commit/1c6fb780290f7bc8dbfcd79a7ca700c3bd53c9be)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**help**) improve category handling and command filtering logic - ([7b228c0](https://github.com/rsvalerio/ops/commit/7b228c083c2c64fc87f00ee53669cdff8c0b5c88)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) use new edit_ops_toml infrastructure - ([dd3674f](https://github.com/rsvalerio/ops/commit/dd3674f0edc5452b44bf333590de271697dedaba)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**identity**) improve project identity card rendering - ([67cf8a4](https://github.com/rsvalerio/ops/commit/67cf8a4a8bc8ada36e92de8ca8bd03ef0dd0f9ee)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**java-about-ext**) improve Java build tooling detection - ([031fb87](https://github.com/rsvalerio/ops/commit/031fb87377066147bba65d667e75231b427a8799)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**new-command**) use new edit_ops_toml infrastructure - ([611e482](https://github.com/rsvalerio/ops/commit/611e482e06a14c5e5889cb98c691846e0eaa43d0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**node-about-ext**) improve Node project analysis - ([7845c0f](https://github.com/rsvalerio/ops/commit/7845c0f1ff5d0767a4b4ff1f67e1138d478fa4c6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python-about-ext**) improve Python project analysis - ([26bf9f2](https://github.com/rsvalerio/ops/commit/26bf9f2ab3596fa00208bae3cb1c267a4fcdbc98)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**run-cmd**) improve error reporting and dry-run display - ([392e5c1](https://github.com/rsvalerio/ops/commit/392e5c1bc15d0ade416185b220fb7051de33825a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) improve command execution and error handling - ([9b817b4](https://github.com/rsvalerio/ops/commit/9b817b4baf7dcff92ca1b592f16d39d4c1dc4c9a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-about-ext**) improve Rust crate detection - ([5ce6bc4](https://github.com/rsvalerio/ops/commit/5ce6bc432b389b9e248f7b85e2e95bffdab6d2f6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-exts**) improve Rust tooling integration - ([ff5b98c](https://github.com/rsvalerio/ops/commit/ff5b98cdf588313334b174da4be1c5c9442b634f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) improve configurable theme and step line rendering - ([e8ced65](https://github.com/rsvalerio/ops/commit/e8ced65dc644d14009694241fff27b935d1292c8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) use new edit_ops_toml and theme resolve infrastructure - ([621425e](https://github.com/rsvalerio/ops/commit/621425ed6f56e98d86b3e49f99ceb6f7b77cadc9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tokei-ext**) improve lines-of-code analysis - ([7257635](https://github.com/rsvalerio/ops/commit/72576350e42ebae49c50bf9457259740f8a33ca9)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) update task status for wave 5 tasks and mark waves 15-17 in progress - ([66858c6](https://github.com/rsvalerio/ops/commit/66858c68778cdf6561e87f0f1ec020cf55b383e8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) mark code-review wave 14 findings as complete - ([ee0369f](https://github.com/rsvalerio/ops/commit/ee0369f0f478025d48a31c1cf4acb05fd1bf082e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) add --ignored flag to default test command - ([5c0138d](https://github.com/rsvalerio/ops/commit/5c0138d5deac630ad47088bdd36cc920a2378a49)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) update lock file - ([bfaf82a](https://github.com/rsvalerio/ops/commit/bfaf82ae1f483daebffe2cef12ca74f2c6bb65ca)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) add dependencies for new infrastructure modules - ([8ec3efa](https://github.com/rsvalerio/ops/commit/8ec3efabefa5a9a4c5278280ec8108a90ec94613)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.19.0](https://github.com/rsvalerio/ops/compare/d1a7251c8e89b62edb4de87f4cc507061220bd32..v0.19.0) - 2026-04-23
 #### 🚀 Features
 - (**cli**) warn when --raw forces sequential execution - ([9e31914](https://github.com/rsvalerio/ops/commit/9e319143c56c25d389883a9cab3394c93456b076)) - [@rsvalerio](https://github.com/rsvalerio)
