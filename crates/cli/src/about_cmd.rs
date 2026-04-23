@@ -4,6 +4,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::Context;
+use ops_core::config::edit_ops_toml;
 use ops_extension::DataRegistry;
 
 use crate::tty::SelectOption;
@@ -23,7 +24,20 @@ where
         anyhow::bail!("no project_identity provider registered — cannot configure about fields");
     }
 
-    let config = ops_core::config::load_config().unwrap_or_default();
+    // ERR-5: don't silently mask config errors — a malformed .ops.toml here
+    // would otherwise present an empty default selection, and the user could
+    // save that reset-to-default back over real config. Print and default
+    // only on NotFound (handled by load_config returning a parsed default).
+    let config = match ops_core::config::load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            ops_core::ui::warn(format!(
+                "failed to load config: {e:#}\n  \
+                 showing all about fields as defaults; fix the config above before saving"
+            ));
+            ops_core::config::Config::default()
+        }
+    };
     let currently_enabled = config.about.fields.as_deref();
 
     let options: Vec<SelectOption> = about_fields
@@ -62,32 +76,20 @@ where
 
 fn save_about_fields(fields: &[String]) -> anyhow::Result<()> {
     let config_path = PathBuf::from(".ops.toml");
-
-    let content = if config_path.exists() {
-        std::fs::read_to_string(&config_path).context("failed to read .ops.toml")?
-    } else {
-        String::new()
-    };
-
-    let mut doc = content
-        .parse::<toml_edit::DocumentMut>()
-        .unwrap_or_else(|_| toml_edit::DocumentMut::new());
-
-    if !doc.contains_key("about") {
-        doc["about"] = toml_edit::Item::Table(toml_edit::Table::new());
-    }
-
-    let about = doc["about"]
-        .as_table_mut()
-        .context("[about] is not a table in .ops.toml")?;
-    let mut arr = toml_edit::Array::new();
-    for f in fields {
-        arr.push(f.as_str());
-    }
-    about.insert("fields", toml_edit::value(arr));
-
-    std::fs::write(&config_path, doc.to_string()).context("failed to write .ops.toml")?;
-    Ok(())
+    edit_ops_toml(&config_path, |doc| {
+        if !doc.contains_key("about") {
+            doc["about"] = toml_edit::Item::Table(toml_edit::Table::new());
+        }
+        let about = doc["about"]
+            .as_table_mut()
+            .context("[about] is not a table in .ops.toml")?;
+        let mut arr = toml_edit::Array::new();
+        for f in fields {
+            arr.push(f.as_str());
+        }
+        about.insert("fields", toml_edit::value(arr));
+        Ok(())
+    })
 }
 
 #[cfg(test)]
@@ -159,6 +161,19 @@ mod tests {
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("codebase"), "got: {content}");
         assert!(content.contains("repository"), "got: {content}");
+    }
+
+    #[test]
+    fn save_about_fields_refuses_to_overwrite_malformed_toml() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
+        let path = dir.path().join(".ops.toml");
+        let malformed = "not = = valid\n{{{";
+        std::fs::write(&path, malformed).unwrap();
+
+        let result = save_about_fields(&["project".to_string()]);
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed);
     }
 
     #[test]
