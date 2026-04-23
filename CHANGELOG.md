@@ -2,6 +2,30 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.19.0](https://github.com/rsvalerio/ops/compare/d1a7251c8e89b62edb4de87f4cc507061220bd32..v0.19.0) - 2026-04-23
+#### 🚀 Features
+- (**cli**) warn when --raw forces sequential execution - ([9e31914](https://github.com/rsvalerio/ops/commit/9e319143c56c25d389883a9cab3394c93456b076)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) add --raw flag for direct terminal passthrough - ([344f20e](https://github.com/rsvalerio/ops/commit/344f20e8715888e2c5e898545fb2347f74860f8d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) enhance find_git_dir with worktree support and symlink protection - ([e3f4c40](https://github.com/rsvalerio/ops/commit/e3f4c40e685e3369fd48dfcd328c75bdbee73f6a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) add HookConfig constructor and impl_hook_wrappers macro - ([854b465](https://github.com/rsvalerio/ops/commit/854b4656f7e28933b4c3516629833978bdc072f3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) add raw mode execution with inherited stdio - ([d1a7251](https://github.com/rsvalerio/ops/commit/d1a7251c8e89b62edb4de87f4cc507061220bd32)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) add error block frame color styling - ([b6817e5](https://github.com/rsvalerio/ops/commit/b6817e5ee20e510e511f468027900e0f15644bdd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) honor NO_COLOR environment variable - ([5bef6be](https://github.com/rsvalerio/ops/commit/5bef6bed0ed448f2fb1773589a429100880e5401)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**git**) add scheme allowlist, host validation, and credential stripping for remote URLs - ([5eebeaa](https://github.com/rsvalerio/ops/commit/5eebeaacb344f9ec1d56fe6f3d39c937a105a607)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**readme**) add stack parity matrix and clean TODOs - ([3b1141c](https://github.com/rsvalerio/ops/commit/3b1141cfdaa2883c1e066469e0e78fb184642588)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**cli**) introduce HookDispatch struct and deduplicate skip/prompt/dispatch logic - ([cfbc93b](https://github.com/rsvalerio/ops/commit/cfbc93b8d0758e0760e373d1b40ca54bf23dff87)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hooks**) use impl_hook_wrappers macro in run-before-commit and run-before-push - ([8d1ba7f](https://github.com/rsvalerio/ops/commit/8d1ba7f71d6cda1d54aa62bd5e9f3a87f15b65cf)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) extract timeout and resolution helpers - ([f123296](https://github.com/rsvalerio/ops/commit/f1232968f820096ac4ddbb74f8353dc5edd960df)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) add code-review findings and wave plans for waves 13-17 - ([0abd9cc](https://github.com/rsvalerio/ops/commit/0abd9cc6291460a08faaa429f0a7743e7e0fde0f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) add todo command to ops.toml - ([6705279](https://github.com/rsvalerio/ops/commit/67052797b37d0bd165b5bff0cc585907fa883180)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) update crates.io dependencies - ([85ae129](https://github.com/rsvalerio/ops/commit/85ae129dc5d24928b54f46b22c886636e70fceb8)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.18.1](https://github.com/rsvalerio/ops/compare/f44e91fd623b0a6d98fbe3c8f0a2e3fc666cd3ac..v0.18.1) - 2026-04-20
 #### 🐛 Bug Fixes
 - (**cargo-toml**) remove redundant map_err DataProviderError conversions - ([8be5970](https://github.com/rsvalerio/ops/commit/8be59706a2cd9a7decb02a4d595f808e59553b59)) - [@rsvalerio](https://github.com/rsvalerio)
