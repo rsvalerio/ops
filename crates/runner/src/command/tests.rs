@@ -60,7 +60,10 @@ fn expand_to_leaves_composite() {
 #[test]
 fn expand_to_leaves_unknown() {
     let runner = runner_with_test_commands();
-    assert!(runner.expand_to_leaves("unknown").is_none());
+    assert!(matches!(
+        runner.expand_to_leaves("unknown"),
+        Err(super::ExpandError::Unknown(_))
+    ));
 }
 
 #[test]
@@ -259,12 +262,12 @@ async fn run_plan_parallel_fail_fast_emits_failure() {
             .any(|e| matches!(e, RunnerEvent::RunFinished { success: false, .. })),
         "should emit RunFinished with success=false"
     );
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, RunnerEvent::StepFinished { .. })),
-        "should emit at least one StepFinished (ok command)"
-    );
+    // CONC-6 / TASK-0204: fail_fast now `abort_all()`s the JoinSet on first
+    // failure, so a sibling that was mid-flight when `fail` emitted is
+    // cancelled rather than allowed to complete. Previously this test
+    // relied on the unbounded-channel behaviour of draining everything
+    // regardless of abort state. We now assert on what `fail_fast`
+    // actually guarantees: a failure event was seen.
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -313,8 +316,15 @@ async fn run_plan_unknown_command_emits_failure() {
         failed.is_some(),
         "should emit StepFailed for unknown command"
     );
-    if let Some(RunnerEvent::StepFailed { message, .. }) = failed {
-        assert!(message.contains("unknown command"), "message: {message}");
+    if let Some(RunnerEvent::StepFailed { id, message, .. }) = failed {
+        // TEST-11: pin the exact error text so a regression that renders
+        // the wrong id (or drops the id entirely) is caught. Substring-only
+        // `contains("unknown command")` tolerates both of those bugs.
+        assert_eq!(id.as_str(), "nonexistent", "failed event must carry the id");
+        assert_eq!(
+            message, "unknown command: nonexistent",
+            "exact failure message mismatch"
+        );
     }
 }
 
@@ -378,7 +388,7 @@ async fn run_unknown_command_returns_error() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn exec_standalone_skips_when_abort_set() {
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::channel(8);
     let abort = Arc::new(AtomicBool::new(true));
     let spec = echo_cmd("should not run");
     let result = exec_standalone(
@@ -480,7 +490,7 @@ mod proptest_tests {
             );
             let runner = test_runner(commands);
             let result = runner.expand_to_leaves(&id);
-            prop_assert!(result.is_some());
+            prop_assert!(result.is_ok());
             prop_assert_eq!(result.unwrap(), vec![id]);
         }
 
@@ -495,18 +505,14 @@ mod proptest_tests {
             commands.insert(cmd2.clone(), CommandSpec::Exec(exec_spec("echo", &[&cmd2])));
             commands.insert(
                 name.clone(),
-                CommandSpec::Composite(ops_core::config::CompositeCommandSpec {
-                    commands: vec![cmd1.clone(), cmd2.clone()],
-                    parallel: false,
-                    fail_fast: true,
-                    help: None,
-                    aliases: Vec::new(),
-                    category: None,
-                }),
+                CommandSpec::Composite(ops_core::config::CompositeCommandSpec::new([
+                    cmd1.clone(),
+                    cmd2.clone(),
+                ])),
             );
             let runner = test_runner(commands);
             let result = runner.expand_to_leaves(&name);
-            prop_assert!(result.is_some());
+            prop_assert!(result.is_ok());
             let leaves = result.unwrap();
             prop_assert!(leaves.iter().any(|l| l == cmd1.as_str()));
             prop_assert!(leaves.iter().any(|l| l == cmd2.as_str()));
@@ -517,7 +523,7 @@ mod proptest_tests {
         fn expand_to_leaves_unknown_returns_none(id in "unknown[a-zA-Z0-9_]{0,8}") {
             let runner = test_runner(HashMap::new());
             let result = runner.expand_to_leaves(&id);
-            prop_assert!(result.is_none());
+            prop_assert!(matches!(result, Err(super::ExpandError::Unknown(_))));
         }
     }
 }
@@ -831,7 +837,7 @@ mod nested_composite_tests {
 
         let runner = test_runner(commands);
         assert!(
-            runner.expand_to_leaves("level3").is_none(),
+            runner.expand_to_leaves("level3").is_err(),
             "missing intermediate command should return None"
         );
     }
@@ -851,7 +857,7 @@ mod nested_composite_tests {
 
         let runner = test_runner(commands);
         assert!(
-            runner.expand_to_leaves("level2").is_none(),
+            runner.expand_to_leaves("level2").is_err(),
             "deep cycle should return None"
         );
     }
@@ -971,7 +977,7 @@ mod cycle_detection_tests {
         );
         let runner = test_runner(commands);
         assert!(
-            runner.expand_to_leaves("a").is_none(),
+            runner.expand_to_leaves("a").is_err(),
             "2-node cycle should return None"
         );
     }
@@ -993,7 +999,7 @@ mod cycle_detection_tests {
         );
         let runner = test_runner(commands);
         assert!(
-            runner.expand_to_leaves("a").is_none(),
+            runner.expand_to_leaves("a").is_err(),
             "3-node cycle a->b->c->a should return None"
         );
     }
@@ -1007,7 +1013,7 @@ mod cycle_detection_tests {
         );
         let runner = test_runner(commands);
         assert!(
-            runner.expand_to_leaves("self_ref").is_none(),
+            runner.expand_to_leaves("self_ref").is_err(),
             "self-referencing command should return None"
         );
     }
@@ -1129,15 +1135,15 @@ mod parallel_infra_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn handle_parallel_events_receives_all() {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(8);
         let abort = Arc::new(AtomicBool::new(false));
 
-        tx.send(RunnerEvent::StepStarted {
+        tx.try_send(RunnerEvent::StepStarted {
             id: "a".into(),
             display_cmd: None,
         })
         .unwrap();
-        tx.send(RunnerEvent::StepFinished {
+        tx.try_send(RunnerEvent::StepFinished {
             id: "a".into(),
             duration_secs: 0.1,
             display_cmd: None,
@@ -1153,10 +1159,10 @@ mod parallel_infra_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn handle_parallel_events_sets_abort_on_fail_fast() {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(8);
         let abort = Arc::new(AtomicBool::new(false));
 
-        tx.send(RunnerEvent::StepFailed {
+        tx.try_send(RunnerEvent::StepFailed {
             id: "fail".into(),
             duration_secs: 0.1,
             message: "error".into(),
@@ -1179,10 +1185,10 @@ mod parallel_infra_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn handle_parallel_events_no_abort_without_fail_fast() {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(8);
         let abort = Arc::new(AtomicBool::new(false));
 
-        tx.send(RunnerEvent::StepFailed {
+        tx.try_send(RunnerEvent::StepFailed {
             id: "fail".into(),
             duration_secs: 0.1,
             message: "error".into(),
@@ -1238,14 +1244,7 @@ mod depth_limit_tests {
             let next_name = format!("level_{}", i + 1);
             commands.insert(
                 name,
-                CommandSpec::Composite(ops_core::config::CompositeCommandSpec {
-                    commands: vec![next_name],
-                    parallel: false,
-                    fail_fast: true,
-                    help: None,
-                    aliases: Vec::new(),
-                    category: None,
-                }),
+                CommandSpec::Composite(ops_core::config::CompositeCommandSpec::new([next_name])),
             );
         }
         commands.insert(
@@ -1260,7 +1259,7 @@ mod depth_limit_tests {
         let commands = create_nested_commands(10);
         let runner = test_runner(commands);
         let result = runner.expand_to_leaves("level_0");
-        assert!(result.is_some(), "10 levels should be well within limit");
+        assert!(result.is_ok(), "10 levels should be well within limit");
     }
 
     #[test]
@@ -1269,7 +1268,7 @@ mod depth_limit_tests {
         let runner = test_runner(commands);
         let result = runner.expand_to_leaves("level_0");
         assert!(
-            result.is_some(),
+            result.is_ok(),
             "99 levels (depth=99 starting from 0) should succeed at MAX_DEPTH=100"
         );
     }
@@ -1280,8 +1279,8 @@ mod depth_limit_tests {
         let runner = test_runner(commands);
         let result = runner.expand_to_leaves("level_0");
         assert!(
-            result.is_none(),
-            "101 levels (exceeds MAX_DEPTH=100) should return None"
+            matches!(result, Err(super::ExpandError::DepthExceeded { .. })),
+            "101 levels (exceeds MAX_DEPTH=100) should return DepthExceeded"
         );
     }
 }

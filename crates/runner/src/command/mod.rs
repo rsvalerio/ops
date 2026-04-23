@@ -34,7 +34,38 @@ mod results;
 
 pub use events::RunnerEvent;
 pub use exec::is_sensitive_env_key;
+pub use exec::looks_like_secret_value as looks_like_secret_value_public;
 pub use results::StepResult;
+
+/// Typed failure for leaf-exec resolution. ERR-10 / TASK-0130: replaces
+/// stringly-typed errors so callers can match on the specific cause.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ResolveExecError {
+    /// The command id was not found in any source (config, stack, extension).
+    #[error("unknown command: {0}")]
+    Unknown(String),
+    /// The command exists but is a composite; leaf plans must be exec-only.
+    #[error("internal error: composite in leaf plan: {0}")]
+    CompositeInLeafPlan(String),
+}
+
+/// Typed failure for composite expansion. ERR-10 / READ-5 / TASK-0203+0215:
+/// `expand_to_leaves` previously returned `Option<Vec<CommandId>>`, which
+/// conflated three distinct failure modes into one `None` that callers
+/// universally rendered as "unknown command". This enum lets the CLI
+/// surface the actual cause.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ExpandError {
+    /// A referenced id was not defined anywhere.
+    #[error("unknown command: {0}")]
+    Unknown(String),
+    /// A composite transitively references itself.
+    #[error("cycle detected in composite command: {0}")]
+    Cycle(String),
+    /// Expansion exceeded the safety depth cap.
+    #[error("composite expansion exceeded depth limit {max_depth} at command `{id}`")]
+    DepthExceeded { id: String, max_depth: usize },
+}
 
 use exec::{exec_command, exec_command_raw, exec_standalone, resolution_failure};
 use indexmap::IndexMap;
@@ -64,8 +95,13 @@ impl PlanLifecycle {
         }
     }
 
-    fn finish(self, results: &[StepResult], on_event: &mut impl FnMut(RunnerEvent)) {
-        let success = results.iter().all(|r| r.success);
+    /// FN-9 / TASK-0197+0211: take `success` explicitly rather than a full
+    /// `&[StepResult]`. Callers already walk the results inside the run loop
+    /// to compute success anyway, so threading a bool is clearer than
+    /// handing over the entire slice for an `iter().all()` re-walk. It also
+    /// prevents a future refactor from passing a partial-result slice and
+    /// silently misreporting the run outcome.
+    fn finish(self, success: bool, on_event: &mut impl FnMut(RunnerEvent)) {
         on_event(RunnerEvent::RunFinished {
             duration_secs: self.start.elapsed().as_secs_f64(),
             success,
@@ -80,6 +116,12 @@ pub struct CommandRunner {
     vars: Variables,
     stack_commands: IndexMap<CommandId, CommandSpec>,
     extension_commands: IndexMap<CommandId, CommandSpec>,
+    /// OWN-6 / TASK-0200: pre-built `alias → canonical` map over the
+    /// stack + extension command stores so `canonical_id` / `resolve_alias`
+    /// are O(1) instead of O(N·A) per lookup. Config aliases are served by
+    /// `Config::resolve_alias` which maintains its own map. Rebuilt when
+    /// `register_commands` mutates the extension store.
+    non_config_alias_map: std::collections::HashMap<String, String>,
     data_registry: DataRegistry,
     data_cache: std::collections::HashMap<String, Arc<serde_json::Value>>,
     detected_stack: Option<Stack>,
@@ -105,17 +147,28 @@ impl CommandRunner {
         };
 
         let vars = Variables::from_env(&cwd);
+        let extension_commands = IndexMap::new();
+        let non_config_alias_map = build_alias_map(
+            std::iter::once(&stack_commands).chain(std::iter::once(&extension_commands)),
+        );
 
         Self {
             config: Arc::new(config),
             cwd,
             vars,
             stack_commands,
-            extension_commands: IndexMap::new(),
+            extension_commands,
+            non_config_alias_map,
             data_registry: DataRegistry::new(),
             data_cache: std::collections::HashMap::new(),
             detected_stack,
         }
+    }
+
+    fn rebuild_alias_map(&mut self) {
+        self.non_config_alias_map = build_alias_map(
+            std::iter::once(&self.stack_commands).chain(std::iter::once(&self.extension_commands)),
+        );
     }
 
     /// Full config (for extensions that need data path, etc.).
@@ -171,11 +224,7 @@ impl CommandRunner {
         for (id, spec) in commands {
             self.extension_commands.insert(id, spec);
         }
-    }
-
-    /// Stack and extension command sources (config excluded; its aliases use a dedicated map).
-    fn non_config_sources(&self) -> [&IndexMap<CommandId, CommandSpec>; 2] {
-        [&self.stack_commands, &self.extension_commands]
+        self.rebuild_alias_map();
     }
 
     /// Iterator over all command keys across config → stack → extension.
@@ -212,6 +261,9 @@ impl CommandRunner {
     /// Return the canonical command name for a given ID or alias.
     /// If the ID is already a direct command name, returns it as-is.
     /// If it matches an alias, returns the canonical name.
+    ///
+    /// OWN-6 / TASK-0200: alias search is O(1) via `non_config_alias_map`
+    /// instead of scanning every spec's aliases list.
     fn canonical_id<'a>(&'a self, id: &'a str) -> &'a str {
         if self.exists_in_stores(id) {
             return id;
@@ -219,12 +271,8 @@ impl CommandRunner {
         if let Some(name) = self.config.resolve_alias(id) {
             return name;
         }
-        for src in self.non_config_sources() {
-            for (name, spec) in src {
-                if spec.aliases().iter().any(|a| a == id) {
-                    return name.as_str();
-                }
-            }
+        if let Some(name) = self.non_config_alias_map.get(id) {
+            return name.as_str();
         }
         id
     }
@@ -235,10 +283,10 @@ impl CommandRunner {
         if let Some(name) = self.config.resolve_alias(alias) {
             return self.config.commands.get(name);
         }
-        self.non_config_sources().into_iter().find_map(|src| {
-            src.values()
-                .find(|spec| spec.aliases().iter().any(|a| a == alias))
-        })
+        let canonical = self.non_config_alias_map.get(alias)?;
+        self.stack_commands
+            .get(canonical.as_str())
+            .or_else(|| self.extension_commands.get(canonical.as_str()))
     }
 
     /// List all available command IDs (config first, then stack, then extension commands; sorted for stable order).
@@ -250,7 +298,10 @@ impl CommandRunner {
     }
 
     /// Expand to a flat list of exec-only command IDs (no composites), so run_plan need not recurse.
-    /// Returns `None` if any referenced command is unknown or a cycle is detected.
+    ///
+    /// Returns [`ExpandError`] distinguishing the three distinct failure modes
+    /// — unknown id, cycle, depth exceeded — so callers can render accurate
+    /// diagnostics instead of blanket "unknown command". (ERR-10 / READ-5.)
     ///
     /// # Recursion Depth
     ///
@@ -260,7 +311,7 @@ impl CommandRunner {
     /// means a graph with N composites has at most N stack frames during expansion.
     ///
     /// An additional guard limits expansion to 100 levels to prevent pathological cases.
-    pub fn expand_to_leaves(&self, id: &str) -> Option<Vec<CommandId>> {
+    pub fn expand_to_leaves(&self, id: &str) -> Result<Vec<CommandId>, ExpandError> {
         /// CQ-012: Maximum recursion depth for composite expansion.
         ///
         /// This limit prevents stack overflow from pathological configs with deeply
@@ -279,7 +330,7 @@ impl CommandRunner {
         visited: &mut std::collections::HashSet<String>,
         depth: usize,
         max_depth: usize,
-    ) -> Option<Vec<CommandId>> {
+    ) -> Result<Vec<CommandId>, ExpandError> {
         if depth > max_depth {
             tracing::warn!(
                 id = %id,
@@ -287,36 +338,40 @@ impl CommandRunner {
                 max_depth = max_depth,
                 "composite expansion depth limit exceeded"
             );
-            return None;
+            return Err(ExpandError::DepthExceeded {
+                id: id.to_string(),
+                max_depth,
+            });
         }
         let canonical = self.canonical_id(id);
-        let spec = self.resolve(canonical)?;
+        let spec = self
+            .resolve(canonical)
+            .ok_or_else(|| ExpandError::Unknown(id.to_string()))?;
         match spec {
-            CommandSpec::Exec(_) => Some(vec![CommandId::from(canonical)]),
+            CommandSpec::Exec(_) => Ok(vec![CommandId::from(canonical)]),
             CommandSpec::Composite(c) => {
                 if !visited.insert(canonical.to_string()) {
-                    return None; // cycle detected
+                    return Err(ExpandError::Cycle(canonical.to_string()));
                 }
                 let mut out = Vec::new();
                 for sub in &c.commands {
                     out.extend(self.expand_inner(sub, visited, depth + 1, max_depth)?);
                 }
-                Some(out)
+                Ok(out)
             }
         }
     }
 
-    /// Resolve a leaf ID to an owned [`ExecCommandSpec`], producing a unified
-    /// error message for both "unknown command" and "composite in leaf plan"
-    /// cases so sequential (`execute_step`) and raw (`run_plan_raw`) paths
-    /// stay in lockstep.
-    fn resolve_exec_leaf(&self, id: &str) -> Result<ExecCommandSpec, String> {
+    /// Resolve a leaf ID to an owned [`ExecCommandSpec`], producing a typed
+    /// [`ResolveExecError`] that sequential (`execute_step`) and raw
+    /// (`run_plan_raw`) paths both surface identically. (ERR-10 / TASK-0130.)
+    fn resolve_exec_leaf(&self, id: &str) -> Result<ExecCommandSpec, ResolveExecError> {
         match self.resolve(id) {
             Some(CommandSpec::Exec(e)) => Ok(e.clone()),
             Some(CommandSpec::Composite(_)) => {
-                Err(format!("internal error: composite in leaf plan: {}", id))
+                Err(ResolveExecError::CompositeInLeafPlan(id.to_string()))
             }
-            None => Err(format!("unknown command: {}", id)),
+            None => Err(ResolveExecError::Unknown(id.to_string())),
         }
     }
 
@@ -343,7 +398,7 @@ impl CommandRunner {
                 let should_stop = !r.success;
                 (r, should_stop)
             }
-            Err(msg) => (resolution_failure(id, msg, on_event), true),
+            Err(err) => (resolution_failure(id, err.to_string(), on_event), true),
         }
     }
 
@@ -367,7 +422,7 @@ impl CommandRunner {
             }
         }
 
-        lifecycle.finish(&results, on_event);
+        lifecycle.finish(results.iter().all(|r| r.success), on_event);
         results
     }
 
@@ -387,8 +442,12 @@ impl CommandRunner {
         for id in command_ids {
             let spec = match self.resolve_exec_leaf(id.as_str()) {
                 Ok(spec) => spec,
-                Err(msg) => {
-                    results.push(StepResult::failure(id.as_str(), Duration::ZERO, msg));
+                Err(err) => {
+                    results.push(StepResult::failure(
+                        id.as_str(),
+                        Duration::ZERO,
+                        err.to_string(),
+                    ));
                     if fail_fast {
                         break;
                     }
@@ -411,7 +470,7 @@ impl CommandRunner {
     pub async fn run_raw(&self, command_id: &str) -> anyhow::Result<Vec<StepResult>> {
         let plan = self
             .expand_to_leaves(command_id)
-            .ok_or_else(|| anyhow::anyhow!("unknown command: {}", command_id))?;
+            .map_err(anyhow::Error::from)?;
         let fail_fast = match self.resolve(command_id) {
             Some(CommandSpec::Composite(c)) => c.fail_fast,
             _ => true,
@@ -458,12 +517,22 @@ impl CommandRunner {
             match res {
                 Ok(step_result) => results.push(step_result),
                 Err(e) => {
-                    tracing::error!("parallel task panicked: {}", e);
-                    results.push(StepResult::failure(
-                        "<panicked>",
-                        Duration::ZERO,
-                        format!("task panicked: {}", e),
-                    ));
+                    // CONC-6 / TASK-0214: distinguish a cancellation
+                    // (fail_fast aborted the JoinSet) from a real panic so
+                    // users see "cancelled" rather than misleading
+                    // "panicked" for siblings that were intentionally
+                    // stopped.
+                    if e.is_cancelled() {
+                        tracing::debug!("parallel task cancelled (fail_fast abort)");
+                        results.push(StepResult::skipped(CommandId::from("<cancelled>")));
+                    } else {
+                        tracing::error!("parallel task panicked: {}", e);
+                        results.push(StepResult::failure(
+                            "<panicked>",
+                            Duration::ZERO,
+                            format!("task panicked: {}", e),
+                        ));
+                    }
                 }
             }
         }
@@ -478,20 +547,33 @@ impl CommandRunner {
     ///
     /// Concurrency is capped at `MAX_PARALLEL` via a semaphore to prevent
     /// resource exhaustion with large parallel groups.
+    /// Per-parallel-task event budget used to size the bounded event channel.
+    ///
+    /// Budget = StepStarted + N×StepOutput + (StepFinished | StepFailed |
+    /// StepSkipped). Real commands rarely hit N=256 between display pumps;
+    /// when a burst does fill the channel the producer task awaits on
+    /// `send`, which naturally back-pressures chatty children instead of
+    /// letting the process drift toward OOM.
+    const PARALLEL_EVENT_BUDGET_PER_TASK: usize = 256;
+
     pub(crate) fn spawn_parallel_tasks(
         steps: Vec<(CommandId, ExecCommandSpec)>,
         cwd: PathBuf,
         vars: Variables,
     ) -> (
-        mpsc::UnboundedReceiver<RunnerEvent>,
+        mpsc::Receiver<RunnerEvent>,
         Arc<AtomicBool>,
         tokio::task::JoinSet<StepResult>,
     ) {
-        // Unbounded channel: events must not be dropped because lost
-        // StepFinished/StepFailed events corrupt the progress display, and
-        // tracing::warn! on drop conflicts with indicatif's stderr control.
-        // Memory is bounded by actual subprocess output which is finite.
-        let (tx, rx) = mpsc::unbounded_channel();
+        // CONC-3 / TASK-0158+0209: bounded channel so a chatty child
+        // back-pressures on the display pump instead of growing the mpsc
+        // buffer until the process OOMs. Capacity is sized to
+        // MAX_PARALLEL × per-task event budget so the steady-state batch
+        // of events never blocks; only pathological bursts of >N lines
+        // per tick will pause a producer — which is exactly the
+        // throttling we want.
+        let capacity = Self::MAX_PARALLEL.saturating_mul(Self::PARALLEL_EVENT_BUDGET_PER_TASK);
+        let (tx, rx) = mpsc::channel(capacity);
         let abort = Arc::new(AtomicBool::new(false));
         let semaphore = Arc::new(tokio::sync::Semaphore::new(Self::MAX_PARALLEL));
         let cwd = Arc::new(cwd);
@@ -503,30 +585,33 @@ impl CommandRunner {
             let cwd = Arc::clone(&cwd);
             let vars = Arc::clone(&vars);
             let sem = Arc::clone(&semaphore);
+            let task_id = id.clone();
             join_set.spawn(async move {
-                let _permit = sem.acquire().await.expect("semaphore closed");
+                // ERR-5 / TASK-0210: a closed semaphore panicked the worker
+                // with expect("semaphore closed"), yielding a generic
+                // <panicked> StepResult. Since the semaphore is scoped to
+                // the parent spawn frame it can never be closed while a
+                // child holds an Arc to it — but rather than encode that
+                // invariant via `expect`, surface a descriptive failure
+                // so any future refactor that does drop the semaphore
+                // shows up as a clear error instead of a panic.
+                let permit = match sem.acquire().await {
+                    Ok(p) => p,
+                    Err(_) => {
+                        return StepResult::failure(
+                            task_id.as_str(),
+                            Duration::ZERO,
+                            "internal error: parallel semaphore closed before task could acquire a permit"
+                                .to_string(),
+                        );
+                    }
+                };
+                let _permit = permit;
                 exec_standalone(id, spec, cwd, vars, tx, abort).await
             });
         }
         drop(tx);
         (rx, abort, join_set)
-    }
-
-    /// Receive events from parallel execution, handling fail_fast abort.
-    pub(crate) async fn handle_parallel_events(
-        mut rx: mpsc::UnboundedReceiver<RunnerEvent>,
-        fail_fast: bool,
-        abort: Arc<AtomicBool>,
-        on_event: &mut impl FnMut(RunnerEvent),
-    ) {
-        while let Some(ev) = rx.recv().await {
-            if let RunnerEvent::StepFailed { .. } = &ev {
-                if fail_fast {
-                    abort.store(true, Ordering::Release);
-                }
-            }
-            on_event(ev);
-        }
     }
 
     /// Run a flat list of exec command IDs in parallel; events sent via channel. When fail_fast is true, abort flag is set on first failure.
@@ -551,18 +636,63 @@ impl CommandRunner {
             Err(id) => {
                 let msg = format!("internal error: composite in leaf plan: {}", id);
                 let results = vec![resolution_failure(&id, msg, on_event)];
-                lifecycle.finish(&results, on_event);
+                lifecycle.finish(results.iter().all(|r| r.success), on_event);
                 return results;
             }
         };
 
-        let (rx, abort, join_set) =
+        let (rx, abort, mut join_set) =
             Self::spawn_parallel_tasks(steps, self.cwd.clone(), self.vars.clone());
-        Self::handle_parallel_events(rx, fail_fast, abort, on_event).await;
+        // CONC-6 / TASK-0204: when fail_fast sees the first failure, set
+        // the abort flag **and** actively `abort_all()` the JoinSet so
+        // siblings stop rendering output. Previously the loop kept
+        // draining rx until every tx dropped, so a 5s sibling kept
+        // emitting events long after the 100ms failure that triggered
+        // fail_fast. Pass a JoinSet handle to `handle_parallel_events` so
+        // it can cancel in-flight work.
+        Self::handle_parallel_events_with_cancel(rx, fail_fast, abort, &mut join_set, on_event)
+            .await;
         let results = Self::collect_join_results(join_set).await;
 
-        lifecycle.finish(&results, on_event);
+        lifecycle.finish(results.iter().all(|r| r.success), on_event);
         results
+    }
+
+    /// Drain events, flipping `abort` on first failure under `fail_fast`.
+    /// Kept as a thin wrapper around `handle_parallel_events_with_cancel`
+    /// (passing a disposable empty JoinSet) so older tests keep working;
+    /// production uses the cancelling variant.
+    #[cfg(test)]
+    pub(crate) async fn handle_parallel_events(
+        rx: mpsc::Receiver<RunnerEvent>,
+        fail_fast: bool,
+        abort: Arc<AtomicBool>,
+        on_event: &mut impl FnMut(RunnerEvent),
+    ) {
+        let mut empty: tokio::task::JoinSet<StepResult> = tokio::task::JoinSet::new();
+        Self::handle_parallel_events_with_cancel(rx, fail_fast, abort, &mut empty, on_event).await;
+    }
+
+    /// Drain events, and on first failure under `fail_fast` abort any
+    /// in-flight parallel tasks via `JoinSet::abort_all`.
+    pub(crate) async fn handle_parallel_events_with_cancel(
+        mut rx: mpsc::Receiver<RunnerEvent>,
+        fail_fast: bool,
+        abort: Arc<AtomicBool>,
+        join_set: &mut tokio::task::JoinSet<StepResult>,
+        on_event: &mut impl FnMut(RunnerEvent),
+    ) {
+        let mut cancelled = false;
+        while let Some(ev) = rx.recv().await {
+            if let RunnerEvent::StepFailed { .. } = &ev {
+                if fail_fast && !cancelled {
+                    abort.store(true, Ordering::Release);
+                    join_set.abort_all();
+                    cancelled = true;
+                }
+            }
+            on_event(ev);
+        }
     }
 
     /// Run a named command (single or composite); returns step results.
@@ -573,10 +703,10 @@ impl CommandRunner {
     ) -> anyhow::Result<Vec<StepResult>> {
         let spec = self
             .resolve(command_id)
-            .ok_or_else(|| anyhow::anyhow!("unknown command: {}", command_id))?;
+            .ok_or_else(|| ExpandError::Unknown(command_id.to_string()))?;
         let plan = self
             .expand_to_leaves(command_id)
-            .ok_or_else(|| anyhow::anyhow!("unknown command: {}", command_id))?;
+            .map_err(anyhow::Error::from)?;
         debug!(command_id, steps = plan.len(), "running command");
 
         let results = match spec {
@@ -588,6 +718,24 @@ impl CommandRunner {
         };
         Ok(results)
     }
+}
+
+/// Build an `alias → canonical_name` map by flattening one or more command
+/// stores in iteration order. Later stores override earlier ones (matching
+/// the existing stack → extension precedence).
+fn build_alias_map<'a, I>(stores: I) -> std::collections::HashMap<String, String>
+where
+    I: IntoIterator<Item = &'a IndexMap<CommandId, CommandSpec>>,
+{
+    let mut map = std::collections::HashMap::new();
+    for store in stores {
+        for (name, spec) in store {
+            for alias in spec.aliases() {
+                map.insert(alias.clone(), name.to_string());
+            }
+        }
+    }
+    map
 }
 
 #[cfg(test)]
