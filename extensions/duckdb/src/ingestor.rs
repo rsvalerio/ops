@@ -192,7 +192,7 @@ impl SidecarIngestorConfig {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// struct MetadataIngestor;
 ///
 /// impl DataIngestor for MetadataIngestor {

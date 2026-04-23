@@ -15,12 +15,13 @@ use std::collections::BTreeMap;
 ///
 /// # Example
 ///
-/// ```ignore
-/// use ops_rust::cargo_toml::CargoToml;
+/// ```
+/// use ops_cargo_toml::CargoToml;
 ///
-/// let manifest = CargoToml::parse(&toml_content)?;
+/// let toml_content = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n";
+/// let manifest = CargoToml::parse(toml_content).unwrap();
 /// if let Some(pkg) = &manifest.package {
-///     println!("Package: {} v{}", pkg.name, pkg.version);
+///     println!("Package: {} v{}", pkg.name, pkg.version.as_str().unwrap_or(""));
 /// }
 /// ```
 #[derive(Debug, Clone, Deserialize, Serialize)]

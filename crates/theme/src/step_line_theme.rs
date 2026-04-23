@@ -88,7 +88,7 @@ impl<'a> BoxSnapshot<'a> {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// struct MyTheme;
 ///
 /// impl StepLineTheme for MyTheme {

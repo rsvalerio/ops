@@ -60,7 +60,7 @@ impl DataProviderSchema {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// struct MetadataProvider;
 ///
 /// impl DataProvider for MetadataProvider {
@@ -187,7 +187,7 @@ impl Default for DataRegistry {
 /// code is `ops_duckdb::DuckDb`. Implementations therefore implement
 /// `as_any` by returning `self`. Downcast call sites should:
 ///
-/// ```ignore
+/// ```text
 /// let db: Option<&ops_duckdb::DuckDb> = handle
 ///     .as_any()
 ///     .downcast_ref::<ops_duckdb::DuckDb>();

@@ -33,7 +33,7 @@
 //!     let manifest: CargoToml = serde_json::from_value((*value).clone())?;
 //!
 //!     if let Some(pkg) = &manifest.package {
-//!         println!("Package: {} v{}", pkg.name, pkg.version);
+//!         println!("Package: {} v{}", pkg.name, pkg.version.as_str().unwrap_or(""));
 //!     }
 //!     Ok(())
 //! }
@@ -88,9 +88,9 @@ pub const DATA_PROVIDER_NAME: &str = "cargo_toml";
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
 /// use ops_cargo_toml::CargoTomlExtension;
-/// use ops_extension::Extension;
+/// use std::path::PathBuf;
 ///
 /// // Auto-discover from current directory
 /// let ext = CargoTomlExtension::new();

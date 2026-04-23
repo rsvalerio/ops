@@ -10,7 +10,7 @@
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// impl_extension! {
 ///     MyExtension,
 ///     name: NAME,

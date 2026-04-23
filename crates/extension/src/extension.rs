@@ -70,7 +70,7 @@ pub type CommandRegistry = IndexMap<CommandId, CommandSpec>;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// struct MyExtension;
 ///
 /// impl Extension for MyExtension {
