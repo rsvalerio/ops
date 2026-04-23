@@ -81,9 +81,9 @@ impl DataProvider for GitInfoProvider {
 
     fn schema(&self) -> DataProviderSchema {
         use ops_extension::data_field;
-        DataProviderSchema {
-            description: "Git repository metadata (remote URL, owner/repo, current branch)",
-            fields: vec![
+        DataProviderSchema::new(
+            "Git repository metadata (remote URL, owner/repo, current branch)",
+            vec![
                 data_field!("host", "Option<String>", "Remote host (e.g. github.com)"),
                 data_field!("owner", "Option<String>", "Owner/organization segment"),
                 data_field!("repo", "Option<String>", "Repository name"),
@@ -98,7 +98,7 @@ impl DataProvider for GitInfoProvider {
                     "Current branch, or None if HEAD is detached"
                 ),
             ],
-        }
+        )
     }
 }
 
