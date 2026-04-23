@@ -37,7 +37,12 @@ impl DataField {
 }
 
 /// Schema for a data provider, describing what data it provides.
+///
+/// `#[non_exhaustive]`: external extensions must construct via
+/// [`DataProviderSchema::new`] / [`DataProviderSchema::default`] so new
+/// schema fields (e.g. examples, units) stay a non-breaking change.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct DataProviderSchema {
     pub description: &'static str,
     pub fields: Vec<DataField>,

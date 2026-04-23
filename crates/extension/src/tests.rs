@@ -80,11 +80,7 @@ impl Extension for TestExtension {
     fn register_commands(&self, registry: &mut CommandRegistry) {
         registry.insert(
             "ext_cmd".into(),
-            CommandSpec::Exec(ExecCommandSpec {
-                program: "echo".into(),
-                args: vec!["from_ext".into()],
-                ..Default::default()
-            }),
+            CommandSpec::Exec(ExecCommandSpec::new("echo", ["from_ext"])),
         );
     }
 }
@@ -341,11 +337,7 @@ impl_extension! {
     register_commands: |_self_cmd, registry| {
         registry.insert(
             "cmd1".into(),
-            CommandSpec::Exec(ExecCommandSpec {
-                program: "echo".into(),
-                args: vec!["macro".into()],
-                ..Default::default()
-            }),
+            CommandSpec::Exec(ExecCommandSpec::new("echo", ["macro"])),
         );
     },
     register_data_providers: |_self_dp, registry| {
