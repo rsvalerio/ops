@@ -17,10 +17,23 @@ pub fn tail_lines<T>(lines: &[T], n: usize) -> &[T] {
 
 /// Format the last `n` lines of stderr for error display.
 /// Converts raw bytes to string (lossy), extracts lines, and joins with newlines.
+///
+/// Uses a bounded ring buffer (`VecDeque` capped at `n`) so memory stays O(n)
+/// regardless of input size — a failed build can dump tens of thousands of
+/// lines, and we only ever surface the last few.
 pub fn format_error_tail(stderr: &[u8], n: usize) -> String {
+    if n == 0 {
+        return String::new();
+    }
     let stderr_str = String::from_utf8_lossy(stderr);
-    let lines: Vec<&str> = stderr_str.lines().collect();
-    tail_lines(&lines, n).join("\n")
+    let mut ring: std::collections::VecDeque<&str> = std::collections::VecDeque::with_capacity(n);
+    for line in stderr_str.lines() {
+        if ring.len() == n {
+            ring.pop_front();
+        }
+        ring.push_back(line);
+    }
+    ring.into_iter().collect::<Vec<_>>().join("\n")
 }
 
 /// Logical status of a step for step-line rendering.

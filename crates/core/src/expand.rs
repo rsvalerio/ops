@@ -10,7 +10,22 @@ use std::path::Path;
 /// Built-in variables available for expansion in command specs.
 ///
 /// Lookup order: built-in variables first, then `std::env::var()` fallback.
-/// Unknown variables are left as-is.
+///
+/// # Behaviour when a variable is missing
+///
+/// The closure returns `Ok(None)` for a variable that is neither in the
+/// builtins map nor in the process environment. `shellexpand` interprets
+/// `Ok(None)` as *unresolved* — it propagates an error from
+/// `full_with_context`, which we catch and fall back to
+/// `Cow::Borrowed(input)`: the original string is returned unchanged. This
+/// means a reference like `$UNDEFINED` stays literal in the output rather
+/// than becoming an empty string. The `${VAR:-default}` syntax still works
+/// because shellexpand short-circuits to the default before calling the
+/// lookup closure for the main branch.
+///
+/// This pass-through was previously undocumented and depended on implicit
+/// shellexpand error semantics (READ-4). The comment block here is the
+/// contract now.
 #[derive(Debug, Clone)]
 pub struct Variables {
     builtins: HashMap<String, String>,
@@ -33,9 +48,12 @@ impl Variables {
                 .ok()
         };
 
+        // OWN-8: builtins are borrowed from `self`; `Cow::Borrowed` avoids
+        // one heap allocation per expanded var. Env vars are inherently
+        // owned (std::env::var returns String) so they stay `Cow::Owned`.
         let lookup = |var: &str| -> Result<Option<Cow<'_, str>>, std::env::VarError> {
             if let Some(val) = self.builtins.get(var) {
-                return Ok(Some(Cow::Owned(val.clone())));
+                return Ok(Some(Cow::Borrowed(val.as_str())));
             }
             match std::env::var(var) {
                 Ok(val) => Ok(Some(Cow::Owned(val))),
@@ -135,6 +153,22 @@ mod tests {
         let input = "$__OPS_NONEXISTENT_TEST_VAR_12345__";
         let result = vars.expand(input);
         assert_eq!(result, input);
+    }
+
+    /// READ-4 regression: pinning pass-through for a *deterministically*
+    /// unset env var (removed via `remove_var`) rather than relying on a
+    /// long unlikely-to-exist name. If shellexpand ever changes `Ok(None)`
+    /// behaviour to substitute empty strings, this test breaks loudly.
+    #[test]
+    #[serial_test::serial]
+    fn missing_env_var_passes_through_unchanged() {
+        let key = "OPS_TEST_DEFINITELY_UNSET_VAR";
+        // SAFETY: test-only guard via #[serial] attribute.
+        unsafe { std::env::remove_var(key) };
+        let vars = test_vars();
+        let input = format!("${key}");
+        let result = vars.expand(&input);
+        assert_eq!(result.as_ref(), input, "missing env var must pass through");
     }
 
     #[test]
