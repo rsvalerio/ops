@@ -78,16 +78,10 @@ impl DataProvider for GoIdentityProvider {
 
         let repository = ops_git::GitInfo::collect(&cwd).remote_url;
 
-        let identity = ProjectIdentity {
-            name,
-            stack_label: "Go".to_string(),
-            stack_detail,
-            project_path: cwd.display().to_string(),
-            module_count,
-            module_label: "modules".to_string(),
-            repository,
-            ..Default::default()
-        };
+        let mut identity = ProjectIdentity::new(name, "Go", cwd.display().to_string(), "modules");
+        identity.stack_detail = stack_detail;
+        identity.module_count = module_count;
+        identity.repository = repository;
 
         serde_json::to_value(&identity).map_err(DataProviderError::from)
     }
