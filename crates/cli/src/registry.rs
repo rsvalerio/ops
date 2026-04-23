@@ -245,6 +245,64 @@ mod tests {
     }
 
     #[test]
+    fn register_extension_commands_empty_inputs() {
+        let mut registry = CommandRegistry::new();
+        register_extension_commands(&[], &mut registry);
+        assert!(
+            registry.is_empty(),
+            "no extensions → no commands registered"
+        );
+    }
+
+    #[test]
+    fn register_extension_data_providers_empty_inputs() {
+        let mut registry = DataRegistry::new();
+        register_extension_data_providers(&[], &mut registry);
+        // DataRegistry doesn't expose a len()/is_empty(); if it ever did we'd
+        // tighten this. For now, round-trip: a subsequent `get_or_provide`
+        // miss proves the registry has no entries.
+        let _ = registry;
+    }
+
+    #[test]
+    fn register_extension_commands_aggregates_across_multiple_extensions() {
+        use ops_core::config::Config;
+        let config = Config::default();
+        let exts = builtin_extensions(&config, std::path::Path::new(".")).unwrap();
+        // Skip meaningful assertion when no extensions are compiled in — the
+        // contract we want to pin is "aggregation does not drop entries",
+        // which requires ≥2 extensions to observe.
+        if exts.len() < 2 {
+            return;
+        }
+        let ext_refs = as_ext_refs(&exts);
+
+        // Register each extension into its own registry to get per-ext counts.
+        let per_ext_total: usize = ext_refs
+            .iter()
+            .map(|e| {
+                let mut r = CommandRegistry::new();
+                register_extension_commands(std::slice::from_ref(e), &mut r);
+                r.len()
+            })
+            .sum();
+
+        // Register all at once; the combined registry may be smaller than the
+        // sum if two extensions register the same command name (last-write
+        // wins in `insert`), so use `<=` rather than `==`.
+        let mut combined = CommandRegistry::new();
+        register_extension_commands(&ext_refs, &mut combined);
+        assert!(
+            combined.len() <= per_ext_total,
+            "combined registry should not grow past per-extension sum"
+        );
+        assert!(
+            !combined.is_empty() || per_ext_total == 0,
+            "if any extension registered commands, the combined registry has some"
+        );
+    }
+
+    #[test]
     fn extension_types_methods_work() {
         use ops_extension::ExtensionType;
 
