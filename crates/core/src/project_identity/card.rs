@@ -130,31 +130,45 @@ impl AboutCard {
                 lines.push(String::new());
             }
             let max_key_len = self.fields.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
-            // Continuation indent: 2 leading + 2 emoji cols + 1 space + key width + 1 space.
-            let cont_indent = " ".repeat(2 + 2 + 1 + (max_key_len + 2) + 1);
+            let cont_indent = continuation_indent(max_key_len);
             for (key, value) in &self.fields {
-                let emoji = field_emoji(key, value);
-                let mut value_lines = value.split('\n');
-                let first = value_lines.next().unwrap_or("");
-                let styled_first = if is_tty {
-                    dim(first)
-                } else {
-                    first.to_string()
-                };
-                lines.push(format!(
-                    "  {} {:<width$} {}",
-                    emoji,
-                    key,
-                    styled_first,
-                    width = max_key_len + 2
-                ));
-                for cont in value_lines {
-                    let styled = if is_tty { dim(cont) } else { cont.to_string() };
-                    lines.push(format!("{}{}", cont_indent, styled));
-                }
+                lines.extend(render_field(key, value, max_key_len, &cont_indent, is_tty));
             }
         }
 
         lines.join("\n")
     }
+}
+
+/// Number of leading spaces that align value continuation lines under the
+/// first value line:
+///   2 (leading) + 2 (emoji cols) + 1 (space) + (max_key_len + 2) + 1.
+fn continuation_indent(max_key_len: usize) -> String {
+    " ".repeat(2 + 2 + 1 + (max_key_len + 2) + 1)
+}
+
+/// Render a single `(key, value)` row into its first line plus any
+/// continuation lines, applying `dim` styling to values when `is_tty`.
+fn render_field(
+    key: &str,
+    value: &str,
+    max_key_len: usize,
+    cont_indent: &str,
+    is_tty: bool,
+) -> Vec<String> {
+    let styled = |s: &str| if is_tty { dim(s) } else { s.to_string() };
+    let emoji = field_emoji(key, value);
+    let mut value_lines = value.split('\n');
+    let first = value_lines.next().unwrap_or("");
+    let mut out = vec![format!(
+        "  {} {:<width$} {}",
+        emoji,
+        key,
+        styled(first),
+        width = max_key_len + 2
+    )];
+    for cont in value_lines {
+        out.push(format!("{}{}", cont_indent, styled(cont)));
+    }
+    out
 }

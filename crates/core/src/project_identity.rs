@@ -25,7 +25,11 @@ use serde::{Deserialize, Serialize};
 ///
 /// Fields like `loc` and `file_count` come from tokei (via DuckDB) and are
 /// enriched by the generic about command when the provider doesn't set them.
+// Downstream extensions cannot use struct-literal or `..Default::default()`
+// syntax once this type is `#[non_exhaustive]`; call [`ProjectIdentity::new`]
+// and mutate the returned value via its `pub` fields instead.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ProjectIdentity {
     /// Project name. Rust: `[package].name`, Node: `name`, fallback: directory name.
     pub name: String,
@@ -71,6 +75,30 @@ pub struct ProjectIdentity {
     pub languages: Vec<LanguageStat>,
 }
 
+impl ProjectIdentity {
+    /// Build a [`ProjectIdentity`] with the four required fields set and
+    /// every other field left at its default. Use direct field assignment to
+    /// populate the rest.
+    ///
+    /// Required to construct [`ProjectIdentity`] from outside `ops-core`
+    /// because the type is `#[non_exhaustive]`.
+    #[must_use]
+    pub fn new(
+        name: impl Into<String>,
+        stack_label: impl Into<String>,
+        project_path: impl Into<String>,
+        module_label: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            stack_label: stack_label.into(),
+            project_path: project_path.into(),
+            module_label: module_label.into(),
+            ..Self::default()
+        }
+    }
+}
+
 /// Per-language breakdown entry derived from tokei data.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LanguageStat {
@@ -84,6 +112,29 @@ pub struct LanguageStat {
     pub loc_pct: f64,
     /// Percentage of total project files (0.0–100.0).
     pub files_pct: f64,
+}
+
+impl LanguageStat {
+    /// Construct a [`LanguageStat`] with all current fields set.
+    ///
+    /// External extensions must use this instead of struct-literal syntax
+    /// because the type is `#[non_exhaustive]`.
+    #[must_use]
+    pub fn new(
+        name: impl Into<String>,
+        loc: i64,
+        files: i64,
+        loc_pct: f64,
+        files_pct: f64,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            loc,
+            files,
+            loc_pct,
+            files_pct,
+        }
+    }
 }
 
 /// A sub-unit of a project (crate, module, package, workspace member).
