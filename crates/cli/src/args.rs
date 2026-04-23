@@ -358,15 +358,32 @@ mod tests {
     fn hide_irrelevant_commands_preserves_non_stack_commands() {
         let cmd = Cli::command();
         let result = hide_irrelevant_commands(cmd, None);
-        // Non-stack-specific commands like init, about should remain visible
+        // Compute the set of stack-specific subcommand names once, then assert
+        // that every *other* visible, non-hidden subcommand remains visible —
+        // future non-stack built-ins are covered automatically without having
+        // to edit this list.
+        let stack_specific: std::collections::HashSet<&'static str> =
+            stack_specific_commands().iter().map(|(n, _)| *n).collect();
         for sub in result.get_subcommands() {
             let name = sub.get_name();
-            if name == "init" || name == "about" || name == "theme" || name == "extension" {
-                assert!(
-                    !sub.is_hide_set(),
-                    "{name} should remain visible regardless of stack"
-                );
+            if stack_specific.contains(name) {
+                continue;
             }
+            // Skip subcommands that were already hidden before our call (clap
+            // may ship internal hidden helpers); we only guarantee we don't
+            // flip a previously-visible non-stack command to hidden.
+            let original = Cli::command();
+            let was_hidden = original
+                .get_subcommands()
+                .find(|s| s.get_name() == name)
+                .is_some_and(clap::Command::is_hide_set);
+            if was_hidden {
+                continue;
+            }
+            assert!(
+                !sub.is_hide_set(),
+                "{name} is not stack-specific and should remain visible"
+            );
         }
     }
 
