@@ -7,6 +7,7 @@ pub mod stack;
 pub mod style;
 pub mod table;
 pub mod text;
+pub mod ui;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_utils;
