@@ -1,20 +1,8 @@
 //! Read local `.git` directory metadata without shelling out to `git`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-/// Walk up from `from` looking for a `.git` directory. Returns its path.
-pub fn find_git_dir(from: &Path) -> Option<PathBuf> {
-    let mut dir = from.to_path_buf();
-    loop {
-        let candidate = dir.join(".git");
-        if candidate.is_dir() {
-            return Some(candidate);
-        }
-        if !dir.pop() {
-            return None;
-        }
-    }
-}
+pub use ops_hook_common::find_git_dir;
 
 /// Read the URL of the `origin` remote from `<git_dir>/config`.
 pub fn read_origin_url(git_dir: &Path) -> Option<String> {
@@ -23,24 +11,60 @@ pub fn read_origin_url(git_dir: &Path) -> Option<String> {
 }
 
 /// Parse a git-config body and return the `[remote "origin"]` url.
+///
+/// Limitations: this is a minimal line scanner, not a conformant git-config
+/// parser. It does **not** honour `[url "<base>"] insteadOf = ...` rewrites,
+/// continuation lines, escaped quotes, or `include.path` directives. Comments
+/// (`#` / `;`) starting a line are skipped; everything else falls through.
+/// Section headers and the `url` key are matched case-insensitively, since
+/// git-config keys are case-insensitive.
 pub fn read_origin_url_from(content: &str) -> Option<String> {
     let mut in_origin = false;
     for line in content.lines() {
         let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
+            continue;
+        }
         if trimmed.starts_with('[') {
             in_origin = is_origin_header(trimmed);
             continue;
         }
         if in_origin {
-            if let Some(rest) = trimmed.strip_prefix("url") {
-                let rest = rest.trim_start();
-                if let Some(eq_rest) = rest.strip_prefix('=') {
-                    return Some(eq_rest.trim().to_string());
-                }
+            if let Some(value) = strip_url_key(trimmed) {
+                return Some(redact_userinfo(value));
             }
         }
     }
     None
+}
+
+/// Strip a `user[:password]@` segment from a URL-like value.
+///
+/// Git supports embedding HTTP credentials directly in remote URLs. We never
+/// want those reaching logs, error messages, or data-provider output, so any
+/// raw value coming out of `.git/config` is scrubbed at the source.
+fn redact_userinfo(value: &str) -> String {
+    let Some((scheme, after)) = value.split_once("://") else {
+        return value.to_string();
+    };
+    let (authority, rest) = match after.split_once('/') {
+        Some((a, r)) => (a, Some(r)),
+        None => (after, None),
+    };
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    match rest {
+        Some(r) => format!("{scheme}://{host}/{r}"),
+        None => format!("{scheme}://{host}"),
+    }
+}
+
+fn strip_url_key(line: &str) -> Option<&str> {
+    let (key, value) = line.split_once('=')?;
+    if key.trim().eq_ignore_ascii_case("url") {
+        Some(value.trim())
+    } else {
+        None
+    }
 }
 
 fn is_origin_header(line: &str) -> bool {
@@ -72,17 +96,21 @@ mod tests {
     #[test]
     fn find_git_dir_in_current() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join(".git")).unwrap();
-        assert_eq!(find_git_dir(dir.path()), Some(dir.path().join(".git")));
+        let git = dir.path().join(".git");
+        std::fs::create_dir(&git).unwrap();
+        let expected = std::fs::canonicalize(&git).unwrap();
+        assert_eq!(find_git_dir(dir.path()), Some(expected));
     }
 
     #[test]
     fn find_git_dir_in_parent() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let git = dir.path().join(".git");
+        std::fs::create_dir(&git).unwrap();
         let sub = dir.path().join("sub");
         std::fs::create_dir(&sub).unwrap();
-        assert_eq!(find_git_dir(&sub), Some(dir.path().join(".git")));
+        let expected = std::fs::canonicalize(&git).unwrap();
+        assert_eq!(find_git_dir(&sub), Some(expected));
     }
 
     #[test]
@@ -154,6 +182,33 @@ mod tests {
         assert_eq!(
             read_origin_url(&git_dir),
             Some("https://github.com/o/r.git".to_string())
+        );
+    }
+
+    #[test]
+    fn embedded_credentials_are_redacted() {
+        let cfg = "[remote \"origin\"]\n\turl = https://user:token@github.com/o/r.git\n";
+        let url = read_origin_url_from(cfg).expect("origin url");
+        assert!(!url.contains("user:token"), "leaked credentials: {url}");
+        assert!(!url.contains('@'), "retained userinfo: {url}");
+        assert_eq!(url, "https://github.com/o/r.git");
+    }
+
+    #[test]
+    fn url_key_is_case_insensitive() {
+        let cfg = "[remote \"origin\"]\n\tURL = https://github.com/o/r.git\n";
+        assert_eq!(
+            read_origin_url_from(cfg),
+            Some("https://github.com/o/r.git".to_string())
+        );
+    }
+
+    #[test]
+    fn comment_lines_are_skipped() {
+        let cfg = "[remote \"origin\"]\n# url = https://commented.example/x.git\n\turl = https://real.example/y.git\n";
+        assert_eq!(
+            read_origin_url_from(cfg),
+            Some("https://real.example/y.git".to_string())
         );
     }
 
