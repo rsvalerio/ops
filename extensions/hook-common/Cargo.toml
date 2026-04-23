@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+ops-core = { workspace = true }
 toml_edit = "0.25"
 
 [dev-dependencies]

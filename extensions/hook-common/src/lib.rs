@@ -60,9 +60,17 @@ impl HookConfig {
     }
 }
 
-/// Returns `true` if the skip env var is set to `"1"`.
+/// Returns `true` if the skip env var is set to a recognized truthy value.
+///
+/// Accepts (case-insensitive): `"1"`, `"true"`, `"yes"`, `"on"`. Anything else
+/// — including the empty string, `"0"`, `"false"`, or arbitrary text — is
+/// treated as "don't skip". This matches how most CLI env-var opt-outs are
+/// commonly typed; documenting only `"1"` previously surprised users who set
+/// `SKIP_OPS_RUN_BEFORE_COMMIT=true`.
 pub fn should_skip(config: &HookConfig) -> bool {
-    std::env::var(config.skip_env_var).is_ok_and(|v| v == "1")
+    std::env::var(config.skip_env_var)
+        .ok()
+        .is_some_and(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
 }
 
 /// Generate the per-extension hook wrappers (`HOOK_CONFIG`, `should_skip`,
@@ -309,17 +317,9 @@ pub fn ensure_config_command(
 
     let config_path = config_dir.join(".ops.toml");
 
-    let content = if config_path.exists() {
-        std::fs::read_to_string(&config_path).context("failed to read .ops.toml")?
-    } else {
-        String::new()
-    };
+    // Read with parse-error propagation (ERR-5) and NotFound-as-empty (SEC-25).
+    let mut doc = ops_core::config::read_ops_toml(&config_path)?;
 
-    let mut doc = content
-        .parse::<toml_edit::DocumentMut>()
-        .unwrap_or_else(|_| toml_edit::DocumentMut::new());
-
-    // Check if command already exists
     if let Some(commands) = doc.get("commands").and_then(|c| c.as_table()) {
         if commands.contains_key(config.name) {
             writeln!(w, "Command '{}' already defined in .ops.toml", config.name)?;
@@ -327,17 +327,14 @@ pub fn ensure_config_command(
         }
     }
 
-    // Ensure [commands] table exists
     if !doc.contains_key("commands") {
         doc["commands"] = toml_edit::Item::Table(toml_edit::Table::new());
     }
-
     let commands = doc["commands"]
         .as_table_mut()
         .context("commands is not a table")?;
 
     let mut cmd = toml_edit::Table::new();
-
     let mut arr = toml_edit::Array::new();
     for name in selected_commands {
         arr.push(name.as_str());
@@ -348,7 +345,9 @@ pub fn ensure_config_command(
 
     commands.insert(config.name, toml_edit::Item::Table(cmd));
 
-    std::fs::write(&config_path, doc.to_string()).context("failed to write .ops.toml")?;
+    // Atomic write (SEC-32): sibling temp file + rename so a crash mid-write
+    // leaves the user's original .ops.toml intact.
+    ops_core::config::write_ops_toml(&config_path, &doc)?;
     writeln!(w, "Added '{}' command to .ops.toml", config.name)?;
 
     Ok(())
@@ -720,6 +719,30 @@ mod tests {
         assert!(content.contains("theme = \"compact\""));
         assert!(content.contains("[commands.build]"));
         assert!(content.contains("[commands.run-before-commit]"));
+    }
+
+    #[test]
+    fn ensure_config_refuses_to_overwrite_malformed_toml() {
+        // ERR-5 / SEC-32: a parse error must surface as Err and the user's
+        // existing (malformed-but-meaningful) file must not be clobbered.
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join(".ops.toml");
+        let malformed = "not = = valid\n{{{";
+        std::fs::write(&path, malformed).unwrap();
+
+        let selected = vec!["verify".to_string()];
+        let mut buf = Vec::new();
+        let result = ensure_config_command(&cfg, dir.path(), &selected, &mut buf);
+
+        assert!(result.is_err(), "malformed TOML should be a hard error");
+        let err = format!("{:#}", result.unwrap_err());
+        assert!(err.contains("TOML"), "err should mention TOML: {err}");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            malformed,
+            "malformed .ops.toml must not be overwritten"
+        );
     }
 
     #[test]
