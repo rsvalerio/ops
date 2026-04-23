@@ -27,10 +27,7 @@ pub fn run_hook_install(ops: &HookOps) -> anyhow::Result<()> {
     let config = match ops_core::config::load_config() {
         Ok(c) => c,
         Err(e) => {
-            let _ = writeln!(
-                io::stderr(),
-                "ops: warning: failed to load config; command list may be incomplete: {e}"
-            );
+            tracing::warn!(error = %e, "failed to load config; command list may be incomplete");
             ops_core::config::Config::default()
         }
     };

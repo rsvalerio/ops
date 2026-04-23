@@ -3,6 +3,8 @@
 use std::io::Write;
 use std::process::ExitCode;
 
+use anyhow::Context;
+
 #[cfg(feature = "stack-rust")]
 use crate::args::ToolsAction;
 use crate::args::{
@@ -78,15 +80,72 @@ fn prompt_hook_install(hook_name: &str) -> anyhow::Result<ExitCode> {
         .with_default(true)
         .prompt()?;
     if answer {
-        let status = std::process::Command::new(std::env::current_exe()?)
-            .args([hook_name, "install"])
-            .status()?;
-        if status.success() {
-            return Ok(ExitCode::SUCCESS);
+        match hook_name {
+            "run-before-commit" => run_before_commit_cmd::run_before_commit_install()?,
+            "run-before-push" => run_before_push_cmd::run_before_push_install()?,
+            other => anyhow::bail!("unknown hook: {other}"),
         }
-        return Ok(ExitCode::FAILURE);
+        return Ok(ExitCode::SUCCESS);
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Static hook descriptor: everything the shared dispatch needs to run a
+/// `run-before-{commit,push}` hook without re-implementing the same skip /
+/// prompt / dispatch dance per hook.
+type HookPreflight = (fn() -> anyhow::Result<bool>, &'static str);
+
+struct HookDispatch {
+    name: &'static str,
+    skip_env_var: &'static str,
+    should_skip: fn() -> bool,
+    /// Optional pre-flight predicate; returning `Ok(false)` short-circuits with
+    /// the supplied skip message instead of executing the hook command.
+    preflight: Option<HookPreflight>,
+    install: fn() -> anyhow::Result<()>,
+}
+
+const HOOK_BEFORE_COMMIT: HookDispatch = HookDispatch {
+    name: "run-before-commit",
+    skip_env_var: ops_run_before_commit::SKIP_ENV_VAR,
+    should_skip: ops_run_before_commit::should_skip,
+    preflight: Some((ops_run_before_commit::has_staged_files, "no staged files")),
+    install: run_before_commit_cmd::run_before_commit_install,
+};
+
+const HOOK_BEFORE_PUSH: HookDispatch = HookDispatch {
+    name: "run-before-push",
+    skip_env_var: ops_run_before_push::SKIP_ENV_VAR,
+    should_skip: ops_run_before_push::should_skip,
+    preflight: None,
+    install: run_before_push_cmd::run_before_push_install,
+};
+
+fn run_hook_dispatch(hook: &HookDispatch, run_preflight: bool) -> anyhow::Result<ExitCode> {
+    let config = ops_core::config::load_config()
+        .with_context(|| format!("failed to load config for {} check", hook.name))?;
+    if !config.commands.contains_key(hook.name) {
+        return prompt_hook_install(hook.name);
+    }
+    if (hook.should_skip)() {
+        let _ = writeln!(
+            std::io::stderr(),
+            "[{}] {}=1 — skipping",
+            hook.name,
+            hook.skip_env_var
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+    if run_preflight {
+        if let Some((predicate, skip_msg)) = hook.preflight {
+            if !predicate()? {
+                let _ = writeln!(std::io::stderr(), "[{}] {} — skipping", hook.name, skip_msg);
+                return Ok(ExitCode::SUCCESS);
+            }
+        }
+    }
+    let args = vec![std::ffi::OsString::from(hook.name)];
+    run_cmd::run_external_command(&args, false, false, None, false)
 }
 
 pub(crate) fn run_before_commit(
@@ -95,34 +154,10 @@ pub(crate) fn run_before_commit(
 ) -> anyhow::Result<ExitCode> {
     match action {
         Some(RunBeforeCommitAction::Install) => {
-            run_before_commit_cmd::run_before_commit_install()?;
+            (HOOK_BEFORE_COMMIT.install)()?;
             Ok(ExitCode::SUCCESS)
         }
-        None => {
-            let config = ops_core::config::load_config().map_err(|e| {
-                anyhow::anyhow!("failed to load config for run-before-commit check: {e}")
-            })?;
-            if !config.commands.contains_key("run-before-commit") {
-                return prompt_hook_install("run-before-commit");
-            }
-            if ops_run_before_commit::should_skip() {
-                let _ = writeln!(
-                    std::io::stderr(),
-                    "[run-before-commit] {}=1 — skipping",
-                    ops_run_before_commit::SKIP_ENV_VAR
-                );
-                return Ok(ExitCode::SUCCESS);
-            }
-            if changed_only && !ops_run_before_commit::has_staged_files()? {
-                let _ = writeln!(
-                    std::io::stderr(),
-                    "[run-before-commit] no staged files — skipping"
-                );
-                return Ok(ExitCode::SUCCESS);
-            }
-            let args = vec![std::ffi::OsString::from("run-before-commit")];
-            run_cmd::run_external_command(&args, false, false, None, false)
-        }
+        None => run_hook_dispatch(&HOOK_BEFORE_COMMIT, changed_only),
     }
 }
 
@@ -132,27 +167,10 @@ pub(crate) fn run_before_push(
 ) -> anyhow::Result<ExitCode> {
     match action {
         Some(RunBeforePushAction::Install) => {
-            run_before_push_cmd::run_before_push_install()?;
+            (HOOK_BEFORE_PUSH.install)()?;
             Ok(ExitCode::SUCCESS)
         }
-        None => {
-            let config = ops_core::config::load_config().map_err(|e| {
-                anyhow::anyhow!("failed to load config for run-before-push check: {e}")
-            })?;
-            if !config.commands.contains_key("run-before-push") {
-                return prompt_hook_install("run-before-push");
-            }
-            if ops_run_before_push::should_skip() {
-                let _ = writeln!(
-                    std::io::stderr(),
-                    "[run-before-push] {}=1 — skipping",
-                    ops_run_before_push::SKIP_ENV_VAR
-                );
-                return Ok(ExitCode::SUCCESS);
-            }
-            let args = vec![std::ffi::OsString::from("run-before-push")];
-            run_cmd::run_external_command(&args, false, false, None, false)
-        }
+        None => run_hook_dispatch(&HOOK_BEFORE_PUSH, false),
     }
 }
 
