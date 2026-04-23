@@ -56,8 +56,38 @@ impl SidecarIngestorConfig {
         Ok(())
     }
 
-    /// Standard load pipeline: init schema → create table → create view → count →
-    /// read sidecar → upsert → cleanup.
+    /// Standard load pipeline.
+    ///
+    /// # Steps and side effects
+    ///
+    /// 1. `init_schema(db)` — idempotent; creates `data_sources` if absent.
+    /// 2. Validate `count_table` and read the workspace sidecar (file I/O,
+    ///    no lock held). Failure here aborts before any DB mutation.
+    /// 3. Acquire the connection lock and execute `create_sql` then `view_sql`.
+    ///    On failure, the table/view created up to the failing statement
+    ///    remain in DuckDB (partial state).
+    /// 4. `SELECT COUNT(*) FROM count_table` — failure leaves table/view
+    ///    intact.
+    /// 5. Drop the lock; compute checksum of `<json_filename>` (file I/O).
+    /// 6. `upsert_data_source(...)` — upserts the tracking row.
+    /// 7. `remove(json_path)` — best-effort delete of the JSON staging file.
+    /// 8. `remove_workspace_sidecar(...)` — best-effort delete of sidecar.
+    ///
+    /// # Failure semantics
+    ///
+    /// On error, this function is **idempotent on retry**: every step that
+    /// can be safely re-run on the next invocation is re-run.
+    ///
+    /// - Failures before step 7 leave the JSON file and sidecar on disk so
+    ///   that a retry can recompute the checksum and re-upsert.
+    /// - `create_sql` and `view_sql` are expected to be `CREATE OR REPLACE`
+    ///   (or otherwise idempotent), so a partially created table is
+    ///   replaced on retry.
+    /// - `upsert_data_source` is idempotent by design (`ON CONFLICT DO
+    ///   UPDATE`).
+    ///
+    /// Callers retrying after a failure should not call any cleanup helper
+    /// in between; just call `load_with_sidecar` again.
     pub fn load_with_sidecar(
         &self,
         db: &DuckDb,
@@ -66,48 +96,78 @@ impl SidecarIngestorConfig {
         view_sql: &str,
     ) -> DbResult<crate::ingestor::LoadResult> {
         crate::schema::init_schema(db)?;
-        let conn = db.lock()?;
 
+        let quoted = crate::sql::validation::quoted_ident(self.count_table)?;
+        let workspace_root = crate::sql::read_workspace_sidecar(data_dir, self.name)?;
+
+        self.create_tables(db, create_sql, view_sql)?;
+        let record_count = self.count_records(db, &quoted)?;
+
+        let json_path = data_dir.join(self.json_filename);
+        self.persist_record(db, &workspace_root, &json_path, record_count)?;
+        self.cleanup_artifacts(data_dir, &json_path)?;
+
+        Ok(LoadResult::success(self.name, record_count))
+    }
+
+    /// Step 1: execute the CREATE TABLE / CREATE VIEW statements under a
+    /// short critical section.
+    fn create_tables(&self, db: &DuckDb, create_sql: &str, view_sql: &str) -> DbResult<()> {
+        let conn = db.lock()?;
         conn.execute(create_sql, [])
             .map_err(|e| crate::error::DbError::query_failed(format!("{} create", self.name), e))?;
         conn.execute(view_sql, [])
             .map_err(|e| crate::error::DbError::query_failed(format!("{} view", self.name), e))?;
+        Ok(())
+    }
 
-        crate::sql::validate_identifier(self.count_table).unwrap_or_else(|e| {
-            panic!(
-                "SidecarIngestorConfig.count_table {:?} is not a valid SQL identifier: {}",
-                self.count_table, e
-            )
-        });
-        let record_count: u64 = conn
+    /// Step 2: read the row count from the loaded count table. `quoted`
+    /// must already be the validated, double-quoted identifier returned by
+    /// `quoted_ident(self.count_table)`.
+    fn count_records(&self, db: &DuckDb, quoted: &str) -> DbResult<u64> {
+        let conn = db.lock()?;
+        let raw_count: i64 = conn
             .query_row(
-                &format!("SELECT COUNT(*) FROM \"{}\"", self.count_table),
+                &format!("SELECT COUNT(*) FROM {quoted}"),
                 [],
                 |row: &duckdb::Row| row.get::<_, i64>(0),
             )
             .map_err(|e| {
                 crate::error::DbError::query_failed(format!("{} count", self.count_table), e)
-            })
-            .map(|v| u64::try_from(v).unwrap_or(0))?;
+            })?;
+        u64::try_from(raw_count).map_err(|_| crate::error::DbError::InvalidRecordCount {
+            table: self.count_table.to_string(),
+            count: raw_count,
+        })
+    }
 
-        let workspace_root = crate::sql::read_workspace_sidecar(data_dir, self.name)?;
-        drop(conn);
-
-        let json_path = data_dir.join(self.json_filename);
-        let checksum = crate::sql::checksum_file(&json_path)?;
+    /// Step 3: upsert the data_sources tracking row. Computes the file
+    /// checksum (no lock held) before delegating to `upsert_data_source`.
+    fn persist_record(
+        &self,
+        db: &DuckDb,
+        workspace_root: &str,
+        json_path: &Path,
+        record_count: u64,
+    ) -> DbResult<()> {
+        let checksum = crate::sql::checksum_file(json_path)?;
         crate::schema::upsert_data_source(
             db,
-            self.name,
-            &workspace_root,
-            &json_path,
-            record_count,
-            &checksum,
-        )?;
+            &crate::schema::DataSourceMetadata {
+                source_name: self.name,
+                workspace_root,
+                source_path: json_path,
+                record_count,
+                checksum: &checksum,
+            },
+        )
+    }
 
-        std::fs::remove_file(&json_path).map_err(crate::error::DbError::Io)?;
+    /// Step 4: delete the staged JSON file and the sidecar.
+    fn cleanup_artifacts(&self, data_dir: &Path, json_path: &Path) -> DbResult<()> {
+        std::fs::remove_file(json_path).map_err(crate::error::DbError::Io)?;
         crate::sql::remove_workspace_sidecar(data_dir, self.name);
-
-        Ok(LoadResult::success(self.name, record_count))
+        Ok(())
     }
 
     /// Compute checksum of the JSON file.
@@ -317,6 +377,42 @@ mod tests {
             let ingestor = FailingChecksumIngestor;
             let temp_dir = tempfile::tempdir().expect("tempdir");
             assert!(ingestor.checksum(temp_dir.path()).is_err());
+        }
+
+        #[test]
+        fn negative_record_count_surfaces_as_invalid_record_count_error() {
+            // Simulate the i64-from-COUNT-to-u64 conversion when COUNT is
+            // negative (anomaly / schema bug). The matching code in
+            // load_with_sidecar uses `u64::try_from(raw_count)` and maps the
+            // failure to DbError::InvalidRecordCount.
+            let raw_count: i64 = -1;
+            let result: Result<u64, _> =
+                u64::try_from(raw_count).map_err(|_| DbError::InvalidRecordCount {
+                    table: "tokei_files".to_string(),
+                    count: raw_count,
+                });
+            match result {
+                Err(DbError::InvalidRecordCount { table, count }) => {
+                    assert_eq!(table, "tokei_files");
+                    assert_eq!(count, -1);
+                }
+                _ => panic!("expected InvalidRecordCount error"),
+            }
+        }
+
+        #[test]
+        fn load_with_sidecar_returns_error_for_invalid_count_table() {
+            // count_table containing a SQL injection sequence must surface as a
+            // DbError (formerly a panic).
+            let cfg = SidecarIngestorConfig {
+                name: "bad",
+                json_filename: "bad.json",
+                count_table: "bad; DROP TABLE users; --",
+            };
+            let db = DuckDb::open_in_memory().expect("db");
+            let dir = tempfile::tempdir().expect("tempdir");
+            let result = cfg.load_with_sidecar(&db, dir.path(), "SELECT 1", "SELECT 1");
+            assert!(matches!(result, Err(DbError::SqlValidation(_))));
         }
     }
 }

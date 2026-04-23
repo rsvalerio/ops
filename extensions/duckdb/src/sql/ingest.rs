@@ -3,7 +3,9 @@
 use crate::{DbError, DbResult, DuckDb};
 use std::path::{Path, PathBuf};
 
-use super::validation::*;
+use super::validation::{
+    prepare_path_for_sql, quoted_ident, validate_extra_opts, validate_identifier, SqlError,
+};
 
 /// Generate `CREATE OR REPLACE TABLE <name> AS SELECT * FROM read_json_auto(...)` SQL (DUP-009).
 ///
@@ -17,9 +19,12 @@ pub fn create_table_from_json_sql(
     validate_identifier(table_name)?;
     let escaped = prepare_path_for_sql(path)?;
     match extra_opts {
-        Some(opts) => Ok(format!(
+        Some(opts) => {
+            validate_extra_opts(opts)?;
+            Ok(format!(
             "CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_json_auto('{escaped}', {opts})",
-        )),
+        ))
+        }
         None => Ok(format!(
             "CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_json_auto('{escaped}')",
         )),
@@ -27,6 +32,10 @@ pub fn create_table_from_json_sql(
 }
 
 /// Check if a table or view exists in the database.
+///
+/// `information_schema.tables` does **not** list views in DuckDB; we union
+/// with `information_schema.views` so that view-backed data sources (e.g.
+/// `crate_dependencies`) are detected (READ-5).
 pub(super) fn table_exists(
     conn: &duckdb::Connection,
     table_name: &str,
@@ -34,8 +43,10 @@ pub(super) fn table_exists(
     use anyhow::Context;
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
-            [table_name],
+            "SELECT \
+                (SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?) \
+              + (SELECT COUNT(*) FROM information_schema.views  WHERE table_name = ?)",
+            duckdb::params![table_name, table_name],
             |row: &duckdb::Row| row.get(0),
         )
         .with_context(|| format!("checking if {} exists", table_name))?;
@@ -52,10 +63,10 @@ pub fn table_has_data(db: &DuckDb, table_name: &str) -> Result<bool, anyhow::Err
     }
     // table_name needs interpolation for the COUNT query since DuckDB
     // doesn't support parameterized table names.
-    validate_identifier(table_name)?;
+    let quoted = quoted_ident(table_name)?;
     let row_count: i64 = conn
         .query_row(
-            &format!("SELECT COUNT(*) FROM \"{table_name}\""),
+            &format!("SELECT COUNT(*) FROM {quoted}"),
             [],
             |row: &duckdb::Row| row.get(0),
         )
@@ -87,13 +98,31 @@ pub fn io_err<E: Into<Box<dyn std::error::Error + Send + Sync>>>(e: E) -> DbErro
 }
 
 /// Compute SHA-256 checksum of a file, returning hex string.
+///
+/// Streams the file in 64 KiB chunks so multi-megabyte ingests (coverage,
+/// tokei) do not allocate a full file-sized buffer (PERF-1).
 pub fn checksum_file(path: &Path) -> DbResult<String> {
     use sha2::{Digest, Sha256};
-    let data = std::fs::read(path).map_err(DbError::Io)?;
+    use std::io::{BufReader, Read};
+    let file = std::fs::File::open(path).map_err(DbError::Io)?;
+    let mut reader = BufReader::with_capacity(64 * 1024, file);
     let mut hasher = Sha256::new();
-    hasher.update(&data);
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = reader.read(&mut buf).map_err(DbError::Io)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
     let digest = hasher.finalize();
     Ok(hex::encode(digest.as_ref() as &[u8]))
+}
+
+/// Single source of truth for the workspace sidecar filename convention
+/// (DUP-3). All write/read/remove helpers route through here.
+fn sidecar_path(data_dir: &Path, name: &str) -> PathBuf {
+    data_dir.join(format!("{name}_workspace.txt"))
 }
 
 /// Write a workspace root sidecar file alongside collected data.
@@ -101,29 +130,45 @@ pub fn checksum_file(path: &Path) -> DbResult<String> {
 /// Used by ingestors that don't embed workspace_root in their JSON output
 /// (e.g., tokei, coverage). The sidecar is read back during `load()` for
 /// `upsert_data_source`.
+///
+/// Persists the path's raw OS bytes (via `as_encoded_bytes`) so that
+/// non-UTF-8 paths round-trip exactly rather than being silently corrupted
+/// to `U+FFFD` (READ-5). The corresponding read happens via
+/// [`read_workspace_sidecar`].
 pub fn write_workspace_sidecar(
     data_dir: &Path,
     name: &str,
     working_directory: &Path,
 ) -> DbResult<()> {
-    let workspace_path = data_dir.join(format!("{}_workspace.txt", name));
+    let workspace_path = sidecar_path(data_dir, name);
     std::fs::write(
         &workspace_path,
-        working_directory.to_string_lossy().as_bytes(),
+        working_directory.as_os_str().as_encoded_bytes(),
     )
     .map_err(DbError::Io)
 }
 
 /// Read a workspace root sidecar file written during collect.
 pub fn read_workspace_sidecar(data_dir: &Path, name: &str) -> DbResult<String> {
-    let workspace_path = data_dir.join(format!("{}_workspace.txt", name));
+    let workspace_path = sidecar_path(data_dir, name);
     std::fs::read_to_string(&workspace_path).map_err(DbError::Io)
 }
 
-/// Remove a workspace root sidecar file (best-effort, ignores errors).
+/// Remove a workspace root sidecar file. Best-effort: a missing file is
+/// fine, but other errors (EACCES, IO) are logged so accumulated stale
+/// sidecars do not silently mask broken cleanup (ERR-1).
 pub fn remove_workspace_sidecar(data_dir: &Path, name: &str) {
-    let workspace_path = data_dir.join(format!("{}_workspace.txt", name));
-    let _ = std::fs::remove_file(&workspace_path);
+    let workspace_path = sidecar_path(data_dir, name);
+    match std::fs::remove_file(&workspace_path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            tracing::warn!(
+                "remove_workspace_sidecar({}): {e}",
+                workspace_path.display()
+            );
+        }
+    }
 }
 
 /// DUP-031: Generic helper to query rows from DuckDB and return as a JSON array.
@@ -184,9 +229,9 @@ where
 /// Drop a table if it exists (used by refresh to force re-collection).
 fn drop_table_if_exists(db: &DuckDb, table_name: &str) -> Result<(), anyhow::Error> {
     use anyhow::Context;
-    validate_identifier(table_name)?;
+    let quoted = quoted_ident(table_name)?;
     let conn = db.lock().context("acquiring db lock for drop")?;
-    conn.execute_batch(&format!("DROP TABLE IF EXISTS \"{table_name}\""))
+    conn.execute_batch(&format!("DROP TABLE IF EXISTS {quoted}"))
         .with_context(|| format!("dropping table {table_name}"))?;
     Ok(())
 }
@@ -194,6 +239,7 @@ fn drop_table_if_exists(db: &DuckDb, table_name: &str) -> Result<(), anyhow::Err
 /// DUP-032: Macro to generate standard path validation tests for `*_create_sql` functions.
 ///
 /// Generates four tests: valid path, path with spaces, injection rejection, traversal rejection.
+#[cfg(any(test, feature = "test-helpers"))]
 #[macro_export]
 macro_rules! test_create_sql_validation {
     ($create_fn:path, $file_name:expr) => {
@@ -313,6 +359,24 @@ mod tests {
     }
 
     #[test]
+    fn checksum_file_streaming_matches_in_memory_for_large_input() {
+        // PERF-1 regression: stream vs in-memory must produce identical
+        // SHA-256 for inputs spanning multiple 64 KiB chunks.
+        use sha2::{Digest, Sha256};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("big.bin");
+        // 200 KiB of pseudo-random-ish bytes.
+        let data: Vec<u8> = (0..200 * 1024).map(|i| (i % 256) as u8).collect();
+        std::fs::write(&path, &data).expect("write");
+
+        let streamed = checksum_file(&path).expect("stream");
+        let mut hasher = Sha256::new();
+        hasher.update(&data);
+        let in_memory = hex::encode(hasher.finalize().as_ref() as &[u8]);
+        assert_eq!(streamed, in_memory);
+    }
+
+    #[test]
     fn checksum_file_is_deterministic() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("test.json");
@@ -361,5 +425,110 @@ mod tests {
         assert!(create_table_from_json_sql("table; DROP", &path, None).is_err());
         assert!(create_table_from_json_sql("", &path, None).is_err());
         assert!(create_table_from_json_sql("123start", &path, None).is_err());
+    }
+
+    #[test]
+    fn table_exists_detects_views_too() {
+        // READ-5 regression: views must be detected, not just base tables.
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        init_schema(&db).expect("init_schema");
+        let conn = db.lock().expect("lock");
+        conn.execute_batch(
+            "CREATE TABLE base (n INTEGER); \
+             CREATE VIEW only_view AS SELECT 1 AS n;",
+        )
+        .expect("create");
+        assert!(table_exists(&conn, "base").expect("table"));
+        assert!(table_exists(&conn, "only_view").expect("view"));
+        assert!(!table_exists(&conn, "nope").expect("missing"));
+    }
+
+    #[test]
+    fn workspace_sidecar_round_trip() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let working = PathBuf::from("/some/workspace/root");
+        write_workspace_sidecar(dir.path(), "tokei", &working).expect("write sidecar");
+
+        // Filename derives from name parameter as `<name>_workspace.txt`
+        let expected = dir.path().join("tokei_workspace.txt");
+        assert!(expected.exists(), "sidecar file at expected path");
+
+        let read = read_workspace_sidecar(dir.path(), "tokei").expect("read sidecar");
+        assert_eq!(read, "/some/workspace/root");
+
+        remove_workspace_sidecar(dir.path(), "tokei");
+        assert!(!expected.exists(), "sidecar removed");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn workspace_sidecar_round_trips_non_utf8_path() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let bytes = b"/ws/\xff\xfe/proj";
+        let working = PathBuf::from(OsStr::from_bytes(bytes));
+        write_workspace_sidecar(dir.path(), "tokei", &working).expect("write");
+
+        let raw = std::fs::read(dir.path().join("tokei_workspace.txt")).expect("read raw");
+        assert_eq!(raw, bytes, "non-UTF-8 bytes preserved verbatim");
+    }
+
+    #[test]
+    fn workspace_sidecar_remove_is_best_effort() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Should not panic when the sidecar does not exist
+        remove_workspace_sidecar(dir.path(), "missing_name");
+    }
+
+    #[test]
+    fn workspace_sidecar_remove_logs_but_does_not_panic_on_failure() {
+        // Make the sidecar path point at a directory — remove_file will fail
+        // (IsADirectory / Other on different OSes). The function should log
+        // and return normally; behavior we assert here is "no panic".
+        // Direct tracing assertion would require a subscriber test harness.
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(dir.path().join("blocker_workspace.txt")).expect("create blocker dir");
+        remove_workspace_sidecar(dir.path(), "blocker");
+        // The blocker still exists (remove failed) but no panic occurred.
+        assert!(dir.path().join("blocker_workspace.txt").exists());
+    }
+
+    #[test]
+    fn workspace_sidecar_filename_uses_name_prefix() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let working = PathBuf::from("/ws");
+        write_workspace_sidecar(dir.path(), "coverage", &working).expect("write");
+        write_workspace_sidecar(dir.path(), "tokei", &working).expect("write");
+        assert!(dir.path().join("coverage_workspace.txt").exists());
+        assert!(dir.path().join("tokei_workspace.txt").exists());
+    }
+
+    #[test]
+    fn create_table_from_json_sql_accepts_safe_extra_opts() {
+        let path = PathBuf::from("/safe/path.json");
+        assert!(
+            create_table_from_json_sql("t", &path, Some("maximum_object_size=67108864")).is_ok()
+        );
+        assert!(
+            create_table_from_json_sql("t", &path, Some("maximum_object_size=1,format=auto"))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn create_table_from_json_sql_rejects_malicious_extra_opts() {
+        let path = PathBuf::from("/safe/path.json");
+        assert!(create_table_from_json_sql(
+            "t",
+            &path,
+            Some("maximum_object_size=1, injection='x') --")
+        )
+        .is_err());
+        assert!(create_table_from_json_sql("t", &path, Some("a=1;DROP TABLE users")).is_err());
+        assert!(create_table_from_json_sql("t", &path, Some("a=(1)")).is_err());
+        assert!(create_table_from_json_sql("t", &path, Some("a='x'")).is_err());
+        assert!(create_table_from_json_sql("t", &path, Some("a")).is_err());
+        assert!(create_table_from_json_sql("t", &path, Some("")).is_err());
     }
 }

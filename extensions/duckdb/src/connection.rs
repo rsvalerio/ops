@@ -75,10 +75,12 @@ impl DuckDb {
 
     /// Lock the connection for exclusive use.
     pub fn lock(&self) -> DbResult<std::sync::MutexGuard<'_, duckdb::Connection>> {
-        self.conn.lock().map_err(|e| {
-            tracing::warn!("db mutex poisoned");
-            DbError::MutexPoisoned(e.to_string())
-        })
+        // Intentionally no logging here: callers know the query/operation
+        // context and are responsible for either propagating or logging
+        // (READ-8). A library primitive should not double-log.
+        self.conn
+            .lock()
+            .map_err(|e| DbError::MutexPoisoned(e.to_string()))
     }
 
     /// Resolve the DB path from config and workspace root.

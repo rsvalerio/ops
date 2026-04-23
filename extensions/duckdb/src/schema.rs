@@ -46,19 +46,27 @@ pub fn get_source_checksum(
     }
 }
 
+/// Metadata describing a loaded data source row.
+pub struct DataSourceMetadata<'a> {
+    pub source_name: &'a str,
+    pub workspace_root: &'a str,
+    pub source_path: &'a Path,
+    pub record_count: u64,
+    pub checksum: &'a str,
+}
+
 /// Upsert a data_sources row after a load.
-#[allow(clippy::too_many_arguments)]
-pub fn upsert_data_source(
-    db: &DuckDb,
-    source_name: &str,
-    workspace_root: &str,
-    source_path: &Path,
-    record_count: u64,
-    checksum: &str,
-) -> DbResult<()> {
-    let path_str = source_path.to_string_lossy();
-    let record_count_i64 =
-        i64::try_from(record_count).map_err(|_| DbError::RecordCountOverflow(record_count))?;
+///
+/// Fails fast with [`DbError::NonUtf8Path`] when `source_path` is not valid
+/// UTF-8 — the previous lossy conversion silently stored a string that
+/// could not be mapped back to the actual file (ERR-4).
+pub fn upsert_data_source(db: &DuckDb, meta: &DataSourceMetadata<'_>) -> DbResult<()> {
+    let path_str = meta
+        .source_path
+        .to_str()
+        .ok_or_else(|| DbError::NonUtf8Path(meta.source_path.as_os_str().to_os_string()))?;
+    let record_count_i64 = i64::try_from(meta.record_count)
+        .map_err(|_| DbError::RecordCountOverflow(meta.record_count))?;
     let conn = db.lock()?;
     conn.execute(
         r#"
@@ -71,11 +79,11 @@ pub fn upsert_data_source(
             checksum = excluded.checksum
         "#,
         duckdb::params![
-            source_name,
-            workspace_root,
-            path_str.as_ref(),
+            meta.source_name,
+            meta.workspace_root,
+            path_str,
             record_count_i64,
-            checksum
+            meta.checksum
         ],
     )
     .map_err(|e| DbError::query_failed("upsert_data_source", e))?;
@@ -106,16 +114,40 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn upsert_data_source_rejects_non_utf8_path() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let db = DuckDb::open_in_memory().unwrap();
+        init_schema(&db).unwrap();
+        let bytes = b"/ws/\xff\xfe.json";
+        let bad_path = std::path::Path::new(OsStr::from_bytes(bytes));
+        let result = upsert_data_source(
+            &db,
+            &DataSourceMetadata {
+                source_name: "metadata",
+                workspace_root: "/ws",
+                source_path: bad_path,
+                record_count: 1,
+                checksum: "abc",
+            },
+        );
+        assert!(matches!(result, Err(DbError::NonUtf8Path(_))));
+    }
+
+    #[test]
     fn upsert_and_get_source_checksum() {
         let db = DuckDb::open_in_memory().unwrap();
         init_schema(&db).unwrap();
         upsert_data_source(
             &db,
-            "metadata",
-            "/ws",
-            Path::new("/ws/target/ops/metadata.json"),
-            1,
-            "abc123",
+            &DataSourceMetadata {
+                source_name: "metadata",
+                workspace_root: "/ws",
+                source_path: Path::new("/ws/target/ops/metadata.json"),
+                record_count: 1,
+                checksum: "abc123",
+            },
         )
         .unwrap();
         let c = get_source_checksum(&db, "metadata", "/ws").unwrap();

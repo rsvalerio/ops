@@ -382,6 +382,42 @@ fn query_project_languages_omits_tiny_percentages() {
 }
 
 #[test]
+fn query_project_languages_falls_back_to_top_when_all_below_threshold() {
+    // READ-5: when every language is below the 0.1% threshold, return the
+    // top entry rather than an empty Vec — empty is reserved for "no data".
+    // We simulate this by feeding many tiny languages whose individual loc_pct
+    // rounds to 0.0. Use 1 line per language with 200 entries so each is 0.5%.
+    // To force <0.1% we'd need >1000 — instead we directly insert one
+    // dominant language plus tiny ones; but here verify the fallback by
+    // pre-computing percentages so all are < 0.1%.
+    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    init_schema(&db).expect("init_schema");
+
+    let conn = db.lock().expect("lock");
+    conn.execute_batch(
+        "CREATE TABLE tokei_files (language VARCHAR, file VARCHAR, code BIGINT, \
+         comments BIGINT, blanks BIGINT, lines BIGINT);",
+    )
+    .expect("create");
+    // 5000 unique languages, each contributing 1 line → each ~0.02% < 0.1%.
+    // Use a single INSERT ... SELECT to keep the test fast.
+    conn.execute_batch(
+        "INSERT INTO tokei_files \
+         SELECT 'Lang' || i, 'f' || i, 1, 0, 0, 1 \
+         FROM generate_series(0, 4999) AS gs(i);",
+    )
+    .expect("bulk insert");
+    drop(conn);
+
+    let langs = query_project_languages(&db).expect("query");
+    assert_eq!(
+        langs.len(),
+        1,
+        "should fall back to top language when all <0.1%"
+    );
+}
+
+#[test]
 fn query_crate_coverage_with_absolute_paths() {
     let db = DuckDb::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");

@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use ops_core::project_identity::LanguageStat;
 
 use super::super::ingest::table_exists;
-use super::helpers::{query_per_crate_i64, query_project_scalar, PerCrateI64Query};
+use super::helpers::{
+    query_per_crate_i64, query_project_scalar, ColumnAlias, ColumnName, PerCrateI64Query, TableName,
+};
 
 /// Query total file count across the whole project from `tokei_files`.
 pub fn query_project_file_count(db: &DuckDb) -> anyhow::Result<i64> {
@@ -28,11 +30,11 @@ pub fn query_crate_file_count(
 ) -> anyhow::Result<HashMap<String, i64>> {
     query_per_crate_i64(&PerCrateI64Query {
         db,
-        table: "tokei_files",
+        table: TableName::new("tokei_files")?,
         member_paths,
         select_expr: "COUNT(f.file)",
-        join_alias: "f",
-        join_column: "file",
+        join_alias: ColumnAlias::new("f")?,
+        join_column: ColumnName::new("file")?,
         label: "query_crate_file_count",
     })
 }
@@ -86,14 +88,23 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>>
         })
         .context("querying project languages")?;
 
-    let mut languages = Vec::new();
+    // READ-5: collect everything, then filter by percentage. If the filter
+    // would drop *every* row, fall back to the top entry so the caller can
+    // distinguish "no tokei data" (empty) from "all tiny" (one entry).
+    let mut all = Vec::new();
     for row in rows {
-        let stat = row.context("reading language row")?;
-        if stat.loc_pct >= 0.1 {
-            languages.push(stat);
-        }
+        all.push(row.context("reading language row")?);
     }
-    Ok(languages)
+
+    let filtered: Vec<LanguageStat> = all.iter().filter(|s| s.loc_pct >= 0.1).cloned().collect();
+
+    if !filtered.is_empty() {
+        Ok(filtered)
+    } else if let Some(top) = all.into_iter().next() {
+        Ok(vec![top])
+    } else {
+        Ok(Vec::new())
+    }
 }
 
 /// Query per-crate lines of code from `tokei_files`.
@@ -103,11 +114,11 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>>
 pub fn query_crate_loc(db: &DuckDb, member_paths: &[&str]) -> anyhow::Result<HashMap<String, i64>> {
     query_per_crate_i64(&PerCrateI64Query {
         db,
-        table: "tokei_files",
+        table: TableName::new("tokei_files")?,
         member_paths,
         select_expr: "COALESCE(SUM(f.code), 0)",
-        join_alias: "f",
-        join_column: "file",
+        join_alias: ColumnAlias::new("f")?,
+        join_column: ColumnName::new("file")?,
         label: "query_crate_loc",
     })
 }

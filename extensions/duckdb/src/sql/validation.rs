@@ -1,4 +1,30 @@
 //! SQL security validation functions for path and identifier safety.
+//!
+//! # Helper composition
+//!
+//! Each helper guards a different threat surface; many sites need more than one.
+//!
+//! - [`validate_identifier`] / [`quoted_ident`] — for any identifier interpolated
+//!   into SQL (table, column, view names). `quoted_ident` is preferred at call
+//!   sites because it cannot be invoked without validation.
+//! - [`validate_path_chars`] — for path-like strings used either as bound
+//!   parameters or interpolated. Catches dangerous shell/SQL metacharacters
+//!   and control codes.
+//! - [`validate_no_traversal`] — for path-like strings whose semantics depend
+//!   on staying inside a specific root. Reject `..` segments before relying
+//!   on `starts_with` joins or filesystem reads.
+//! - [`escape_sql_string`] / [`sanitize_path_for_sql`] — low-level escaping
+//!   used inside [`prepare_path_for_sql`]; not safe to call alone.
+//! - [`prepare_path_for_sql`] — the only path helper safe to call standalone
+//!   for a value that will be string-interpolated into SQL. Combines the
+//!   three checks plus escaping.
+//! - [`validate_extra_opts`] — for the `read_json_auto(...)` extra options
+//!   fragment, which is interpolated rather than parameterized.
+//!
+//! Bound-parameter values still benefit from `validate_path_chars` and
+//! `validate_no_traversal` for **semantic** correctness (e.g., preventing
+//! traversal-based mismatches), even though they are not at risk of
+//! injection.
 
 use std::path::Path;
 use thiserror::Error;
@@ -7,10 +33,14 @@ use thiserror::Error;
 pub enum SqlError {
     #[error("invalid character in path: {0:?}")]
     InvalidPathChar(char),
-    #[error("path traversal not allowed: {0}")]
-    PathTraversalNotAllowed(String),
+    #[error("path traversal not allowed: {}", .0.display())]
+    PathTraversalNotAllowed(std::path::PathBuf),
     #[error("invalid SQL identifier: {0:?}")]
     InvalidIdentifier(String),
+    #[error("invalid extra_opts fragment: {0:?}")]
+    InvalidExtraOpts(String),
+    #[error("path is not valid UTF-8: {0:?}")]
+    InvalidUtf8Path(std::ffi::OsString),
 }
 
 /// Validate that a string is a safe SQL identifier (`[a-zA-Z_][a-zA-Z0-9_]*`).
@@ -29,6 +59,45 @@ pub fn validate_identifier(name: &str) -> Result<(), SqlError> {
     for ch in chars {
         if !ch.is_ascii_alphanumeric() && ch != '_' {
             return Err(SqlError::InvalidIdentifier(name.to_string()));
+        }
+    }
+    Ok(())
+}
+
+/// Validate `name` and return a double-quoted SQL identifier in one step.
+///
+/// Use this helper at every site that interpolates a table or column name into
+/// a SQL string — it guarantees the identifier is validated before quoting,
+/// closing off forgotten-validation regressions.
+pub fn quoted_ident(name: &str) -> Result<String, SqlError> {
+    validate_identifier(name)?;
+    Ok(format!("\"{name}\""))
+}
+
+/// Validate `extra_opts` fragment for `read_json_auto(...)`.
+///
+/// Allows only `key=value` pairs (and comma-separated lists of them) where the
+/// key is `[a-zA-Z_][a-zA-Z0-9_]*` and the value is a non-negative decimal
+/// integer or a bare alphanumeric token. Quotes, parentheses, semicolons, and
+/// whitespace are rejected to prevent SQL fragment injection.
+pub fn validate_extra_opts(opts: &str) -> Result<(), SqlError> {
+    if opts.is_empty() {
+        return Err(SqlError::InvalidExtraOpts(opts.to_string()));
+    }
+    for pair in opts.split(',') {
+        let mut parts = pair.splitn(2, '=');
+        let key = parts
+            .next()
+            .ok_or_else(|| SqlError::InvalidExtraOpts(opts.to_string()))?;
+        let value = parts
+            .next()
+            .ok_or_else(|| SqlError::InvalidExtraOpts(opts.to_string()))?;
+        if parts.next().is_some() {
+            return Err(SqlError::InvalidExtraOpts(opts.to_string()));
+        }
+        validate_identifier(key).map_err(|_| SqlError::InvalidExtraOpts(opts.to_string()))?;
+        if value.is_empty() || !value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(SqlError::InvalidExtraOpts(opts.to_string()));
         }
     }
     Ok(())
@@ -69,21 +138,26 @@ pub fn validate_path_chars(path: &str) -> Result<(), SqlError> {
 }
 
 pub fn validate_no_traversal(path: &Path) -> Result<(), SqlError> {
-    let path_str = path.to_string_lossy();
     for component in path.components() {
         if matches!(component, std::path::Component::ParentDir) {
-            return Err(SqlError::PathTraversalNotAllowed(path_str.into_owned()));
+            return Err(SqlError::PathTraversalNotAllowed(path.to_path_buf()));
         }
     }
     Ok(())
 }
 
 /// Combined validate + sanitize + escape for a path destined for SQL interpolation.
+///
+/// Non-UTF-8 paths are rejected up front (SEC-14) — the previous lossy
+/// conversion silently replaced invalid bytes with `U+FFFD`, undermining
+/// defense-in-depth.
 pub fn prepare_path_for_sql(path: &Path) -> Result<String, SqlError> {
     validate_no_traversal(path)?;
-    let path_str = path.to_string_lossy();
-    validate_path_chars(&path_str)?;
-    let sanitized = sanitize_path_for_sql(&path_str);
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| SqlError::InvalidUtf8Path(path.as_os_str().to_os_string()))?;
+    validate_path_chars(path_str)?;
+    let sanitized = sanitize_path_for_sql(path_str);
     Ok(escape_sql_string(&sanitized))
 }
 
@@ -328,6 +402,18 @@ mod tests {
     fn prepare_path_for_sql_rejects_dollar_expansion() {
         let path = PathBuf::from("/path/${HOME}");
         assert!(prepare_path_for_sql(&path).is_err());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn prepare_path_for_sql_rejects_non_utf8_path() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let bytes = b"/home/user/\xff\xfe.json";
+        let os = OsStr::from_bytes(bytes);
+        let path = std::path::Path::new(os);
+        let err = prepare_path_for_sql(path);
+        assert!(matches!(err, Err(SqlError::InvalidUtf8Path(_))));
     }
 
     #[test]

@@ -30,7 +30,8 @@ pub use query::{
     query_crate_loc, query_dependency_count, query_project_coverage, query_project_file_count,
     query_project_languages, query_project_loc, CrateCoverage,
 };
-pub use validation::{
-    escape_sql_string, prepare_path_for_sql, sanitize_path_for_sql, validate_identifier,
-    validate_no_traversal, validate_path_chars, SqlError,
-};
+// Only `SqlError` needs to cross the crate boundary; the granular validation
+// helpers are used internally by ingest/query and should not become part of
+// the stable API surface (ARCH-9). Add a re-export here only when an external
+// consumer is added.
+pub use validation::SqlError;

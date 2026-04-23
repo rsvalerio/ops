@@ -27,6 +27,15 @@ pub enum DbError {
 
     #[error("record count overflow: {0} exceeds i64::MAX")]
     RecordCountOverflow(u64),
+
+    #[error("invalid record count for {table}: {count} (must be non-negative)")]
+    InvalidRecordCount { table: String, count: i64 },
+
+    #[error("path is not valid UTF-8 (cannot persist to data_sources): {0:?}")]
+    NonUtf8Path(std::ffi::OsString),
+
+    #[error("SQL validation failed: {0}")]
+    SqlValidation(#[from] crate::sql::SqlError),
 }
 
 impl DbError {

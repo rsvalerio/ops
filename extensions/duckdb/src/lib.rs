@@ -16,7 +16,7 @@ pub use error::{DbError, DbResult};
 #[allow(unused_imports)]
 pub use ingestor::{DataIngestor, LoadResult, SidecarIngestorConfig};
 #[allow(unused_imports)]
-pub use schema::{init_schema, upsert_data_source};
+pub use schema::{init_schema, upsert_data_source, DataSourceMetadata};
 
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use std::path::PathBuf;
@@ -141,11 +141,13 @@ mod tests {
         init_schema(&db).expect("init_schema");
         upsert_data_source(
             &db,
-            "test_source",
-            "/test/workspace",
-            std::path::Path::new("/test/data.json"),
-            42,
-            "abc123",
+            &DataSourceMetadata {
+                source_name: "test_source",
+                workspace_root: "/test/workspace",
+                source_path: std::path::Path::new("/test/data.json"),
+                record_count: 42,
+                checksum: "abc123",
+            },
         )
         .expect("upsert should succeed");
         let checksum = schema::get_source_checksum(&db, "test_source", "/test/workspace")

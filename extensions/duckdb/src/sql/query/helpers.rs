@@ -4,7 +4,40 @@ use crate::DuckDb;
 use std::collections::HashMap;
 
 use super::super::ingest::table_exists;
-use super::super::validation::validate_path_chars;
+use super::super::validation::{validate_identifier, validate_path_chars, SqlError};
+
+/// Validated SQL identifier wrappers. Constructing one runs
+/// `validate_identifier` exactly once; downstream code can interpolate the
+/// inner `&str` without re-validating.
+macro_rules! sql_ident_newtype {
+    ($name:ident, $doc:literal) => {
+        #[doc = $doc]
+        #[derive(Debug, Clone)]
+        pub(crate) struct $name(&'static str);
+
+        impl $name {
+            /// Construct from a `&'static str`, validating the identifier shape.
+            pub(crate) fn new(s: &'static str) -> Result<Self, SqlError> {
+                validate_identifier(s)?;
+                Ok(Self(s))
+            }
+
+            pub(crate) fn as_str(&self) -> &'static str {
+                self.0
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.0)
+            }
+        }
+    };
+}
+
+sql_ident_newtype!(TableName, "A validated SQL table name.");
+sql_ident_newtype!(ColumnAlias, "A validated SQL column/table alias.");
+sql_ident_newtype!(ColumnName, "A validated SQL column name.");
 
 /// Per-crate coverage data from `coverage_files`.
 #[derive(Debug, Clone)]
@@ -147,6 +180,49 @@ pub(super) fn prepare_per_crate<'a>(
     Ok(PerCrateSetup::Ready(conn, placeholders, paths))
 }
 
+/// Outcome of resolving a [`PerCrateSetup`] against a default-value function.
+/// `Done` carries the early-return map; `Continue` hands back the lock,
+/// placeholders, and paths so the caller can build and execute its query.
+pub(super) enum Resolved<'a, T> {
+    Done(HashMap<String, T>),
+    Continue(
+        std::sync::MutexGuard<'a, duckdb::Connection>,
+        String,
+        Vec<String>,
+    ),
+}
+
+/// Single source of truth for the Empty / NoTable / Ready branching that every
+/// per-crate query needs. `default_fn` produces the value used to zero-fill the
+/// NoTable branch.
+pub(super) fn resolve_per_crate<'a, T, F>(
+    setup: PerCrateSetup<'a>,
+    member_paths: &[&str],
+    default_fn: F,
+) -> Resolved<'a, T>
+where
+    F: Fn() -> T,
+{
+    match setup {
+        PerCrateSetup::Empty => Resolved::Done(HashMap::new()),
+        PerCrateSetup::NoTable => Resolved::Done(
+            member_paths
+                .iter()
+                .map(|p| ((*p).to_string(), default_fn()))
+                .collect(),
+        ),
+        PerCrateSetup::Ready(conn, placeholders, paths) => {
+            Resolved::Continue(conn, placeholders, paths)
+        }
+    }
+}
+
+/// Build the shared `WITH members(path) AS (VALUES (?), ...)` CTE prefix.
+/// Callers append their `SELECT m.path, ... FROM members m ...` clause.
+pub(super) fn members_cte_prefix(placeholders: &str) -> String {
+    format!("WITH members(path) AS (VALUES {placeholders})")
+}
+
 /// Execute a per-crate SQL with bound path params and collect rows via a row-mapper.
 pub(super) fn collect_per_crate_map<T, F>(
     conn: &duckdb::Connection,
@@ -175,14 +251,16 @@ where
     Ok(result)
 }
 
-/// Parameters for a per-crate i64 query.
+/// Parameters for a per-crate i64 query. Identifier fields are newtyped so
+/// that swapping `join_alias` and `join_column` at construction is a type
+/// error (API-1) and validation is enforced once at construction time.
 pub(super) struct PerCrateI64Query<'a> {
     pub db: &'a DuckDb,
-    pub table: &'a str,
+    pub table: TableName,
     pub member_paths: &'a [&'a str],
     pub select_expr: &'a str,
-    pub join_alias: &'a str,
-    pub join_column: &'a str,
+    pub join_alias: ColumnAlias,
+    pub join_column: ColumnName,
     pub label: &'a str,
 }
 
@@ -192,20 +270,23 @@ pub(super) struct PerCrateI64Query<'a> {
 pub(super) fn query_per_crate_i64(
     q: &PerCrateI64Query<'_>,
 ) -> anyhow::Result<HashMap<String, i64>> {
-    let (conn, placeholders, paths) =
-        match prepare_per_crate(q.db, q.table, q.member_paths, q.label)? {
-            PerCrateSetup::Empty => return Ok(HashMap::new()),
-            PerCrateSetup::NoTable => {
-                return Ok(q.member_paths.iter().map(|p| (p.to_string(), 0)).collect())
-            }
-            PerCrateSetup::Ready(conn, placeholders, paths) => (conn, placeholders, paths),
-        };
+    let setup = prepare_per_crate(q.db, q.table.as_str(), q.member_paths, q.label)?;
+    let (conn, placeholders, paths) = match resolve_per_crate(setup, q.member_paths, || 0_i64) {
+        Resolved::Done(map) => return Ok(map),
+        Resolved::Continue(conn, placeholders, paths) => (conn, placeholders, paths),
+    };
 
-    let (table, select_expr, join_alias, join_column, label) =
-        (q.table, q.select_expr, q.join_alias, q.join_column, q.label);
+    let (table, select_expr, join_alias, join_column, label) = (
+        q.table.as_str(),
+        q.select_expr,
+        q.join_alias.as_str(),
+        q.join_column.as_str(),
+        q.label,
+    );
 
+    let cte = members_cte_prefix(&placeholders);
     let sql = format!(
-        "WITH members(path) AS (VALUES {placeholders}) \
+        "{cte} \
          SELECT m.path, {select_expr} \
          FROM members m \
          LEFT JOIN {table} {join_alias} ON starts_with({join_alias}.{join_column}, m.path || '/') \
