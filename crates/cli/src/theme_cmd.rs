@@ -159,67 +159,32 @@ impl std::fmt::Display for ThemeOption {
 
 fn update_theme_in_config(theme_name: &str) -> anyhow::Result<()> {
     let config_path = PathBuf::from(".ops.toml");
-
-    if !config_path.exists() {
-        std::fs::write(
-            &config_path,
-            format!(
-                r#"[output]
-theme = "{}"
-
-[commands]
-"#,
-                escape_toml_string(theme_name)
-            ),
-        )?;
-        return Ok(());
-    }
-
-    let content = std::fs::read_to_string(&config_path)?;
-
-    let updated = update_toml_theme(&content, theme_name);
-
-    std::fs::write(&config_path, updated)?;
-    Ok(())
+    config::edit_ops_toml(&config_path, |doc| {
+        set_theme(doc, theme_name);
+        Ok(())
+    })
 }
 
-fn escape_toml_string(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
-}
-
-/// Update the theme value in TOML content, preserving formatting.
-fn update_toml_theme(content: &str, theme_name: &str) -> String {
-    let mut doc = content
-        .parse::<toml_edit::DocumentMut>()
-        .unwrap_or_else(|_| toml_edit::DocumentMut::new());
+fn set_theme(doc: &mut toml_edit::DocumentMut, theme_name: &str) {
     if !doc.contains_key("output") {
         doc["output"] = toml_edit::Item::Table(toml_edit::Table::new());
     }
     doc["output"]["theme"] = toml_edit::value(theme_name);
+}
+
+/// Update the theme value in TOML content, preserving formatting.
+#[cfg(test)]
+fn update_toml_theme(content: &str, theme_name: &str) -> String {
+    let mut doc = content
+        .parse::<toml_edit::DocumentMut>()
+        .expect("test input must be valid TOML");
+    set_theme(&mut doc, theme_name);
     doc.to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn escape_toml_string_escapes_special_chars() {
-        assert_eq!(escape_toml_string("simple"), "simple");
-        assert_eq!(escape_toml_string(r#"with"quote"#), r#"with\"quote"#);
-        assert_eq!(escape_toml_string("with\nnewline"), "with\\nnewline");
-        assert_eq!(escape_toml_string("with\\backslash"), r#"with\\backslash"#);
-    }
-
-    #[test]
-    fn escape_toml_string_control_chars() {
-        assert_eq!(escape_toml_string("with\ttab"), "with\\ttab");
-        assert_eq!(escape_toml_string("with\rcarriage"), "with\\rcarriage");
-    }
 
     #[test]
     fn update_toml_theme_injection_prevention() {
@@ -335,6 +300,19 @@ theme = "compact"
 "#;
         let result = update_toml_theme(input, &long_name);
         assert!(result.contains(&long_name));
+    }
+
+    #[test]
+    fn update_theme_in_config_refuses_to_overwrite_malformed_toml() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
+        let path = dir.path().join(".ops.toml");
+        let malformed = "not = = valid\n{{{";
+        std::fs::write(&path, malformed).unwrap();
+
+        let result = update_theme_in_config("classic");
+        assert!(result.is_err(), "malformed TOML should be a hard error");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed);
     }
 
     #[test]
