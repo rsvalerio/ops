@@ -27,8 +27,8 @@ category = "Build"
 
 [commands.test]
 program = "cargo"
-args = ["test", "--all", "--all-features"]
-help = "Run all tests"
+args = ["test", "--all", "--all-features", "--", "--ignored"]
+help = "Run all tests (ignoring ignored tests)"
 category = "Code Quality"
 
 [commands.clean]
