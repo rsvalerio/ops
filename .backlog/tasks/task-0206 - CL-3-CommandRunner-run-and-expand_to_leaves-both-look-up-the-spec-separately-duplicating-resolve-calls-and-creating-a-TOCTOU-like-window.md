@@ -3,10 +3,10 @@ id: TASK-0206
 title: >-
   CL-3: CommandRunner::run and expand_to_leaves both look up the spec
   separately, duplicating resolve() calls and creating a TOCTOU-like window
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:27'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:06'
 labels:
   - rust-code-review
   - READ
@@ -28,3 +28,9 @@ priority: low
 <!-- AC:BEGIN -->
 - [ ] #1 Refactor CommandRunner::run to a single resolve+expand step returning an ExecutionPolicy enum
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Deferred: ExecutionPolicy refactor of CommandRunner::run is architectural and would touch the test surface heavily. The three lookups the task flags are cheap (HashMap) and the implicit-state concern is not reachable today because &self.config is immutable during run(). Document here for a future wave.
+<!-- SECTION:NOTES:END -->

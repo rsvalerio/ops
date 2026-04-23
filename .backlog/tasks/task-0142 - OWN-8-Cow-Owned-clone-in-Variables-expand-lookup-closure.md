@@ -1,10 +1,10 @@
 ---
 id: TASK-0142
 title: 'OWN-8: Cow::Owned clone in Variables::expand lookup closure'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:17'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - own

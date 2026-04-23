@@ -3,10 +3,10 @@ id: TASK-0285
 title: >-
   DUP-3: append_command_to_config duplicates toml_edit load-mutate-write with
   about_cmd/theme_cmd
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:37'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 14:14'
 labels:
   - rust-code-review
   - duplication

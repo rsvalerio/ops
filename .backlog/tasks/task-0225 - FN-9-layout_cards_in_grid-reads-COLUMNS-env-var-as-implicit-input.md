@@ -1,10 +1,10 @@
 ---
 id: TASK-0225
 title: 'FN-9: layout_cards_in_grid reads COLUMNS env var as implicit input'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:33'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:21'
 labels:
   - rust-code-review
   - function-design

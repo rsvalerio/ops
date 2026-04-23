@@ -3,10 +3,10 @@ id: TASK-0191
 title: >-
   READ-4: CardLayoutConfig::BOX_WIDTH is pub without documented external
   consumer
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:26'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:19'
 labels:
   - rust-code-review
   - READ
@@ -26,5 +26,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 BOX_WIDTH visibility is reduced to pub(crate) or documented with an external consumer
+- [x] #1 BOX_WIDTH visibility is reduced to pub(crate) or documented with an external consumer
 <!-- AC:END -->

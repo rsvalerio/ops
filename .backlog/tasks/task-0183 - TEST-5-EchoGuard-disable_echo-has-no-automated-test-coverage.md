@@ -1,10 +1,10 @@
 ---
 id: TASK-0183
 title: 'TEST-5: EchoGuard::disable_echo has no automated test coverage'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:17'
 labels:
   - rust-code-review
   - TEST

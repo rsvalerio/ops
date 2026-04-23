@@ -3,10 +3,10 @@ id: TASK-0178
 title: >-
   FN-1: build_command nested cwd-resolution block mixes expansion,
   normalization, escape-check, and path build
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - FN

@@ -1,10 +1,10 @@
 ---
 id: TASK-0273
 title: 'READ-5: builtin_category return type Option is unused — every arm returns Some'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:36'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 15:22'
 labels:
   - rust-code-review
   - readability

@@ -3,10 +3,10 @@ id: TASK-0207
 title: >-
   DUP-1: CLI subcommand dispatch pattern 'load_config_and_cwd +
   build_data_registry' repeats across run_about, run_deps, run_extension_show
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:28'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:06'
 labels:
   - rust-code-review
   - DUP

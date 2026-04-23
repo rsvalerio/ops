@@ -3,10 +3,10 @@ id: TASK-0190
 title: >-
   READ-4: Variables::expand doc comment omits that unknown vars fall through
   verbatim only when shellexpand errors
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:26'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - READ

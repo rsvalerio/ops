@@ -1,10 +1,10 @@
 ---
 id: TASK-0152
 title: 'UNSAFE-8: text_util tests mutate COLUMNS via set_var/remove_var'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:22'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:12'
 labels:
   - rust-code-review
   - UNSAFE
@@ -24,6 +24,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 get_terminal_width_default no longer mutates process env, or uses a serial env guard
+- [x] #1 get_terminal_width_default no longer mutates process env, or uses a serial env guard
 - [ ] #2 production get_terminal_width is refactored to accept a source callable for testability
 <!-- AC:END -->

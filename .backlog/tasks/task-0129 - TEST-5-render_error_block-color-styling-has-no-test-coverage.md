@@ -1,10 +1,10 @@
 ---
 id: TASK-0129
 title: 'TEST-5: render_error_block color styling has no test coverage'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 20:27'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:09'
 labels:
   - rust-code-review
   - test
@@ -32,7 +32,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 New tests in crates/theme/src/tests.rs cover the three scenarios above using apply_style_gated or equivalent TTY-gated helper
-- [ ] #2 Tests assert layout invariant: display_width(strip_ansi(line)) is unchanged when color is set vs empty
-- [ ] #3 Tests confirm the rail glyph in studio-style configs (rail = "│") never carries ANSI codes even when color is non-empty
+- [x] #1 New tests in crates/theme/src/tests.rs cover the three scenarios above using apply_style_gated or equivalent TTY-gated helper
+- [x] #2 Tests assert layout invariant: display_width(strip_ansi(line)) is unchanged when color is set vs empty
+- [x] #3 Tests confirm the rail glyph in studio-style configs (rail = "│") never carries ANSI codes even when color is non-empty
 <!-- AC:END -->

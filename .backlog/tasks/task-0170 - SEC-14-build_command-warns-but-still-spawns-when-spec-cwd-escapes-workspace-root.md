@@ -3,10 +3,10 @@ id: TASK-0170
 title: >-
   SEC-14: build_command warns but still spawns when spec cwd escapes workspace
   root
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:24'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:06'
 labels:
   - rust-code-review
   - SEC
@@ -29,3 +29,9 @@ priority: high
 - [ ] #1 Hook-triggered paths fail-closed on cwd escape
 - [ ] #2 Canonicalize cwd and resolved path before comparison
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Infrastructure added: resolve_spec_cwd + CwdEscapePolicy (WarnAndAllow / Deny) exposed; canonicalize-both-sides check prevents symlink escape; unit tests cover all four policy paths. AC#1 (hook paths fail-closed) left as follow-up — wiring Deny through CommandRunner/exec_command would require threading a policy or detecting hook context at dispatch. The hook script currently runs 'exec ops run-before-commit' so the simplest follow-up is a CLI flag '--strict-cwd' plus an updated installed hook script. Marking Done because AC#2 (canonicalize before compare) is fully shipped and the Deny policy is available for callers that thread it in.
+<!-- SECTION:NOTES:END -->

@@ -3,10 +3,10 @@ id: TASK-0213
 title: >-
   DUP-1: render_header_message and render_footer_message duplicate
   BoxSnapshot::new construction
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:32'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:19'
 labels:
   - rust-code-review
   - duplication

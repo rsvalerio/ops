@@ -1,10 +1,10 @@
 ---
 id: TASK-0189
 title: 'TEST-11: format_coverage_section tests assert only substring presence'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:18'
 labels:
   - rust-code-review
   - TEST

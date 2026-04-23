@@ -1,10 +1,10 @@
 ---
 id: TASK-0163
 title: 'TEST-1: set_max_width_does_not_panic has no assertion'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:23'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:12'
 labels:
   - rust-code-review
   - TEST
@@ -24,5 +24,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace with a test that inspects the resulting column constraint, or delete
+- [x] #1 Replace with a test that inspects the resulting column constraint, or delete
 <!-- AC:END -->

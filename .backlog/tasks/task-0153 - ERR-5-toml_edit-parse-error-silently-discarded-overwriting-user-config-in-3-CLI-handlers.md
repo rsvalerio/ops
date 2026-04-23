@@ -3,10 +3,10 @@ id: TASK-0153
 title: >-
   ERR-5: toml_edit parse-error silently discarded, overwriting user config in 3
   CLI handlers
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:22'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:14'
 labels:
   - rust-code-review
   - ERR

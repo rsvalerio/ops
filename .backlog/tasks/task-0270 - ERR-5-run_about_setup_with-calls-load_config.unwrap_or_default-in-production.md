@@ -3,10 +3,10 @@ id: TASK-0270
 title: >-
   ERR-5: run_about_setup_with calls load_config().unwrap_or_default in
   production
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:36'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 14:29'
 labels:
   - rust-code-review
   - error-handling

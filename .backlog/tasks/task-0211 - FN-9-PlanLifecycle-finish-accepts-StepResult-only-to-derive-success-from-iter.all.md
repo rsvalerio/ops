@@ -3,10 +3,10 @@ id: TASK-0211
 title: >-
   FN-9: PlanLifecycle::finish accepts &[StepResult] only to derive success from
   iter().all
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:32'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - function-design

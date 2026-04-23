@@ -3,10 +3,10 @@ id: TASK-0210
 title: >-
   ERR-5: expect("semaphore closed") in spawn_parallel_tasks task body can panic
   a worker
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:32'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - error-handling

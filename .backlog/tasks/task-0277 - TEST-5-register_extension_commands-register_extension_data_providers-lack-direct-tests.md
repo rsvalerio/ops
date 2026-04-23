@@ -3,10 +3,10 @@ id: TASK-0277
 title: >-
   TEST-5: register_extension_commands/register_extension_data_providers lack
   direct tests
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:37'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 15:24'
 labels:
   - rust-code-review
   - test

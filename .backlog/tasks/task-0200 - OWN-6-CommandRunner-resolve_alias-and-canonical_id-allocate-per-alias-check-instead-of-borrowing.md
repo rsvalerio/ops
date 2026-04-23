@@ -3,10 +3,10 @@ id: TASK-0200
 title: >-
   OWN-6: CommandRunner resolve_alias and canonical_id allocate per-alias-check
   instead of borrowing
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:26'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - PERF

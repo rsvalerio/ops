@@ -1,10 +1,10 @@
 ---
 id: TASK-0284
 title: 'READ-2: cat_rank uses usize::MAX and usize::MAX-1 as magic sentinels'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:37'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 15:27'
 labels:
   - rust-code-review
   - readability

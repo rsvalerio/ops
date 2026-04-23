@@ -1,10 +1,10 @@
 ---
 id: TASK-0186
 title: 'TEST-5: Stack::resolve has no test coverage'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:17'
 labels:
   - rust-code-review
   - TEST
@@ -24,5 +24,5 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add unit tests covering the four resolve() precedence cases above
+- [x] #1 Add unit tests covering the four resolve() precedence cases above
 <!-- AC:END -->

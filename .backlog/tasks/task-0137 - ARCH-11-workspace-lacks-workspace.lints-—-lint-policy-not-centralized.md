@@ -1,10 +1,10 @@
 ---
 id: TASK-0137
 title: 'ARCH-11: workspace lacks [workspace.lints] — lint policy not centralized'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-04-22 21:16'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:32'
 labels:
   - rust-code-review
   - arch
@@ -27,3 +27,9 @@ priority: medium
 - [ ] #1 Add [workspace.lints] with agreed clippy/rustc categories and levels (at minimum clippy::pedantic warn, clippy::unwrap_used in non-test)
 - [ ] #2 Each crate/extension Cargo.toml sets [lints] workspace = true
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Deferred: adding [workspace.lints] with clippy::pedantic warn triggers dozens of new warnings across ~25 crates and  would fail the verify gate. Proper scope is: (1) add [workspace.lints] scaffolding with only clippy::all + rust warnings, (2) enable pedantic as a separate PR with systematic fixes (probably a wave of its own). Leaving task In Progress so next wave picks it up with dedicated scope rather than smuggling a huge diff into this one.
+<!-- SECTION:NOTES:END -->

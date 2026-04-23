@@ -1,10 +1,10 @@
 ---
 id: TASK-0281
 title: 'READ-4: render_plan_header accepts _columns and never uses it'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:37'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 15:27'
 labels:
   - rust-code-review
   - readability

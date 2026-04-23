@@ -3,10 +3,10 @@ id: TASK-0127
 title: >-
   READ-10: CommandRunner::run_raw silently ignores composite `parallel = true`
   in single-command path
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-21 21:28'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - readability

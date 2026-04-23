@@ -3,10 +3,10 @@ id: TASK-0171
 title: >-
   OWN-8: merge_indexmap clones every key and value even when overlay could be
   consumed by value
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:24'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:32'
 labels:
   - rust-code-review
   - OWN

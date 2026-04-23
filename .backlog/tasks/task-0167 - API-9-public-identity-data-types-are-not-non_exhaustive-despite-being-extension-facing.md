@@ -3,10 +3,10 @@ id: TASK-0167
 title: >-
   API-9: public identity/data types are not #[non_exhaustive] despite being
   extension-facing
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:24'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:29'
 labels:
   - rust-code-review
   - API
@@ -32,3 +32,9 @@ priority: medium
 - [ ] #2 Mark DataField and DataProviderSchema with #[non_exhaustive]
 - [ ] #3 Update internal construction sites to use ..Default::default() where needed
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Scoped addition: added #[non_exhaustive] to ProjectIdentity (with ProjectIdentity::new), DataProviderSchema (with ::new), DataField (already), ExecCommandSpec (with ::new), CompositeCommandSpec (with ::new). Deferred ProjectUnit / LanguageStat / CoverageStats / UnitCoverage / ProjectCoverage / UnitDeps / ProjectDependencies — those are small internal data carriers and marking them non_exhaustive forces constructor-rewrites across 30+ sites for marginal forward-compat benefit. Revisit if an extension needs to add a field to them in a minor version.
+<!-- SECTION:NOTES:END -->

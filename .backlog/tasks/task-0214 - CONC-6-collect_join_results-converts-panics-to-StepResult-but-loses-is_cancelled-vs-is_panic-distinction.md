@@ -3,10 +3,10 @@ id: TASK-0214
 title: >-
   CONC-6: collect_join_results converts panics to StepResult but loses
   is_cancelled vs is_panic distinction
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:32'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - concurrency

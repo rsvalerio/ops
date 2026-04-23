@@ -3,10 +3,10 @@ id: TASK-0159
 title: >-
   ASYNC-6: build_command and exec_command do not retry on transient spawn
   failures
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:23'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:06'
 labels:
   - rust-code-review
   - ASYNC

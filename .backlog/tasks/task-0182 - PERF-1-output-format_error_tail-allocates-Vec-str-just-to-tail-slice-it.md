@@ -1,10 +1,10 @@
 ---
 id: TASK-0182
 title: 'PERF-1: output::format_error_tail allocates Vec<&str> just to tail-slice it'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:16'
 labels:
   - rust-code-review
   - PERF

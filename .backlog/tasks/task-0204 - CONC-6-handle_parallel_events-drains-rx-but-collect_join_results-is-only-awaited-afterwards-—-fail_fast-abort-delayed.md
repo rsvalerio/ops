@@ -3,10 +3,10 @@ id: TASK-0204
 title: >-
   CONC-6: handle_parallel_events drains rx but collect_join_results is only
   awaited afterwards — fail_fast abort delayed
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:27'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - CONC

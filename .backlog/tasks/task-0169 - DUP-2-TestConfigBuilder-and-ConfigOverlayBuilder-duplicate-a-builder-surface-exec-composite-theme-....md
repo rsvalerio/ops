@@ -3,10 +3,10 @@ id: TASK-0169
 title: >-
   DUP-2: TestConfigBuilder and ConfigOverlayBuilder duplicate a builder surface
   (exec / composite / theme / ...)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:24'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:32'
 labels:
   - rust-code-review
   - DUP

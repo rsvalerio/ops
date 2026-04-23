@@ -1,10 +1,10 @@
 ---
 id: TASK-0177
 title: 'API-5: LoadResult lacks must_use'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - API

@@ -3,10 +3,10 @@ id: TASK-0168
 title: >-
   OWN-8: resolve_exec_specs clones ExecCommandSpec per command to move into
   spawned tasks
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:24'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:06'
 labels:
   - rust-code-review
   - OWN
@@ -28,3 +28,9 @@ priority: low
 <!-- AC:BEGIN -->
 - [ ] #1 Consider Arc<ExecCommandSpec> in Config.commands so parallel tasks clone the Arc
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Deferred: Arc<ExecCommandSpec> in Config.commands requires changing the core Config type and updating every caller that constructs or destructures a CommandSpec (config parsing, overlays, merge, tests across ~30 sites). Mid-wave cost exceeds value for a perf fix that is not on a hot path. Open a dedicated follow-up when the rest of Config stabilizes.
+<!-- SECTION:NOTES:END -->

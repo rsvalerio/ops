@@ -3,10 +3,10 @@ id: TASK-0166
 title: >-
   DUP-3: interactive-subcommand scaffold (tty check + toml_edit
   load/mutate/write) repeats across 4 CLI handlers
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:24'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:14'
 labels:
   - rust-code-review
   - DUP

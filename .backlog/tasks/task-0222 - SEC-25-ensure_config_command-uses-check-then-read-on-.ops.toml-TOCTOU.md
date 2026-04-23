@@ -1,10 +1,10 @@
 ---
 id: TASK-0222
 title: 'SEC-25: ensure_config_command uses check-then-read on .ops.toml (TOCTOU)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:33'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:14'
 labels:
   - rust-code-review
   - security

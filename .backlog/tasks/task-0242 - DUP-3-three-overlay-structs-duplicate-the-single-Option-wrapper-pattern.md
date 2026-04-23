@@ -1,10 +1,10 @@
 ---
 id: TASK-0242
 title: 'DUP-3: three overlay structs duplicate the single-Option wrapper pattern'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:35'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 14:32'
 labels:
   - rust-code-review
   - duplication

@@ -3,10 +3,10 @@ id: TASK-0235
 title: >-
   API-9: ExecCommandSpec lacks #[non_exhaustive] despite public extension-facing
   API
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:34'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 14:29'
 labels:
   - rust-code-review
   - api

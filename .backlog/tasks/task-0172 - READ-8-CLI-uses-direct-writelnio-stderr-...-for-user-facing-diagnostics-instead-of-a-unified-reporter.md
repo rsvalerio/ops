@@ -3,10 +3,10 @@ id: TASK-0172
 title: >-
   READ-8: CLI uses direct writeln!(io::stderr(), ...) for user-facing
   diagnostics instead of a unified reporter
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:24'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:14'
 labels:
   - rust-code-review
   - READ
@@ -30,5 +30,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Introduce a thin ops_core::ui reporter and migrate writeln!(io::stderr(), ...) diagnostics
+- [x] #1 Introduce a thin ops_core::ui reporter and migrate writeln!(io::stderr(), ...) diagnostics
 <!-- AC:END -->

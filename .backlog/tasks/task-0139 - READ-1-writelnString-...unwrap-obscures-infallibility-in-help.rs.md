@@ -1,10 +1,10 @@
 ---
 id: TASK-0139
 title: 'READ-1: writeln!(String, ..).unwrap() obscures infallibility in help.rs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:16'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:09'
 labels:
   - rust-code-review
   - read
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Remove .unwrap() from writeln! on String (the fmt::Write impl on String is infallible)
+- [x] #1 Remove .unwrap() from writeln! on String (the fmt::Write impl on String is infallible)
 - [ ] #2 Or add a brief comment noting the infallibility if unwrap is kept
 <!-- AC:END -->

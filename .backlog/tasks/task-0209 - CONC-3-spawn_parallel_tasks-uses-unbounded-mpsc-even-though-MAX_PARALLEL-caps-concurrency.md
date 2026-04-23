@@ -3,10 +3,10 @@ id: TASK-0209
 title: >-
   CONC-3: spawn_parallel_tasks uses unbounded mpsc even though MAX_PARALLEL caps
   concurrency
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:32'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - concurrency

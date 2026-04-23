@@ -3,10 +3,10 @@ id: TASK-0205
 title: >-
   SEC-21: dry_run exposes unredacted env values for any key whose name does not
   match SENSITIVE_REDACTION_PATTERNS
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:27'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - SEC

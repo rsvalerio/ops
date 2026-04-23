@@ -3,10 +3,10 @@ id: TASK-0278
 title: >-
   FN-3: build_horizontal_border carries #[allow(too_many_arguments)] with 6
   params
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:37'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 15:25'
 labels:
   - rust-code-review
   - function-design

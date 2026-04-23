@@ -3,10 +3,10 @@ id: TASK-0193
 title: >-
   TEST-18: get_terminal_width_default test races with parallel tests reading
   COLUMNS
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:26'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:12'
 labels:
   - rust-code-review
   - TEST
@@ -26,6 +26,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 get_terminal_width is parameterized or the test runs under a serial guard
+- [x] #1 get_terminal_width is parameterized or the test runs under a serial guard
 - [ ] #2 No test in this module mutates process-global environment variables
 <!-- AC:END -->

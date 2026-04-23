@@ -3,10 +3,10 @@ id: TASK-0195
 title: >-
   SEC-11: OPS__ env overlay has no schema validation; a malformed
   OPS__COMMANDS__FOO can panic deserialization
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:26'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:29'
 labels:
   - rust-code-review
   - SEC

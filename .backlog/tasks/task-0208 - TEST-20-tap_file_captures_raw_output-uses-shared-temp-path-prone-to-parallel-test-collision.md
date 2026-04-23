@@ -3,10 +3,10 @@ id: TASK-0208
 title: >-
   TEST-20: tap_file_captures_raw_output uses shared temp path prone to
   parallel-test collision
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:32'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - test

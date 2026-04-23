@@ -3,10 +3,10 @@ id: TASK-0223
 title: >-
   SEC-32: .ops.toml written non-atomically — crash mid-write destroys user
   config
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:33'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:14'
 labels:
   - rust-code-review
   - security

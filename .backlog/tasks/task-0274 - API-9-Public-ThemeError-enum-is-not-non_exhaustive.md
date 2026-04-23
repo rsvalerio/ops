@@ -1,10 +1,10 @@
 ---
 id: TASK-0274
 title: 'API-9: Public ThemeError enum is not #[non_exhaustive]'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:37'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 15:22'
 labels:
   - rust-code-review
   - api

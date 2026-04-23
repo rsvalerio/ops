@@ -3,10 +3,10 @@ id: TASK-0160
 title: >-
   ERR-1: run_with_runtime constructs a fresh tokio Runtime per subcommand
   invocation
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:23'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - ERR

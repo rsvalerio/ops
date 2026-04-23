@@ -3,10 +3,10 @@ id: TASK-0179
 title: >-
   READ-2: ConfigurableTheme::render_error_detail boxed-layout branch mixes
   indent math with string surgery
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:15'
 labels:
   - rust-code-review
   - READ

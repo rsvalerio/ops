@@ -3,10 +3,10 @@ id: TASK-0176
 title: >-
   FN-3: StepLineTheme trait has 22 methods and mixes layout / styling / progress
   / summary / error concerns
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:25'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:15'
 labels:
   - rust-code-review
   - FN

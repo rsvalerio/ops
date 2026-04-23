@@ -1,10 +1,10 @@
 ---
 id: TASK-0237
 title: 'ERR-5: expect on embedded TOML parse in Stack::default_commands'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:34'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 14:32'
 labels:
   - rust-code-review
   - error-handling

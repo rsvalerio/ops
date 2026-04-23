@@ -3,10 +3,10 @@ id: TASK-0161
 title: >-
   TEST-18: merge_conf_d_applies_overlays mutates process cwd without serial
   guard
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:23'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:29'
 labels:
   - rust-code-review
   - TEST

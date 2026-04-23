@@ -3,10 +3,10 @@ id: TASK-0282
 title: >-
   API-1: run_external_command silently drops non-UTF8 command names via
   filter_map to_str
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:37'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - api

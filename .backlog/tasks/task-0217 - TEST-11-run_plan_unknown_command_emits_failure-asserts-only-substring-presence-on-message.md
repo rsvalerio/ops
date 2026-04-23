@@ -3,10 +3,10 @@ id: TASK-0217
 title: >-
   TEST-11: run_plan_unknown_command_emits_failure asserts only substring
   presence on message
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:32'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - test

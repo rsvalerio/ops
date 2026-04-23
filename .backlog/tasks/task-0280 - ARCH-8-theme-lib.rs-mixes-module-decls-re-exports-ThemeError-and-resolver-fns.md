@@ -3,10 +3,10 @@ id: TASK-0280
 title: >-
   ARCH-8: theme/lib.rs mixes module decls, re-exports, ThemeError, and resolver
   fns
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:37'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 15:26'
 labels:
   - rust-code-review
   - architecture

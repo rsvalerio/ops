@@ -1,10 +1,10 @@
 ---
 id: TASK-0150
 title: 'READ-8: about subpages use println! instead of writer for output'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:22'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:11'
 labels:
   - rust-code-review
   - READ
@@ -24,6 +24,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 about subpages accept a writer (or return lines) instead of calling println!
+- [x] #1 about subpages accept a writer (or return lines) instead of calling println!
 - [ ] #2 subpages are tested against captured output
 <!-- AC:END -->

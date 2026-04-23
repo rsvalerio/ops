@@ -1,10 +1,10 @@
 ---
 id: TASK-0224
 title: 'READ-5: should_skip only treats literal "1" as skip — undocumented'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:33'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:20'
 labels:
   - rust-code-review
   - readability

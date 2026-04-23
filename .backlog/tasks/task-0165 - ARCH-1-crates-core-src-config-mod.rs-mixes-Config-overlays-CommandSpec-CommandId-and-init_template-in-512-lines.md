@@ -3,10 +3,10 @@ id: TASK-0165
 title: >-
   ARCH-1: crates/core/src/config/mod.rs mixes Config, overlays, CommandSpec,
   CommandId and init_template in 512 lines
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-04-22 21:24'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:32'
 labels:
   - rust-code-review
   - ARCH
@@ -30,3 +30,9 @@ priority: medium
 - [ ] #2 Extract InitSections and init_template to config/init.rs
 - [ ] #3 Keep mod.rs as a thin re-export hub (<150 lines)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Deferred: this is pure code reorganization (Extract CommandId to command_id.rs; Extract InitSections/init_template to init.rs). Low risk but high churn and needs re-exports across ops-core API; splitting into a dedicated wave keeps this high-value correctness wave (ERR-5 / SEC-32 / API-9) focused. Leaving In Progress for the next wave to pick up.
+<!-- SECTION:NOTES:END -->

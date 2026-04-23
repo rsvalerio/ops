@@ -1,10 +1,10 @@
 ---
 id: TASK-0128
 title: 'READ-10: --raw silently drops --tap FILE instead of warning'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-21 21:28'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - readability

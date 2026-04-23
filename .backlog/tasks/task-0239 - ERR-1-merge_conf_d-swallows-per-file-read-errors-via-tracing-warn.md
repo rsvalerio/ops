@@ -1,10 +1,10 @@
 ---
 id: TASK-0239
 title: 'ERR-1: merge_conf_d swallows per-file read errors via tracing::warn'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:35'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 14:29'
 labels:
   - rust-code-review
   - error-handling

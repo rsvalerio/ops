@@ -3,10 +3,10 @@ id: TASK-0241
 title: >-
   FN-6: AboutCard::render mixes padding math, ANSI styling, and multi-line value
   iteration
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:35'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 15:21'
 labels:
   - rust-code-review
   - function-design

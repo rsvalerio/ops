@@ -1,10 +1,10 @@
 ---
 id: TASK-0140
 title: 'UNSAFE-1: terse SAFETY comments around termios MaybeUninit in terminal.rs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:16'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:10'
 labels:
   - rust-code-review
   - unsafe
@@ -24,6 +24,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Expand each SAFETY comment to state (a) the precondition, (b) why it holds here, (c) what would violate it
+- [x] #1 Expand each SAFETY comment to state (a) the precondition, (b) why it holds here, (c) what would violate it
 - [ ] #2 Confirm assume_init is only called on success paths of the corresponding libc call
 <!-- AC:END -->

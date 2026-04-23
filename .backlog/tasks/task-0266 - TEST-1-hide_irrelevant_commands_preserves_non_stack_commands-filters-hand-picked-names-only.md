@@ -3,10 +3,10 @@ id: TASK-0266
 title: >-
   TEST-1: hide_irrelevant_commands_preserves_non_stack_commands filters
   hand-picked names only
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:36'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 15:22'
 labels:
   - rust-code-review
   - test

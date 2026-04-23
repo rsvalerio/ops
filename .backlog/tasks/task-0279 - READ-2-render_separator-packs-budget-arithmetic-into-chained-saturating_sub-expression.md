@@ -3,10 +3,10 @@ id: TASK-0279
 title: >-
   READ-2: render_separator packs budget arithmetic into chained saturating_sub
   expression
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:37'
-updated_date: '2026-04-23 06:46'
+updated_date: '2026-04-23 15:26'
 labels:
   - rust-code-review
   - readability

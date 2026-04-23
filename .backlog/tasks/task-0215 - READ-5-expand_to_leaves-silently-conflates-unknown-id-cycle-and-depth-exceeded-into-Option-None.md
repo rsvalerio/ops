@@ -3,10 +3,10 @@ id: TASK-0215
 title: >-
   READ-5: expand_to_leaves silently conflates unknown id, cycle, and depth
   exceeded into Option::None
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:32'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 14:59'
 labels:
   - rust-code-review
   - readability

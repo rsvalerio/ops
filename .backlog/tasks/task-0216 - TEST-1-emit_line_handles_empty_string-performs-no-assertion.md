@@ -1,10 +1,10 @@
 ---
 id: TASK-0216
 title: 'TEST-1: emit_line_handles_empty_string performs no assertion'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-23 06:32'
-updated_date: '2026-04-23 06:45'
+updated_date: '2026-04-23 15:20'
 labels:
   - rust-code-review
   - test
