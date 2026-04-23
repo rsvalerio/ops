@@ -121,6 +121,9 @@ impl Stack {
             Some(t) => t,
             None => return IndexMap::new(),
         };
+        // `.default.<stack>.ops.toml` is `include_str!`-embedded at compile
+        // time and validated by [`tests::all_embedded_default_tomls_parse`].
+        // A parse failure here would mean the CI gate was skipped.
         let config: Config =
             toml::from_str(toml).expect("stack default commands TOML must be valid");
         config.commands
@@ -151,6 +154,46 @@ mod tests {
     #[test]
     fn stack_from_str_unknown() {
         assert!("unknown".parse::<Stack>().is_err());
+    }
+
+    #[test]
+    fn resolve_config_override_wins_over_detect() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Filesystem would detect Rust, but config override picks Node.
+        std::fs::write(dir.path().join("Cargo.toml"), "").expect("write");
+        let resolved = Stack::resolve(Some("node"), dir.path());
+        assert_eq!(resolved, Some(Stack::Node));
+    }
+
+    #[test]
+    fn resolve_unknown_config_override_falls_back_to_detect() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("Cargo.toml"), "").expect("write");
+        let resolved = Stack::resolve(Some("not-a-real-stack"), dir.path());
+        assert_eq!(resolved, Some(Stack::Rust));
+    }
+
+    #[test]
+    fn resolve_none_config_falls_back_to_detect() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("go.mod"), "module x").expect("write");
+        let resolved = Stack::resolve(None, dir.path());
+        assert_eq!(resolved, Some(Stack::Go));
+    }
+
+    #[test]
+    fn resolve_generic_override_returns_generic() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Even with a Rust manifest, explicit "generic" override takes precedence.
+        std::fs::write(dir.path().join("Cargo.toml"), "").expect("write");
+        let resolved = Stack::resolve(Some("generic"), dir.path());
+        assert_eq!(resolved, Some(Stack::Generic));
+    }
+
+    #[test]
+    fn resolve_none_and_no_manifest_returns_none() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert_eq!(Stack::resolve(None, dir.path()), None);
     }
 
     #[test]
@@ -290,6 +333,31 @@ mod tests {
         std::fs::write(dir.path().join("build.gradle"), "").expect("write");
         std::fs::write(dir.path().join("pom.xml"), "<project/>").expect("write");
         assert_eq!(Stack::detect(dir.path()), Some(Stack::JavaGradle));
+    }
+
+    /// ERR-5 regression: every embedded `.default.<stack>.ops.toml` must
+    /// parse cleanly. `Stack::default_commands` panics if it does not, and
+    /// that panic is reachable from production via `ops init`, so this test
+    /// guards against regressions in the checked-in TOML files.
+    #[test]
+    fn all_embedded_default_tomls_parse() {
+        for stack in [
+            Stack::Rust,
+            Stack::Node,
+            Stack::Go,
+            Stack::Python,
+            Stack::Terraform,
+            Stack::Ansible,
+            Stack::JavaMaven,
+            Stack::JavaGradle,
+        ] {
+            let toml = stack
+                .default_commands_toml()
+                .unwrap_or_else(|| panic!("stack {} must ship a default TOML", stack.as_str()));
+            toml::from_str::<Config>(toml).unwrap_or_else(|e| {
+                panic!("stack {} default TOML failed to parse: {e}", stack.as_str())
+            });
+        }
     }
 
     #[test]

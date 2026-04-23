@@ -434,6 +434,55 @@ impl Drop for EnvGuard {
 }
 
 #[cfg(test)]
+mod builder_parity_tests {
+    //! DUP-2 regression: [`TestConfigBuilder`] and [`ConfigOverlayBuilder`]
+    //! grew drift over time (each acquired methods the other lacked). These
+    //! tests fail to compile — not merely assert-fail — if the set of shared
+    //! fluent methods diverges. Adding a new builder method on one side
+    //! without mirroring it on the other will break `cargo test`.
+    //!
+    //! The list below is intentionally opinionated: it covers the methods
+    //! that *must* exist on both. If a method is genuinely one-sided (e.g.
+    //! `stderr_tail_lines` on `TestConfigBuilder` only because overlays have
+    //! no equivalent), leave it out of this mirror test.
+    use super::*;
+
+    #[test]
+    fn both_builders_expose_theme_method() {
+        let _ = TestConfigBuilder::new().theme("classic").build();
+        let _ = ConfigOverlayBuilder::new().theme("classic").build();
+    }
+
+    #[test]
+    fn both_builders_expose_columns_method() {
+        let _ = TestConfigBuilder::new().columns(80).build();
+        let _ = ConfigOverlayBuilder::new().columns(80).build();
+    }
+
+    #[test]
+    fn both_builders_expose_show_error_detail_method() {
+        let _ = TestConfigBuilder::new().show_error_detail(true).build();
+        let _ = ConfigOverlayBuilder::new().show_error_detail(true).build();
+    }
+
+    #[test]
+    fn both_builders_expose_exec_method() {
+        let _ = TestConfigBuilder::new().exec("c", "echo", &["x"]).build();
+        let _ = ConfigOverlayBuilder::new()
+            .exec("c", "echo", &["x"])
+            .build();
+    }
+
+    #[test]
+    fn both_builders_expose_composite_method() {
+        let _ = TestConfigBuilder::new().composite("c", &["a", "b"]).build();
+        let _ = ConfigOverlayBuilder::new()
+            .composite("c", &["a", "b"])
+            .build();
+    }
+}
+
+#[cfg(test)]
 pub mod proptest_strategies {
     use super::*;
     use proptest::prelude::*;

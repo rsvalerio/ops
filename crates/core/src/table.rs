@@ -126,12 +126,31 @@ mod tests {
     }
 
     #[test]
-    fn set_max_width_does_not_panic() {
+    fn set_max_width_constrains_rendered_column() {
         let mut table = OpsTable::with_tty(false);
         table.set_header(vec!["Col"]);
-        table.set_max_width(0, 20);
-        // Also safe for non-existent column
+        // A long cell value that would otherwise expand the column well past 10.
+        table.add_row(vec![Cell::new("a".repeat(200))]);
+        table.set_max_width(0, 10);
+        let rendered = table.to_string();
+        // Every rendered line must respect the 10-column upper bound (plus
+        // two border chars). Finding a line with 150 `a`s would prove the
+        // constraint was not applied.
+        assert!(
+            !rendered.contains(&"a".repeat(50)),
+            "column width constraint not applied: {rendered}"
+        );
+    }
+
+    #[test]
+    fn set_max_width_out_of_range_is_noop() {
+        let mut table = OpsTable::with_tty(false);
+        table.set_header(vec!["Col"]);
+        table.add_row(vec![Cell::new("x")]);
+        let before = table.to_string();
         table.set_max_width(99, 20);
+        let after = table.to_string();
+        assert_eq!(before, after);
     }
 
     #[test]
