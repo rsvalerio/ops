@@ -53,9 +53,9 @@ impl DataProvider for TokeiProvider {
     }
 
     fn schema(&self) -> DataProviderSchema {
-        DataProviderSchema {
-            description: "Code statistics from tokei (lines of code, comments, blanks per file)",
-            fields: vec![
+        DataProviderSchema::new(
+            "Code statistics from tokei (lines of code, comments, blanks per file)",
+            vec![
                 DataField::new(
                     "language",
                     "str",
@@ -67,7 +67,7 @@ impl DataProvider for TokeiProvider {
                 DataField::new("blanks", "int", "Blank lines"),
                 DataField::new("lines", "int", "Total lines (code + comments + blanks)"),
             ],
-        }
+        )
     }
 }
 
