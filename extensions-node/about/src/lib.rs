@@ -91,20 +91,15 @@ impl DataProvider for NodeIdentityProvider {
             (None, None) => None,
         };
 
-        let identity = ProjectIdentity {
-            name,
-            version,
-            description,
-            stack_label: "Node".to_string(),
-            stack_detail,
-            license,
-            project_path: cwd.display().to_string(),
-            module_label: "packages".to_string(),
-            authors,
-            repository,
-            homepage,
-            ..Default::default()
-        };
+        let mut identity =
+            ProjectIdentity::new(name, "Node", cwd.display().to_string(), "packages");
+        identity.version = version;
+        identity.description = description;
+        identity.stack_detail = stack_detail;
+        identity.license = license;
+        identity.authors = authors;
+        identity.repository = repository;
+        identity.homepage = homepage;
 
         serde_json::to_value(&identity).map_err(DataProviderError::from)
     }
