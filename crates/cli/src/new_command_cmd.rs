@@ -4,6 +4,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use anyhow::Context;
+use ops_core::config::edit_ops_toml;
 
 pub fn run_new_command() -> anyhow::Result<()> {
     run_new_command_with_tty_check(crate::tty::is_stdout_tty)
@@ -57,47 +58,33 @@ fn parse_command(input: &str) -> (String, Vec<String>) {
 /// Append a new command entry to `.ops.toml`, creating the file if needed.
 fn append_command_to_config(name: &str, program: &str, args: &[String]) -> anyhow::Result<()> {
     let config_path = PathBuf::from(".ops.toml");
-
-    let content = if config_path.exists() {
-        std::fs::read_to_string(&config_path).context("failed to read .ops.toml")?
-    } else {
-        String::new()
-    };
-
-    let mut doc = content
-        .parse::<toml_edit::DocumentMut>()
-        .unwrap_or_else(|_| toml_edit::DocumentMut::new());
-
-    // Ensure [commands] table exists
-    if !doc.contains_key("commands") {
-        doc["commands"] = toml_edit::Item::Table(toml_edit::Table::new());
-    }
-
-    let commands = doc["commands"]
-        .as_table_mut()
-        .context("commands is not a table")?;
-
-    if commands.contains_key(name) {
-        anyhow::bail!(
-            "command '{}' already exists in .ops.toml. Edit it manually or remove it first.",
-            name
-        );
-    }
-
-    let mut cmd = toml_edit::Table::new();
-    cmd.insert("program", toml_edit::value(program));
-    if !args.is_empty() {
-        let mut arr = toml_edit::Array::new();
-        for arg in args {
-            arr.push(arg.as_str());
+    edit_ops_toml(&config_path, |doc| {
+        if !doc.contains_key("commands") {
+            doc["commands"] = toml_edit::Item::Table(toml_edit::Table::new());
         }
-        cmd.insert("args", toml_edit::value(arr));
-    }
+        let commands = doc["commands"]
+            .as_table_mut()
+            .context("commands is not a table")?;
 
-    commands.insert(name, toml_edit::Item::Table(cmd));
+        if commands.contains_key(name) {
+            anyhow::bail!(
+                "command '{}' already exists in .ops.toml. Edit it manually or remove it first.",
+                name
+            );
+        }
 
-    std::fs::write(&config_path, doc.to_string()).context("failed to write .ops.toml")?;
-    Ok(())
+        let mut cmd = toml_edit::Table::new();
+        cmd.insert("program", toml_edit::value(program));
+        if !args.is_empty() {
+            let mut arr = toml_edit::Array::new();
+            for arg in args {
+                arr.push(arg.as_str());
+            }
+            cmd.insert("args", toml_edit::value(arr));
+        }
+        commands.insert(name, toml_edit::Item::Table(cmd));
+        Ok(())
+    })
 }
 
 #[cfg(test)]
@@ -199,6 +186,19 @@ theme = "classic"
         assert!(content.contains("[commands.lint]"));
         assert!(content.contains(r#"program = "make""#));
         assert!(!content.contains("args"));
+    }
+
+    #[test]
+    fn append_command_refuses_to_overwrite_malformed_toml() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
+        let path = dir.path().join(".ops.toml");
+        let malformed = "not = = valid\n{{{";
+        std::fs::write(&path, malformed).unwrap();
+
+        let result = append_command_to_config("build", "cargo", &["build".into()]);
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed);
     }
 
     #[test]
