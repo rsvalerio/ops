@@ -11,6 +11,7 @@ use crate::remote::{parse_remote_url, RemoteInfo};
 pub const DATA_PROVIDER_NAME: &str = "git_info";
 
 #[derive(Debug, Clone, Default, Serialize)]
+#[non_exhaustive]
 pub struct GitInfo {
     pub host: Option<String>,
     pub owner: Option<String>,
@@ -38,9 +39,31 @@ impl GitInfo {
             host: parsed.as_ref().map(|r| r.host.clone()),
             owner: parsed.as_ref().map(|r| r.owner.clone()),
             repo: parsed.as_ref().map(|r| r.repo.clone()),
-            remote_url: parsed.as_ref().map(|r| r.url.clone()).or(Some(raw)),
+            remote_url: parsed
+                .as_ref()
+                .map(|r| r.url.clone())
+                .or_else(|| Some(strip_userinfo(&raw))),
             branch,
         }
+    }
+}
+
+/// Remove `user[:password]@` userinfo from a URL-like string. Best-effort: when
+/// the input lacks `://` and does not look like a URL we return it unchanged.
+/// Keeps secrets out of `remote_url` even when [`parse_remote_url`] cannot
+/// produce a normalized form.
+fn strip_userinfo(raw: &str) -> String {
+    let Some((scheme, after)) = raw.split_once("://") else {
+        return raw.to_string();
+    };
+    let (authority, rest) = match after.split_once('/') {
+        Some((a, r)) => (a, Some(r)),
+        None => (after, None),
+    };
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    match rest {
+        Some(r) => format!("{scheme}://{host}/{r}"),
+        None => format!("{scheme}://{host}"),
     }
 }
 
@@ -147,6 +170,25 @@ mod tests {
             Some("weird-value-without-shape")
         );
         assert!(info.host.is_none());
+    }
+
+    #[test]
+    fn collect_unparseable_remote_strips_credentials() {
+        let dir = tempfile::tempdir().unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        // Trailing `/extra/segment/path` keeps parse_remote_url from succeeding
+        // — we still must scrub the user:token authority from the fallback.
+        std::fs::write(
+            git_dir.join("config"),
+            "[remote \"origin\"]\n\turl = https://user:tok@host.example/weird\n",
+        )
+        .unwrap();
+
+        let info = GitInfo::collect(dir.path());
+        let url = info.remote_url.expect("remote_url");
+        assert!(!url.contains("user:tok"), "url leaked credentials: {url}");
+        assert!(!url.contains('@'), "url retained userinfo: {url}");
     }
 
     #[test]

@@ -2,7 +2,22 @@
 
 use serde::Serialize;
 
+/// Parsed remote-URL fields.
+///
+/// Bare `String` fields are intentional: this struct is produced by
+/// [`parse_remote_url`] and immediately consumed by `provider.rs`, which serialises
+/// each field individually into a flat `serde_json` object. Newtype wrappers
+/// (`Host`, `Owner`, `RepoName`, `RepoUrl`) were considered for argument-order
+/// safety, but every consumer accesses fields by name (never positionally) and
+/// the JSON serialization shape would have to be hand-rolled to strip the wrapper
+/// — paying complexity for no caller-side win. Revisit if a function takes
+/// multiple of these as positional arguments.
+///
+/// Invariant for `url`: normalized https URL, no credentials, no `.git` suffix.
+/// Enforced inside [`parse_remote_url`]; do not construct `RemoteInfo` outside
+/// that function.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct RemoteInfo {
     pub host: String,
     pub owner: String,
@@ -24,6 +39,9 @@ pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
     }
 
     let (host, path) = split_host_and_path(raw)?;
+    if !is_valid_host(host) {
+        return None;
+    }
     let (owner, repo) = split_owner_repo(path)?;
 
     let repo = repo.strip_suffix(".git").unwrap_or(repo);
@@ -39,8 +57,13 @@ pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
     })
 }
 
+/// Schemes accepted by [`parse_remote_url`]. `file://`, `javascript:`, and
+/// other custom schemes are rejected to keep attacker-influenced git config
+/// values from producing unsafe URLs downstream.
+const ALLOWED_SCHEMES: &[&str] = &["https", "http", "ssh", "git"];
+
 fn split_host_and_path(raw: &str) -> Option<(&str, &str)> {
-    // scp-style: git@host:owner/repo
+    // scp-style: git@host:owner/repo (implicitly ssh)
     if !raw.contains("://") {
         if let Some(at) = raw.find('@') {
             let rest = &raw[at + 1..];
@@ -53,11 +76,28 @@ fn split_host_and_path(raw: &str) -> Option<(&str, &str)> {
     }
 
     // URL form: scheme://[user@]host[:port]/path
-    let after_scheme = raw.split_once("://")?.1;
+    let (scheme, after_scheme) = raw.split_once("://")?;
+    if !ALLOWED_SCHEMES
+        .iter()
+        .any(|s| s.eq_ignore_ascii_case(scheme))
+    {
+        return None;
+    }
     let (authority, path) = after_scheme.split_once('/')?;
     let host_part = authority.rsplit('@').next()?;
     let host = host_part.split(':').next()?;
     Some((host, path))
+}
+
+/// Permissive RFC 3986 reg-name check: ASCII alphanumeric plus `.` and `-`.
+/// Rejects empty hosts and anything containing whitespace, control chars, `/`,
+/// `\`, `?`, `#`, `@`, etc. — anywhere those could end up interpolated into a
+/// URL or shown as a clickable link by a downstream consumer.
+fn is_valid_host(host: &str) -> bool {
+    !host.is_empty()
+        && host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
 }
 
 fn split_owner_repo(path: &str) -> Option<(&str, &str)> {
@@ -156,5 +196,53 @@ mod tests {
         assert!(parse_remote_url("").is_none());
         assert!(parse_remote_url("not a url").is_none());
         assert!(parse_remote_url("https://github.com/only-one-segment").is_none());
+    }
+
+    #[test]
+    fn ssh_scheme_strips_credentials_and_keeps_host_only() {
+        let info = parse_remote_url("ssh://user:secret@git.example/o/r.git").expect("parsed");
+        assert_eq!(info.host, "git.example");
+        assert_eq!(info.owner, "o");
+        assert_eq!(info.repo, "r");
+        assert!(!info.url.contains("user:secret"));
+        assert!(!info.url.contains('@'));
+    }
+
+    #[test]
+    fn ipv6_host_form_is_rejected() {
+        // [::1] / bracketed IPv6 is not in our reg-name allowlist; reject rather
+        // than admit a partially-parsed weird shape into RemoteInfo.
+        assert!(parse_remote_url("ssh://git@[::1]:22/o/r.git").is_none());
+    }
+
+    #[test]
+    fn empty_host_authority_is_rejected() {
+        assert!(parse_remote_url("https:///o/r").is_none());
+    }
+
+    #[test]
+    fn file_scheme_is_rejected() {
+        assert!(parse_remote_url("file:///srv/git/o/r.git").is_none());
+    }
+
+    #[test]
+    fn malformed_scheme_is_rejected() {
+        assert!(parse_remote_url("ht!tp://host.example/o/r").is_none());
+        assert!(parse_remote_url("://host.example/o/r").is_none());
+    }
+
+    #[test]
+    fn rejects_unknown_scheme() {
+        assert!(parse_remote_url("file:///etc/passwd/x/y").is_none());
+        assert!(parse_remote_url("javascript://evil/o/r").is_none());
+        assert!(parse_remote_url("ftp://host.example/o/r").is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_host_charset() {
+        // Spaces, slashes, and control chars in the host slot must not slip through.
+        assert!(parse_remote_url("https://bad host/o/r").is_none());
+        assert!(parse_remote_url("https://bad/host/o/r/extra").is_some()); // sanity: well-formed
+        assert!(parse_remote_url("https://b\u{0007}d/o/r").is_none());
     }
 }
