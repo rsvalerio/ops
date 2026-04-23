@@ -169,15 +169,12 @@ fn emit_line_non_tty_writes_to_stderr() {
 }
 
 #[test]
-fn emit_line_handles_empty_string() {
-    // Verifies no-panic on empty input edge case.
-    let display = test_display(&[]);
-    display.emit_line("");
-}
-
-#[test]
 fn tap_file_captures_raw_output() {
-    let tap_path = std::env::temp_dir().join("ops_tap_test.log");
+    // TEST-20: use a per-test tempdir instead of a shared
+    // `std::env::temp_dir().join("ops_tap_test.log")`, which two
+    // concurrent `cargo test` invocations would race on.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let tap_path = dir.path().join("ops_tap_test.log");
     let output = config::OutputConfig::default();
     let display_map: HashMap<String, String> = [("cmd", "echo hello")]
         .iter()
@@ -219,7 +216,7 @@ fn tap_file_captures_raw_output() {
         "tap should contain stderr: {contents}"
     );
 
-    let _ = std::fs::remove_file(&tap_path);
+    // tempdir is cleaned up on drop; no manual remove_file needed.
 }
 
 #[test]

@@ -71,8 +71,10 @@ fn write_stderr(line: Option<&str>) {
 ///
 /// ## Future Refactoring
 ///
-/// If this struct grows beyond ~50 methods or 500 lines of non-test code,
-/// consider extracting:
+/// The non-test module body is already past the original 500-line guideline
+/// (see `wc -l` on this file). The extraction below is a live candidate, not
+/// a hypothetical one — pick it up when the next non-trivial change lands here
+/// rather than piling onto the current surface:
 /// - `ProgressState`: bars, steps, step_stderr, display_map
 /// - `EventRouter`: handle_event dispatcher + on_* methods
 pub struct ProgressDisplay {
@@ -272,10 +274,7 @@ impl ProgressDisplay {
             .is_some();
 
         if !is_boxed {
-            let header_lines = self
-                .render
-                .theme
-                .render_plan_header(&self.plan_command_ids, self.render.columns);
+            let header_lines = self.render.theme.render_plan_header(&self.plan_command_ids);
             for line in &header_lines {
                 self.emit_line(line);
             }
@@ -304,24 +303,29 @@ impl ProgressDisplay {
         self.header_bar = Some(pb);
     }
 
-    fn render_header_message(&self) -> String {
+    /// Build a [`BoxSnapshot`] describing the plan's current live state.
+    /// Centralized so header/footer live-borders share one source of truth
+    /// for `completed_steps`, `failed_steps`, and `elapsed_secs`.
+    fn live_box_snapshot(&self) -> BoxSnapshot<'_> {
         let elapsed = self
             .run_started_at
             .map(|t| t.elapsed().as_secs_f64())
             .unwrap_or(0.0);
         let success_so_far = self.failed_steps == 0;
+        BoxSnapshot::new(
+            self.completed_steps,
+            self.total_steps,
+            elapsed,
+            success_so_far,
+            self.render.columns,
+        )
+        .with_command_ids(&self.plan_command_ids)
+    }
+
+    fn render_header_message(&self) -> String {
         self.render
             .theme
-            .box_top_border(
-                BoxSnapshot::new(
-                    self.completed_steps,
-                    self.total_steps,
-                    elapsed,
-                    success_so_far,
-                    self.render.columns,
-                )
-                .with_command_ids(&self.plan_command_ids),
-            )
+            .box_top_border(self.live_box_snapshot())
             .unwrap_or_default()
     }
 
@@ -423,18 +427,11 @@ impl ProgressDisplay {
         // Boxed layout: render a live bottom border so the frame stays closed
         // while the plan is still running (mirrors the live top border).
         if self.header_bar.is_some() {
-            let elapsed = self
-                .run_started_at
-                .map(|t| t.elapsed().as_secs_f64())
-                .unwrap_or(0.0);
-            let success_so_far = self.failed_steps == 0;
-            if let Some(bottom) = self.render.theme.box_bottom_border(BoxSnapshot::new(
-                self.completed_steps,
-                self.total_steps,
-                elapsed,
-                success_so_far,
-                self.render.columns,
-            )) {
+            if let Some(bottom) = self
+                .render
+                .theme
+                .box_bottom_border(self.live_box_snapshot())
+            {
                 return bottom;
             }
         }
@@ -486,8 +483,16 @@ impl ProgressDisplay {
     }
 
     fn tap_line(&mut self, line: &str) {
+        // ERR-1: previously dropped the writeln Result silently; a broken tap
+        // fd (disk full, NFS drop, closed underneath) would swallow every
+        // subsequent line without the user seeing any diagnostic. On first
+        // failure log once at debug level and drop the handle so we stop
+        // trying — subsequent lines then no-op rather than spamming debug.
         if let Some(ref mut f) = self.tap_file {
-            let _ = writeln!(f, "{}", line);
+            if let Err(e) = writeln!(f, "{}", line) {
+                tracing::debug!(error = %e, "tap file write failed; disabling further tap writes");
+                self.tap_file = None;
+            }
         }
     }
 
