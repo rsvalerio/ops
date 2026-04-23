@@ -11,6 +11,7 @@ test-support = []
 [dependencies]
 serde = { workspace = true }
 toml = "1"
+toml_edit = "0.25"
 config = "0.15"
 anyhow = { workspace = true }
 tracing = { workspace = true }
