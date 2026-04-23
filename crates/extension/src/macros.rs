@@ -183,11 +183,7 @@ macro_rules! impl_extension {
 #[macro_export]
 macro_rules! data_field {
     ($name:expr, $type_name:expr, $description:expr) => {
-        $crate::DataField {
-            name: $name,
-            type_name: $type_name,
-            description: $description,
-        }
+        $crate::DataField::new($name, $type_name, $description)
     };
 }
 

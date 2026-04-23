@@ -341,21 +341,13 @@ mod tests {
 
     #[test]
     fn print_provider_info_with_fields() {
-        let schema = DataProviderSchema {
-            description: "Test provider",
-            fields: vec![
-                ops_extension::DataField {
-                    name: "field_a",
-                    type_name: "String",
-                    description: "First field",
-                },
-                ops_extension::DataField {
-                    name: "field_b",
-                    type_name: "Vec<u32>",
-                    description: "Second field",
-                },
+        let schema = DataProviderSchema::new(
+            "Test provider",
+            vec![
+                ops_extension::DataField::new("field_a", "String", "First field"),
+                ops_extension::DataField::new("field_b", "Vec<u32>", "Second field"),
             ],
-        };
+        );
         let mut buf = Vec::new();
         print_provider_info(&mut buf, "test_provider", &schema).expect("should succeed");
         let output = String::from_utf8(buf).unwrap();
@@ -367,10 +359,7 @@ mod tests {
 
     #[test]
     fn print_provider_info_empty_fields() {
-        let schema = DataProviderSchema {
-            description: "Empty provider",
-            fields: vec![],
-        };
+        let schema = DataProviderSchema::new("Empty provider", vec![]);
         let mut buf = Vec::new();
         print_provider_info(&mut buf, "empty", &schema).expect("should succeed");
         let output = String::from_utf8(buf).unwrap();

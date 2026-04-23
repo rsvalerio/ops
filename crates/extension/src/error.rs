@@ -43,10 +43,29 @@ impl From<serde_json::Error> for SharedError {
 /// `Clone`. The `#[source]` attribute enables `Error::source()` traversal.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum DataProviderError {
+    /// Returned when the requested provider name is not registered in the
+    /// `DataRegistry`.
+    ///
+    /// Callers that warm up multiple providers (e.g. `let _ =
+    /// ctx.get_or_provide("optional", reg)`) typically *expect* this variant
+    /// for providers that are not part of the active stack and should
+    /// silently ignore it.
     #[error("data provider not found: {0}")]
     NotFound(String),
+    /// Returned when a registered provider's `provide(...)` method failed —
+    /// e.g. an external command returned non-zero, an SQL query errored, or
+    /// a filesystem read failed.
+    ///
+    /// The wrapped [`SharedError`] preserves the full source chain;
+    /// `std::error::Error::source()` walks through to the originating cause.
+    /// Use this variant to surface real failures (log + re-raise rather
+    /// than swallow).
     #[error("data computation failed: {0}")]
     ComputationFailed(#[source] SharedError),
+    /// Returned when a provider produced a value whose JSON shape could not
+    /// be parsed back into the caller-expected struct (typically via
+    /// `serde_json::from_value(...)`), or when constructing a JSON value
+    /// itself failed.
     #[error("data serialization error: {0}")]
     Serialization(#[source] SharedError),
 }

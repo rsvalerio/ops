@@ -8,11 +8,32 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Describes a field provided by a data provider.
+///
+/// Marked `#[non_exhaustive]` so future fields (e.g. units, examples) can be
+/// added without breaking external extensions that construct via the
+/// [`crate::data_field!`] macro or [`DataField::new`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct DataField {
     pub name: &'static str,
     pub type_name: &'static str,
     pub description: &'static str,
+}
+
+impl DataField {
+    /// Construct a [`DataField`]. Preferred over struct literals because the
+    /// type is `#[non_exhaustive]`.
+    pub const fn new(
+        name: &'static str,
+        type_name: &'static str,
+        description: &'static str,
+    ) -> Self {
+        Self {
+            name,
+            type_name,
+            description,
+        }
+    }
 }
 
 /// Schema for a data provider, describing what data it provides.
@@ -20,6 +41,16 @@ pub struct DataField {
 pub struct DataProviderSchema {
     pub description: &'static str,
     pub fields: Vec<DataField>,
+}
+
+impl DataProviderSchema {
+    /// Construct a [`DataProviderSchema`].
+    pub fn new(description: &'static str, fields: Vec<DataField>) -> Self {
+        Self {
+            description,
+            fields,
+        }
+    }
 }
 
 /// Trait for data providers that supply JSON data to extensions.
@@ -54,6 +85,17 @@ pub trait DataProvider: Send + Sync {
     /// - Run external commands or read files
     ///
     /// The result is cached by `Context::get_or_provide` for subsequent calls.
+    ///
+    /// # Errors
+    ///
+    /// See [`DataProviderError`] for the variants returned here:
+    /// - [`DataProviderError::ComputationFailed`] for command/IO/SQL failures.
+    /// - [`DataProviderError::Serialization`] when constructing the returned
+    ///   JSON value fails.
+    /// - [`DataProviderError::NotFound`] is *not* returned by `provide`
+    ///   itself; it originates from `DataRegistry::provide` /
+    ///   `Context::get_or_provide` when the requested provider name is not
+    ///   registered.
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError>;
 
     /// Returns a schema describing what data this provider exposes.
@@ -136,9 +178,31 @@ impl Default for DataRegistry {
     }
 }
 
-/// Erasure trait for the DuckDb handle so that extension.rs does not depend on duckdb types.
+/// Erasure trait for the DuckDb handle so that extension.rs does not depend
+/// on duckdb types.
+///
+/// # Downcast contract
+///
+/// The only concrete type stored behind `Arc<dyn DuckDbHandle>` in production
+/// code is `ops_duckdb::DuckDb`. Implementations therefore implement
+/// `as_any` by returning `self`. Downcast call sites should:
+///
+/// ```ignore
+/// let db: Option<&ops_duckdb::DuckDb> = handle
+///     .as_any()
+///     .downcast_ref::<ops_duckdb::DuckDb>();
+/// ```
+///
+/// or use the typed convenience helper [`ops_duckdb::get_db`] which performs
+/// the downcast and returns `Option<&DuckDb>`. New consumers should prefer
+/// `get_db` over calling `as_any` directly to avoid coupling on the concrete
+/// trait method (FN-9).
 #[cfg(feature = "duckdb")]
 pub trait DuckDbHandle: Send + Sync {
+    /// Return the handle as `&dyn Any` so callers can downcast to the
+    /// concrete type. The implementer must return `self`. See trait-level
+    /// docs for the supported concrete type and the preferred typed
+    /// accessor.
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
