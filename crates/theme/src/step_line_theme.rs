@@ -102,27 +102,40 @@ impl<'a> BoxSnapshot<'a> {
 /// }
 /// ```
 ///
-/// # Architecture (CQ-016)
+/// # Architecture (CQ-016 / FN-3)
 ///
-/// This trait has 15 methods with 12 providing default implementations. The design
-/// allows themes to override only what they need:
+/// This trait exposes 22 methods across six concerns. Only `status_icon` is
+/// required; all other methods carry defaults that read values off the
+/// [`ThemeConfig`](super::ThemeConfig)-backed [`super::ConfigurableTheme`], so
+/// a custom theme can override only what it actually customises.
 ///
-/// - **Core methods (no default)**: `status_icon` — must be implemented
-/// - **Layout Methods**: `render`, `render_prefix`, `render_separator` — sensible defaults
-/// - **Style Methods**: `separator_char`, `step_indent`, `format_elapsed` — customization
-/// - **Progress Methods**: `running_template`, `tick_chars` — spinner control
-/// - **Header/Summary**: `render_plan_header`, `render_summary`, `render_summary_separator`, `summary_prefix`
-/// - **Error Display**: `render_error_detail`
+/// The methods group as follows (the declarations below follow the same order):
 ///
-/// Alternative designs considered:
-/// - **Split traits**: `CoreTheme` + `ExtendedTheme` — adds complexity without benefit
-/// - **Builder pattern**: `ThemeBuilder` with method chaining — more verbose
-/// - **Composition**: `Theme { icons: IconConfig, layout: LayoutConfig }` — loses trait flexibility
+/// 1. **Padding / indent**: `left_pad`, `left_pad_str`, `step_indent`
+/// 2. **Icons**: `status_icon`, `icon_column_width`
+/// 3. **Colors**: `header_color`, `label_color`, `separator_color`,
+///    `duration_color`, `summary_color`
+/// 4. **Header / summary**: `plan_header_prefix`, `render_plan_header`,
+///    `render_summary_separator`, `summary_prefix`, `render_summary`
+/// 5. **Progress / running**: `running_template`, `tick_chars`,
+///    `running_template_overhead`
+/// 6. **Step rendering**: `render`, `render_prefix`, `render_separator`,
+///    `separator_char`, `format_elapsed`
+/// 7. **Boxed layout**: `box_top_border`, `box_bottom_border`,
+///    `step_column_reserve`, `wrap_step_line`
+/// 8. **Error detail**: `render_error_detail`
 ///
-/// The current design is kept because:
-/// 1. Default implementations cover 80% of use cases
-/// 2. Single trait is easier to implement for custom themes
-/// 3. Method count is stable (15 is acceptable for a rendering trait)
+/// Alternative designs considered and deferred:
+/// - **Split traits** (`StepLineTheme` + `BoxedLayoutTheme` + `ErrorBlockTheme`
+///   with blanket impls) — would better respect ISP but would fragment the
+///   theme surface across imports for no concrete caller benefit today.
+/// - **Concrete-struct defaults** (move the "look up value on `ThemeConfig`"
+///   defaults into `ConfigurableTheme` and shrink the trait to the 3–4
+///   methods that genuinely vary) — the larger mechanical change.
+///
+/// The present shape is intentional: `ConfigurableTheme` covers every built-in
+/// theme via TOML, so the many defaulted methods don't cost real
+/// implementations. If a second non-configurable theme appears, revisit.
 pub trait StepLineTheme: Send + Sync {
     /// Number of spaces to prepend to all rendered output lines. Default: 0.
     fn left_pad(&self) -> usize {
@@ -169,7 +182,12 @@ pub trait StepLineTheme: Send + Sync {
 
     /// Lines to print when a run plan starts: optional upper space, header, then blank before steps.
     /// Default: one blank line (upper space), "Running: id1, id2, ...", then one blank before steps.
-    fn render_plan_header(&self, command_ids: &[String], _columns: u16) -> Vec<String> {
+    ///
+    /// Note: the default implementation intentionally does not wrap or
+    /// truncate by terminal width. Callers that need width-aware wrapping
+    /// should override this method; the trait used to carry an unused
+    /// `columns` parameter which was removed after [`TASK-0281`].
+    fn render_plan_header(&self, command_ids: &[String]) -> Vec<String> {
         let header = format!("{}Running: {}", self.left_pad_str(), command_ids.join(", "));
         vec![String::new(), header, String::new()]
     }
@@ -344,6 +362,12 @@ pub trait StepLineTheme: Send + Sync {
     }
 
     /// Build the separator (dots/dashes) between label and elapsed time.
+    ///
+    /// Width budget (left-to-right):
+    /// `columns = template_overhead + left_pad + prefix_width + space +
+    /// sep_count + space + duration`. We invert that equation to derive
+    /// `sep_count`, with a floor of 3 so the separator is always at least
+    /// three glyphs wide.
     fn render_separator(
         &self,
         prefix: &str,
@@ -351,19 +375,26 @@ pub trait StepLineTheme: Send + Sync {
         columns: usize,
         is_running: bool,
     ) -> String {
+        // Reservations taken out of the total `columns` budget before we can
+        // spend anything on the separator itself.
         let template_overhead = if is_running {
             self.running_template_overhead()
         } else {
             0
         };
-        let line_budget = columns
-            .saturating_sub(template_overhead)
-            .saturating_sub(self.left_pad());
+        let reserved_chrome = template_overhead + self.left_pad();
+        let line_budget = columns.saturating_sub(reserved_chrome);
 
+        // Fixed costs inside `line_budget`: the label prefix, the duration
+        // (when present), and one leading space before the separator.
         let prefix_width = display_width(prefix);
+        let leading_space = 1usize;
+        let fixed_inside = prefix_width + duration_str.len() + leading_space;
+
+        let space_for_sep = line_budget.saturating_sub(fixed_inside);
+        const MIN_SEP_GLYPHS: usize = 3;
+        let sep_count = space_for_sep.max(MIN_SEP_GLYPHS);
         let sep = self.separator_char();
-        let space_for_sep = line_budget.saturating_sub(prefix_width + duration_str.len() + 1);
-        let sep_count = space_for_sep.max(3);
 
         if duration_str.is_empty() {
             let dots = sep.to_string().repeat(sep_count.saturating_sub(1));

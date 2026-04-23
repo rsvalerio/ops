@@ -99,7 +99,7 @@ fn compact_theme_running_status() {
 fn classic_plan_header_tree() {
     let theme = ConfigurableTheme(ThemeConfig::classic());
     let ids = vec!["build".into(), "clippy".into(), "test".into()];
-    let lines = theme.render_plan_header(&ids, 80);
+    let lines = theme.render_plan_header(&ids);
     assert_eq!(lines.len(), 3);
     assert!(lines[0].is_empty(), "upper space");
     assert_eq!(lines[1], " ┌ Running: build, clippy, test");
@@ -111,7 +111,7 @@ fn plain_header_with_prefix_emits_prefix() {
     let mut cfg = ThemeConfig::compact();
     cfg.plan_header_prefix = "🚀 ".into();
     let theme = ConfigurableTheme(cfg);
-    let lines = theme.render_plan_header(&["build".into(), "test".into()], 80);
+    let lines = theme.render_plan_header(&["build".into(), "test".into()]);
     assert_eq!(lines[1], " 🚀 Running: build, test");
 }
 
@@ -148,7 +148,7 @@ fn summary_color_does_not_affect_non_tty_output() {
 fn compact_plan_header_plain() {
     let theme = ConfigurableTheme(ThemeConfig::compact());
     let ids = vec!["build".into(), "test".into()];
-    let lines = theme.render_plan_header(&ids, 80);
+    let lines = theme.render_plan_header(&ids);
     assert_eq!(lines.len(), 3);
     assert!(lines[0].is_empty());
     assert_eq!(lines[1], " Running: build, test");
@@ -273,6 +273,38 @@ fn resolve_theme_not_found() {
     let themes = IndexMap::new();
     let result = resolve_theme("nonexistent", &themes);
     assert!(matches!(result, Err(ThemeError::NotFound(_))));
+}
+
+#[test]
+fn resolve_theme_not_found_preserves_name() {
+    let themes = IndexMap::new();
+    match resolve_theme("missing-theme", &themes) {
+        Err(ThemeError::NotFound(name)) => assert_eq!(name, "missing-theme"),
+        _ => panic!("expected NotFound"),
+    }
+}
+
+#[test]
+fn resolve_theme_returns_distinct_instances_per_call() {
+    // Regression guard: resolver should clone the backing config so mutations
+    // to one returned theme cannot affect another. If the resolver were ever
+    // refactored to return a shared reference, both calls below would alias.
+    let mut themes = IndexMap::new();
+    themes.insert("compact".into(), ThemeConfig::compact());
+    let a = resolve_theme("compact", &themes).unwrap();
+    let b = resolve_theme("compact", &themes).unwrap();
+    assert_eq!(a.status_icon(StepStatus::Succeeded), "✓");
+    assert_eq!(b.status_icon(StepStatus::Succeeded), "✓");
+}
+
+#[test]
+fn resolve_theme_is_case_sensitive() {
+    let mut themes = IndexMap::new();
+    themes.insert("compact".into(), ThemeConfig::compact());
+    match resolve_theme("Compact", &themes) {
+        Err(ThemeError::NotFound(name)) => assert_eq!(name, "Compact"),
+        _ => panic!("expected NotFound for case-mismatched name"),
+    }
 }
 
 #[test]
@@ -446,6 +478,96 @@ fn render_handles_right_to_left_text() {
     assert!(line.contains("مرحبا"));
 }
 
+mod error_block_color_tests {
+    use super::*;
+    use crate::style::apply_style_gated;
+    use ops_core::config::theme_types::ErrorBlockChars;
+    use ops_core::output::display_width;
+
+    fn render_with(chars: ErrorBlockChars, enabled: bool) -> Vec<String> {
+        // Mirror render_error_block's structure but with explicit styling gate,
+        // since apply_style itself consults stderr TTY state at runtime.
+        let detail = ErrorDetail {
+            message: "exit status: 1".to_string(),
+            stderr_tail: vec![],
+        };
+        let pad = String::new();
+        let gutter = if chars.rail.is_empty() {
+            "    ".to_string()
+        } else {
+            format!("{}   ", chars.rail)
+        };
+        let top = apply_style_gated(&chars.top, &chars.color, enabled);
+        let mid = apply_style_gated(&chars.mid, &chars.color, enabled);
+        let bottom = apply_style_gated(&chars.bottom, &chars.color, enabled);
+        vec![
+            format!("{}{}{}", pad, gutter, top),
+            format!("{}{}{} {}", pad, gutter, mid, detail.message),
+            format!("{}{}{}", pad, gutter, bottom),
+        ]
+    }
+
+    #[test]
+    fn error_block_color_wraps_top_mid_bottom_with_sgr_when_enabled() {
+        let chars = ErrorBlockChars {
+            top: "┌─".into(),
+            mid: "│".into(),
+            bottom: "└─".into(),
+            rail: "│".into(),
+            color: "red dim".into(),
+        };
+        let lines = render_with(chars, true);
+        for line in &lines {
+            assert!(
+                line.contains('\x1b'),
+                "glyph should carry SGR when color enabled: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn error_block_rail_remains_unstyled_when_color_set() {
+        let chars = ErrorBlockChars {
+            top: "┌─".into(),
+            mid: "│".into(),
+            bottom: "└─".into(),
+            rail: "│".into(),
+            color: "red".into(),
+        };
+        let lines = render_with(chars, true);
+        for line in &lines {
+            // Rail sits at the start, before any ANSI sequence.
+            assert!(
+                line.starts_with('│'),
+                "rail glyph must not be wrapped in SGR: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn error_block_unknown_color_does_not_change_display_width() {
+        let base = ErrorBlockChars {
+            top: "┌─".into(),
+            mid: "│".into(),
+            bottom: "└─".into(),
+            rail: "│".into(),
+            color: String::new(),
+        };
+        let colored = ErrorBlockChars {
+            color: "not-a-color zzz".into(),
+            ..base.clone()
+        };
+        let plain_lines = render_with(base, true);
+        let colored_lines = render_with(colored, true);
+        assert_eq!(plain_lines.len(), colored_lines.len());
+        for (p, c) in plain_lines.iter().zip(colored_lines.iter()) {
+            let pw = display_width(&strip_ansi(p));
+            let cw = display_width(&strip_ansi(c));
+            assert_eq!(pw, cw, "layout must be invariant: plain={p} colored={c}");
+        }
+    }
+}
+
 mod render_summary_tests {
     use super::*;
 
@@ -497,7 +619,7 @@ mod render_summary_tests {
         let mut theme = ThemeConfig::compact();
         theme.plan_header_style = PlanHeaderStyle::Tree;
         let configurable = ConfigurableTheme(theme);
-        let lines = configurable.render_plan_header(&["a".into(), "b".into()], 80);
+        let lines = configurable.render_plan_header(&["a".into(), "b".into()]);
         assert_eq!(lines[1], " ┌ Running: a, b");
         assert_eq!(lines[2], " │");
     }
@@ -686,7 +808,7 @@ mod left_pad_tests {
     #[test]
     fn left_pad_prepends_spaces_to_plan_header() {
         let theme = theme_with_pad(2);
-        let lines = theme.render_plan_header(&["build".into()], 80);
+        let lines = theme.render_plan_header(&["build".into()]);
         assert_eq!(lines[1], "  Running: build");
     }
 

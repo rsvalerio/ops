@@ -9,7 +9,20 @@ use super::{PlanHeaderStyle, ThemeConfig};
 use ops_core::config::theme_types::LayoutKind;
 
 /// Columns reserved by the boxed frame on a step line: `│ X  … │` = 7 cells.
+///
+/// Layout breakdown (left-to-right):
+/// `│` (1) + ` ` (1) + progress cell `X` (1) + `  ` (2) + … + ` ` (1) + `│` (1) = 7.
+///
+/// The two frame bars are at column 1 and column `columns` — that is, each
+/// `BOX_STEP_RESERVE`-based subtraction that uses `- 2` is subtracting exactly
+/// those two bars. Keep the constants named so derived offsets don't look
+/// like bare arithmetic.
 const BOX_STEP_RESERVE: u16 = 7;
+
+/// Number of vertical frame bars consumed by the boxed layout (left `│`
+/// and right `│`). Subtracted from `BOX_STEP_RESERVE` when computing the
+/// indent that aligns error-block glyphs under the step label column.
+const BOX_FRAME_BARS: usize = 2;
 
 /// A theme backed by a [`ThemeConfig`], implementing [`StepLineTheme`].
 pub struct ConfigurableTheme(pub ThemeConfig);
@@ -71,7 +84,7 @@ impl StepLineTheme for ConfigurableTheme {
         &self.0.plan_header_prefix
     }
 
-    fn render_plan_header(&self, command_ids: &[String], _columns: u16) -> Vec<String> {
+    fn render_plan_header(&self, command_ids: &[String]) -> Vec<String> {
         let pad = self.left_pad_str();
         let ids = command_ids.join(", ");
         match self.0.plan_header_style {
@@ -116,7 +129,11 @@ impl StepLineTheme for ConfigurableTheme {
         // border; we just need extra indent after it so `top`/`mid`/`bottom`
         // land in the same column as the step icon.
         let rail_width = display_width(&self.0.error_block.rail);
-        let target_gutter = BOX_STEP_RESERVE as usize - 2 + display_width(self.step_indent());
+        // Subtract the two frame bars (left/right `│`) from the box reserve
+        // so `target_gutter` covers only the interior (cell + spacing + step
+        // indent) that the error glyph must line up with.
+        let target_gutter =
+            BOX_STEP_RESERVE as usize - BOX_FRAME_BARS + display_width(self.step_indent());
         let extra_indent = target_gutter.saturating_sub(rail_width + 3);
         let inject = " ".repeat(extra_indent);
         let pad = self.left_pad_str();
@@ -127,16 +144,8 @@ impl StepLineTheme for ConfigurableTheme {
         lines
             .into_iter()
             .map(|line| {
-                let reindented =
-                    if !self.0.error_block.rail.is_empty() && line.starts_with(&prefix_with_rail) {
-                        let (head, tail) = line.split_at(prefix_with_rail.len());
-                        format!("{head}{inject}{tail}")
-                    } else {
-                        line
-                    };
-                let visible = display_width(&strip_ansi(&reindented));
-                let fill = right_target.saturating_sub(visible);
-                format!("{reindented}{spaces} │", spaces = " ".repeat(fill))
+                let reindented = inject_gutter_indent(&line, &prefix_with_rail, &inject);
+                right_pad_with_border(reindented, right_target)
             })
             .collect()
     }
@@ -177,14 +186,14 @@ impl StepLineTheme for ConfigurableTheme {
                 format_duration(snap.elapsed_secs)
             )
         };
-        Some(build_horizontal_border(
-            &title,
-            "╭─",
-            "╮",
-            snap.columns,
-            self.left_pad(),
-            &self.0.header_color,
-        ))
+        Some(build_horizontal_border(BorderArgs {
+            title: &title,
+            left_corner: "╭─",
+            right_corner: "╮",
+            columns: snap.columns,
+            left_pad: self.left_pad(),
+            title_color: &self.0.header_color,
+        }))
     }
 
     fn box_bottom_border(&self, snap: BoxSnapshot<'_>) -> Option<String> {
@@ -199,14 +208,14 @@ impl StepLineTheme for ConfigurableTheme {
             snap.total,
             format_duration(snap.elapsed_secs)
         );
-        Some(build_horizontal_border(
-            &title,
-            "╰─",
-            "╯",
-            snap.columns,
-            self.left_pad(),
-            &self.0.summary_color,
-        ))
+        Some(build_horizontal_border(BorderArgs {
+            title: &title,
+            left_corner: "╰─",
+            right_corner: "╯",
+            columns: snap.columns,
+            left_pad: self.left_pad(),
+            title_color: &self.0.summary_color,
+        }))
     }
 
     fn wrap_step_line(&self, inner: &str, progress_cell: &str, columns: u16) -> String {
@@ -216,6 +225,9 @@ impl StepLineTheme for ConfigurableTheme {
         let pad = " ".repeat(self.left_pad());
         // Inner visual budget: columns - 2*left_pad - BOX_STEP_RESERVE.
         let outer = columns as usize;
+        // Frame overhead = outer margin on both sides + the boxed step reserve.
+        // `2 * left_pad` accounts for the left and right outer-pad columns; the
+        // reserve itself already includes the two vertical `│` bars.
         let frame_overhead = 2 * self.left_pad() + BOX_STEP_RESERVE as usize;
         let inner_budget = outer.saturating_sub(frame_overhead);
         let inner_visible = display_width(&strip_ansi(inner));
@@ -231,20 +243,53 @@ impl StepLineTheme for ConfigurableTheme {
     }
 }
 
+/// Insert `indent` spaces immediately after the rail prefix on an error-block
+/// line so the `top`/`mid`/`bottom` glyphs line up under the step label column.
+/// Lines without a rail (empty `rail_prefix`) or that don't start with it are
+/// returned unchanged.
+fn inject_gutter_indent(line: &str, rail_prefix: &str, indent: &str) -> String {
+    if rail_prefix.is_empty() || !line.starts_with(rail_prefix) {
+        return line.to_string();
+    }
+    let (head, tail) = line.split_at(rail_prefix.len());
+    format!("{head}{indent}{tail}")
+}
+
+/// Right-pad `line` with spaces up to `right_target` visible columns and
+/// append the closing ` │` frame border.
+fn right_pad_with_border(line: String, right_target: usize) -> String {
+    let visible = display_width(&strip_ansi(&line));
+    let fill = right_target.saturating_sub(visible);
+    let spaces = " ".repeat(fill);
+    format!("{line}{spaces} │")
+}
+
+/// Inputs to [`build_horizontal_border`]. Grouping these as a struct keeps
+/// callers legible and avoids the positional-arg smell that
+/// `#[allow(clippy::too_many_arguments)]` would otherwise paper over.
+struct BorderArgs<'a> {
+    title: &'a str,
+    left_corner: &'a str,
+    right_corner: &'a str,
+    columns: u16,
+    left_pad: usize,
+    title_color: &'a str,
+}
+
 /// Render a horizontal border like `╭─ title ────...───╮`.
 ///
 /// Pads the title with `─` fill to reach `columns`, honoring `left_pad` on the
 /// outer margin. `title_color` is applied only to the inline title text so the
 /// border itself stays dim/plain.
-#[allow(clippy::too_many_arguments)]
-fn build_horizontal_border(
-    title: &str,
-    left_corner: &str,
-    right_corner: &str,
-    columns: u16,
-    left_pad: usize,
-    title_color: &str,
-) -> String {
+fn build_horizontal_border(args: BorderArgs<'_>) -> String {
+    let BorderArgs {
+        title,
+        left_corner,
+        right_corner,
+        columns,
+        left_pad,
+        title_color,
+    } = args;
     let pad = " ".repeat(left_pad);
     let outer = columns as usize;
     let inner = outer.saturating_sub(2 * left_pad);
@@ -254,12 +299,5 @@ fn build_horizontal_border(
     let fill = inner.saturating_sub(corner_l_w + corner_r_w + title_w);
     let fill_str = "─".repeat(fill);
     let colored_title = apply_style(title, title_color);
-    format!(
-        "{pad}{left_corner}{title}{fill}{right_corner}",
-        pad = pad,
-        left_corner = left_corner,
-        title = colored_title,
-        fill = fill_str,
-        right_corner = right_corner,
-    )
+    format!("{pad}{left_corner}{colored_title}{fill_str}{right_corner}")
 }
