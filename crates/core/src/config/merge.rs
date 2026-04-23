@@ -10,14 +10,12 @@ pub(super) fn merge_field<T>(base: &mut T, overlay: Option<T>) {
     }
 }
 
-pub(super) fn merge_indexmap<K: Clone + Eq + std::hash::Hash, V: Clone>(
+pub(super) fn merge_indexmap<K: Eq + std::hash::Hash, V>(
     base: &mut IndexMap<K, V>,
-    overlay: Option<&IndexMap<K, V>>,
+    overlay: Option<IndexMap<K, V>>,
 ) {
     if let Some(items) = overlay {
-        for (k, v) in items {
-            base.insert(k.clone(), v.clone());
-        }
+        base.extend(items);
     }
 }
 
@@ -27,6 +25,20 @@ fn merge_output(base: &mut OutputConfig, overlay: &OutputConfigOverlay) {
     merge_field(&mut base.show_error_detail, overlay.show_error_detail);
     merge_field(&mut base.stderr_tail_lines, overlay.stderr_tail_lines);
     merge_field(&mut base.category_order, overlay.category_order.clone());
+}
+
+/// Copy a per-field `Option<T>` overlay into a `base.field: Option<T>`.
+///
+/// Collapses the `if let Some(section_overlay) = section { if let Some(v) =
+/// &section_overlay.field { base.section.field = Some(v.clone()); } }`
+/// pattern that used to appear four times (data/path, extensions/enabled,
+/// about/fields, …). If `section` is `None` the base is preserved; if it's
+/// `Some(..)` and its inner field is `Some(v)`, the base field is overwritten
+/// with an owned copy; otherwise preserved.
+fn copy_optional_field<T: Clone>(dst: &mut Option<T>, src: Option<&Option<T>>) {
+    if let Some(Some(v)) = src {
+        *dst = Some(v.clone());
+    }
 }
 
 /// Merge overlay into base — only explicitly-set values overwrite.
@@ -48,27 +60,18 @@ pub fn merge_config(base: &mut Config, overlay: &ConfigOverlay) {
     if let Some(output_overlay) = output {
         merge_output(&mut base.output, output_overlay);
     }
-    merge_indexmap(&mut base.commands, commands.as_ref());
-    if let Some(data_overlay) = data {
-        if let Some(path) = &data_overlay.path {
-            base.data.path = Some(path.clone());
-        }
-    }
-    merge_indexmap(&mut base.themes, themes.as_ref());
-    if let Some(ext_overlay) = extensions {
-        if let Some(enabled) = &ext_overlay.enabled {
-            base.extensions.enabled = Some(enabled.clone());
-        }
-    }
-    if let Some(about_overlay) = about {
-        if let Some(fields) = &about_overlay.fields {
-            base.about.fields = Some(fields.clone());
-        }
-    }
+    merge_indexmap(&mut base.commands, commands.clone());
+    copy_optional_field(&mut base.data.path, data.as_ref().map(|d| &d.path));
+    merge_indexmap(&mut base.themes, themes.clone());
+    copy_optional_field(
+        &mut base.extensions.enabled,
+        extensions.as_ref().map(|e| &e.enabled),
+    );
+    copy_optional_field(&mut base.about.fields, about.as_ref().map(|a| &a.fields));
     if let Some(s) = stack {
         base.stack = Some(s.clone());
     }
-    merge_indexmap(&mut base.tools, tools.as_ref());
+    merge_indexmap(&mut base.tools, tools.clone());
 }
 
 #[cfg(test)]
@@ -109,7 +112,7 @@ mod tests {
         let mut base = IndexMap::new();
         base.insert("a", 1);
         let overlay = IndexMap::from([("b", 2)]);
-        merge_indexmap(&mut base, Some(&overlay));
+        merge_indexmap(&mut base, Some(overlay));
         assert_eq!(base.len(), 2);
         assert_eq!(base["b"], 2);
     }
@@ -118,7 +121,7 @@ mod tests {
     fn merge_indexmap_overwrites_existing_keys() {
         let mut base = IndexMap::from([("a", 1)]);
         let overlay = IndexMap::from([("a", 99)]);
-        merge_indexmap(&mut base, Some(&overlay));
+        merge_indexmap(&mut base, Some(overlay));
         assert_eq!(base["a"], 99);
     }
 
