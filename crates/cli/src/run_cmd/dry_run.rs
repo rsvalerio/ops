@@ -4,7 +4,7 @@ use std::io::Write;
 use std::process::ExitCode;
 
 use ops_core::config::CommandSpec;
-use ops_runner::command::is_sensitive_env_key;
+use ops_runner::command::{is_sensitive_env_key, looks_like_secret_value_public};
 
 /// SEC-001: Preview commands without executing.
 ///
@@ -25,9 +25,7 @@ pub(crate) fn run_command_dry_run_to(
     name: &str,
     w: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
-    let leaf_ids = runner
-        .expand_to_leaves(name)
-        .ok_or_else(|| anyhow::anyhow!("unknown command: {}", name))?;
+    let leaf_ids = runner.expand_to_leaves(name).map_err(anyhow::Error::from)?;
 
     writeln!(w, "Command: {}", name)?;
     writeln!(w, "Resolved to {} step(s):", leaf_ids.len())?;
@@ -60,11 +58,21 @@ pub(crate) fn print_exec_spec(
     if !e.env.is_empty() {
         writeln!(w, "      env:")?;
         for (k, v) in &e.env {
-            let display_val = if is_sensitive_env_key(k) {
-                "***REDACTED***".to_string()
-            } else {
-                vars.expand(v).into_owned()
-            };
+            // SEC-21: previously only redacted when the *key* matched the
+            // narrow `SENSITIVE_REDACTION_PATTERNS` allowlist. Any env var
+            // with a non-matching name (DATABASE_URL, GITHUB_PAT,
+            // SLACK_WEBHOOK, …) printed in cleartext to stdout — which a
+            // user then copy-pasted into a bug report. Mirror the
+            // broader `warn_if_sensitive_env` policy: redact when the key
+            // looks sensitive *or* the (expanded) value itself looks like
+            // a secret per the JWT/UUID/high-entropy heuristics.
+            let expanded = vars.expand(v);
+            let display_val =
+                if is_sensitive_env_key(k) || looks_like_secret_value_public(&expanded) {
+                    "***REDACTED***".to_string()
+                } else {
+                    expanded.into_owned()
+                };
             writeln!(w, "        {}={}", k, display_val)?;
         }
     }

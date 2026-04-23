@@ -12,9 +12,7 @@ pub(crate) fn merge_plan(
     let mut any_parallel = false;
     let mut fail_fast = true;
     for name in names {
-        let leaf_ids = runner
-            .expand_to_leaves(name)
-            .ok_or_else(|| anyhow::anyhow!("unknown command: {}", name))?;
+        let leaf_ids = runner.expand_to_leaves(name).map_err(anyhow::Error::from)?;
         all_leaf_ids.extend(leaf_ids);
         if let Some(CommandSpec::Composite(c)) = runner.resolve(name) {
             if c.parallel {

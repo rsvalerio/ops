@@ -224,11 +224,10 @@ mod build_display_map_tests {
         );
         runner.register_commands(vec![(
             "ext_cmd".into(),
-            ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec {
-                program: "echo".into(),
-                args: vec!["ext".into()],
-                ..Default::default()
-            }),
+            ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec::new(
+                "echo",
+                ["ext"],
+            )),
         )]);
 
         assert_eq!(display_cmd_for(&runner, "ext_cmd"), "echo ext");
@@ -320,14 +319,9 @@ mod run_command_dry_run_tests {
             .exec("test", "cargo", &["test"])
             .command(
                 "verify",
-                ops_core::config::CommandSpec::Composite(ops_core::config::CompositeCommandSpec {
-                    commands: vec!["build".into(), "test".into()],
-                    parallel: false,
-                    fail_fast: true,
-                    help: None,
-                    aliases: Vec::new(),
-                    category: None,
-                }),
+                ops_core::config::CommandSpec::Composite(
+                    ops_core::config::CompositeCommandSpec::new(["build", "test"]),
+                ),
             )
             .build();
         ops_runner::command::CommandRunner::new(config, PathBuf::from("."))
@@ -373,11 +367,8 @@ mod run_command_dry_run_tests {
     fn dry_run_shows_env_vars() {
         let mut env = std::collections::HashMap::new();
         env.insert("MY_VAR".to_string(), "my_value".to_string());
-        let spec = ops_core::config::ExecCommandSpec {
-            program: "echo".to_string(),
-            env,
-            ..Default::default()
-        };
+        let mut spec = ops_core::config::ExecCommandSpec::new("echo", Vec::<String>::new());
+        spec.env = env;
         let config = TestConfigBuilder::new()
             .command("with_env", ops_core::config::CommandSpec::Exec(spec))
             .build();
@@ -395,11 +386,8 @@ mod run_command_dry_run_tests {
         let mut env = std::collections::HashMap::new();
         env.insert("API_KEY".to_string(), "secret123".to_string());
         env.insert("PASSWORD".to_string(), "hunter2".to_string());
-        let spec = ops_core::config::ExecCommandSpec {
-            program: "echo".to_string(),
-            env,
-            ..Default::default()
-        };
+        let mut spec = ops_core::config::ExecCommandSpec::new("echo", Vec::<String>::new());
+        spec.env = env;
         let config = TestConfigBuilder::new()
             .command("with_secrets", ops_core::config::CommandSpec::Exec(spec))
             .build();
