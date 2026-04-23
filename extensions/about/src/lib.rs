@@ -42,11 +42,9 @@ ops_extension::impl_extension! {
     register_commands: |_self, registry| {
         registry.insert(
             "about".into(),
-            ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec {
-                program: "ops".to_string(),
-                args: vec!["about".to_string()],
-                ..Default::default()
-            }),
+            ops_core::config::CommandSpec::Exec(
+                ops_core::config::ExecCommandSpec::new("ops", ["about"]),
+            ),
         );
     },
     register_data_providers: |_self, _registry| {},
@@ -176,13 +174,7 @@ fn build_fallback_identity(cwd: &std::path::Path) -> ProjectIdentity {
         .map(|s| capitalize(s.as_str()))
         .unwrap_or_else(|| "Generic".to_string());
 
-    ProjectIdentity {
-        name,
-        stack_label,
-        project_path: cwd.display().to_string(),
-        module_label: "modules".to_string(),
-        ..Default::default()
-    }
+    ProjectIdentity::new(name, stack_label, cwd.display().to_string(), "modules")
 }
 
 #[cfg(test)]

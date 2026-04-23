@@ -3,7 +3,7 @@
 //! Calls the `project_units` data provider registered by the active stack and
 //! renders each returned [`ProjectUnit`] as a card.
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 
 use ops_core::project_identity::ProjectUnit;
 use ops_extension::{Context, DataProviderError, DataRegistry};
@@ -13,6 +13,13 @@ use crate::cards::{layout_cards_in_grid, render_card};
 pub const PROJECT_UNITS_PROVIDER: &str = "project_units";
 
 pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
+    run_about_units_with(data_registry, &mut std::io::stdout())
+}
+
+pub fn run_about_units_with(
+    data_registry: &DataRegistry,
+    writer: &mut dyn Write,
+) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let config = std::sync::Arc::new(ops_core::config::Config::default());
     let mut ctx = Context::new(config, cwd);
@@ -34,7 +41,7 @@ pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
     };
 
     if units.is_empty() {
-        println!("No project units found.");
+        writeln!(writer, "No project units found.")?;
         return Ok(());
     }
 
@@ -45,7 +52,7 @@ pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
 
     let mut lines = vec![String::new()];
     lines.extend(layout_cards_in_grid(&cards));
-    println!("{}", lines.join("\n"));
+    writeln!(writer, "{}", lines.join("\n"))?;
     Ok(())
 }
 

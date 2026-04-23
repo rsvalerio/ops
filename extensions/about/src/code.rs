@@ -3,6 +3,8 @@
 //! Reads language LOC and file counts from the `tokei_files` DuckDB view
 //! (populated by the tokei data provider) and renders a table.
 
+use std::io::Write;
+
 use ops_core::table::{Cell, OpsTable};
 use ops_core::text::format_number;
 use ops_extension::{Context, DataRegistry};
@@ -120,13 +122,20 @@ pub fn format_language_stats_section(stats: Option<&[LanguageStat]>) -> Vec<Stri
 }
 
 pub fn run_about_code(data_registry: &DataRegistry) -> anyhow::Result<()> {
+    run_about_code_with(data_registry, &mut std::io::stdout())
+}
+
+pub fn run_about_code_with(
+    data_registry: &DataRegistry,
+    writer: &mut dyn Write,
+) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let config = std::sync::Arc::new(ops_core::config::Config::default());
     let mut ctx = Context::new(config, cwd);
 
     let stats = query_language_stats(&mut ctx, data_registry);
     let lines = format_language_stats_section(stats.as_deref());
-    println!("{}", lines.join("\n"));
+    writeln!(writer, "{}", lines.join("\n"))?;
     Ok(())
 }
 

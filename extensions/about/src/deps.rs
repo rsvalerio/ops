@@ -2,7 +2,7 @@
 //!
 //! Calls the `project_dependencies` data provider registered by the active stack.
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 
 use ops_core::project_identity::ProjectDependencies;
 use ops_core::style::{cyan, dim};
@@ -13,6 +13,13 @@ use crate::text_util::tty_style;
 pub const PROJECT_DEPENDENCIES_PROVIDER: &str = "project_dependencies";
 
 pub fn run_about_deps(data_registry: &DataRegistry) -> anyhow::Result<()> {
+    run_about_deps_with(data_registry, &mut std::io::stdout())
+}
+
+pub fn run_about_deps_with(
+    data_registry: &DataRegistry,
+    writer: &mut dyn Write,
+) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let config = std::sync::Arc::new(ops_core::config::Config::default());
     let mut ctx = Context::new(config, cwd);
@@ -32,10 +39,10 @@ pub fn run_about_deps(data_registry: &DataRegistry) -> anyhow::Result<()> {
 
     let lines = format_dependencies_section(&deps);
     if lines.is_empty() {
-        println!("No dependency data available.");
+        writeln!(writer, "No dependency data available.")?;
         return Ok(());
     }
-    println!("{}", lines.join("\n"));
+    writeln!(writer, "{}", lines.join("\n"))?;
     Ok(())
 }
 

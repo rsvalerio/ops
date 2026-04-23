@@ -6,10 +6,14 @@ use ops_core::output::display_width;
 pub use ops_core::text::format_number;
 
 pub fn get_terminal_width() -> usize {
-    std::env::var("COLUMNS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(120)
+    parse_terminal_width(std::env::var("COLUMNS").ok().as_deref())
+}
+
+/// Parse a COLUMNS-style width source. Extracted from `get_terminal_width`
+/// so tests can exercise the parser without mutating process-global env,
+/// which otherwise races with any parallel test reading COLUMNS.
+pub fn parse_terminal_width(raw: Option<&str>) -> usize {
+    raw.and_then(|s| s.parse().ok()).unwrap_or(120)
 }
 
 pub fn char_display_width(c: char) -> usize {
@@ -205,14 +209,18 @@ mod tests {
     }
 
     #[test]
-    fn get_terminal_width_default() {
-        let saved = std::env::var("COLUMNS").ok();
-        std::env::remove_var("COLUMNS");
-        let width = get_terminal_width();
-        assert_eq!(width, 120);
-        if let Some(v) = saved {
-            std::env::set_var("COLUMNS", v);
-        }
+    fn parse_terminal_width_default_when_unset() {
+        assert_eq!(parse_terminal_width(None), 120);
+    }
+
+    #[test]
+    fn parse_terminal_width_default_when_unparseable() {
+        assert_eq!(parse_terminal_width(Some("not-a-number")), 120);
+    }
+
+    #[test]
+    fn parse_terminal_width_uses_explicit_value() {
+        assert_eq!(parse_terminal_width(Some("80")), 80);
     }
 
     #[test]

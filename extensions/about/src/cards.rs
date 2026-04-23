@@ -15,8 +15,6 @@ use crate::text_util::{
 pub struct CardLayoutConfig;
 
 impl CardLayoutConfig {
-    /// Width of the header box in characters.
-    pub const BOX_WIDTH: usize = 100;
     /// Width of each unit card in characters.
     const CARD_WIDTH: usize = 32;
     /// Maximum lines for description in a card.
@@ -137,11 +135,14 @@ pub fn render_card(unit: &ProjectUnit, is_tty: bool) -> Vec<String> {
 }
 
 pub fn layout_cards_in_grid(cards: &[Vec<String>]) -> Vec<String> {
+    layout_cards_in_grid_with_width(cards, get_terminal_width())
+}
+
+pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize) -> Vec<String> {
     if cards.is_empty() {
         return vec![];
     }
 
-    let term_width = get_terminal_width();
     let cards_per_row = if term_width >= CardLayoutConfig::MIN_WIDTH_3_CARDS {
         3
     } else if term_width >= CardLayoutConfig::MIN_WIDTH_2_CARDS {

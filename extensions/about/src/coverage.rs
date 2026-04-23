@@ -2,7 +2,7 @@
 //!
 //! Calls the `project_coverage` data provider registered by the active stack.
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 
 use ops_core::project_identity::ProjectCoverage;
 use ops_core::style::green;
@@ -49,6 +49,13 @@ pub fn coverage_color(pct: f64) -> Color {
 }
 
 pub fn run_about_coverage(data_registry: &DataRegistry) -> anyhow::Result<()> {
+    run_about_coverage_with(data_registry, &mut std::io::stdout())
+}
+
+pub fn run_about_coverage_with(
+    data_registry: &DataRegistry,
+    writer: &mut dyn Write,
+) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let config = std::sync::Arc::new(ops_core::config::Config::default());
     let mut ctx = Context::new(config, cwd);
@@ -71,12 +78,12 @@ pub fn run_about_coverage(data_registry: &DataRegistry) -> anyhow::Result<()> {
     };
 
     if coverage.total.lines_count == 0 {
-        println!("No coverage data available.");
+        writeln!(writer, "No coverage data available.")?;
         return Ok(());
     }
 
     let lines = format_coverage_section(&coverage);
-    println!("{}", lines.join("\n"));
+    writeln!(writer, "{}", lines.join("\n"))?;
     Ok(())
 }
 
@@ -181,10 +188,36 @@ mod tests {
                 },
             }],
         };
-        let out = format_coverage_section(&cov).join("\n");
-        assert!(out.contains("85.0%"));
-        assert!(out.contains("total:"));
-        assert!(out.contains("core"));
+        let lines = format_coverage_section(&cov);
+        // Structural contract, not substring: one blank, N table lines, one blank, total.
+        assert!(lines.len() >= 4, "got lines: {lines:?}");
+        assert!(lines.first().unwrap().is_empty(), "leading blank");
+        // The last line is the project total in a fixed format.
+        let total = lines.last().unwrap();
+        assert_eq!(
+            total,
+            &format!(
+                "    {} total: 85.0% lines (850 / 1,000)",
+                coverage_icon(85.0)
+            ),
+            "total line format changed: {total}"
+        );
+        // The blank separator sits immediately before the total.
+        assert!(
+            lines[lines.len() - 2].is_empty(),
+            "blank before total: {:?}",
+            lines
+        );
+        // Exactly one table block between the leading blank and the pre-total blank.
+        let table_block: Vec<&String> = lines[1..lines.len() - 2].iter().collect();
+        assert!(
+            table_block.iter().all(|l| l.starts_with("    ")),
+            "every table line is indented with 4 spaces: {table_block:?}"
+        );
+        assert!(
+            table_block.iter().any(|l| l.contains("core")),
+            "unit name present in table: {table_block:?}"
+        );
     }
 
     #[test]
@@ -212,8 +245,24 @@ mod tests {
                 },
             ],
         };
-        let out = format_coverage_section(&cov).join("\n");
-        assert!(out.contains("active"));
-        assert!(!out.contains("empty"));
+        let lines = format_coverage_section(&cov);
+        // Same structural contract as the units test: active unit appears
+        // exactly once in the table block, empty unit is filtered out, and
+        // the total line matches the pinned format.
+        let total = lines.last().expect("has total line");
+        assert_eq!(
+            total,
+            &format!("    {} total: 80.0% lines (80 / 100)", coverage_icon(80.0))
+        );
+        let table_block = &lines[1..lines.len() - 2];
+        let active_hits = table_block.iter().filter(|l| l.contains("active")).count();
+        assert_eq!(
+            active_hits, 1,
+            "active appears once in table: {table_block:?}"
+        );
+        assert!(
+            !table_block.iter().any(|l| l.contains("empty")),
+            "empty unit filtered out: {table_block:?}"
+        );
     }
 }
