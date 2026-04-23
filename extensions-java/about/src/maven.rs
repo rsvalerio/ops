@@ -24,29 +24,24 @@ impl DataProvider for MavenIdentityProvider {
         let pom = parse_pom_xml(&cwd)
             .ok_or_else(|| DataProviderError::computation_failed("could not parse pom.xml"))?;
 
-        let identity = ProjectIdentity {
-            name: pom
-                .artifact_id
-                .unwrap_or_else(|| dir_name(&cwd).to_string()),
-            version: pom.version,
-            description: pom.description,
-            stack_label: "Java".to_string(),
-            stack_detail: Some("Maven".to_string()),
-            license: pom.license,
-            project_path: cwd.display().to_string(),
-            module_count: if pom.modules.is_empty() {
-                None
-            } else {
-                Some(pom.modules.len())
-            },
-            module_label: "modules".to_string(),
-            authors: pom.developers,
-            repository: pom
-                .scm_url
-                .filter(|s| !s.is_empty())
-                .or_else(|| ops_git::GitInfo::collect(&cwd).remote_url),
-            ..Default::default()
+        let name = pom
+            .artifact_id
+            .unwrap_or_else(|| dir_name(&cwd).to_string());
+        let mut identity = ProjectIdentity::new(name, "Java", cwd.display().to_string(), "modules");
+        identity.version = pom.version;
+        identity.description = pom.description;
+        identity.stack_detail = Some("Maven".to_string());
+        identity.license = pom.license;
+        identity.module_count = if pom.modules.is_empty() {
+            None
+        } else {
+            Some(pom.modules.len())
         };
+        identity.authors = pom.developers;
+        identity.repository = pom
+            .scm_url
+            .filter(|s| !s.is_empty())
+            .or_else(|| ops_git::GitInfo::collect(&cwd).remote_url);
 
         serde_json::to_value(&identity).map_err(DataProviderError::from)
     }

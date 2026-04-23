@@ -39,18 +39,13 @@ impl DataProvider for GradleIdentityProvider {
         let _ = group;
         let repository = ops_git::GitInfo::collect(&cwd).remote_url;
 
-        let identity = ProjectIdentity {
-            name,
-            version,
-            description,
-            stack_label: "Java".to_string(),
-            stack_detail: Some("Gradle".to_string()),
-            project_path: cwd.display().to_string(),
-            module_count: subproject_count.filter(|&c| c > 0),
-            module_label: "subprojects".to_string(),
-            repository,
-            ..Default::default()
-        };
+        let mut identity =
+            ProjectIdentity::new(name, "Java", cwd.display().to_string(), "subprojects");
+        identity.version = version;
+        identity.description = description;
+        identity.stack_detail = Some("Gradle".to_string());
+        identity.module_count = subproject_count.filter(|&c| c > 0);
+        identity.repository = repository;
 
         serde_json::to_value(&identity).map_err(DataProviderError::from)
     }
