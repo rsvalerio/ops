@@ -1,10 +1,8 @@
 //! Run-before-commit hook extension: install and manage git pre-commit hooks.
 
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use ops_extension::ExtensionType;
-use ops_hook_common::HookConfig;
 
 pub const NAME: &str = "run-before-commit";
 pub const DESCRIPTION: &str = "Setup git pre-commit hook to run an ops command of your choice";
@@ -31,60 +29,42 @@ const HOOK_SCRIPT: &str = "#!/usr/bin/env bash\nexec ops run-before-commit\n";
 /// Environment variable that skips the run-before-commit check when set to "1".
 pub const SKIP_ENV_VAR: &str = "SKIP_OPS_RUN_BEFORE_COMMIT";
 
-/// Hook configuration for the run-before-commit extension.
-pub fn hook_config() -> HookConfig {
-    HookConfig {
-        name: NAME,
-        hook_filename: "pre-commit",
-        hook_script: HOOK_SCRIPT,
-        skip_env_var: SKIP_ENV_VAR,
-        legacy_markers: &[
-            "ops run-before-commit",
-            "ops before-commit",
-            "ops pre-commit",
-        ],
-        command_help: "Run run-before-commit checks before committing",
-    }
-}
-
-/// Returns `true` if `SKIP_OPS_RUN_BEFORE_COMMIT=1` is set.
-pub fn should_skip() -> bool {
-    ops_hook_common::should_skip(&hook_config())
+ops_hook_common::impl_hook_wrappers! {
+    name: NAME,
+    hook_filename: "pre-commit",
+    hook_script: HOOK_SCRIPT,
+    skip_env_var: SKIP_ENV_VAR,
+    legacy_markers: &[
+        "ops run-before-commit",
+        "ops before-commit",
+        "ops pre-commit",
+    ],
+    command_help: "Run run-before-commit checks before committing",
 }
 
 /// Returns `true` if there are any staged files in the git index.
 pub fn has_staged_files() -> anyhow::Result<bool> {
     use anyhow::Context;
-    let output = std::process::Command::new("git")
+    let cwd = std::env::current_dir().context("failed to read current directory")?;
+    has_staged_files_with("git", &cwd)
+}
+
+fn has_staged_files_with(program: &str, dir: &Path) -> anyhow::Result<bool> {
+    use anyhow::Context;
+    let output = std::process::Command::new(program)
+        .current_dir(dir)
         .args(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
         .output()
-        .context("failed to run git diff --cached")?;
+        .with_context(|| format!("failed to run `{program} diff --cached`"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "`{program} diff --cached` failed (exit {:?}): {}",
+            output.status.code(),
+            stderr.trim()
+        );
+    }
     Ok(!output.stdout.is_empty())
-}
-
-/// Find the `.git` directory by walking up from the given path.
-pub fn find_git_dir(from: &Path) -> Option<PathBuf> {
-    ops_hook_common::find_git_dir(from)
-}
-
-/// Install the git pre-commit hook.
-///
-/// Returns the path to the created hook file.
-pub fn install_hook(git_dir: &Path, w: &mut dyn Write) -> anyhow::Result<PathBuf> {
-    ops_hook_common::install_hook(&hook_config(), git_dir, w)
-}
-
-/// Ensure a `[commands.run-before-commit]` entry exists in `.ops.toml`.
-///
-/// If the config already has a `run-before-commit` command, does nothing.
-/// Otherwise, adds a composite command that runs the given `selected_commands`.
-/// If `selected_commands` is empty, skips writing the entry.
-pub fn ensure_config_command(
-    config_dir: &Path,
-    selected_commands: &[String],
-    w: &mut dyn Write,
-) -> anyhow::Result<()> {
-    ops_hook_common::ensure_config_command(&hook_config(), config_dir, selected_commands, w)
 }
 
 #[cfg(test)]
@@ -106,9 +86,34 @@ mod tests {
     // -- should_skip --
 
     #[test]
+    #[serial_test::serial]
     fn should_skip_returns_false_by_default() {
-        std::env::remove_var(SKIP_ENV_VAR);
+        let _guard = EnvGuard::remove(SKIP_ENV_VAR);
         assert!(!should_skip());
+    }
+
+    /// RAII guard that restores an env var to its previous value on drop.
+    /// Pair with `#[serial_test::serial]` to prevent races with other env-mutating tests.
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn remove(key: &'static str) -> Self {
+            let original = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(v) => std::env::set_var(self.key, v),
+                None => std::env::remove_var(self.key),
+            }
+        }
     }
 
     // -- install_hook: wrapper-specific legacy markers --
@@ -153,6 +158,69 @@ mod tests {
 
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("Updating outdated"));
+    }
+
+    // -- has_staged_files --
+
+    fn init_repo(dir: &Path) {
+        let status = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(["init", "-q", "-b", "main"])
+            .status()
+            .expect("git init");
+        assert!(status.success());
+        let status = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(["config", "user.email", "test@example.com"])
+            .status()
+            .expect("git config email");
+        assert!(status.success());
+        let status = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(["config", "user.name", "Test"])
+            .status()
+            .expect("git config name");
+        assert!(status.success());
+    }
+
+    #[test]
+    fn has_staged_files_false_when_index_empty() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        init_repo(dir.path());
+        assert!(!has_staged_files_with("git", dir.path()).unwrap());
+    }
+
+    #[test]
+    fn has_staged_files_true_when_file_staged() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        init_repo(dir.path());
+        std::fs::write(dir.path().join("a.txt"), "hi").unwrap();
+        let status = std::process::Command::new("git")
+            .current_dir(dir.path())
+            .args(["add", "a.txt"])
+            .status()
+            .expect("git add");
+        assert!(status.success());
+        assert!(has_staged_files_with("git", dir.path()).unwrap());
+    }
+
+    #[test]
+    fn has_staged_files_errors_outside_git_repo() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let err = has_staged_files_with("git", dir.path()).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("not a git repository") || msg.contains("failed"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn has_staged_files_errors_when_git_binary_missing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let err = has_staged_files_with("git-nonexistent-binary-xyzzy", dir.path()).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("failed to run"), "unexpected error: {msg}");
     }
 
     // -- Extension metadata --

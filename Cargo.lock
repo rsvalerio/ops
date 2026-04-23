@@ -2237,6 +2237,7 @@ dependencies = [
  "linkme",
  "ops-core",
  "ops-extension",
+ "ops-hook-common",
  "serde",
  "serde_json",
  "tempfile",
@@ -2247,6 +2248,7 @@ name = "ops-hook-common"
 version = "0.18.1"
 dependencies = [
  "anyhow",
+ "serial_test",
  "tempfile",
  "toml_edit 0.25.11+spec-1.1.0",
 ]
@@ -2274,6 +2276,7 @@ dependencies = [
  "linkme",
  "ops-extension",
  "ops-hook-common",
+ "serial_test",
  "tempfile",
 ]
 
@@ -2285,6 +2288,7 @@ dependencies = [
  "linkme",
  "ops-extension",
  "ops-hook-common",
+ "serial_test",
  "tempfile",
 ]
 
