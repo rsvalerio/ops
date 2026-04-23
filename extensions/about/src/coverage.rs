@@ -54,9 +54,15 @@ pub fn run_about_coverage(data_registry: &DataRegistry) -> anyhow::Result<()> {
     let mut ctx = Context::new(config, cwd);
 
     // Warm the providers stacks may rely on for coverage + unit metadata.
-    let _ = ctx.get_or_provide("duckdb", data_registry);
-    let _ = ctx.get_or_provide("coverage", data_registry);
-    let _ = ctx.get_or_provide("cargo_toml", data_registry);
+    // NotFound is expected when a provider is not registered for the current
+    // stack — silently skip it. Anything else is a real warm-up failure and
+    // should be visible at debug level for diagnosis.
+    for provider in ["duckdb", "coverage", "cargo_toml"] {
+        match ctx.get_or_provide(provider, data_registry) {
+            Ok(_) | Err(DataProviderError::NotFound(_)) => {}
+            Err(e) => tracing::debug!("about/coverage: warm-up {provider} failed: {e:#}"),
+        }
+    }
 
     let coverage = match ctx.get_or_provide(PROJECT_COVERAGE_PROVIDER, data_registry) {
         Ok(v) => serde_json::from_value::<ProjectCoverage>((*v).clone())?,

@@ -230,26 +230,14 @@ impl DataProvider for CargoUpdateProvider {
         DataProviderSchema {
             description: "Available dependency updates from cargo update --dry-run",
             fields: vec![
-                DataField {
-                    name: "entries",
-                    type_name: "Vec<UpdateEntry>",
-                    description: "List of dependency update/add/remove entries",
-                },
-                DataField {
-                    name: "update_count",
-                    type_name: "usize",
-                    description: "Number of updates available",
-                },
-                DataField {
-                    name: "add_count",
-                    type_name: "usize",
-                    description: "Number of new dependencies to add",
-                },
-                DataField {
-                    name: "remove_count",
-                    type_name: "usize",
-                    description: "Number of dependencies to remove",
-                },
+                DataField::new(
+                    "entries",
+                    "Vec<UpdateEntry>",
+                    "List of dependency update/add/remove entries",
+                ),
+                DataField::new("update_count", "usize", "Number of updates available"),
+                DataField::new("add_count", "usize", "Number of new dependencies to add"),
+                DataField::new("remove_count", "usize", "Number of dependencies to remove"),
             ],
         }
     }

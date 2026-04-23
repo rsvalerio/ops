@@ -28,7 +28,19 @@ pub fn query_language_stats(
     }
 
     let db = ops_duckdb::get_db(ctx)?;
-    let conn = db.lock().ok()?;
+    let conn = match db.lock() {
+        Ok(c) => c,
+        Err(e) => {
+            // Mutex poisoning is a correctness failure (a previous holder
+            // panicked mid-transaction); surface at error so operators do
+            // not miss it. See TASK-0262 / TASK-0196.
+            tracing::error!(
+                db_path = %db.path().display(),
+                "language_stats: db lock poisoned: {e}"
+            );
+            return None;
+        }
+    };
 
     let mut stmt = match conn.prepare(
         "SELECT language, SUM(code) as loc, COUNT(*) as file_count \
@@ -41,17 +53,35 @@ pub fn query_language_stats(
         }
     };
 
-    let rows = stmt
-        .query_map([], |row| {
-            Ok(LanguageStat {
-                language: row.get(0)?,
-                loc: row.get(1)?,
-                file_count: row.get(2)?,
-            })
+    let rows = match stmt.query_map([], |row| {
+        Ok(LanguageStat {
+            language: row.get(0)?,
+            loc: row.get(1)?,
+            file_count: row.get(2)?,
         })
-        .ok()?;
+    }) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::debug!("language_stats: query_map failed: {e:#}");
+            return None;
+        }
+    };
 
-    let stats: Vec<LanguageStat> = rows.filter_map(|r| r.ok()).collect();
+    let mut stats = Vec::new();
+    for row in rows {
+        match row {
+            Ok(s) => stats.push(s),
+            Err(e) => {
+                tracing::warn!("language_stats: row decode failed: {e:#}");
+                return None;
+            }
+        }
+    }
+    // CONC-1: scope the critical section explicitly. `stats` owns its data;
+    // the lock is no longer needed for empty-check / return.
+    drop(stmt);
+    drop(conn);
+
     if stats.is_empty() {
         None
     } else {
@@ -138,6 +168,37 @@ mod tests {
         }];
         let output = format_language_stats_section(Some(&stats)).join("\n");
         assert!(output.contains("100.0%"));
+    }
+
+    /// Regression for ERR-4: a poisoned DuckDb mutex must produce graceful
+    /// `None` (not a panic) and exercise the warn-and-continue path. We
+    /// verify behavior; tracing assertion would require pulling in
+    /// `tracing-subscriber` as a dev-dep, which we deliberately avoid for a
+    /// single test (see also TASK-0154).
+    #[test]
+    fn query_language_stats_returns_none_when_db_lock_poisoned() {
+        use ops_core::config::Config;
+        use ops_extension::{Context, DataRegistry};
+        use std::sync::Arc;
+
+        let db = Arc::new(ops_duckdb::DuckDb::open_in_memory().expect("db"));
+        ops_duckdb::init_schema(&db).expect("init_schema");
+
+        // Poison the inner Mutex by panicking inside a guard.
+        let poisoner = Arc::clone(&db);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.lock().expect("lock");
+            panic!("intentional poison");
+        })
+        .join();
+
+        // Lock now poisoned — query path should log + return None.
+        let config = Arc::new(Config::default());
+        let mut ctx = Context::new(config, std::path::PathBuf::from("/tmp"));
+        ctx.db = Some(db);
+
+        let registry = DataRegistry::new();
+        assert!(query_language_stats(&mut ctx, &registry).is_none());
     }
 
     #[test]

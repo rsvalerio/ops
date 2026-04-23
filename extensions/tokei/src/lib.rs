@@ -8,7 +8,7 @@ pub mod views;
 
 pub use ingestor::TokeiIngestor;
 
-use ops_duckdb::{init_schema, DataIngestor, DuckDb};
+use ops_duckdb::DuckDb;
 use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
 };
@@ -56,36 +56,16 @@ impl DataProvider for TokeiProvider {
         DataProviderSchema {
             description: "Code statistics from tokei (lines of code, comments, blanks per file)",
             fields: vec![
-                DataField {
-                    name: "language",
-                    type_name: "str",
-                    description: "Language name (e.g., Rust, Python, JavaScript)",
-                },
-                DataField {
-                    name: "file",
-                    type_name: "str",
-                    description: "File path relative to workspace root",
-                },
-                DataField {
-                    name: "code",
-                    type_name: "int",
-                    description: "Lines of code",
-                },
-                DataField {
-                    name: "comments",
-                    type_name: "int",
-                    description: "Comment lines",
-                },
-                DataField {
-                    name: "blanks",
-                    type_name: "int",
-                    description: "Blank lines",
-                },
-                DataField {
-                    name: "lines",
-                    type_name: "int",
-                    description: "Total lines (code + comments + blanks)",
-                },
+                DataField::new(
+                    "language",
+                    "str",
+                    "Language name (e.g., Rust, Python, JavaScript)",
+                ),
+                DataField::new("file", "str", "File path relative to workspace root"),
+                DataField::new("code", "int", "Lines of code"),
+                DataField::new("comments", "int", "Comment lines"),
+                DataField::new("blanks", "int", "Blank lines"),
+                DataField::new("lines", "int", "Total lines (code + comments + blanks)"),
             ],
         }
     }
@@ -112,48 +92,62 @@ fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyh
     ops_duckdb::sql::provide_via_ingestor(db, ctx, "tokei_files", &TokeiIngestor, query_tokei_files)
 }
 
+/// Directories excluded from `cargo`-style projects' tokei scan.
+///
+/// Build artifacts and VCS directories produce nonsense LOC counts and slow
+/// the scan. Tokei's defaults already skip vendored deps, but it does not
+/// skip e.g. `target/` for Rust or `node_modules` for JS unless asked.
+pub const TOKEI_DEFAULT_EXCLUDED: &[&str] = &[
+    "target",
+    ".git",
+    "node_modules",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+];
+
 pub fn collect_tokei(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
     let mut languages = Languages::new();
     let tokei_config = TokeiConfig::default();
-    let excluded: &[&str] = &[];
-    languages.get_statistics(&[working_dir], excluded, &tokei_config);
+    languages.get_statistics(&[working_dir], TOKEI_DEFAULT_EXCLUDED, &tokei_config);
 
     Ok(flatten_tokei_to_json(&languages, working_dir))
 }
 
 pub fn flatten_tokei_to_json(languages: &Languages, workspace_root: &Path) -> serde_json::Value {
-    let mut records = Vec::new();
-
-    for (lang_type, language) in languages.iter() {
-        let lang_name = lang_type.name();
-        for report in &language.reports {
-            let file_path = report
-                .name
-                .strip_prefix(workspace_root)
-                .unwrap_or(&report.name);
-            let file_str = file_path.to_string_lossy();
-            let stats = &report.stats;
-            records.push(serde_json::json!({
-                "language": lang_name,
-                "file": file_str,
-                "code": stats.code,
-                "comments": stats.comments,
-                "blanks": stats.blanks,
-                "lines": stats.lines(),
-            }));
-        }
-    }
-
+    let records: Vec<serde_json::Value> = languages
+        .iter()
+        .flat_map(|(lang_type, language)| {
+            language
+                .reports
+                .iter()
+                .map(move |report| report_to_json(lang_type.name(), report, workspace_root))
+        })
+        .collect();
     serde_json::Value::Array(records)
 }
 
-pub fn load_tokei(data_dir: &Path, db: &DuckDb) -> Result<(), anyhow::Error> {
-    let json_path = data_dir.join("tokei_files.json");
-    if !json_path.exists() {
-        anyhow::bail!("tokei_files.json not found. Run collect first.");
-    }
-    init_schema(db)?;
-    let ingestor = TokeiIngestor;
-    ingestor.load(data_dir, db)?;
-    Ok(())
+fn report_to_json(
+    language: &str,
+    report: &tokei::Report,
+    workspace_root: &Path,
+) -> serde_json::Value {
+    let file_str = relativize_path(&report.name, workspace_root);
+    let stats = &report.stats;
+    serde_json::json!({
+        "language": language,
+        "file": file_str,
+        "code": stats.code,
+        "comments": stats.comments,
+        "blanks": stats.blanks,
+        "lines": stats.lines(),
+    })
+}
+
+fn relativize_path(path: &Path, workspace_root: &Path) -> String {
+    path.strip_prefix(workspace_root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
 }

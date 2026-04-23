@@ -19,8 +19,13 @@ pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
 
     // Warm duckdb + tokei so the stack provider can enrich Rust-specific
     // fields (e.g. dep_count) and so we can fill loc/file_count below.
-    let _ = ctx.get_or_provide("duckdb", data_registry);
-    let _ = ctx.get_or_provide("tokei", data_registry);
+    // NotFound is expected per stack; anything else is logged for debugging.
+    for provider in ["duckdb", "tokei"] {
+        match ctx.get_or_provide(provider, data_registry) {
+            Ok(_) | Err(DataProviderError::NotFound(_)) => {}
+            Err(e) => tracing::debug!("about/units: warm-up {provider} failed: {e:#}"),
+        }
+    }
 
     let mut units = match ctx.get_or_provide(PROJECT_UNITS_PROVIDER, data_registry) {
         Ok(value) => serde_json::from_value::<Vec<ProjectUnit>>((*value).clone())?,
@@ -57,10 +62,28 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
         .filter(|p| !p.is_empty() && *p != ".")
         .collect();
 
-    let locs = ops_duckdb::sql::query_crate_loc(db, &per_crate_paths).unwrap_or_default();
-    let files = ops_duckdb::sql::query_crate_file_count(db, &per_crate_paths).unwrap_or_default();
-    let project_loc = ops_duckdb::sql::query_project_loc(db).ok();
-    let project_files = ops_duckdb::sql::query_project_file_count(db).ok();
+    let locs = ops_duckdb::sql::query_crate_loc(db, &per_crate_paths).unwrap_or_else(|e| {
+        tracing::warn!("about/units: query_crate_loc failed: {e:#}");
+        Default::default()
+    });
+    let files = ops_duckdb::sql::query_crate_file_count(db, &per_crate_paths).unwrap_or_else(|e| {
+        tracing::warn!("about/units: query_crate_file_count failed: {e:#}");
+        Default::default()
+    });
+    let project_loc = match ops_duckdb::sql::query_project_loc(db) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            tracing::warn!("about/units: query_project_loc failed: {e:#}");
+            None
+        }
+    };
+    let project_files = match ops_duckdb::sql::query_project_file_count(db) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            tracing::warn!("about/units: query_project_file_count failed: {e:#}");
+            None
+        }
+    };
 
     for unit in units.iter_mut() {
         let is_root = unit.path.is_empty() || unit.path == ".";

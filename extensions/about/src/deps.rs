@@ -17,8 +17,12 @@ pub fn run_about_deps(data_registry: &DataRegistry) -> anyhow::Result<()> {
     let config = std::sync::Arc::new(ops_core::config::Config::default());
     let mut ctx = Context::new(config, cwd);
 
-    let _ = ctx.get_or_provide("duckdb", data_registry);
-    let _ = ctx.get_or_provide("metadata", data_registry);
+    for provider in ["duckdb", "metadata"] {
+        match ctx.get_or_provide(provider, data_registry) {
+            Ok(_) | Err(DataProviderError::NotFound(_)) => {}
+            Err(e) => tracing::debug!("about/deps: warm-up {provider} failed: {e:#}"),
+        }
+    }
 
     let deps = match ctx.get_or_provide(PROJECT_DEPENDENCIES_PROVIDER, data_registry) {
         Ok(v) => serde_json::from_value::<ProjectDependencies>((*v).clone())?,

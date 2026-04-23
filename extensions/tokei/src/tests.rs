@@ -36,17 +36,24 @@ fn tokei_provider_name() {
 }
 
 #[test]
-fn tokei_provider_returns_valid_json_on_real_project() {
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mut ctx = Context::test_context(manifest_dir);
+fn tokei_provider_returns_valid_json_on_canned_dir() {
+    // Deterministic: a fixed Rust file in a tempdir, independent of repo
+    // contents. Avoids scanning the whole crate at test time (TEST-17).
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("hello.rs"),
+        "// comment\nfn main() {\n    println!(\"hi\");\n}\n",
+    )
+    .expect("write source");
+
+    let mut ctx = Context::test_context(dir.path().to_path_buf());
     let value = TokeiProvider
         .provide(&mut ctx)
-        .expect("tokei should succeed on this project");
+        .expect("tokei should succeed on tempdir");
     assert!(value.is_array(), "should return a JSON array");
     let arr = value.as_array().unwrap();
-    assert!(!arr.is_empty(), "should find some files in the project");
+    assert!(!arr.is_empty(), "should find the canned source file");
 
-    // Verify structure of first record
     let first = &arr[0];
     assert!(first.get("language").is_some());
     assert!(first.get("file").is_some());
@@ -54,6 +61,20 @@ fn tokei_provider_returns_valid_json_on_real_project() {
     assert!(first.get("comments").is_some());
     assert!(first.get("blanks").is_some());
     assert!(first.get("lines").is_some());
+}
+
+// Live workspace scan retained but ignored — kept for ad-hoc smoke testing
+// against the actual repo via `cargo test -- --ignored`.
+#[test]
+#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
+fn tokei_provider_returns_valid_json_on_real_project() {
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut ctx = Context::test_context(manifest_dir);
+    let value = TokeiProvider
+        .provide(&mut ctx)
+        .expect("tokei should succeed on this project");
+    assert!(value.is_array(), "should return a JSON array");
+    assert!(!value.as_array().unwrap().is_empty());
 }
 
 #[test]
@@ -82,6 +103,78 @@ fn tokei_provider_schema_has_fields() {
     assert!(names.contains(&"comments"));
     assert!(names.contains(&"blanks"));
     assert!(names.contains(&"lines"));
+}
+
+// -- exclusion tests --
+
+#[test]
+fn collect_tokei_excludes_target_and_git() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // Real source file
+    std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
+    std::fs::write(dir.path().join("src/lib.rs"), "fn a() {}\n").expect("write src");
+
+    // Build/VCS dirs that should be excluded
+    for excluded in &["target", ".git", "node_modules", ".venv"] {
+        let p = dir.path().join(excluded);
+        std::fs::create_dir_all(&p).expect("mkdir excluded");
+        std::fs::write(p.join("noise.rs"), "fn b() {}\nfn c() {}\nfn d() {}\n")
+            .expect("write noise");
+    }
+
+    let value = super::collect_tokei(dir.path()).expect("collect");
+    let arr = value.as_array().expect("array");
+
+    let files: Vec<String> = arr
+        .iter()
+        .map(|v| v["file"].as_str().unwrap_or("").to_string())
+        .collect();
+    assert!(files.iter().any(|f| f.ends_with("src/lib.rs")));
+    for excluded in &["target", ".git", "node_modules", ".venv"] {
+        assert!(
+            !files.iter().any(|f| f.contains(excluded)),
+            "expected {excluded}/ to be excluded; got files = {files:?}"
+        );
+    }
+}
+
+#[test]
+fn tokei_default_excluded_contains_expected_dirs() {
+    let exc: std::collections::HashSet<&str> =
+        super::TOKEI_DEFAULT_EXCLUDED.iter().copied().collect();
+    for needed in &["target", ".git", "node_modules", ".venv"] {
+        assert!(exc.contains(needed), "expected {needed} in defaults");
+    }
+}
+
+// -- per-report transformation tests --
+
+#[test]
+fn report_to_json_strips_workspace_prefix() {
+    let report = tokei::Report::new(std::path::PathBuf::from("/ws/root/src/lib.rs"));
+    let value = super::report_to_json("Rust", &report, std::path::Path::new("/ws/root"));
+    assert_eq!(value["language"], "Rust");
+    assert_eq!(value["file"], "src/lib.rs");
+}
+
+#[test]
+fn report_to_json_keeps_full_path_when_prefix_does_not_match() {
+    let report = tokei::Report::new(std::path::PathBuf::from("/elsewhere/file.rs"));
+    let value = super::report_to_json("Rust", &report, std::path::Path::new("/ws/root"));
+    assert_eq!(value["file"], "/elsewhere/file.rs");
+}
+
+#[test]
+fn report_to_json_includes_stats_fields() {
+    let mut report = tokei::Report::new(std::path::PathBuf::from("/ws/x.rs"));
+    report.stats.code = 10;
+    report.stats.comments = 3;
+    report.stats.blanks = 2;
+    let value = super::report_to_json("Rust", &report, std::path::Path::new("/ws"));
+    assert_eq!(value["code"], 10);
+    assert_eq!(value["comments"], 3);
+    assert_eq!(value["blanks"], 2);
+    assert_eq!(value["lines"], 15);
 }
 
 // -- flatten_tokei_to_json tests --
@@ -214,16 +307,23 @@ fn tokei_files_has_data_returns_false_for_empty_db() {
     assert!(!has, "empty db should have no tokei data");
 }
 
-// -- load_tokei tests --
+// -- TokeiIngestor::load tests --
+//
+// `load_tokei` was removed (DUP-1, TASK-0226): it duplicated the
+// `TokeiIngestor::load` path for no benefit. These tests now exercise the
+// ingestor directly, which is the single supported entry point.
 
 #[test]
-fn load_tokei_errors_when_json_missing() {
+fn ingestor_load_errors_when_json_missing() {
     let data_dir = tempfile::tempdir().expect("tempdir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
-    let err = load_tokei(data_dir.path(), &db).unwrap_err();
+    init_schema(&db).expect("init schema");
+    let ingestor = TokeiIngestor;
+    let err = ingestor.load(data_dir.path(), &db).unwrap_err();
+    let msg = err.to_string().to_lowercase();
     assert!(
-        err.to_string().contains("tokei_files.json not found"),
-        "expected missing-json error, got: {}",
+        msg.contains("not found") || msg.contains("no such file") || msg.contains("os error 2"),
+        "expected missing-file error, got: {}",
         err
     );
 }
@@ -233,6 +333,7 @@ fn load_tokei_succeeds_after_collect() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let data_dir = tempfile::tempdir().expect("tempdir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
+    init_schema(&db).expect("init schema");
 
     // Collect data first
     let ctx = Context::test_context(manifest_dir);
@@ -241,14 +342,23 @@ fn load_tokei_succeeds_after_collect() {
         .collect(&ctx, data_dir.path())
         .expect("collect should succeed");
 
-    // load_tokei should succeed
-    load_tokei(data_dir.path(), &db).expect("load_tokei should succeed");
+    ingestor
+        .load(data_dir.path(), &db)
+        .expect("ingestor.load should succeed");
 
     let conn = db.lock().expect("lock");
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM tokei_files", [], |row| row.get(0))
         .expect("count query");
     assert!(count > 0);
+}
+
+#[test]
+fn single_ingestion_entry_point() {
+    // Compile-time guarantee that `load_tokei` no longer exists; if a future
+    // refactor reintroduces it as a public symbol, this test will fail to
+    // compile after the corresponding line is uncommented.
+    // let _ = super::load_tokei; // intentionally commented out
 }
 
 // -- query_tokei_files tests --

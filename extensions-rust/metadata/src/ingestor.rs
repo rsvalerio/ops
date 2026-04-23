@@ -52,11 +52,13 @@ impl DataIngestor for MetadataIngestor {
         let checksum = ops_duckdb::sql::checksum_file(&data_dir.join("metadata.json"))?;
         upsert_data_source(
             db,
-            self.name(),
-            &workspace_root,
-            &path,
-            record_count,
-            &checksum,
+            &ops_duckdb::DataSourceMetadata {
+                source_name: self.name(),
+                workspace_root: &workspace_root,
+                source_path: &path,
+                record_count,
+                checksum: &checksum,
+            },
         )?;
 
         // Note: File is deleted after successful load. If the load fails before this point,

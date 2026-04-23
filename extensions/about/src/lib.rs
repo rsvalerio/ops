@@ -129,31 +129,35 @@ fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) 
         None => return,
     };
 
-    if let Ok(loc) = ops_duckdb::sql::query_project_loc(db) {
-        identity.loc = Some(loc);
+    match ops_duckdb::sql::query_project_loc(db) {
+        Ok(loc) => identity.loc = Some(loc),
+        Err(e) => tracing::warn!("about: query_project_loc failed: {e:#}"),
     }
-    if let Ok(files) = ops_duckdb::sql::query_project_file_count(db) {
-        if files > 0 {
-            identity.file_count = Some(files);
-        }
+    match ops_duckdb::sql::query_project_file_count(db) {
+        Ok(files) if files > 0 => identity.file_count = Some(files),
+        Ok(_) => {}
+        Err(e) => tracing::warn!("about: query_project_file_count failed: {e:#}"),
     }
     if identity.dependency_count.is_none() {
-        if let Ok(count) = ops_duckdb::sql::query_dependency_count(db) {
-            if count > 0 {
-                identity.dependency_count = Some(count);
-            }
+        match ops_duckdb::sql::query_dependency_count(db) {
+            Ok(count) if count > 0 => identity.dependency_count = Some(count),
+            Ok(_) => {}
+            Err(e) => tracing::warn!("about: query_dependency_count failed: {e:#}"),
         }
     }
     if identity.coverage_percent.is_none() {
-        if let Ok(cov) = ops_duckdb::sql::query_project_coverage(db) {
-            if cov.lines_count > 0 {
+        match ops_duckdb::sql::query_project_coverage(db) {
+            Ok(cov) if cov.lines_count > 0 => {
                 identity.coverage_percent = Some(cov.lines_percent);
             }
+            Ok(_) => {}
+            Err(e) => tracing::warn!("about: query_project_coverage failed: {e:#}"),
         }
     }
     if identity.languages.is_empty() {
-        if let Ok(langs) = ops_duckdb::sql::query_project_languages(db) {
-            identity.languages = langs;
+        match ops_duckdb::sql::query_project_languages(db) {
+            Ok(langs) => identity.languages = langs,
+            Err(e) => tracing::warn!("about: query_project_languages failed: {e:#}"),
         }
     }
 }
@@ -287,6 +291,29 @@ mod tests {
         };
         assert!(!opts_default.refresh);
         assert!(opts_default.visible_fields.is_none());
+    }
+
+    #[cfg(feature = "duckdb")]
+    #[test]
+    fn enrich_from_db_logs_and_defaults_when_tables_missing() {
+        // No tokei/coverage/metadata tables exist — every query returns 0 / empty
+        // and per-query failures are warned (we exercise the fallible branches).
+        let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory db");
+        ops_duckdb::init_schema(&db).expect("init_schema");
+
+        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
+        ctx.db = Some(std::sync::Arc::new(db));
+
+        let mut identity = ProjectIdentity::default();
+        enrich_from_db(&ctx, &mut identity);
+
+        // Defaults preserved when underlying tables are absent
+        assert_eq!(identity.loc, Some(0));
+        assert!(identity.file_count.is_none());
+        assert!(identity.dependency_count.is_none());
+        assert!(identity.coverage_percent.is_none());
+        assert!(identity.languages.is_empty());
     }
 
     #[cfg(not(feature = "duckdb"))]

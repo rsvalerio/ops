@@ -228,36 +228,32 @@ impl DataProvider for DepsProvider {
         DataProviderSchema {
             description: "Dependency health: upgrades, advisories, licenses, bans, sources",
             fields: vec![
-                DataField {
-                    name: "upgrades.compatible",
-                    type_name: "Vec<UpgradeEntry>",
-                    description: "Semver-compatible upgrades available",
-                },
-                DataField {
-                    name: "upgrades.incompatible",
-                    type_name: "Vec<UpgradeEntry>",
-                    description: "Breaking (incompatible) upgrades available",
-                },
-                DataField {
-                    name: "deny.advisories",
-                    type_name: "Vec<AdvisoryEntry>",
-                    description: "Security advisories from RustSec",
-                },
-                DataField {
-                    name: "deny.licenses",
-                    type_name: "Vec<LicenseEntry>",
-                    description: "License compliance issues",
-                },
-                DataField {
-                    name: "deny.bans",
-                    type_name: "Vec<BanEntry>",
-                    description: "Banned or duplicate crate issues",
-                },
-                DataField {
-                    name: "deny.sources",
-                    type_name: "Vec<SourceEntry>",
-                    description: "Source trust issues",
-                },
+                DataField::new(
+                    "upgrades.compatible",
+                    "Vec<UpgradeEntry>",
+                    "Semver-compatible upgrades available",
+                ),
+                DataField::new(
+                    "upgrades.incompatible",
+                    "Vec<UpgradeEntry>",
+                    "Breaking (incompatible) upgrades available",
+                ),
+                DataField::new(
+                    "deny.advisories",
+                    "Vec<AdvisoryEntry>",
+                    "Security advisories from RustSec",
+                ),
+                DataField::new(
+                    "deny.licenses",
+                    "Vec<LicenseEntry>",
+                    "License compliance issues",
+                ),
+                DataField::new(
+                    "deny.bans",
+                    "Vec<BanEntry>",
+                    "Banned or duplicate crate issues",
+                ),
+                DataField::new("deny.sources", "Vec<SourceEntry>", "Source trust issues"),
             ],
         }
     }
