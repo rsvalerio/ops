@@ -155,26 +155,21 @@ impl DataProvider for RustIdentityProvider {
         let module_count = manifest.workspace.as_ref().map(|w| w.members.len());
         let stack_detail = fields.edition.as_ref().map(|e| format!("Edition {e}"));
 
-        let identity = ProjectIdentity {
-            name,
-            version: fields.version,
-            description: fields.description,
-            stack_label: "Rust".to_string(),
-            stack_detail,
-            license: fields.license,
-            project_path: cwd.display().to_string(),
-            module_count,
-            module_label: "crates".to_string(),
-            loc: metrics.loc,
-            file_count: metrics.file_count,
-            authors: fields.authors,
-            repository: fields.repository,
-            homepage: fields.homepage,
-            msrv: fields.msrv,
-            dependency_count: metrics.dependency_count,
-            coverage_percent: metrics.coverage_percent,
-            languages: metrics.languages,
-        };
+        let mut identity = ProjectIdentity::new(name, "Rust", cwd.display().to_string(), "crates");
+        identity.version = fields.version;
+        identity.description = fields.description;
+        identity.stack_detail = stack_detail;
+        identity.license = fields.license;
+        identity.module_count = module_count;
+        identity.loc = metrics.loc;
+        identity.file_count = metrics.file_count;
+        identity.authors = fields.authors;
+        identity.repository = fields.repository;
+        identity.homepage = fields.homepage;
+        identity.msrv = fields.msrv;
+        identity.dependency_count = metrics.dependency_count;
+        identity.coverage_percent = metrics.coverage_percent;
+        identity.languages = metrics.languages;
 
         serde_json::to_value(&identity).map_err(DataProviderError::from)
     }
