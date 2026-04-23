@@ -6,7 +6,12 @@ use ops_extension::Context;
 use std::path::Path;
 
 /// Result of a load operation (record count, etc.).
+///
+/// `#[must_use]`: the `record_count` is the observable outcome of a load; a
+/// caller that ignores the returned value almost certainly meant to log or
+/// assert on it. Silent discards previously compiled without a warning.
 #[derive(Debug, Clone)]
+#[must_use = "LoadResult carries the ingested record_count — discarding it silently hides whether any rows landed in DuckDB"]
 #[allow(dead_code)]
 pub struct LoadResult {
     pub source_name: &'static str,

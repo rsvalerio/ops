@@ -221,7 +221,10 @@ where
         std::fs::create_dir_all(&data_dir).map_err(DbError::Io)?;
         ingestor.collect(ctx, &data_dir)?;
         crate::init_schema(db)?;
-        ingestor.load(&data_dir, db)?;
+        // LoadResult's record_count is not consumed here because the
+        // success signal is implicit in `table_has_data` returning true
+        // on the next call. Revisit if we want to log ingest counts.
+        let _load_result = ingestor.load(&data_dir, db)?;
     }
     query_fn(db)
 }

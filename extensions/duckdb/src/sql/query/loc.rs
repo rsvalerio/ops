@@ -78,13 +78,13 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>>
 
     let rows = stmt
         .query_map([], |row: &duckdb::Row| {
-            Ok(LanguageStat {
-                name: row.get(0)?,
-                loc: row.get(1)?,
-                files: row.get(2)?,
-                loc_pct: row.get(3)?,
-                files_pct: row.get(4)?,
-            })
+            Ok(LanguageStat::new(
+                row.get::<_, String>(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
         })
         .context("querying project languages")?;
 
