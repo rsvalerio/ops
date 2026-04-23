@@ -189,11 +189,9 @@ ops_extension::impl_extension! {
     register_commands: |_self, registry| {
         registry.insert(
             "deps".to_string().into(),
-            ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec {
-                program: "ops".to_string(),
-                args: vec!["deps".to_string()],
-                ..Default::default()
-            }),
+            ops_core::config::CommandSpec::Exec(
+                ops_core::config::ExecCommandSpec::new("ops", ["deps"]),
+            ),
         );
     },
     register_data_providers: |_self, registry| {
@@ -225,9 +223,9 @@ impl DataProvider for DepsProvider {
     }
 
     fn schema(&self) -> DataProviderSchema {
-        DataProviderSchema {
-            description: "Dependency health: upgrades, advisories, licenses, bans, sources",
-            fields: vec![
+        DataProviderSchema::new(
+            "Dependency health: upgrades, advisories, licenses, bans, sources",
+            vec![
                 DataField::new(
                     "upgrades.compatible",
                     "Vec<UpgradeEntry>",
@@ -255,6 +253,6 @@ impl DataProvider for DepsProvider {
                 ),
                 DataField::new("deny.sources", "Vec<SourceEntry>", "Source trust issues"),
             ],
-        }
+        )
     }
 }

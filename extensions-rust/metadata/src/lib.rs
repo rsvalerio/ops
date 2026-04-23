@@ -70,9 +70,9 @@ impl DataProvider for MetadataProvider {
 
     fn schema(&self) -> DataProviderSchema {
         use ops_extension::data_field;
-        DataProviderSchema {
-            description: "Cargo workspace metadata from `cargo metadata`",
-            fields: vec![
+        DataProviderSchema::new(
+            "Cargo workspace metadata from `cargo metadata`",
+            vec![
                 data_field!(
                     "workspace_root",
                     "str",
@@ -153,7 +153,7 @@ impl DataProvider for MetadataProvider {
                 ),
                 data_field!("Target.src_path", "str", "Source file path"),
             ],
-        }
+        )
     }
 }
 

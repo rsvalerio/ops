@@ -56,9 +56,9 @@ impl DataProvider for CoverageProvider {
 
     fn schema(&self) -> DataProviderSchema {
         use ops_extension::data_field;
-        DataProviderSchema {
-            description: "LLVM code coverage from `cargo llvm-cov` (per-file metrics)",
-            fields: vec![
+        DataProviderSchema::new(
+            "LLVM code coverage from `cargo llvm-cov` (per-file metrics)",
+            vec![
                 data_field!("filename", "str", "Source file path"),
                 data_field!("lines_count", "int", "Total lines instrumented"),
                 data_field!("lines_covered", "int", "Lines covered by tests"),
@@ -79,7 +79,7 @@ impl DataProvider for CoverageProvider {
                 ),
                 data_field!("branches_percent", "float", "Branch coverage percentage"),
             ],
-        }
+        )
     }
 }
 
@@ -220,6 +220,6 @@ pub fn load_coverage(data_dir: &Path, db: &DuckDb) -> Result<(), anyhow::Error> 
     }
     init_schema(db)?;
     let ingestor = CoverageIngestor;
-    ingestor.load(data_dir, db)?;
+    let _load_result = ingestor.load(data_dir, db)?;
     Ok(())
 }

@@ -227,9 +227,9 @@ impl DataProvider for CargoUpdateProvider {
     }
 
     fn schema(&self) -> DataProviderSchema {
-        DataProviderSchema {
-            description: "Available dependency updates from cargo update --dry-run",
-            fields: vec![
+        DataProviderSchema::new(
+            "Available dependency updates from cargo update --dry-run",
+            vec![
                 DataField::new(
                     "entries",
                     "Vec<UpdateEntry>",
@@ -239,6 +239,6 @@ impl DataProvider for CargoUpdateProvider {
                 DataField::new("add_count", "usize", "Number of new dependencies to add"),
                 DataField::new("remove_count", "usize", "Number of dependencies to remove"),
             ],
-        }
+        )
     }
 }

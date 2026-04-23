@@ -205,9 +205,9 @@ impl DataProvider for CargoTomlProvider {
 
     fn schema(&self) -> DataProviderSchema {
         use ops_extension::data_field;
-        DataProviderSchema {
-            description: "Cargo.toml manifest data (parsed from workspace root)",
-            fields: vec![
+        DataProviderSchema::new(
+            "Cargo.toml manifest data (parsed from workspace root)",
+            vec![
                 data_field!(
                     "package",
                     "Option<Package>",
@@ -252,7 +252,7 @@ impl DataProvider for CargoTomlProvider {
                     "Simple version string or detailed spec with features"
                 ),
             ],
-        }
+        )
     }
 }
 
