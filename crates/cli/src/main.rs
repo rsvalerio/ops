@@ -47,7 +47,7 @@ mod test_utils;
 pub(crate) use test_utils::CwdGuard;
 
 use clap::FromArgMatches;
-use std::io::{self, Write};
+use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -62,7 +62,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
         Err(e) => {
-            let _ = writeln!(std::io::stderr(), "Error: {:#}", e);
+            ops_core::ui::error(format!("{e:#}"));
             ExitCode::FAILURE
         }
     }
@@ -101,10 +101,19 @@ fn run() -> anyhow::Result<ExitCode> {
     let effective_args = preprocess_args(args);
 
     // Load config early so stack detection and help output can use it.
+    //
+    // ERR-4: a malformed `.ops.toml` previously degraded silently to
+    // `Config::default()`, hiding the real cause behind downstream
+    // "unknown command" errors. Print the actionable error to stderr so the
+    // user sees the file path and parse diagnostic, then keep going with
+    // defaults so `ops --help` and `ops init` still work.
     let early_config = match ops_core::config::load_config() {
         Ok(c) => c,
         Err(e) => {
-            tracing::warn!(error = %e, "failed to load config; using defaults");
+            ops_core::ui::warn(format!(
+                "failed to load config: {e:#}\n  \
+                 using built-in defaults; fix the config file above to restore your commands"
+            ));
             ops_core::config::Config::default()
         }
     };
@@ -112,10 +121,7 @@ fn run() -> anyhow::Result<ExitCode> {
         let cwd = match std::env::current_dir() {
             Ok(d) => d,
             Err(e) => {
-                let _ = writeln!(
-                    std::io::stderr(),
-                    "ops: error: could not determine working directory: {e}"
-                );
+                ops_core::ui::error(format!("could not determine working directory: {e}"));
                 return Ok(ExitCode::FAILURE);
             }
         };

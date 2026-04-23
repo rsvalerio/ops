@@ -1,6 +1,5 @@
 //! Thin wrappers that route each CLI subcommand to its implementation crate.
 
-use std::io::Write;
 use std::process::ExitCode;
 
 use anyhow::Context;
@@ -16,9 +15,23 @@ use crate::{
     about_cmd, extension_cmd, run_before_commit_cmd, run_before_push_cmd, run_cmd, theme_cmd,
 };
 
-pub(crate) fn run_about(refresh: bool, action: Option<AboutAction>) -> anyhow::Result<()> {
+/// Shared load-config + build-registry preamble used by `run_about`,
+/// `run_deps`, and the extension subcommand handlers. DUP-1 / TASK-0207:
+/// the three handlers previously repeated the same 3-line boilerplate;
+/// centralizing it here means adding a fourth handler does not duplicate
+/// error-context wording again.
+pub(crate) fn cli_data_context() -> anyhow::Result<(
+    ops_core::config::Config,
+    std::path::PathBuf,
+    ops_extension::DataRegistry,
+)> {
     let (config, cwd) = crate::load_config_and_cwd()?;
     let registry = crate::registry::build_data_registry(&config, &cwd)?;
+    Ok((config, cwd, registry))
+}
+
+pub(crate) fn run_about(refresh: bool, action: Option<AboutAction>) -> anyhow::Result<()> {
+    let (config, cwd, registry) = cli_data_context()?;
     match action {
         Some(AboutAction::Setup) => about_cmd::run_about_setup(&registry),
         #[cfg(feature = "duckdb")]
@@ -43,8 +56,7 @@ pub(crate) fn run_about(refresh: bool, action: Option<AboutAction>) -> anyhow::R
 
 #[cfg(feature = "stack-rust")]
 pub(crate) fn run_deps(refresh: bool) -> anyhow::Result<()> {
-    let (config, cwd) = crate::load_config_and_cwd()?;
-    let registry = crate::registry::build_data_registry(&config, &cwd)?;
+    let (_config, _cwd, registry) = cli_data_context()?;
     let opts = ops_deps::DepsOptions { refresh };
     ops_deps::run_deps(&registry, &opts)
 }
@@ -65,15 +77,9 @@ pub(crate) fn run_extension(action: ExtensionAction) -> anyhow::Result<()> {
 
 /// Prompt the user to run `ops <hook> install` when the hook command is not configured.
 fn prompt_hook_install(hook_name: &str) -> anyhow::Result<ExitCode> {
-    let _ = writeln!(
-        std::io::stderr(),
-        "No '{hook_name}' command configured in .ops.toml."
-    );
+    ops_core::ui::note(format!("no '{hook_name}' command configured in .ops.toml."));
     if !crate::tty::is_stdout_tty() {
-        let _ = writeln!(
-            std::io::stderr(),
-            "Run `ops {hook_name} install` to set it up."
-        );
+        ops_core::ui::note(format!("run `ops {hook_name} install` to set it up."));
         return Ok(ExitCode::FAILURE);
     }
     let answer = inquire::Confirm::new(&format!("Run `ops {hook_name} install` now?"))
@@ -128,18 +134,16 @@ fn run_hook_dispatch(hook: &HookDispatch, run_preflight: bool) -> anyhow::Result
         return prompt_hook_install(hook.name);
     }
     if (hook.should_skip)() {
-        let _ = writeln!(
-            std::io::stderr(),
+        ops_core::ui::note(format!(
             "[{}] {}=1 — skipping",
-            hook.name,
-            hook.skip_env_var
-        );
+            hook.name, hook.skip_env_var
+        ));
         return Ok(ExitCode::SUCCESS);
     }
     if run_preflight {
         if let Some((predicate, skip_msg)) = hook.preflight {
             if !predicate()? {
-                let _ = writeln!(std::io::stderr(), "[{}] {} — skipping", hook.name, skip_msg);
+                ops_core::ui::note(format!("[{}] {} — skipping", hook.name, skip_msg));
                 return Ok(ExitCode::SUCCESS);
             }
         }

@@ -27,7 +27,9 @@ pub fn run_hook_install(ops: &HookOps) -> anyhow::Result<()> {
     let config = match ops_core::config::load_config() {
         Ok(c) => c,
         Err(e) => {
-            tracing::warn!(error = %e, "failed to load config; command list may be incomplete");
+            ops_core::ui::warn(format!(
+                "failed to load config; command list may be incomplete: {e:#}"
+            ));
             ops_core::config::Config::default()
         }
     };
@@ -36,10 +38,9 @@ pub fn run_hook_install(ops: &HookOps) -> anyhow::Result<()> {
     let options = gather_available_commands(&config, stack, &cwd, ops.hook_name);
 
     let selected = if options.is_empty() {
-        writeln!(
-            io::stderr(),
-            "No commands found. Install the hook anyway; configure commands in .ops.toml later."
-        )?;
+        ops_core::ui::note(
+            "no commands found. Install the hook anyway; configure commands in .ops.toml later.",
+        );
         vec![]
     } else {
         let prompt = format!("Select commands to run in {} hook:", ops.hook_name);
@@ -147,22 +148,11 @@ mod tests {
         config.extensions.enabled = Some(vec![]);
         config.commands.insert(
             hook_name.to_string(),
-            CommandSpec::Composite(CompositeCommandSpec {
-                commands: vec!["verify".to_string()],
-                parallel: false,
-                fail_fast: true,
-                help: None,
-                aliases: Vec::new(),
-                category: None,
-            }),
+            CommandSpec::Composite(CompositeCommandSpec::new(["verify"])),
         );
         config.commands.insert(
             "build".to_string(),
-            CommandSpec::Exec(ExecCommandSpec {
-                program: "cargo".to_string(),
-                args: vec!["build".to_string()],
-                ..Default::default()
-            }),
+            CommandSpec::Exec(ExecCommandSpec::new("cargo", ["build"])),
         );
         config
     }
@@ -171,22 +161,15 @@ mod tests {
 
     #[test]
     fn command_description_exec_with_help() {
-        let spec = CommandSpec::Exec(ExecCommandSpec {
-            program: "cargo".to_string(),
-            args: vec!["build".to_string()],
-            help: Some("Build the project".to_string()),
-            ..Default::default()
-        });
+        let mut exec = ExecCommandSpec::new("cargo", ["build"]);
+        exec.help = Some("Build the project".to_string());
+        let spec = CommandSpec::Exec(exec);
         assert_eq!(command_description(&spec), "Build the project");
     }
 
     #[test]
     fn command_description_exec_without_help() {
-        let spec = CommandSpec::Exec(ExecCommandSpec {
-            program: "cargo".to_string(),
-            args: vec!["build".to_string(), "--release".to_string()],
-            ..Default::default()
-        });
+        let spec = CommandSpec::Exec(ExecCommandSpec::new("cargo", ["build", "--release"]));
         let desc = command_description(&spec);
         assert!(desc.contains("cargo"), "got: {desc}");
         assert!(desc.contains("build"), "got: {desc}");
@@ -194,27 +177,15 @@ mod tests {
 
     #[test]
     fn command_description_composite_with_help() {
-        let spec = CommandSpec::Composite(CompositeCommandSpec {
-            commands: vec!["build".to_string(), "test".to_string()],
-            parallel: false,
-            fail_fast: true,
-            help: Some("Build and test".to_string()),
-            aliases: Vec::new(),
-            category: None,
-        });
+        let mut comp = CompositeCommandSpec::new(["build", "test"]);
+        comp.help = Some("Build and test".to_string());
+        let spec = CommandSpec::Composite(comp);
         assert_eq!(command_description(&spec), "Build and test");
     }
 
     #[test]
     fn command_description_composite_without_help() {
-        let spec = CommandSpec::Composite(CompositeCommandSpec {
-            commands: vec!["build".to_string(), "test".to_string()],
-            parallel: false,
-            fail_fast: true,
-            help: None,
-            aliases: Vec::new(),
-            category: None,
-        });
+        let spec = CommandSpec::Composite(CompositeCommandSpec::new(["build", "test"]));
         let desc = command_description(&spec);
         // Should fall back to display_cmd_fallback which shows the composite commands
         assert!(!desc.is_empty(), "description should not be empty");
@@ -236,10 +207,7 @@ mod tests {
         let mut config = Config::default();
         config.commands.insert(
             "lint".to_string(),
-            CommandSpec::Exec(ExecCommandSpec {
-                program: "eslint".to_string(),
-                ..Default::default()
-            }),
+            CommandSpec::Exec(ExecCommandSpec::new("eslint", Vec::<String>::new())),
         );
 
         let options = gather_available_commands(
@@ -261,10 +229,10 @@ mod tests {
         let mut config = Config::default();
         config.commands.insert(
             "build".to_string(),
-            CommandSpec::Exec(ExecCommandSpec {
-                program: "make".to_string(),
-                help: Some("Custom build".to_string()),
-                ..Default::default()
+            CommandSpec::Exec({
+                let mut spec = ExecCommandSpec::new("make", Vec::<String>::new());
+                spec.help = Some("Custom build".to_string());
+                spec
             }),
         );
 
