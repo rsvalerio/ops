@@ -22,12 +22,8 @@ jobs:
           components: rustfmt
           rustflags: ""
       - uses: mozilla-actions/sccache-action@v0.0.9
-      - name: Install ops
-        uses: jaxxstorm/action-install-gh-release@v1
-        with:
-          repo: rsvalerio/ops
-      - name: Format all code
-        run: ops fmt
+      - name: cargo fmt --all
+        run: cargo fmt --all
 
   check:
     name: Check
@@ -38,12 +34,8 @@ jobs:
         with:
           rustflags: ""
       - uses: mozilla-actions/sccache-action@v0.0.9
-      - name: Install ops
-        uses: jaxxstorm/action-install-gh-release@v1
-        with:
-          repo: rsvalerio/ops
-      - name: Check all targets
-        run: ops check
+      - name: cargo check --all --all-features
+        run: cargo check --all --all-features
 
   clippy:
     name: Lint
@@ -53,13 +45,10 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy
+          rustflags: ""
       - uses: mozilla-actions/sccache-action@v0.0.9
-      - name: Install ops
-        uses: jaxxstorm/action-install-gh-release@v1
-        with:
-          repo: rsvalerio/ops
-      - name: Lint with clippy
-        run: ops clippy
+      - name: cargo clippy --all --all-features -- -D warnings
+        run: cargo clippy --all --all-features -- -D warnings
 
   build:
     name: Build
@@ -70,20 +59,14 @@ jobs:
         with:
           rustflags: ""
       - uses: mozilla-actions/sccache-action@v0.0.9
-      - name: Install ops
-        uses: jaxxstorm/action-install-gh-release@v1
-        with:
-          repo: rsvalerio/ops
-      - name: Build all targets
-        run: ops build
+      - name: cargo build --all --all-features
+        run: cargo build --all --all-features
 
   test:
     name: Test
     runs-on: ubuntu-latest
     env:
-      # Verbose cargo invocations (compile lines, `rustc` commands).
       CARGO_TERM_VERBOSE: true
-      # Ops CLI tracing (stderr); merges with `RUST_LOG` if set.
       OPS_LOG_LEVEL: debug
     steps:
       - uses: actions/checkout@v4
@@ -91,14 +74,8 @@ jobs:
         with:
           rustflags: ""
       - uses: mozilla-actions/sccache-action@v0.0.9
-      - name: Install ops
-        uses: jaxxstorm/action-install-gh-release@v1
-        with:
-          repo: rsvalerio/ops
-      - name: Run all tests
-        run: ops --verbose test
-      - name: Run ignored integration tests
-        run: cargo test -p ops -- --ignored
+      - name: cargo test --all --all-features -- --ignored
+        run: cargo test --all --all-features -- --ignored
 
   deps:
     name: Deps
@@ -117,5 +94,17 @@ jobs:
         uses: jaxxstorm/action-install-gh-release@v1
         with:
           repo: rsvalerio/ops
-      - name: Check dependencies, advisories, licenses, bans and sources in the workspace
-        run: ops deps
+      - name: ops --raw deps
+        run: ops --raw deps
+
+  install:
+    name: Install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: cargo install --path crates/cli --force --all-features
+        run: cargo install --path crates/cli --force --all-features
