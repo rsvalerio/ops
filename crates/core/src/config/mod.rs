@@ -2,10 +2,13 @@
 //!
 //! Resolution order: internal default → global config → local `.ops.toml` → env vars.
 
+mod edit;
 mod loader;
 pub(crate) mod merge;
 pub mod theme_types;
 pub mod tools;
+
+pub use edit::{edit_ops_toml, read_ops_toml, write_ops_toml};
 
 #[cfg(test)]
 pub(crate) use loader::global_config_path;
@@ -23,6 +26,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Root configuration structure.
+///
+/// `Config::default` is intended for tests and downstream extension wiring
+/// where a blank slate is wanted. Runtime code should call
+/// [`load_config`] so the user-visible defaults (theme = "classic", etc.)
+/// come from the single source of truth embedded in
+/// `.default.ops.toml`. See TRAIT-4 in the backlog for the rationale.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -57,6 +66,12 @@ impl Config {
 
     /// Find the canonical command name for an alias.
     /// Returns `Some(command_name)` if the alias matches a command's aliases list.
+    ///
+    /// O(N·M) over commands × aliases. The alias lookup is called once per
+    /// CLI invocation so an inline scan is still cheap in practice — each
+    /// user has tens of commands and a handful of aliases. Build
+    /// [`Config::build_alias_map`] once if a hot path ever needs O(1)
+    /// lookups instead.
     pub fn resolve_alias(&self, alias: &str) -> Option<&str> {
         for (name, spec) in &self.commands {
             if spec.aliases().iter().any(|a| a == alias) {
@@ -64,6 +79,22 @@ impl Config {
             }
         }
         None
+    }
+
+    /// Build an `alias → canonical command name` map. Amortizes lookups for
+    /// callers that resolve many aliases against the same config.
+    ///
+    /// The default `resolve_alias` path is O(N·M); building this map is also
+    /// O(N·M) once, but each subsequent lookup is O(1).
+    #[must_use]
+    pub fn build_alias_map(&self) -> HashMap<&str, &str> {
+        let mut map = HashMap::new();
+        for (name, spec) in &self.commands {
+            for alias in spec.aliases() {
+                map.insert(alias.as_str(), name.as_str());
+            }
+        }
+        map
     }
 }
 
@@ -136,26 +167,38 @@ pub struct ConfigOverlay {
     pub tools: Option<IndexMap<String, ToolSpec>>,
 }
 
-/// Overlay for extension settings.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ExtensionConfigOverlay {
-    pub enabled: Option<Vec<String>>,
+/// Generate a single-field overlay struct (DUP-3 collapse).
+///
+/// `ExtensionConfigOverlay`, `AboutConfigOverlay`, and `DataConfigOverlay`
+/// all followed the same shape: one `Option<T>` field plus
+/// `serde(deny_unknown_fields)`. Adding another single-field overlay used to
+/// mean copy-pasting the entire struct + derives + doc comment; the macro
+/// keeps the surface identical across all three so drift can't creep in.
+macro_rules! single_field_overlay {
+    ($( #[$meta:meta] )* $name:ident, $field:ident : $ty:ty) => {
+        $( #[$meta] )*
+        #[derive(Debug, Clone, Default, Deserialize)]
+        #[serde(deny_unknown_fields)]
+        pub struct $name {
+            pub $field: Option<$ty>,
+        }
+    };
 }
 
-/// Overlay for about settings.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AboutConfigOverlay {
-    pub fields: Option<Vec<String>>,
-}
+single_field_overlay!(
+    /// Overlay for extension settings.
+    ExtensionConfigOverlay, enabled: Vec<String>
+);
 
-/// Overlay for data settings.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DataConfigOverlay {
-    pub path: Option<PathBuf>,
-}
+single_field_overlay!(
+    /// Overlay for about settings.
+    AboutConfigOverlay, fields: Vec<String>
+);
+
+single_field_overlay!(
+    /// Overlay for data settings.
+    DataConfigOverlay, path: PathBuf
+);
 
 /// Overlay for output settings — each field is optional so partial configs
 /// don't overwrite intentional base values with defaults.
@@ -284,6 +327,7 @@ impl CommandSpec {
 /// Single executable command.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct ExecCommandSpec {
     pub program: String,
     #[serde(default)]
@@ -307,6 +351,25 @@ pub struct ExecCommandSpec {
 }
 
 impl ExecCommandSpec {
+    /// Build a minimal [`ExecCommandSpec`] from `program` and `args`.
+    ///
+    /// Preferred over struct-literal syntax because [`ExecCommandSpec`] is
+    /// `#[non_exhaustive]`: downstream crates cannot use `..Default::default()`
+    /// syntax and must go through this constructor. Adjust the remaining
+    /// fields (`env`, `cwd`, `timeout_secs`, `help`, `aliases`, `category`)
+    /// via direct field access — they remain `pub`.
+    #[must_use]
+    pub fn new(
+        program: impl Into<String>,
+        args: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self {
+            program: program.into(),
+            args: args.into_iter().map(Into::into).collect(),
+            ..Self::default()
+        }
+    }
+
     /// Validate fields that would cause confusing errors at execution time.
     pub fn validate(&self, name: &str) -> anyhow::Result<()> {
         anyhow::ensure!(
@@ -351,6 +414,7 @@ impl ExecCommandSpec {
 /// Composite command: runs multiple commands (sequential or parallel).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CompositeCommandSpec {
     pub commands: Vec<String>,
     #[serde(default)]
@@ -367,6 +431,25 @@ pub struct CompositeCommandSpec {
     /// Category for grouping in help output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+}
+
+impl CompositeCommandSpec {
+    /// Build a sequential, fail-fast composite from a list of command names.
+    ///
+    /// Preferred over struct-literal syntax because [`CompositeCommandSpec`]
+    /// is `#[non_exhaustive]`. Adjust `parallel`, `fail_fast`, `help`,
+    /// `aliases`, `category` via direct field access.
+    #[must_use]
+    pub fn new(commands: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            commands: commands.into_iter().map(Into::into).collect(),
+            parallel: false,
+            fail_fast: true,
+            help: None,
+            aliases: Vec::new(),
+            category: None,
+        }
+    }
 }
 
 /// Command identifier (name used in config and CLI).

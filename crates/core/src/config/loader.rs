@@ -1,4 +1,14 @@
 //! Configuration loading from files, directories, and environment variables.
+//!
+//! # Test discipline
+//!
+//! Tests that mutate process-global state — environment variables **and**
+//! the current working directory — must be marked `#[serial_test::serial]`.
+//! `cargo test` runs these in parallel by default; a parallel test that
+//! happens to read relative paths or env vars will observe the mutation
+//! window and flake. Apply `#[serial]` (or isolate via subprocess) whenever
+//! a test calls `std::env::set_var`, `std::env::remove_var`, or
+//! `std::env::set_current_dir`.
 
 use std::path::{Path, PathBuf};
 
@@ -15,21 +25,27 @@ use super::{default_ops_toml, Config, ConfigOverlay};
 /// Without this guard, the `config` crate deserializes an empty config with
 /// all-default values, and merge_config unconditionally overwrites the local
 /// config's intentional settings.
-fn merge_env_vars(config: &mut Config) {
-    let has_ops_env = std::env::vars().any(|(k, _)| k.starts_with("OPS__"));
-    if !has_ops_env {
-        return;
+///
+/// Fails fast on deserialization errors (SEC-11 / ERR-1): a mistyped
+/// `OPS__OUTOUT__THEME` in CI should surface as a loud error rather than a
+/// silent misconfiguration that drops every other OPS__ variable.
+fn merge_env_vars(config: &mut Config) -> anyhow::Result<()> {
+    let ops_keys: Vec<String> = std::env::vars()
+        .map(|(k, _)| k)
+        .filter(|k| k.starts_with("OPS__"))
+        .collect();
+    if ops_keys.is_empty() {
+        return Ok(());
     }
     let env_config = config_crate::Config::builder()
         .add_source(config_crate::Environment::with_prefix("OPS").separator("__"))
-        .build();
-    match env_config {
-        Ok(merged) => match merged.try_deserialize::<ConfigOverlay>() {
-            Ok(env_overlay) => merge_config(config, &env_overlay),
-            Err(e) => tracing::warn!(error = %e, "failed to deserialize OPS__ env config"),
-        },
-        Err(e) => tracing::warn!(error = %e, "failed to build OPS__ env config"),
-    }
+        .build()
+        .with_context(|| format!("failed to build OPS__ env config (keys: {ops_keys:?})"))?;
+    let env_overlay: ConfigOverlay = env_config
+        .try_deserialize()
+        .with_context(|| format!("failed to deserialize OPS__ env config (keys: {ops_keys:?})"))?;
+    merge_config(config, &env_overlay);
+    Ok(())
 }
 
 #[instrument(skip_all)]
@@ -38,7 +54,7 @@ pub fn load_config() -> anyhow::Result<Config> {
         toml::from_str(default_ops_toml()).context("failed to parse internal default config")?;
     debug!("loaded internal default config");
 
-    load_global_config(&mut config);
+    load_global_config(&mut config)?;
 
     let local_path = PathBuf::from(".ops.toml");
     match read_config_file(&local_path) {
@@ -50,9 +66,9 @@ pub fn load_config() -> anyhow::Result<Config> {
         Err(e) => return Err(e),
     }
 
-    merge_conf_d(&mut config);
+    merge_conf_d(&mut config)?;
 
-    merge_env_vars(&mut config);
+    merge_env_vars(&mut config)?;
 
     config.validate()?;
 
@@ -98,9 +114,15 @@ fn read_conf_d_files(dir: &Path) -> Option<Vec<PathBuf>> {
     Some(files)
 }
 
-fn merge_conf_d(config: &mut Config) {
+/// Merge every `.ops.d/*.toml` overlay, in sorted order.
+///
+/// ERR-1: a parse or IO error on any single overlay file surfaces as a hard
+/// error with the offending path in context rather than being silently
+/// dropped. Users whose overlay "mysteriously does nothing" in CI should see
+/// a loud failure instead of a tracing warning that gets swallowed.
+fn merge_conf_d(config: &mut Config) -> anyhow::Result<()> {
     let Some(files) = read_conf_d_files(Path::new(".ops.d")) else {
-        return;
+        return Ok(());
     };
     for path in files {
         match read_config_file(&path) {
@@ -109,9 +131,10 @@ fn merge_conf_d(config: &mut Config) {
                 merge_config(config, &overlay);
             }
             Ok(None) => {}
-            Err(e) => tracing::warn!(error = %e, "skipping conf.d file"),
+            Err(e) => return Err(e),
         }
     }
+    Ok(())
 }
 
 /// Path to global config file (e.g. ~/.config/ops/config.toml).
@@ -128,9 +151,13 @@ pub(crate) fn global_config_path() -> Option<PathBuf> {
 }
 
 /// Load global config from standard paths.
-fn load_global_config(config: &mut Config) {
+///
+/// ERR-1: a read/parse error on the global config surfaces as a hard error
+/// with the path attached — a corrupted `~/.config/ops/config.toml` should
+/// not be silently ignored, leaving the user thinking their config applied.
+fn load_global_config(config: &mut Config) -> anyhow::Result<()> {
     let Some(global_path) = global_config_path() else {
-        return;
+        return Ok(());
     };
     let to_try = [global_path.with_extension("toml"), global_path];
     for path in &to_try {
@@ -138,15 +165,13 @@ fn load_global_config(config: &mut Config) {
             Ok(Some(overlay)) => {
                 debug!(path = %path.display(), "merging global config");
                 merge_config(config, &overlay);
-                return;
+                return Ok(());
             }
             Ok(None) => {}
-            Err(e) => {
-                tracing::warn!(error = %e, "skipping global config file");
-                return;
-            }
+            Err(e) => return Err(e),
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -174,6 +199,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn merge_conf_d_applies_overlays() {
         let dir = tempfile::tempdir().unwrap();
         let ops_d = dir.path().join(".ops.d");
@@ -192,10 +218,28 @@ args = ["hello"]
         // Change cwd temporarily so merge_conf_d finds our test .ops.d
         let original = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
-        merge_conf_d(&mut config);
+        merge_conf_d(&mut config).unwrap();
         std::env::set_current_dir(original).unwrap();
 
         assert!(config.commands.contains_key("extra"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn merge_conf_d_propagates_parse_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let ops_d = dir.path().join(".ops.d");
+        fs::create_dir(&ops_d).unwrap();
+        fs::write(ops_d.join("broken.toml"), "not = = valid {{{").unwrap();
+
+        let mut config = Config::default();
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        let result = merge_conf_d(&mut config);
+        std::env::set_current_dir(original).unwrap();
+
+        let err = result.expect_err("parse failure should surface");
+        assert!(format!("{err:#}").contains("broken.toml"));
     }
 
     #[test]
