@@ -2161,6 +2161,7 @@ version = "0.20.0"
 dependencies = [
  "anyhow",
  "linkme",
+ "ops-core",
  "ops-extension",
  "serde",
  "serde_json",
@@ -2197,6 +2198,8 @@ dependencies = [
  "ops-extension",
  "serde",
  "serde_json",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
