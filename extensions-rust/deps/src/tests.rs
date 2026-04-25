@@ -825,3 +825,54 @@ fn deps_report_serialization_round_trip() {
     assert_eq!(deserialized.upgrades.compatible.len(), 1);
     assert_eq!(deserialized.deny.advisories.len(), 1);
 }
+
+#[test]
+fn parse_deny_output_skips_malformed_json_with_tracing() {
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    struct BufWriter(Arc<Mutex<Vec<u8>>>);
+    impl Write for BufWriter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    let buf = BufWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buf.clone())
+        .with_max_level(tracing::Level::DEBUG)
+        .with_ansi(false)
+        .finish();
+
+    tracing::subscriber::with_default(subscriber, || {
+        // First line is malformed JSON; second has valid envelope but bad fields
+        // shape. Both should be skipped; both should log.
+        let stderr = "{not json\n{\"type\":\"diagnostic\",\"fields\":42}\n";
+        let result = parse::parse_deny_output(stderr);
+        assert!(result.advisories.is_empty());
+    });
+
+    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+    assert!(logged.contains("ERR-1"), "missing ERR-1 marker: {logged}");
+    assert!(
+        logged.contains("malformed cargo-deny JSON line"),
+        "missing malformed-line message: {logged}"
+    );
+    assert!(
+        logged.contains("unexpected fields shape"),
+        "missing fields-shape message: {logged}"
+    );
+}

@@ -166,7 +166,7 @@ fn coverage_load_creates_table_and_view() {
     write_coverage_fixture(data_dir.path());
 
     let ingestor = CoverageIngestor;
-    ingestor
+    let _ = ingestor
         .load(data_dir.path(), &db)
         .expect("load should succeed");
 
@@ -207,7 +207,7 @@ fn coverage_summary_view_computes_percentages() {
     write_coverage_fixture(data_dir.path());
 
     let ingestor = CoverageIngestor;
-    ingestor
+    let _ = ingestor
         .load(data_dir.path(), &db)
         .expect("load should succeed");
 
@@ -247,7 +247,7 @@ fn coverage_summary_view_handles_zero_counts() {
     .expect("write workspace");
 
     let ingestor = CoverageIngestor;
-    ingestor
+    let _ = ingestor
         .load(data_dir.path(), &db)
         .expect("load should succeed");
 
@@ -430,7 +430,7 @@ fn query_coverage_files_round_trip() {
     write_coverage_fixture(data_dir.path());
 
     let ingestor = CoverageIngestor;
-    ingestor.load(data_dir.path(), &db).expect("load");
+    let _ = ingestor.load(data_dir.path(), &db).expect("load");
 
     let rows = query_coverage_files(&db).expect("query");
     let arr = rows.as_array().unwrap();
@@ -472,7 +472,7 @@ fn coverage_summary_view_all_metric_percentages() {
     write_coverage_fixture(data_dir.path());
 
     let ingestor = CoverageIngestor;
-    ingestor.load(data_dir.path(), &db).expect("load");
+    let _ = ingestor.load(data_dir.path(), &db).expect("load");
 
     let conn = db.lock().expect("lock");
 
@@ -539,11 +539,11 @@ fn coverage_load_is_idempotent() {
     // First load
     write_coverage_fixture(data_dir.path());
     let ingestor = CoverageIngestor;
-    ingestor.load(data_dir.path(), &db).expect("first load");
+    let _ = ingestor.load(data_dir.path(), &db).expect("first load");
 
     // Second load with same data
     write_coverage_fixture(data_dir.path());
-    ingestor.load(data_dir.path(), &db).expect("second load");
+    let _ = ingestor.load(data_dir.path(), &db).expect("second load");
 
     let conn = db.lock().expect("lock");
     let count: i64 = conn

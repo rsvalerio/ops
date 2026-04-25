@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+ops-core = { workspace = true }
 ops-extension = { workspace = true }
 linkme = { workspace = true }
 serde = { workspace = true }

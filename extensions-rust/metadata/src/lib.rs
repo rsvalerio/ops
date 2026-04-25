@@ -11,24 +11,29 @@ pub use types::{Dependency, DependencyKind, Metadata, Package, Target};
 
 use ingestor::MetadataIngestor;
 use ops_core::output::format_error_tail;
+use ops_core::subprocess::{run_cargo, RunError};
 use ops_duckdb::DuckDb;
 use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType};
-use std::io;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
+use std::time::Duration;
 
 const NAME: &str = "metadata";
 const DESCRIPTION: &str = "Cargo metadata provider (workspace info, dependencies)";
 const SHORTNAME: &str = "meta";
 const DATA_PROVIDER_NAME: &str = "metadata";
 
-pub(crate) fn run_cargo_metadata(working_dir: &Path) -> io::Result<Output> {
-    Command::new("cargo")
-        .arg("metadata")
-        .arg("--format-version")
-        .arg("1")
-        .current_dir(working_dir)
-        .output()
+/// Default timeout for `cargo metadata`; overridable via
+/// `OPS_SUBPROCESS_TIMEOUT_SECS`.
+pub(crate) const CARGO_METADATA_TIMEOUT: Duration = Duration::from_secs(120);
+
+pub(crate) fn run_cargo_metadata(working_dir: &Path) -> Result<Output, RunError> {
+    run_cargo(
+        &["metadata", "--format-version", "1"],
+        working_dir,
+        CARGO_METADATA_TIMEOUT,
+        "cargo metadata",
+    )
 }
 
 pub(crate) fn check_metadata_output(output: &Output) -> Result<(), anyhow::Error> {

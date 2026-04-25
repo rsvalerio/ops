@@ -6,12 +6,14 @@
 #[cfg(test)]
 mod tests;
 
+use ops_core::subprocess::{run_cargo, RunError};
 use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
+use std::time::Duration;
 
 pub const NAME: &str = "cargo-update";
 pub const DESCRIPTION: &str = "Cargo update dry-run: available dependency updates";
@@ -40,6 +42,7 @@ pub struct UpdateEntry {
 
 /// Result of parsing `cargo update --dry-run` output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use = "CargoUpdateResult carries the parsed update entries and counts — silently dropping it makes the cargo update --dry-run invocation observe nothing"]
 pub struct CargoUpdateResult {
     pub entries: Vec<UpdateEntry>,
     pub update_count: usize,
@@ -47,12 +50,24 @@ pub struct CargoUpdateResult {
     pub remove_count: usize,
 }
 
+/// Default timeout for `cargo update --dry-run`; overridable via
+/// `OPS_SUBPROCESS_TIMEOUT_SECS`.
+pub const CARGO_UPDATE_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// Run `cargo update --dry-run` in the given working directory.
-pub fn run_cargo_update_dry_run(working_dir: &Path) -> std::io::Result<Output> {
-    Command::new("cargo")
-        .args(["update", "--dry-run"])
-        .current_dir(working_dir)
-        .output()
+///
+/// # Errors
+///
+/// Returns [`RunError::Io`] if the subprocess fails to spawn and
+/// [`RunError::Timeout`] if it runs longer than [`CARGO_UPDATE_TIMEOUT`] (or
+/// the `OPS_SUBPROCESS_TIMEOUT_SECS` override).
+pub fn run_cargo_update_dry_run(working_dir: &Path) -> Result<Output, RunError> {
+    run_cargo(
+        &["update", "--dry-run"],
+        working_dir,
+        CARGO_UPDATE_TIMEOUT,
+        "cargo update --dry-run",
+    )
 }
 
 /// Strip leading `v` prefix from a version string.
@@ -93,11 +108,7 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
             continue;
         }
 
-        if let Some(entry) = parse_updating_line(clean) {
-            entries.push(entry);
-        } else if let Some(entry) = parse_adding_line(clean) {
-            entries.push(entry);
-        } else if let Some(entry) = parse_removing_line(clean) {
+        if let Some(entry) = parse_action_line(clean) {
             entries.push(entry);
         }
     }
@@ -143,52 +154,65 @@ fn strip_ansi(s: &str) -> String {
     result
 }
 
-/// Parse: `Updating serde v1.0.0 -> v1.0.1`
-fn parse_updating_line(line: &str) -> Option<UpdateEntry> {
-    let rest = line.strip_prefix("Updating")?.trim();
-    let parts: Vec<&str> = rest.splitn(4, ' ').collect();
-    if parts.len() >= 4 && parts[2] == "->" {
-        Some(UpdateEntry {
-            action: UpdateAction::Update,
-            name: parts[0].to_string(),
-            from: Some(strip_v_prefix(parts[1]).to_string()),
-            to: Some(strip_v_prefix(parts[3]).to_string()),
-        })
-    } else {
-        None
-    }
+/// Whether the version after `name` represents the source (from) or target (to) version.
+#[derive(Clone, Copy)]
+enum VersionRole {
+    From,
+    To,
 }
 
-/// Parse: `Adding new-crate v0.1.0`
-fn parse_adding_line(line: &str) -> Option<UpdateEntry> {
-    let rest = line.strip_prefix("Adding")?.trim();
-    let parts: Vec<&str> = rest.splitn(2, ' ').collect();
-    if parts.len() >= 2 {
-        Some(UpdateEntry {
-            action: UpdateAction::Add,
-            name: parts[0].to_string(),
-            from: None,
-            to: Some(strip_v_prefix(parts[1]).to_string()),
-        })
-    } else {
-        None
-    }
-}
+/// Table-driven dispatch for `Updating` / `Adding` / `Removing` lines.
+///
+/// Each entry maps a leading verb to its `UpdateAction` and the role of the
+/// single version that follows the name (for `Updating`, both versions are
+/// captured separately via the `->` arrow form).
+const ACTION_PREFIXES: &[(&str, UpdateAction, VersionRole)] = &[
+    ("Updating", UpdateAction::Update, VersionRole::From),
+    ("Adding", UpdateAction::Add, VersionRole::To),
+    ("Removing", UpdateAction::Remove, VersionRole::From),
+];
 
-/// Parse: `Removing old-crate v0.2.0`
-fn parse_removing_line(line: &str) -> Option<UpdateEntry> {
-    let rest = line.strip_prefix("Removing")?.trim();
-    let parts: Vec<&str> = rest.splitn(2, ' ').collect();
-    if parts.len() >= 2 {
-        Some(UpdateEntry {
-            action: UpdateAction::Remove,
+/// Parse one of:
+/// - `Updating serde v1.0.0 -> v1.0.1`
+/// - `Adding new-crate v0.1.0`
+/// - `Removing old-crate v0.2.0`
+fn parse_action_line(line: &str) -> Option<UpdateEntry> {
+    for (prefix, action, role) in ACTION_PREFIXES {
+        let Some(rest) = line.strip_prefix(prefix) else {
+            continue;
+        };
+        let rest = rest.trim();
+
+        if matches!(action, UpdateAction::Update) {
+            let parts: Vec<&str> = rest.splitn(4, ' ').collect();
+            if parts.len() >= 4 && parts[2] == "->" {
+                return Some(UpdateEntry {
+                    action: action.clone(),
+                    name: parts[0].to_string(),
+                    from: Some(strip_v_prefix(parts[1]).to_string()),
+                    to: Some(strip_v_prefix(parts[3]).to_string()),
+                });
+            }
+            return None;
+        }
+
+        let parts: Vec<&str> = rest.splitn(2, ' ').collect();
+        if parts.len() < 2 {
+            return None;
+        }
+        let version = Some(strip_v_prefix(parts[1]).to_string());
+        let (from, to) = match role {
+            VersionRole::From => (version, None),
+            VersionRole::To => (None, version),
+        };
+        return Some(UpdateEntry {
+            action: action.clone(),
             name: parts[0].to_string(),
-            from: Some(strip_v_prefix(parts[1]).to_string()),
-            to: None,
-        })
-    } else {
-        None
+            from,
+            to,
+        });
     }
+    None
 }
 
 pub struct CargoUpdateExtension;

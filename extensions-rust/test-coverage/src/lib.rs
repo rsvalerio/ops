@@ -10,11 +10,12 @@ pub use ingestor::CoverageIngestor;
 
 use anyhow::Context as AnyhowContext;
 use ops_core::output::format_error_tail;
+use ops_core::subprocess::{run_cargo, RunError};
 use ops_duckdb::{init_schema, DataIngestor, DuckDb};
 use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType};
-use std::io;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
+use std::time::Duration;
 
 pub const NAME: &str = "coverage";
 #[allow(dead_code)]
@@ -83,17 +84,24 @@ impl DataProvider for CoverageProvider {
     }
 }
 
-pub(crate) fn run_cargo_llvm_cov(working_dir: &Path) -> io::Result<Output> {
-    Command::new("cargo")
-        .args([
+/// Default timeout for `cargo llvm-cov`; overridable via
+/// `OPS_SUBPROCESS_TIMEOUT_SECS`. Coverage runs the full test suite, so this
+/// is the largest of the cargo-subprocess defaults.
+pub(crate) const CARGO_LLVM_COV_TIMEOUT: Duration = Duration::from_secs(900);
+
+pub(crate) fn run_cargo_llvm_cov(working_dir: &Path) -> Result<Output, RunError> {
+    run_cargo(
+        &[
             "llvm-cov",
             "--workspace",
             "--no-cfg-coverage",
             "--tests",
             "--json",
-        ])
-        .current_dir(working_dir)
-        .output()
+        ],
+        working_dir,
+        CARGO_LLVM_COV_TIMEOUT,
+        "cargo llvm-cov",
+    )
 }
 
 pub(crate) fn check_llvm_cov_output(output: &Output) -> Result<(), anyhow::Error> {
@@ -102,6 +110,42 @@ pub(crate) fn check_llvm_cov_output(output: &Output) -> Result<(), anyhow::Error
         anyhow::bail!("cargo llvm-cov failed: {}", tail);
     }
     Ok(())
+}
+
+/// Coverage section counters extracted from one of `lines` / `functions` /
+/// `regions` / `branches` in the llvm-cov per-file `summary` block. `notcovered`
+/// is only meaningful for region- and branch-level sections; for lines and
+/// functions it is always zero.
+#[derive(Default)]
+struct Section {
+    count: i64,
+    covered: i64,
+    notcovered: i64,
+    percent: f64,
+}
+
+fn extract_section(summary: &serde_json::Value, key: &str) -> Section {
+    let Some(s) = summary.get(key) else {
+        return Section::default();
+    };
+    Section {
+        count: s
+            .get("count")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0),
+        covered: s
+            .get("covered")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0),
+        notcovered: s
+            .get("notcovered")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0),
+        percent: s
+            .get("percent")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(0.0),
+    }
 }
 
 pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Value, anyhow::Error> {
@@ -119,47 +163,33 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
         .and_then(|f| f.as_array())
         .context("missing or invalid 'files' array in coverage data")?;
 
+    let empty = serde_json::json!({});
     let mut records = Vec::with_capacity(files.len());
     for file in files {
         let filename = file.get("filename").and_then(|f| f.as_str()).unwrap_or("");
-        let summary = file
-            .get("summary")
-            .cloned()
-            .unwrap_or(serde_json::json!({}));
+        let summary = file.get("summary").unwrap_or(&empty);
 
-        let lines = summary
-            .get("lines")
-            .cloned()
-            .unwrap_or(serde_json::json!({}));
-        let functions = summary
-            .get("functions")
-            .cloned()
-            .unwrap_or(serde_json::json!({}));
-        let regions = summary
-            .get("regions")
-            .cloned()
-            .unwrap_or(serde_json::json!({}));
-        let branches = summary
-            .get("branches")
-            .cloned()
-            .unwrap_or(serde_json::json!({}));
+        let lines = extract_section(summary, "lines");
+        let functions = extract_section(summary, "functions");
+        let regions = extract_section(summary, "regions");
+        let branches = extract_section(summary, "branches");
 
         records.push(serde_json::json!({
             "filename": filename,
-            "lines_count": lines.get("count").and_then(|v| v.as_i64()).unwrap_or(0),
-            "lines_covered": lines.get("covered").and_then(|v| v.as_i64()).unwrap_or(0),
-            "lines_percent": lines.get("percent").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            "functions_count": functions.get("count").and_then(|v| v.as_i64()).unwrap_or(0),
-            "functions_covered": functions.get("covered").and_then(|v| v.as_i64()).unwrap_or(0),
-            "functions_percent": functions.get("percent").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            "regions_count": regions.get("count").and_then(|v| v.as_i64()).unwrap_or(0),
-            "regions_covered": regions.get("covered").and_then(|v| v.as_i64()).unwrap_or(0),
-            "regions_notcovered": regions.get("notcovered").and_then(|v| v.as_i64()).unwrap_or(0),
-            "regions_percent": regions.get("percent").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            "branches_count": branches.get("count").and_then(|v| v.as_i64()).unwrap_or(0),
-            "branches_covered": branches.get("covered").and_then(|v| v.as_i64()).unwrap_or(0),
-            "branches_notcovered": branches.get("notcovered").and_then(|v| v.as_i64()).unwrap_or(0),
-            "branches_percent": branches.get("percent").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            "lines_count": lines.count,
+            "lines_covered": lines.covered,
+            "lines_percent": lines.percent,
+            "functions_count": functions.count,
+            "functions_covered": functions.covered,
+            "functions_percent": functions.percent,
+            "regions_count": regions.count,
+            "regions_covered": regions.covered,
+            "regions_notcovered": regions.notcovered,
+            "regions_percent": regions.percent,
+            "branches_count": branches.count,
+            "branches_covered": branches.covered,
+            "branches_notcovered": branches.notcovered,
+            "branches_percent": branches.percent,
         }));
     }
     Ok(serde_json::Value::Array(records))

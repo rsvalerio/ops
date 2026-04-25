@@ -42,6 +42,7 @@ pub struct UpgradeEntry {
 
 /// Parsed result from `cargo upgrade --dry-run`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[must_use = "UpgradeResult carries compatible/incompatible upgrade entries — silently dropping it loses the parsed report"]
 pub struct UpgradeResult {
     pub compatible: Vec<UpgradeEntry>,
     pub incompatible: Vec<UpgradeEntry>,
@@ -71,6 +72,7 @@ pub type SourceEntry = DenyEntry;
 
 /// Combined result from `cargo deny check`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[must_use = "DenyResult carries advisory/license/ban/source findings — silently dropping it hides cargo-deny output"]
 pub struct DenyResult {
     pub advisories: Vec<AdvisoryEntry>,
     pub licenses: Vec<LicenseEntry>,

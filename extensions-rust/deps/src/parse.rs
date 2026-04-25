@@ -3,20 +3,31 @@
 use crate::{
     AdvisoryEntry, BanEntry, DenyResult, LicenseEntry, SourceEntry, UpgradeEntry, UpgradeResult,
 };
+use ops_core::subprocess::run_cargo;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::Path;
-use std::process::Command;
+use std::time::Duration;
+
+/// Default timeout for `cargo upgrade --dry-run`; overridable via
+/// `OPS_SUBPROCESS_TIMEOUT_SECS`.
+const CARGO_UPGRADE_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// Default timeout for `cargo deny check`; overridable via
+/// `OPS_SUBPROCESS_TIMEOUT_SECS`. Advisory DB refresh can dominate runtime.
+const CARGO_DENY_TIMEOUT: Duration = Duration::from_secs(240);
 
 // ── cargo upgrade parsing ───────────────────────────────────────────────────
 
 /// Run `cargo upgrade --dry-run` and parse the table output.
 pub fn run_cargo_upgrade_dry_run(working_dir: &Path) -> anyhow::Result<Vec<UpgradeEntry>> {
-    let output = Command::new("cargo")
-        .args(["upgrade", "--dry-run"])
-        .current_dir(working_dir)
-        .output()
-        .map_err(|e| anyhow::anyhow!("failed to run cargo upgrade: {}", e))?;
+    let output = run_cargo(
+        &["upgrade", "--dry-run"],
+        working_dir,
+        CARGO_UPGRADE_TIMEOUT,
+        "cargo upgrade --dry-run",
+    )
+    .map_err(|e| anyhow::anyhow!("failed to run cargo upgrade: {}", e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(parse_upgrade_table(&stdout))
@@ -99,6 +110,22 @@ pub fn categorize_upgrades(entries: Vec<UpgradeEntry>) -> UpgradeResult {
 
 // ── cargo deny parsing ──────────────────────────────────────────────────────
 
+/// Truncate a log line for tracing — operators get enough context to
+/// diagnose schema drift without flooding logs with multi-KB cargo-deny
+/// diagnostics.
+fn truncate_for_log(s: &str) -> String {
+    const MAX: usize = 200;
+    if s.len() <= MAX {
+        s.to_string()
+    } else {
+        let mut end = MAX;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…", &s[..end])
+    }
+}
+
 /// Advisory-related diagnostic codes.
 const ADVISORY_CODES: &[&str] = &[
     "vulnerability",
@@ -119,11 +146,13 @@ const SOURCE_CODES: &[&str] = &["source-not-allowed", "git-source-underspecified
 
 /// Run `cargo deny check` and parse the JSON output.
 pub fn run_cargo_deny(working_dir: &Path) -> anyhow::Result<DenyResult> {
-    let output = Command::new("cargo")
-        .args(["deny", "--format", "json", "check"])
-        .current_dir(working_dir)
-        .output()
-        .map_err(|e| anyhow::anyhow!("failed to run cargo deny: {}", e))?;
+    let output = run_cargo(
+        &["deny", "--format", "json", "check"],
+        working_dir,
+        CARGO_DENY_TIMEOUT,
+        "cargo deny check",
+    )
+    .map_err(|e| anyhow::anyhow!("failed to run cargo deny: {}", e))?;
 
     // cargo deny exits non-zero when issues are found — that's expected
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -182,7 +211,14 @@ pub fn parse_deny_output(stderr: &str) -> DenyResult {
 
         let deny_line: DenyLine = match serde_json::from_str(trimmed) {
             Ok(l) => l,
-            Err(_) => continue,
+            Err(e) => {
+                tracing::debug!(
+                    error = %e,
+                    line = %truncate_for_log(trimmed),
+                    "ERR-1: skipping malformed cargo-deny JSON line"
+                );
+                continue;
+            }
         };
 
         if deny_line.line_type != "diagnostic" {
@@ -191,7 +227,14 @@ pub fn parse_deny_output(stderr: &str) -> DenyResult {
 
         let fields: DiagnosticFields = match serde_json::from_value(deny_line.fields) {
             Ok(f) => f,
-            Err(_) => continue,
+            Err(e) => {
+                tracing::debug!(
+                    error = %e,
+                    line = %truncate_for_log(trimmed),
+                    "ERR-1: skipping cargo-deny diagnostic with unexpected fields shape"
+                );
+                continue;
+            }
         };
 
         let code = match &fields.code {
