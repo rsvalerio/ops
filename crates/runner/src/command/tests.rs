@@ -1,8 +1,9 @@
 //! Tests for command execution.
 
 use super::*;
+use crate::command::build::build_command;
 use crate::command::events::RunnerEvent;
-use crate::command::exec::{build_command, emit_output_events, exec_standalone};
+use crate::command::exec::{emit_output_events, exec_standalone};
 use crate::command::results::StepResult;
 use crate::test_support::{test_runner, EventAssertions};
 use ops_core::config::CommandSpec;
@@ -693,7 +694,7 @@ mod exec_unit_tests {
 /// TQ-005: Tests for build_command error paths.
 mod build_command_error_tests {
     use super::*;
-    use crate::command::exec::build_command;
+    use crate::command::build::build_command;
 
     #[test]
     fn build_command_with_nonexistent_cwd_still_builds() {
@@ -1286,7 +1287,7 @@ mod depth_limit_tests {
 }
 
 mod sensitive_env_tests {
-    use crate::command::exec::{
+    use crate::command::secret_patterns::{
         has_high_entropy, is_sensitive_env_key, looks_like_aws_key, looks_like_jwt,
         looks_like_secret_value, looks_like_uuid,
     };

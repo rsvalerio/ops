@@ -1,4 +1,5 @@
-//! Command execution helpers: building, running, and handling output.
+//! Async command execution: running a built [`Command`], capturing output,
+//! emitting [`RunnerEvent`]s, and applying timeouts.
 //!
 //! # Security Model
 //!
@@ -26,10 +27,12 @@
 //! 2. Use a secrets manager and reference via environment
 //! 3. Use `.env` files that are gitignored
 //!
-//! The `warn_if_sensitive_env_key()` function logs a warning when it detects
-//! sensitive-looking variable names or values that appear to be secrets
-//! (e.g., long base64-like strings, common secret formats).
+//! The [`warn_if_sensitive_env`](super::secret_patterns::warn_if_sensitive_env)
+//! function logs a warning when it detects sensitive-looking variable names or
+//! values that appear to be secrets (e.g., long base64-like strings, common
+//! secret formats).
 
+use super::build::build_command;
 use super::events::RunnerEvent;
 use super::results::{CommandOutput, StepResult};
 use ops_core::config::{CommandId, ExecCommandSpec};
@@ -38,303 +41,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+#[cfg(test)]
 use tokio::process::Command;
 use tokio::sync::mpsc;
-
-/// Lexically normalize a path by resolving `.` and `..` components without I/O.
-fn normalize_path(p: &std::path::Path) -> std::path::PathBuf {
-    use std::path::Component;
-    let mut out = std::path::PathBuf::new();
-    for c in p.components() {
-        match c {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !out.pop() {
-                    out.push(c);
-                }
-            }
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-/// Policy for how to treat spec `cwd` values that escape the workspace root.
-///
-/// SEC-14: interactive invocations (`ops <cmd>`) tolerate escapes with a
-/// warning — `.ops.toml` is trusted the way a Makefile is trusted.
-/// Hook-triggered invocations (`run-before-commit`, `run-before-push`) are
-/// strict: a co-worker's PR can land a `.ops.toml` that runs on every
-/// commit the maintainer makes, so the hook path fails closed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CwdEscapePolicy {
-    /// Log a warning and spawn anyway. Default for interactive `ops run`.
-    #[default]
-    WarnAndAllow,
-    /// Refuse to spawn; return an error. Used by git-hook-triggered paths.
-    ///
-    /// Kept in the public API so hook-triggered entry points can opt in
-    /// once they thread a policy through `CommandRunner`. Currently only
-    /// constructed in tests; the default interactive path stays
-    /// `WarnAndAllow` to avoid a behaviour change for existing users.
-    #[allow(dead_code)]
-    Deny,
-}
-
-/// Resolve an exec spec's `cwd` field against the workspace root, canonicalizing
-/// both sides before the containment check so symlinks cannot smuggle an
-/// absolute path past the check lexically.
-///
-/// Returns an error when the resolved path escapes the workspace root **and**
-/// `policy == Deny` (SEC-14 hook path). Otherwise logs and continues.
-pub fn resolve_spec_cwd(
-    spec_cwd: Option<&std::path::Path>,
-    workspace_cwd: &std::path::Path,
-    vars: &Variables,
-    policy: CwdEscapePolicy,
-) -> Result<std::path::PathBuf, std::io::Error> {
-    let Some(p) = spec_cwd else {
-        return Ok(workspace_cwd.to_path_buf());
-    };
-
-    let lossy = p.to_string_lossy();
-    let expanded = vars.expand(&lossy);
-    let ep = std::path::PathBuf::from(expanded.as_ref());
-    if !ep.is_relative() {
-        return Ok(ep);
-    }
-
-    let joined = workspace_cwd.join(&ep);
-    // Lexical check first (fast, no IO). Canonicalize both sides when the
-    // joined path exists so a symlink inside the workspace that targets
-    // outside is still caught.
-    let lexically_escapes = !normalize_path(&joined).starts_with(workspace_cwd);
-    let canonically_escapes = match (
-        std::fs::canonicalize(&joined).ok(),
-        std::fs::canonicalize(workspace_cwd).ok(),
-    ) {
-        (Some(a), Some(b)) => !a.starts_with(&b),
-        _ => false,
-    };
-
-    if lexically_escapes || canonically_escapes {
-        match policy {
-            CwdEscapePolicy::Deny => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    format!(
-                        "SEC-14: refusing to spawn: spec cwd {} escapes workspace root {}",
-                        ep.display(),
-                        workspace_cwd.display()
-                    ),
-                ));
-            }
-            CwdEscapePolicy::WarnAndAllow => {
-                tracing::warn!(
-                    cwd = %workspace_cwd.display(),
-                    spec_cwd = %ep.display(),
-                    resolved = %joined.display(),
-                    "SEC-004: spec cwd escapes workspace root"
-                );
-            }
-        }
-    }
-
-    Ok(joined)
-}
-
-/// Build a tokio Command from an exec spec and working directory.
-///
-/// ## SEC-004 / SEC-14: cwd traversal guard
-///
-/// Delegates to [`resolve_spec_cwd`] with [`CwdEscapePolicy::WarnAndAllow`],
-/// which warns but still spawns (interactive trust model). Callers that
-/// need fail-closed behaviour (git hooks) should call [`build_command_with`]
-/// with [`CwdEscapePolicy::Deny`].
-///
-/// Note: `current_dir` is validated by the OS when the command is spawned — if the
-/// path does not exist, `Command::output()` returns an `io::Error` that propagates
-/// through the existing error handling in `exec_command`.
-pub fn build_command(spec: &ExecCommandSpec, cwd: &std::path::Path, vars: &Variables) -> Command {
-    build_command_with(spec, cwd, vars, CwdEscapePolicy::WarnAndAllow)
-        .expect("WarnAndAllow policy never returns Err")
-}
-
-/// Build a tokio Command with an explicit cwd-escape policy. Returns `Err`
-/// only when `policy == Deny` and the spec's cwd escapes the workspace root.
-pub fn build_command_with(
-    spec: &ExecCommandSpec,
-    cwd: &std::path::Path,
-    vars: &Variables,
-    policy: CwdEscapePolicy,
-) -> Result<Command, std::io::Error> {
-    let mut cmd = Command::new(vars.expand(&spec.program).as_ref());
-    let expanded_args: Vec<_> = spec
-        .args
-        .iter()
-        .map(|a| vars.expand(a).into_owned())
-        .collect();
-    cmd.args(&expanded_args);
-    let resolved_cwd = resolve_spec_cwd(spec.cwd.as_deref(), cwd, vars, policy)?;
-    cmd.current_dir(&resolved_cwd);
-    for (k, v) in &spec.env {
-        let expanded_v = vars.expand(v);
-        warn_if_sensitive_env(k, &expanded_v);
-        cmd.env(k, expanded_v.as_ref());
-    }
-    cmd.kill_on_drop(true);
-    Ok(cmd)
-}
-
-/// DUP-001: Shared patterns for detecting sensitive environment variable names.
-/// Used by warn_if_sensitive_env() for warnings and is_sensitive_env_key() for dry-run redaction.
-///
-/// `SENSITIVE_REDACTION_PATTERNS` is a strict subset of this list.
-/// The extra entries ("access_key", "session") trigger warnings but are not redacted in dry-run
-/// output because they commonly appear in non-secret contexts.
-const SENSITIVE_KEY_PATTERNS: &[&str] = &[
-    "password",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-    "private",
-    "credential",
-    "auth",
-    "access_key",
-    "session",
-];
-
-/// DUP-001: Subset of SENSITIVE_KEY_PATTERNS used for dry-run redaction.
-/// Every entry here must also appear in SENSITIVE_KEY_PATTERNS.
-const SENSITIVE_REDACTION_PATTERNS: &[&str] = &[
-    "password",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-    "private",
-    "credential",
-    "auth",
-];
-
-/// SEC-002: Warn if environment variable key or value looks sensitive.
-///
-/// Checks for:
-/// - Key names containing patterns from SENSITIVE_KEY_PATTERNS
-/// - Values that look like secrets: long base64-like strings, AWS-style keys, JWT-like tokens
-pub fn warn_if_sensitive_env(key: &str, value: &str) {
-    let lower = key.to_lowercase();
-    for pattern in SENSITIVE_KEY_PATTERNS {
-        if lower.contains(pattern) {
-            tracing::warn!(
-                key = %key,
-                "SEC-002: env variable name suggests sensitive data; use OS environment instead of config"
-            );
-            return;
-        }
-    }
-
-    if looks_like_secret_value(value) {
-        tracing::warn!(
-            key = %key,
-            value_len = value.len(),
-            "SEC-002: env variable value looks like a secret (long random-looking string); use OS environment instead of config"
-        );
-    }
-}
-
-/// DUP-001: Check if an env key looks like it might contain sensitive data.
-///
-/// This is used by dry-run mode to redact sensitive values in output.
-/// Returns true if the key name suggests it contains a secret.
-pub fn is_sensitive_env_key(key: &str) -> bool {
-    let lower = key.to_lowercase();
-    SENSITIVE_REDACTION_PATTERNS
-        .iter()
-        .any(|p| lower.contains(p))
-}
-
-/// Check if a value looks like it might be a secret.
-///
-/// CQ-011: Uses named predicates for each detection strategy, making the
-/// logic explicit and testable. Each predicate checks a specific pattern:
-///
-/// - `has_high_entropy`: Mixed alphanumeric with digits, lowercase, uppercase
-/// - `looks_like_jwt`: Starts with "eyJ" (base64-encoded JSON) and contains "."
-/// - `looks_like_aws_key`: 40 chars, alphanumeric plus +/=
-/// - `looks_like_uuid`: 36 chars with 4 hyphens in UUID format
-pub fn looks_like_secret_value(value: &str) -> bool {
-    if value.len() < 20 {
-        return false;
-    }
-
-    has_high_entropy(value)
-        || looks_like_jwt(value)
-        || looks_like_aws_key(value)
-        || looks_like_uuid(value)
-}
-
-/// CQ-005: Extracted helper predicates for secret detection.
-///
-/// Thresholds below are heuristic caps: a string is flagged as "high-entropy"
-/// when it is long enough (>15 alphanumerics) and mixes digits, lowercase, and
-/// uppercase in non-trivial amounts (>3 of each). This is deliberately strict
-/// — legitimate words hit one or two of these but rarely all four — and keeps
-/// false positives low on identifiers like `version_1_2_3`.
-const HIGH_ENTROPY_MIN_ALPHANUMERIC: usize = 15;
-const HIGH_ENTROPY_MIN_DIGITS: usize = 3;
-const HIGH_ENTROPY_MIN_LOWERCASE: usize = 3;
-const HIGH_ENTROPY_MIN_UPPERCASE: usize = 3;
-
-pub(crate) fn has_high_entropy(value: &str) -> bool {
-    let (mut alphanumeric, mut digits, mut lowercase, mut uppercase) = (0usize, 0, 0, 0);
-    for c in value.chars() {
-        if c.is_ascii_digit() {
-            digits += 1;
-            alphanumeric += 1;
-        } else if c.is_ascii_lowercase() {
-            lowercase += 1;
-            alphanumeric += 1;
-        } else if c.is_ascii_uppercase() {
-            uppercase += 1;
-            alphanumeric += 1;
-        } else if c.is_alphanumeric() {
-            alphanumeric += 1;
-        }
-    }
-    alphanumeric > HIGH_ENTROPY_MIN_ALPHANUMERIC
-        && digits > HIGH_ENTROPY_MIN_DIGITS
-        && lowercase > HIGH_ENTROPY_MIN_LOWERCASE
-        && uppercase > HIGH_ENTROPY_MIN_UPPERCASE
-}
-
-pub(crate) fn looks_like_jwt(value: &str) -> bool {
-    value.starts_with("eyJ") && value.contains('.')
-}
-
-pub(crate) fn looks_like_aws_key(value: &str) -> bool {
-    value.len() == 40
-        && value
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
-}
-
-pub(crate) fn looks_like_uuid(value: &str) -> bool {
-    if value.len() != 36 {
-        return false;
-    }
-    let parts: Vec<&str> = value.split('-').collect();
-    parts.len() == 5
-        && parts[0].len() == 8
-        && parts[1].len() == 4
-        && parts[2].len() == 4
-        && parts[3].len() == 4
-        && parts[4].len() == 12
-        && parts
-            .iter()
-            .all(|p| p.chars().all(|c| c.is_ascii_hexdigit()))
-}
 
 /// Await a future with an optional timeout, mapping elapsed timeouts to an
 /// `io::ErrorKind::TimedOut` with a unified "timed out after Ns" message.
@@ -391,6 +100,18 @@ fn redact_spawn_error(program: &str, e: &std::io::Error) -> String {
         return e.to_string();
     }
     format!("failed to spawn `{program}`: {kind:?}", kind = e.kind())
+}
+
+/// DUP-3 / TASK-0305: log the full spawn error at debug (for operators
+/// chasing SEC-22 leaks) and return the redacted user-facing message.
+///
+/// Both `exec_command` and `exec_command_raw` need exactly this pair on
+/// every spawn failure; centralising it removes the drift risk if redaction
+/// fields evolve. `context` is included as a tracing field so the two call
+/// sites remain distinguishable in logs ("captured" vs "raw").
+fn log_and_redact_spawn_error(program: &str, e: &std::io::Error, context: &'static str) -> String {
+    tracing::debug!(error = %e, program = %program, context, "exec spawn failed (full error)");
+    redact_spawn_error(program, e)
 }
 
 /// Emit StepOutput events for captured stdout and stderr.
@@ -494,10 +215,10 @@ pub async fn exec_command(
             // resolved absolute program path and cwd (e.g. `/home/alice/…`).
             // That surfaces in `StepFailed::message` → progress UI → TAP
             // file, which leaks the developer's home path into CI logs.
-            // Keep the full error at debug level and surface a shorter
-            // "failed to spawn `<program>`: <kind>" to the user.
-            tracing::debug!(error = %e, program = %spec.program, "exec spawn failed (full error)");
-            let msg = redact_spawn_error(&spec.program, &e);
+            // log_and_redact_spawn_error keeps the full error at debug
+            // level and returns a shorter "failed to spawn `<program>`:
+            // <kind>" for the user.
+            let msg = log_and_redact_spawn_error(&spec.program, &e, "captured");
             emit(RunnerEvent::StepFailed {
                 id: id.into(),
                 duration_secs: duration.as_secs_f64(),
@@ -549,9 +270,12 @@ pub async fn exec_command_raw(
             }
         }
         Err(e) => {
-            // SEC-22: same redaction as in `exec_command`.
-            tracing::debug!(error = %e, program = %spec.program, "raw exec spawn failed");
-            StepResult::failure(id, duration, redact_spawn_error(&spec.program, &e))
+            // SEC-22: same log+redact as `exec_command`, via the shared helper.
+            StepResult::failure(
+                id,
+                duration,
+                log_and_redact_spawn_error(&spec.program, &e, "raw"),
+            )
         }
     }
 }
@@ -623,138 +347,4 @@ pub fn resolution_failure(
 ) -> StepResult {
     emit_instant_failure(id, &message, on_event);
     StepResult::failure(id, Duration::ZERO, message)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn is_sensitive_env_key_detects_password() {
-        assert!(is_sensitive_env_key("PASSWORD"));
-        assert!(is_sensitive_env_key("MY_PASSWORD"));
-        assert!(is_sensitive_env_key("password"));
-        assert!(is_sensitive_env_key("db_password"));
-    }
-
-    #[test]
-    fn is_sensitive_env_key_detects_secret() {
-        assert!(is_sensitive_env_key("SECRET"));
-        assert!(is_sensitive_env_key("CLIENT_SECRET"));
-        assert!(is_sensitive_env_key("my_secret_key"));
-    }
-
-    #[test]
-    fn is_sensitive_env_key_detects_token() {
-        assert!(is_sensitive_env_key("TOKEN"));
-        assert!(is_sensitive_env_key("ACCESS_TOKEN"));
-        assert!(is_sensitive_env_key("api_token"));
-    }
-
-    #[test]
-    fn is_sensitive_env_key_detects_api_key() {
-        assert!(is_sensitive_env_key("API_KEY"));
-        assert!(is_sensitive_env_key("apikey"));
-        assert!(is_sensitive_env_key("X_API_KEY"));
-    }
-
-    #[test]
-    fn is_sensitive_env_key_detects_auth() {
-        assert!(is_sensitive_env_key("AUTH"));
-        assert!(is_sensitive_env_key("AUTHORIZATION"));
-        assert!(is_sensitive_env_key("auth_header"));
-    }
-
-    #[test]
-    fn is_sensitive_env_key_allows_non_sensitive() {
-        assert!(!is_sensitive_env_key("PATH"));
-        assert!(!is_sensitive_env_key("HOME"));
-        assert!(!is_sensitive_env_key("USER"));
-        assert!(!is_sensitive_env_key("DEBUG"));
-        assert!(!is_sensitive_env_key("LOG_LEVEL"));
-    }
-
-    #[test]
-    fn looks_like_secret_value_detects_jwt() {
-        let jwt_start = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
-        assert!(looks_like_secret_value(jwt_start));
-    }
-
-    #[test]
-    fn looks_like_secret_value_detects_uuid() {
-        let uuid = "550e8400-e29b-41d4-a716-446655440000";
-        assert!(looks_like_secret_value(uuid));
-    }
-
-    #[test]
-    fn looks_like_secret_value_rejects_short_values() {
-        assert!(!looks_like_secret_value("short"));
-        assert!(!looks_like_secret_value("1234567890"));
-    }
-
-    #[test]
-    fn looks_like_secret_value_rejects_simple_strings() {
-        assert!(!looks_like_secret_value("this is a normal string value"));
-        assert!(!looks_like_secret_value("a simple path /to/some/file"));
-    }
-
-    // SEC-14 / FN-1 regression tests for the extracted resolve_spec_cwd.
-    #[test]
-    fn resolve_spec_cwd_none_returns_workspace() {
-        let ws = std::path::PathBuf::from("/tmp/ws");
-        let vars = Variables::from_env(&ws);
-        let out = resolve_spec_cwd(None, &ws, &vars, CwdEscapePolicy::WarnAndAllow).unwrap();
-        assert_eq!(out, ws);
-    }
-
-    #[test]
-    fn resolve_spec_cwd_absolute_is_returned_verbatim() {
-        let ws = std::path::PathBuf::from("/tmp/ws");
-        let vars = Variables::from_env(&ws);
-        let abs = std::path::Path::new("/opt/elsewhere");
-        let out = resolve_spec_cwd(Some(abs), &ws, &vars, CwdEscapePolicy::Deny).unwrap();
-        assert_eq!(out, std::path::PathBuf::from("/opt/elsewhere"));
-    }
-
-    #[test]
-    fn resolve_spec_cwd_deny_rejects_escape() {
-        let ws = std::path::PathBuf::from("/tmp/ws");
-        let vars = Variables::from_env(&ws);
-        let escaping = std::path::Path::new("../etc");
-        let err = resolve_spec_cwd(Some(escaping), &ws, &vars, CwdEscapePolicy::Deny)
-            .expect_err("escape should fail under Deny");
-        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(err.to_string().contains("SEC-14"));
-    }
-
-    #[test]
-    fn resolve_spec_cwd_warn_allows_escape() {
-        let ws = std::path::PathBuf::from("/tmp/ws");
-        let vars = Variables::from_env(&ws);
-        let escaping = std::path::Path::new("../etc");
-        let out =
-            resolve_spec_cwd(Some(escaping), &ws, &vars, CwdEscapePolicy::WarnAndAllow).unwrap();
-        // Still joined; caller trusts `.ops.toml` in interactive mode.
-        assert_eq!(out, ws.join("../etc"));
-    }
-
-    #[test]
-    fn resolve_spec_cwd_relative_inside_workspace_is_joined() {
-        let ws = std::path::PathBuf::from("/tmp/ws");
-        let vars = Variables::from_env(&ws);
-        let inside = std::path::Path::new("sub/dir");
-        let out = resolve_spec_cwd(Some(inside), &ws, &vars, CwdEscapePolicy::Deny).unwrap();
-        assert_eq!(out, ws.join("sub/dir"));
-    }
-
-    #[test]
-    fn redaction_patterns_is_subset_of_key_patterns() {
-        for pattern in SENSITIVE_REDACTION_PATTERNS {
-            assert!(
-                SENSITIVE_KEY_PATTERNS.contains(pattern),
-                "SENSITIVE_REDACTION_PATTERNS entry {:?} missing from SENSITIVE_KEY_PATTERNS",
-                pattern
-            );
-        }
-    }
 }

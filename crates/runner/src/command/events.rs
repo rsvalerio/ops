@@ -1,7 +1,39 @@
-//! Events emitted during command execution for plain-text (theme) output.
+//! Events emitted during command execution for plain-text (theme) output,
+//! plus the [`PlanLifecycle`] bookend that emits PlanStarted / RunFinished
+//! around every plan run.
 
 use ops_core::config::CommandId;
 use serde::Serialize;
+use std::time::Instant;
+
+/// Tracks the lifecycle of a plan execution (PlanStarted → RunFinished bookends).
+pub(crate) struct PlanLifecycle {
+    start: Instant,
+}
+
+impl PlanLifecycle {
+    pub(crate) fn begin(command_ids: &[CommandId], on_event: &mut impl FnMut(RunnerEvent)) -> Self {
+        on_event(RunnerEvent::PlanStarted {
+            command_ids: command_ids.to_vec(),
+        });
+        Self {
+            start: Instant::now(),
+        }
+    }
+
+    /// FN-9 / TASK-0197+0211: take `success` explicitly rather than a full
+    /// `&[StepResult]`. Callers already walk the results inside the run loop
+    /// to compute success anyway, so threading a bool is clearer than
+    /// handing over the entire slice for an `iter().all()` re-walk. It also
+    /// prevents a future refactor from passing a partial-result slice and
+    /// silently misreporting the run outcome.
+    pub(crate) fn finish(self, success: bool, on_event: &mut impl FnMut(RunnerEvent)) {
+        on_event(RunnerEvent::RunFinished {
+            duration_secs: self.start.elapsed().as_secs_f64(),
+            success,
+        });
+    }
+}
 
 /// Events emitted during command execution for plain-text (theme) output.
 #[derive(Debug, Clone, Serialize)]

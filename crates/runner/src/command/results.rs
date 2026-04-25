@@ -5,6 +5,7 @@ use std::time::Duration;
 
 /// Result of running a single command.
 #[derive(Debug, Clone)]
+#[must_use = "StepResult carries success/failure, stderr, and timing; discarding it hides command failures"]
 pub struct StepResult {
     pub id: CommandId,
     pub success: bool,
