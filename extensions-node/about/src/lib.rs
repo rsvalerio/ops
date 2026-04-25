@@ -8,7 +8,9 @@ mod units;
 
 use std::path::Path;
 
-use ops_core::project_identity::{base_about_fields, AboutFieldDef, ProjectIdentity};
+use ops_core::project_identity::{
+    base_about_fields, insert_homepage_field, AboutFieldDef, ProjectIdentity,
+};
 use ops_core::text::dir_name;
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use serde::Deserialize;
@@ -46,18 +48,7 @@ impl DataProvider for NodeIdentityProvider {
 
     fn about_fields(&self) -> Vec<AboutFieldDef> {
         let mut fields = base_about_fields();
-        let insert_pos = fields
-            .iter()
-            .position(|f| f.id == "coverage")
-            .unwrap_or(fields.len());
-        fields.insert(
-            insert_pos,
-            AboutFieldDef {
-                id: "homepage",
-                label: "Homepage",
-                description: "Project homepage URL",
-            },
-        );
+        insert_homepage_field(&mut fields);
         fields
     }
 
@@ -77,10 +68,10 @@ impl DataProvider for NodeIdentityProvider {
             .as_ref()
             .map(|p| p.authors.clone())
             .unwrap_or_default();
-        let repository = parsed
-            .as_ref()
-            .and_then(|p| p.repository.clone())
-            .or_else(|| ops_git::GitInfo::collect(&cwd).remote_url);
+        let repository = ops_git::resolve_repository_with_git_fallback(
+            &cwd,
+            parsed.as_ref().and_then(|p| p.repository.clone()),
+        );
 
         let pkg_manager = detect_package_manager(&cwd, parsed.as_ref());
         let engine_node = parsed.as_ref().and_then(|p| p.engines_node.clone());
@@ -222,15 +213,18 @@ fn format_person(p: PersonField) -> Option<String> {
 /// - `github:user/repo` → `https://github.com/user/repo`
 /// - `git+https://…` / `git://…` → stripped scheme
 fn normalize_repo_url(raw: &str) -> String {
+    /// (shorthand prefix, host) for npm hostname shortcuts.
+    const HOST_PREFIXES: &[(&str, &str)] = &[
+        ("github:", "github.com"),
+        ("gitlab:", "gitlab.com"),
+        ("bitbucket:", "bitbucket.org"),
+    ];
+
     let s = raw.trim();
-    if let Some(rest) = s.strip_prefix("github:") {
-        return format!("https://github.com/{rest}");
-    }
-    if let Some(rest) = s.strip_prefix("gitlab:") {
-        return format!("https://gitlab.com/{rest}");
-    }
-    if let Some(rest) = s.strip_prefix("bitbucket:") {
-        return format!("https://bitbucket.org/{rest}");
+    for (prefix, host) in HOST_PREFIXES {
+        if let Some(rest) = s.strip_prefix(prefix) {
+            return format!("https://{host}/{rest}");
+        }
     }
     if let Some(rest) = s.strip_prefix("git+") {
         return rest.trim_end_matches(".git").to_string();

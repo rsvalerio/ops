@@ -9,7 +9,9 @@ mod units;
 
 use std::path::Path;
 
-use ops_core::project_identity::{base_about_fields, AboutFieldDef, ProjectIdentity};
+use ops_core::project_identity::{
+    base_about_fields, insert_homepage_field, AboutFieldDef, ProjectIdentity,
+};
 use ops_core::text::dir_name;
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use serde::Deserialize;
@@ -47,18 +49,7 @@ impl DataProvider for PythonIdentityProvider {
 
     fn about_fields(&self) -> Vec<AboutFieldDef> {
         let mut fields = base_about_fields();
-        let insert_pos = fields
-            .iter()
-            .position(|f| f.id == "coverage")
-            .unwrap_or(fields.len());
-        fields.insert(
-            insert_pos,
-            AboutFieldDef {
-                id: "homepage",
-                label: "Homepage",
-                description: "Project homepage URL",
-            },
-        );
+        insert_homepage_field(&mut fields);
         fields
     }
 
@@ -79,10 +70,10 @@ impl DataProvider for PythonIdentityProvider {
             .as_ref()
             .map(|p| p.authors.clone())
             .unwrap_or_default();
-        let repository = parsed
-            .as_ref()
-            .and_then(|p| p.repository.clone())
-            .or_else(|| ops_git::GitInfo::collect(&cwd).remote_url);
+        let repository = ops_git::resolve_repository_with_git_fallback(
+            &cwd,
+            parsed.as_ref().and_then(|p| p.repository.clone()),
+        );
 
         let uses_uv = detect_uv(&cwd, parsed.as_ref());
         let stack_detail = match (requires_python, uses_uv) {

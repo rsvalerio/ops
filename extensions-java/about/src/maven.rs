@@ -38,10 +38,7 @@ impl DataProvider for MavenIdentityProvider {
             Some(pom.modules.len())
         };
         identity.authors = pom.developers;
-        identity.repository = pom
-            .scm_url
-            .filter(|s| !s.is_empty())
-            .or_else(|| ops_git::GitInfo::collect(&cwd).remote_url);
+        identity.repository = ops_git::resolve_repository_with_git_fallback(&cwd, pom.scm_url);
 
         serde_json::to_value(&identity).map_err(DataProviderError::from)
     }
@@ -101,57 +98,79 @@ pub(crate) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
             continue;
         }
 
-        // Check for section transitions at top level
-        if section == PomSection::TopLevel {
+        if matches!(section, PomSection::TopLevel) {
             if let Some(new_section) = match_section_open(line) {
                 section = new_section;
-                continue;
+            } else {
+                parse_top_level(line, &mut data);
             }
-            parse_top_level(line, &mut data);
             continue;
         }
 
-        // Handle section-specific content and closing tags
-        match &mut section {
-            PomSection::Modules => {
-                if line == "</modules>" {
-                    section = PomSection::TopLevel;
-                } else if let Some(val) = extract_xml_value(line, "module") {
-                    data.modules.push(val);
-                }
-            }
-            PomSection::Developers { in_developer } => {
-                if line == "</developers>" {
-                    section = PomSection::TopLevel;
-                } else if line == "<developer>" {
-                    *in_developer = true;
-                } else if line == "</developer>" {
-                    *in_developer = false;
-                } else if *in_developer {
-                    if let Some(val) = extract_xml_value(line, "name") {
-                        data.developers.push(val);
-                    }
-                }
-            }
-            PomSection::Scm => {
-                if line == "</scm>" {
-                    section = PomSection::TopLevel;
-                } else if data.scm_url.is_none() {
-                    data.scm_url = extract_xml_value(line, "url");
-                }
-            }
-            PomSection::Licenses => {
-                if line == "</licenses>" {
-                    section = PomSection::TopLevel;
-                } else if data.license.is_none() {
-                    data.license = extract_xml_value(line, "name");
-                }
-            }
-            PomSection::TopLevel => unreachable!(),
+        if handle_section_line(&mut section, line, &mut data) {
+            section = PomSection::TopLevel;
         }
     }
 
     Some(data)
+}
+
+/// Dispatch a line to the active section's handler. Returns `true` when the
+/// section's closing tag was seen and the parser should return to `TopLevel`.
+fn handle_section_line(section: &mut PomSection, line: &str, data: &mut PomData) -> bool {
+    match section {
+        PomSection::Modules => handle_modules(line, data),
+        PomSection::Developers { in_developer } => handle_developers(line, in_developer, data),
+        PomSection::Scm => handle_scm(line, data),
+        PomSection::Licenses => handle_licenses(line, data),
+        PomSection::TopLevel => unreachable!(),
+    }
+}
+
+fn handle_modules(line: &str, data: &mut PomData) -> bool {
+    if line == "</modules>" {
+        return true;
+    }
+    if let Some(val) = extract_xml_value(line, "module") {
+        data.modules.push(val);
+    }
+    false
+}
+
+fn handle_developers(line: &str, in_developer: &mut bool, data: &mut PomData) -> bool {
+    match line {
+        "</developers>" => return true,
+        "<developer>" => *in_developer = true,
+        "</developer>" => *in_developer = false,
+        _ => {
+            if *in_developer {
+                if let Some(val) = extract_xml_value(line, "name") {
+                    data.developers.push(val);
+                }
+            }
+        }
+    }
+    false
+}
+
+fn handle_scm(line: &str, data: &mut PomData) -> bool {
+    if line == "</scm>" {
+        return true;
+    }
+    if data.scm_url.is_none() {
+        data.scm_url = extract_xml_value(line, "url");
+    }
+    false
+}
+
+fn handle_licenses(line: &str, data: &mut PomData) -> bool {
+    if line == "</licenses>" {
+        return true;
+    }
+    if data.license.is_none() {
+        data.license = extract_xml_value(line, "name");
+    }
+    false
 }
 
 /// Match opening tags for POM sections.

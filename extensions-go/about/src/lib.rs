@@ -8,7 +8,7 @@ mod modules;
 use std::path::Path;
 
 use ops_core::project_identity::{base_about_fields, AboutFieldDef, ProjectIdentity};
-use ops_core::text::dir_name;
+use ops_core::text::{dir_name, for_each_trimmed_line};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 
 const NAME: &str = "about-go";
@@ -76,7 +76,7 @@ impl DataProvider for GoIdentityProvider {
             None
         };
 
-        let repository = ops_git::GitInfo::collect(&cwd).remote_url;
+        let repository = ops_git::resolve_repository_with_git_fallback(&cwd, None);
 
         let mut identity = ProjectIdentity::new(name, "Go", cwd.display().to_string(), "modules");
         identity.stack_detail = stack_detail;
@@ -96,13 +96,11 @@ struct GoMod {
 }
 
 fn parse_go_mod(project_root: &Path) -> Option<GoMod> {
-    let content = std::fs::read_to_string(project_root.join("go.mod")).ok()?;
     let mut module = None;
     let mut go_version = None;
     let mut local_replaces = Vec::new();
 
-    for line in content.lines() {
-        let line = line.trim();
+    for_each_trimmed_line(&project_root.join("go.mod"), |line| {
         if let Some(rest) = line.strip_prefix("module ") {
             module = Some(rest.trim().to_string());
         } else if let Some(rest) = line.strip_prefix("go ") {
@@ -116,7 +114,7 @@ fn parse_go_mod(project_root: &Path) -> Option<GoMod> {
                 }
             }
         }
-    }
+    })?;
 
     module.map(|m| GoMod {
         module: m,
@@ -132,22 +130,16 @@ struct GoWork {
 }
 
 fn parse_go_work(project_root: &Path) -> Option<GoWork> {
-    let content = std::fs::read_to_string(project_root.join("go.work")).ok()?;
     let mut use_dirs = Vec::new();
     let mut in_use_block = false;
 
-    for line in content.lines() {
-        let line = line.trim();
+    for_each_trimmed_line(&project_root.join("go.work"), |line| {
         if line == "use (" {
             in_use_block = true;
-            continue;
-        }
-        if in_use_block {
+        } else if in_use_block {
             if line == ")" {
                 in_use_block = false;
-                continue;
-            }
-            if !line.is_empty() && !line.starts_with("//") {
+            } else if !line.is_empty() && !line.starts_with("//") {
                 use_dirs.push(line.to_string());
             }
         } else if let Some(rest) = line.strip_prefix("use ") {
@@ -157,7 +149,7 @@ fn parse_go_work(project_root: &Path) -> Option<GoWork> {
                 use_dirs.push(dir.to_string());
             }
         }
-    }
+    })?;
 
     if use_dirs.is_empty() {
         None

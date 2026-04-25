@@ -7,7 +7,7 @@
 mod gradle;
 mod maven;
 
-use ops_core::project_identity::{base_about_fields, AboutFieldDef};
+use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
 use ops_extension::ExtensionType;
 
 use gradle::GradleIdentityProvider;
@@ -65,10 +65,6 @@ ops_extension::impl_extension! {
 
 fn java_about_fields() -> Vec<AboutFieldDef> {
     let mut fields = base_about_fields();
-    fields.push(AboutFieldDef {
-        id: "homepage",
-        label: "Homepage",
-        description: "Project homepage URL",
-    });
+    insert_homepage_field(&mut fields);
     fields
 }

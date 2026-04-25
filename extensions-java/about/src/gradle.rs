@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use ops_core::project_identity::{AboutFieldDef, ProjectIdentity};
-use ops_core::text::dir_name;
+use ops_core::text::{dir_name, for_each_trimmed_line};
 use ops_extension::{Context, DataProvider, DataProviderError};
 
 use super::java_about_fields;
@@ -37,7 +37,7 @@ impl DataProvider for GradleIdentityProvider {
         let subproject_count = settings.as_ref().map(|s| s.includes.len());
 
         let _ = group;
-        let repository = ops_git::GitInfo::collect(&cwd).remote_url;
+        let repository = ops_git::resolve_repository_with_git_fallback(&cwd, None);
 
         let mut identity =
             ProjectIdentity::new(name, "Java", cwd.display().to_string(), "subprojects");
@@ -66,23 +66,16 @@ struct GradleBuild {
 }
 
 fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
-    let content = std::fs::read_to_string(project_root.join("settings.gradle"))
-        .or_else(|_| std::fs::read_to_string(project_root.join("settings.gradle.kts")))
-        .ok()?;
-
     let mut root_project_name = None;
     let mut includes = Vec::new();
 
-    for line in content.lines() {
-        let line = line.trim();
-
+    let mut scan = |line: &str| {
         if let Some(name) = extract_assignment(line, "rootProject.name") {
             root_project_name = Some(name);
         }
 
         if let Some(rest) = line.strip_prefix("include ") {
-            let rest = rest.trim();
-            if let Some(val) = extract_quoted(rest) {
+            if let Some(val) = extract_quoted(rest.trim()) {
                 includes.push(val);
             }
         } else if let Some(rest) = line.strip_prefix("include(") {
@@ -90,7 +83,10 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
                 includes.push(val);
             }
         }
-    }
+    };
+
+    for_each_trimmed_line(&project_root.join("settings.gradle"), &mut scan)
+        .or_else(|| for_each_trimmed_line(&project_root.join("settings.gradle.kts"), &mut scan))?;
 
     Some(GradleSettings {
         root_project_name,
@@ -99,39 +95,34 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
 }
 
 fn parse_gradle_properties(project_root: &Path) -> Option<GradleProperties> {
-    let content = std::fs::read_to_string(project_root.join("gradle.properties")).ok()?;
     let mut version = None;
 
-    for line in content.lines() {
-        let line = line.trim();
+    for_each_trimmed_line(&project_root.join("gradle.properties"), |line| {
         if let Some(rest) = line.strip_prefix("version=") {
             version = Some(rest.trim().to_string());
         } else if let Some(rest) = line.strip_prefix("version =") {
             version = Some(rest.trim().to_string());
         }
-    }
+    })?;
 
     Some(GradleProperties { version })
 }
 
 fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
-    let content = std::fs::read_to_string(project_root.join("build.gradle"))
-        .or_else(|_| std::fs::read_to_string(project_root.join("build.gradle.kts")))
-        .ok()?;
-
     let mut description = None;
     let mut group = None;
 
-    for line in content.lines() {
-        let line = line.trim();
-
+    let mut scan = |line: &str| {
         if let Some(val) = extract_assignment(line, "description") {
             description = Some(val);
         }
         if let Some(val) = extract_assignment(line, "group") {
             group = Some(val);
         }
-    }
+    };
+
+    for_each_trimmed_line(&project_root.join("build.gradle"), &mut scan)
+        .or_else(|| for_each_trimmed_line(&project_root.join("build.gradle.kts"), &mut scan))?;
 
     Some(GradleBuild { description, group })
 }
