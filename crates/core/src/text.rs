@@ -34,6 +34,18 @@ pub fn dir_name(path: &Path) -> &str {
         .unwrap_or("project")
 }
 
+/// Read `path` as UTF-8 text and invoke `f` on each line, with surrounding whitespace
+/// trimmed. Returns `Some(())` when the file was read, `None` if it was missing or
+/// unreadable. Used by line-based manifest parsers (`go.mod`, `go.work`,
+/// `gradle.properties`, etc.) to share the read-and-iterate skeleton.
+pub fn for_each_trimmed_line<F: FnMut(&str)>(path: &Path, mut f: F) -> Option<()> {
+    let content = std::fs::read_to_string(path).ok()?;
+    for line in content.lines() {
+        f(line.trim());
+    }
+    Some(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +112,23 @@ mod tests {
     #[test]
     fn dir_name_empty_fallback() {
         assert_eq!(dir_name(&PathBuf::from("")), "project");
+    }
+
+    #[test]
+    fn for_each_trimmed_line_invokes_per_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data");
+        std::fs::write(&path, "  foo  \n\nbar\n").unwrap();
+        let mut seen = Vec::new();
+        let res = for_each_trimmed_line(&path, |line| seen.push(line.to_string()));
+        assert!(res.is_some());
+        assert_eq!(seen, vec!["foo", "", "bar"]);
+    }
+
+    #[test]
+    fn for_each_trimmed_line_missing_file_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let res = for_each_trimmed_line(&dir.path().join("nope"), |_| {});
+        assert!(res.is_none());
     }
 }

@@ -254,3 +254,21 @@ pub fn base_about_fields() -> Vec<AboutFieldDef> {
         })
         .collect()
 }
+
+/// Insert a `homepage` field just before `coverage` (or at the end if `coverage`
+/// is absent). Shared helper so every stack renders the homepage field in the
+/// same slot of the about card.
+pub fn insert_homepage_field(fields: &mut Vec<AboutFieldDef>) {
+    let insert_pos = fields
+        .iter()
+        .position(|f| f.id == "coverage")
+        .unwrap_or(fields.len());
+    fields.insert(
+        insert_pos,
+        AboutFieldDef {
+            id: "homepage",
+            label: "Homepage",
+            description: "Project homepage URL",
+        },
+    );
+}
