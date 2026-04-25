@@ -21,7 +21,9 @@ mod tests {
     #[test]
     fn install_creates_hook_and_config() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
 
         let selected = vec!["verify".to_string()];
@@ -43,7 +45,9 @@ mod tests {
     #[test]
     fn install_with_empty_selection_skips_config() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
 
         let mut buf = Vec::new();
