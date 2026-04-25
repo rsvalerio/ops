@@ -92,6 +92,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
         std::fs::write(
             git_dir.join("hooks/pre-push"),
             "#!/bin/sh\nexec ops before-push\n",

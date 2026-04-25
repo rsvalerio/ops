@@ -36,6 +36,13 @@ pub enum DbError {
 
     #[error("SQL validation failed: {0}")]
     SqlValidation(#[from] crate::sql::SqlError),
+
+    /// Subprocess exceeded its bounded-wait deadline.
+    ///
+    /// Distinct from [`DbError::Io`] so retry policies and operator messages
+    /// can branch on a real timeout vs. a generic IO failure.
+    #[error("{label} timed out after {timeout_secs}s")]
+    Timeout { label: String, timeout_secs: u64 },
 }
 
 impl DbError {

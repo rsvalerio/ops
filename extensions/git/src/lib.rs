@@ -10,7 +10,9 @@ pub mod config;
 pub mod provider;
 pub mod remote;
 
-pub use provider::{GitInfo, GitInfoProvider, DATA_PROVIDER_NAME};
+pub use provider::{
+    resolve_repository_with_git_fallback, GitInfo, GitInfoProvider, DATA_PROVIDER_NAME,
+};
 pub use remote::{parse_remote_url, RemoteInfo};
 
 use ops_extension::ExtensionType;

@@ -43,7 +43,7 @@ pub fn read_origin_url_from(content: &str) -> Option<String> {
 /// Git supports embedding HTTP credentials directly in remote URLs. We never
 /// want those reaching logs, error messages, or data-provider output, so any
 /// raw value coming out of `.git/config` is scrubbed at the source.
-fn redact_userinfo(value: &str) -> String {
+pub(crate) fn redact_userinfo(value: &str) -> String {
     let Some((scheme, after)) = value.split_once("://") else {
         return value.to_string();
     };

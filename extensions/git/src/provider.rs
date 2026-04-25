@@ -20,6 +20,19 @@ pub struct GitInfo {
     pub branch: Option<String>,
 }
 
+/// Resolve a project repository URL by preferring the manifest-declared value
+/// (when non-empty) and falling back to the local git remote. Shared helper so
+/// every language's `project_identity` provider applies the same precedence.
+#[must_use]
+pub fn resolve_repository_with_git_fallback(
+    cwd: &Path,
+    manifest_repo: Option<String>,
+) -> Option<String> {
+    manifest_repo
+        .filter(|s| !s.is_empty())
+        .or_else(|| GitInfo::collect(cwd).remote_url)
+}
+
 impl GitInfo {
     /// Collect git metadata for the given working directory. Always succeeds;
     /// missing data is represented by `None` fields.
@@ -42,28 +55,9 @@ impl GitInfo {
             remote_url: parsed
                 .as_ref()
                 .map(|r| r.url.clone())
-                .or_else(|| Some(strip_userinfo(&raw))),
+                .or_else(|| Some(config::redact_userinfo(&raw))),
             branch,
         }
-    }
-}
-
-/// Remove `user[:password]@` userinfo from a URL-like string. Best-effort: when
-/// the input lacks `://` and does not look like a URL we return it unchanged.
-/// Keeps secrets out of `remote_url` even when [`parse_remote_url`] cannot
-/// produce a normalized form.
-fn strip_userinfo(raw: &str) -> String {
-    let Some((scheme, after)) = raw.split_once("://") else {
-        return raw.to_string();
-    };
-    let (authority, rest) = match after.split_once('/') {
-        Some((a, r)) => (a, Some(r)),
-        None => (after, None),
-    };
-    let host = authority.rsplit('@').next().unwrap_or(authority);
-    match rest {
-        Some(r) => format!("{scheme}://{host}/{r}"),
-        None => format!("{scheme}://{host}"),
     }
 }
 
