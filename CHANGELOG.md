@@ -2,6 +2,22 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.20.1](https://github.com/rsvalerio/ops/compare/dbcbdcc516639693714244161c81792841947278..v0.20.1) - 2026-04-25
+#### 🐛 Bug Fixes
+- (**rust-about-ext**) remove stale identity.rs after module split - ([750967a](https://github.com/rsvalerio/ops/commit/750967a13a01db22243f2998c3a5d32fcb4f8c9d)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about-extensions**) improve project detection across languages - ([9848029](https://github.com/rsvalerio/ops/commit/9848029cdd1ac430d54e9092c716bc77ec703396)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) add subprocess module and improve utilities - ([5b08f3f](https://github.com/rsvalerio/ops/commit/5b08f3fdfc31447e66c0de52375bcd6d06aad60f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions**) improve git provider and utilities - ([c5cbb7f](https://github.com/rsvalerio/ops/commit/c5cbb7fff8e4eb5db4125c26faf338b86f6855a6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) modularize into focused files - ([8746f54](https://github.com/rsvalerio/ops/commit/8746f54a34322d8d1ccfd5e1d34a9ee1683d0e58)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner-command**) split exec and mod into focused modules - ([dbcbdcc](https://github.com/rsvalerio/ops/commit/dbcbdcc516639693714244161c81792841947278)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-extensions**) improve tooling and modernize identity handling - ([d909ca0](https://github.com/rsvalerio/ops/commit/d909ca0221ef5d1f9b1003311639731d10d1f501)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) add wave 18-24 code-review tasks and plans - ([0b68c67](https://github.com/rsvalerio/ops/commit/0b68c67e8d0c303c9124183087e2ac4353810ec5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) update lock file - ([10a5707](https://github.com/rsvalerio/ops/commit/10a570734481261d5ef529a31e2142c86c6a989f)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.20.0](https://github.com/rsvalerio/ops/compare/ee0369f0f478025d48a31c1cf4acb05fd1bf082e..v0.20.0) - 2026-04-23
 #### 🚀 Features
 - (**core,theme**) add ui, config edit, and theme resolve modules - ([0034fd1](https://github.com/rsvalerio/ops/commit/0034fd14f57536cbf032ba462de8cb1986fe3aa4)) - [@rsvalerio](https://github.com/rsvalerio)
