@@ -36,9 +36,24 @@ impl StepResult {
         }
     }
 
-    /// Construct a result for a skipped command (abort flag set).
-    pub fn skipped(id: impl Into<CommandId>) -> Self {
-        Self::new(id, true, Duration::ZERO)
+    /// ERR-1 / TASK-0408: a cancellation happens when a sibling task
+    /// triggered `fail_fast` (parallel) or the abort flag was already set
+    /// before this task started (exec_standalone). Encoded as
+    /// `success: false` so plan-success aggregation
+    /// (`results.iter().all(|r| r.success)`) yields a non-zero exit code
+    /// even in the (currently impossible but architecturally fragile)
+    /// scenario where the originating failure is filtered or buffered out
+    /// of the same result vector. The previous `StepResult::skipped`
+    /// constructor used `success: true` for this case, overloading the
+    /// "this step succeeded" contract with "this step never ran because we
+    /// cancelled it" — distinguishable only by caller convention.
+    ///
+    /// Display still renders the row using the `StepSkipped` event the
+    /// executor emitted; cancelled and skipped look identical on screen by
+    /// design (intent is conveyed by the surrounding failure context, not
+    /// the row itself).
+    pub fn cancelled(id: impl Into<CommandId>) -> Self {
+        Self::new(id, false, Duration::ZERO)
     }
 
     #[cfg(test)]

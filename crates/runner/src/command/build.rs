@@ -179,6 +179,27 @@ pub fn build_command(spec: &ExecCommandSpec, cwd: &std::path::Path, vars: &Varia
         .expect("WarnAndAllow policy never returns Err")
 }
 
+/// CONC-5 / TASK-0330: async variant that runs the synchronous filesystem
+/// work in [`build_command`] (notably `std::fs::canonicalize` calls inside
+/// [`detect_workspace_escape`] and [`resolve_spec_cwd`]) on the blocking
+/// thread pool.
+///
+/// Without this, every parallel command spawn blocks a tokio worker on
+/// `canonicalize` syscalls — slow on NFS or symlink-heavy paths and
+/// proportional to the spec cwd's depth. Under high `MAX_PARALLEL` counts
+/// that starves other tasks scheduled on the same worker. The clones here
+/// (spec, vars, cwd) happen once per spawn — negligible against the cost
+/// of an actual process spawn that follows.
+pub async fn build_command_async(
+    spec: ExecCommandSpec,
+    cwd: std::path::PathBuf,
+    vars: Variables,
+) -> Command {
+    tokio::task::spawn_blocking(move || build_command(&spec, &cwd, &vars))
+        .await
+        .expect("build_command panicked on blocking pool")
+}
+
 /// Build a tokio Command with an explicit cwd-escape policy. Returns `Err`
 /// only when `policy == Deny` and the spec's cwd escapes the workspace root.
 pub fn build_command_with(
@@ -208,6 +229,72 @@ pub fn build_command_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ops_core::test_utils::{exec_spec, exec_spec_with_cwd};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    /// CONC-5 / TASK-0330: the async variant must dispatch the canonicalize
+    /// work to the blocking pool so a single-threaded runtime can still
+    /// drive other tasks while build_command runs. This test uses a
+    /// `current_thread` runtime — the only worker — and asserts that a
+    /// concurrent counter task makes progress while build_command_async is
+    /// in flight.
+    ///
+    /// Under the previous synchronous `build_command` call from inside an
+    /// async function, the runtime worker would be blocked for the
+    /// duration of every canonicalize syscall, starving the counter task
+    /// (and in production, every other task scheduled on that worker).
+    #[test]
+    fn build_command_async_does_not_starve_concurrent_tokio_task() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let counter = Arc::new(AtomicUsize::new(0));
+            let c = counter.clone();
+            let counting = tokio::spawn(async move {
+                for _ in 0..200 {
+                    tokio::task::yield_now().await;
+                    c.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+
+            let tmp = tempfile::tempdir().unwrap();
+            std::fs::create_dir(tmp.path().join("sub")).unwrap();
+            let vars = Variables::from_env(tmp.path());
+
+            // Run several build_command_async invocations. Each dispatches
+            // canonicalize to the blocking pool, leaving the runtime
+            // worker free to poll the counting task between awaits.
+            for _ in 0..5 {
+                let spec =
+                    exec_spec_with_cwd("echo", &["x"], Some(std::path::PathBuf::from("sub")));
+                let _cmd = build_command_async(spec, tmp.path().to_path_buf(), vars.clone()).await;
+            }
+
+            counting.await.unwrap();
+            assert_eq!(
+                counter.load(Ordering::Relaxed),
+                200,
+                "concurrent task must run to completion despite repeated build_command_async calls"
+            );
+        });
+    }
+
+    /// Functional parity: the async wrapper must produce a Command with
+    /// the same observable program as the sync version. Catches refactors
+    /// that accidentally rewrite the spec inside spawn_blocking.
+    #[tokio::test]
+    async fn build_command_async_preserves_program_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vars = Variables::from_env(tmp.path());
+        let spec = exec_spec("echo", &["hello"]);
+        let cmd = build_command_async(spec, tmp.path().to_path_buf(), vars).await;
+        // tokio::process::Command exposes the program via as_std()
+        let program = cmd.as_std().get_program().to_string_lossy().into_owned();
+        assert_eq!(program, "echo");
+    }
 
     // SEC-14 / FN-1 regression tests for the extracted resolve_spec_cwd.
     #[test]

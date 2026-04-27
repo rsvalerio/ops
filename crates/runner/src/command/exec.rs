@@ -32,7 +32,7 @@
 //! values that appear to be secrets (e.g., long base64-like strings, common
 //! secret formats).
 
-use super::build::build_command;
+use super::build::build_command_async;
 use super::events::RunnerEvent;
 use super::results::{CommandOutput, StepResult};
 use ops_core::config::{CommandId, ExecCommandSpec};
@@ -206,7 +206,10 @@ pub async fn exec_command(
         display_cmd: display_cmd.clone(),
     });
 
-    let mut cmd = build_command(spec, cwd, vars);
+    // CONC-5 / TASK-0330: build_command performs sync std::fs::canonicalize.
+    // Run it on the blocking pool so we don't stall a tokio worker per
+    // spawn. The clones below are cheap relative to the process spawn itself.
+    let mut cmd = build_command_async(spec.clone(), cwd.to_path_buf(), vars.clone()).await;
     let (result, duration) = run_with_timeout(cmd.output(), spec.timeout()).await;
     let output = match result {
         Ok(o) => CommandOutput::from_raw(o),
@@ -247,7 +250,8 @@ pub async fn exec_command_raw(
     cwd: &std::path::Path,
     vars: &Variables,
 ) -> StepResult {
-    let mut cmd = build_command(spec, cwd, vars);
+    // CONC-5 / TASK-0330: see exec_command above.
+    let mut cmd = build_command_async(spec.clone(), cwd.to_path_buf(), vars.clone()).await;
     cmd.stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit());
@@ -291,6 +295,14 @@ pub async fn exec_standalone(
     abort: Arc<AtomicBool>,
 ) -> StepResult {
     if abort.load(Ordering::Acquire) {
+        // ERR-1 / TASK-0408: this branch fires only when fail_fast already
+        // tripped the abort flag — i.e. a sibling task failed. Use
+        // `StepResult::cancelled` (success=false) instead of `skipped`
+        // (success=true) so plan-success aggregation cannot silently treat
+        // cancellation as a clean skip if the failing sibling is ever
+        // filtered out of the results vector. The emitted display event is
+        // still `StepSkipped` so the row renders identically — the
+        // distinction is internal to the result type.
         let display_cmd = Some(spec.display_cmd().into_owned());
         let _ = tx
             .send(RunnerEvent::StepSkipped {
@@ -298,7 +310,7 @@ pub async fn exec_standalone(
                 display_cmd,
             })
             .await;
-        return StepResult::skipped(id);
+        return StepResult::cancelled(id);
     }
     // CONC-3: forward events through a per-task mpsc and a spawned
     // forwarder that owns the real backpressure against the global bounded
@@ -311,21 +323,55 @@ pub async fn exec_standalone(
     const LOCAL_BUF: usize = 256;
     let (local_tx, mut local_rx) = mpsc::channel::<RunnerEvent>(LOCAL_BUF);
     let outer = tx.clone();
-    let forwarder = tokio::spawn(async move {
+    // CONC-6 / TASK-0335: hold the forwarder in a JoinSet rather than a bare
+    // JoinHandle so that if `exec_standalone` is aborted mid-flight (e.g.
+    // fail_fast `abort_all`), dropping the JoinSet aborts the forwarder
+    // explicitly. A bare `tokio::spawn` returns a JoinHandle whose Drop does
+    // **not** cancel the task — the forwarder would survive its parent and
+    // exit only because `local_tx` is also dropped (closing the channel).
+    // That implicit lifetime is brittle to refactoring; making cancellation
+    // explicit removes the trap.
+    let mut forwarders = tokio::task::JoinSet::new();
+    forwarders.spawn(async move {
         while let Some(ev) = local_rx.recv().await {
             if outer.send(ev).await.is_err() {
                 break;
             }
         }
     });
+    // CONC-7: terminal events (StepFinished/StepFailed/StepSkipped) bypass the
+    // bounded local buffer entirely. Noisy commands (e.g. `cargo test
+    // --all-features` compiling hundreds of crates) emit a StepOutput per
+    // stderr line, easily overflowing the 256-slot buffer. When that happens
+    // try_send drops events — and if the *terminal* event lands on a full
+    // buffer the display never sees the step complete, leaving its progress
+    // bar orphaned. We capture the terminal event here and forward it via the
+    // outer channel after exec_command returns, so backpressure (await) gates
+    // delivery instead of silently discarding it.
+    let mut terminal: Option<RunnerEvent> = None;
     let result = exec_command(&id, &spec, &cwd, &vars, &mut |ev| {
+        if matches!(
+            ev,
+            RunnerEvent::StepFinished { .. }
+                | RunnerEvent::StepFailed { .. }
+                | RunnerEvent::StepSkipped { .. }
+        ) {
+            terminal = Some(ev);
+            return;
+        }
         if let Err(mpsc::error::TrySendError::Full(_)) = local_tx.try_send(ev) {
             tracing::debug!("per-task event buffer full; dropping event under backpressure");
         }
     })
     .await;
     drop(local_tx);
-    let _ = forwarder.await;
+    // Drain the forwarder. JoinSet drops the JoinHandle on completion; if we
+    // are cancelled before reaching this point, the JoinSet's own Drop will
+    // abort the forwarder so it cannot outlive the parent task.
+    while forwarders.join_next().await.is_some() {}
+    if let Some(ev) = terminal {
+        let _ = tx.send(ev).await;
+    }
     result
 }
 

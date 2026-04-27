@@ -58,13 +58,21 @@ impl CommandRunner {
                     // stopped.
                     if e.is_cancelled() {
                         tracing::debug!("parallel task cancelled (fail_fast abort)");
-                        results.push(StepResult::skipped(CommandId::from("<cancelled>")));
+                        results.push(StepResult::cancelled(CommandId::from("<cancelled>")));
                     } else {
-                        tracing::error!("parallel task panicked: {}", e);
+                        // SEC-21 / TASK-0334: a JoinError's Display embeds the
+                        // panic payload, which often contains attacker-influenced
+                        // data (absolute paths from `expect`/`unwrap` panics,
+                        // user-supplied strings). That message flows into
+                        // StepResult.message → StepFailed → tap file / TAP CI
+                        // output, mirroring the leak channel SEC-22 closed for
+                        // spawn errors. Surface a generic message and log the
+                        // raw payload at debug for operators.
+                        tracing::debug!(error = %e, "parallel task panicked (full payload)");
                         results.push(StepResult::failure(
                             "<panicked>",
                             Duration::ZERO,
-                            format!("task panicked: {}", e),
+                            "task panicked".to_string(),
                         ));
                     }
                 }

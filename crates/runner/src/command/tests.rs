@@ -387,6 +387,146 @@ async fn run_unknown_command_returns_error() {
     assert!(result.is_err());
 }
 
+/// TASK-0328: exec_standalone routes terminal events
+/// (StepFinished/StepFailed/StepSkipped) past the bounded local buffer via
+/// the awaited outer `tx.send`, specifically so the display can never
+/// orphan a progress bar when a noisy command floods the 256-slot
+/// LOCAL_BUF. This regression test drives a ~500-line workload through
+/// exec_standalone with a small outer channel (8) — comfortably exceeding
+/// LOCAL_BUF and the outer capacity together — and asserts:
+///
+/// 1. The terminal event is observed on the outer rx (CONC-7 fix).
+/// 2. The terminal event arrives after every forwarded StepOutput (no
+///    out-of-order delivery — display would render the row finalized
+///    before its output otherwise).
+///
+/// The test is multi-threaded so the forwarder task and the synchronous
+/// `emit_output_events` loop race realistically, and uses no sleeps —
+/// drainage is gated by the outer channel closing when the producer
+/// completes.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
+    let (tx, mut rx) = mpsc::channel(8);
+    let abort = Arc::new(AtomicBool::new(false));
+    // 500 echoes exceeds both LOCAL_BUF (256) and the outer capacity (8),
+    // making it likely the buffer-full / outer-full backpressure paths fire
+    // during the run. The exact buffer state is timing-dependent; what the
+    // test guarantees is that the high-volume case still produces a
+    // delivered, last-position terminal event.
+    let spec = exec_spec(
+        "sh",
+        &["-c", "for i in $(seq 1 500); do echo line_$i; done"],
+    );
+    let exec_handle = tokio::spawn(exec_standalone(
+        "buffer_full".into(),
+        spec,
+        Arc::new(PathBuf::from(".")),
+        Arc::new(test_vars()),
+        tx,
+        abort,
+    ));
+
+    let mut events = Vec::new();
+    while let Some(ev) = rx.recv().await {
+        events.push(ev);
+    }
+    let result = exec_handle.await.expect("exec_standalone task panicked");
+
+    assert!(result.success, "high-volume command should succeed");
+    assert!(
+        events.len() > 1,
+        "should have observed multiple events, got {}",
+        events.len()
+    );
+
+    let terminal_idx = events
+        .iter()
+        .rposition(|e| {
+            matches!(
+                e,
+                RunnerEvent::StepFinished { .. }
+                    | RunnerEvent::StepFailed { .. }
+                    | RunnerEvent::StepSkipped { .. }
+            )
+        })
+        .expect("terminal event must be delivered on outer rx");
+    assert_eq!(
+        terminal_idx,
+        events.len() - 1,
+        "terminal event must arrive after every forwarded StepOutput (no out-of-order delivery)"
+    );
+}
+
+/// TASK-0335 #2: aborting the parent future of `exec_standalone` must not
+/// leave the forwarder task pending in the runtime. The fix holds the
+/// forwarder in a `JoinSet` on the parent's stack so dropping the parent
+/// (e.g. fail_fast `abort_all`) drops the JoinSet, which aborts the
+/// forwarder. Bare `tokio::spawn` would not — the JoinHandle's Drop is a
+/// no-op for the spawned task.
+///
+/// We assert this without runtime metrics by using channel-closure as the
+/// observable: the forwarder owns the only inner clone of `outer`. If it
+/// is properly aborted, that clone is dropped and the test's surviving
+/// `rx` sees the channel close (`recv → None`). Under the buggy version
+/// the forwarder would remain stuck in `outer.send().await` (blocked on a
+/// full outer channel we never drain again) and `rx.recv` would block
+/// forever — the wrapping timeout converts that hang into a test failure.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
+    use tokio::time::timeout;
+
+    let (tx, mut rx) = mpsc::channel::<RunnerEvent>(1);
+    let abort = Arc::new(AtomicBool::new(false));
+    // Long-running output producer — guarantees the forwarder is mid-flight
+    // when we abort the parent.
+    let spec = exec_spec(
+        "sh",
+        &[
+            "-c",
+            "for i in $(seq 1 1000); do echo line_$i; done; sleep 5",
+        ],
+    );
+
+    let handle = tokio::spawn(exec_standalone(
+        "leak_test".into(),
+        spec,
+        Arc::new(PathBuf::from(".")),
+        Arc::new(test_vars()),
+        tx,
+        abort,
+    ));
+
+    // Drain a few events so the forwarder has advanced past start-up and
+    // has filled the (cap=1) outer channel — putting it in `outer.send`
+    // backpressure rather than `local_rx.recv`. This is the state where
+    // the JoinSet vs. bare-spawn behaviour diverges.
+    let _ = timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("first event should arrive in time")
+        .expect("forwarder should deliver at least one event");
+
+    // Abort the parent. With the JoinSet fix, the forwarder is aborted
+    // synchronously as the parent's stack frame drops. Without it, the
+    // forwarder would survive and stay blocked in outer.send.
+    handle.abort();
+    let _ = handle.await;
+
+    // Deterministic sync: with the forwarder aborted, the only remaining
+    // sender clone is gone, so `rx.recv` resolves to `None`. The 5s
+    // timeout is a fail-safe — under the buggy version the forwarder
+    // never drops outer and the recv would hang.
+    let outcome = timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("rx.recv must resolve — forwarder must have dropped its `outer` clone");
+    assert!(
+        outcome.is_none(),
+        "expected channel close (forwarder aborted, all senders dropped); got {:?}",
+        outcome
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn exec_standalone_skips_when_abort_set() {
     let (tx, mut rx) = mpsc::channel(8);
@@ -401,7 +541,9 @@ async fn exec_standalone_skips_when_abort_set() {
         abort,
     )
     .await;
-    assert!(result.success);
+    // TASK-0408: cancellation (abort flag set on entry) is now success=false
+    // so plan aggregation cannot silently treat it as a clean skip.
+    assert!(!result.success);
     assert_eq!(result.duration, Duration::ZERO);
     let event = rx.recv().await.expect("should receive one event");
     assert!(
@@ -1210,26 +1352,35 @@ mod parallel_infra_tests {
         );
     }
 
+    /// TASK-0334: panic payloads from `JoinError` must not surface verbatim in
+    /// `StepResult.message` because they often embed attacker-influenced data
+    /// (absolute paths from `expect`/`unwrap` panics, user-supplied strings)
+    /// which would leak through the StepFailed → tap → CI output channel.
     #[tokio::test(flavor = "multi_thread")]
-    async fn collect_join_results_handles_panics() {
+    async fn collect_join_results_redacts_panic_payload() {
         let mut join_set = tokio::task::JoinSet::new();
-        join_set.spawn(async { panic!("test panic message") });
+        // Panic payload contains a sensitive-looking path; the redacted
+        // message must not leak it.
+        join_set.spawn(async { panic!("/Users/secret/home/.aws/credentials missing") });
         join_set.spawn(async { StepResult::success("ok", Duration::from_millis(10)) });
 
         let results = CommandRunner::collect_join_results(join_set).await;
 
         assert_eq!(results.len(), 2);
-        let panic_result = results.iter().find(|r| r.id == "<panicked>");
-        assert!(panic_result.is_some(), "should have panic result");
-        assert!(!panic_result.unwrap().success);
+        let panic_result = results.iter().find(|r| r.id == "<panicked>").unwrap();
+        assert!(!panic_result.success);
+        let msg = panic_result.message.as_ref().unwrap();
         assert!(
-            panic_result
-                .unwrap()
-                .message
-                .as_ref()
-                .unwrap()
-                .contains("test panic message"),
-            "panic message should be propagated to StepResult.message"
+            !msg.contains("/Users/"),
+            "redacted message must not leak the panic payload path, got: {msg}"
+        );
+        assert!(
+            !msg.contains("credentials"),
+            "redacted message must not leak attacker-controlled payload text, got: {msg}"
+        );
+        assert!(
+            msg.contains("panicked"),
+            "message should still convey that the task panicked, got: {msg}"
         );
     }
 }
