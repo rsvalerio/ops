@@ -83,7 +83,6 @@ impl DataIngestor for MetadataIngestor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn metadata_ingestor_name() {
@@ -94,8 +93,12 @@ mod tests {
     #[test]
     fn metadata_collect_fails_with_nonexistent_directory() {
         let ingestor = MetadataIngestor;
-        let ctx =
-            ops_extension::Context::test_context(PathBuf::from("/nonexistent/path/to/project"));
+        // Build a path that is guaranteed not to exist by joining onto a
+        // tempdir we never populate; the tempdir itself exists, but the
+        // sub-path inside it does not.
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("does-not-exist");
+        let ctx = ops_extension::Context::test_context(missing);
         let data_dir = tempfile::tempdir().unwrap();
         let result = ingestor.collect(&ctx, data_dir.path());
         assert!(result.is_err());

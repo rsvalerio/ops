@@ -40,7 +40,6 @@ impl DataIngestor for CoverageIngestor {
 mod tests {
     use super::*;
     use ops_duckdb::DuckDb;
-    use std::path::PathBuf;
 
     #[test]
     fn coverage_ingestor_name() {
@@ -51,8 +50,9 @@ mod tests {
     #[test]
     fn coverage_collect_fails_with_nonexistent_directory() {
         let ingestor = CoverageIngestor;
-        let ctx =
-            ops_extension::Context::test_context(PathBuf::from("/nonexistent/path/to/project"));
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("does-not-exist");
+        let ctx = ops_extension::Context::test_context(missing);
         let data_dir = tempfile::tempdir().unwrap();
         let result = ingestor.collect(&ctx, data_dir.path());
         assert!(result.is_err());
