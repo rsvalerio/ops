@@ -11,6 +11,7 @@ ops-extension = { workspace = true }
 linkme = { workspace = true }
 indexmap = { workspace = true }
 anyhow = { workspace = true }
+wait-timeout = "0.2"
 
 [dev-dependencies]
 toml = "1"

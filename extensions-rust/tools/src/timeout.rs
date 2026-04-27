@@ -2,27 +2,32 @@
 
 use anyhow::Context;
 use std::time::Duration;
+use wait_timeout::ChildExt;
 
 /// Default timeout for cargo/rustup install subprocesses.
 pub const DEFAULT_INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
 
-/// Wait for `child` with a polling loop; kill it and bail if it exceeds `timeout`.
+/// Wait for `child` to exit; kill it and bail if it exceeds `timeout`.
+///
+/// Uses [`wait_timeout`] which sleeps on a platform-native primitive (signalfd /
+/// kqueue / WaitForSingleObject) so the calling thread is not woken until the
+/// child exits or the deadline elapses. This avoids the 5 Hz busy-poll the old
+/// implementation imposed for the entire install duration (up to 10 minutes).
 pub fn run_with_timeout(
     mut child: std::process::Child,
     timeout: Duration,
     label: &str,
 ) -> anyhow::Result<std::process::ExitStatus> {
-    let deadline = std::time::Instant::now() + timeout;
-    loop {
-        match child.try_wait().context("subprocess wait failed")? {
-            Some(status) => return Ok(status),
-            None => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    anyhow::bail!("{} timed out after {} seconds", label, timeout.as_secs());
-                }
-                std::thread::sleep(Duration::from_millis(200));
-            }
+    match child
+        .wait_timeout(timeout)
+        .context("subprocess wait failed")?
+    {
+        Some(status) => Ok(status),
+        None => {
+            let _ = child.kill();
+            // Reap the killed child so it does not become a zombie.
+            let _ = child.wait();
+            anyhow::bail!("{} timed out after {} seconds", label, timeout.as_secs());
         }
     }
 }
