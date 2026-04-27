@@ -14,6 +14,9 @@ pub mod git;
 pub mod install;
 pub(crate) mod paths;
 
+#[cfg(any(test, feature = "test-helpers"))]
+pub mod test_helpers;
+
 #[cfg(test)]
 mod fixtures;
 
@@ -139,6 +142,7 @@ macro_rules! impl_hook_wrappers {
 mod tests {
     use super::*;
     use crate::fixtures::commit_config;
+    use crate::test_helpers::EnvGuard;
 
     #[test]
     #[serial_test::serial]
@@ -146,29 +150,5 @@ mod tests {
         let cfg = commit_config();
         let _guard = EnvGuard::remove(cfg.skip_env_var);
         assert!(!should_skip(&cfg));
-    }
-
-    /// RAII guard that restores an env var to its previous value on drop.
-    /// Pair with `#[serial_test::serial]` to prevent races with other env-mutating tests.
-    struct EnvGuard {
-        key: &'static str,
-        original: Option<String>,
-    }
-
-    impl EnvGuard {
-        fn remove(key: &'static str) -> Self {
-            let original = std::env::var(key).ok();
-            std::env::remove_var(key);
-            Self { key, original }
-        }
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            match &self.original {
-                Some(v) => std::env::set_var(self.key, v),
-                None => std::env::remove_var(self.key),
-            }
-        }
     }
 }

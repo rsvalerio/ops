@@ -39,6 +39,7 @@ ops_hook_common::impl_hook_wrappers! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ops_hook_common::test_helpers::EnvGuard;
 
     // -- HOOK_SCRIPT --
 
@@ -59,30 +60,6 @@ mod tests {
     fn should_skip_returns_false_by_default() {
         let _guard = EnvGuard::remove(SKIP_ENV_VAR);
         assert!(!should_skip());
-    }
-
-    /// RAII guard that restores an env var to its previous value on drop.
-    /// Pair with `#[serial_test::serial]` to prevent races with other env-mutating tests.
-    struct EnvGuard {
-        key: &'static str,
-        original: Option<String>,
-    }
-
-    impl EnvGuard {
-        fn remove(key: &'static str) -> Self {
-            let original = std::env::var(key).ok();
-            std::env::remove_var(key);
-            Self { key, original }
-        }
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            match &self.original {
-                Some(v) => std::env::set_var(self.key, v),
-                None => std::env::remove_var(self.key),
-            }
-        }
     }
 
     // -- install_hook: wrapper-specific legacy markers --
