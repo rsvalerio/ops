@@ -248,10 +248,14 @@ impl ProgressDisplay {
         let is_boxed = self
             .render
             .theme
-            .box_top_border(
-                BoxSnapshot::new(0, self.total_steps, 0.0, true, self.render.columns)
-                    .with_command_ids(&self.state.plan_command_ids),
-            )
+            .box_top_border(BoxSnapshot {
+                completed: 0,
+                total: self.total_steps,
+                elapsed_secs: 0.0,
+                success: true,
+                columns: self.render.columns,
+                command_ids: &self.state.plan_command_ids,
+            })
             .is_some();
 
         if !is_boxed {
@@ -296,14 +300,14 @@ impl ProgressDisplay {
             .map(|t| t.elapsed().as_secs_f64())
             .unwrap_or(0.0);
         let success_so_far = self.failed_steps == 0;
-        BoxSnapshot::new(
-            self.completed_steps,
-            self.total_steps,
-            elapsed,
-            success_so_far,
-            self.render.columns,
-        )
-        .with_command_ids(&self.state.plan_command_ids)
+        BoxSnapshot {
+            completed: self.completed_steps,
+            total: self.total_steps,
+            elapsed_secs: elapsed,
+            success: success_so_far,
+            columns: self.render.columns,
+            command_ids: &self.state.plan_command_ids,
+        }
     }
 
     fn render_header_message(&self) -> String {
@@ -615,13 +619,14 @@ impl ProgressDisplay {
     fn on_run_finished(&mut self, duration_secs: f64, success: bool) {
         self.finalize_orphan_bars();
         // Boxed layout: finalize header bar to "Done" state and emit bottom border.
-        if let Some(bottom) = self.render.theme.box_bottom_border(BoxSnapshot::new(
-            self.completed_steps,
-            self.total_steps,
-            duration_secs,
+        if let Some(bottom) = self.render.theme.box_bottom_border(BoxSnapshot {
+            completed: self.completed_steps,
+            total: self.total_steps,
+            elapsed_secs: duration_secs,
             success,
-            self.render.columns,
-        )) {
+            columns: self.render.columns,
+            command_ids: &self.state.plan_command_ids,
+        }) {
             if let Some(ref hb) = self.header_bar {
                 hb.finish_with_message(self.render_header_message());
             }

@@ -161,31 +161,11 @@ impl StepLineTheme for ConfigurableTheme {
         if !matches!(self.0.layout_kind, LayoutKind::Boxed) {
             return None;
         }
-        let title = if !snap.command_ids.is_empty() {
-            format!(
-                " {}Running: {} ",
-                self.0.plan_header_prefix,
-                snap.command_ids.join(", ")
-            )
-        } else {
-            // Fallback for callers that don't provide command IDs (e.g. older tests):
-            // keep the progress/elapsed title so behavior is still meaningful.
-            let verb = if !snap.success {
-                "Failing"
-            } else if snap.completed == snap.total && snap.total > 0 {
-                "Done"
-            } else {
-                "Running"
-            };
-            format!(
-                " {}{} {}/{} · {} ",
-                self.0.plan_header_prefix,
-                verb,
-                snap.completed,
-                snap.total,
-                format_duration(snap.elapsed_secs)
-            )
-        };
+        let title = format!(
+            " {}Running: {} ",
+            self.0.plan_header_prefix,
+            snap.command_ids.join(", ")
+        );
         Some(build_horizontal_border(BorderArgs {
             title: &title,
             left_corner: "╭─",

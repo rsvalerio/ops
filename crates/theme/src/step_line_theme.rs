@@ -58,31 +58,10 @@ pub struct BoxSnapshot<'a> {
     pub command_ids: &'a [String],
 }
 
-impl<'a> BoxSnapshot<'a> {
-    /// Construct a snapshot from raw fields. `command_ids` defaults to empty.
-    pub fn new(
-        completed: usize,
-        total: usize,
-        elapsed_secs: f64,
-        success: bool,
-        columns: u16,
-    ) -> Self {
-        Self {
-            completed,
-            total,
-            elapsed_secs,
-            success,
-            columns,
-            command_ids: &[],
-        }
-    }
-
-    /// Attach command IDs to the snapshot (builder style).
-    pub fn with_command_ids(mut self, command_ids: &'a [String]) -> Self {
-        self.command_ids = command_ids;
-        self
-    }
-}
+// `BoxSnapshot` is a plain value-type bag with one field per piece of plan
+// state, intentionally constructed via struct-literal syntax at call sites
+// so each field is named at the use site and clippy's too_many_arguments
+// rule (threshold 5) is respected without an `#[allow]`.
 
 /// Plain layout pieces that make up the left portion of a step line:
 /// `{indent}{icon}{pad} `. Returned by [`StepLineTheme::step_prefix_parts`]
@@ -227,16 +206,12 @@ pub trait StepLineTheme: Send + Sync {
 
     /// Maximum display width across all status icons, used to pad narrower icons
     /// so the label column stays aligned.
-    ///
-    /// Note: `ALL_STATUSES` is a static constant containing all 5 status variants,
-    /// so `max()` always returns a value.
     fn icon_column_width(&self) -> usize {
-        const _: () = assert!(!ALL_STATUSES.is_empty(), "ALL_STATUSES must not be empty");
         ALL_STATUSES
             .iter()
             .map(|s| display_width(self.status_icon(*s)))
             .max()
-            .expect("ALL_STATUSES is guaranteed non-empty by const assert")
+            .unwrap_or(0)
     }
 
     /// Render a separator line for the summary section.
@@ -424,7 +399,7 @@ pub trait StepLineTheme: Send + Sync {
         // (when present), and one leading space before the separator.
         let prefix_width = display_width(prefix);
         let leading_space = 1usize;
-        let fixed_inside = prefix_width + duration_str.len() + leading_space;
+        let fixed_inside = prefix_width + display_width(duration_str) + leading_space;
 
         let space_for_sep = line_budget.saturating_sub(fixed_inside);
         const MIN_SEP_GLYPHS: usize = 3;
