@@ -3,11 +3,11 @@ id: TASK-0360
 title: >-
   SEC-14: Worktree gitdir pointer accepts arbitrary parent traversal without
   containment check
-status: To Do
+status: Done
 assignee:
   - TASK-0419
 created_date: '2026-04-26 09:36'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:52'
 labels:
   - code-review-rust
   - security
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_gitdir_pointer rejects pointers whose resolved path traverses above the workdir root
-- [ ] #2 Test added with gitdir: ../../../etc/passwd asserting find_git_dir returns None even when HEAD is planted in the resolved target
+- [x] #1 read_gitdir_pointer rejects pointers whose resolved path traverses above the workdir root
+- [x] #2 Test added with gitdir: ../../../etc/passwd asserting find_git_dir returns None even when HEAD is planted in the resolved target
 <!-- AC:END -->

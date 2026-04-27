@@ -1,11 +1,11 @@
 ---
 id: TASK-0373
 title: 'SEC-13: cargo install with attacker-controlled package arg lacks validation'
-status: To Do
+status: Done
 assignee:
   - TASK-0419
 created_date: '2026-04-26 09:37'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:55'
 labels:
   - code-review-rust
   - security
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Validate name and package against a regex (e.g. ^[A-Za-z0-9_.\\-]+$) before invocation; reject leading - to prevent flag injection
-- [ ] #2 Test coverage for rejection of names starting with - and other invalid characters
+- [x] #1 Validate name and package against a regex (e.g. ^[A-Za-z0-9_.\\-]+$) before invocation; reject leading - to prevent flag injection
+- [x] #2 Test coverage for rejection of names starting with - and other invalid characters
 <!-- AC:END -->

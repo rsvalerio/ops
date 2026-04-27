@@ -1,11 +1,11 @@
 ---
 id: TASK-0374
 title: 'SEC-13: which shell-out for binary detection is non-portable and slow'
-status: To Do
+status: Done
 assignee:
   - TASK-0419
 created_date: '2026-04-26 09:38'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:58'
 labels:
   - code-review-rust
   - security
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace Command::new(which) with the which crate or PATH-walking helper
-- [ ] #2 Cross-platform tests verify detection on macOS/Linux and a documented fallback for Windows
+- [x] #1 Replace Command::new(which) with the which crate or PATH-walking helper
+- [x] #2 Cross-platform tests verify detection on macOS/Linux and a documented fallback for Windows
 <!-- AC:END -->

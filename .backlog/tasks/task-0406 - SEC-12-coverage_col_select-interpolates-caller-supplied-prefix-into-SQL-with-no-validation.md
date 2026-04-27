@@ -3,11 +3,11 @@ id: TASK-0406
 title: >-
   SEC-12: coverage_col_select interpolates caller-supplied prefix into SQL with
   no validation
-status: To Do
+status: Done
 assignee:
   - TASK-0419
 created_date: '2026-04-26 09:52'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:59'
 labels:
   - code-review-rust
   - security
@@ -29,6 +29,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 coverage_col_select rejects or refuses any non-validated prefix
-- [ ] #2 tests cover both legitimate prefixes ("" and "c.") and a rejected non-conforming prefix
+- [x] #1 coverage_col_select rejects or refuses any non-validated prefix
+- [x] #2 tests cover both legitimate prefixes ("" and "c.") and a rejected non-conforming prefix
 <!-- AC:END -->

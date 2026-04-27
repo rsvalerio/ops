@@ -1,11 +1,11 @@
 ---
 id: TASK-0347
 title: 'SEC-21: tap option in dry-run path may surface raw env values via vars.expand'
-status: To Do
+status: Done
 assignee:
   - TASK-0419
 created_date: '2026-04-26 09:34'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:49'
 labels:
   - code-review-rust
   - security
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add a dry-run test asserting that an env entry whose name matches a custom user-supplied sensitive prefix list is redacted regardless of value heuristics
-- [ ] #2 Document the heuristic known false-negatives in a SEC-21 comment near the redaction site
+- [x] #1 Add a dry-run test asserting that an env entry whose name matches a custom user-supplied sensitive prefix list is redacted regardless of value heuristics
+- [x] #2 Document the heuristic known false-negatives in a SEC-21 comment near the redaction site
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-0363
 title: >-
   SEC-12: workspace_root in coverage query path-prefix concatenation lacks
   trailing-slash normalization
-status: To Do
+status: Done
 assignee:
   - TASK-0419
 created_date: '2026-04-26 09:36'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:53'
 labels:
   - code-review-rust
   - security
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Normalize workspace_root (strip trailing /) at validation time before using it as a join key
-- [ ] #2 Test asserts identical results for workspace_root with and without trailing slash
+- [x] #1 Normalize workspace_root (strip trailing /) at validation time before using it as a join key
+- [x] #2 Test asserts identical results for workspace_root with and without trailing slash
 <!-- AC:END -->

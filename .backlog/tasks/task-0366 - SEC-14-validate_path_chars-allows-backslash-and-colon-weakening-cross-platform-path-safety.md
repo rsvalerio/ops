@@ -3,11 +3,11 @@ id: TASK-0366
 title: >-
   SEC-14: validate_path_chars allows backslash and colon, weakening
   cross-platform path safety
-status: To Do
+status: Done
 assignee:
   - TASK-0419
 created_date: '2026-04-26 09:36'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:54'
 labels:
   - code-review-rust
   - security
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Gate \\\\ and : behind cfg(windows) or document why they are accepted on every platform
-- [ ] #2 Tests cover Unix-only rejection of \\\\ and : in paths
+- [x] #1 Gate \\\\ and : behind cfg(windows) or document why they are accepted on every platform
+- [x] #2 Tests cover Unix-only rejection of \\\\ and : in paths
 <!-- AC:END -->

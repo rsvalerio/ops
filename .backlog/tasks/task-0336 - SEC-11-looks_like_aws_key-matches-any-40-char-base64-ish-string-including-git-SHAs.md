@@ -3,11 +3,11 @@ id: TASK-0336
 title: >-
   SEC-11: looks_like_aws_key matches any 40-char base64-ish string including git
   SHAs
-status: To Do
+status: Done
 assignee:
   - TASK-0419
 created_date: '2026-04-26 09:33'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:48'
 labels:
   - code-review-rust
   - security
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tighten looks_like_aws_key to require AWS access-key prefix patterns (AKIA, ASIA, AGPA, etc.) or stricter mixed-case + non-hex requirement
-- [ ] #2 Test asserts a 40-char git SHA does not trigger looks_like_secret_value
+- [x] #1 Tighten looks_like_aws_key to require AWS access-key prefix patterns (AKIA, ASIA, AGPA, etc.) or stricter mixed-case + non-hex requirement
+- [x] #2 Test asserts a 40-char git SHA does not trigger looks_like_secret_value
 <!-- AC:END -->

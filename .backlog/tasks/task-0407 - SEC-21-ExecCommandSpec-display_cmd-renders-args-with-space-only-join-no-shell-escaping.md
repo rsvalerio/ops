@@ -3,11 +3,11 @@ id: TASK-0407
 title: >-
   SEC-21: ExecCommandSpec::display_cmd renders args with space-only join, no
   shell escaping
-status: To Do
+status: Done
 assignee:
   - TASK-0419
 created_date: '2026-04-26 09:52'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 11:01'
 labels:
   - code-review-rust
   - security
@@ -31,7 +31,7 @@ Example: spec `{program: "cargo", args: ["build", "--config", "evil = "; rm -rf 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 display_cmd / expanded_args_display either shell-quote args containing whitespace/metacharacters (e.g. via shlex::try_join) or produce an unambiguous representation (e.g. each arg in single quotes)
-- [ ] #2 Step-line rendering, dry-run output, and TAP capture all consume the new representation
-- [ ] #3 Regression test asserts an arg containing a space and a quote round-trips through display_cmd in a way the user can disambiguate from two separate args
+- [x] #1 display_cmd / expanded_args_display either shell-quote args containing whitespace/metacharacters (e.g. via shlex::try_join) or produce an unambiguous representation (e.g. each arg in single quotes)
+- [x] #2 Step-line rendering, dry-run output, and TAP capture all consume the new representation
+- [x] #3 Regression test asserts an arg containing a space and a quote round-trips through display_cmd in a way the user can disambiguate from two separate args
 <!-- AC:END -->
