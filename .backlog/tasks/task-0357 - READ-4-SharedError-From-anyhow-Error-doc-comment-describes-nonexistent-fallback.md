@@ -3,11 +3,11 @@ id: TASK-0357
 title: >-
   READ-4: SharedError::From<anyhow::Error> doc-comment describes nonexistent
   fallback
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:35'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:03'
 labels:
   - code-review-rust
   - readability
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace the comment with an accurate one-line note about anyhow Into<Box<dyn Error + Send + Sync>> impl preserving the source chain
-- [ ] #2 No code change required; verify cargo doc rendering matches
+- [x] #1 Replace the comment with an accurate one-line note about anyhow Into<Box<dyn Error + Send + Sync>> impl preserving the source chain
+- [x] #2 No code change required; verify cargo doc rendering matches
 <!-- AC:END -->

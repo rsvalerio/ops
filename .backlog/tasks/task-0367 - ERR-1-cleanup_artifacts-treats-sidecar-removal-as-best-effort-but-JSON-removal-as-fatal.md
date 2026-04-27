@@ -3,11 +3,11 @@ id: TASK-0367
 title: >-
   ERR-1: cleanup_artifacts treats sidecar removal as best-effort but JSON
   removal as fatal
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:37'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:05'
 labels:
   - code-review-rust
   - error-handling
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Treat the JSON removal as best-effort (log + continue) consistent with the sidecar policy, or document why they differ
-- [ ] #2 Test demonstrates that load returns Ok(LoadResult) when json_path removal fails post-upsert
+- [x] #1 Treat the JSON removal as best-effort (log + continue) consistent with the sidecar policy, or document why they differ
+- [x] #2 Test demonstrates that load returns Ok(LoadResult) when json_path removal fails post-upsert
 <!-- AC:END -->

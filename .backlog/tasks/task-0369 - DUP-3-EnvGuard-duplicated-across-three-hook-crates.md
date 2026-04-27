@@ -1,11 +1,11 @@
 ---
 id: TASK-0369
 title: 'DUP-3: EnvGuard duplicated across three hook crates'
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:37'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:07'
 labels:
   - code-review-rust
   - duplication
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Move EnvGuard into hook-common behind a test-helpers feature and reuse from the wrapper crates
-- [ ] #2 Three duplicated definitions deleted; tests still pass under cargo test --all-features
+- [x] #1 Move EnvGuard into hook-common behind a test-helpers feature and reuse from the wrapper crates
+- [x] #2 Three duplicated definitions deleted; tests still pass under cargo test --all-features
 <!-- AC:END -->

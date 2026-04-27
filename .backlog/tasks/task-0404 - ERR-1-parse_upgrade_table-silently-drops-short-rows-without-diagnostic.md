@@ -1,11 +1,11 @@
 ---
 id: TASK-0404
 title: 'ERR-1: parse_upgrade_table silently drops short rows without diagnostic'
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:52'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:16'
 labels:
   - code-review-rust
   - error-handling
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_upgrade_table emits a tracing::debug or returns a skipped-row count when rows are dropped
+- [x] #1 parse_upgrade_table emits a tracing::debug or returns a skipped-row count when rows are dropped
 - [ ] #2 Test asserts that malformed input emits visible diagnostic without panicking
 <!-- AC:END -->

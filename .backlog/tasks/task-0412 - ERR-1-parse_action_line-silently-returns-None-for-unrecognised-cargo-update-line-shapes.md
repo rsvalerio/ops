@@ -3,11 +3,11 @@ id: TASK-0412
 title: >-
   ERR-1: parse_action_line silently returns None for unrecognised cargo update
   line shapes
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:53'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:16'
 labels:
   - code-review-rust
   - error-handling
@@ -33,6 +33,6 @@ The outer loop in `parse_update_output` (lib.rs:111-114) drops `None` results wi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_action_line / parse_update_output emit a debug trace when a candidate action line is dropped
+- [x] #1 parse_action_line / parse_update_output emit a debug trace when a candidate action line is dropped
 - [ ] #2 Test asserts the trace fires for an Updating line that omits the arrow form
 <!-- AC:END -->

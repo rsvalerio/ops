@@ -1,11 +1,11 @@
 ---
 id: TASK-0371
 title: 'PERF-1: prepare_per_crate clones member_paths twice for each call'
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:37'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:08'
 labels:
   - code-review-rust
   - performance
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Bind paths via duckdb::params_from_iter(member_paths.iter().copied()) without intermediate Vec<String>
-- [ ] #2 Benchmark or microbench shows allocation reduction (or at minimum, no regression)
+- [x] #1 Bind paths via duckdb::params_from_iter(member_paths.iter().copied()) without intermediate Vec<String>
+- [x] #2 Benchmark or microbench shows allocation reduction (or at minimum, no regression)
 <!-- AC:END -->

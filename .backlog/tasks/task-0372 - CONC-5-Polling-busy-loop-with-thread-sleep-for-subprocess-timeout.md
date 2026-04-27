@@ -1,11 +1,11 @@
 ---
 id: TASK-0372
 title: 'CONC-5: Polling busy-loop with thread::sleep for subprocess timeout'
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:37'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:09'
 labels:
   - code-review-rust
   - concurrency
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace polling loop with a blocking primitive that sleeps until process exits or deadline elapses
-- [ ] #2 Tests still pass; timeout tests verify both timeout-fire and fast-exit behavior
+- [x] #1 Replace polling loop with a blocking primitive that sleeps until process exits or deadline elapses
+- [x] #2 Tests still pass; timeout tests verify both timeout-fire and fast-exit behavior
 <!-- AC:END -->

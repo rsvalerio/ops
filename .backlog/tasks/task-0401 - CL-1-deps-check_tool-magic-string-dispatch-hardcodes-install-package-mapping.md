@@ -1,11 +1,11 @@
 ---
 id: TASK-0401
 title: 'CL-1: deps check_tool magic-string dispatch hardcodes install package mapping'
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:52'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:14'
 labels:
   - code-review-rust
   - readability
@@ -33,6 +33,6 @@ Adding a third tool means editing this branch (silently mapping to "cargo-deny")
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 check_tool either takes the install package as a parameter or is replaced by a table-driven enumeration
-- [ ] #2 Adding a new tool does not require editing an else branch with a default fallback
+- [x] #1 check_tool either takes the install package as a parameter or is replaced by a table-driven enumeration
+- [x] #2 Adding a new tool does not require editing an else branch with a default fallback
 <!-- AC:END -->

@@ -1,11 +1,11 @@
 ---
 id: TASK-0378
 title: 'ERR-2: parse_active_toolchain silently misclassifies legacy rustup output'
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:38'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:10'
 labels:
   - code-review-rust
   - error-handling
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Use rustup show active-toolchain --quiet (single line, machine-readable) and trim
-- [ ] #2 Unit tests cover both the legacy and the current rustup output formats
+- [x] #1 Use rustup show active-toolchain --quiet (single line, machine-readable) and trim
+- [x] #2 Unit tests cover both the legacy and the current rustup output formats
 <!-- AC:END -->

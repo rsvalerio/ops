@@ -3,11 +3,11 @@ id: TASK-0403
 title: >-
   READ-5: is_origin_header in extensions/git uses case-sensitive section name
   match
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:52'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:15'
 labels:
   - code-review-rust
   - readability
@@ -29,6 +29,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 section-name comparison is case-insensitive (use eq_ignore_ascii_case)
-- [ ] #2 regression test exercises an [REMOTE "origin"] config and asserts URL is parsed
+- [x] #1 section-name comparison is case-insensitive (use eq_ignore_ascii_case)
+- [x] #2 regression test exercises an [REMOTE "origin"] config and asserts URL is parsed
 <!-- AC:END -->

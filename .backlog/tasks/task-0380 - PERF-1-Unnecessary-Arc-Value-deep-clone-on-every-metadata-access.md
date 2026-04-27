@@ -1,11 +1,11 @@
 ---
 id: TASK-0380
 title: 'PERF-1: Unnecessary Arc<Value> deep clone on every metadata access'
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:38'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:11'
 labels:
   - code-review-rust
   - performance
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Change Metadata::inner to Arc<serde_json::Value> and from_context to clone the Arc (cheap), not the value
-- [ ] #2 Bench shows no regression in unit/integration tests
+- [x] #1 Change Metadata::inner to Arc<serde_json::Value> and from_context to clone the Arc (cheap), not the value
+- [x] #2 Bench shows no regression in unit/integration tests
 <!-- AC:END -->

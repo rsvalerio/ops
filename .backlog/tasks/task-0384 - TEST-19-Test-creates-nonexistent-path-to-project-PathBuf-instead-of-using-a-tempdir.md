@@ -3,11 +3,11 @@ id: TASK-0384
 title: >-
   TEST-19: Test creates /nonexistent/path/to/project PathBuf instead of using a
   tempdir
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:39'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:12'
 labels:
   - code-review-rust
   - test-quality
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace with tempfile::tempdir() whose path is then deleted before use, or a known-impossible path like tempdir.path().join(does-not-exist)
-- [ ] #2 Tests still assert the error case
+- [x] #1 Replace with tempfile::tempdir() whose path is then deleted before use, or a known-impossible path like tempdir.path().join(does-not-exist)
+- [x] #2 Tests still assert the error case
 <!-- AC:END -->

@@ -1,11 +1,11 @@
 ---
 id: TASK-0386
 title: 'ERR-7: cargo deny non-zero exit treated identically to cargo-deny crash'
-status: To Do
+status: Done
 assignee:
   - TASK-0421
 created_date: '2026-04-26 09:39'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 16:14'
 labels:
   - code-review-rust
   - error-handling
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Distinguish exit codes: cargo-deny uses 0=clean, 1=issues, 2=usage/config error — bail on 2
-- [ ] #2 Test asserts that an invalid deny.toml surfaces an error rather than an empty DenyResult
+- [x] #1 Distinguish exit codes: cargo-deny uses 0=clean, 1=issues, 2=usage/config error — bail on 2
+- [x] #2 Test asserts that an invalid deny.toml surfaces an error rather than an empty DenyResult
 <!-- AC:END -->
