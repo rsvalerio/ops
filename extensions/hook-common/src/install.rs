@@ -313,6 +313,28 @@ mod tests {
         );
     }
 
+    /// SEC-25 / TASK-0361: HEAD must be a real regular file. A symlinked HEAD
+    /// is the simplest swap an attacker can stage between the shape check and
+    /// the hook write, so the substance check rejects it outright.
+    #[cfg(unix)]
+    #[test]
+    fn install_hook_rejects_symlinked_head() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        let real_head = dir.path().join("real_head");
+        std::fs::write(&real_head, "ref: refs/heads/main\n").unwrap();
+        std::os::unix::fs::symlink(&real_head, git_dir.join("HEAD")).unwrap();
+
+        let mut buf = Vec::new();
+        let err = install_hook(&cfg, &git_dir, &mut buf).unwrap_err();
+        assert!(
+            err.to_string().contains("not a .git directory"),
+            "unexpected: {err}"
+        );
+    }
+
     /// SEC-14: a directory named `.git` that lacks `HEAD` is not a real git
     /// repo. The installer must refuse it so an attacker-controlled path
     /// canonicalising to `.../.git` cannot pass the filename heuristic alone.

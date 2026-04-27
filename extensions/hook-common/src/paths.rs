@@ -53,9 +53,26 @@ fn has_accepted_filename(path: &Path) -> bool {
         && grandparent.is_some_and(|g| g.file_name().is_some_and(|n| n == ".git"))
 }
 
-/// Substance check: a real git dir always has a `HEAD` file. We require it as
-/// a sanity check so a directory merely *named* `.git` (e.g. an attacker-
-/// controlled `/tmp/.git`) is not accepted by the filename heuristic alone.
+/// Substance check: a real git dir always has a `HEAD` regular file. We
+/// require it as a sanity check so a directory merely *named* `.git` (e.g. an
+/// attacker-controlled `/tmp/.git`) is not accepted by the filename heuristic
+/// alone.
+///
+/// SAFETY (TOCTOU): `canonical_git_dir` returns the canonicalized path, and
+/// installation later opens `<git_dir>/hooks/<filename>` with
+/// `OpenOptions::create_new`. Between this HEAD probe and that open, an
+/// attacker who can write to an ancestor of `<git_dir>` could swap the entry
+/// — the precondition is non-trivial (already requires write access to a path
+/// the user owns), but it is not zero. We close the symlink-substitution sub-
+/// case here by rejecting a symlinked HEAD, and `canonical_subdir` separately
+/// rejects a symlinked `hooks/` directory. The remaining ancestor-rename
+/// window is not closed by std-only APIs (would need `openat`-style handle
+/// operations); accepting it is a deliberate trade-off documented in
+/// TASK-0361.
 fn looks_like_git_dir(path: &Path) -> bool {
-    path.join("HEAD").is_file()
+    let head = path.join("HEAD");
+    match std::fs::symlink_metadata(&head) {
+        Ok(meta) => meta.file_type().is_file(),
+        Err(_) => false,
+    }
 }
