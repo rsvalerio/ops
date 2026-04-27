@@ -42,51 +42,122 @@ pub fn run_cargo_upgrade_dry_run(working_dir: &Path) -> anyhow::Result<Vec<Upgra
 /// clap   3.0.0   3.2.25     4.6.0   3.2.25  incompatible
 /// serde  1.0.100 1.0.228    1.0.228 1.0.228
 /// ```
+///
+/// SEC-15 / TASK-0383: column offsets are calibrated from the `====` separator
+/// row rather than splitting on whitespace, so multi-word notes (e.g. "pinned
+/// by parent") and any future column additions don't silently shift values
+/// across `UpgradeEntry` fields.
 pub fn parse_upgrade_table(stdout: &str) -> Vec<UpgradeEntry> {
     let mut entries = Vec::new();
-    let mut in_table = false;
+    let mut columns: Option<Vec<(usize, usize)>> = None;
 
     for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
+        if line.trim().is_empty() {
             continue;
         }
 
-        // Detect header row
-        if trimmed.starts_with("name") && trimmed.contains("old req") {
-            in_table = true;
+        // Header row resets state but doesn't yet provide the offsets.
+        if line.trim_start().starts_with("name") && line.contains("old req") {
+            columns = None;
             continue;
         }
 
-        // Skip separator row
-        if trimmed.starts_with("====") {
+        // Separator row: `====   ======= ==========` defines exact byte columns.
+        if line.trim_start().starts_with("====") {
+            columns = Some(separator_columns(line));
             continue;
         }
 
-        if !in_table {
+        let Some(cols) = columns.as_deref() else {
+            continue;
+        };
+
+        // Need at least the 5 fixed columns; anything beyond column[4] (incl.
+        // any trailing characters past the last `====` block) is the note.
+        if cols.len() < 5 {
             continue;
         }
 
-        let parts: Vec<&str> = trimmed.split_whitespace().collect();
-        // Minimum: name old_req compatible latest new_req
-        if parts.len() >= 5 {
-            let note = if parts.len() >= 6 {
-                Some(parts[5..].join(" "))
-            } else {
+        let take = |idx: usize| -> Option<String> {
+            let (start, end) = cols[idx];
+            if start >= line.len() {
+                return None;
+            }
+            let slice = &line[start..end.min(line.len())];
+            let trimmed = slice.trim();
+            if trimmed.is_empty() {
                 None
-            };
-            entries.push(UpgradeEntry {
-                name: parts[0].to_string(),
-                old_req: parts[1].to_string(),
-                compatible: parts[2].to_string(),
-                latest: parts[3].to_string(),
-                new_req: parts[4].to_string(),
-                note,
-            });
-        }
+            } else {
+                Some(trimmed.to_string())
+            }
+        };
+
+        // Require all five fixed fields to be present; a row that doesn't
+        // reach the `new req` column is an incomplete table line and should
+        // be skipped to match prior behavior.
+        let (Some(name), Some(old_req), Some(compatible), Some(latest), Some(new_req)) =
+            (take(0), take(1), take(2), take(3), take(4))
+        else {
+            continue;
+        };
+
+        // The note absorbs every byte from the start of column 5 to end of
+        // line so multi-word notes survive intact. If the upstream format
+        // grows extra columns past the note, they roll up here too — at least
+        // the five fixed fields stay correctly aligned. When the separator
+        // row has no note column at all, there is simply no note.
+        let note = cols.get(5).and_then(|(start, _)| {
+            if *start >= line.len() {
+                return None;
+            }
+            let slice = line[*start..].trim();
+            if slice.is_empty() {
+                None
+            } else {
+                Some(slice.to_string())
+            }
+        });
+
+        entries.push(UpgradeEntry {
+            name,
+            old_req,
+            compatible,
+            latest,
+            new_req,
+            note,
+        });
     }
 
     entries
+}
+
+/// Return `(start, end)` byte offsets for each `====` block in the separator
+/// row. Whitespace gaps between blocks become column boundaries, and the
+/// final block extends to end-of-line to capture trailing-note overflow.
+fn separator_columns(line: &str) -> Vec<(usize, usize)> {
+    let bytes = line.as_bytes();
+    let mut cols = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'=' {
+            let start = i;
+            while i < bytes.len() && bytes[i] == b'=' {
+                i += 1;
+            }
+            cols.push((start, i));
+        } else {
+            i += 1;
+        }
+    }
+    // Stretch each column's `end` to the start of the next column so the
+    // intervening whitespace belongs to the preceding column when we slice.
+    for idx in 0..cols.len().saturating_sub(1) {
+        cols[idx].1 = cols[idx + 1].0;
+    }
+    if let Some(last) = cols.last_mut() {
+        last.1 = line.len();
+    }
+    cols
 }
 
 /// Split upgrade entries into compatible and incompatible.

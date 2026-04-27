@@ -592,7 +592,7 @@ mod find_root_tests {
         fs::write(&cargo_toml, "[package]\nname = \"test\"\n").expect("write cargo toml");
 
         let root = find_workspace_root(temp_dir.path()).expect("should find");
-        assert_eq!(root, temp_dir.path());
+        assert_eq!(root, fs::canonicalize(temp_dir.path()).unwrap());
     }
 
     #[test]
@@ -605,7 +605,24 @@ mod find_root_tests {
         fs::create_dir_all(&subdir).expect("create subdir");
 
         let root = find_workspace_root(&subdir).expect("should find");
-        assert_eq!(root, temp_dir.path());
+        assert_eq!(root, fs::canonicalize(temp_dir.path()).unwrap());
+    }
+
+    /// SEC-25 / TASK-0379: a symlinked ancestor must resolve once up front
+    /// and the walk must terminate even when a symlink loop is on the path.
+    #[cfg(unix)]
+    #[test]
+    fn find_root_terminates_on_symlink_loop() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let a = temp_dir.path().join("a");
+        let b = temp_dir.path().join("b");
+        std::os::unix::fs::symlink(&b, &a).unwrap();
+        std::os::unix::fs::symlink(&a, &b).unwrap();
+
+        // canonicalize fails on the loop, so we get a clear error rather than
+        // an infinite loop.
+        let result = find_workspace_root(&a);
+        assert!(result.is_err());
     }
 
     #[test]

@@ -256,18 +256,26 @@ impl DataProvider for CargoTomlProvider {
     }
 }
 
+/// Maximum ancestor depth walked when searching for `Cargo.toml`. Defensive
+/// bound that prevents a symlink loop (or pathologically deep mount layout)
+/// from spinning the discovery loop forever.
+const MAX_ANCESTOR_DEPTH: usize = 64;
+
 /// Find the workspace root by walking up from `start` looking for Cargo.toml.
 ///
-/// Stops at the first directory containing Cargo.toml.
+/// Stops at the first directory containing Cargo.toml. The caller's `start` is
+/// canonicalized first so symlinks resolve once up front, and the walk is
+/// capped at [`MAX_ANCESTOR_DEPTH`] so a symlink-induced loop cannot hang the
+/// process.
 pub fn find_workspace_root(start: &Path) -> Result<PathBuf, anyhow::Error> {
-    let mut current = start;
-
-    loop {
+    let start_canonical = fs::canonicalize(start)
+        .with_context(|| format!("failed to canonicalize {}", start.display()))?;
+    let mut current = start_canonical.as_path();
+    for _ in 0..MAX_ANCESTOR_DEPTH {
         let cargo_toml = current.join("Cargo.toml");
         if cargo_toml.exists() {
             return Ok(current.to_path_buf());
         }
-
         match current.parent() {
             Some(parent) => current = parent,
             None => {
@@ -278,4 +286,8 @@ pub fn find_workspace_root(start: &Path) -> Result<PathBuf, anyhow::Error> {
             }
         }
     }
+    anyhow::bail!(
+        "no Cargo.toml found within {MAX_ANCESTOR_DEPTH} ancestor directories of {}",
+        start.display()
+    );
 }
