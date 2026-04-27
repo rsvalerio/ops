@@ -9,6 +9,7 @@
 //! that differ only by the filter predicate (enum variant or target kind string).
 
 use ops_extension::{Context, DataRegistry};
+use std::sync::Arc;
 
 trait JsonValueExt {
     /// Returns the value at the given field, if present.
@@ -88,25 +89,31 @@ fn id_in_field(metadata: &serde_json::Value, field: &str, id: &str) -> bool {
 }
 
 /// Parsed cargo metadata with convenient accessor methods.
+///
+/// `inner` is held as `Arc<Value>` so `from_context` can clone the cached
+/// pointer instead of deep-cloning the whole metadata blob — cargo metadata
+/// for a workspace with hundreds of dependencies routinely exceeds 1 MB and
+/// the cache exists precisely so that repeat consumers (about, deps, units,
+/// coverage providers) share one allocation.
 #[allow(dead_code)]
 pub struct Metadata {
-    pub(crate) inner: serde_json::Value,
+    pub(crate) inner: Arc<serde_json::Value>,
 }
 
 #[allow(dead_code)]
 impl Metadata {
     /// Parse from cargo metadata JSON. Assumes the JSON is valid cargo metadata output.
     pub fn from_value(value: serde_json::Value) -> Self {
-        Self { inner: value }
+        Self {
+            inner: Arc::new(value),
+        }
     }
 
-    /// Load metadata from a cached context value.
-    ///
-    /// EFF-003: Clone required — `from_value()` takes ownership and `value` is
-    /// `Arc<Value>` (shared cache). Acceptable for single-invocation CLI usage.
+    /// Load metadata from a cached context value, sharing the cached `Arc<Value>`
+    /// without deep-cloning the underlying JSON.
     pub fn from_context(ctx: &mut Context, registry: &DataRegistry) -> Result<Self, anyhow::Error> {
         let value = ctx.get_or_provide("metadata", registry)?;
-        Ok(Self::from_value((*value).clone()))
+        Ok(Self { inner: value })
     }
 
     /// Absolute path to the workspace root directory.
