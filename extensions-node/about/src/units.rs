@@ -32,9 +32,8 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
     let resolved = resolve_member_globs(&members, cwd);
     resolved
         .into_iter()
-        .map(|member| {
-            let (name, version, description) =
-                read_package_metadata(&cwd.join(&member).join("package.json"));
+        .map(|(member, manifest)| {
+            let (name, version, description) = parse_package_metadata(&manifest);
             ProjectUnit {
                 name: name.unwrap_or_else(|| format_unit_name(&member)),
                 path: member,
@@ -134,10 +133,16 @@ fn unquote(s: &str) -> &str {
 }
 
 /// Expand workspace glob patterns into directories that contain a
-/// `package.json`. Non-glob entries pass through if they exist.
-/// Supports simple `prefix/*` and `prefix/**/suffix` forms by matching on prefix.
-fn resolve_member_globs(members: &[String], root: &Path) -> Vec<String> {
-    let mut resolved: Vec<String> = Vec::new();
+/// `package.json`. Non-glob entries pass through if their manifest is
+/// readable. Supports simple `prefix/*` and `prefix/**/suffix` forms by
+/// matching on prefix.
+///
+/// Returns `(member_path, package.json contents)` so the caller does not need
+/// to re-open the file — collapsing the prior `exists()`-then-`read_to_string`
+/// pair into a single read avoids the SEC-25 TOCTOU window in which a symlink
+/// swap between the probe and the open could redirect the read.
+fn resolve_member_globs(members: &[String], root: &Path) -> Vec<(String, String)> {
+    let mut resolved: Vec<(String, String)> = Vec::new();
     for member in members {
         let trimmed = member.trim_start_matches("./");
         // Exclusion pattern (yarn) — ignore.
@@ -150,20 +155,34 @@ fn resolve_member_globs(members: &[String], root: &Path) -> Vec<String> {
             if let Ok(entries) = std::fs::read_dir(&parent) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.is_dir() && path.join("package.json").exists() {
+                    if !path.is_dir() {
+                        continue;
+                    }
+                    if let Some(manifest) = try_read_manifest(&path) {
                         if let Ok(rel) = path.strip_prefix(root) {
-                            resolved.push(rel.to_string_lossy().to_string());
+                            resolved.push((rel.to_string_lossy().to_string(), manifest));
                         }
                     }
                 }
             }
-        } else if root.join(trimmed).join("package.json").exists() {
-            resolved.push(trimmed.to_string());
+        } else if let Some(manifest) = try_read_manifest(&root.join(trimmed)) {
+            resolved.push((trimmed.to_string(), manifest));
         }
     }
-    resolved.sort();
-    resolved.dedup();
+    resolved.sort_by(|a, b| a.0.cmp(&b.0));
+    resolved.dedup_by(|a, b| a.0 == b.0);
     resolved
+}
+
+/// Read `<dir>/package.json`, treating `NotFound` as "not a package directory"
+/// rather than an error. Other I/O errors are also coerced to `None` so a
+/// transient failure on one member does not poison the whole walk.
+fn try_read_manifest(dir: &Path) -> Option<String> {
+    match std::fs::read_to_string(dir.join("package.json")) {
+        Ok(content) => Some(content),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => None,
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -173,12 +192,8 @@ struct PackageProbe {
     description: Option<String>,
 }
 
-fn read_package_metadata(pkg_path: &Path) -> (Option<String>, Option<String>, Option<String>) {
-    let content = match std::fs::read_to_string(pkg_path) {
-        Ok(c) => c,
-        Err(_) => return (None, None, None),
-    };
-    let parsed: PackageProbe = match serde_json::from_str(&content) {
+fn parse_package_metadata(content: &str) -> (Option<String>, Option<String>, Option<String>) {
+    let parsed: PackageProbe = match serde_json::from_str(content) {
         Ok(p) => p,
         Err(_) => return (None, None, None),
     };
