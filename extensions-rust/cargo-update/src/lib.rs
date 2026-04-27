@@ -110,6 +110,11 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
 
         if let Some(entry) = parse_action_line(clean) {
             entries.push(entry);
+        } else if starts_with_known_verb(clean) {
+            tracing::debug!(
+                line = %clean,
+                "TASK-0412: skipping cargo-update line that did not match any known verb shape"
+            );
         }
     }
 
@@ -171,6 +176,16 @@ const ACTION_PREFIXES: &[(&str, UpdateAction, VersionRole)] = &[
     ("Adding", UpdateAction::Add, VersionRole::To),
     ("Removing", UpdateAction::Remove, VersionRole::From),
 ];
+
+/// True when `line` starts with one of our recognised verb prefixes — used
+/// solely to keep the tracing diagnostic narrow: lines that don't begin with
+/// any known verb are noise (warnings, blank, etc.) and don't deserve a
+/// "skipping cargo-update line" log.
+fn starts_with_known_verb(line: &str) -> bool {
+    ACTION_PREFIXES
+        .iter()
+        .any(|(prefix, _, _)| line.starts_with(prefix))
+}
 
 /// Parse one of:
 /// - `Updating serde v1.0.0 -> v1.0.1`
