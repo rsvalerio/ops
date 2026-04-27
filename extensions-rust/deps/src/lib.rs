@@ -121,6 +121,18 @@ pub fn ensure_tools() -> anyhow::Result<()> {
 
 // ── Public entry point ──────────────────────────────────────────────────────
 
+/// Build a [`Context`] using the user's loaded `.ops.toml` (TASK-0405).
+///
+/// Uses [`ops_core::config::load_config_or_default`] so a malformed
+/// config file degrades to defaults with a logged warning instead of
+/// failing the command outright — matches the "tolerate broken config"
+/// posture of `cli/main.rs::early_config`.
+pub fn build_user_context() -> anyhow::Result<Context> {
+    let config = ops_core::config::load_config_or_default("deps");
+    let cwd = std::env::current_dir()?;
+    Ok(Context::new(std::sync::Arc::new(config), cwd))
+}
+
 /// Options for the deps command.
 pub struct DepsOptions {
     pub refresh: bool,
@@ -133,9 +145,12 @@ pub fn run_deps(
 ) -> anyhow::Result<()> {
     ensure_tools()?;
 
-    let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(ops_core::config::Config::default());
-    let mut ctx = Context::new(config, cwd);
+    // ERR-4 / TASK-0405: route through the same config-loading path as
+    // sibling subcommands (`run_about`, `run_extension_show`). Previously
+    // this constructed `Config::default()`, so any `[deps]`/global settings
+    // that happen to be added to `Config` would silently no-op for `ops
+    // deps` while working for `ops about deps`.
+    let mut ctx = build_user_context()?;
     if opts.refresh {
         ctx.refresh = true;
     }

@@ -14,6 +14,38 @@ mod extension_tests {
     );
 }
 
+// -- ERR-4 / TASK-0405: user config reaches DepsProvider context --
+
+mod user_config_tests {
+    use super::*;
+    use serial_test::serial;
+
+    /// `build_user_context` must read the user's `.ops.toml` rather than
+    /// falling back to `Config::default()`. We chdir to a tempdir that
+    /// contains a config file with a recognizable `stack` and confirm the
+    /// resulting Context carries that value through to the data provider
+    /// boundary (i.e. `ctx.config.stack`).
+    #[test]
+    #[serial]
+    fn build_user_context_loads_stack_from_local_ops_toml() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join(".ops.toml"), "stack = \"rust\"\n")
+            .expect("write .ops.toml");
+        let prev = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(dir.path()).expect("chdir");
+
+        let ctx = build_user_context().expect("build_user_context");
+
+        std::env::set_current_dir(&prev).expect("restore cwd");
+
+        assert_eq!(
+            ctx.config.stack.as_deref(),
+            Some("rust"),
+            "Context.config must carry stack from the loaded user config"
+        );
+    }
+}
+
 // -- Upgrade table parser tests --
 
 #[test]
