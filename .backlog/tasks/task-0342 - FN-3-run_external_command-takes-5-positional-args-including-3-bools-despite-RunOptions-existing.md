@@ -3,11 +3,11 @@ id: TASK-0342
 title: >-
   FN-3: run_external_command takes 5 positional args including 3 bools despite
   RunOptions existing
-status: To Do
+status: Done
 assignee:
   - TASK-0420
 created_date: '2026-04-26 09:34'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 11:26'
 labels:
   - code-review-rust
   - structure

@@ -1,11 +1,11 @@
 ---
 id: TASK-0341
 title: 'ERR-1: shellexpand errors silently fall back to original input'
-status: To Do
+status: Done
 assignee:
   - TASK-0420
 created_date: '2026-04-26 09:34'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 11:25'
 labels:
   - code-review-rust
   - error-handling

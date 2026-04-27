@@ -1,11 +1,11 @@
 ---
 id: TASK-0362
 title: 'READ-5: query_project_languages misleading fallback to top row when all <0.1%'
-status: To Do
+status: Done
 assignee:
   - TASK-0420
 created_date: '2026-04-26 09:36'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 11:35'
 labels:
   - code-review-rust
   - readability

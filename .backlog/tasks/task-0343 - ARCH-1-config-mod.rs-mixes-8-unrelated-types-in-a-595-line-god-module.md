@@ -1,11 +1,11 @@
 ---
 id: TASK-0343
 title: 'ARCH-1: config/mod.rs mixes 8+ unrelated types in a 595-line god module'
-status: To Do
+status: Done
 assignee:
   - TASK-0420
 created_date: '2026-04-26 09:34'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 11:31'
 labels:
   - code-review-rust
   - architecture

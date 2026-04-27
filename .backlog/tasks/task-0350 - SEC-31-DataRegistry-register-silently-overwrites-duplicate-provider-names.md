@@ -1,11 +1,11 @@
 ---
 id: TASK-0350
 title: 'SEC-31: DataRegistry::register silently overwrites duplicate provider names'
-status: To Do
+status: Done
 assignee:
   - TASK-0420
 created_date: '2026-04-26 09:35'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 11:34'
 labels:
   - code-review-rust
   - security

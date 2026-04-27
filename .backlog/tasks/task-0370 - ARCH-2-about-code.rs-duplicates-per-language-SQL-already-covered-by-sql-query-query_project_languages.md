@@ -3,11 +3,11 @@ id: TASK-0370
 title: >-
   ARCH-2: about/code.rs duplicates per-language SQL already covered by
   sql::query::query_project_languages
-status: To Do
+status: Done
 assignee:
   - TASK-0420
 created_date: '2026-04-26 09:37'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 11:38'
 labels:
   - code-review-rust
   - architecture

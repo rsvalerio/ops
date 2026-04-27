@@ -3,11 +3,11 @@ id: TASK-0402
 title: >-
   SEC-31: CommandRegistry insert silently overwrites duplicate command names
   across extensions
-status: To Do
+status: Done
 assignee:
   - TASK-0420
 created_date: '2026-04-26 09:52'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 11:40'
 labels:
   - code-review-rust
   - security

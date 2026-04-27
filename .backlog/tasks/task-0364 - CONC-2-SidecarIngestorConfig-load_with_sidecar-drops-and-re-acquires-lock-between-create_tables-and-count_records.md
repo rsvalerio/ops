@@ -3,11 +3,11 @@ id: TASK-0364
 title: >-
   CONC-2: SidecarIngestorConfig::load_with_sidecar drops and re-acquires lock
   between create_tables and count_records
-status: To Do
+status: Done
 assignee:
   - TASK-0420
 created_date: '2026-04-26 09:36'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 11:37'
 labels:
   - code-review-rust
   - concurrency

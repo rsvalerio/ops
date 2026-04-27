@@ -3,11 +3,11 @@ id: TASK-0405
 title: >-
   ERR-4: run_deps creates a fresh Config::default(), discarding the user's
   loaded configuration
-status: To Do
+status: Done
 assignee:
   - TASK-0420
 created_date: '2026-04-26 09:52'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 11:41'
 labels:
   - code-review-rust
   - error-handling

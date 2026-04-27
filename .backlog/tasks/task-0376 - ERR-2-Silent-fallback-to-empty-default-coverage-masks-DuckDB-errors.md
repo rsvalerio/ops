@@ -1,11 +1,11 @@
 ---
 id: TASK-0376
 title: 'ERR-2: Silent fallback to empty/default coverage masks DuckDB errors'
-status: To Do
+status: Done
 assignee:
   - TASK-0420
 created_date: '2026-04-26 09:38'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 11:39'
 labels:
   - code-review-rust
   - error-handling
