@@ -4,8 +4,10 @@
 //! - [`error_detail`] — error block rendering
 //! - [`render_config`] — render config + constructor options
 //! - [`style`] — progress-bar style construction
+//! - [`progress_state`] — per-plan step bookkeeping (bars, steps, captured stderr)
 
 mod error_detail;
+mod progress_state;
 mod render_config;
 mod style;
 #[cfg(test)]
@@ -20,7 +22,7 @@ use ops_core::output::{StepLine, StepStatus};
 use ops_theme::{self as theme, BoxSnapshot};
 
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-use std::collections::HashMap;
+use progress_state::ProgressState;
 use std::fs::File;
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
@@ -50,51 +52,32 @@ fn write_stderr(line: Option<&str>) {
 
 /// Encapsulates progress bar state and rendering for the CLI event loop.
 ///
-/// # Architecture (CQ-008)
+/// # Architecture (ARCH-1 / TASK-0332)
 ///
-/// This struct handles several distinct concerns:
-/// - **Rendering config**: Theme, columns, TTY detection, error detail settings
-/// - **Progress state**: MultiProgress, bars, step metadata, stderr capture
-/// - **Event routing**: Converting `RunnerEvent` to visual output
-/// - **Error display**: Rendering failed step details via `ErrorDetailRenderer`
+/// Per-plan step bookkeeping (`bars`, `steps`, `step_stderr`, `display_map`,
+/// `plan_command_ids`) lives in [`ProgressState`]; this struct retains the
+/// rendering config, the `MultiProgress` handle, the running plan's
+/// header/footer bars, the run-scoped counters, and the tap file. This split
+/// keeps the per-step row state cohesive and shrinks `ProgressDisplay` to
+/// the surface that depends on `RenderConfig` + the indicatif lifecycle.
 ///
-/// While this could be split into smaller structs (ProgressState, EventDispatcher,
-/// ErrorRenderer), the current design is kept as a single struct because:
-///
-/// 1. All concerns share the same render configuration
-/// 2. State (bars, stderr) is tightly coupled to event handling
-/// 3. The public API is simple: `handle_event(RunnerEvent)`
-/// 4. Test coverage is comprehensive
-///
-/// The `ErrorDetailRenderer` has already been extracted for error formatting,
-/// demonstrating the pattern for future extractions if needed.
-///
-/// ## Future Refactoring
-///
-/// The non-test module body is already past the original 500-line guideline
-/// (see `wc -l` on this file). The extraction below is a live candidate, not
-/// a hypothetical one — pick it up when the next non-trivial change lands here
-/// rather than piling onto the current surface:
-/// - `ProgressState`: bars, steps, step_stderr, display_map
-/// - `EventRouter`: handle_event dispatcher + on_* methods
+/// `ErrorDetailRenderer` is extracted into its own submodule for the same
+/// reason — error rendering depends only on theme + columns, not on
+/// progress state.
 pub struct ProgressDisplay {
     render: RenderConfig,
     multi: MultiProgress,
-    bars: Vec<ProgressBar>,
-    steps: Vec<(String, String)>,
-    step_stderr: HashMap<String, Vec<String>>,
+    pub(crate) state: ProgressState,
     // PERF-3: `running_style` is cloned per progress bar because `indicatif::ProgressBar::with_style`
     // takes ownership. Acceptable for typical step counts (<20 commands).
     // `pending_style` was removed — it's trivially reconstructed via `pending_style()`.
     running_style: ProgressStyle,
-    display_map: HashMap<String, String>,
     footer_separator: Option<ProgressBar>,
     footer_bar: Option<ProgressBar>,
     header_bar: Option<ProgressBar>,
-    completed_steps: usize,
+    pub(crate) completed_steps: usize,
     failed_steps: usize,
     total_steps: usize,
-    plan_command_ids: Vec<String>,
     run_started_at: Option<Instant>,
     tap_file: Option<File>,
 }
@@ -147,18 +130,14 @@ impl ProgressDisplay {
                 stderr_tail_lines: output.stderr_tail_lines,
             },
             multi,
-            bars: Vec::new(),
-            steps: Vec::new(),
-            step_stderr: HashMap::new(),
+            state: ProgressState::new(display_map),
             running_style,
-            display_map,
             footer_separator: None,
             footer_bar: None,
             header_bar: None,
             completed_steps: 0,
             failed_steps: 0,
             total_steps: 0,
-            plan_command_ids: Vec::new(),
             run_started_at: None,
             tap_file,
         })
@@ -171,7 +150,7 @@ impl ProgressDisplay {
     }
 
     fn step_index(&self, id: &str) -> Option<usize> {
-        self.steps.iter().position(|(sid, _)| sid == id)
+        self.state.step_index(id)
     }
 
     /// DUP-008: Helper to write line to stderr when not in TTY mode.
@@ -201,6 +180,25 @@ impl ProgressDisplay {
     }
 
     /// Dispatch a RunnerEvent to the appropriate handler method.
+    ///
+    /// # Async safety invariant (CONC-5 / TASK-0331)
+    ///
+    /// `handle_event` performs **blocking** I/O on two paths:
+    ///
+    /// 1. `tap_line` calls `writeln!` on a `std::fs::File`. Under a chatty
+    ///    command (e.g. `cargo build` emitting thousands of stderr lines),
+    ///    each line incurs a synchronous `write(2)`. On NFS or a slow
+    ///    fsync-heavy filesystem this can stall.
+    /// 2. `emit_line` and `write_stderr` write to stderr (also sync).
+    ///
+    /// **This method must never be polled from inside a tokio async task.**
+    /// Today it is consumed exclusively from the dedicated event-pump loop in
+    /// the CLI (synchronous draining of `mpsc::Receiver<RunnerEvent>`), so
+    /// the blocking writes do not stall the runtime. If a future refactor
+    /// moves the consumer into `tokio::spawn`, switch the tap file to a
+    /// buffered/async writer fed via an mpsc channel and a dedicated writer
+    /// task before doing so — otherwise a single noisy command will starve
+    /// every other task on the same worker.
     ///
     /// CQ-009: This method is a dispatcher that routes events to specialized
     /// handlers. At 25 lines with 8 match arms, it's at the threshold of what
@@ -239,27 +237,10 @@ impl ProgressDisplay {
         }
     }
 
-    fn resolve_step_display(&self, id: &CommandId) -> (String, String) {
-        let id_str = id.to_string();
-        let display = self
-            .display_map
-            .get(id.as_str())
-            .cloned()
-            .unwrap_or_else(|| {
-                tracing::trace!(id = %id, "display_map fallback: using id as display");
-                id_str.clone()
-            });
-        (id_str, display)
-    }
-
     fn on_plan_started(&mut self, command_ids: &[CommandId]) {
-        self.steps = command_ids
-            .iter()
-            .map(|id| self.resolve_step_display(id))
-            .collect();
+        self.state.reset_for_plan(command_ids);
 
         self.total_steps = command_ids.len();
-        self.plan_command_ids = command_ids.iter().map(|id| id.to_string()).collect();
         self.completed_steps = 0;
         self.failed_steps = 0;
         self.run_started_at = Some(Instant::now());
@@ -269,12 +250,15 @@ impl ProgressDisplay {
             .theme
             .box_top_border(
                 BoxSnapshot::new(0, self.total_steps, 0.0, true, self.render.columns)
-                    .with_command_ids(&self.plan_command_ids),
+                    .with_command_ids(&self.state.plan_command_ids),
             )
             .is_some();
 
         if !is_boxed {
-            let header_lines = self.render.theme.render_plan_header(&self.plan_command_ids);
+            let header_lines = self
+                .render
+                .theme
+                .render_plan_header(&self.state.plan_command_ids);
             for line in &header_lines {
                 self.emit_line(line);
             }
@@ -319,7 +303,7 @@ impl ProgressDisplay {
             success_so_far,
             self.render.columns,
         )
-        .with_command_ids(&self.plan_command_ids)
+        .with_command_ids(&self.state.plan_command_ids)
     }
 
     fn render_header_message(&self) -> String {
@@ -357,6 +341,7 @@ impl ProgressDisplay {
 
     fn create_pending_bars(&mut self) {
         let pending_lines: Vec<String> = self
+            .state
             .steps
             .iter()
             .map(|(_, display)| {
@@ -369,7 +354,7 @@ impl ProgressDisplay {
             })
             .collect();
 
-        self.bars.clear();
+        self.state.bars.clear();
         for line in &pending_lines {
             let pb = self.multi.add(
                 ProgressBar::new_spinner()
@@ -378,7 +363,7 @@ impl ProgressDisplay {
             );
             pb.tick();
             self.write_non_tty(line);
-            self.bars.push(pb);
+            self.state.bars.push(pb);
         }
     }
 
@@ -450,7 +435,7 @@ impl ProgressDisplay {
         };
         let step = StepLine {
             status: StepStatus::Running,
-            label: self.steps[i].1.clone(),
+            label: self.state.steps[i].1.clone(),
             elapsed: None,
         };
         // Running rows: the running_template owns the full line (left chrome,
@@ -459,9 +444,9 @@ impl ProgressDisplay {
         // `columns` — subtracting `step_column_reserve` would double-count
         // chrome that the template itself emits and make the row under-fill.
         let line = self.render.theme.render(&step, self.render.columns);
-        self.bars[i].set_style(self.running_style.clone());
-        self.bars[i].set_message(line);
-        self.bars[i].enable_steady_tick(Duration::from_millis(SPINNER_TICK_INTERVAL_MS));
+        self.state.bars[i].set_style(self.running_style.clone());
+        self.state.bars[i].set_message(line);
+        self.state.bars[i].enable_steady_tick(Duration::from_millis(SPINNER_TICK_INTERVAL_MS));
         self.refresh_header_bar();
         self.refresh_footer_bar();
     }
@@ -498,10 +483,7 @@ impl ProgressDisplay {
 
     fn on_step_output(&mut self, id: &str, line: String, stderr: bool) {
         if stderr {
-            self.step_stderr
-                .entry(id.to_string())
-                .or_default()
-                .push(line.clone());
+            self.state.record_stderr(id, line.clone());
         }
         self.tap_line(&line);
     }
@@ -514,8 +496,8 @@ impl ProgressDisplay {
         display_cmd: Option<&str>,
     ) -> Option<usize> {
         let i = self.step_index(id)?;
-        self.bars[i].disable_steady_tick();
-        let display = display_cmd.unwrap_or(self.steps[i].1.as_str());
+        self.state.bars[i].disable_steady_tick();
+        let display = display_cmd.unwrap_or(self.state.steps[i].1.as_str());
         let step = StepLine {
             status,
             label: display.to_string(),
@@ -528,7 +510,7 @@ impl ProgressDisplay {
             self.failed_steps += 1;
         }
         let line = self.render_and_wrap_step(&step);
-        self.finish_bar(&self.bars[i], &line);
+        self.finish_bar(&self.state.bars[i], &line);
         if let Some(ref fb) = self.footer_bar {
             let msg = self.render_footer_message();
             fb.set_message(msg);
@@ -543,11 +525,18 @@ impl ProgressDisplay {
     }
 
     fn on_step_skipped(&mut self, id: &str, display_cmd: Option<&str>) {
-        self.finish_step(id, StepStatus::Skipped, 0.0, display_cmd);
+        // READ-5 / TASK-0337: read the bar's own elapsed timer before
+        // `finish_step` disables its steady tick. Hard-coding 0.0 hid how
+        // much CPU actually went to a cancelled task.
+        let elapsed = self
+            .step_index(id)
+            .map(|i| self.state.bars[i].elapsed().as_secs_f64())
+            .unwrap_or(0.0);
+        self.finish_step(id, StepStatus::Skipped, elapsed, display_cmd);
     }
 
     fn render_error_details_tty(&mut self, bar_index: usize, detail_lines: &[String]) {
-        let mut anchor = self.bars[bar_index].clone();
+        let mut anchor = self.state.bars[bar_index].clone();
         for detail_line in detail_lines {
             let pb = self.multi.insert_after(&anchor, ProgressBar::new(0));
             pb.set_style(pending_style());
@@ -578,7 +567,8 @@ impl ProgressDisplay {
         }
 
         let stderr_tail = ErrorDetailRenderer::extract_stderr_tail(
-            self.step_stderr
+            self.state
+                .step_stderr
                 .get(id)
                 .map(|v| v.as_slice())
                 .unwrap_or(&[]),
@@ -594,7 +584,36 @@ impl ProgressDisplay {
         }
     }
 
+    /// Finalize any step bars still in the "running" state. Without this, a bar
+    /// whose task was aborted mid-flight (e.g. `fail_fast` cancellation) never
+    /// receives a `StepFinished/Failed/Skipped` event, so its row gets dropped
+    /// from the multi-progress draw on the next redraw — leaving a hole in the
+    /// boxed frame and a visible row count that disagrees with `Done N/M`.
+    ///
+    /// Each finalized orphan also bumps `completed_steps` (ERR-1 / TASK-0333):
+    /// without that, the footer shows `Done 1/3` while three rows are visibly
+    /// finished — defeating the very disagreement this routine was added to
+    /// fix.
+    fn finalize_orphan_bars(&mut self) {
+        for i in 0..self.state.bars.len() {
+            if self.state.bars[i].is_finished() {
+                continue;
+            }
+            self.state.bars[i].disable_steady_tick();
+            let elapsed = self.state.bars[i].elapsed().as_secs_f64();
+            let step = StepLine {
+                status: StepStatus::Skipped,
+                label: self.state.steps[i].1.clone(),
+                elapsed: Some(elapsed),
+            };
+            self.completed_steps += 1;
+            let line = self.render_and_wrap_step(&step);
+            self.finish_bar(&self.state.bars[i], &line);
+        }
+    }
+
     fn on_run_finished(&mut self, duration_secs: f64, success: bool) {
+        self.finalize_orphan_bars();
         // Boxed layout: finalize header bar to "Done" state and emit bottom border.
         if let Some(bottom) = self.render.theme.box_bottom_border(BoxSnapshot::new(
             self.completed_steps,
@@ -664,7 +683,7 @@ impl ProgressDisplay {
             } else {
                 separator
             };
-            let pb = if let Some(last_bar) = self.bars.last() {
+            let pb = if let Some(last_bar) = self.state.bars.last() {
                 self.multi.insert_after(last_bar, ProgressBar::new(0))
             } else {
                 self.multi.add(ProgressBar::new(0))

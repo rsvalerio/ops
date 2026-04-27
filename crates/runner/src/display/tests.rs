@@ -4,6 +4,7 @@ use indexmap::IndexMap;
 use ops_core::config;
 use ops_core::output::{StepLine, StepStatus};
 use ops_theme::ThemeConfig;
+use std::collections::HashMap;
 
 /// Renders step lines with status icons and elapsed time.
 pub struct StepRenderer<'a> {
@@ -64,12 +65,12 @@ fn progress_display_handles_full_lifecycle() {
     display.handle_event(RunnerEvent::PlanStarted {
         command_ids: vec!["echo_hi".into()],
     });
-    assert_eq!(display.steps.len(), 1);
+    assert_eq!(display.state.steps.len(), 1);
     assert_eq!(display.step_index("echo_hi"), Some(0));
     assert_eq!(display.step_index("unknown"), None);
 
     // TQ-004: Verify the rendered pending step line contains the label text
-    let pending_msg = display.bars[0].message();
+    let pending_msg = display.state.bars[0].message();
     assert!(
         pending_msg.contains("echo hi"),
         "pending step line should contain label, got: {pending_msg}"
@@ -85,7 +86,7 @@ fn progress_display_handles_full_lifecycle() {
         line: "some error output".to_string(),
         stderr: true,
     });
-    assert_eq!(display.step_stderr["echo_hi"].len(), 1);
+    assert_eq!(display.state.step_stderr["echo_hi"].len(), 1);
 
     display.handle_event(RunnerEvent::StepFinished {
         id: "echo_hi".into(),
@@ -132,7 +133,7 @@ fn progress_display_handles_failure_with_error_detail() {
         success: false,
     });
     // Verify stderr was captured
-    assert_eq!(display.step_stderr["fail_cmd"].len(), 1);
+    assert_eq!(display.state.step_stderr["fail_cmd"].len(), 1);
 }
 
 #[test]
@@ -249,6 +250,7 @@ fn step_stderr_captures_output() {
     });
 
     let captured = display
+        .state
         .step_stderr
         .get("cmd")
         .expect("should capture stderr");
@@ -294,7 +296,7 @@ fn progress_display_handles_step_skipped() {
         success: true,
     });
 
-    assert!(display.bars.len() == 1);
+    assert!(display.state.bars.len() == 1);
 }
 
 mod edge_case_tests {
@@ -407,8 +409,8 @@ mod concurrent_event_tests {
         }
 
         // Verify state is consistent
-        assert_eq!(display.steps.len(), 2);
-        assert_eq!(display.bars.len(), 2);
+        assert_eq!(display.state.steps.len(), 2);
+        assert_eq!(display.state.bars.len(), 2);
     }
 
     #[test]
@@ -461,7 +463,7 @@ mod concurrent_event_tests {
         }
 
         // Verify stderr was captured for failed command
-        assert!(display.step_stderr.contains_key("fail"));
+        assert!(display.state.step_stderr.contains_key("fail"));
     }
 }
 
@@ -550,8 +552,89 @@ mod unknown_command_tests {
         });
 
         assert!(
-            display.step_stderr.contains_key("non_existent_cmd"),
+            display.state.step_stderr.contains_key("non_existent_cmd"),
             "output for unknown command should be stored under its ID"
+        );
+    }
+
+    /// A running step that never receives a terminal event (e.g. its task was
+    /// aborted under `fail_fast`) must still be finalized on `RunFinished` so
+    /// its bar stays visible in the boxed frame instead of being dropped from
+    /// the multi-progress draw.
+    ///
+    /// TASK-0329: this test exercises the orphan-finalization path beyond mere
+    /// `is_finished()` liveness — it also asserts the rendered message reflects
+    /// `StepStatus::Skipped` (so a regression that finalizes with Failed/Succeeded
+    /// would be caught) and that the elapsed value flows from the bar's own
+    /// timer rather than a hard-coded zero.
+    ///
+    /// TASK-0333: the footer count must include orphan-finalized rows so that
+    /// `Done N/M` agrees with the number of rendered rows.
+    #[test]
+    fn run_finished_finalizes_orphan_running_bars() {
+        let mut display = test_display(&[("a", "echo a"), ("b", "echo b")]);
+
+        display.handle_event(RunnerEvent::PlanStarted {
+            command_ids: vec!["a".into(), "b".into()],
+        });
+        display.handle_event(RunnerEvent::StepStarted {
+            id: "a".into(),
+            display_cmd: Some("echo a".to_string()),
+        });
+        display.handle_event(RunnerEvent::StepStarted {
+            id: "b".into(),
+            display_cmd: Some("echo b".to_string()),
+        });
+        // Sleep briefly so the orphan bar accrues measurable elapsed time;
+        // finalize_orphan_bars reads the bar's own timer (TASK-0337 / 0329 #2).
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        display.handle_event(RunnerEvent::StepFinished {
+            id: "a".into(),
+            duration_secs: 0.1,
+            display_cmd: Some("echo a".to_string()),
+        });
+        // Note: no terminal event for "b" — simulates an aborted task.
+        display.handle_event(RunnerEvent::RunFinished {
+            duration_secs: 0.1,
+            success: true,
+        });
+
+        assert!(
+            display.state.bars[0].is_finished(),
+            "step a should be finished by its StepFinished event"
+        );
+        assert!(
+            display.state.bars[1].is_finished(),
+            "orphan running step b should be finalized on RunFinished"
+        );
+
+        // TASK-0329 #1 / #3: orphan bar's rendered message must carry the
+        // Skipped icon (classic theme uses U+2298 "⊘"). This rules out a
+        // regression where the bar is finalized with Failed (✗) or Succeeded.
+        let orphan_msg = display.state.bars[1].message();
+        assert!(
+            orphan_msg.contains('\u{2298}'),
+            "orphan bar message should contain the Skipped icon, got: {orphan_msg}"
+        );
+        assert!(
+            !orphan_msg.contains('\u{2717}'),
+            "orphan bar must not be finalized as Failed, got: {orphan_msg}"
+        );
+
+        // TASK-0329 #2: the rendered elapsed must be derived from the bar's
+        // timer (so a non-trivial >0ms run shows a non-zero elapsed). The
+        // classic theme renders elapsed as "Ns" / "Nms"; assert the string
+        // does not collapse to a 0.0/0ms placeholder.
+        assert!(
+            !orphan_msg.contains(" 0.00s") && !orphan_msg.contains(" 0ms"),
+            "orphan bar elapsed should be non-zero (read from bar timer), got: {orphan_msg}"
+        );
+
+        // TASK-0333: completed_steps must include the orphan-finalized row,
+        // so Done 2/2 agrees with the two visible finished rows.
+        assert_eq!(
+            display.completed_steps, 2,
+            "orphan-finalization should bump completed_steps so footer agrees with visible row count"
         );
     }
 
