@@ -278,9 +278,10 @@ fn tokei_collect_and_load_cycle() {
     assert!(data_dir.path().join("tokei_workspace.txt").exists());
 
     // Load
-    ingestor
+    let load_result = ingestor
         .load(data_dir.path(), &db)
         .expect("load should succeed");
+    assert!(load_result.record_count > 0);
 
     // Verify data in DuckDB
     let conn = db.lock().expect("lock");
@@ -342,9 +343,10 @@ fn load_tokei_succeeds_after_collect() {
         .collect(&ctx, data_dir.path())
         .expect("collect should succeed");
 
-    ingestor
+    let load_result = ingestor
         .load(data_dir.path(), &db)
         .expect("ingestor.load should succeed");
+    assert!(load_result.record_count > 0);
 
     let conn = db.lock().expect("lock");
     let count: i64 = conn
@@ -372,7 +374,7 @@ fn query_tokei_files_returns_json_array() {
     let ctx = Context::test_context(manifest_dir);
     let ingestor = TokeiIngestor;
     ingestor.collect(&ctx, data_dir.path()).expect("collect");
-    ingestor.load(data_dir.path(), &db).expect("load");
+    let _ = ingestor.load(data_dir.path(), &db).expect("load");
 
     let result = query_tokei_files(&db).expect("query should succeed");
     let arr = result.as_array().expect("should be array");
@@ -503,7 +505,7 @@ fn tokei_languages_view_aggregates_correctly() {
     let ctx = Context::test_context(manifest_dir);
     let ingestor = TokeiIngestor;
     ingestor.collect(&ctx, data_dir.path()).expect("collect");
-    ingestor.load(data_dir.path(), &db).expect("load");
+    let _ = ingestor.load(data_dir.path(), &db).expect("load");
 
     let conn = db.lock().expect("lock");
 

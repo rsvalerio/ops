@@ -228,43 +228,6 @@ where
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// SEC-12 AC #2: legitimate "no prefix" form selects the bare columns.
-    #[test]
-    fn coverage_col_select_with_no_prefix() {
-        let sql = coverage_col_select(None);
-        assert!(sql.contains("SUM(lines_count)"));
-        assert!(sql.contains("SUM(lines_covered)"));
-        // Crucially does not introduce a leading dot.
-        assert!(!sql.contains(".lines_count"), "got: {sql}");
-    }
-
-    /// SEC-12 AC #2: legitimate aliased form uses the validated alias.
-    #[test]
-    fn coverage_col_select_with_validated_alias() {
-        let alias = ColumnAlias::new("c").expect("static alias is valid");
-        let sql = coverage_col_select(Some(&alias));
-        assert!(sql.contains("SUM(c.lines_count)"));
-        assert!(sql.contains("SUM(c.lines_covered)"));
-    }
-
-    /// SEC-12 AC #1: an attacker-shaped "prefix" cannot reach the formatted
-    /// SQL because `ColumnAlias::new` rejects non-identifier strings before
-    /// a value can be passed in. This is the regression guard the typed
-    /// signature is meant to provide.
-    #[test]
-    fn column_alias_rejects_non_identifier_prefix() {
-        assert!(ColumnAlias::new("c.").is_err());
-        assert!(ColumnAlias::new("c; DROP TABLE coverage_files; --").is_err());
-        assert!(ColumnAlias::new("").is_err());
-        assert!(ColumnAlias::new("1c").is_err());
-        assert!(ColumnAlias::new("c d").is_err());
-    }
-}
-
 /// Build the shared `WITH members(path) AS (VALUES (?), ...)` CTE prefix.
 /// Callers append their `SELECT m.path, ... FROM members m ...` clause.
 pub(super) fn members_cte_prefix(placeholders: &str) -> String {
@@ -344,4 +307,41 @@ pub(super) fn query_per_crate_i64(
     collect_per_crate_map(&conn, &sql, label, &paths, |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// SEC-12 AC #2: legitimate "no prefix" form selects the bare columns.
+    #[test]
+    fn coverage_col_select_with_no_prefix() {
+        let sql = coverage_col_select(None);
+        assert!(sql.contains("SUM(lines_count)"));
+        assert!(sql.contains("SUM(lines_covered)"));
+        // Crucially does not introduce a leading dot.
+        assert!(!sql.contains(".lines_count"), "got: {sql}");
+    }
+
+    /// SEC-12 AC #2: legitimate aliased form uses the validated alias.
+    #[test]
+    fn coverage_col_select_with_validated_alias() {
+        let alias = ColumnAlias::new("c").expect("static alias is valid");
+        let sql = coverage_col_select(Some(&alias));
+        assert!(sql.contains("SUM(c.lines_count)"));
+        assert!(sql.contains("SUM(c.lines_covered)"));
+    }
+
+    /// SEC-12 AC #1: an attacker-shaped "prefix" cannot reach the formatted
+    /// SQL because `ColumnAlias::new` rejects non-identifier strings before
+    /// a value can be passed in. This is the regression guard the typed
+    /// signature is meant to provide.
+    #[test]
+    fn column_alias_rejects_non_identifier_prefix() {
+        assert!(ColumnAlias::new("c.").is_err());
+        assert!(ColumnAlias::new("c; DROP TABLE coverage_files; --").is_err());
+        assert!(ColumnAlias::new("").is_err());
+        assert!(ColumnAlias::new("1c").is_err());
+        assert!(ColumnAlias::new("c d").is_err());
+    }
 }
