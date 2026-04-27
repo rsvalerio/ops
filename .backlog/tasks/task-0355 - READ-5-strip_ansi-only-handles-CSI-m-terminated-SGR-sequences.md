@@ -1,11 +1,11 @@
 ---
 id: TASK-0355
 title: 'READ-5: strip_ansi only handles CSI m-terminated SGR sequences'
-status: To Do
+status: Done
 assignee:
   - TASK-0418
 created_date: '2026-04-26 09:35'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:33'
 labels:
   - code-review-rust
   - readability

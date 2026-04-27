@@ -3,11 +3,11 @@ id: TASK-0352
 title: >-
   READ-1: ConfigurableTheme::box_top_border has reachable older tests fallback
   in production
-status: To Do
+status: Done
 assignee:
   - TASK-0418
 created_date: '2026-04-26 09:35'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:27'
 labels:
   - code-review-rust
   - readability

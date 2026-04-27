@@ -1,11 +1,11 @@
 ---
 id: TASK-0351
 title: 'READ-5: render_separator mixes byte length with display width'
-status: To Do
+status: Done
 assignee:
   - TASK-0418
 created_date: '2026-04-26 09:35'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:25'
 labels:
   - code-review-rust
   - readability

@@ -1,11 +1,11 @@
 ---
 id: TASK-0348
 title: 'PERF-3: apply_style queries TTY and env on every render call'
-status: To Do
+status: Done
 assignee:
   - TASK-0418
 created_date: '2026-04-26 09:34'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:24'
 labels:
   - code-review-rust
   - performance

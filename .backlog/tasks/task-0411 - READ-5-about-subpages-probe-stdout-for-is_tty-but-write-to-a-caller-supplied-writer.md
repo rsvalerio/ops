@@ -3,11 +3,11 @@ id: TASK-0411
 title: >-
   READ-5: about subpages probe stdout for is_tty but write to a caller-supplied
   writer
-status: To Do
+status: Done
 assignee:
   - TASK-0418
 created_date: '2026-04-26 09:53'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:38'
 labels:
   - code-review-rust
   - readability

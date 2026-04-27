@@ -1,11 +1,11 @@
 ---
 id: TASK-0356
 title: 'ERR-5: icon_column_width hides infallible expect behind a const_assert'
-status: To Do
+status: Done
 assignee:
   - TASK-0418
 created_date: '2026-04-26 09:35'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 10:34'
 labels:
   - code-review-rust
   - error-handling
