@@ -20,7 +20,19 @@ impl DataProvider for RustDepsProvider {
             return Ok(serde_json::to_value(ProjectDependencies::default())?);
         };
 
-        let per_crate = query_crate_deps(db).unwrap_or_default();
+        // ERR-2 / TASK-0376: a DuckDB schema/migration error here used to
+        // surface as an empty deps list with no signal. Log at warn before
+        // falling back so the failure is visible.
+        let per_crate = match query_crate_deps(db) {
+            Ok(map) => map,
+            Err(e) => {
+                tracing::warn!(
+                    query = "query_crate_deps",
+                    "duckdb query failed; project_dependencies will be empty: {e:#}"
+                );
+                Default::default()
+            }
+        };
         let units: Vec<UnitDeps> = per_crate
             .into_iter()
             .map(|(unit_name, deps)| UnitDeps { unit_name, deps })

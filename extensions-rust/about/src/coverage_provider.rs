@@ -24,6 +24,9 @@ impl DataProvider for RustCoverageProvider {
             return Ok(serde_json::to_value(ProjectCoverage::default())?);
         };
 
+        // ERR-2 / TASK-0376: surface query failures at warn so a DuckDB
+        // schema mismatch / migration bug does not silently render as
+        // "0% coverage".
         let total = match query_project_coverage(db) {
             Ok(p) => CoverageStats {
                 lines_percent: p.lines_percent,
@@ -31,14 +34,16 @@ impl DataProvider for RustCoverageProvider {
                 lines_count: p.lines_count,
             },
             Err(e) => {
-                tracing::debug!("project_coverage: query_project_coverage failed: {e:#}");
+                tracing::warn!(
+                    query = "query_project_coverage",
+                    "duckdb query failed; reporting empty coverage: {e:#}"
+                );
                 return Ok(serde_json::to_value(ProjectCoverage::default())?);
             }
         };
 
         let manifest: Option<CargoToml> = ctx
-            .data_cache
-            .get("cargo_toml")
+            .cached("cargo_toml")
             .and_then(|v| serde_json::from_value((**v).clone()).ok());
 
         let units = if let Some(mut manifest) = manifest {
@@ -49,8 +54,16 @@ impl DataProvider for RustCoverageProvider {
                 Some(ws) if !ws.members.is_empty() => {
                     let workspace_root = cwd.to_string_lossy();
                     let member_strs: Vec<&str> = ws.members.iter().map(|s| s.as_str()).collect();
-                    let per_crate =
-                        query_crate_coverage(db, &member_strs, &workspace_root).unwrap_or_default();
+                    let per_crate = match query_crate_coverage(db, &member_strs, &workspace_root) {
+                        Ok(map) => map,
+                        Err(e) => {
+                            tracing::warn!(
+                                query = "query_crate_coverage",
+                                "duckdb query failed; per-crate coverage will be blank: {e:#}"
+                            );
+                            Default::default()
+                        }
+                    };
                     ws.members
                         .iter()
                         .filter_map(|member| {

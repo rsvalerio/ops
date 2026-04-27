@@ -24,9 +24,23 @@ pub(super) fn query_identity_metrics(ctx: &Context) -> IdentityMetrics {
     }
 }
 
+// ERR-2 / TASK-0376: every DuckDB query lookup logs at warn before falling
+// back. A schema mismatch or migration bug used to render as silent zeros
+// because all four call sites used `.ok()` / `.unwrap_or_default()` without
+// any signal.
+
 fn query_dependency_count(ctx: &Context) -> Option<usize> {
     let db = ops_duckdb::get_db(ctx)?;
-    ops_duckdb::sql::query_dependency_count(db).ok()
+    match ops_duckdb::sql::query_dependency_count(db) {
+        Ok(n) => Some(n),
+        Err(e) => {
+            tracing::warn!(
+                query = "query_dependency_count",
+                "duckdb query failed; dependency_count will be None: {e:#}"
+            );
+            None
+        }
+    }
 }
 
 fn query_coverage_and_languages(ctx: &Context) -> (Option<f64>, Vec<LanguageStat>) {
@@ -35,12 +49,28 @@ fn query_coverage_and_languages(ctx: &Context) -> (Option<f64>, Vec<LanguageStat
         None => return (None, vec![]),
     };
 
-    let coverage = ops_duckdb::sql::query_project_coverage(db)
-        .ok()
-        .filter(|c| c.lines_count > 0)
-        .map(|c| c.lines_percent);
+    let coverage = match ops_duckdb::sql::query_project_coverage(db) {
+        Ok(c) if c.lines_count > 0 => Some(c.lines_percent),
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!(
+                query = "query_project_coverage",
+                "duckdb query failed; coverage_percent will be None: {e:#}"
+            );
+            None
+        }
+    };
 
-    let languages = ops_duckdb::sql::query_project_languages(db).unwrap_or_default();
+    let languages = match ops_duckdb::sql::query_project_languages(db) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(
+                query = "query_project_languages",
+                "duckdb query failed; languages will be empty: {e:#}"
+            );
+            vec![]
+        }
+    };
 
     (coverage, languages)
 }
@@ -51,7 +81,25 @@ fn query_loc_from_db(ctx: &Context) -> (Option<i64>, Option<i64>) {
         None => return (None, None),
     };
 
-    let loc = ops_duckdb::sql::query_project_loc(db).ok();
-    let files = ops_duckdb::sql::query_project_file_count(db).ok();
+    let loc = match ops_duckdb::sql::query_project_loc(db) {
+        Ok(n) => Some(n),
+        Err(e) => {
+            tracing::warn!(
+                query = "query_project_loc",
+                "duckdb query failed; loc will be None: {e:#}"
+            );
+            None
+        }
+    };
+    let files = match ops_duckdb::sql::query_project_file_count(db) {
+        Ok(n) => Some(n),
+        Err(e) => {
+            tracing::warn!(
+                query = "query_project_file_count",
+                "duckdb query failed; file_count will be None: {e:#}"
+            );
+            None
+        }
+    };
     (loc, files)
 }

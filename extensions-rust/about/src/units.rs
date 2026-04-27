@@ -23,7 +23,7 @@ impl DataProvider for RustUnitsProvider {
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let cwd = ctx.working_directory.clone();
 
-        let cargo_value = match ctx.data_cache.get("cargo_toml") {
+        let cargo_value = match ctx.cached("cargo_toml") {
             Some(v) => v.clone(),
             None => {
                 // No cached cargo_toml — try to read directly from filesystem.
@@ -42,9 +42,21 @@ impl DataProvider for RustUnitsProvider {
         };
 
         // Per-crate dep counts from DuckDB (Rust-specific, keyed by package name).
-        let dep_counts: std::collections::HashMap<String, i64> = ops_duckdb::get_db(ctx)
-            .and_then(|db| ops_duckdb::sql::query_crate_dep_counts(db).ok())
-            .unwrap_or_default();
+        // ERR-2 / TASK-0376: log query failures at warn so they don't manifest
+        // as a silent "no deps" on a misconfigured DB.
+        let dep_counts: std::collections::HashMap<String, i64> = match ops_duckdb::get_db(ctx) {
+            None => Default::default(),
+            Some(db) => match ops_duckdb::sql::query_crate_dep_counts(db) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!(
+                        query = "query_crate_dep_counts",
+                        "duckdb query failed; per-crate dep_counts will be empty: {e:#}"
+                    );
+                    Default::default()
+                }
+            },
+        };
 
         let mut sorted_members = members;
         sorted_members.sort();

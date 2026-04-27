@@ -5,17 +5,16 @@
 
 use std::io::Write;
 
+use ops_core::project_identity::LanguageStat;
 use ops_core::table::{Cell, OpsTable};
 use ops_core::text::format_number;
 use ops_extension::{Context, DataRegistry};
 
-/// Per-language LOC breakdown.
-pub struct LanguageStat {
-    pub language: String,
-    pub loc: i64,
-    pub file_count: i64,
-}
-
+/// ARCH-2 / TASK-0370: delegate to the shared `query_project_languages`
+/// helper so the `about code` page and any other LOC consumer share one
+/// implementation. The previous inline aggregate query lacked
+/// percentages, used a different `LanguageStat` shape, and could drift
+/// from the canonical query without anyone noticing.
 pub fn query_language_stats(
     ctx: &mut Context,
     data_registry: &DataRegistry,
@@ -30,64 +29,13 @@ pub fn query_language_stats(
     }
 
     let db = ops_duckdb::get_db(ctx)?;
-    let conn = match db.lock() {
-        Ok(c) => c,
+    match ops_duckdb::sql::query_project_languages(db) {
+        Ok(stats) if stats.is_empty() => None,
+        Ok(stats) => Some(stats),
         Err(e) => {
-            // Mutex poisoning is a correctness failure (a previous holder
-            // panicked mid-transaction); surface at error so operators do
-            // not miss it. See TASK-0262 / TASK-0196.
-            tracing::error!(
-                db_path = %db.path().display(),
-                "language_stats: db lock poisoned: {e}"
-            );
-            return None;
+            tracing::debug!("language_stats: query_project_languages failed: {e:#}");
+            None
         }
-    };
-
-    let mut stmt = match conn.prepare(
-        "SELECT language, SUM(code) as loc, COUNT(*) as file_count \
-         FROM tokei_files GROUP BY language ORDER BY loc DESC",
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::debug!("language_stats: prepare failed: {e:#}");
-            return None;
-        }
-    };
-
-    let rows = match stmt.query_map([], |row| {
-        Ok(LanguageStat {
-            language: row.get(0)?,
-            loc: row.get(1)?,
-            file_count: row.get(2)?,
-        })
-    }) {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::debug!("language_stats: query_map failed: {e:#}");
-            return None;
-        }
-    };
-
-    let mut stats = Vec::new();
-    for row in rows {
-        match row {
-            Ok(s) => stats.push(s),
-            Err(e) => {
-                tracing::warn!("language_stats: row decode failed: {e:#}");
-                return None;
-            }
-        }
-    }
-    // CONC-1: scope the critical section explicitly. `stats` owns its data;
-    // the lock is no longer needed for empty-check / return.
-    drop(stmt);
-    drop(conn);
-
-    if stats.is_empty() {
-        None
-    } else {
-        Some(stats)
     }
 }
 
@@ -110,9 +58,9 @@ pub fn format_language_stats_section(stats: Option<&[LanguageStat]>) -> Vec<Stri
         };
         let loc_str = format!("{} ({})", format_number(stat.loc), pct);
         table.add_row(vec![
-            Cell::new(&stat.language),
+            Cell::new(&stat.name),
             Cell::new(&loc_str),
-            Cell::new(format_number(stat.file_count)),
+            Cell::new(format_number(stat.files)),
         ]);
     }
 
@@ -152,16 +100,8 @@ mod tests {
     #[test]
     fn format_language_stats_section_with_data() {
         let stats = vec![
-            LanguageStat {
-                language: "Rust".to_string(),
-                loc: 8000,
-                file_count: 40,
-            },
-            LanguageStat {
-                language: "TOML".to_string(),
-                loc: 200,
-                file_count: 5,
-            },
+            LanguageStat::new("Rust", 8000, 40, 97.6, 88.9),
+            LanguageStat::new("TOML", 200, 5, 2.4, 11.1),
         ];
         let output = format_language_stats_section(Some(&stats)).join("\n");
         assert!(output.contains("Rust"));
@@ -170,11 +110,7 @@ mod tests {
 
     #[test]
     fn format_language_stats_section_single_language_shows_100_percent() {
-        let stats = vec![LanguageStat {
-            language: "Rust".to_string(),
-            loc: 5000,
-            file_count: 25,
-        }];
+        let stats = vec![LanguageStat::new("Rust", 5000, 25, 100.0, 100.0)];
         let output = format_language_stats_section(Some(&stats)).join("\n");
         assert!(output.contains("100.0%"));
     }
@@ -213,16 +149,8 @@ mod tests {
     #[test]
     fn format_language_stats_section_percentages_add_up() {
         let stats = vec![
-            LanguageStat {
-                language: "Rust".to_string(),
-                loc: 750,
-                file_count: 10,
-            },
-            LanguageStat {
-                language: "TOML".to_string(),
-                loc: 250,
-                file_count: 5,
-            },
+            LanguageStat::new("Rust", 750, 10, 75.0, 66.6),
+            LanguageStat::new("TOML", 250, 5, 25.0, 33.3),
         ];
         let output = format_language_stats_section(Some(&stats)).join("\n");
         assert!(output.contains("75.0%"));
