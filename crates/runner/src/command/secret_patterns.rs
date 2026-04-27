@@ -169,10 +169,25 @@ pub(crate) fn looks_like_jwt(value: &str) -> bool {
 }
 
 pub(crate) fn looks_like_aws_key(value: &str) -> bool {
-    value.len() == 40
-        && value
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
+    if value.len() != 40 {
+        return false;
+    }
+    // SEC-11: AWS secret access keys are base64-ish and mix uppercase, lowercase,
+    // digits, and +/=. Plain 40-char hex strings (git commit SHAs, many CI build
+    // tokens) used to false-positive here, training operators to ignore the
+    // SEC-002 warning. Requiring at least one non-hex character rules out lowercase
+    // hex SHAs without excluding genuine AWS-shaped secrets, which virtually
+    // always contain uppercase letters or +/=.
+    let mut has_non_hex = false;
+    for c in value.chars() {
+        if !(c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=') {
+            return false;
+        }
+        if !c.is_ascii_hexdigit() {
+            has_non_hex = true;
+        }
+    }
+    has_non_hex
 }
 
 pub(crate) fn looks_like_uuid(value: &str) -> bool {
@@ -221,6 +236,27 @@ mod tests {
             "scan took {elapsed:?} on a {}-byte value; SECRET_SCAN_LIMIT bound likely broken",
             huge.len()
         );
+    }
+
+    /// SEC-11: a 40-char lowercase-hex git commit SHA must not look like an
+    /// AWS secret access key. Otherwise every spawn that has the commit SHA
+    /// in env (CI is full of these) emits a SEC-002 warning recommending the
+    /// user move it to OS env, which is noise.
+    #[test]
+    fn git_sha_does_not_look_like_secret() {
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(sha.len(), 40);
+        assert!(!looks_like_aws_key(sha));
+        assert!(!looks_like_secret_value(sha));
+    }
+
+    /// Regression: a real AWS-shaped secret access key (mixed case, +/=) still
+    /// trips the detector after the SEC-11 hex-only carve-out.
+    #[test]
+    fn aws_shaped_secret_still_flagged() {
+        let key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        assert_eq!(key.len(), 40);
+        assert!(looks_like_aws_key(key));
     }
 
     #[test]
