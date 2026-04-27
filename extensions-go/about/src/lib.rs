@@ -2,13 +2,19 @@
 //!
 //! Parses `go.mod` for module name, Go version, and local `replace` directives.
 //! Parses `go.work` for workspace modules.
+//!
+//! Read errors fall back to defaults; non-NotFound read errors are reported via
+//! `tracing::debug!` so unreadable manifests do not silently look like missing
+//! ones (TASK-0394).
 
+mod go_work;
 mod modules;
 
 use std::path::Path;
 
-use ops_core::project_identity::{base_about_fields, AboutFieldDef, ProjectIdentity};
-use ops_core::text::{dir_name, for_each_trimmed_line};
+use ops_about::identity::{build_identity_value, ParsedManifest};
+use ops_core::project_identity::{base_about_fields, AboutFieldDef};
+use ops_core::text::for_each_trimmed_line;
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 
 const NAME: &str = "about-go";
@@ -51,39 +57,37 @@ impl DataProvider for GoIdentityProvider {
         let go_mod = parse_go_mod(&cwd);
         let go_work = parse_go_work(&cwd);
 
-        let module_path = go_mod.as_ref().map(|m| m.module.as_str());
-
         // Use last segment of module path as name, e.g. "github.com/openbao/openbao" → "openbao"
-        let name = module_path
-            .and_then(|m| m.rsplit('/').next())
-            .unwrap_or_else(|| dir_name(&cwd))
-            .to_string();
+        let name = go_mod
+            .as_ref()
+            .and_then(|m| m.module.rsplit('/').next())
+            .map(str::to_string);
 
-        let go_version = go_mod.as_ref().and_then(|m| m.go_version.clone());
-        let stack_detail = go_version.map(|v| format!("Go {v}"));
+        let stack_detail = go_mod
+            .as_ref()
+            .and_then(|m| m.go_version.clone())
+            .map(|v| format!("Go {v}"));
 
-        // Module count: workspace modules take precedence, otherwise count local replaces + 1 for main module.
         let module_count = if let Some(ref work) = go_work {
             Some(work.use_dirs.len())
         } else if let Some(ref m) = go_mod {
             let count = 1 + m.local_replaces.len();
-            if count > 1 {
-                Some(count)
-            } else {
-                None
-            }
+            (count > 1).then_some(count)
         } else {
             None
         };
 
-        let repository = ops_git::resolve_repository_with_git_fallback(&cwd, None);
-
-        let mut identity = ProjectIdentity::new(name, "Go", cwd.display().to_string(), "modules");
-        identity.stack_detail = stack_detail;
-        identity.module_count = module_count;
-        identity.repository = repository;
-
-        serde_json::to_value(&identity).map_err(DataProviderError::from)
+        build_identity_value(
+            ParsedManifest {
+                name,
+                stack_label: "Go",
+                stack_detail,
+                module_label: "modules",
+                module_count,
+                ..ParsedManifest::default()
+            },
+            &cwd,
+        )
     }
 }
 
@@ -130,37 +134,13 @@ struct GoWork {
 }
 
 fn parse_go_work(project_root: &Path) -> Option<GoWork> {
-    let mut use_dirs = Vec::new();
-    let mut in_use_block = false;
-
-    for_each_trimmed_line(&project_root.join("go.work"), |line| {
-        if line == "use (" {
-            in_use_block = true;
-        } else if in_use_block {
-            if line == ")" {
-                in_use_block = false;
-            } else if !line.is_empty() && !line.starts_with("//") {
-                use_dirs.push(line.to_string());
-            }
-        } else if let Some(rest) = line.strip_prefix("use ") {
-            // Single-line: `use ./mymod`
-            let dir = rest.trim();
-            if !dir.starts_with('(') {
-                use_dirs.push(dir.to_string());
-            }
-        }
-    })?;
-
-    if use_dirs.is_empty() {
-        None
-    } else {
-        Some(GoWork { use_dirs })
-    }
+    go_work::parse_use_dirs(project_root).map(|use_dirs| GoWork { use_dirs })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ops_core::project_identity::ProjectIdentity;
 
     #[test]
     fn parse_go_mod_basic() {

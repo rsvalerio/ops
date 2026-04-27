@@ -80,43 +80,19 @@ fn last_segment(module: Option<&str>) -> Option<String> {
 }
 
 fn workspace_use_dirs(root: &Path) -> Option<Vec<String>> {
-    let content = std::fs::read_to_string(root.join("go.work")).ok()?;
-    let mut dirs = Vec::new();
-    let mut in_use_block = false;
-
-    for line in content.lines() {
-        let line = line.trim();
-        if line == "use (" {
-            in_use_block = true;
-            continue;
-        }
-        if in_use_block {
-            if line == ")" {
-                in_use_block = false;
-                continue;
-            }
-            if !line.is_empty() && !line.starts_with("//") {
-                dirs.push(line.to_string());
-            }
-        } else if let Some(rest) = line.strip_prefix("use ") {
-            let dir = rest.trim();
-            if !dir.starts_with('(') {
-                dirs.push(dir.to_string());
-            }
-        }
-    }
-
-    if dirs.is_empty() {
-        None
-    } else {
-        Some(dirs)
-    }
+    crate::go_work::parse_use_dirs(root)
 }
 
 fn read_mod_info(dir: &Path) -> (Option<String>, Option<String>) {
-    let content = match std::fs::read_to_string(dir.join("go.mod")) {
+    let path = dir.join("go.mod");
+    let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
-        Err(_) => return (None, None),
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::debug!(path = %path.display(), error = %e, "failed to read go.mod");
+            }
+            return (None, None);
+        }
     };
     let mut module = None;
     let mut go_version = None;
