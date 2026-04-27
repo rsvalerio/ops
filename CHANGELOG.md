@@ -2,6 +2,24 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.20.2](https://github.com/rsvalerio/ops/compare/03426d7d2d8c08761c89d595feb10343d8791819..v0.20.2) - 2026-04-27
+#### 🐛 Bug Fixes
+- (**about-extensions**) collapse manifest exists-then-read into a single read - ([33fa6ab](https://github.com/rsvalerio/ops/commit/33fa6abb16cac68ac52d8f434d4411e7732665e3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) close TOCTOU and uniquify temp names in atomic_write and ops init - ([e985ca7](https://github.com/rsvalerio/ops/commit/e985ca7788543ff997a3af0e373f468fc1b727b5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) saturate numeric conversions to avoid overflow and panics - ([39ab1e2](https://github.com/rsvalerio/ops/commit/39ab1e2193c899f06391479ea9469b8832fe433d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) reject symlinked HEAD when probing git directory - ([1ee0804](https://github.com/rsvalerio/ops/commit/1ee0804cec496f80d36e9e0588b6151da32222ea)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner-command**) harden cancellation, panic handling, and event delivery - ([7a26274](https://github.com/rsvalerio/ops/commit/7a262743fddce92991c787e7b0cc99cc072a3e15)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-extensions**) bound workspace ancestor walk and parse upgrade table by columns - ([cced391](https://github.com/rsvalerio/ops/commit/cced3918562f2c52b66af3ae886d1a2c0450d231)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) guard format_duration and share step prefix layout - ([c394f61](https://github.com/rsvalerio/ops/commit/c394f61ec1294a9250d14f3a91b615af7d75c8b0)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**agents**) slim root AGENTS.md and add core scope guide - ([03426d7](https://github.com/rsvalerio/ops/commit/03426d7d2d8c08761c89d595feb10343d8791819)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**runner-display**) extract ProgressState submodule - ([3eac3ab](https://github.com/rsvalerio/ops/commit/3eac3abfaf15761c8edb8cd11bddfe8553e56c7f)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) add wave 25-32 code-review tasks and plans - ([a0678aa](https://github.com/rsvalerio/ops/commit/a0678aaca61316649c25799f68c93097bfaf76d9)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.20.1](https://github.com/rsvalerio/ops/compare/dbcbdcc516639693714244161c81792841947278..v0.20.1) - 2026-04-25
 #### 🐛 Bug Fixes
 - (**rust-about-ext**) remove stale identity.rs after module split - ([750967a](https://github.com/rsvalerio/ops/commit/750967a13a01db22243f2998c3a5d32fcb4f8c9d)) - [@rsvalerio](https://github.com/rsvalerio)
