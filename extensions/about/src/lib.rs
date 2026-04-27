@@ -7,8 +7,10 @@
 pub mod cards;
 pub mod coverage;
 pub mod deps;
+pub mod identity;
 pub mod text_util;
 pub mod units;
+pub mod workspace;
 pub use coverage::run_about_coverage;
 pub use deps::run_about_deps;
 pub use units::run_about_units;

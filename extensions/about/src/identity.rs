@@ -1,0 +1,89 @@
+//! Shared `project_identity` builder used by stack `*IdentityProvider`s.
+//!
+//! Centralises the parse-then-build-`ProjectIdentity` skeleton each stack
+//! provider previously copied (TASK-0387). Stacks parse their own manifest
+//! shape, project the result onto [`ParsedManifest`], and call
+//! [`build_identity_value`] which fills in the canonical fields, applies
+//! the git-remote repository fallback, and serialises to JSON.
+
+use std::path::Path;
+
+use ops_core::project_identity::{LanguageStat, ProjectIdentity};
+use ops_core::text::dir_name;
+use ops_extension::DataProviderError;
+
+/// Stack-agnostic projection of a parsed manifest, ready to be turned into
+/// a [`ProjectIdentity`] via [`build_identity_value`]. Fields with no
+/// equivalent in a given stack should remain at their `Default` value.
+#[derive(Debug, Default)]
+pub struct ParsedManifest {
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub description: Option<String>,
+    pub license: Option<String>,
+    pub authors: Vec<String>,
+    pub homepage: Option<String>,
+    pub repository: Option<String>,
+    pub stack_label: &'static str,
+    pub stack_detail: Option<String>,
+    pub module_label: &'static str,
+    pub module_count: Option<usize>,
+    pub loc: Option<i64>,
+    pub file_count: Option<i64>,
+    pub msrv: Option<String>,
+    pub dependency_count: Option<usize>,
+    pub coverage_percent: Option<f64>,
+    pub languages: Vec<LanguageStat>,
+}
+
+/// Build a [`ProjectIdentity`] JSON value from a [`ParsedManifest`].
+///
+/// Falls back to the working-directory name when `name` is absent and
+/// applies the git-remote repository fallback when no manifest-supplied
+/// repository URL is present.
+pub fn build_identity_value(
+    manifest: ParsedManifest,
+    cwd: &Path,
+) -> Result<serde_json::Value, DataProviderError> {
+    let ParsedManifest {
+        name,
+        version,
+        description,
+        license,
+        authors,
+        homepage,
+        repository,
+        stack_label,
+        stack_detail,
+        module_label,
+        module_count,
+        loc,
+        file_count,
+        msrv,
+        dependency_count,
+        coverage_percent,
+        languages,
+    } = manifest;
+
+    let name = name.unwrap_or_else(|| dir_name(cwd).to_string());
+    let repository = ops_git::resolve_repository_with_git_fallback(cwd, repository);
+
+    let mut identity =
+        ProjectIdentity::new(name, stack_label, cwd.display().to_string(), module_label);
+    identity.version = version;
+    identity.description = description;
+    identity.stack_detail = stack_detail;
+    identity.license = license;
+    identity.authors = authors;
+    identity.repository = repository;
+    identity.homepage = homepage;
+    identity.module_count = module_count;
+    identity.loc = loc;
+    identity.file_count = file_count;
+    identity.msrv = msrv;
+    identity.dependency_count = dependency_count;
+    identity.coverage_percent = coverage_percent;
+    identity.languages = languages;
+
+    serde_json::to_value(&identity).map_err(DataProviderError::from)
+}
