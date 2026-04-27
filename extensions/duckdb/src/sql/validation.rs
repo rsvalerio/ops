@@ -127,9 +127,16 @@ pub fn validate_path_chars(path: &str) -> Result<(), SqlError> {
             || ch == '_'
             || ch == '/'
             || ch == '.'
-            || ch == '\\'
-            || ch == ':'
-            || ch == ' ';
+            || ch == ' '
+            // SEC-14: backslash and colon are Windows path metacharacters
+            // (`C:\…`, `\\server\share`). On Unix neither has any path
+            // meaning — `:` is the PATH-list separator and `\` carries no
+            // semantics — so accepting them everywhere weakens defense in
+            // depth (e.g. `/tmp/foo:bar` survives validation and lands in
+            // logs / future shell contexts where `:` is meaningful).
+            // Gate them behind cfg(windows) so each platform sees only the
+            // metacharacters it actually needs to handle.
+            || (cfg!(windows) && (ch == '\\' || ch == ':'));
         if !is_safe {
             return Err(SqlError::InvalidPathChar(ch));
         }
@@ -194,8 +201,31 @@ mod tests {
     #[test]
     fn validate_path_chars_accepts_safe() {
         assert!(validate_path_chars("/home/user/file.json").is_ok());
-        assert!(validate_path_chars("C:\\Users\\file.json").is_ok());
         assert!(validate_path_chars("./data-1_file.txt").is_ok());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn validate_path_chars_accepts_windows_drive_letter_and_backslash() {
+        assert!(validate_path_chars("C:\\Users\\file.json").is_ok());
+    }
+
+    /// SEC-14: on Unix, `\\` and `:` carry no path meaning — `:` is the
+    /// PATH-list separator and `\` is a shell escape — so they must be
+    /// rejected. They are still accepted on Windows where they are part of
+    /// legitimate path syntax (`C:\Users\…`, `\\server\share`).
+    #[test]
+    #[cfg(unix)]
+    fn validate_path_chars_rejects_backslash_on_unix() {
+        let err = validate_path_chars("/tmp/foo\\bar");
+        assert!(matches!(err, Err(SqlError::InvalidPathChar('\\'))));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn validate_path_chars_rejects_colon_on_unix() {
+        let err = validate_path_chars("/tmp/foo:bar");
+        assert!(matches!(err, Err(SqlError::InvalidPathChar(':'))));
     }
 
     #[test]

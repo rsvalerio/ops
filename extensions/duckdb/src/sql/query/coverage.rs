@@ -7,7 +7,7 @@ use super::super::ingest::table_exists;
 use super::super::validation::{validate_no_traversal, validate_path_chars};
 use super::helpers::{
     collect_per_crate_map, coverage_col_select, members_cte_prefix, prepare_per_crate,
-    resolve_per_crate, CrateCoverage, Resolved,
+    resolve_per_crate, ColumnAlias, CrateCoverage, Resolved,
 };
 
 /// Query total coverage across the whole project from `coverage_files`.
@@ -22,7 +22,7 @@ pub fn query_project_coverage(db: &DuckDb) -> anyhow::Result<CrateCoverage> {
         return Ok(CrateCoverage::zero());
     }
 
-    let sql = format!("SELECT {} FROM coverage_files", coverage_col_select(""));
+    let sql = format!("SELECT {} FROM coverage_files", coverage_col_select(None));
     conn.query_row(&sql, [], |row: &duckdb::Row| {
         Ok(CrateCoverage {
             lines_count: row.get(0)?,
@@ -51,6 +51,13 @@ pub fn query_crate_coverage(
     validate_path_chars(workspace_root)?;
     validate_no_traversal(std::path::Path::new(workspace_root))?;
 
+    // SEC-12: strip a trailing '/' so the prefix join below produces a single
+    // boundary slash. With a trailing slash the join would build
+    // "/ws//crates/foo/" and absolute filenames "/ws/crates/foo/src/lib.rs"
+    // would silently fail to match, dropping per-crate coverage to 0 with no
+    // diagnostic. Done at validation time (callers may pass either form).
+    let workspace_root = workspace_root.trim_end_matches('/');
+
     let label = "query_crate_coverage";
     let setup = prepare_per_crate(db, "coverage_files", member_paths, label)?;
     let (conn, placeholders, mut paths) =
@@ -68,6 +75,9 @@ pub fn query_crate_coverage(
     // The OR matches both shapes against the same member path. The trailing '/'
     // ensures a member "crates/foo" does not match "crates/foobar/...".
     let cte = members_cte_prefix(&placeholders);
+    // SEC-12: the join alias `c` is constructed via the validated newtype so
+    // its presence in the formatted SQL cannot be a regression vector.
+    let join_alias = ColumnAlias::new("c").expect("static alias 'c' is a valid identifier");
     let sql = format!(
         "{cte} \
          SELECT m.path, {} \
@@ -76,7 +86,7 @@ pub fn query_crate_coverage(
              ON starts_with(c.filename, m.path || '/') \
              OR starts_with(c.filename, ? || '/' || m.path || '/') \
          GROUP BY m.path",
-        coverage_col_select("c.")
+        coverage_col_select(Some(&join_alias))
     );
 
     collect_per_crate_map(&conn, &sql, label, &paths, |row| {
@@ -157,6 +167,32 @@ mod tests {
         let foo = result.get("crates/foo").expect("foo present");
         assert_eq!(foo.lines_count, 100);
         assert_eq!(foo.lines_covered, 50);
+    }
+
+    /// SEC-12: workspace_root with and without a trailing '/' must yield
+    /// identical results. Before normalization a trailing '/' produced
+    /// "/ws//crates/foo/" in the prefix join and silently zeroed coverage.
+    #[test]
+    fn workspace_root_trailing_slash_yields_same_results() {
+        let db_a = DuckDb::open_in_memory().expect("db a");
+        let db_b = DuckDb::open_in_memory().expect("db b");
+        let rows = [
+            ("/ws/root/crates/foo/src/lib.rs", 200, 100),
+            ("/ws/root/crates/bar/src/lib.rs", 10, 0),
+        ];
+        setup_coverage_table(&db_a, &rows);
+        setup_coverage_table(&db_b, &rows);
+
+        let plain = query_crate_coverage(&db_a, &["crates/foo"], "/ws/root").expect("plain ok");
+        let trailing =
+            query_crate_coverage(&db_b, &["crates/foo"], "/ws/root/").expect("trailing ok");
+
+        let plain_foo = plain.get("crates/foo").expect("plain foo");
+        let trailing_foo = trailing.get("crates/foo").expect("trailing foo");
+        assert_eq!(plain_foo.lines_count, trailing_foo.lines_count);
+        assert_eq!(plain_foo.lines_covered, trailing_foo.lines_covered);
+        assert_eq!(plain_foo.lines_count, 200);
+        assert_eq!(plain_foo.lines_covered, 100);
     }
 
     #[test]
