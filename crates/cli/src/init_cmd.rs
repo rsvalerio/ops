@@ -1,7 +1,8 @@
 //! Handler for the `ops init` command.
 
-use std::io::Write;
-use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io::{ErrorKind, Write};
+use std::path::{Path, PathBuf};
 
 pub(crate) fn run_init(
     force: bool,
@@ -16,16 +17,19 @@ fn run_init_to(
     w: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let path = PathBuf::from(".ops.toml");
-    if path.exists() && !force {
-        tracing::warn!(
-            "{} already exists; not overwriting (use --force to overwrite)",
-            path.display()
-        );
-        return Ok(());
-    }
     let cwd = std::env::current_dir()?;
     let content = ops_core::config::init_template(&cwd, &sections)?;
-    std::fs::write(&path, content)?;
+    match write_init(&path, content.as_bytes(), force) {
+        Ok(()) => {}
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+            tracing::warn!(
+                "{} already exists; not overwriting (use --force to overwrite)",
+                path.display()
+            );
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
+    }
     tracing::info!("created {}", path.display());
     if sections.commands {
         let stack = ops_core::stack::Stack::detect(&cwd);
@@ -39,6 +43,51 @@ fn run_init_to(
         }
     } else {
         writeln!(w, "Created .ops.toml with output settings. Use `ops init --commands --themes` to include more sections.")?;
+    }
+    Ok(())
+}
+
+/// SEC-25 / TASK-0409: collapse the prior `path.exists()` + `fs::write`
+/// pair into atomic primitives.
+///
+/// - Without `--force`, `OpenOptions::create_new` fails with
+///   `AlreadyExists` if the target is present, so an attacker (or a racing
+///   second `ops init`) cannot insert the file between the existence check
+///   and the write.
+/// - With `--force`, the user has explicitly asked to clobber. We still
+///   stage the new content in a sibling temp file and `rename(2)` over the
+///   target so a crash mid-write cannot leave a half-written `.ops.toml`,
+///   matching the atomic-write idiom used by `ops_core::config::edit`.
+fn write_init(path: &Path, bytes: &[u8], force: bool) -> std::io::Result<()> {
+    if !force {
+        let mut f = OpenOptions::new().write(true).create_new(true).open(path)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        return Ok(());
+    }
+
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
+    let parent = parent.unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidInput, "path has no file name"))?
+        .to_string_lossy()
+        .into_owned();
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let tmp = parent.join(format!(".{file_name}.tmp.{pid}.{nanos}"));
+
+    {
+        let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+    }
+
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
     }
     Ok(())
 }

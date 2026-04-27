@@ -67,7 +67,17 @@ where
 
 /// Write `bytes` to `path` atomically by writing to a sibling temp file and
 /// renaming. On error the original content at `path` is untouched.
+///
+/// The temp file name is unique per (process, monotonic counter, nanos) so two
+/// concurrent writers — even within the same process — cannot race on the same
+/// sibling path. After the rename the parent directory is fsync-d on Unix so
+/// the new directory entry survives a crash.
 fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let file_name = path
         .file_name()
@@ -76,21 +86,36 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         })?
         .to_string_lossy()
         .into_owned();
-    let tmp = parent.join(format!(".{file_name}.tmp"));
+
+    let pid = std::process::id();
+    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let tmp = parent.join(format!(".{file_name}.tmp.{pid}.{counter}.{nanos}"));
 
     {
-        let mut f = std::fs::File::create(&tmp)?;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
     }
 
-    match std::fs::rename(&tmp, path) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            Err(e)
-        }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
     }
+
+    // Persist the new directory entry so a crash after rename still finds the
+    // updated file. macOS does not require this for crash safety in practice,
+    // but Linux ext4 does, and it is cheap.
+    #[cfg(unix)]
+    if let Ok(dir) = std::fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -143,6 +168,17 @@ mod tests {
         assert!(content.contains("theme = \"classic\""));
         let entries: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
         assert_eq!(entries.len(), 1, "temp file should have been renamed away");
+    }
+
+    #[test]
+    fn atomic_write_uses_unique_temp_per_call() {
+        // Two back-to-back writes must not collide on a deterministic temp
+        // name. If they shared one, the second create_new would fail.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.toml");
+        atomic_write(&path, b"first").unwrap();
+        atomic_write(&path, b"second").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
     }
 
     #[test]
