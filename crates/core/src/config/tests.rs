@@ -16,6 +16,7 @@ use crate::config::theme_types::ThemeConfig;
 use crate::test_utils::{exec_spec, EnvGuard, TestConfigBuilder};
 use indexmap::IndexMap;
 use serial_test::serial;
+use std::time::Duration;
 
 #[test]
 fn default_ops_file_exists_and_deserializes() {
