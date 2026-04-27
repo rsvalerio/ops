@@ -18,7 +18,7 @@ pub mod code;
 #[cfg(feature = "duckdb")]
 pub use code::run_about_code;
 
-use std::io::{IsTerminal, Write};
+use std::io::Write;
 use std::path::Path;
 
 use ops_core::project_identity::{AboutCard, ProjectIdentity};
@@ -54,9 +54,14 @@ ops_extension::impl_extension! {
 }
 
 /// Options for the about command.
+///
+/// `is_tty` reflects the `writer` the caller hands in (READ-5/TASK-0411):
+/// set `true` when writing to a real terminal, `false` for buffers/files,
+/// regardless of whether `stdout` happens to be a TTY.
 pub struct AboutOptions {
     pub refresh: bool,
     pub visible_fields: Option<Vec<String>>,
+    pub is_tty: bool,
 }
 
 /// Run the generic about command.
@@ -86,8 +91,7 @@ pub fn run_about(
     }
 
     let card = AboutCard::from_identity_filtered(&identity, opts.visible_fields.as_deref());
-    let is_tty = std::io::stdout().is_terminal();
-    writeln!(writer, "{}", card.render(columns, is_tty))?;
+    writeln!(writer, "{}", card.render(columns, opts.is_tty))?;
 
     Ok(())
 }
@@ -273,6 +277,7 @@ mod tests {
         let opts = AboutOptions {
             refresh: true,
             visible_fields: Some(vec!["project".to_string(), "codebase".to_string()]),
+            is_tty: false,
         };
         assert!(opts.refresh);
         assert_eq!(opts.visible_fields.unwrap().len(), 2);
@@ -280,6 +285,7 @@ mod tests {
         let opts_default = AboutOptions {
             refresh: false,
             visible_fields: None,
+            is_tty: false,
         };
         assert!(!opts_default.refresh);
         assert!(opts_default.visible_fields.is_none());

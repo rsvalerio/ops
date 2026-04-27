@@ -13,12 +13,17 @@ use crate::cards::{layout_cards_in_grid, render_card};
 pub const PROJECT_UNITS_PROVIDER: &str = "project_units";
 
 pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
-    run_about_units_with(data_registry, &mut std::io::stdout())
+    let is_tty = std::io::stdout().is_terminal();
+    run_about_units_with(data_registry, &mut std::io::stdout(), is_tty)
 }
 
+/// READ-5/TASK-0411: `is_tty` is supplied by the caller and reflects the
+/// `writer` they hand in, not stdout. Passing a `Vec<u8>` writer with
+/// `is_tty = false` guarantees no ANSI escapes regardless of stdout state.
 pub fn run_about_units_with(
     data_registry: &DataRegistry,
     writer: &mut dyn Write,
+    is_tty: bool,
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let config = std::sync::Arc::new(ops_core::config::Config::default());
@@ -47,7 +52,6 @@ pub fn run_about_units_with(
 
     enrich_from_db(&ctx, &mut units);
 
-    let is_tty = std::io::stdout().is_terminal();
     let cards: Vec<Vec<String>> = units.iter().map(|u| render_card(u, is_tty)).collect();
 
     let mut lines = vec![String::new()];

@@ -49,12 +49,16 @@ pub fn coverage_color(pct: f64) -> Color {
 }
 
 pub fn run_about_coverage(data_registry: &DataRegistry) -> anyhow::Result<()> {
-    run_about_coverage_with(data_registry, &mut std::io::stdout())
+    let is_tty = std::io::stdout().is_terminal();
+    run_about_coverage_with(data_registry, &mut std::io::stdout(), is_tty)
 }
 
+/// READ-5/TASK-0411: `is_tty` reflects the `writer` the caller hands in.
+/// See [`crate::units::run_about_units_with`] for the rationale.
 pub fn run_about_coverage_with(
     data_registry: &DataRegistry,
     writer: &mut dyn Write,
+    is_tty: bool,
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let config = std::sync::Arc::new(ops_core::config::Config::default());
@@ -82,17 +86,16 @@ pub fn run_about_coverage_with(
         return Ok(());
     }
 
-    let lines = format_coverage_section(&coverage);
+    let lines = format_coverage_section(&coverage, is_tty);
     writeln!(writer, "{}", lines.join("\n"))?;
     Ok(())
 }
 
-pub fn format_coverage_section(coverage: &ProjectCoverage) -> Vec<String> {
+pub fn format_coverage_section(coverage: &ProjectCoverage, is_tty: bool) -> Vec<String> {
     if coverage.total.lines_count == 0 {
         return vec![];
     }
 
-    let is_tty = std::io::stdout().is_terminal();
     let mut lines = vec![String::new()];
 
     let active_units: Vec<&_> = coverage
@@ -167,7 +170,7 @@ mod tests {
     #[test]
     fn format_coverage_section_empty_when_zero_total() {
         let cov = ProjectCoverage::default();
-        assert!(format_coverage_section(&cov).is_empty());
+        assert!(format_coverage_section(&cov, false).is_empty());
     }
 
     #[test]
@@ -188,7 +191,7 @@ mod tests {
                 },
             }],
         };
-        let lines = format_coverage_section(&cov);
+        let lines = format_coverage_section(&cov, false);
         // Structural contract, not substring: one blank, N table lines, one blank, total.
         assert!(lines.len() >= 4, "got lines: {lines:?}");
         assert!(lines.first().unwrap().is_empty(), "leading blank");
@@ -245,7 +248,7 @@ mod tests {
                 },
             ],
         };
-        let lines = format_coverage_section(&cov);
+        let lines = format_coverage_section(&cov, false);
         // Same structural contract as the units test: active unit appears
         // exactly once in the table block, empty unit is filtered out, and
         // the total line matches the pinned format.

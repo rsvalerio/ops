@@ -48,6 +48,7 @@ pub(crate) fn run_about(refresh: bool, action: Option<AboutAction>) -> anyhow::R
             let opts = ops_about::AboutOptions {
                 refresh,
                 visible_fields: config.about.fields.clone(),
+                is_tty: crate::tty::is_stdout_tty(),
             };
             ops_about::run_about(&registry, &opts, columns, &cwd, &mut std::io::stdout())
         }
