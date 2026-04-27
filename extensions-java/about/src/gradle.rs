@@ -2,8 +2,9 @@
 
 use std::path::Path;
 
-use ops_core::project_identity::{AboutFieldDef, ProjectIdentity};
-use ops_core::text::{dir_name, for_each_trimmed_line};
+use ops_about::identity::{build_identity_value, ParsedManifest};
+use ops_core::project_identity::AboutFieldDef;
+use ops_core::text::for_each_trimmed_line;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
 use super::java_about_fields;
@@ -25,29 +26,27 @@ impl DataProvider for GradleIdentityProvider {
         let props = parse_gradle_properties(&cwd);
         let build = parse_gradle_build(&cwd);
 
-        let name = settings
-            .as_ref()
-            .and_then(|s| s.root_project_name.clone())
-            .unwrap_or_else(|| dir_name(&cwd).to_string());
-
+        let name = settings.as_ref().and_then(|s| s.root_project_name.clone());
         let version = props.as_ref().and_then(|p| p.version.clone());
         let description = build.as_ref().and_then(|b| b.description.clone());
-        let group = build.as_ref().and_then(|b| b.group.clone());
+        let module_count = settings
+            .as_ref()
+            .map(|s| s.includes.len())
+            .filter(|&c| c > 0);
 
-        let subproject_count = settings.as_ref().map(|s| s.includes.len());
-
-        let _ = group;
-        let repository = ops_git::resolve_repository_with_git_fallback(&cwd, None);
-
-        let mut identity =
-            ProjectIdentity::new(name, "Java", cwd.display().to_string(), "subprojects");
-        identity.version = version;
-        identity.description = description;
-        identity.stack_detail = Some("Gradle".to_string());
-        identity.module_count = subproject_count.filter(|&c| c > 0);
-        identity.repository = repository;
-
-        serde_json::to_value(&identity).map_err(DataProviderError::from)
+        build_identity_value(
+            ParsedManifest {
+                name,
+                version,
+                description,
+                stack_label: "Java",
+                stack_detail: Some("Gradle".to_string()),
+                module_label: "subprojects",
+                module_count,
+                ..ParsedManifest::default()
+            },
+            &cwd,
+        )
     }
 }
 
@@ -62,7 +61,6 @@ struct GradleProperties {
 
 struct GradleBuild {
     description: Option<String>,
-    group: Option<String>,
 }
 
 fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
@@ -110,21 +108,17 @@ fn parse_gradle_properties(project_root: &Path) -> Option<GradleProperties> {
 
 fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
     let mut description = None;
-    let mut group = None;
 
     let mut scan = |line: &str| {
         if let Some(val) = extract_assignment(line, "description") {
             description = Some(val);
-        }
-        if let Some(val) = extract_assignment(line, "group") {
-            group = Some(val);
         }
     };
 
     for_each_trimmed_line(&project_root.join("build.gradle"), &mut scan)
         .or_else(|| for_each_trimmed_line(&project_root.join("build.gradle.kts"), &mut scan))?;
 
-    Some(GradleBuild { description, group })
+    Some(GradleBuild { description })
 }
 
 /// Extract a value from `key = "value"` or `key = 'value'` or `key="value"`.
@@ -291,7 +285,6 @@ mod tests {
 
         let b = parse_gradle_build(dir.path()).unwrap();
         assert_eq!(b.description, Some("Spring Boot Build".to_string()));
-        assert_eq!(b.group, Some("org.springframework.boot".to_string()));
     }
 
     #[test]
@@ -305,7 +298,6 @@ mod tests {
 
         let b = parse_gradle_build(dir.path()).unwrap();
         assert_eq!(b.description, Some("Kotlin Build".to_string()));
-        assert_eq!(b.group, Some("com.example".to_string()));
     }
 
     #[test]

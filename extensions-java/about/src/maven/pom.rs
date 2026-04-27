@@ -1,57 +1,34 @@
-//! Maven `project_identity` provider — parses `pom.xml`.
+//! Line-based `pom.xml` parser for the Maven `project_identity` provider.
+//!
+//! ## Known limits
+//!
+//! This is a line-oriented extractor, not a real XML parser. It supports the
+//! standard, prettily-formatted Maven POM shape and intentionally avoids the
+//! complexity (and dependency cost) of `quick-xml`. Specifically:
+//!
+//! - **No XML comment handling.** Tags inside `<!-- ... -->` are matched as
+//!   regular content if they appear on a non-commented line shape.
+//! - **No CDATA handling.** `<![CDATA[ ... ]]>` blocks are not unwrapped.
+//! - **One element per line.** Open and close tags must be on the same line
+//!   (e.g. `<artifactId>foo</artifactId>`); multi-line element values are
+//!   not supported.
+//! - **No nested duplicate elements.** Inside a section like `<scm>` the
+//!   first matching child wins; deeper nesting (e.g. nested `<url>` inside
+//!   another tag) is not tracked.
+//!
+//! Replacing this with `quick-xml` is a single-module swap; callers depend
+//! only on `parse_pom_xml` and `PomData`.
 
 use std::path::Path;
 
-use ops_core::project_identity::{AboutFieldDef, ProjectIdentity};
-use ops_core::text::dir_name;
-use ops_extension::{Context, DataProvider, DataProviderError};
-
-use super::java_about_fields;
-
-pub(crate) struct MavenIdentityProvider;
-
-impl DataProvider for MavenIdentityProvider {
-    fn name(&self) -> &'static str {
-        "project_identity"
-    }
-
-    fn about_fields(&self) -> Vec<AboutFieldDef> {
-        java_about_fields()
-    }
-
-    fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let cwd = ctx.working_directory.clone();
-        let pom = parse_pom_xml(&cwd)
-            .ok_or_else(|| DataProviderError::computation_failed("could not parse pom.xml"))?;
-
-        let name = pom
-            .artifact_id
-            .unwrap_or_else(|| dir_name(&cwd).to_string());
-        let mut identity = ProjectIdentity::new(name, "Java", cwd.display().to_string(), "modules");
-        identity.version = pom.version;
-        identity.description = pom.description;
-        identity.stack_detail = Some("Maven".to_string());
-        identity.license = pom.license;
-        identity.module_count = if pom.modules.is_empty() {
-            None
-        } else {
-            Some(pom.modules.len())
-        };
-        identity.authors = pom.developers;
-        identity.repository = ops_git::resolve_repository_with_git_fallback(&cwd, pom.scm_url);
-
-        serde_json::to_value(&identity).map_err(DataProviderError::from)
-    }
-}
-
-pub(crate) struct PomData {
-    pub artifact_id: Option<String>,
-    pub version: Option<String>,
-    pub description: Option<String>,
-    pub license: Option<String>,
-    pub modules: Vec<String>,
-    pub developers: Vec<String>,
-    pub scm_url: Option<String>,
+pub(super) struct PomData {
+    pub(super) artifact_id: Option<String>,
+    pub(super) version: Option<String>,
+    pub(super) description: Option<String>,
+    pub(super) license: Option<String>,
+    pub(super) modules: Vec<String>,
+    pub(super) developers: Vec<String>,
+    pub(super) scm_url: Option<String>,
 }
 
 /// Tracks which POM section we're currently inside.
@@ -64,12 +41,15 @@ enum PomSection {
     Licenses,
 }
 
-/// Simple line-based XML extraction from pom.xml.
-///
-/// Not a full XML parser — extracts top-level elements by matching opening/closing
-/// tags. Sufficient for the standard Maven POM fields we need.
-pub(crate) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
-    let content = std::fs::read_to_string(project_root.join("pom.xml")).ok()?;
+pub(super) fn parse_pom_xml(project_root: &Path) -> Result<PomData, std::io::Error> {
+    let path = project_root.join("pom.xml");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::debug!(path = %path.display(), error = %e, "failed to read pom.xml");
+            return Err(e);
+        }
+    };
 
     let mut data = PomData {
         artifact_id: None,
@@ -112,7 +92,7 @@ pub(crate) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
         }
     }
 
-    Some(data)
+    Ok(data)
 }
 
 /// Dispatch a line to the active section's handler. Returns `true` when the
@@ -203,20 +183,18 @@ fn parse_top_level(line: &str, data: &mut PomData) {
     if data.description.is_none() {
         data.description = extract_xml_value(line, "description");
     }
-    // <name> overrides artifactId for display purposes.
     if let Some(val) = extract_xml_value(line, "name") {
         data.artifact_id = Some(val);
     }
-    // Only use top-level <url> if no SCM URL found.
     if data.scm_url.is_none() {
         data.scm_url = extract_xml_value(line, "url");
     }
 }
 
 /// Extract value from `<tag>value</tag>` on a single line.
-pub(crate) fn extract_xml_value(line: &str, tag: &str) -> Option<String> {
-    let open = format!("<{}>", tag);
-    let close = format!("</{}>", tag);
+fn extract_xml_value(line: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
     if let Some(start) = line.find(&open) {
         if let Some(end) = line.find(&close) {
             let val_start = start + open.len();
@@ -316,7 +294,7 @@ mod tests {
     #[test]
     fn parse_pom_missing_file() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(parse_pom_xml(dir.path()).is_none());
+        assert!(parse_pom_xml(dir.path()).is_err());
     }
 
     #[test]
@@ -375,89 +353,5 @@ mod tests {
 
         let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.developers, vec!["Alice", "Bob"]);
-    }
-
-    #[test]
-    fn maven_provider_name() {
-        assert_eq!(MavenIdentityProvider.name(), "project_identity");
-    }
-
-    #[test]
-    fn maven_provider_about_fields() {
-        let fields = MavenIdentityProvider.about_fields();
-        assert!(!fields.is_empty());
-    }
-
-    #[test]
-    fn maven_provider_provide_success() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pom.xml"),
-            r#"<project>
-    <artifactId>testapp</artifactId>
-    <version>1.0.0</version>
-    <description>Test application</description>
-</project>"#,
-        )
-        .unwrap();
-
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
-        let mut ctx = Context::new(config, dir.path().to_path_buf());
-        let result = MavenIdentityProvider.provide(&mut ctx).unwrap();
-
-        assert_eq!(result["name"], "testapp");
-        assert_eq!(result["version"], "1.0.0");
-        assert_eq!(result["description"], "Test application");
-        assert_eq!(result["stack_label"], "Java");
-        assert_eq!(result["stack_detail"], "Maven");
-    }
-
-    #[test]
-    fn maven_provider_provide_no_pom() {
-        let dir = tempfile::tempdir().unwrap();
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
-        let mut ctx = Context::new(config, dir.path().to_path_buf());
-        assert!(MavenIdentityProvider.provide(&mut ctx).is_err());
-    }
-
-    #[test]
-    fn maven_provider_provide_uses_dir_name_fallback() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pom.xml"),
-            "<project>\n    <version>1.0</version>\n</project>",
-        )
-        .unwrap();
-
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
-        let mut ctx = Context::new(config, dir.path().to_path_buf());
-        let result = MavenIdentityProvider.provide(&mut ctx).unwrap();
-
-        let name = result["name"].as_str().unwrap();
-        assert!(!name.is_empty());
-    }
-
-    #[test]
-    fn maven_provider_provide_with_modules() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pom.xml"),
-            r#"<project>
-    <artifactId>parent</artifactId>
-    <modules>
-        <module>api</module>
-        <module>impl</module>
-        <module>web</module>
-    </modules>
-</project>"#,
-        )
-        .unwrap();
-
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
-        let mut ctx = Context::new(config, dir.path().to_path_buf());
-        let result = MavenIdentityProvider.provide(&mut ctx).unwrap();
-
-        assert_eq!(result["module_count"], 3);
-        assert_eq!(result["module_label"], "modules");
     }
 }

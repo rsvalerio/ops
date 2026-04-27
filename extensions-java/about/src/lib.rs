@@ -3,6 +3,12 @@
 //! Provides two extensions:
 //! - `AboutMavenExtension` (stack: JavaMaven) — parses `pom.xml`
 //! - `AboutGradleExtension` (stack: JavaGradle) — parses `settings.gradle` + `gradle.properties`
+//!
+//! Read errors on `pom.xml` are surfaced through
+//! `DataProviderError::computation_failed` (with the underlying I/O error in
+//! the message) and via `tracing::debug!`. Gradle's line-based scans use the
+//! shared `for_each_trimmed_line` helper, which silently treats read failure
+//! as "absent" — diagnostics there are best-effort (TASK-0394).
 
 mod gradle;
 mod maven;
