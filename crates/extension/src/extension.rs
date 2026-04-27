@@ -33,6 +33,14 @@ impl ExtensionType {
     }
 }
 
+/// Metadata describing an extension.
+///
+/// API-9 / TASK-0349: marked `#[non_exhaustive]` so that adding a field
+/// here is not a SemVer break for downstream extensions. External callers
+/// should construct via [`ExtensionInfo::new`] (and adjust fields via
+/// direct field access — the fields stay `pub` for ergonomic struct
+/// updates inside this crate and for read access from outside).
+#[non_exhaustive]
 pub struct ExtensionInfo {
     pub name: &'static str,
     pub shortname: &'static str,
@@ -41,6 +49,25 @@ pub struct ExtensionInfo {
     pub command_names: &'static [&'static str],
     pub data_provider_name: Option<&'static str>,
     pub stack: Option<Stack>,
+}
+
+impl ExtensionInfo {
+    /// Build a minimal `ExtensionInfo` from `name`. All other fields default
+    /// to empty/None and may be set via direct field access. Required for
+    /// downstream extensions because the struct is `#[non_exhaustive]` and
+    /// cannot be constructed via struct-literal syntax.
+    #[must_use]
+    pub fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            shortname: name,
+            description: "",
+            types: ExtensionType::empty(),
+            command_names: &[],
+            data_provider_name: None,
+            stack: None,
+        }
+    }
 }
 
 /// Registry of command ID → CommandSpec (from config + extensions).

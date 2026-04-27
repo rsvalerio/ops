@@ -132,8 +132,26 @@ impl DataRegistry {
         }
     }
 
+    /// Register a data provider under `name`.
+    ///
+    /// SEC-31 / TASK-0350: previously the implementation called `HashMap::insert`
+    /// and silently discarded the returned `Option`, so a second registration
+    /// for the same name would replace a trusted built-in (identity, metadata)
+    /// with whatever extension loaded later. Now duplicate registrations are
+    /// refused: the first provider wins, the second is logged at
+    /// `tracing::warn!`, and a `debug_assert!` panics in debug builds so test
+    /// suites catch the collision instead of shipping it.
     pub fn register(&mut self, name: impl Into<String>, provider: Box<dyn DataProvider>) {
-        self.providers.insert(name.into(), provider);
+        let name = name.into();
+        if self.providers.contains_key(&name) {
+            debug_assert!(false, "duplicate data provider registration for `{name}`");
+            tracing::warn!(
+                provider = %name,
+                "duplicate data provider registration ignored; keeping the first registration"
+            );
+            return;
+        }
+        self.providers.insert(name, provider);
     }
 
     pub fn get(&self, name: &str) -> Option<&dyn DataProvider> {
@@ -211,9 +229,17 @@ pub trait DuckDbHandle: Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
+/// Per-invocation context shared with data providers.
+///
+/// API-9 / TASK-0349: marked `#[non_exhaustive]` so that adding a field is
+/// not a SemVer break for downstream providers. `data_cache` is no longer
+/// `pub`; reads go through [`Context::cached`] and writes go through
+/// [`Context::get_or_provide`] so callers cannot bypass the
+/// caching/provider contract by inserting raw values directly.
+#[non_exhaustive]
 pub struct Context {
     pub config: Arc<Config>,
-    pub data_cache: HashMap<String, Arc<serde_json::Value>>,
+    pub(crate) data_cache: HashMap<String, Arc<serde_json::Value>>,
     pub working_directory: PathBuf,
     /// When true, data providers should re-collect data instead of using cached/persisted results.
     pub refresh: bool,
@@ -231,6 +257,17 @@ impl Context {
             #[cfg(feature = "duckdb")]
             db: None,
         }
+    }
+
+    /// Read-only accessor for an entry in the data cache (API-9 / TASK-0349).
+    ///
+    /// Replaces direct field access on `data_cache` so callers can read
+    /// previously-provided JSON values without the ability to insert
+    /// arbitrary keys outside the [`Context::get_or_provide`] caching
+    /// contract.
+    #[must_use]
+    pub fn cached(&self, key: &str) -> Option<&Arc<serde_json::Value>> {
+        self.data_cache.get(key)
     }
 
     /// Create a context for testing with default config.

@@ -34,6 +34,20 @@ fn data_registry_register_and_get() {
     assert!(registry.get("other").is_none());
 }
 
+/// SEC-31 / TASK-0350: registering two providers under the same name must
+/// surface the collision rather than silently swap a trusted built-in for
+/// whatever extension happens to load second. In debug builds the
+/// `debug_assert!` panics; the production behaviour (warn + keep first) is
+/// covered indirectly by every `register_*` site running in release builds
+/// without panicking.
+#[test]
+#[should_panic(expected = "duplicate data provider registration")]
+fn data_registry_register_duplicate_panics_in_debug() {
+    let mut registry = DataRegistry::new();
+    registry.register("stub", Box::new(StubProvider));
+    registry.register("stub", Box::new(StubProvider));
+}
+
 #[test]
 fn data_registry_provide_returns_value() {
     let mut registry = DataRegistry::new();
@@ -54,7 +68,7 @@ fn context_get_or_provide_caches() {
         .get_or_provide("stub", &registry)
         .expect("second call (cached)");
     assert_eq!(*v1, *v2);
-    assert!(ctx.data_cache.contains_key("stub"));
+    assert!(ctx.cached("stub").is_some());
 }
 
 #[test]

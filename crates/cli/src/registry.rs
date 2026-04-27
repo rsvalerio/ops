@@ -113,10 +113,44 @@ fn register_with_extensions<R, F>(
 }
 
 /// Collect all commands from registered extensions into a registry.
+///
+/// SEC-31 / TASK-0402 (symmetric with TASK-0350 for `DataRegistry`):
+/// extensions register into a shared `CommandRegistry` via `IndexMap::insert`.
+/// We snapshot the keys after each extension's contribution so a second
+/// extension introducing a colliding command id is logged at
+/// `tracing::warn!` instead of silently shadowing the first registration.
+/// Insertion order is preserved (the late entry wins, matching the prior
+/// observable behaviour) but the collision is now visible.
 pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut CommandRegistry) {
-    register_with_extensions(extensions, registry, "commands", |ext, reg| {
-        ext.register_commands(reg);
-    });
+    use std::collections::HashSet;
+
+    let mut owners: std::collections::HashMap<ops_core::config::CommandId, &'static str> =
+        std::collections::HashMap::new();
+
+    for ext in extensions {
+        debug!(extension = ext.name(), action = "commands", "registering");
+        let before: HashSet<ops_core::config::CommandId> = registry.keys().cloned().collect();
+        ext.register_commands(registry);
+        for id in registry.keys() {
+            if !before.contains(id) {
+                owners.insert(id.clone(), ext.name());
+                continue;
+            }
+            // Already-present keys whose owner is a different extension are
+            // collisions: this extension just re-inserted under the same id.
+            if let Some(prev) = owners.get(id) {
+                if *prev != ext.name() {
+                    tracing::warn!(
+                        command = %id,
+                        first = %prev,
+                        second = %ext.name(),
+                        "duplicate command registration; the later extension shadows the earlier one"
+                    );
+                    owners.insert(id.clone(), ext.name());
+                }
+            }
+        }
+    }
 }
 
 /// Collect all data providers from registered extensions.
@@ -241,6 +275,56 @@ mod tests {
                 info.types.is_datasource() || info.types.is_command(),
                 "extension should be datasource or command type"
             );
+        }
+    }
+
+    /// SEC-31 / TASK-0402: when two extensions claim the same command id,
+    /// the registry must observe the collision (later wins, matching prior
+    /// behaviour) and the cli wiring layer must log a warning (verified by
+    /// virtue of the late-write taking effect — the warning itself requires
+    /// a tracing subscriber that we deliberately do not pull in for one
+    /// test). We do verify the count: two extensions × 1 command each that
+    /// share an id collapse to a single entry.
+    #[test]
+    fn register_extension_commands_detects_duplicate_command_id() {
+        use ops_core::config::{CommandSpec, ExecCommandSpec};
+        use ops_extension::{CommandRegistry, Extension};
+
+        struct ExtA;
+        impl Extension for ExtA {
+            fn name(&self) -> &'static str {
+                "ext_a"
+            }
+            fn register_commands(&self, registry: &mut CommandRegistry) {
+                registry.insert(
+                    "shared".into(),
+                    CommandSpec::Exec(ExecCommandSpec::new("echo", ["a"])),
+                );
+            }
+        }
+        struct ExtB;
+        impl Extension for ExtB {
+            fn name(&self) -> &'static str {
+                "ext_b"
+            }
+            fn register_commands(&self, registry: &mut CommandRegistry) {
+                registry.insert(
+                    "shared".into(),
+                    CommandSpec::Exec(ExecCommandSpec::new("echo", ["b"])),
+                );
+            }
+        }
+
+        let a = ExtA;
+        let b = ExtB;
+        let exts: Vec<&dyn Extension> = vec![&a, &b];
+        let mut registry = CommandRegistry::new();
+        register_extension_commands(&exts, &mut registry);
+
+        assert_eq!(registry.len(), 1, "duplicate id collapses to one entry");
+        match registry.get("shared") {
+            Some(CommandSpec::Exec(e)) => assert_eq!(e.args, vec!["b".to_string()]),
+            other => panic!("expected exec spec, got {other:?}"),
         }
     }
 

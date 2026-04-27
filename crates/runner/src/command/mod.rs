@@ -186,11 +186,24 @@ impl CommandRunner {
     }
 
     /// Register commands from extensions (merged with config commands).
+    ///
+    /// SEC-31 / TASK-0402: detect duplicates at this final consolidation
+    /// point. If two extensions registered the same id under
+    /// `register_extension_commands`, the upstream warning already fired;
+    /// here we emit a warning if a same id appears more than once in this
+    /// call (e.g. multiple `register_commands` invocations) so the CLI
+    /// shadowing behaviour is never silent.
     pub fn register_commands(
         &mut self,
         commands: impl IntoIterator<Item = (CommandId, CommandSpec)>,
     ) {
         for (id, spec) in commands {
+            if self.extension_commands.contains_key(&id) {
+                tracing::warn!(
+                    command = %id,
+                    "duplicate extension command registration; later registration shadows earlier"
+                );
+            }
             self.extension_commands.insert(id, spec);
         }
         self.rebuild_alias_map();

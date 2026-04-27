@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 indexmap = { workspace = true }
 bitflags = "2"
 linkme = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
