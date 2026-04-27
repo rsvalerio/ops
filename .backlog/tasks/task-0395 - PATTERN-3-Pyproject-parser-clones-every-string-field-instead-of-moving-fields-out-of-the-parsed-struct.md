@@ -3,11 +3,11 @@ id: TASK-0395
 title: >-
   PATTERN-3: Pyproject parser clones every string field instead of moving fields
   out of the parsed struct
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:40'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:46'
 labels:
   - code-review-rust
   - patterns

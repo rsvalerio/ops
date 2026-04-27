@@ -1,11 +1,11 @@
 ---
 id: TASK-0397
 title: 'TEST-12: Maven parse_pom_basic and maven_provider_provide_success overlap'
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:40'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:41'
 labels:
   - code-review-rust
   - test-quality

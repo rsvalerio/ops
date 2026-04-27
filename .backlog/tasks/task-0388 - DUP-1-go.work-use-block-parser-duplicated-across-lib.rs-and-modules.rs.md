@@ -1,11 +1,11 @@
 ---
 id: TASK-0388
 title: 'DUP-1: go.work use-block parser duplicated across lib.rs and modules.rs'
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:39'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:48'
 labels:
   - code-review-rust
   - duplication

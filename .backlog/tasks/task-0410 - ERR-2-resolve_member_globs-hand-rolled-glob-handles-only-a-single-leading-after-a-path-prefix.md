@@ -3,11 +3,11 @@ id: TASK-0410
 title: >-
   ERR-2: resolve_member_globs hand-rolled glob handles only a single leading *
   after a path prefix
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:53'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:51'
 labels:
   - code-review-rust
   - error-handling

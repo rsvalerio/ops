@@ -1,11 +1,11 @@
 ---
 id: TASK-0377
 title: 'ERR-1: read_crate_metadata swallows TOML parse errors with no diagnostic'
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:38'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:56'
 labels:
   - code-review-rust
   - error-handling

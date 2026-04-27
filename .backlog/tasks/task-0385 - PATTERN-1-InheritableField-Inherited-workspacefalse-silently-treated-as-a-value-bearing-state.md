@@ -3,11 +3,11 @@ id: TASK-0385
 title: >-
   PATTERN-1: InheritableField Inherited workspace=false silently treated as a
   value-bearing state
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:39'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 20:03'
 labels:
   - code-review-rust
   - patterns

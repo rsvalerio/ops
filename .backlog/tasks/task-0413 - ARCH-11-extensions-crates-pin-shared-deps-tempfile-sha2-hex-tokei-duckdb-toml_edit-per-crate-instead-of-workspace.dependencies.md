@@ -3,11 +3,11 @@ id: TASK-0413
 title: >-
   ARCH-11: extensions crates pin shared deps (tempfile, sha2, hex, tokei,
   duckdb, toml_edit) per-crate instead of workspace.dependencies
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:54'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:45'
 labels:
   - code-review-rust
   - architecture

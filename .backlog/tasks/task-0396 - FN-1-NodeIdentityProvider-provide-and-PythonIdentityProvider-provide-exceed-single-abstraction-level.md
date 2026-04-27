@@ -3,11 +3,11 @@ id: TASK-0396
 title: >-
   FN-1: NodeIdentityProvider::provide and PythonIdentityProvider::provide exceed
   single abstraction level
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:40'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 20:01'
 labels:
   - code-review-rust
   - structure

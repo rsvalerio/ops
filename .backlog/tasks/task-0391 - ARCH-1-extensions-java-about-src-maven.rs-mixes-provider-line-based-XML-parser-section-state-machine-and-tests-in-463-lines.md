@@ -3,11 +3,11 @@ id: TASK-0391
 title: >-
   ARCH-1: extensions-java/about/src/maven.rs mixes provider, line-based XML
   parser, section state machine, and tests in 463 lines
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:40'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:59'
 labels:
   - code-review-rust
   - architecture

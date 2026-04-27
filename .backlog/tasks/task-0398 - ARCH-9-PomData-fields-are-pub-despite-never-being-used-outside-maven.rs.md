@@ -1,11 +1,11 @@
 ---
 id: TASK-0398
 title: 'ARCH-9: PomData fields are pub despite never being used outside maven.rs'
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:41'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:41'
 labels:
   - code-review-rust
   - architecture

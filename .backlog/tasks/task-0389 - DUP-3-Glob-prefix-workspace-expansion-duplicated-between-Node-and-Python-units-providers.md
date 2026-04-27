@@ -3,11 +3,11 @@ id: TASK-0389
 title: >-
   DUP-3: Glob-prefix workspace expansion duplicated between Node and Python
   units providers
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:40'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:58'
 labels:
   - code-review-rust
   - duplication

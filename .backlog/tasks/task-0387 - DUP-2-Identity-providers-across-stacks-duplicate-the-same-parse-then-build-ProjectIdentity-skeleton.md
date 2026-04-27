@@ -3,11 +3,11 @@ id: TASK-0387
 title: >-
   DUP-2: Identity providers across stacks duplicate the same
   parse-then-build-ProjectIdentity skeleton
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:39'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 20:11'
 labels:
   - code-review-rust
   - duplication

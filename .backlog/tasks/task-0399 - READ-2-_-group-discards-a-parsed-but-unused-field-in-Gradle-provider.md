@@ -1,11 +1,11 @@
 ---
 id: TASK-0399
 title: 'READ-2: _ = group; discards a parsed-but-unused field in Gradle provider'
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:41'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:40'
 labels:
   - code-review-rust
   - readability

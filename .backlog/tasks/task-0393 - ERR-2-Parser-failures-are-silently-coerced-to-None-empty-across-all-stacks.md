@@ -1,11 +1,11 @@
 ---
 id: TASK-0393
 title: 'ERR-2: Parser failures are silently coerced to None/empty across all stacks'
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:40'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:56'
 labels:
   - code-review-rust
   - error-handling

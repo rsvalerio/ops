@@ -3,11 +3,11 @@ id: TASK-0381
 title: >-
   FN-1: provide in identity provider mixes orchestration, parsing, and field
   assembly
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:38'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 20:02'
 labels:
   - code-review-rust
   - structure

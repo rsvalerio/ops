@@ -4,11 +4,11 @@ title: >-
   ARCH-1: extensions-node/about/src/lib.rs mixes extension wiring, identity
   provider, package.json parsing, person formatting, repo URL normalization, and
   package-manager detection
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:40'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 20:05'
 labels:
   - code-review-rust
   - architecture

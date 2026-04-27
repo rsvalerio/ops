@@ -3,11 +3,11 @@ id: TASK-0382
 title: >-
   DUP-3: Three near-identical load manifest then glob-expand workspace members
   blocks
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:39'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:51'
 labels:
   - code-review-rust
   - duplication

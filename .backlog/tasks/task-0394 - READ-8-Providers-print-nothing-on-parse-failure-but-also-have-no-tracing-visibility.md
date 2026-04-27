@@ -3,11 +3,11 @@ id: TASK-0394
 title: >-
   READ-8: Providers print nothing on parse failure but also have no tracing
   visibility
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:40'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:56'
 labels:
   - code-review-rust
   - readability

@@ -1,11 +1,11 @@
 ---
 id: TASK-0375
 title: 'ARCH-2: Duplicate workspace-glob expansion logic across crates'
-status: To Do
+status: Done
 assignee:
   - TASK-0417
 created_date: '2026-04-26 09:38'
-updated_date: '2026-04-26 10:10'
+updated_date: '2026-04-27 19:51'
 labels:
   - code-review-rust
   - architecture
