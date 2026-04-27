@@ -15,4 +15,4 @@ wait-timeout = "0.2"
 
 [dev-dependencies]
 toml = "1"
-tempfile = "3"
+tempfile = { workspace = true }

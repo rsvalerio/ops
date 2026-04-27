@@ -16,5 +16,5 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
-tempfile = "3"
+tempfile = { workspace = true }
 serial_test = "3"

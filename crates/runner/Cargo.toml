@@ -26,6 +26,6 @@ serde_json = { workspace = true }
 [dev-dependencies]
 ops-core = { workspace = true, features = ["test-support"] }
 ops-runner = { path = ".", features = ["test-support"] }
-tempfile = "3"
+tempfile = { workspace = true }
 proptest = "1"
 tokio = { workspace = true }

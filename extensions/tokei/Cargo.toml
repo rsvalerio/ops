@@ -9,8 +9,8 @@ license.workspace = true
 ops-extension = { workspace = true, features = ["duckdb"] }
 linkme = { workspace = true }
 ops-duckdb = { workspace = true }
-duckdb = "1.10502"
-tokei = "14.0"
+duckdb = { workspace = true }
+tokei = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 
@@ -18,4 +18,4 @@ anyhow = { workspace = true }
 ops-extension = { workspace = true, features = ["test-support"] }
 ops-duckdb = { workspace = true, features = ["test-helpers"] }
 linkme = { workspace = true }
-tempfile = "3"
+tempfile = { workspace = true }

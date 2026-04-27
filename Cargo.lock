@@ -2057,6 +2057,7 @@ dependencies = [
  "ops-core",
  "ops-duckdb",
  "ops-extension",
+ "ops-git",
  "serde_json",
  "tempfile",
  "tracing",
@@ -2075,6 +2076,7 @@ dependencies = [
  "ops-git",
  "serde_json",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -2083,11 +2085,13 @@ version = "0.20.3"
 dependencies = [
  "anyhow",
  "linkme",
+ "ops-about",
  "ops-core",
  "ops-extension",
  "ops-git",
  "serde_json",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -2103,6 +2107,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -2119,6 +2124,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "toml 1.1.2+spec-1.1.0",
+ "tracing",
 ]
 
 [[package]]

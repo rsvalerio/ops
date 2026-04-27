@@ -50,14 +50,14 @@ inquire = "0.9"
 anyhow = { workspace = true }
 tracing = { workspace = true }
 indexmap = { workspace = true }
-toml_edit = "0.25"
+toml_edit = { workspace = true }
 toml = "1"
 tokio = { workspace = true }
 
 [dev-dependencies]
 ops-core = { workspace = true, features = ["test-support"] }
 ops-runner = { workspace = true, features = ["test-support"] }
-tempfile = "3"
+tempfile = { workspace = true }
 assert_cmd = "2"
 predicates = "3"
 serial_test = "3"

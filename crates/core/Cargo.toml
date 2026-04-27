@@ -11,7 +11,7 @@ test-support = []
 [dependencies]
 serde = { workspace = true }
 toml = "1"
-toml_edit = "0.25"
+toml_edit = { workspace = true }
 config = "0.15"
 anyhow = { workspace = true }
 tracing = { workspace = true }
@@ -23,6 +23,6 @@ terminal_size = "0.4"
 shellexpand = { version = "3.1.2", default-features = false, features = ["base-0"] }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = { workspace = true }
 proptest = "1"
 serial_test = "3"

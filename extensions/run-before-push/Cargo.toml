@@ -13,5 +13,5 @@ anyhow = { workspace = true }
 
 [dev-dependencies]
 ops-hook-common = { workspace = true, features = ["test-helpers"] }
-tempfile = "3"
+tempfile = { workspace = true }
 serial_test = "3"
