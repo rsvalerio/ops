@@ -266,8 +266,16 @@ const SERIALIZATION_DEFAULT_COLUMNS: u16 = 80;
 
 fn default_columns() -> u16 {
     terminal_size::terminal_size()
-        .map(|(w, _)| w.0 * 9 / 10)
+        .map(|(w, _)| scale_columns(w.0))
         .unwrap_or(SERIALIZATION_DEFAULT_COLUMNS)
+}
+
+/// Compute 90% of the reported terminal width without wrapping u16.
+/// SEC-15 / TASK-0344: widths above ~7281 cols would overflow `w * 9`.
+/// Promote to u32 for the multiply, then clamp back to u16.
+fn scale_columns(width: u16) -> u16 {
+    let scaled = u32::from(width) * 9 / 10;
+    u16::try_from(scaled).unwrap_or(u16::MAX)
 }
 
 fn is_default_columns(v: &u16) -> bool {

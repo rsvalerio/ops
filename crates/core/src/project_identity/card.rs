@@ -38,9 +38,13 @@ fn std_field_specs(id: &ProjectIdentity) -> Vec<(&'static str, String, Option<St
             "dependencies",
             "dependencies".into(),
             id.dependency_count.filter(|&c| c > 0).map(|c| {
+                // Avoid `as i64` narrowing (SEC-15 / TASK-0339): saturate so an
+                // unrealistically large usize still renders a sensible string
+                // instead of wrapping into a negative i64.
+                let n = i64::try_from(c).unwrap_or(i64::MAX);
                 format!(
                     "{} dependenc{}",
-                    format_number(c as i64),
+                    format_number(n),
                     if c != 1 { "ies" } else { "y" }
                 )
             }),

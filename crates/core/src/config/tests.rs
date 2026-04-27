@@ -597,3 +597,15 @@ args = ["build"]
     let spec = config.commands.get("build").unwrap();
     assert!(spec.aliases().is_empty());
 }
+
+#[test]
+fn scale_columns_handles_huge_widths_without_wrapping() {
+    // SEC-15 / TASK-0344: a terminal width that would overflow `w*9` in u16
+    // must not wrap or panic. Promoted to u32, the result for any u16 input
+    // fits back in u16 (max ~58 981 for u16::MAX).
+    assert_eq!(super::scale_columns(80), 72);
+    assert_eq!(super::scale_columns(100), 90);
+    // 8000 cols: in u16, 8000 * 9 wraps; the u32-promoted version returns 7200.
+    assert_eq!(super::scale_columns(8000), 7200);
+    assert_eq!(super::scale_columns(u16::MAX), 58_981);
+}

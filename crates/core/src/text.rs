@@ -14,11 +14,20 @@ pub fn capitalize(s: &str) -> String {
 /// Format a number with comma separators (e.g. 1234 → "1,234").
 pub fn format_number(n: i64) -> String {
     if n < 0 {
-        return format!("-{}", format_number(-n));
+        // checked_neg() returns None only for i64::MIN; format the magnitude
+        // via unsigned to avoid the overflow on negation.
+        let magnitude = match n.checked_neg() {
+            Some(positive) => positive.to_string(),
+            None => (n.unsigned_abs()).to_string(),
+        };
+        return format!("-{}", insert_thousands_separators(&magnitude));
     }
-    let s = n.to_string();
-    let mut result = String::with_capacity(s.len() + s.len() / 3);
-    for (i, c) in s.chars().rev().enumerate() {
+    insert_thousands_separators(&n.to_string())
+}
+
+fn insert_thousands_separators(digits: &str) -> String {
+    let mut result = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().rev().enumerate() {
         if i > 0 && i % 3 == 0 {
             result.push(',');
         }
@@ -94,6 +103,18 @@ mod tests {
     #[test]
     fn format_number_negative() {
         assert_eq!(format_number(-1234), "-1,234");
+    }
+
+    #[test]
+    fn format_number_i64_min_does_not_panic() {
+        // i64::MIN cannot be negated; ensure we render the magnitude with the
+        // standard separator without panicking or wrapping.
+        assert_eq!(format_number(i64::MIN), "-9,223,372,036,854,775,808");
+    }
+
+    #[test]
+    fn format_number_i64_max() {
+        assert_eq!(format_number(i64::MAX), "9,223,372,036,854,775,807");
     }
 
     #[test]

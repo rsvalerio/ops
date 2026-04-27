@@ -307,3 +307,27 @@ fn file_count_singular() {
     assert!(output.contains("1 file"), "got: {output}");
     assert!(!output.contains("1 files"), "should be singular: {output}");
 }
+
+#[test]
+fn dependency_count_usize_max_does_not_panic() {
+    // SEC-15 / TASK-0339: a usize > i64::MAX must not narrow to a negative
+    // i64. We saturate to i64::MAX and render a sensible string instead.
+    let mut id = sample_identity();
+    id.dependency_count = Some(usize::MAX);
+    let card = AboutCard::from_identity(&id);
+    let dep_field = card
+        .fields
+        .iter()
+        .find(|(k, _)| k == "dependencies")
+        .expect("dependencies field present");
+    assert!(
+        dep_field.1.starts_with("9,223,372,036,854,775,807"),
+        "should saturate to i64::MAX, got: {}",
+        dep_field.1
+    );
+    assert!(
+        dep_field.1.ends_with("dependencies"),
+        "expected plural label: {}",
+        dep_field.1
+    );
+}
