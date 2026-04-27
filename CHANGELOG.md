@@ -2,6 +2,49 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.20.3](https://github.com/rsvalerio/ops/compare/161ac844d7cb1eba967ba08d869acb081c312ab4..v0.20.3) - 2026-04-27
+#### 🐛 Bug Fixes
+- (**cargo-update**) trace cargo-update lines that match no known verb shape - ([4762520](https://github.com/rsvalerio/ops/commit/47625206e81f5529e9cae9a14edb789de60b0c8b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) document dry-run redaction false-negatives and cover key-match path - ([f34afba](https://github.com/rsvalerio/ops/commit/f34afbaf85461afc6d1a9ab8c2af361094114a21)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**clippy**) move test module to file end and bind must_use LoadResult - ([baa33fd](https://github.com/rsvalerio/ops/commit/baa33fdba462d246849eae0f33f79afd4baf9207)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) shell-quote args in display_cmd and expanded_args_display - ([febb060](https://github.com/rsvalerio/ops/commit/febb06005436c9e8d626433ceb95c44101af18f1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/expand**) warn-log lookup errors instead of silently passing input through - ([23713da](https://github.com/rsvalerio/ops/commit/23713da3d285303b6e59c3d4edd8bc0f9f4de3e8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) surface cargo-deny configuration errors and table-drive ensure_tools - ([92710a5](https://github.com/rsvalerio/ops/commit/92710a5c7865bf6cf9efc187c93eece8376b3003)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) build run_deps context from user config instead of Config::default - ([2ff924e](https://github.com/rsvalerio/ops/commit/2ff924eaad38994835f948399a94c0755f4495c7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) make staged JSON cleanup best-effort symmetric to sidecar - ([ba1fe59](https://github.com/rsvalerio/ops/commit/ba1fe59b5716c3d6c44dc002d7e7ad92c398efd8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) hold lock across create+count and drop misleading top-row fallback - ([452193c](https://github.com/rsvalerio/ops/commit/452193c4b36786bb348c166cd3428eea5c17b613)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) tighten SQL identifier and path validation across query module - ([512ade0](https://github.com/rsvalerio/ops/commit/512ade0714a738944a94db37472256d13e128007)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) correct SharedError doc comment and tighten clone test - ([007890d](https://github.com/rsvalerio/ops/commit/007890da638f3183f0a22f222774e0fb9a295e29)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) mark ExtensionInfo/Context non_exhaustive and warn on duplicate registrations - ([a178951](https://github.com/rsvalerio/ops/commit/a17895142253c53e32c98aa513a279f6bd34d19c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git**) match remote section header case-insensitively - ([a02ef2b](https://github.com/rsvalerio/ops/commit/a02ef2ba930481befe7f8a53c8dcf84c2814f791)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) bound parent traversal in gitdir pointer - ([c8837a4](https://github.com/rsvalerio/ops/commit/c8837a4413e1c645ec92cf29c9bc9587186d73aa)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) require non-hex char in looks_like_aws_key - ([3f2a17b](https://github.com/rsvalerio/ops/commit/3f2a17b775adcf3ce4ec70f19f63355ec684a90c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-about**) share query_project_languages and surface DuckDB query failures - ([3b20af3](https://github.com/rsvalerio/ops/commit/3b20af35b9303ed22b164c149f6e83113543c64a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tools**) handle multi-line rustup show active-toolchain output - ([ac3485d](https://github.com/rsvalerio/ops/commit/ac3485deae216ba9408e915ecd65eaf84b508405)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tools**) validate cargo install args and walk PATH in-process - ([1c6ce66](https://github.com/rsvalerio/ops/commit/1c6ce66eadecf32c394a4817a863ec7f1d47cf76)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**duckdb**) bind per-crate paths via params_from_iter without intermediate Vec - ([85d734f](https://github.com/rsvalerio/ops/commit/85d734fd7bd64c9e3c6281be1fcccb8b53f029e7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**metadata**) hold cargo metadata as Arc<Value> and share from context - ([8b582a9](https://github.com/rsvalerio/ops/commit/8b582a9c48195cd75b7cbc4551552c19d5b856fa)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) cache TTY/NO_COLOR gate and widen strip_ansi coverage - ([161ac84](https://github.com/rsvalerio/ops/commit/161ac844d7cb1eba967ba08d869acb081c312ab4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tools**) replace subprocess polling loop with wait_timeout - ([0ddc661](https://github.com/rsvalerio/ops/commit/0ddc66190c5572cc39b226ca94f69a0bc2de52b6)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**metadata,test-coverage**) replace /nonexistent path with tempdir-derived missing path - ([7d02d80](https://github.com/rsvalerio/ops/commit/7d02d807a71e4d4abc45b9d63962c16d6d189964)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about**) derive is_tty from caller writer instead of stdout - ([062a785](https://github.com/rsvalerio/ops/commit/062a785485684fc5cb4f2b830efffeea19562fdf)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) collapse run options into struct and share load_config-or-default helper - ([8d84425](https://github.com/rsvalerio/ops/commit/8d84425d3520860eb77946192802c3ded06bf6da)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/config**) remove unused Config::build_alias_map - ([842b6fe](https://github.com/rsvalerio/ops/commit/842b6fe1b648679fd850e6692dc0167a760d8a09)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/config**) split mod.rs into commands and overlay submodules - ([4354ee8](https://github.com/rsvalerio/ops/commit/4354ee8cced1bfe0d7097ab72055317ee39e00f9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) centralize EnvGuard behind test-helpers feature - ([ecba616](https://github.com/rsvalerio/ops/commit/ecba616a005f256c21a8557c3f0ecdf60465124e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) split tests.rs into per-concern submodules - ([7a7aa9d](https://github.com/rsvalerio/ops/commit/7a7aa9d780e504cf7ffff39849807c91ecea3c65)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) require command_ids in BoxSnapshot and drop test-only fallbacks - ([60fc024](https://github.com/rsvalerio/ops/commit/60fc024948a1f6d0736996d5eb40f754007b4af1)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close wave 32 code-review tasks - ([49b3425](https://github.com/rsvalerio/ops/commit/49b3425ad7d212980db013fad0fc7e4a66581225)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave 31 code-review tasks - ([54277e4](https://github.com/rsvalerio/ops/commit/54277e4abc23474716aea85a1046449c5e3024c8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave 30 code-review tasks - ([a113150](https://github.com/rsvalerio/ops/commit/a11315040496243e25902fadfd4a2ccdd1a11415)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave 29 code-review tasks - ([4168ada](https://github.com/rsvalerio/ops/commit/4168ada6a73a6c7a4c61564d71b184eec4cf6619)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.20.2](https://github.com/rsvalerio/ops/compare/03426d7d2d8c08761c89d595feb10343d8791819..v0.20.2) - 2026-04-27
 #### 🐛 Bug Fixes
 - (**about-extensions**) collapse manifest exists-then-read into a single read - ([33fa6ab](https://github.com/rsvalerio/ops/commit/33fa6abb16cac68ac52d8f434d4411e7732665e3)) - [@rsvalerio](https://github.com/rsvalerio)
