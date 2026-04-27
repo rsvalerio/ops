@@ -73,7 +73,11 @@ fn is_origin_header(line: &str) -> bool {
     let mut parts = inner.splitn(2, char::is_whitespace);
     let section = parts.next().unwrap_or("");
     let subsection = parts.next().unwrap_or("").trim();
-    section == "remote" && (subsection == "\"origin\"" || subsection == "origin")
+    // Section names in git-config(1) are case-insensitive: `[Remote "origin"]`
+    // and `[REMOTE "origin"]` are valid and accepted by git itself, so the
+    // matcher must not require lowercase. Subsection names *are*
+    // case-sensitive per git, so leave that comparison exact.
+    section.eq_ignore_ascii_case("remote") && (subsection == "\"origin\"" || subsection == "origin")
 }
 
 /// Read the current branch from `<git_dir>/HEAD`. Returns `None` on detached HEAD.
@@ -157,6 +161,30 @@ mod tests {
         assert_eq!(
             read_origin_url_from(cfg),
             Some("https://github.com/real/repo.git".to_string())
+        );
+    }
+
+    #[test]
+    fn origin_section_header_is_case_insensitive() {
+        // git-config(1) treats section names as case-insensitive; tools other
+        // than git itself sometimes write `[Remote "origin"]` etc. The
+        // matcher must accept those.
+        let cfg = "\
+[REMOTE \"origin\"]
+\turl = https://github.com/upper/repo.git
+";
+        assert_eq!(
+            read_origin_url_from(cfg),
+            Some("https://github.com/upper/repo.git".to_string())
+        );
+
+        let cfg_mixed = "\
+[Remote \"origin\"]
+\turl = https://github.com/mixed/repo.git
+";
+        assert_eq!(
+            read_origin_url_from(cfg_mixed),
+            Some("https://github.com/mixed/repo.git".to_string())
         );
     }
 
