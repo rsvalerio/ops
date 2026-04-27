@@ -122,7 +122,7 @@ impl SidecarIngestorConfig {
 
         let json_path = data_dir.join(self.json_filename);
         self.persist_record(db, &workspace_root, &json_path, record_count)?;
-        self.cleanup_artifacts(data_dir, &json_path)?;
+        self.cleanup_artifacts(data_dir, &json_path);
 
         Ok(LoadResult::success(self.name, record_count))
     }
@@ -186,10 +186,21 @@ impl SidecarIngestorConfig {
     }
 
     /// Step 4: delete the staged JSON file and the sidecar.
-    fn cleanup_artifacts(&self, data_dir: &Path, json_path: &Path) -> DbResult<()> {
-        std::fs::remove_file(json_path).map_err(crate::error::DbError::Io)?;
+    ///
+    /// Both removals are best-effort: data is already persisted in DuckDB by
+    /// the time we get here, so a leftover staged JSON or sidecar is a
+    /// recoverable disk-hygiene issue, not a load failure. A transient
+    /// permission error must not fail the whole ingest.
+    fn cleanup_artifacts(&self, data_dir: &Path, json_path: &Path) {
+        if let Err(err) = std::fs::remove_file(json_path) {
+            tracing::warn!(
+                source = self.name,
+                path = %json_path.display(),
+                error = %err,
+                "failed to remove staged JSON after ingest; continuing"
+            );
+        }
         crate::sql::remove_workspace_sidecar(data_dir, self.name);
-        Ok(())
     }
 
     /// Compute checksum of the JSON file.
@@ -325,6 +336,25 @@ mod tests {
         assert_eq!(ingestor.checksum(temp_dir.path()).unwrap(), "empty");
         std::fs::write(temp_dir.path().join("data.json"), r#"{"test": "data"}"#).unwrap();
         assert_eq!(ingestor.checksum(temp_dir.path()).unwrap(), "mock_checksum");
+    }
+
+    #[test]
+    fn cleanup_is_best_effort_when_json_missing() {
+        // TASK-0367: post-upsert JSON removal is best-effort; a missing
+        // staged JSON file (e.g. removed by a concurrent retry) must not
+        // turn a successful load into an error.
+        let config = SidecarIngestorConfig {
+            name: "cleanup_best_effort",
+            json_filename: "data.json",
+            count_table: "data_sources",
+        };
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let json_path = temp_dir.path().join("data.json");
+        // Intentionally do NOT create json_path — simulate a removal that
+        // raced with cleanup. Writing the sidecar is enough.
+        crate::sql::write_workspace_sidecar(temp_dir.path(), config.name, temp_dir.path()).unwrap();
+        config.cleanup_artifacts(temp_dir.path(), &json_path);
+        // Sidecar removal should still complete.
     }
 
     #[test]
