@@ -12,11 +12,42 @@ pub fn install_cargo_tool(name: &str, package: Option<&str>) -> anyhow::Result<(
     install_cargo_tool_with_timeout(name, package, DEFAULT_INSTALL_TIMEOUT)
 }
 
+/// SEC-13: defense-in-depth validation for crate names that flow into
+/// `cargo install`. `Command::args` already prevents shell interpolation, but
+/// the values still land as positional arguments to a privileged operation —
+/// a name beginning with `-` would be parsed as a flag (e.g. `--config`,
+/// `--git`) and silently change install semantics. We accept the conservative
+/// crate-name shape `[A-Za-z0-9][A-Za-z0-9_.\-]*`: at least one character,
+/// no leading dash, and no other characters.
+pub(crate) fn validate_cargo_tool_arg(value: &str, label: &str) -> anyhow::Result<()> {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        anyhow::bail!("{label} is empty");
+    };
+    if !first.is_ascii_alphanumeric() {
+        anyhow::bail!(
+            "{label} {value:?} must start with an alphanumeric character (cannot begin with `-`)"
+        );
+    }
+    for ch in std::iter::once(first).chain(chars) {
+        if !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == '-') {
+            anyhow::bail!(
+                "{label} {value:?} contains invalid character {ch:?}; allowed: [A-Za-z0-9_.-]"
+            );
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn install_cargo_tool_with_timeout(
     name: &str,
     package: Option<&str>,
     timeout: Duration,
 ) -> anyhow::Result<()> {
+    validate_cargo_tool_arg(name, "tool name")?;
+    if let Some(pkg) = package {
+        validate_cargo_tool_arg(pkg, "package name")?;
+    }
     let mut args = vec!["install"];
     if let Some(pkg) = package {
         args.push(pkg);

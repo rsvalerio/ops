@@ -523,3 +523,104 @@ source = "cargo"
         assert_eq!(spec.source(), ToolSource::Cargo);
     }
 }
+
+// --- SEC-13: cargo install argument validation ---
+
+use crate::install::validate_cargo_tool_arg;
+
+#[test]
+fn validate_cargo_tool_arg_accepts_real_crate_names() {
+    assert!(validate_cargo_tool_arg("cargo-llvm-cov", "tool name").is_ok());
+    assert!(validate_cargo_tool_arg("ripgrep", "tool name").is_ok());
+    assert!(validate_cargo_tool_arg("crate_with_underscore", "tool name").is_ok());
+    assert!(validate_cargo_tool_arg("crate.with.dots", "tool name").is_ok());
+    assert!(validate_cargo_tool_arg("a", "tool name").is_ok());
+}
+
+/// SEC-13 AC #1+#2: a name beginning with `-` would be parsed by `cargo
+/// install` as a flag (--config, --git, …) and silently change install
+/// semantics. Reject before invocation.
+#[test]
+fn validate_cargo_tool_arg_rejects_leading_dash() {
+    assert!(validate_cargo_tool_arg("-config=foo", "tool name").is_err());
+    assert!(validate_cargo_tool_arg("--git=https://attacker", "tool name").is_err());
+}
+
+#[test]
+fn validate_cargo_tool_arg_rejects_empty() {
+    assert!(validate_cargo_tool_arg("", "tool name").is_err());
+}
+
+#[test]
+fn validate_cargo_tool_arg_rejects_other_metacharacters() {
+    for bad in [
+        "name;rm -rf /",
+        "name with space",
+        "name$VAR",
+        "name`cmd`",
+        "name|pipe",
+        "name/slash",
+        "name\\bslash",
+        "name\nnewline",
+    ] {
+        assert!(
+            validate_cargo_tool_arg(bad, "tool name").is_err(),
+            "expected rejection of {bad:?}"
+        );
+    }
+}
+
+// --- SEC-13: PATH-walking binary detection ---
+
+use crate::probe::{find_on_path, find_on_path_in};
+
+/// SEC-13 AC #2: cross-platform — a binary placed in a directory on PATH is
+/// located. Uses `find_on_path_in` so the test does not have to mutate the
+/// process-wide PATH (which would race against parallel tests).
+#[cfg(unix)]
+#[test]
+fn find_on_path_in_locates_executable_unix() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bin_path = dir.path().join("ops_marker_unix");
+    std::fs::write(&bin_path, b"#!/bin/sh\n").unwrap();
+    let mut perms = std::fs::metadata(&bin_path).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&bin_path, perms).unwrap();
+
+    let path_var = std::env::join_paths([dir.path().to_path_buf()]).unwrap();
+    assert_eq!(
+        find_on_path_in("ops_marker_unix", &path_var),
+        Some(bin_path)
+    );
+}
+
+/// SEC-13: on Unix a non-executable file in a PATH directory must not be
+/// reported — `is_executable` requires the executable bit.
+#[cfg(unix)]
+#[test]
+fn find_on_path_in_skips_non_executable_unix() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bin_path = dir.path().join("ops_marker_unix_noexec");
+    std::fs::write(&bin_path, b"data\n").unwrap();
+    let path_var = std::env::join_paths([dir.path().to_path_buf()]).unwrap();
+    assert_eq!(find_on_path_in("ops_marker_unix_noexec", &path_var), None);
+}
+
+/// SEC-13: documented Windows fallback is the PATHEXT suffix loop (mirrors
+/// `which` / PowerShell). The helper appends each suffix and checks for a
+/// regular file.
+#[cfg(windows)]
+#[test]
+fn find_on_path_in_locates_executable_with_pathext_windows() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bin_path = dir.path().join("ops_marker_win.exe");
+    std::fs::write(&bin_path, b"\0").unwrap();
+    let path_var = std::env::join_paths([dir.path().to_path_buf()]).unwrap();
+    assert_eq!(find_on_path_in("ops_marker_win", &path_var), Some(bin_path));
+}
+
+#[test]
+fn find_on_path_returns_none_for_missing_binary() {
+    assert!(find_on_path("nonexistent-binary-abc123xyz-zzz").is_none());
+}

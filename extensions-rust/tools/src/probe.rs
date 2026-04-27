@@ -50,11 +50,81 @@ pub(crate) fn is_in_cargo_list(stdout: &str, name: &str) -> bool {
     })
 }
 
+/// SEC-13: walk `PATH` directly instead of shelling out to `which`. The
+/// previous implementation paid spawn overhead for every probe (called per
+/// tool per status check) and silently returned `false` on Windows, where
+/// `which` is not a built-in. Walking `PATH` ourselves is portable, faster,
+/// and avoids invoking another binary at all.
+///
+/// On Windows we also try the executable suffixes listed in `PATHEXT`
+/// (defaulting to `.COM;.EXE;.BAT;.CMD`); on Unix we only check the bare
+/// name and rely on the executable bit.
 pub fn check_binary_installed(name: &str) -> bool {
-    Command::new("which")
-        .arg(name)
-        .output()
-        .is_ok_and(|o| o.status.success())
+    find_on_path(name).is_some()
+}
+
+pub(crate) fn find_on_path(name: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    find_on_path_in(name, &path)
+}
+
+pub(crate) fn find_on_path_in(
+    name: &str,
+    path_var: &std::ffi::OsStr,
+) -> Option<std::path::PathBuf> {
+    for dir in std::env::split_paths(path_var) {
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
+        let candidate = dir.join(name);
+        if is_executable(&candidate) {
+            return Some(candidate);
+        }
+        if cfg!(windows) {
+            for ext in pathext_suffixes() {
+                let mut with_ext = candidate.clone().into_os_string();
+                with_ext.push(&ext);
+                let p = std::path::PathBuf::from(with_ext);
+                if is_executable(&p) {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn pathext_suffixes() -> Vec<std::ffi::OsString> {
+    let raw = std::env::var_os("PATHEXT")
+        .unwrap_or_else(|| std::ffi::OsString::from(".COM;.EXE;.BAT;.CMD"));
+    std::env::split_paths(&raw)
+        .map(std::path::PathBuf::into_os_string)
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn pathext_suffixes() -> Vec<std::ffi::OsString> {
+    Vec::new()
+}
+
+#[cfg(unix)]
+fn is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    match std::fs::metadata(path) {
+        Ok(m) => m.is_file() && m.permissions().mode() & 0o111 != 0,
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &std::path::Path) -> bool {
+    // On Windows, file existence + extension match (caller's PATHEXT loop)
+    // is the standard heuristic; the OS does not surface an executable bit
+    // through `Permissions`. Match the behaviour of `which` and similar
+    // tooling.
+    std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
 pub fn check_rustup_component_installed(component: &str) -> bool {
