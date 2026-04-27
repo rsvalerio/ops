@@ -65,6 +65,14 @@ impl CargoToml {
     }
 }
 
+/// Resolve a `field.workspace = true` reference by copying from the
+/// matching workspace value.
+///
+/// `field.workspace = false` is **permissively ignored**: cargo itself
+/// rejects this shape (it is parseable as TOML but not valid Cargo
+/// semantics), but ops-cargo-toml treats the field as if it were absent so
+/// downstream tooling can still introspect malformed-but-readable
+/// manifests. See `inheritance::tests::resolve_string_field_workspace_false_is_ignored`.
 pub(crate) fn resolve_string_field(field: &mut InheritableString, ws_value: &Option<String>) {
     if let InheritableField::Inherited { workspace: true } = field {
         if let Some(v) = ws_value {
@@ -156,4 +164,32 @@ fn merge_features(base: &[String], additional: &[String]) -> Vec<String> {
         }
     }
     merged
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// TASK-0385: `workspace = false` is parseable but cargo rejects it. Our
+    /// resolver permissively ignores it: the field stays `Inherited { false }`
+    /// and is treated as unresolved (no value substituted from the workspace).
+    #[test]
+    fn resolve_string_field_workspace_false_is_ignored() {
+        let mut field: InheritableString = InheritableField::Inherited { workspace: false };
+        resolve_string_field(&mut field, &Some("1.0.0".to_string()));
+        match field {
+            InheritableField::Inherited { workspace } => assert!(!workspace),
+            InheritableField::Value(_) => panic!("workspace=false should not pull in a value"),
+        }
+    }
+
+    #[test]
+    fn resolve_string_field_workspace_true_substitutes() {
+        let mut field: InheritableString = InheritableField::Inherited { workspace: true };
+        resolve_string_field(&mut field, &Some("1.0.0".to_string()));
+        match field {
+            InheritableField::Value(v) => assert_eq!(v, "1.0.0"),
+            InheritableField::Inherited { .. } => panic!("workspace=true should substitute"),
+        }
+    }
 }
