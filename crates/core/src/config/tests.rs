@@ -107,6 +107,36 @@ fn exec_spec_display_cmd_no_args() {
     assert_eq!(e.display_cmd(), "make");
 }
 
+/// SEC-21 AC #3: an arg containing a space and a quote must round-trip
+/// through `display_cmd` in a form the user can disambiguate from two
+/// separate args. Without quoting, `["foo bar"]` and `["foo", "bar"]` would
+/// render identically.
+#[test]
+fn exec_spec_display_cmd_quotes_metacharacters() {
+    let one_arg_with_space = exec_spec("cargo", &["foo bar"]);
+    let two_args = exec_spec("cargo", &["foo", "bar"]);
+    assert_ne!(
+        one_arg_with_space.display_cmd(),
+        two_args.display_cmd(),
+        "single arg containing a space must render differently from two separate args"
+    );
+    // The single-arg form must be a single shell word (single-quoted).
+    assert_eq!(one_arg_with_space.display_cmd(), "cargo 'foo bar'");
+
+    // Embedded quote uses the POSIX close-escape-reopen sequence: '\''
+    let with_quote = exec_spec("cargo", &["it's quoted"]);
+    assert_eq!(with_quote.display_cmd(), "cargo 'it'\\''s quoted'");
+
+    // SEC-21 motivating example: a `;` would otherwise look like a shell
+    // separator. Quoting makes it visibly part of one argument.
+    let injection_shape = exec_spec("cargo", &["build", "--config", "evil=\"; rm -rf /\""]);
+    let rendered = injection_shape.display_cmd();
+    assert!(
+        rendered.contains("'evil=\"; rm -rf /\"'"),
+        "metachar arg must be wrapped: got {rendered}"
+    );
+}
+
 fn base_config() -> Config {
     TestConfigBuilder::new()
         .theme("classic")

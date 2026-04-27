@@ -395,28 +395,85 @@ impl ExecCommandSpec {
     }
 
     /// Format as a display string for CLI step lines (e.g. "cargo build --all-targets").
+    ///
+    /// SEC-21: each argument is shell-quoted so an arg containing whitespace,
+    /// quotes, `;`, newlines, or backticks renders unambiguously. The actual
+    /// exec uses argv directly via `tokio::process::Command::args` (no shell
+    /// involved), but this string is what users see in dry-run output, step
+    /// lines, and TAP files when auditing `.ops.toml` — a misleading
+    /// space-only join could lead an operator to greenlight a config they
+    /// would otherwise reject.
     pub fn display_cmd(&self) -> std::borrow::Cow<'_, str> {
         if self.args.is_empty() {
             std::borrow::Cow::Borrowed(&self.program)
         } else {
-            std::borrow::Cow::Owned(format!("{} {}", self.program, self.args.join(" ")))
+            std::borrow::Cow::Owned(format!(
+                "{} {}",
+                shell_quote(&self.program),
+                join_shell_quoted(&self.args)
+            ))
         }
     }
 
     /// Expand and join args for display; returns None when args is empty.
+    /// SEC-21: see `display_cmd`. Each expanded argument is shell-quoted so
+    /// values containing whitespace or metacharacters cannot be confused
+    /// with multiple separate arguments.
     pub fn expanded_args_display(&self, vars: &crate::expand::Variables) -> Option<String> {
         if self.args.is_empty() {
             None
         } else {
-            Some(
-                self.args
-                    .iter()
-                    .map(|a| vars.expand(a).into_owned())
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            )
+            let expanded: Vec<String> = self
+                .args
+                .iter()
+                .map(|a| vars.expand(a).into_owned())
+                .collect();
+            Some(join_shell_quoted(&expanded))
         }
     }
+}
+
+/// SEC-21: render `value` for display so the result is an unambiguous
+/// single shell word.
+///
+/// - Strings of the safe set `[A-Za-z0-9_/.:=@%+,-]` (no whitespace, no
+///   quotes, no shell metacharacters) are returned verbatim.
+/// - Anything else is wrapped in single quotes; embedded single quotes are
+///   escaped using the standard `'\''` close-escape-reopen sequence.
+///
+/// This is POSIX-shell-correct: the resulting string round-trips through
+/// `sh -c` as one word identical to `value`. Keeps the common case (flags,
+/// paths) uncluttered while ensuring `cargo build --config evil="; rm -rf /"`
+/// renders as a single word in dry-run output.
+pub(crate) fn shell_quote(value: &str) -> std::borrow::Cow<'_, str> {
+    let safe = !value.is_empty()
+        && value.chars().all(|c| {
+            c.is_ascii_alphanumeric()
+                || matches!(c, '_' | '/' | '.' | ':' | '=' | '@' | '%' | '+' | ',' | '-')
+        });
+    if safe {
+        std::borrow::Cow::Borrowed(value)
+    } else {
+        let mut out = String::with_capacity(value.len() + 2);
+        out.push('\'');
+        for c in value.chars() {
+            if c == '\'' {
+                out.push_str("'\\''");
+            } else {
+                out.push(c);
+            }
+        }
+        out.push('\'');
+        std::borrow::Cow::Owned(out)
+    }
+}
+
+fn join_shell_quoted(parts: &[String]) -> String {
+    parts
+        .iter()
+        .map(|p| shell_quote(p).into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Composite command: runs multiple commands (sequential or parallel).
