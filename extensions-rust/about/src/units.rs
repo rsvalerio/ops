@@ -8,8 +8,7 @@ use ops_about::cards::format_unit_name;
 use ops_core::project_identity::ProjectUnit;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
-use crate::query::resolve_member_globs;
-use ops_cargo_toml::CargoToml;
+use crate::query::load_workspace_manifest;
 
 pub(crate) const PROVIDER_NAME: &str = "project_units";
 
@@ -23,23 +22,15 @@ impl DataProvider for RustUnitsProvider {
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let cwd = ctx.working_directory.clone();
 
-        let cargo_value = match ctx.cached("cargo_toml") {
-            Some(v) => v.clone(),
-            None => {
-                // No cached cargo_toml — try to read directly from filesystem.
-                return Ok(serde_json::to_value(Vec::<ProjectUnit>::new())?);
-            }
+        let manifest = match load_workspace_manifest(ctx) {
+            Ok(m) => m,
+            Err(_) => return Ok(serde_json::to_value(Vec::<ProjectUnit>::new())?),
         };
-        let mut manifest: CargoToml = serde_json::from_value((*cargo_value).clone())?;
-
-        if let Some(ws) = &mut manifest.workspace {
-            ws.members = resolve_member_globs(&ws.members, &cwd);
-        }
-
-        let members = match &manifest.workspace {
-            Some(ws) if !ws.members.is_empty() => ws.members.clone(),
-            _ => Vec::new(),
-        };
+        let members = manifest
+            .workspace
+            .as_ref()
+            .map(|ws| ws.members.clone())
+            .unwrap_or_default();
 
         // Per-crate dep counts from DuckDB (Rust-specific, keyed by package name).
         // ERR-2 / TASK-0376: log query failures at warn so they don't manifest
@@ -86,17 +77,39 @@ impl DataProvider for RustUnitsProvider {
 }
 
 /// Read package name, version, and description from a crate's Cargo.toml.
+///
+/// Returns `(None, None, None)` on read or parse failure. NotFound reads are
+/// silent (an absent member manifest is expected during workspace globbing);
+/// other read errors are logged at `debug` and parse errors at `warn` so a
+/// malformed Cargo.toml shows up in logs instead of silently producing an
+/// empty unit (TASK-0377).
 pub(crate) fn read_crate_metadata(
     crate_toml_path: &std::path::Path,
 ) -> (Option<String>, Option<String>, Option<String>) {
     let content = match std::fs::read_to_string(crate_toml_path) {
         Ok(c) => c,
-        Err(_) => return (None, None, None),
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::debug!(
+                    path = %crate_toml_path.display(),
+                    error = %e,
+                    "failed to read crate manifest"
+                );
+            }
+            return (None, None, None);
+        }
     };
 
     let parsed: toml::Value = match toml::from_str(&content) {
         Ok(p) => p,
-        Err(_) => return (None, None, None),
+        Err(e) => {
+            tracing::warn!(
+                path = %crate_toml_path.display(),
+                error = %e,
+                "failed to parse crate manifest as TOML"
+            );
+            return (None, None, None);
+        }
     };
 
     let package = parsed.get("package");
@@ -146,6 +159,21 @@ mod tests {
     #[test]
     fn read_crate_metadata_missing() {
         let (n, v, d) = read_crate_metadata(std::path::Path::new("/nonexistent/Cargo.toml"));
+        assert!(n.is_none());
+        assert!(v.is_none());
+        assert!(d.is_none());
+    }
+
+    /// TASK-0377 AC#2: a malformed Cargo.toml returns `(None, None, None)` and
+    /// should not crash. Verifying the warn-log fires would require a tracing
+    /// subscriber; we settle for asserting the function is total over invalid
+    /// TOML so the warn branch is at least exercised.
+    #[test]
+    fn read_crate_metadata_malformed_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Cargo.toml");
+        std::fs::write(&path, "[package\nname = \"unterminated\n").unwrap();
+        let (n, v, d) = read_crate_metadata(&path);
         assert!(n.is_none());
         assert!(v.is_none());
         assert!(d.is_none());

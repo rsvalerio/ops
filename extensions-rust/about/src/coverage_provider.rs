@@ -1,11 +1,10 @@
 //! Rust `project_coverage` data provider.
 
-use ops_cargo_toml::CargoToml;
 use ops_core::project_identity::{CoverageStats, ProjectCoverage, UnitCoverage};
 use ops_duckdb::sql::{query_crate_coverage, query_project_coverage};
 use ops_extension::{Context, DataProvider, DataProviderError};
 
-use crate::query::resolve_member_globs;
+use crate::query::load_workspace_manifest;
 use crate::units::resolve_crate_display_name;
 
 pub(crate) const PROVIDER_NAME: &str = "project_coverage";
@@ -19,6 +18,7 @@ impl DataProvider for RustCoverageProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let cwd = ctx.working_directory.clone();
+        let manifest = load_workspace_manifest(ctx).ok();
 
         let Some(db) = ops_duckdb::get_db(ctx) else {
             return Ok(serde_json::to_value(ProjectCoverage::default())?);
@@ -42,44 +42,41 @@ impl DataProvider for RustCoverageProvider {
             }
         };
 
-        let manifest: Option<CargoToml> = ctx
-            .cached("cargo_toml")
-            .and_then(|v| serde_json::from_value((**v).clone()).ok());
-
-        let units = if let Some(mut manifest) = manifest {
-            if let Some(ws) = &mut manifest.workspace {
-                ws.members = resolve_member_globs(&ws.members, &cwd);
-            }
-            match &manifest.workspace {
-                Some(ws) if !ws.members.is_empty() => {
-                    let workspace_root = cwd.to_string_lossy();
-                    let member_strs: Vec<&str> = ws.members.iter().map(|s| s.as_str()).collect();
-                    let per_crate = match query_crate_coverage(db, &member_strs, &workspace_root) {
-                        Ok(map) => map,
-                        Err(e) => {
-                            tracing::warn!(
-                                query = "query_crate_coverage",
-                                "duckdb query failed; per-crate coverage will be blank: {e:#}"
-                            );
-                            Default::default()
-                        }
-                    };
-                    ws.members
-                        .iter()
-                        .filter_map(|member| {
-                            per_crate.get(member).map(|cov| UnitCoverage {
-                                unit_name: resolve_crate_display_name(member, &cwd),
-                                unit_path: member.clone(),
-                                stats: CoverageStats {
-                                    lines_percent: cov.lines_percent,
-                                    lines_covered: cov.lines_covered,
-                                    lines_count: cov.lines_count,
-                                },
-                            })
+        let units = if let Some(manifest) = manifest {
+            let members = manifest
+                .workspace
+                .as_ref()
+                .map(|ws| ws.members.clone())
+                .unwrap_or_default();
+            if members.is_empty() {
+                Vec::new()
+            } else {
+                let workspace_root = cwd.to_string_lossy();
+                let member_strs: Vec<&str> = members.iter().map(String::as_str).collect();
+                let per_crate = match query_crate_coverage(db, &member_strs, &workspace_root) {
+                    Ok(map) => map,
+                    Err(e) => {
+                        tracing::warn!(
+                            query = "query_crate_coverage",
+                            "duckdb query failed; per-crate coverage will be blank: {e:#}"
+                        );
+                        Default::default()
+                    }
+                };
+                members
+                    .iter()
+                    .filter_map(|member| {
+                        per_crate.get(member).map(|cov| UnitCoverage {
+                            unit_name: resolve_crate_display_name(member, &cwd),
+                            unit_path: member.clone(),
+                            stats: CoverageStats {
+                                lines_percent: cov.lines_percent,
+                                lines_covered: cov.lines_covered,
+                                lines_count: cov.lines_count,
+                            },
                         })
-                        .collect()
-                }
-                _ => Vec::new(),
+                    })
+                    .collect()
             }
         } else {
             Vec::new()

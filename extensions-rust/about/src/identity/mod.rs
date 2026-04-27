@@ -7,14 +7,11 @@
 mod metrics;
 mod resolver;
 
-use ops_cargo_toml::{CargoToml, CargoTomlProvider};
-use ops_core::project_identity::{
-    base_about_fields, insert_homepage_field, AboutFieldDef, ProjectIdentity,
-};
-use ops_core::text::dir_name;
+use ops_about::identity::{build_identity_value, ParsedManifest};
+use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
 use ops_extension::{Context, DataProvider, DataProviderError};
 
-use crate::query::resolve_member_globs;
+use crate::query::load_workspace_manifest;
 use metrics::query_identity_metrics;
 use resolver::resolve_identity_fields;
 
@@ -48,49 +45,43 @@ impl DataProvider for RustIdentityProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let cargo_toml_value = CargoTomlProvider::new().provide(ctx)?;
-        let mut manifest: CargoToml = serde_json::from_value(cargo_toml_value)
-            .map_err(DataProviderError::computation_error)?;
-
+        let manifest = load_workspace_manifest(ctx)?;
         let cwd = ctx.working_directory.clone();
-        if let Some(ws) = &mut manifest.workspace {
-            ws.members = resolve_member_globs(&ws.members, &cwd);
-        }
 
         let pkg = manifest.package.as_ref();
         let ws_pkg = manifest.workspace.as_ref().and_then(|w| w.package.as_ref());
-
-        let name = pkg
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| dir_name(&cwd).to_string());
         let fields = resolve_identity_fields(pkg, ws_pkg, &cwd);
         let metrics = query_identity_metrics(ctx);
-        let module_count = manifest.workspace.as_ref().map(|w| w.members.len());
-        let stack_detail = fields.edition.as_ref().map(|e| format!("Edition {e}"));
 
-        let mut identity = ProjectIdentity::new(name, "Rust", cwd.display().to_string(), "crates");
-        identity.version = fields.version;
-        identity.description = fields.description;
-        identity.stack_detail = stack_detail;
-        identity.license = fields.license;
-        identity.module_count = module_count;
-        identity.loc = metrics.loc;
-        identity.file_count = metrics.file_count;
-        identity.authors = fields.authors;
-        identity.repository = fields.repository;
-        identity.homepage = fields.homepage;
-        identity.msrv = fields.msrv;
-        identity.dependency_count = metrics.dependency_count;
-        identity.coverage_percent = metrics.coverage_percent;
-        identity.languages = metrics.languages;
-
-        serde_json::to_value(&identity).map_err(DataProviderError::from)
+        build_identity_value(
+            ParsedManifest {
+                name: pkg.map(|p| p.name.clone()),
+                version: fields.version,
+                description: fields.description,
+                license: fields.license,
+                authors: fields.authors,
+                homepage: fields.homepage,
+                repository: fields.repository,
+                stack_label: "Rust",
+                stack_detail: fields.edition.as_ref().map(|e| format!("Edition {e}")),
+                module_label: "crates",
+                module_count: manifest.workspace.as_ref().map(|w| w.members.len()),
+                loc: metrics.loc,
+                file_count: metrics.file_count,
+                msrv: fields.msrv,
+                dependency_count: metrics.dependency_count,
+                coverage_percent: metrics.coverage_percent,
+                languages: metrics.languages,
+            },
+            &cwd,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ops_core::project_identity::ProjectIdentity;
 
     #[test]
     fn identity_provider_name() {
@@ -292,6 +283,33 @@ members = ["crates/*"]
         let provider = RustIdentityProvider;
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
         let value = provider.provide(&mut ctx).unwrap();
+        let id: ops_core::project_identity::ProjectIdentity =
+            serde_json::from_value(value).unwrap();
+
+        assert_eq!(id.module_count, Some(2));
+    }
+
+    /// TASK-0375 AC#2: verify `[workspace].exclude` filters members through
+    /// the identity provider (which feeds the same resolver as units/coverage).
+    #[test]
+    fn identity_provide_workspace_exclude() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["foo", "bar", "experimental"] {
+            std::fs::create_dir_all(dir.path().join(format!("crates/{name}"))).unwrap();
+            std::fs::write(
+                dir.path().join(format!("crates/{name}/Cargo.toml")),
+                format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n"),
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"crates/experimental\"]\n",
+        )
+        .unwrap();
+
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = RustIdentityProvider.provide(&mut ctx).unwrap();
         let id: ops_core::project_identity::ProjectIdentity =
             serde_json::from_value(value).unwrap();
 
