@@ -28,7 +28,6 @@ use crate::serde_defaults;
 use anyhow::Context;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Root configuration structure.
@@ -75,9 +74,7 @@ impl Config {
     ///
     /// O(N·M) over commands × aliases. The alias lookup is called once per
     /// CLI invocation so an inline scan is still cheap in practice — each
-    /// user has tens of commands and a handful of aliases. Build
-    /// [`Config::build_alias_map`] once if a hot path ever needs O(1)
-    /// lookups instead.
+    /// user has tens of commands and a handful of aliases.
     pub fn resolve_alias(&self, alias: &str) -> Option<&str> {
         for (name, spec) in &self.commands {
             if spec.aliases().iter().any(|a| a == alias) {
@@ -85,22 +82,6 @@ impl Config {
             }
         }
         None
-    }
-
-    /// Build an `alias → canonical command name` map. Amortizes lookups for
-    /// callers that resolve many aliases against the same config.
-    ///
-    /// The default `resolve_alias` path is O(N·M); building this map is also
-    /// O(N·M) once, but each subsequent lookup is O(1).
-    #[must_use]
-    pub fn build_alias_map(&self) -> HashMap<&str, &str> {
-        let mut map = HashMap::new();
-        for (name, spec) in &self.commands {
-            for alias in spec.aliases() {
-                map.insert(alias.as_str(), name.as_str());
-            }
-        }
-        map
     }
 }
 
