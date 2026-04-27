@@ -38,6 +38,43 @@ fn render_line(
     theme.render(&step, 80)
 }
 
+/// TASK-0354: render_prefix and render compute the same indent/icon/pad
+/// triple. With a multi-character icon (like "OK"), the displayed width of
+/// the rendered prefix must equal the sum of indent + icon + pad widths
+/// (plus the trailing label and space). Catches drift between the two
+/// callers of step_prefix_parts.
+#[test]
+fn render_prefix_width_matches_helper_components_for_multi_char_icon() {
+    use ops_core::output::display_width;
+    let mut cfg = ThemeConfig::compact();
+    cfg.icon_succeeded = "OK".into();
+    let theme = ConfigurableTheme(cfg);
+    let step = StepLine {
+        status: StepStatus::Succeeded,
+        label: "cargo build".to_string(),
+        elapsed: None,
+    };
+
+    let plain_prefix = theme.render_prefix(&step, false);
+    let parts = theme.step_prefix_parts(StepStatus::Succeeded, false);
+    let expected_width = display_width(parts.indent)
+        + display_width(parts.icon)
+        + display_width(&parts.pad)
+        + 1 // single space between pad and label
+        + display_width(&step.label);
+    assert_eq!(
+        display_width(&plain_prefix),
+        expected_width,
+        "render_prefix width must equal sum of helper component widths; otherwise render_separator's layout math drifts (DUP-5)"
+    );
+
+    // The rendered prefix must literally contain the multi-char icon glyph.
+    assert!(
+        plain_prefix.contains("OK"),
+        "rendered prefix should contain the configured multi-char icon"
+    );
+}
+
 #[test]
 fn classic_theme_success_with_duration() {
     let theme = ConfigurableTheme(ThemeConfig::classic());
@@ -784,6 +821,33 @@ mod format_duration_tests {
     #[test]
     fn large_duration() {
         assert_eq!(format_duration(7384.0), "2h3m4s");
+    }
+
+    #[test]
+    fn nan_input_renders_marker() {
+        // SEC-15 / TASK-0358: NaN must not propagate through `as u64`.
+        assert_eq!(format_duration(f64::NAN), "--");
+    }
+
+    #[test]
+    fn negative_input_renders_marker() {
+        assert_eq!(format_duration(-1.0), "--");
+        assert_eq!(format_duration(-3600.0), "--");
+    }
+
+    #[test]
+    fn infinity_renders_marker() {
+        assert_eq!(format_duration(f64::INFINITY), "--");
+        assert_eq!(format_duration(f64::NEG_INFINITY), "--");
+    }
+
+    #[test]
+    fn enormous_finite_input_does_not_panic() {
+        // f64::MAX truncates to a value far above u64::MAX; ensure we saturate
+        // and still emit a finite string instead of panicking.
+        let out = format_duration(1.0e30);
+        assert!(out.ends_with('s'), "got: {out}");
+        assert!(out.contains('h'), "got: {out}");
     }
 }
 

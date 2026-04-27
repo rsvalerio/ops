@@ -11,16 +11,27 @@ use ops_core::config::theme_types::ErrorBlockChars;
 /// - `< 60s` → `"0.74s"`, `"5.37s"` (two decimal places)
 /// - `≥ 60s` → `"2m14s"`, `"4m38s"` (minutes + whole seconds)
 /// - `≥ 3600s` → `"1h2m3s"` (hours + minutes + seconds)
+///
+/// SEC-15 / TASK-0358: NaN, negative, and infinite inputs render as `"--"`
+/// rather than silently saturating through `as u64` casts.
 pub fn format_duration(secs: f64) -> String {
+    if !secs.is_finite() || secs < 0.0 {
+        return "--".to_string();
+    }
     if secs < 60.0 {
-        format!("{:.2}s", secs)
-    } else if secs < 3600.0 {
-        let mins = (secs / 60.0) as u64;
-        let remaining = secs as u64 % 60;
+        return format!("{:.2}s", secs);
+    }
+    // Truncate to whole seconds (matching the historical `as u64` floor) but
+    // route through i128 so an enormous f64 saturates to u64::MAX instead of
+    // silently wrapping or panicking.
+    let total_secs = u64::try_from(secs.trunc() as i128).unwrap_or(u64::MAX);
+    if total_secs < 3600 {
+        let mins = total_secs / 60;
+        let remaining = total_secs % 60;
         format!("{}m{}s", mins, remaining)
     } else {
-        let hours = (secs / 3600.0) as u64;
-        let remaining = secs as u64 % 3600;
+        let hours = total_secs / 3600;
+        let remaining = total_secs % 3600;
         let mins = remaining / 60;
         let secs_part = remaining % 60;
         format!("{}h{}m{}s", hours, mins, secs_part)
@@ -71,6 +82,18 @@ impl<'a> BoxSnapshot<'a> {
         self.command_ids = command_ids;
         self
     }
+}
+
+/// Plain layout pieces that make up the left portion of a step line:
+/// `{indent}{icon}{pad} `. Returned by [`StepLineTheme::step_prefix_parts`]
+/// so `render` and `render_prefix` cannot drift in width or composition.
+pub struct StepPrefixParts<'a> {
+    /// Leading indent (empty for running rows; spinner template emits its own indent).
+    pub indent: &'a str,
+    /// Status icon glyph.
+    pub icon: &'a str,
+    /// Spaces padding the icon column to `icon_column_width`.
+    pub pad: String,
 }
 
 /// Theme for rendering step lines (icon, separator, elapsed format).
@@ -302,6 +325,29 @@ pub trait StepLineTheme: Send + Sync {
         )
     }
 
+    /// DUP-5 / TASK-0354: shared layout for the left portion of a step line.
+    /// Both [`render`] and [`render_prefix`] need exactly the same indent /
+    /// icon / padding triple, and the two outputs must remain byte-identical
+    /// in their prefix bytes — `render_separator` derives layout math from
+    /// `display_width(plain_prefix)`. Returning the components separately
+    /// (rather than re-deriving them in each caller) makes drift impossible.
+    fn step_prefix_parts<'a>(
+        &'a self,
+        status: StepStatus,
+        is_running: bool,
+    ) -> StepPrefixParts<'a> {
+        let icon = self.status_icon(status);
+        let icon_width = display_width(icon);
+        let max_icon_width = self.icon_column_width();
+        let (indent, spinner_cols) = if is_running {
+            ("", 1usize)
+        } else {
+            (self.step_indent(), 0usize)
+        };
+        let pad = " ".repeat(max_icon_width.saturating_sub(icon_width + spinner_cols));
+        StepPrefixParts { indent, icon, pad }
+    }
+
     /// Render a full step line: "  {icon} {label} {separator...} {elapsed}".
     fn render(&self, step: &StepLine, columns: u16) -> String {
         let is_running = step.status == StepStatus::Running;
@@ -321,18 +367,15 @@ pub trait StepLineTheme: Send + Sync {
             self.left_pad_str()
         };
 
-        // Re-emit prefix with the label segment colored (icon + padding stay plain).
-        let icon = self.status_icon(step.status);
-        let icon_width = display_width(icon);
-        let max_icon_width = self.icon_column_width();
-        let (indent, spinner_cols) = if is_running {
-            ("", 1usize)
-        } else {
-            (self.step_indent(), 0usize)
-        };
-        let icon_pad = " ".repeat(max_icon_width.saturating_sub(icon_width + spinner_cols));
+        // Re-emit prefix with the label segment colored (icon + padding stay
+        // plain). Layout pieces come from the shared helper so the colored
+        // and plain prefixes cannot drift.
+        let parts = self.step_prefix_parts(step.status, is_running);
         let colored_label = apply_style(&step.label, self.label_color());
-        let colored_prefix = format!("{}{}{} {}", indent, icon, icon_pad, colored_label);
+        let colored_prefix = format!(
+            "{}{}{} {}",
+            parts.indent, parts.icon, parts.pad, colored_label
+        );
 
         let colored_separator = apply_style(&plain_separator, self.separator_color());
 
@@ -349,16 +392,8 @@ pub trait StepLineTheme: Send + Sync {
 
     /// Build the left portion of a step line: indent + icon + padding + label.
     fn render_prefix(&self, step: &StepLine, is_running: bool) -> String {
-        let icon = self.status_icon(step.status);
-        let icon_width = display_width(icon);
-        let max_icon_width = self.icon_column_width();
-        let (indent, spinner_cols) = if is_running {
-            ("", 1usize)
-        } else {
-            (self.step_indent(), 0usize)
-        };
-        let pad = " ".repeat(max_icon_width.saturating_sub(icon_width + spinner_cols));
-        format!("{}{}{} {}", indent, icon, pad, step.label)
+        let parts = self.step_prefix_parts(step.status, is_running);
+        format!("{}{}{} {}", parts.indent, parts.icon, parts.pad, step.label)
     }
 
     /// Build the separator (dots/dashes) between label and elapsed time.
