@@ -426,9 +426,34 @@ fn impl_extension_macro_info() {
 
 #[test]
 fn data_provider_error_is_clone() {
-    let err = DataProviderError::computation_failed("clone me");
+    #[derive(Debug)]
+    struct WithSource(std::io::Error);
+    impl std::fmt::Display for WithSource {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("outer")
+        }
+    }
+    impl std::error::Error for WithSource {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    let err = DataProviderError::computation_error(WithSource(std::io::Error::other("inner")));
     let cloned = err.clone();
+
     assert_eq!(err.to_string(), cloned.to_string());
+    assert!(matches!(cloned, DataProviderError::ComputationFailed(_)));
+    // Source chain survives the clone.
+    assert!(std::error::Error::source(&cloned).is_some());
+
+    // EFF-002: Clone reuses the inner Arc rather than rewrapping the error.
+    let (DataProviderError::ComputationFailed(orig), DataProviderError::ComputationFailed(copy)) =
+        (&err, &cloned)
+    else {
+        panic!("expected ComputationFailed variants");
+    };
+    assert!(std::sync::Arc::ptr_eq(&orig.0, &copy.0));
 }
 
 // --- DataRegistry::about_fields ---

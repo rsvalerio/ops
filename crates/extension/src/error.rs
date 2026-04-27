@@ -23,8 +23,8 @@ impl std::error::Error for SharedError {
 
 impl From<anyhow::Error> for SharedError {
     fn from(err: anyhow::Error) -> Self {
-        // anyhow::Error doesn't implement std::error::Error, so convert via
-        // into_inner() to extract the boxed source, falling back to an io::Error wrapper.
+        // anyhow::Error → Box<dyn Error + Send + Sync> preserves the full source chain
+        // via anyhow's std Into impl.
         let boxed: Box<dyn std::error::Error + Send + Sync> = err.into();
         Self(Arc::from(boxed))
     }
