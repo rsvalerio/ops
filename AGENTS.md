@@ -2,146 +2,46 @@
 
 Instructions for AI coding agents working on this project.
 
-**Every time a rust file (`*.rs`) is changed, make sure to run `ops verify; ops qa; ops install`. If error or warning are reported, fix it and run verify, qa and install again.**
+`ops` is an opinionated, batteries-included development CLI. Commands are defined in
+`.ops.toml` or internal stack defaults and can be exec commands or composite commands.
 
-## Project overview
+## Core Workflow
 
-`ops` is an opinionated, batteries-included development CLI.
+- Prefer existing project patterns over new abstractions.
+- Keep root guidance short; add scoped `AGENTS.md` files near code that needs local rules.
+- Put tests next to the code they cover with `#[cfg(test)] mod tests` when practical.
+- Add or update tests for new behavior.
 
-**Key concepts:**
-- Commands are defined in `.ops.toml` (or from internal default when no file). Run `ops init` to create `.ops.toml`; when a stack is detected (e.g. Rust via `Cargo.toml`), the written file is merged with that stack's default commands (from embedded `.default.<stack>.ops.toml`).
-- Commands can be **exec** (run a program) or **composite** (run multiple commands)
-- Extension trait for registering commands and data providers
-- CLI output: theme-based plain text to stdout/stderr (themed step lines, streaming output, summary); themes: classic (default), compact; configurable columns
+<important if="language=rust">
+- Rust edition is 2021.
+- Treat clippy warnings as errors.
+- After changing any `*.rs` file, run `ops verify` and `ops qa`,.
+- If those commands report errors or warnings, fix them and rerun the same gate.
+</important>
 
-## Setup commands
+## Common Commands
 
-- Build: `cargo build`
-- Run: `cargo run -- <subcommand>` (e.g. `cargo run -- build`, `cargo run -- verify`)
-- Install it locally: `cargo install --path crates/cli` then use `ops <command>`
-- Initialize config: `ops init` creates `.ops.toml` in the current directory, merging in stack default commands when a stack is detected; `ops init --force` overwrites existing
+- Build: `cargo build --all-targets`
+- Run: `cargo run -- <subcommand>` such as `cargo run -- verify`
+- Format: `cargo fmt`
+- Lint: `cargo clippy --all-targets -- -D warnings`
+- Test: `cargo test`
+- Full local gate: `ops verify qa install`
 
-## Build and test
+## Code Map
 
-- **Build:** `cargo build` or `cargo build --all-targets`
-- **Tests:** `cargo test`
-- **Lint:** `cargo clippy --all-targets -- -D warnings`
-- **Format:** `cargo fmt` (check only: `cargo fmt -- --check`)
-- **Verify:** `ops verify` runs fmt → check → clippy → build
-- **QA:** `ops qa` runs test → deps
+- `crates/core/src/config/`: TOML config parsing and theme config types.
+- `crates/core/src/stack.rs`: stack detection and embedded default command templates.
+- `crates/core/src/output.rs`: step line data types and display width behavior.
+- `crates/theme/src/lib.rs`: `StepLineTheme` and configurable themes.
+- `crates/runner/src/command/`: command execution engine and event stream.
+- `crates/runner/src/display.rs`: progress rendering with `indicatif`.
+- `crates/extension/src/lib.rs`: extension, command registry, data registry, context APIs.
+- `crates/cli/src/theme_cmd.rs`: theme management CLI.
+- `extensions/`: generic extensions.
+- `extensions-<stack>/`: Each stack have its own code folder, e.g. extensions-java.
 
-**Every time a rust file (`*.rs`) is changed, make sure to run `cargo install --path crates/cli --force` after passing `cargo clippy --all-targets -- -D warnings`.**
+## Docs
 
-## Code style
-
-- Rust edition 2021
-- Clippy with `-D warnings` (treat warnings as errors)
-- Fix all clippy and format issues before considering a change done
-- Follow existing workspace structure:
-  - `crates/core/src/config/mod.rs` - TOML config parsing (output.theme, output.columns, show_error_detail)
-  - `crates/core/src/output.rs` - Step line data types (StepLine, StepStatus, ErrorDetail) and display width
-  - `crates/core/src/style.rs` - Visual style constants
-  - `crates/theme/src/lib.rs` - StepLineTheme trait, ConfigurableTheme
-  - `crates/core/src/config/theme_types.rs` - ThemeConfig struct and classic/compact factory methods
-  - `crates/runner/src/command/mod.rs` - CommandRunner execution engine, StepResult, RunnerEvent stream
-  - `crates/runner/src/display.rs` - ProgressDisplay for step rendering with indicatif
-  - `crates/extension/src/lib.rs` - Extension trait, CommandRegistry, DataRegistry, Context
-  - `crates/cli/src/theme_cmd.rs` - Theme management CLI (list, select)
-  - `extensions/` - Generic extensions (about, duckdb, run-before-commit, run-before-push, tokei)
-  - `extensions-rust/` - Stack-specific extensions (about-rust, cargo-toml, metadata, tools, etc.)
-
-## Testing instructions
-
-- Run the full suite: `cargo test`
-- Tests live next to the code they cover (`#[cfg(test)] mod tests` in the same file)
-- Some tests use `#[tokio::test]` for async command execution
-- After changes, run `cargo test` and fix any failures
-- Add or update tests for new behavior
-
-## Before committing and after changes to *.rs files
-
-Run these commands and fix any issues:
-
-```bash
-cargo fmt
-cargo clippy --all-targets -- -D warnings
-cargo test
-```
-
-Then install it locally: `cargo install --path crates/cli --force`
-
-## Documentation
-
-- **Releasing:** [docs/releasing.md](docs/releasing.md) - automated releases, conventional commits, and Homebrew tap setup
-- **Visual components:** [docs/components.md](docs/components.md) - step icons, error boxes, theme comparison
-
-## Configuration
-
-Configuration is merged (later overrides earlier):
-1. Internal default (base config; when a stack is detected at runtime or at `init` time, stack default commands from embedded `.default.<stack>.ops.toml` are also loaded)
-2. Global config in `~/.config/ops/config.toml` (optional)
-3. Local `.ops.toml` in current directory (optional; overrides internal default when present)
-4. `.ops.d/*.toml` files (sorted alphabetically; good for separating themes, commands)
-5. Environment variables `CARGO_OPS_*`
-
-`ops init` writes a merged template: base config plus the detected stack's default commands (so e.g. in a Rust project the generated `.ops.toml` already contains `[commands.build]`, `[commands.clippy]`, `[commands.verify]`, `[commands.qa]`, etc.).
-
-### Split config with `.ops.d/`
-
-For better organization, place additional config files in `.ops.d/`:
-
-```
-.ops.toml           # main config
-.ops.d/themes.toml  # custom themes
-.ops.d/commands.toml # project-specific commands
-```
-
-Files are merged in alphabetical order after `.ops.toml`. Each file uses the same format.
-
-### Stack defaults
-
-Per-stack defaults live in `crates/core/src/.default.<stack>.ops.toml`, embedded via
-`include_str!` in `crates/core/src/stack.rs`. Supported stacks: `rust`, `node`, `go`,
-`python`, `terraform`, `ansible`, `java-maven`, `java-gradle`.
-
-Every stack ships the same **7-command baseline**: `fmt`, `lint`, `build`, `test`,
-`clean`, `verify`, `qa`. When a stack has no obvious default for one of these, the
-template emits the command as a commented-out suggestion using this convention:
-
-```toml
-# Baseline suggestion — uncomment and adjust to opt in.
-# [commands.build]
-# program = "..."
-# args = [...]
-# help = "..."
-# category = "Build"
-```
-
-When adding a new stack or editing templates, preserve the baseline — the tests in
-`stack.rs` (`each_stack_default_toml_parses_and_includes_verify`, `every_stack_defines_qa`)
-enforce presence of `verify` and `qa` for every stack. Prefer idiomatic command names
-(Rust `clippy`, Go `vet`, Python `format`) over forced uniformity; these satisfy
-baseline `lint`/`fmt` intent without renaming well-known per-stack tools.
-
-Example `.ops.toml`:
-
-```toml
-[output]
-theme = "classic"   # "classic" (default) or "compact" or custom theme name
-columns = 80        # line width for step lines
-show_error_detail = true  # show error details below failed steps
-
-[commands.build]
-program = "cargo"
-args = ["build", "--all-targets"]
-
-[commands.verify]
-commands = ["fmt", "check", "clippy", "build"]
-parallel = true
-fail_fast = true   # stop on first failure (default: true)
-
-[commands.qa]
-commands = ["test", "deps"]
-parallel = true
-fail_fast = true
-```
+- Releasing: `docs/releasing.md`
+- Visual components and theme comparison: `docs/components.md`
