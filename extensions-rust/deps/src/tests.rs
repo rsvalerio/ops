@@ -124,6 +124,45 @@ fn categorize_upgrades_splits_correctly() {
     assert_eq!(result.incompatible[0].name, "clap");
 }
 
+// -- Deny exit-code interpretation --
+
+#[test]
+fn interpret_deny_result_treats_exit_code_2_as_config_error() {
+    // TASK-0386: cargo-deny exit 2 = configuration error (e.g. broken
+    // deny.toml). interpret_deny_result must surface that, not silently
+    // return an empty DenyResult.
+    let stderr = "error: failed to read deny.toml: invalid TOML at line 4\n";
+    let result = interpret_deny_result(Some(2), stderr);
+    let err = result.expect_err("config error must surface");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("status 2") && msg.contains("configuration error"),
+        "expected exit-2 error, got: {msg}"
+    );
+    assert!(
+        msg.contains("invalid TOML"),
+        "stderr context preserved: {msg}"
+    );
+}
+
+#[test]
+fn interpret_deny_result_passes_exit_code_0_through() {
+    // Clean run: empty stderr, no diagnostics.
+    let result = interpret_deny_result(Some(0), "").expect("clean run is Ok");
+    assert!(result.advisories.is_empty());
+    assert!(result.licenses.is_empty());
+    assert!(result.bans.is_empty());
+    assert!(result.sources.is_empty());
+}
+
+#[test]
+fn interpret_deny_result_parses_diagnostics_on_exit_code_1() {
+    let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"`atty` is unmaintained","code":"unmaintained","advisory":{"id":"RUSTSEC-2024-0375","package":"atty","title":"`atty` is unmaintained"},"graphs":[{"Krate":{"name":"atty","version":"0.2.14"},"parents":[]}]}}"#;
+    let result = interpret_deny_result(Some(1), stderr).expect("issues run is Ok");
+    assert_eq!(result.advisories.len(), 1);
+    assert_eq!(result.advisories[0].id, "RUSTSEC-2024-0375");
+}
+
 // -- Deny output parser tests --
 
 #[test]

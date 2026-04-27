@@ -18,8 +18,8 @@ use std::process::Command;
 
 pub use format::format_report;
 pub use parse::{
-    categorize_upgrades, parse_deny_output, parse_upgrade_table, run_cargo_deny,
-    run_cargo_upgrade_dry_run,
+    categorize_upgrades, interpret_deny_result, parse_deny_output, parse_upgrade_table,
+    run_cargo_deny, run_cargo_upgrade_dry_run,
 };
 
 pub const NAME: &str = "deps";
@@ -89,33 +89,53 @@ pub struct DepsReport {
 
 // ── Tool detection ──────────────────────────────────────────────────────────
 
-fn check_tool(tool: &str, args: &[&str]) -> anyhow::Result<()> {
-    Command::new("cargo")
-        .args(args)
+/// A cargo subcommand we depend on, paired with the install package name and
+/// the args used to probe for its presence.
+struct CargoTool {
+    /// Cargo subcommand (e.g. `"upgrade"`, `"deny"`).
+    subcommand: &'static str,
+    /// Crate to suggest in the install hint (e.g. `"cargo-edit"`).
+    install_crate: &'static str,
+    /// Args to spawn for the probe. First element is typically `subcommand`.
+    probe_args: &'static [&'static str],
+}
+
+const REQUIRED_CARGO_TOOLS: &[CargoTool] = &[
+    CargoTool {
+        subcommand: "upgrade",
+        install_crate: "cargo-edit",
+        probe_args: &["upgrade", "--version"],
+    },
+    CargoTool {
+        subcommand: "deny",
+        install_crate: "cargo-deny",
+        probe_args: &["deny", "--version"],
+    },
+];
+
+fn check_tool(tool: &CargoTool) -> anyhow::Result<()> {
+    let status = Command::new("cargo")
+        .args(tool.probe_args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
-        .map_err(|e| anyhow::anyhow!("failed to run cargo {}: {}", tool, e))
-        .and_then(|s| {
-            if s.success() {
-                Ok(())
-            } else {
-                anyhow::bail!(
-                    "cargo {} is not installed. Install with: cargo install {}",
-                    tool,
-                    if tool == "upgrade" {
-                        "cargo-edit"
-                    } else {
-                        "cargo-deny"
-                    }
-                )
-            }
-        })
+        .map_err(|e| anyhow::anyhow!("failed to run cargo {}: {}", tool.subcommand, e))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "cargo {} is not installed. Install with: cargo install {}",
+            tool.subcommand,
+            tool.install_crate
+        )
+    }
 }
 
 pub fn ensure_tools() -> anyhow::Result<()> {
-    check_tool("upgrade", &["upgrade", "--version"])?;
-    check_tool("deny", &["deny", "--version"])?;
+    for tool in REQUIRED_CARGO_TOOLS {
+        check_tool(tool)?;
+    }
     Ok(())
 }
 

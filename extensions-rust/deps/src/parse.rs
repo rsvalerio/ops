@@ -75,6 +75,11 @@ pub fn parse_upgrade_table(stdout: &str) -> Vec<UpgradeEntry> {
         // Need at least the 5 fixed columns; anything beyond column[4] (incl.
         // any trailing characters past the last `====` block) is the note.
         if cols.len() < 5 {
+            tracing::debug!(
+                column_count = cols.len(),
+                line = %line,
+                "TASK-0404: skipping cargo-upgrade row — separator row had fewer than 5 columns"
+            );
             continue;
         }
 
@@ -98,6 +103,10 @@ pub fn parse_upgrade_table(stdout: &str) -> Vec<UpgradeEntry> {
         let (Some(name), Some(old_req), Some(compatible), Some(latest), Some(new_req)) =
             (take(0), take(1), take(2), take(3), take(4))
         else {
+            tracing::debug!(
+                line = %line,
+                "TASK-0404: skipping cargo-upgrade row that did not fill the 5 fixed columns"
+            );
             continue;
         };
 
@@ -216,6 +225,16 @@ const BAN_CODES: &[&str] = &["banned", "not-allowed", "duplicate", "workspace-du
 const SOURCE_CODES: &[&str] = &["source-not-allowed", "git-source-underspecified"];
 
 /// Run `cargo deny check` and parse the JSON output.
+///
+/// cargo-deny uses three exit codes (per its source/docs):
+///
+/// * `0` — clean: no issues found.
+/// * `1` — issues found: stderr contains the JSON diagnostics we want to parse.
+/// * `2` — configuration / usage error: e.g. an invalid `deny.toml`. In this
+///   case stderr is *not* a diagnostic stream; treating it as one yields an
+///   empty `DenyResult` and silently masks the misconfiguration. Surface the
+///   error instead so operators see "broken deny.toml" rather than a clean
+///   bill of health.
 pub fn run_cargo_deny(working_dir: &Path) -> anyhow::Result<DenyResult> {
     let output = run_cargo(
         &["deny", "--format", "json", "check"],
@@ -225,9 +244,22 @@ pub fn run_cargo_deny(working_dir: &Path) -> anyhow::Result<DenyResult> {
     )
     .map_err(|e| anyhow::anyhow!("failed to run cargo deny: {}", e))?;
 
-    // cargo deny exits non-zero when issues are found — that's expected
     let stderr = String::from_utf8_lossy(&output.stderr);
-    Ok(parse_deny_output(&stderr))
+    interpret_deny_result(output.status.code(), &stderr)
+}
+
+/// Map a cargo-deny `(exit_code, stderr)` pair to either a parsed
+/// `DenyResult` (codes 0/1) or an error (code 2 — configuration). Split out
+/// from `run_cargo_deny` so unit tests can cover the exit-code semantics
+/// without spawning the binary.
+pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Result<DenyResult> {
+    if exit_code == Some(2) {
+        anyhow::bail!(
+            "cargo deny exited with status 2 (configuration error): {}",
+            stderr.trim()
+        );
+    }
+    Ok(parse_deny_output(stderr))
 }
 
 /// JSON structures for cargo deny output (newline-delimited JSON on stderr).
