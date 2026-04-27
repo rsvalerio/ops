@@ -145,15 +145,13 @@ pub(super) fn query_project_scalar(
 }
 
 /// Result of preparing per-crate query scaffolding.
-/// `Ready` carries the lock, a `(?),...,(?)` placeholder clause, and the paths to bind.
+/// `Ready` carries the lock and a `(?),...,(?)` placeholder clause; the
+/// caller binds `member_paths` (or a chain that adds extra bound params)
+/// directly via `duckdb::params_from_iter`.
 pub(super) enum PerCrateSetup<'a> {
     Empty,
     NoTable,
-    Ready(
-        std::sync::MutexGuard<'a, duckdb::Connection>,
-        String,
-        Vec<String>,
-    ),
+    Ready(std::sync::MutexGuard<'a, duckdb::Connection>, String),
 }
 
 /// Shared scaffolding: validate paths, lock db, check table exists, build VALUES CTE.
@@ -186,21 +184,16 @@ pub(super) fn prepare_per_crate<'a>(
         .map(|_| "(?)")
         .collect::<Vec<_>>()
         .join(", ");
-    let paths: Vec<String> = member_paths.iter().map(|p| p.to_string()).collect();
 
-    Ok(PerCrateSetup::Ready(conn, placeholders, paths))
+    Ok(PerCrateSetup::Ready(conn, placeholders))
 }
 
 /// Outcome of resolving a [`PerCrateSetup`] against a default-value function.
-/// `Done` carries the early-return map; `Continue` hands back the lock,
-/// placeholders, and paths so the caller can build and execute its query.
+/// `Done` carries the early-return map; `Continue` hands back the lock and
+/// placeholders so the caller can build and execute its query.
 pub(super) enum Resolved<'a, T> {
     Done(HashMap<String, T>),
-    Continue(
-        std::sync::MutexGuard<'a, duckdb::Connection>,
-        String,
-        Vec<String>,
-    ),
+    Continue(std::sync::MutexGuard<'a, duckdb::Connection>, String),
 }
 
 /// Single source of truth for the Empty / NoTable / Ready branching that every
@@ -222,9 +215,7 @@ where
                 .map(|p| ((*p).to_string(), default_fn()))
                 .collect(),
         ),
-        PerCrateSetup::Ready(conn, placeholders, paths) => {
-            Resolved::Continue(conn, placeholders, paths)
-        }
+        PerCrateSetup::Ready(conn, placeholders) => Resolved::Continue(conn, placeholders),
     }
 }
 
@@ -234,25 +225,28 @@ pub(super) fn members_cte_prefix(placeholders: &str) -> String {
     format!("WITH members(path) AS (VALUES {placeholders})")
 }
 
-/// Execute a per-crate SQL with bound path params and collect rows via a row-mapper.
-pub(super) fn collect_per_crate_map<T, F>(
+/// Execute a per-crate SQL with bound params and collect rows via a row-mapper.
+///
+/// `params` is an iterator of `&str` references — callers pass
+/// `member_paths.iter().copied()` (and `chain` extra `&str` refs as needed)
+/// to avoid allocating an intermediate `Vec<String>` per query.
+pub(super) fn collect_per_crate_map<'p, T, F, I>(
     conn: &duckdb::Connection,
     sql: &str,
     label: &str,
-    params: &[String],
+    params: I,
     row_mapper: F,
 ) -> anyhow::Result<HashMap<String, T>>
 where
     F: Fn(&duckdb::Row<'_>) -> Result<(String, T), duckdb::Error>,
+    I: IntoIterator<Item = &'p str>,
 {
     use anyhow::Context;
     let mut stmt = conn
         .prepare(sql)
         .with_context(|| format!("preparing {label}"))?;
     let rows = stmt
-        .query_map(duckdb::params_from_iter(params.iter()), |row| {
-            row_mapper(row)
-        })
+        .query_map(duckdb::params_from_iter(params), |row| row_mapper(row))
         .with_context(|| format!("querying {label}"))?;
     let mut result = HashMap::new();
     for row in rows {
@@ -282,9 +276,9 @@ pub(super) fn query_per_crate_i64(
     q: &PerCrateI64Query<'_>,
 ) -> anyhow::Result<HashMap<String, i64>> {
     let setup = prepare_per_crate(q.db, q.table.as_str(), q.member_paths, q.label)?;
-    let (conn, placeholders, paths) = match resolve_per_crate(setup, q.member_paths, || 0_i64) {
+    let (conn, placeholders) = match resolve_per_crate(setup, q.member_paths, || 0_i64) {
         Resolved::Done(map) => return Ok(map),
-        Resolved::Continue(conn, placeholders, paths) => (conn, placeholders, paths),
+        Resolved::Continue(conn, placeholders) => (conn, placeholders),
     };
 
     let (table, select_expr, join_alias, join_column, label) = (
@@ -304,7 +298,7 @@ pub(super) fn query_per_crate_i64(
          GROUP BY m.path",
     );
 
-    collect_per_crate_map(&conn, &sql, label, &paths, |row| {
+    collect_per_crate_map(&conn, &sql, label, q.member_paths.iter().copied(), |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
     })
 }

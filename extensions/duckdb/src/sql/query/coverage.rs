@@ -60,14 +60,10 @@ pub fn query_crate_coverage(
 
     let label = "query_crate_coverage";
     let setup = prepare_per_crate(db, "coverage_files", member_paths, label)?;
-    let (conn, placeholders, mut paths) =
-        match resolve_per_crate(setup, member_paths, CrateCoverage::zero) {
-            Resolved::Done(map) => return Ok(map),
-            Resolved::Continue(conn, placeholders, paths) => (conn, placeholders, paths),
-        };
-
-    // workspace_root is the last bound parameter (? after VALUES placeholders)
-    paths.push(workspace_root.to_string());
+    let (conn, placeholders) = match resolve_per_crate(setup, member_paths, CrateCoverage::zero) {
+        Resolved::Done(map) => return Ok(map),
+        Resolved::Continue(conn, placeholders) => (conn, placeholders),
+    };
 
     // LLVM coverage filenames may be either:
     //   1. relative to workspace_root (e.g., "crates/foo/src/lib.rs")
@@ -89,7 +85,14 @@ pub fn query_crate_coverage(
         coverage_col_select(Some(&join_alias))
     );
 
-    collect_per_crate_map(&conn, &sql, label, &paths, |row| {
+    // workspace_root is the last bound parameter (? after VALUES placeholders);
+    // chain it without allocating an intermediate Vec<String>.
+    let params = member_paths
+        .iter()
+        .copied()
+        .chain(std::iter::once(workspace_root));
+
+    collect_per_crate_map(&conn, &sql, label, params, |row| {
         Ok((
             row.get::<_, String>(0)?,
             CrateCoverage {
