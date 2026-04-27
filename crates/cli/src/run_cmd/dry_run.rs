@@ -66,6 +66,18 @@ pub(crate) fn print_exec_spec(
             // broader `warn_if_sensitive_env` policy: redact when the key
             // looks sensitive *or* the (expanded) value itself looks like
             // a secret per the JWT/UUID/high-entropy heuristics.
+            //
+            // SEC-21 known false-negatives — values that *will* leak through
+            // when the key name does not match `is_sensitive_env_key`:
+            //   - Short bearer tokens (<20 chars), e.g. shortened API keys.
+            //   - Lowercase-hex-only strings (git SHAs, MD5/SHA1 hashes used
+            //     as deploy tokens) — see SEC-11 in `secret_patterns`.
+            //   - Connection strings whose host/path is the only secret
+            //     (e.g. `https://hooks.slack.com/services/T.../B.../X...`).
+            //   - Base32 / non-base64 encodings (TOTP seeds).
+            // Defense in depth: name sensitive env vars with one of the
+            // standard prefixes (TOKEN, SECRET, PASSWORD, KEY, AUTH, …) so
+            // key-based redaction kicks in even if the value heuristic misses.
             let expanded = vars.expand(v);
             let display_val =
                 if is_sensitive_env_key(k) || looks_like_secret_value_public(&expanded) {

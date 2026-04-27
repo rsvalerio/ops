@@ -410,6 +410,46 @@ mod run_command_dry_run_tests {
         );
     }
 
+    /// SEC-21 AC #1: an env entry whose name matches a sensitive prefix is
+    /// redacted regardless of whether the value trips the heuristic. Uses
+    /// values that are deliberately innocuous (short, lowercase-only, no mixed
+    /// case) so they would *not* be flagged by `looks_like_secret_value` —
+    /// proving the redaction comes from the key match alone.
+    #[test]
+    fn dry_run_redacts_on_key_match_when_value_is_innocuous() {
+        let mut env = std::collections::HashMap::new();
+        // Each value is short / lowercase-only and would not be flagged by
+        // any value heuristic on its own.
+        env.insert("MY_AUTH_HEADER".to_string(), "ok".to_string());
+        env.insert("USER_TOKEN".to_string(), "x".to_string());
+        env.insert("DEPLOY_PASSWORD".to_string(), "a".to_string());
+        env.insert("APP_API_KEY".to_string(), "z".to_string());
+        let mut spec = ops_core::config::ExecCommandSpec::new("echo", Vec::<String>::new());
+        spec.env = env;
+        let config = TestConfigBuilder::new()
+            .command(
+                "with_named_secrets",
+                ops_core::config::CommandSpec::Exec(spec),
+            )
+            .build();
+        let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+        let mut buf = Vec::new();
+        let result = run_command_dry_run_to(&runner, "with_named_secrets", &mut buf);
+        assert!(result.is_ok());
+        let output = String::from_utf8(buf).unwrap();
+        for k in [
+            "MY_AUTH_HEADER",
+            "USER_TOKEN",
+            "DEPLOY_PASSWORD",
+            "APP_API_KEY",
+        ] {
+            assert!(
+                output.contains(&format!("{k}=***REDACTED***")),
+                "key {k} should be redacted via name match alone, got: {output}"
+            );
+        }
+    }
+
     #[test]
     fn dry_run_shows_cwd_if_set() {
         let mut spec = exec_spec("echo", &[]);
