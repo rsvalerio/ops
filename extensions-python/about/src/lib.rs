@@ -4,15 +4,17 @@
 //! authors, Python requirement, homepage, and repository. Detects uv by the
 //! presence of `uv.lock` or `[tool.uv]` and surfaces it in the stack detail.
 //! Workspace members come from `[tool.uv.workspace].members`.
+//!
+//! Parse and read errors fall back to defaults; non-NotFound read errors and
+//! TOML parse errors are reported via `tracing` (`debug!` / `warn!`) so a
+//! malformed manifest does not silently look like a missing one (TASK-0394).
 
 mod units;
 
 use std::path::Path;
 
-use ops_core::project_identity::{
-    base_about_fields, insert_homepage_field, AboutFieldDef, ProjectIdentity,
-};
-use ops_core::text::dir_name;
+use ops_about::identity::{build_identity_value, ParsedManifest};
+use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use serde::Deserialize;
 
@@ -55,45 +57,49 @@ impl DataProvider for PythonIdentityProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let cwd = ctx.working_directory.clone();
-        let parsed = parse_pyproject(&cwd);
+        let Pyproject {
+            name,
+            version,
+            description,
+            license,
+            requires_python,
+            authors,
+            homepage,
+            repository,
+            has_tool_uv,
+        } = parse_pyproject(&cwd).unwrap_or_default();
 
-        let name = parsed
-            .as_ref()
-            .and_then(|p| p.name.clone())
-            .unwrap_or_else(|| dir_name(&cwd).to_string());
-        let version = parsed.as_ref().and_then(|p| p.version.clone());
-        let description = parsed.as_ref().and_then(|p| p.description.clone());
-        let license = parsed.as_ref().and_then(|p| p.license.clone());
-        let requires_python = parsed.as_ref().and_then(|p| p.requires_python.clone());
-        let homepage = parsed.as_ref().and_then(|p| p.homepage.clone());
-        let authors = parsed
-            .as_ref()
-            .map(|p| p.authors.clone())
-            .unwrap_or_default();
-        let repository = ops_git::resolve_repository_with_git_fallback(
+        let uses_uv = cwd.join("uv.lock").exists() || has_tool_uv;
+        let stack_detail = build_stack_detail(requires_python.as_deref(), uses_uv);
+
+        build_identity_value(
+            ParsedManifest {
+                name,
+                version,
+                description,
+                license,
+                authors,
+                homepage,
+                repository,
+                stack_label: "Python",
+                stack_detail,
+                module_label: "packages",
+                module_count: None,
+                ..ParsedManifest::default()
+            },
             &cwd,
-            parsed.as_ref().and_then(|p| p.repository.clone()),
-        );
+        )
+    }
+}
 
-        let uses_uv = detect_uv(&cwd, parsed.as_ref());
-        let stack_detail = match (requires_python, uses_uv) {
-            (Some(v), true) => Some(format!("Python {v} · uv")),
-            (Some(v), false) => Some(format!("Python {v}")),
-            (None, true) => Some("uv".to_string()),
-            (None, false) => None,
-        };
-
-        let mut identity =
-            ProjectIdentity::new(name, "Python", cwd.display().to_string(), "packages");
-        identity.version = version;
-        identity.description = description;
-        identity.stack_detail = stack_detail;
-        identity.license = license;
-        identity.authors = authors;
-        identity.repository = repository;
-        identity.homepage = homepage;
-
-        serde_json::to_value(&identity).map_err(DataProviderError::from)
+/// Compose the `stack_detail` string from optional `requires-python` value
+/// and a boolean indicating whether uv is in use.
+fn build_stack_detail(requires_python: Option<&str>, uses_uv: bool) -> Option<String> {
+    match (requires_python, uses_uv) {
+        (Some(v), true) => Some(format!("Python {v} · uv")),
+        (Some(v), false) => Some(format!("Python {v}")),
+        (None, true) => Some("uv".to_string()),
+        (None, false) => None,
     }
 }
 
@@ -152,8 +158,23 @@ struct RawTool {
 }
 
 fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
-    let content = std::fs::read_to_string(project_root.join("pyproject.toml")).ok()?;
-    let raw: RawPyproject = toml::from_str(&content).ok()?;
+    let path = project_root.join("pyproject.toml");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::debug!(path = %path.display(), error = %e, "failed to read pyproject.toml");
+            }
+            return None;
+        }
+    };
+    let raw: RawPyproject = match toml::from_str(&content) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "failed to parse pyproject.toml");
+            return None;
+        }
+    };
 
     let mut out = Pyproject {
         has_tool_uv: raw.tool.as_ref().and_then(|t| t.uv.as_ref()).is_some(),
@@ -207,16 +228,36 @@ fn pick_url(urls: &std::collections::BTreeMap<String, String>, keys: &[&str]) ->
         .filter(|s| !s.is_empty())
 }
 
-fn detect_uv(project_root: &Path, parsed: Option<&Pyproject>) -> bool {
-    if project_root.join("uv.lock").exists() {
-        return true;
-    }
-    parsed.map(|p| p.has_tool_uv).unwrap_or(false)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ops_core::project_identity::ProjectIdentity;
+
+    #[test]
+    fn build_stack_detail_python_with_uv() {
+        assert_eq!(
+            build_stack_detail(Some(">=3.11"), true),
+            Some("Python >=3.11 · uv".to_string())
+        );
+    }
+
+    #[test]
+    fn build_stack_detail_python_only() {
+        assert_eq!(
+            build_stack_detail(Some(">=3.11"), false),
+            Some("Python >=3.11".to_string())
+        );
+    }
+
+    #[test]
+    fn build_stack_detail_uv_only() {
+        assert_eq!(build_stack_detail(None, true), Some("uv".to_string()));
+    }
+
+    #[test]
+    fn build_stack_detail_neither() {
+        assert_eq!(build_stack_detail(None, false), None);
+    }
 
     #[test]
     fn provider_name() {

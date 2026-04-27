@@ -61,70 +61,15 @@ fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
     raw.tool
         .and_then(|t| t.uv)
         .and_then(|u| u.workspace)
-        .map(|w| (w.members, w.exclude))
-        .map(|(members, exclude)| resolve_member_globs(&members, &exclude, root))
+        .map(|w| {
+            ops_about::workspace::resolve_member_globs(
+                &w.members,
+                &w.exclude,
+                root,
+                "pyproject.toml",
+            )
+        })
         .unwrap_or_default()
-}
-
-/// Expand uv workspace member globs (e.g. `packages/*`) into directories that
-/// contain a `pyproject.toml`. Non-glob entries pass through if their manifest
-/// is readable. Entries matching any `exclude` glob are filtered out.
-///
-/// Returns `(member_path, pyproject.toml contents)` so the caller does not
-/// need to re-open the file. Collapsing the previous `exists()`-then-
-/// `read_to_string` pair closes the SEC-25 TOCTOU window where a symlink swap
-/// between the probe and the open could redirect the read.
-fn resolve_member_globs(
-    members: &[String],
-    exclude: &[String],
-    root: &Path,
-) -> Vec<(String, String)> {
-    let mut resolved: Vec<(String, String)> = Vec::new();
-    for member in members {
-        if let Some(idx) = member.find('*') {
-            let prefix = &member[..idx];
-            let parent = root.join(prefix);
-            if let Ok(entries) = std::fs::read_dir(&parent) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if !path.is_dir() {
-                        continue;
-                    }
-                    if let Some(manifest) = try_read_manifest(&path) {
-                        if let Ok(rel) = path.strip_prefix(root) {
-                            resolved.push((rel.to_string_lossy().to_string(), manifest));
-                        }
-                    }
-                }
-            }
-        } else if let Some(manifest) = try_read_manifest(&root.join(member)) {
-            resolved.push((member.clone(), manifest));
-        }
-    }
-    resolved.retain(|(m, _)| !exclude.iter().any(|pat| matches_exclude(pat, m)));
-    resolved.sort_by(|a, b| a.0.cmp(&b.0));
-    resolved.dedup_by(|a, b| a.0 == b.0);
-    resolved
-}
-
-/// Read `<dir>/pyproject.toml`, mapping `NotFound` to "not a package
-/// directory" without surfacing it as an error. Other I/O errors are also
-/// coerced to `None` so a transient failure on one member does not break the
-/// whole walk.
-fn try_read_manifest(dir: &Path) -> Option<String> {
-    match std::fs::read_to_string(dir.join("pyproject.toml")) {
-        Ok(content) => Some(content),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(_) => None,
-    }
-}
-
-fn matches_exclude(pattern: &str, candidate: &str) -> bool {
-    if let Some(idx) = pattern.find('*') {
-        candidate.starts_with(&pattern[..idx])
-    } else {
-        pattern == candidate
-    }
 }
 
 fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
