@@ -50,8 +50,15 @@ pub fn query_project_loc(db: &DuckDb) -> anyhow::Result<i64> {
 }
 
 /// Query per-language breakdown from `tokei_files`: LOC, file count, and
-/// percentages of both. Ordered by LOC descending. Languages contributing
-/// under 0.1% of total LOC are omitted.
+/// percentages of both. Ordered by LOC descending.
+///
+/// READ-5 / TASK-0362: languages whose `loc_pct` rounds below 0.1% are
+/// omitted, *including* the case where every language is sub-threshold.
+/// Previously this function fell back to the top entry when the filtered
+/// set would otherwise be empty, which contradicted the documented
+/// "omit < 0.1%" contract and made it impossible for callers to
+/// distinguish "no tokei data" from "every language tiny". The empty
+/// return is now the only signal, matching the doc.
 pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>> {
     use anyhow::Context;
 
@@ -88,23 +95,14 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>>
         })
         .context("querying project languages")?;
 
-    // READ-5: collect everything, then filter by percentage. If the filter
-    // would drop *every* row, fall back to the top entry so the caller can
-    // distinguish "no tokei data" (empty) from "all tiny" (one entry).
-    let mut all = Vec::new();
+    let mut filtered = Vec::new();
     for row in rows {
-        all.push(row.context("reading language row")?);
+        let stat = row.context("reading language row")?;
+        if stat.loc_pct >= 0.1 {
+            filtered.push(stat);
+        }
     }
-
-    let filtered: Vec<LanguageStat> = all.iter().filter(|s| s.loc_pct >= 0.1).cloned().collect();
-
-    if !filtered.is_empty() {
-        Ok(filtered)
-    } else if let Some(top) = all.into_iter().next() {
-        Ok(vec![top])
-    } else {
-        Ok(Vec::new())
-    }
+    Ok(filtered)
 }
 
 /// Query per-crate lines of code from `tokei_files`.

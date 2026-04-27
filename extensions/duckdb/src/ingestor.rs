@@ -71,7 +71,11 @@ impl SidecarIngestorConfig {
     /// 3. Acquire the connection lock and execute `create_sql` then `view_sql`.
     ///    On failure, the table/view created up to the failing statement
     ///    remain in DuckDB (partial state).
-    /// 4. `SELECT COUNT(*) FROM count_table` — failure leaves table/view
+    /// 4. `SELECT COUNT(*) FROM count_table` runs **under the same lock**
+    ///    acquired in step 3 (CONC-2 / TASK-0364), so a concurrent ingestor
+    ///    cannot interleave a `CREATE OR REPLACE TABLE` between create and
+    ///    count and have the reported `record_count` describe a different
+    ///    table than the one this call wrote. Failure leaves table/view
     ///    intact.
     /// 5. Drop the lock; compute checksum of `<json_filename>` (file I/O).
     /// 6. `upsert_data_source(...)` — upserts the tracking row.
@@ -105,8 +109,16 @@ impl SidecarIngestorConfig {
         let quoted = crate::sql::validation::quoted_ident(self.count_table)?;
         let workspace_root = crate::sql::read_workspace_sidecar(data_dir, self.name)?;
 
-        self.create_tables(db, create_sql, view_sql)?;
-        let record_count = self.count_records(db, &quoted)?;
+        let record_count = {
+            // CONC-2 / TASK-0364: hold the lock for the entire create→count
+            // critical section. Splitting these into two `db.lock()` calls
+            // let a concurrent ingestor running CREATE OR REPLACE TABLE
+            // between them produce a record_count from a different table
+            // than the one we just wrote.
+            let conn = db.lock()?;
+            self.create_tables_with(&conn, create_sql, view_sql)?;
+            self.count_records_with(&conn, &quoted)?
+        };
 
         let json_path = data_dir.join(self.json_filename);
         self.persist_record(db, &workspace_root, &json_path, record_count)?;
@@ -115,10 +127,16 @@ impl SidecarIngestorConfig {
         Ok(LoadResult::success(self.name, record_count))
     }
 
-    /// Step 1: execute the CREATE TABLE / CREATE VIEW statements under a
-    /// short critical section.
-    fn create_tables(&self, db: &DuckDb, create_sql: &str, view_sql: &str) -> DbResult<()> {
-        let conn = db.lock()?;
+    /// Step 1: execute the CREATE TABLE / CREATE VIEW statements on the
+    /// already-locked connection. CONC-2 / TASK-0364: callers hold the
+    /// lock across this *and* `count_records_with` so the row count is
+    /// guaranteed to describe the table written by this call.
+    fn create_tables_with(
+        &self,
+        conn: &duckdb::Connection,
+        create_sql: &str,
+        view_sql: &str,
+    ) -> DbResult<()> {
         conn.execute(create_sql, [])
             .map_err(|e| crate::error::DbError::query_failed(format!("{} create", self.name), e))?;
         conn.execute(view_sql, [])
@@ -126,11 +144,10 @@ impl SidecarIngestorConfig {
         Ok(())
     }
 
-    /// Step 2: read the row count from the loaded count table. `quoted`
-    /// must already be the validated, double-quoted identifier returned by
-    /// `quoted_ident(self.count_table)`.
-    fn count_records(&self, db: &DuckDb, quoted: &str) -> DbResult<u64> {
-        let conn = db.lock()?;
+    /// Step 2: read the row count from the loaded count table on the
+    /// already-locked connection. `quoted` must already be the validated,
+    /// double-quoted identifier returned by `quoted_ident(self.count_table)`.
+    fn count_records_with(&self, conn: &duckdb::Connection, quoted: &str) -> DbResult<u64> {
         let raw_count: i64 = conn
             .query_row(
                 &format!("SELECT COUNT(*) FROM {quoted}"),
@@ -403,6 +420,58 @@ mod tests {
                 }
                 _ => panic!("expected InvalidRecordCount error"),
             }
+        }
+
+        /// CONC-2 / TASK-0364: two ingestors writing the same `count_table`
+        /// concurrently must each observe their *own* row count, not the
+        /// other's. The fix holds the connection lock across
+        /// `create_tables_with` and `count_records_with` so a concurrent
+        /// `CREATE OR REPLACE TABLE` cannot interleave between them.
+        #[test]
+        fn concurrent_load_each_observes_own_record_count() {
+            use std::sync::Arc;
+            let db = Arc::new(DuckDb::open_in_memory().expect("db"));
+            crate::schema::init_schema(&db).expect("init_schema");
+
+            let dir_a = tempfile::tempdir().expect("dir a");
+            let dir_b = tempfile::tempdir().expect("dir b");
+            std::fs::write(dir_a.path().join("a.json"), "{}").expect("write a.json");
+            std::fs::write(dir_b.path().join("b.json"), "{}").expect("write b.json");
+            crate::sql::write_workspace_sidecar(dir_a.path(), "ingA", Path::new("/wA"))
+                .expect("sidecar a");
+            crate::sql::write_workspace_sidecar(dir_b.path(), "ingB", Path::new("/wB"))
+                .expect("sidecar b");
+
+            let cfg_a = SidecarIngestorConfig {
+                name: "ingA",
+                json_filename: "a.json",
+                count_table: "shared_table",
+            };
+            let cfg_b = SidecarIngestorConfig {
+                name: "ingB",
+                json_filename: "b.json",
+                count_table: "shared_table",
+            };
+            let create_a = "CREATE OR REPLACE TABLE shared_table AS \
+                            SELECT * FROM (VALUES (1),(2),(3)) v(i)";
+            let create_b = "CREATE OR REPLACE TABLE shared_table AS \
+                            SELECT * FROM (VALUES (1),(2),(3),(4),(5)) v(i)";
+            let view = "CREATE OR REPLACE VIEW shared_v AS SELECT * FROM shared_table";
+
+            let path_a = dir_a.path().to_path_buf();
+            let path_b = dir_b.path().to_path_buf();
+            let db_a = Arc::clone(&db);
+            let db_b = Arc::clone(&db);
+            let h1 =
+                std::thread::spawn(move || cfg_a.load_with_sidecar(&db_a, &path_a, create_a, view));
+            let h2 =
+                std::thread::spawn(move || cfg_b.load_with_sidecar(&db_b, &path_b, create_b, view));
+
+            let res_a = h1.join().expect("join a").expect("ingestor a");
+            let res_b = h2.join().expect("join b").expect("ingestor b");
+
+            assert_eq!(res_a.record_count, 3, "ingA must observe its own 3 rows");
+            assert_eq!(res_b.record_count, 5, "ingB must observe its own 5 rows");
         }
 
         #[test]
