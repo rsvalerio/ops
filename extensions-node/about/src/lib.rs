@@ -3,17 +3,21 @@
 //! Parses `package.json` for name, version, description, license, authors,
 //! homepage, repository, and engine. npm/yarn workspaces come from the
 //! `workspaces` field; pnpm workspaces come from `pnpm-workspace.yaml`.
+//!
+//! Parse and read errors fall back to defaults; non-NotFound read errors and
+//! JSON parse errors are reported via `tracing` (`debug!` / `warn!`) so a
+//! malformed manifest does not silently look like a missing one (TASK-0394).
 
+mod package_json;
+mod package_manager;
 mod units;
 
-use std::path::Path;
-
-use ops_core::project_identity::{
-    base_about_fields, insert_homepage_field, AboutFieldDef, ProjectIdentity,
-};
-use ops_core::text::dir_name;
+use ops_about::identity::{build_identity_value, ParsedManifest};
+use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
-use serde::Deserialize;
+
+use package_json::{parse_package_json, PackageJson};
+use package_manager::detect_package_manager;
 
 const NAME: &str = "about-node";
 const DESCRIPTION: &str = "Node project identity";
@@ -54,235 +58,92 @@ impl DataProvider for NodeIdentityProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let cwd = ctx.working_directory.clone();
-        let parsed = parse_package_json(&cwd);
+        let PackageJson {
+            name,
+            version,
+            description,
+            license,
+            homepage,
+            repository,
+            authors,
+            engines_node,
+            has_packagemanager,
+        } = parse_package_json(&cwd).unwrap_or_default();
 
-        let name = parsed
-            .as_ref()
-            .and_then(|p| p.name.clone())
-            .unwrap_or_else(|| dir_name(&cwd).to_string());
-        let version = parsed.as_ref().and_then(|p| p.version.clone());
-        let description = parsed.as_ref().and_then(|p| p.description.clone());
-        let license = parsed.as_ref().and_then(|p| p.license.clone());
-        let homepage = parsed.as_ref().and_then(|p| p.homepage.clone());
-        let authors = parsed
-            .as_ref()
-            .map(|p| p.authors.clone())
-            .unwrap_or_default();
-        let repository = ops_git::resolve_repository_with_git_fallback(
+        let pkg_manager = detect_package_manager(&cwd, has_packagemanager.as_deref());
+        let stack_detail = build_stack_detail(engines_node.as_deref(), pkg_manager);
+
+        build_identity_value(
+            ParsedManifest {
+                name,
+                version,
+                description,
+                license,
+                authors,
+                homepage,
+                repository,
+                stack_label: "Node",
+                stack_detail,
+                module_label: "packages",
+                module_count: None,
+                ..ParsedManifest::default()
+            },
             &cwd,
-            parsed.as_ref().and_then(|p| p.repository.clone()),
-        );
-
-        let pkg_manager = detect_package_manager(&cwd, parsed.as_ref());
-        let engine_node = parsed.as_ref().and_then(|p| p.engines_node.clone());
-        let stack_detail = match (engine_node, pkg_manager) {
-            (Some(v), Some(pm)) => Some(format!("Node {v} · {pm}")),
-            (Some(v), None) => Some(format!("Node {v}")),
-            (None, Some(pm)) => Some(pm.to_string()),
-            (None, None) => None,
-        };
-
-        let mut identity =
-            ProjectIdentity::new(name, "Node", cwd.display().to_string(), "packages");
-        identity.version = version;
-        identity.description = description;
-        identity.stack_detail = stack_detail;
-        identity.license = license;
-        identity.authors = authors;
-        identity.repository = repository;
-        identity.homepage = homepage;
-
-        serde_json::to_value(&identity).map_err(DataProviderError::from)
+        )
     }
 }
 
-// --- package.json parsing ---
-
-#[derive(Debug, Default)]
-struct PackageJson {
-    name: Option<String>,
-    version: Option<String>,
-    description: Option<String>,
-    license: Option<String>,
-    homepage: Option<String>,
-    repository: Option<String>,
-    authors: Vec<String>,
-    engines_node: Option<String>,
-    has_packagemanager: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RawPackage {
-    name: Option<String>,
-    version: Option<String>,
-    description: Option<String>,
-    license: Option<LicenseField>,
-    homepage: Option<String>,
-    repository: Option<RepositoryField>,
-    author: Option<PersonField>,
-    #[serde(default)]
-    contributors: Vec<PersonField>,
-    engines: Option<Engines>,
-    #[serde(rename = "packageManager")]
-    package_manager: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum LicenseField {
-    Text(String),
-    Object { r#type: Option<String> },
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum RepositoryField {
-    Text(String),
-    Object { url: Option<String> },
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum PersonField {
-    Text(String),
-    Object {
-        name: Option<String>,
-        email: Option<String>,
-    },
-}
-
-#[derive(Debug, Deserialize)]
-struct Engines {
-    node: Option<String>,
-}
-
-fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
-    let content = std::fs::read_to_string(project_root.join("package.json")).ok()?;
-    let raw: RawPackage = serde_json::from_str(&content).ok()?;
-
-    let mut out = PackageJson {
-        name: raw.name,
-        version: raw.version,
-        description: raw
-            .description
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty()),
-        license: raw.license.and_then(|l| match l {
-            LicenseField::Text(s) => Some(s),
-            LicenseField::Object { r#type } => r#type,
-        }),
-        homepage: raw.homepage.filter(|s| !s.is_empty()),
-        repository: raw.repository.and_then(|r| match r {
-            RepositoryField::Text(s) => Some(normalize_repo_url(&s)),
-            RepositoryField::Object { url } => url.map(|u| normalize_repo_url(&u)),
-        }),
-        engines_node: raw.engines.and_then(|e| e.node),
-        has_packagemanager: raw.package_manager,
-        ..PackageJson::default()
-    };
-
-    let mut authors = Vec::new();
-    if let Some(a) = raw.author {
-        if let Some(s) = format_person(a) {
-            authors.push(s);
-        }
+/// Compose the `stack_detail` string from optional Node engine version and
+/// optional package-manager label.
+fn build_stack_detail(engine_node: Option<&str>, pkg_manager: Option<&str>) -> Option<String> {
+    match (engine_node, pkg_manager) {
+        (Some(v), Some(pm)) => Some(format!("Node {v} · {pm}")),
+        (Some(v), None) => Some(format!("Node {v}")),
+        (None, Some(pm)) => Some(pm.to_string()),
+        (None, None) => None,
     }
-    for c in raw.contributors {
-        if let Some(s) = format_person(c) {
-            authors.push(s);
-        }
-    }
-    out.authors = authors;
-
-    Some(out)
-}
-
-fn format_person(p: PersonField) -> Option<String> {
-    match p {
-        PersonField::Text(s) => Some(s).filter(|s| !s.is_empty()),
-        PersonField::Object { name, email } => match (name, email) {
-            (Some(n), Some(e)) => Some(format!("{n} <{e}>")),
-            (Some(n), None) => Some(n),
-            (None, Some(e)) => Some(e),
-            (None, None) => None,
-        },
-    }
-}
-
-/// Normalize shorthand repository URLs used by npm:
-/// - `github:user/repo` → `https://github.com/user/repo`
-/// - `git+https://…` / `git://…` → stripped scheme
-fn normalize_repo_url(raw: &str) -> String {
-    /// (shorthand prefix, host) for npm hostname shortcuts.
-    const HOST_PREFIXES: &[(&str, &str)] = &[
-        ("github:", "github.com"),
-        ("gitlab:", "gitlab.com"),
-        ("bitbucket:", "bitbucket.org"),
-    ];
-
-    let s = raw.trim();
-    for (prefix, host) in HOST_PREFIXES {
-        if let Some(rest) = s.strip_prefix(prefix) {
-            return format!("https://{host}/{rest}");
-        }
-    }
-    if let Some(rest) = s.strip_prefix("git+") {
-        return rest.trim_end_matches(".git").to_string();
-    }
-    if let Some(rest) = s.strip_prefix("git://") {
-        return format!("https://{}", rest.trim_end_matches(".git"));
-    }
-    s.trim_end_matches(".git").to_string()
-}
-
-fn detect_package_manager(
-    project_root: &Path,
-    parsed: Option<&PackageJson>,
-) -> Option<&'static str> {
-    // `packageManager` field takes precedence.
-    if let Some(pm) = parsed.and_then(|p| p.has_packagemanager.as_deref()) {
-        let name = pm.split('@').next().unwrap_or(pm);
-        return match name {
-            "pnpm" => Some("pnpm"),
-            "yarn" => Some("yarn"),
-            "npm" => Some("npm"),
-            _ => None,
-        };
-    }
-    // SEC-25 / TASK-0392: this branch is a pure presence probe — the result is
-    // a static label (`"pnpm"`, `"yarn"`, ...), and the lockfile contents are
-    // never read afterwards. There is no follow-up `read_to_string` to merge
-    // with, so leaving the probe as a metadata stat is acceptable. Using
-    // `symlink_metadata` (rather than `exists()`) avoids following a symlinked
-    // lockfile to an arbitrary target and removes one syscall round-trip.
-    if probe(project_root, "pnpm-lock.yaml") || probe(project_root, "pnpm-workspace.yaml") {
-        return Some("pnpm");
-    }
-    if probe(project_root, "yarn.lock") {
-        return Some("yarn");
-    }
-    if probe(project_root, "bun.lockb") || probe(project_root, "bun.lock") {
-        return Some("bun");
-    }
-    if probe(project_root, "package-lock.json") {
-        return Some("npm");
-    }
-    None
-}
-
-fn probe(dir: &Path, name: &str) -> bool {
-    std::fs::symlink_metadata(dir.join(name)).is_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ops_core::project_identity::ProjectIdentity;
+    use std::path::Path;
 
     fn write(path: &Path, content: &str) {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).unwrap();
         }
         std::fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn build_stack_detail_both_set() {
+        assert_eq!(
+            build_stack_detail(Some(">=18"), Some("pnpm")),
+            Some("Node >=18 · pnpm".to_string())
+        );
+    }
+
+    #[test]
+    fn build_stack_detail_engine_only() {
+        assert_eq!(
+            build_stack_detail(Some(">=18"), None),
+            Some("Node >=18".to_string())
+        );
+    }
+
+    #[test]
+    fn build_stack_detail_pm_only() {
+        assert_eq!(
+            build_stack_detail(None, Some("pnpm")),
+            Some("pnpm".to_string())
+        );
+    }
+
+    #[test]
+    fn build_stack_detail_neither() {
+        assert_eq!(build_stack_detail(None, None), None);
     }
 
     #[test]
@@ -408,7 +269,6 @@ mod tests {
             &dir.path().join("package.json"),
             r#"{ "name": "x", "packageManager": "pnpm@9.0.0" }"#,
         );
-        // Conflicting lockfile — field wins.
         write(&dir.path().join("yarn.lock"), "");
         let provider = NodeIdentityProvider;
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());

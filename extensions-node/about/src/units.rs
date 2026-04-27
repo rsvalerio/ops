@@ -65,20 +65,43 @@ enum WorkspacesField {
 fn workspace_member_globs(root: &Path) -> Vec<String> {
     let mut patterns = Vec::new();
 
-    if let Ok(content) = std::fs::read_to_string(root.join("package.json")) {
-        if let Ok(raw) = serde_json::from_str::<RawRoot>(&content) {
-            if let Some(ws) = raw.workspaces {
-                match ws {
-                    WorkspacesField::List(items) => patterns.extend(items),
-                    WorkspacesField::Object { packages } => patterns.extend(packages),
+    let pkg_path = root.join("package.json");
+    match std::fs::read_to_string(&pkg_path) {
+        Ok(content) => match serde_json::from_str::<RawRoot>(&content) {
+            Ok(raw) => {
+                if let Some(ws) = raw.workspaces {
+                    match ws {
+                        WorkspacesField::List(items) => patterns.extend(items),
+                        WorkspacesField::Object { packages } => patterns.extend(packages),
+                    }
                 }
             }
+            Err(e) => {
+                tracing::warn!(
+                    path = %pkg_path.display(),
+                    error = %e,
+                    "failed to parse package.json"
+                );
+            }
+        },
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            tracing::debug!(path = %pkg_path.display(), error = %e, "failed to read package.json");
         }
+        Err(_) => {}
     }
 
     if patterns.is_empty() {
-        if let Ok(content) = std::fs::read_to_string(root.join("pnpm-workspace.yaml")) {
-            patterns.extend(parse_pnpm_workspace_yaml(&content));
+        let pnpm_path = root.join("pnpm-workspace.yaml");
+        match std::fs::read_to_string(&pnpm_path) {
+            Ok(content) => patterns.extend(parse_pnpm_workspace_yaml(&content)),
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                tracing::debug!(
+                    path = %pnpm_path.display(),
+                    error = %e,
+                    "failed to read pnpm-workspace.yaml"
+                );
+            }
+            Err(_) => {}
         }
     }
 
@@ -133,56 +156,21 @@ fn unquote(s: &str) -> &str {
 }
 
 /// Expand workspace glob patterns into directories that contain a
-/// `package.json`. Non-glob entries pass through if their manifest is
-/// readable. Supports simple `prefix/*` and `prefix/**/suffix` forms by
-/// matching on prefix.
-///
-/// Returns `(member_path, package.json contents)` so the caller does not need
-/// to re-open the file — collapsing the prior `exists()`-then-`read_to_string`
-/// pair into a single read avoids the SEC-25 TOCTOU window in which a symlink
-/// swap between the probe and the open could redirect the read.
+/// `package.json`, honoring yarn/npm `!`-prefixed exclusion patterns
+/// (TASK-0400). Delegates the actual expansion to
+/// [`ops_about::workspace::resolve_member_globs`] (TASK-0389).
 fn resolve_member_globs(members: &[String], root: &Path) -> Vec<(String, String)> {
-    let mut resolved: Vec<(String, String)> = Vec::new();
+    let mut includes: Vec<String> = Vec::new();
+    let mut excludes: Vec<String> = Vec::new();
     for member in members {
         let trimmed = member.trim_start_matches("./");
-        // Exclusion pattern (yarn) — ignore.
-        if trimmed.starts_with('!') {
-            continue;
-        }
-        if let Some(idx) = trimmed.find('*') {
-            let prefix = &trimmed[..idx];
-            let parent = root.join(prefix);
-            if let Ok(entries) = std::fs::read_dir(&parent) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if !path.is_dir() {
-                        continue;
-                    }
-                    if let Some(manifest) = try_read_manifest(&path) {
-                        if let Ok(rel) = path.strip_prefix(root) {
-                            resolved.push((rel.to_string_lossy().to_string(), manifest));
-                        }
-                    }
-                }
-            }
-        } else if let Some(manifest) = try_read_manifest(&root.join(trimmed)) {
-            resolved.push((trimmed.to_string(), manifest));
+        if let Some(rest) = trimmed.strip_prefix('!') {
+            excludes.push(rest.trim_start_matches("./").to_string());
+        } else {
+            includes.push(trimmed.to_string());
         }
     }
-    resolved.sort_by(|a, b| a.0.cmp(&b.0));
-    resolved.dedup_by(|a, b| a.0 == b.0);
-    resolved
-}
-
-/// Read `<dir>/package.json`, treating `NotFound` as "not a package directory"
-/// rather than an error. Other I/O errors are also coerced to `None` so a
-/// transient failure on one member does not poison the whole walk.
-fn try_read_manifest(dir: &Path) -> Option<String> {
-    match std::fs::read_to_string(dir.join("package.json")) {
-        Ok(content) => Some(content),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(_) => None,
-    }
+    ops_about::workspace::resolve_member_globs(&includes, &excludes, root, "package.json")
 }
 
 #[derive(Debug, Deserialize)]
@@ -291,8 +279,10 @@ mod tests {
         assert!(names.contains(&"web"));
     }
 
+    /// TASK-0400: `!`-prefixed yarn/npm exclusion entries filter resolved
+    /// members from the `packages/*` glob.
     #[test]
-    fn exclusion_pattern_ignored() {
+    fn exclusion_pattern_filters_member() {
         let dir = tempfile::tempdir().unwrap();
         write(
             &dir.path().join("package.json"),
@@ -306,10 +296,31 @@ mod tests {
             &dir.path().join("packages/ignored/package.json"),
             r#"{ "name": "ignored" }"#,
         );
-        // Both get picked up by the `packages/*` glob; the `!...` exclusion entry
-        // is currently a passthrough (no match). Good enough: still shows both.
         let units = collect_units(dir.path());
-        assert!(units.iter().any(|u| u.name == "keep"));
+        let names: Vec<&str> = units.iter().map(|u| u.name.as_str()).collect();
+        assert!(names.contains(&"keep"));
+        assert!(!names.contains(&"ignored"));
+    }
+
+    #[test]
+    fn exclusion_glob_pattern_filters_members() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("package.json"),
+            r#"{ "name": "root", "workspaces": ["packages/*", "!packages/internal-*"] }"#,
+        );
+        write(
+            &dir.path().join("packages/web/package.json"),
+            r#"{ "name": "web" }"#,
+        );
+        write(
+            &dir.path().join("packages/internal-tools/package.json"),
+            r#"{ "name": "internal-tools" }"#,
+        );
+        let units = collect_units(dir.path());
+        let names: Vec<&str> = units.iter().map(|u| u.name.as_str()).collect();
+        assert!(names.contains(&"web"));
+        assert!(!names.contains(&"internal-tools"));
     }
 
     #[test]
