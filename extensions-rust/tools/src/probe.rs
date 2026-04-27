@@ -6,8 +6,11 @@ use std::process::Command;
 use crate::ToolStatus;
 
 pub fn get_active_toolchain() -> Option<String> {
+    // `--quiet` is rustup's global flag, not a subcommand option, so it
+    // appears before `show`. It silences "info: ..." progress lines so the
+    // first line of stdout is reliably the toolchain name on every rustup.
     let output = Command::new("rustup")
-        .args(["show", "active-toolchain"])
+        .args(["--quiet", "show", "active-toolchain"])
         .output()
         .ok()?;
 
@@ -19,10 +22,20 @@ pub fn get_active_toolchain() -> Option<String> {
     parse_active_toolchain(&stdout)
 }
 
+/// Parse the toolchain name out of `rustup show active-toolchain` stdout.
+///
+/// Handles both output shapes rustup has shipped:
+///
+/// * Legacy (rustup <1.28): a single line like `stable-aarch64-apple-darwin (default)`.
+/// * Current (rustup ≥1.28): a multi-line block whose first non-empty line
+///   is the bare toolchain name (e.g. `stable-aarch64-apple-darwin`)
+///   followed by `active because: ...`.
+///
+/// Both shapes are handled by skipping blank/leading lines and returning the
+/// first whitespace-separated token of the first non-empty line.
 pub(crate) fn parse_active_toolchain(stdout: &str) -> Option<String> {
-    let line = stdout.lines().next()?;
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    parts.first().map(|s| s.to_string())
+    let line = stdout.lines().map(str::trim).find(|l| !l.is_empty())?;
+    line.split_whitespace().next().map(str::to_string)
 }
 
 pub fn check_cargo_tool_installed(name: &str) -> bool {

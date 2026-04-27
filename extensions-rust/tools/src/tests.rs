@@ -185,6 +185,27 @@ fn parse_active_toolchain_multiline() {
     );
 }
 
+#[test]
+fn parse_active_toolchain_modern_rustup_format() {
+    // rustup >=1.28 prints the toolchain on the first line, then an
+    // explanatory "active because: ..." line. The parser must take the
+    // first non-empty line and ignore subsequent annotation lines.
+    let output = "stable-aarch64-apple-darwin\nactive because: it's the default toolchain\n";
+    assert_eq!(
+        parse_active_toolchain(output),
+        Some("stable-aarch64-apple-darwin".to_string())
+    );
+}
+
+#[test]
+fn parse_active_toolchain_skips_leading_blank_lines() {
+    let output = "\n\n  \nstable-aarch64-apple-darwin (default)\n";
+    assert_eq!(
+        parse_active_toolchain(output),
+        Some("stable-aarch64-apple-darwin".to_string())
+    );
+}
+
 // --- is_in_cargo_list ---
 
 #[test]
