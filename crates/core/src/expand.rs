@@ -14,18 +14,16 @@ use std::path::Path;
 /// # Behaviour when a variable is missing
 ///
 /// The closure returns `Ok(None)` for a variable that is neither in the
-/// builtins map nor in the process environment. `shellexpand` interprets
-/// `Ok(None)` as *unresolved* — it propagates an error from
-/// `full_with_context`, which we catch and fall back to
-/// `Cow::Borrowed(input)`: the original string is returned unchanged. This
-/// means a reference like `$UNDEFINED` stays literal in the output rather
-/// than becoming an empty string. The `${VAR:-default}` syntax still works
-/// because shellexpand short-circuits to the default before calling the
-/// lookup closure for the main branch.
+/// builtins map nor in the process environment. `shellexpand` handles
+/// `Ok(None)` itself by leaving the reference (e.g. `$UNDEFINED`) literal
+/// in the output rather than emitting an empty string, and the
+/// `${VAR:-default}` syntax still resolves to the default.
 ///
-/// This pass-through was previously undocumented and depended on implicit
-/// shellexpand error semantics (READ-4). The comment block here is the
-/// contract now.
+/// A genuine `Err(VarError)` from the lookup (e.g. `VarError::NotUnicode`
+/// for a non-UTF-8 env value) is *not* the same as a missing variable.
+/// We log such errors at `tracing::warn!` with the offending variable
+/// name (ERR-1) before falling back to `Cow::Borrowed(input)`, so config
+/// bugs are visible instead of silently passing through unchanged.
 #[derive(Debug, Clone)]
 pub struct Variables {
     builtins: HashMap<String, String>,
@@ -62,7 +60,17 @@ impl Variables {
             }
         };
 
-        shellexpand::full_with_context(input, home_dir, lookup).unwrap_or(Cow::Borrowed(input))
+        match shellexpand::full_with_context(input, home_dir, lookup) {
+            Ok(out) => out,
+            Err(err) => {
+                tracing::warn!(
+                    var = %err.var_name,
+                    cause = %err.cause,
+                    "variable expansion failed; passing input through unchanged"
+                );
+                Cow::Borrowed(input)
+            }
+        }
     }
 }
 
@@ -169,6 +177,37 @@ mod tests {
         let input = format!("${key}");
         let result = vars.expand(&input);
         assert_eq!(result.as_ref(), input, "missing env var must pass through");
+    }
+
+    /// ERR-1 regression: a `VarError::NotUnicode` from the lookup must not
+    /// be conflated with "missing variable". The current contract is to log
+    /// at warn and pass the input through unchanged; this test pins that
+    /// pass-through for a deliberately-corrupt env value.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn non_utf8_env_var_passes_through_after_logging() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let key = "OPS_TEST_NON_UTF8_VAR";
+        let bad: OsString = OsString::from_vec(vec![0xff, 0xfe, 0xfd]);
+        // SAFETY: test-only guard via #[serial] attribute.
+        unsafe {
+            std::env::set_var(key, &bad);
+        }
+        let vars = test_vars();
+        let input = format!("${key}");
+        let result = vars.expand(&input);
+        // SAFETY: test-only guard via #[serial] attribute.
+        unsafe {
+            std::env::remove_var(key);
+        }
+        assert_eq!(
+            result.as_ref(),
+            input,
+            "non-UTF-8 env value must fall back to original input"
+        );
     }
 
     #[test]
