@@ -150,7 +150,7 @@ fn run_hook_dispatch(hook: &HookDispatch, run_preflight: bool) -> anyhow::Result
         }
     }
     let args = vec![std::ffi::OsString::from(hook.name)];
-    run_cmd::run_external_command(&args, false, false, None, false)
+    run_cmd::run_external_command(&args, run_cmd::RunOptions::default())
 }
 
 pub(crate) fn run_before_commit(

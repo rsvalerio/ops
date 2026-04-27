@@ -24,20 +24,10 @@ where
         anyhow::bail!("no project_identity provider registered — cannot configure about fields");
     }
 
-    // ERR-5: don't silently mask config errors — a malformed .ops.toml here
-    // would otherwise present an empty default selection, and the user could
-    // save that reset-to-default back over real config. Print and default
-    // only on NotFound (handled by load_config returning a parsed default).
-    let config = match ops_core::config::load_config() {
-        Ok(c) => c,
-        Err(e) => {
-            ops_core::ui::warn(format!(
-                "failed to load config: {e:#}\n  \
-                 showing all about fields as defaults; fix the config above before saving"
-            ));
-            ops_core::config::Config::default()
-        }
-    };
+    // ERR-5 / DUP-3: shared helper surfaces the parse error via
+    // tracing::warn! + ui::warn so the user sees the diagnostic before they
+    // save what would otherwise look like a benign reset-to-default.
+    let config = ops_core::config::load_config_or_default("about edit");
     let currently_enabled = config.about.fields.as_deref();
 
     let options: Vec<SelectOption> = about_fields

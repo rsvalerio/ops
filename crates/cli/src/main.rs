@@ -104,19 +104,10 @@ fn run() -> anyhow::Result<ExitCode> {
     //
     // ERR-4: a malformed `.ops.toml` previously degraded silently to
     // `Config::default()`, hiding the real cause behind downstream
-    // "unknown command" errors. Print the actionable error to stderr so the
-    // user sees the file path and parse diagnostic, then keep going with
-    // defaults so `ops --help` and `ops init` still work.
-    let early_config = match ops_core::config::load_config() {
-        Ok(c) => c,
-        Err(e) => {
-            ops_core::ui::warn(format!(
-                "failed to load config: {e:#}\n  \
-                 using built-in defaults; fix the config file above to restore your commands"
-            ));
-            ops_core::config::Config::default()
-        }
-    };
+    // "unknown command" errors. The shared helper logs to `tracing::warn!`
+    // *and* surfaces a user-visible note so `ops --help` / `ops init` still
+    // work without hiding the parse diagnostic. (DUP-3 / TASK-0345)
+    let early_config = ops_core::config::load_config_or_default("early");
     let detected_stack = {
         let cwd = match std::env::current_dir() {
             Ok(d) => d,
@@ -187,7 +178,15 @@ fn dispatch(
             }
         }
         Some(CoreSubcommand::External(args)) => {
-            return run_cmd::run_external_command(&args, cli.dry_run, cli.verbose, cli.tap, cli.raw)
+            return run_cmd::run_external_command(
+                &args,
+                run_cmd::RunOptions {
+                    dry_run: cli.dry_run,
+                    verbose: cli.verbose,
+                    tap: cli.tap,
+                    raw: cli.raw,
+                },
+            )
         }
         None => {
             let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);

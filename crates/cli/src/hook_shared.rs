@@ -24,15 +24,7 @@ pub fn run_hook_install(ops: &HookOps) -> anyhow::Result<()> {
     let git_dir = (ops.find_git_dir)(&cwd)
         .ok_or_else(|| anyhow::anyhow!("not inside a git repository (no .git found)"))?;
 
-    let config = match ops_core::config::load_config() {
-        Ok(c) => c,
-        Err(e) => {
-            ops_core::ui::warn(format!(
-                "failed to load config; command list may be incomplete: {e:#}"
-            ));
-            ops_core::config::Config::default()
-        }
-    };
+    let config = ops_core::config::load_config_or_default(&format!("{} install", ops.hook_name));
     let stack = Stack::resolve(config.stack.as_deref(), &cwd);
 
     let options = gather_available_commands(&config, stack, &cwd, ops.hook_name);

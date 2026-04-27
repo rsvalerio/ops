@@ -76,6 +76,28 @@ pub fn load_config() -> anyhow::Result<Config> {
     Ok(config)
 }
 
+/// Load config and degrade to `Config::default()` on failure, surfacing the
+/// error via both `tracing::warn!` (structured log) and [`crate::ui::warn`]
+/// (user-visible). `context` describes the caller path (`"hook install"`,
+/// `"about"`, `"early"`) and is included verbatim in both messages so logs
+/// can be filtered and the user can correlate the warning to what they ran.
+///
+/// DUP-3 / TASK-0345: collapses the same `match load_config { Ok => c, Err =>
+/// { ui::warn(...); Config::default() } }` block previously duplicated
+/// across `cli/main.rs`, `cli/about_cmd.rs`, and `cli/hook_shared.rs`.
+pub fn load_config_or_default(context: &str) -> Config {
+    match load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %format!("{e:#}"), %context, "failed to load config");
+            crate::ui::warn(format!(
+                "failed to load config ({context}): {e:#}\n  using built-in defaults"
+            ));
+            Config::default()
+        }
+    }
+}
+
 pub fn read_config_file(path: &Path) -> anyhow::Result<Option<ConfigOverlay>> {
     let s = match std::fs::read_to_string(path) {
         Ok(s) => s,

@@ -37,21 +37,8 @@ pub(crate) struct RunOptions {
 
 pub(crate) fn run_external_command(
     args: &[OsString],
-    dry_run: bool,
-    verbose: bool,
-    tap: Option<PathBuf>,
-    raw: bool,
+    opts: RunOptions,
 ) -> anyhow::Result<ExitCode> {
-    let opts = RunOptions {
-        dry_run,
-        verbose,
-        tap,
-        raw,
-    };
-    run_external_command_opts(args, opts)
-}
-
-fn run_external_command_opts(args: &[OsString], opts: RunOptions) -> anyhow::Result<ExitCode> {
     // API-1: report non-UTF-8 argv entries explicitly. Previously a bad
     // OsString silently vanished via `filter_map(OsStr::to_str)` and the
     // user saw a generic "missing command name" when that left zero args.
@@ -68,9 +55,9 @@ fn run_external_command_opts(args: &[OsString], opts: RunOptions) -> anyhow::Res
         anyhow::bail!("missing command name");
     }
     if names.len() == 1 {
-        return run_command(names[0], opts.dry_run, opts.verbose, opts.tap, opts.raw);
+        return run_command(names[0], opts);
     }
-    run_commands(&names, opts.dry_run, opts.verbose, opts.tap, opts.raw)
+    run_commands(&names, opts)
 }
 
 fn build_runner(verbose: bool) -> anyhow::Result<ops_runner::command::CommandRunner> {
@@ -100,13 +87,13 @@ where
         .block_on(f)
 }
 
-fn run_commands(
-    names: &[&str],
-    dry_run: bool,
-    verbose: bool,
-    tap: Option<PathBuf>,
-    raw: bool,
-) -> anyhow::Result<ExitCode> {
+fn run_commands(names: &[&str], opts: RunOptions) -> anyhow::Result<ExitCode> {
+    let RunOptions {
+        dry_run,
+        verbose,
+        tap,
+        raw,
+    } = opts;
     let runner = build_runner(verbose)?;
 
     if dry_run {
@@ -193,13 +180,13 @@ fn setup_extensions(runner: &mut ops_runner::command::CommandRunner) -> anyhow::
 }
 
 #[tracing::instrument(skip_all, fields(command = %name))]
-fn run_command(
-    name: &str,
-    dry_run: bool,
-    verbose: bool,
-    tap: Option<PathBuf>,
-    raw: bool,
-) -> anyhow::Result<ExitCode> {
+fn run_command(name: &str, opts: RunOptions) -> anyhow::Result<ExitCode> {
+    let RunOptions {
+        dry_run,
+        verbose,
+        tap,
+        raw,
+    } = opts;
     let mut runner = build_runner(verbose)?;
 
     if dry_run {
