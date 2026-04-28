@@ -3,6 +3,12 @@
 //! Enumerates workspace members from `package.json` (`workspaces`) or
 //! `pnpm-workspace.yaml` (pnpm). Glob entries like `packages/*` expand to
 //! directories that contain a `package.json`.
+//!
+//! Precedence: when `package.json` declares any positive `workspaces`
+//! includes, `pnpm-workspace.yaml` is ignored (npm/yarn shadow pnpm). An
+//! `workspaces` array containing only `!`-prefixed exclusions is treated as
+//! "no positive includes" and the pnpm fallback is consulted instead. Both
+//! sources accept `!`-prefixed exclusion entries.
 
 use std::path::Path;
 
@@ -28,12 +34,14 @@ impl DataProvider for NodeUnitsProvider {
 }
 
 fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
-    let members = workspace_member_globs(cwd);
-    let resolved = resolve_member_globs(&members, cwd);
+    let (includes, excludes) = workspace_member_globs(cwd);
+    let resolved =
+        ops_about::workspace::resolve_member_globs(&includes, &excludes, cwd, "package.json");
     resolved
         .into_iter()
         .map(|(member, manifest)| {
-            let (name, version, description) = parse_package_metadata(&manifest);
+            let manifest_path = cwd.join(&member).join("package.json");
+            let (name, version, description) = parse_package_metadata(&manifest_path, &manifest);
             ProjectUnit {
                 name: name.unwrap_or_else(|| format_unit_name(&member)),
                 path: member,
@@ -60,20 +68,25 @@ enum WorkspacesField {
     },
 }
 
-/// Collect raw glob patterns from either `package.json`.workspaces or
-/// `pnpm-workspace.yaml` (naive parse — packages-list only).
-fn workspace_member_globs(root: &Path) -> Vec<String> {
-    let mut patterns = Vec::new();
+/// Collect (includes, excludes) glob patterns from either
+/// `package.json`.workspaces or `pnpm-workspace.yaml` (naive YAML parse —
+/// packages-list only). `!`-prefixed entries are split into `excludes`. The
+/// pnpm fallback fires only when no positive include is declared in
+/// `package.json` (an exclude-only `workspaces` array still triggers it).
+fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
+    let mut includes: Vec<String> = Vec::new();
+    let mut excludes: Vec<String> = Vec::new();
 
     let pkg_path = root.join("package.json");
     match std::fs::read_to_string(&pkg_path) {
         Ok(content) => match serde_json::from_str::<RawRoot>(&content) {
             Ok(raw) => {
                 if let Some(ws) = raw.workspaces {
-                    match ws {
-                        WorkspacesField::List(items) => patterns.extend(items),
-                        WorkspacesField::Object { packages } => patterns.extend(packages),
-                    }
+                    let items = match ws {
+                        WorkspacesField::List(items) => items,
+                        WorkspacesField::Object { packages } => packages,
+                    };
+                    split_include_exclude(items, &mut includes, &mut excludes);
                 }
             }
             Err(e) => {
@@ -90,10 +103,13 @@ fn workspace_member_globs(root: &Path) -> Vec<String> {
         Err(_) => {}
     }
 
-    if patterns.is_empty() {
+    if includes.is_empty() {
         let pnpm_path = root.join("pnpm-workspace.yaml");
         match std::fs::read_to_string(&pnpm_path) {
-            Ok(content) => patterns.extend(parse_pnpm_workspace_yaml(&content)),
+            Ok(content) => {
+                let items = parse_pnpm_workspace_yaml(&content);
+                split_include_exclude(items, &mut includes, &mut excludes);
+            }
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                 tracing::debug!(
                     path = %pnpm_path.display(),
@@ -105,7 +121,22 @@ fn workspace_member_globs(root: &Path) -> Vec<String> {
         }
     }
 
-    patterns
+    (includes, excludes)
+}
+
+fn split_include_exclude(
+    items: Vec<String>,
+    includes: &mut Vec<String>,
+    excludes: &mut Vec<String>,
+) {
+    for item in items {
+        let trimmed = item.trim_start_matches("./");
+        if let Some(rest) = trimmed.strip_prefix('!') {
+            excludes.push(rest.trim_start_matches("./").to_string());
+        } else {
+            includes.push(trimmed.to_string());
+        }
+    }
 }
 
 /// Minimal parser for the `packages:` list in `pnpm-workspace.yaml`.
@@ -155,24 +186,6 @@ fn unquote(s: &str) -> &str {
         .unwrap_or(s)
 }
 
-/// Expand workspace glob patterns into directories that contain a
-/// `package.json`, honoring yarn/npm `!`-prefixed exclusion patterns
-/// (TASK-0400). Delegates the actual expansion to
-/// [`ops_about::workspace::resolve_member_globs`] (TASK-0389).
-fn resolve_member_globs(members: &[String], root: &Path) -> Vec<(String, String)> {
-    let mut includes: Vec<String> = Vec::new();
-    let mut excludes: Vec<String> = Vec::new();
-    for member in members {
-        let trimmed = member.trim_start_matches("./");
-        if let Some(rest) = trimmed.strip_prefix('!') {
-            excludes.push(rest.trim_start_matches("./").to_string());
-        } else {
-            includes.push(trimmed.to_string());
-        }
-    }
-    ops_about::workspace::resolve_member_globs(&includes, &excludes, root, "package.json")
-}
-
 #[derive(Debug, Deserialize)]
 struct PackageProbe {
     name: Option<String>,
@@ -180,10 +193,16 @@ struct PackageProbe {
     description: Option<String>,
 }
 
-fn parse_package_metadata(content: &str) -> (Option<String>, Option<String>, Option<String>) {
+fn parse_package_metadata(
+    path: &Path,
+    content: &str,
+) -> (Option<String>, Option<String>, Option<String>) {
     let parsed: PackageProbe = match serde_json::from_str(content) {
         Ok(p) => p,
-        Err(_) => return (None, None, None),
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "failed to parse package.json");
+            return (None, None, None);
+        }
     };
     (
         parsed.name,
@@ -337,6 +356,53 @@ mod tests {
         let units = collect_units(dir.path());
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].name, "Quiet");
+    }
+
+    /// TASK-0480: pnpm-workspace.yaml `!`-prefixed entries filter resolved
+    /// members the same way npm/yarn `!`-prefixed entries do.
+    #[test]
+    fn pnpm_exclusion_pattern_filters_member() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join("package.json"), r#"{ "name": "root" }"#);
+        write(
+            &dir.path().join("pnpm-workspace.yaml"),
+            "packages:\n  - 'packages/*'\n  - '!packages/internal-*'\n",
+        );
+        write(
+            &dir.path().join("packages/keep/package.json"),
+            r#"{ "name": "keep" }"#,
+        );
+        write(
+            &dir.path().join("packages/internal-thing/package.json"),
+            r#"{ "name": "internal-thing" }"#,
+        );
+        let units = collect_units(dir.path());
+        let names: Vec<&str> = units.iter().map(|u| u.name.as_str()).collect();
+        assert!(names.contains(&"keep"));
+        assert!(!names.contains(&"internal-thing"));
+    }
+
+    /// TASK-0488: a `package.json` whose `workspaces` array contains only
+    /// `!`-prefixed exclusions has no positive includes, so the
+    /// pnpm-workspace.yaml fallback still applies.
+    #[test]
+    fn exclude_only_workspaces_falls_back_to_pnpm() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("package.json"),
+            r#"{ "name": "root", "workspaces": ["!packages/legacy"] }"#,
+        );
+        write(
+            &dir.path().join("pnpm-workspace.yaml"),
+            "packages:\n  - 'libs/*'\n",
+        );
+        write(
+            &dir.path().join("libs/foo/package.json"),
+            r#"{ "name": "foo" }"#,
+        );
+        let units = collect_units(dir.path());
+        let names: Vec<&str> = units.iter().map(|u| u.name.as_str()).collect();
+        assert!(names.contains(&"foo"));
     }
 
     #[test]

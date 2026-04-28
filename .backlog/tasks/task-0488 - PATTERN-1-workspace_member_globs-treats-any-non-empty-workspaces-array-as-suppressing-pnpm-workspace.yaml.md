@@ -3,11 +3,11 @@ id: TASK-0488
 title: >-
   PATTERN-1: workspace_member_globs treats any non-empty workspaces array as
   suppressing pnpm-workspace.yaml
-status: To Do
+status: Done
 assignee:
   - TASK-0532
 created_date: '2026-04-28 06:08'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 15:44'
 labels:
   - code-review-rust
   - pattern

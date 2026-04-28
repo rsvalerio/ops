@@ -1,11 +1,11 @@
 ---
 id: TASK-0440
 title: 'ERR-1: Python and Node units providers silently swallow manifest parse errors'
-status: To Do
+status: Done
 assignee:
   - TASK-0532
 created_date: '2026-04-28 04:44'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 15:40'
 labels:
   - code-review-rust
   - error-handling
