@@ -1,11 +1,11 @@
 ---
 id: TASK-0424
 title: 'ARCH-11: workspace binary deps not centralized in cli/runner/theme manifests'
-status: To Do
+status: Done
 assignee:
   - TASK-0538
 created_date: '2026-04-28 04:41'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 13:29'
 labels:
   - code-review-rust
   - architecture
@@ -28,7 +28,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add clap, indicatif, inquire, tracing-subscriber, toml, serial_test, assert_cmd, predicates, proptest to [workspace.dependencies] in root Cargo.toml
-- [ ] #2 Member crates use dep = { workspace = true } (with features overrides where needed)
-- [ ] #3 cargo metadata shows a single resolved version per dep across the workspace
+- [x] #1 Add clap, indicatif, inquire, tracing-subscriber, toml, serial_test, assert_cmd, predicates, proptest to [workspace.dependencies] in root Cargo.toml
+- [x] #2 Member crates use dep = { workspace = true } (with features overrides where needed)
+- [x] #3 cargo metadata shows a single resolved version per dep across the workspace
 <!-- AC:END -->

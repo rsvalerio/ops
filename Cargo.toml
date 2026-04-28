@@ -49,8 +49,17 @@ tempfile = "3"
 sha2 = "0.10"
 hex = "0.4"
 tokei = "14.0"
+toml = "1"
 toml_edit = "0.25"
 duckdb = { version = "1.10502", features = ["bundled"] }
+clap = { version = "4", features = ["derive"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+inquire = "0.9"
+indicatif = "0.18"
+assert_cmd = "2"
+predicates = "3"
+serial_test = "3"
+proptest = "1"
 
 [patch.crates-io]
 # RUSTSEC-2026-0037: patch quinn-proto to 0.11.14 (DoS fix)

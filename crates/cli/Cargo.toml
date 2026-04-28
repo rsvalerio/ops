@@ -44,23 +44,23 @@ ops-metadata = { workspace = true, optional = true }
 ops-test-coverage = { workspace = true, optional = true }
 ops-run-before-commit = { workspace = true }
 ops-run-before-push = { workspace = true }
-clap = { version = "4", features = ["derive"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-inquire = "0.9"
+clap = { workspace = true }
+tracing-subscriber = { workspace = true }
+inquire = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 indexmap = { workspace = true }
 toml_edit = { workspace = true }
-toml = "1"
+toml = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
 ops-core = { workspace = true, features = ["test-support"] }
 ops-runner = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
-assert_cmd = "2"
-predicates = "3"
-serial_test = "3"
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+serial_test = { workspace = true }
 
 [[bin]]
 name = "ops"
