@@ -11,6 +11,13 @@ pub(crate) fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
     // user is asking for subcommand help, not top-level help.
     let mut saw_help = false;
     for a in args.iter().skip(1) {
+        // `--` is clap's end-of-options marker. Anything after it is a
+        // positional / pass-through, even when it begins with `-`. So
+        // `ops -- --help` should NOT be treated as top-level help; the
+        // subcommand catch-all should receive the args verbatim.
+        if a == "--" {
+            return false;
+        }
         if a == "-h" || a == "--help" {
             saw_help = true;
         } else if !a.to_string_lossy().starts_with('-') {
@@ -255,6 +262,15 @@ mod tests {
     #[test]
     fn is_toplevel_help_no_args() {
         assert!(!is_toplevel_help(&os(&["ops"])));
+    }
+
+    #[test]
+    fn is_toplevel_help_double_dash_separator_not_toplevel() {
+        // PATTERN-1 / TASK-0514: `--` is clap's end-of-options marker, so
+        // anything after it must reach the subcommand catch-all unchanged.
+        assert!(!is_toplevel_help(&os(&["ops", "--", "--help"])));
+        assert!(!is_toplevel_help(&os(&["ops", "--"])));
+        assert!(!is_toplevel_help(&os(&["ops", "-d", "--", "--help"])));
     }
 
     #[test]
