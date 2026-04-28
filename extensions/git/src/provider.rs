@@ -47,16 +47,24 @@ impl GitInfo {
                 ..Self::default()
             };
         };
-        let parsed: Option<RemoteInfo> = parse_remote_url(&raw);
-        Self {
-            host: parsed.as_ref().map(|r| r.host.clone()),
-            owner: parsed.as_ref().map(|r| r.owner.clone()),
-            repo: parsed.as_ref().map(|r| r.repo.clone()),
-            remote_url: parsed
-                .as_ref()
-                .map(|r| r.url.clone())
-                .or_else(|| Some(config::redact_userinfo(&raw))),
-            branch,
+        match parse_remote_url(&raw) {
+            Some(RemoteInfo {
+                host,
+                owner,
+                repo,
+                url,
+            }) => Self {
+                host: Some(host),
+                owner: Some(owner),
+                repo: Some(repo),
+                remote_url: Some(url),
+                branch,
+            },
+            None => Self {
+                remote_url: Some(config::redact_userinfo(&raw)),
+                branch,
+                ..Self::default()
+            },
         }
     }
 }

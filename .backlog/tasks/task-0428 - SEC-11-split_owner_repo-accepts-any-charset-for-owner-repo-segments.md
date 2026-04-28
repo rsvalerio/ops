@@ -1,11 +1,11 @@
 ---
 id: TASK-0428
 title: 'SEC-11: split_owner_repo accepts any charset for owner/repo segments'
-status: To Do
+status: Done
 assignee:
   - TASK-0535
 created_date: '2026-04-28 04:42'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 13:45'
 labels:
   - code-review-rust
   - security
@@ -25,7 +25,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_remote_url rejects owner/repo segments containing characters outside a documented allowlist (alphanumerics, ., -, _, plus ~ for sourcehut-style users)
-- [ ] #2 Existing valid inputs (sourcehut ~user, GitLab nested groups, scp-style) continue to parse
-- [ ] #3 Regression test demonstrates that an injected quote/angle bracket no longer produces a RemoteInfo
+- [x] #1 parse_remote_url rejects owner/repo segments containing characters outside a documented allowlist (alphanumerics, ., -, _, plus ~ for sourcehut-style users)
+- [x] #2 Existing valid inputs (sourcehut ~user, GitLab nested groups, scp-style) continue to parse
+- [x] #3 Regression test demonstrates that an injected quote/angle bracket no longer produces a RemoteInfo
 <!-- AC:END -->

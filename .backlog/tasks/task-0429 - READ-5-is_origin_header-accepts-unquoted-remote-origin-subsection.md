@@ -1,11 +1,11 @@
 ---
 id: TASK-0429
 title: 'READ-5: is_origin_header accepts unquoted [remote origin] subsection'
-status: To Do
+status: Done
 assignee:
   - TASK-0535
 created_date: '2026-04-28 04:42'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 13:44'
 labels:
   - code-review-rust
   - readability
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Drop the subsection == "origin" branch (require the quoted form)
-- [ ] #2 Add a test demonstrating [remote origin] (no quotes) is not treated as origin
-- [ ] #3 Existing canonical [remote "origin"] test stays green
+- [x] #1 Drop the subsection == "origin" branch (require the quoted form)
+- [x] #2 Add a test demonstrating [remote origin] (no quotes) is not treated as origin
+- [x] #3 Existing canonical [remote "origin"] test stays green
 <!-- AC:END -->

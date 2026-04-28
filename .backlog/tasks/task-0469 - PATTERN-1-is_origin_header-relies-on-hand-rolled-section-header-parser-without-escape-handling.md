@@ -3,11 +3,11 @@ id: TASK-0469
 title: >-
   PATTERN-1: is_origin_header relies on hand-rolled section-header parser
   without escape handling
-status: To Do
+status: Done
 assignee:
   - TASK-0535
 created_date: '2026-04-28 05:46'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 13:44'
 labels:
   - code-review-rust
   - PATTERN
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract a private fn parse_section_header(line: &str) -> Option<(&str, Option<String>)> that decodes git-config quoting (drops surrounding quotes and unescapes \\" and \\\\)
-- [ ] #2 is_origin_header rewritten in terms of the helper; gains a test for [remote "or\\"igin"] (rejected) plus [remote "origin"] with leading/trailing whitespace inside the quotes
+- [x] #1 Extract a private fn parse_section_header(line: &str) -> Option<(&str, Option<String>)> that decodes git-config quoting (drops surrounding quotes and unescapes \\" and \\\\)
+- [x] #2 is_origin_header rewritten in terms of the helper; gains a test for [remote "or\\"igin"] (rejected) plus [remote "origin"] with leading/trailing whitespace inside the quotes
 <!-- AC:END -->

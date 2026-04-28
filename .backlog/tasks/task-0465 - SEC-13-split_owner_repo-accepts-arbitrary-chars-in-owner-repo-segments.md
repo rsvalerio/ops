@@ -1,11 +1,11 @@
 ---
 id: TASK-0465
 title: 'SEC-13: split_owner_repo accepts arbitrary chars in owner/repo segments'
-status: To Do
+status: Done
 assignee:
   - TASK-0535
 created_date: '2026-04-28 05:46'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 13:45'
 labels:
   - code-review-rust
   - SEC
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 split_owner_repo (or parse_remote_url) rejects owner/repo segments containing characters outside [A-Za-z0-9._~/-] plus a small whitelist for sourcehut-style ~user
-- [ ] #2 Tests for parse_remote_url("https://github.com/foo\\u{0007}/bar") and similar control-char inputs return None
+- [x] #1 split_owner_repo (or parse_remote_url) rejects owner/repo segments containing characters outside [A-Za-z0-9._~/-] plus a small whitelist for sourcehut-style ~user
+- [x] #2 Tests for parse_remote_url("https://github.com/foo\\u{0007}/bar") and similar control-char inputs return None
 <!-- AC:END -->

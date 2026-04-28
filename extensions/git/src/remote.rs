@@ -110,7 +110,30 @@ fn split_owner_repo(path: &str) -> Option<(&str, &str)> {
     }
     let repo = segments[segments.len() - 1];
     let owner = segments[segments.len() - 2];
+    if !is_valid_path_segment(owner) || !is_valid_path_segment(repo) {
+        return None;
+    }
     Some((owner, repo))
+}
+
+/// Allowlist for owner/repo path segments.
+///
+/// The reconstructed `https://{host}/{owner}/{repo}` URL flows into JSON output
+/// and downstream renderers, so a control byte or shell metacharacter in
+/// owner/repo would silently smuggle bytes into something that looks
+/// "normalized". Allowed: ASCII alphanumerics, `.`, `-`, `_`, plus a single
+/// leading `~` for sourcehut-style users (`~user/repo`).
+fn is_valid_path_segment(segment: &str) -> bool {
+    if segment.is_empty() {
+        return false;
+    }
+    let bytes = segment.as_bytes();
+    let rest = if bytes[0] == b'~' { &bytes[1..] } else { bytes };
+    if rest.is_empty() {
+        return false;
+    }
+    rest.iter()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
 }
 
 #[cfg(test)]
@@ -236,6 +259,18 @@ mod tests {
         assert!(parse_remote_url("file:///etc/passwd/x/y").is_none());
         assert!(parse_remote_url("javascript://evil/o/r").is_none());
         assert!(parse_remote_url("ftp://host.example/o/r").is_none());
+    }
+
+    #[test]
+    fn rejects_owner_or_repo_with_smuggled_chars() {
+        // SEC-11 / SEC-13: the reconstructed `https://{host}/{owner}/{repo}`
+        // URL must not silently embed quotes, angle brackets, control chars,
+        // or other shell metacharacters smuggled through the owner/repo slot.
+        assert!(parse_remote_url("https://github.com/own'er/repo").is_none());
+        assert!(parse_remote_url("https://github.com/owner/<script>").is_none());
+        assert!(parse_remote_url("https://github.com/foo\u{0007}/bar").is_none());
+        assert!(parse_remote_url("https://github.com/foo bar/baz").is_none());
+        assert!(parse_remote_url("https://github.com/foo/bar?evil").is_none());
     }
 
     #[test]

@@ -68,16 +68,44 @@ fn strip_url_key(line: &str) -> Option<&str> {
 }
 
 fn is_origin_header(line: &str) -> bool {
-    // Accept `[remote "origin"]` with any surrounding whitespace.
-    let inner = line.trim_start_matches('[').trim_end_matches(']').trim();
-    let mut parts = inner.splitn(2, char::is_whitespace);
-    let section = parts.next().unwrap_or("");
-    let subsection = parts.next().unwrap_or("").trim();
+    let Some((section, subsection)) = parse_section_header(line) else {
+        return false;
+    };
     // Section names in git-config(1) are case-insensitive: `[Remote "origin"]`
     // and `[REMOTE "origin"]` are valid and accepted by git itself, so the
     // matcher must not require lowercase. Subsection names *are*
-    // case-sensitive per git, so leave that comparison exact.
-    section.eq_ignore_ascii_case("remote") && (subsection == "\"origin\"" || subsection == "origin")
+    // case-sensitive per git, so leave that comparison exact. The bare-word
+    // form `[remote origin]` is malformed and rejected by git itself, so this
+    // helper requires the canonical quoted form.
+    section.eq_ignore_ascii_case("remote") && subsection.as_deref() == Some("origin")
+}
+
+/// Parse a git-config section header `[section "subsection"]` into its parts.
+///
+/// Returns `None` for malformed headers. Decodes the two escapes git
+/// recognises inside subsection names (`\\` → `\`, `\"` → `"`) and rejects
+/// the bare-word form `[section subsection]` that git itself does not honour.
+fn parse_section_header(line: &str) -> Option<(&str, Option<String>)> {
+    let inner = line.strip_prefix('[')?.strip_suffix(']')?.trim();
+    let (section, rest) = match inner.split_once(char::is_whitespace) {
+        Some((s, r)) => (s, r.trim()),
+        None => return Some((inner, None)),
+    };
+    let body = rest.strip_prefix('"').and_then(|r| r.strip_suffix('"'))?;
+    let mut decoded = String::with_capacity(body.len());
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next()? {
+                '\\' => decoded.push('\\'),
+                '"' => decoded.push('"'),
+                _ => return None,
+            }
+        } else {
+            decoded.push(c);
+        }
+    }
+    Some((section, Some(decoded)))
 }
 
 /// Read the current branch from `<git_dir>/HEAD`. Returns `None` on detached HEAD.
@@ -186,6 +214,29 @@ mod tests {
             read_origin_url_from(cfg_mixed),
             Some("https://github.com/mixed/repo.git".to_string())
         );
+    }
+
+    #[test]
+    fn unquoted_origin_subsection_is_not_treated_as_origin() {
+        // `[remote origin]` (no quotes) is malformed per git-config(1) and git
+        // itself ignores it; we must not silently honour what git would not.
+        let cfg = "[remote origin]\n\turl = https://github.com/bare/repo.git\n";
+        assert!(read_origin_url_from(cfg).is_none());
+    }
+
+    #[test]
+    fn escaped_subsection_is_not_treated_as_origin() {
+        // `[remote "or\"igin"]` decodes to subsection `or"igin`, not `origin`.
+        let cfg = "[remote \"or\\\"igin\"]\n\turl = https://github.com/escaped/repo.git\n";
+        assert!(read_origin_url_from(cfg).is_none());
+    }
+
+    #[test]
+    fn whitespace_inside_origin_quotes_is_not_origin() {
+        // Subsection names are case-sensitive and exact; `" origin "` is not
+        // the same subsection as `"origin"`.
+        let cfg = "[remote \" origin \"]\n\turl = https://github.com/spaced/repo.git\n";
+        assert!(read_origin_url_from(cfg).is_none());
     }
 
     #[test]

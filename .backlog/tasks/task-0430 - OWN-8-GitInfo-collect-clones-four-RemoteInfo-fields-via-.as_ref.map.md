@@ -1,11 +1,11 @@
 ---
 id: TASK-0430
 title: 'OWN-8: GitInfo::collect clones four RemoteInfo fields via .as_ref().map()'
-status: To Do
+status: Done
 assignee:
   - TASK-0535
 created_date: '2026-04-28 04:42'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 13:45'
 labels:
   - code-review-rust
   - ownership
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace the four .as_ref().map(... .clone()) calls with a single match on parsed that destructures RemoteInfo into host/owner/repo/url (or equivalent)
-- [ ] #2 Behavior unchanged: existing collect_full_github_remote / collect_unparseable_remote_* tests still pass
+- [x] #1 Replace the four .as_ref().map(... .clone()) calls with a single match on parsed that destructures RemoteInfo into host/owner/repo/url (or equivalent)
+- [x] #2 Behavior unchanged: existing collect_full_github_remote / collect_unparseable_remote_* tests still pass
 <!-- AC:END -->
