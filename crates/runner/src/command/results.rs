@@ -79,13 +79,61 @@ pub struct CommandOutput {
     pub status_message: String,
 }
 
+/// PERF-1 / TASK-0515: per-stream byte cap for captured stdout/stderr.
+///
+/// A pathological build (e.g. a runaway logger or a `cargo test` flooding
+/// stderr) used to balloon the per-step `String` to hundreds of MB. Now we
+/// keep the head of the stream up to this cap and append a single marker
+/// line so the consumer (UI tail / TAP file) sees that output was dropped.
+///
+/// Override at runtime via `OPS_OUTPUT_BYTE_CAP` (parses as a u64; values
+/// `<=0` are ignored and fall back to the default).
+pub const DEFAULT_OUTPUT_BYTE_CAP: usize = 4 * 1024 * 1024; // 4 MiB / stream
+
+const OUTPUT_CAP_ENV: &str = "OPS_OUTPUT_BYTE_CAP";
+
+fn output_byte_cap() -> usize {
+    std::env::var(OUTPUT_CAP_ENV)
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_OUTPUT_BYTE_CAP)
+}
+
+/// PERF-1 / TASK-0515: truncate `bytes` to a UTF-8-lossy `String` capped at
+/// `cap` bytes. Drops trailing bytes and appends a marker line so the
+/// truncation is user-visible. The cap is applied to the byte stream
+/// **before** UTF-8 decoding, then the truncation is rounded down to a
+/// valid UTF-8 boundary so the marker is never inserted in the middle of a
+/// multibyte codepoint.
+fn truncate_lossy(bytes: &[u8], cap: usize) -> String {
+    if bytes.len() <= cap {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    // Round `cap` down to a UTF-8 char boundary on the lossy decoded output.
+    let head_lossy = String::from_utf8_lossy(&bytes[..cap]);
+    let mut head = head_lossy.into_owned();
+    // After lossy decode any partial codepoint at the tail is already a
+    // U+FFFD; nothing more to round. Append a marker so the consumer sees
+    // truncation rather than silent drop.
+    let dropped = bytes.len() - cap;
+    if !head.ends_with('\n') {
+        head.push('\n');
+    }
+    head.push_str(&format!(
+        "[ops] output truncated: dropped {dropped} bytes (cap {cap})\n"
+    ));
+    head
+}
+
 impl CommandOutput {
     pub fn from_raw(output: std::process::Output) -> Self {
         let success = output.status.success();
+        let cap = output_byte_cap();
         Self {
             success,
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            stdout: truncate_lossy(&output.stdout, cap),
+            stderr: truncate_lossy(&output.stderr, cap),
             status_message: output.status.to_string(),
         }
     }
@@ -161,6 +209,57 @@ mod tests {
             debug.contains("false"),
             "Debug should include success=false"
         );
+    }
+
+    /// PERF-1 / TASK-0515: a stream larger than the cap must be truncated
+    /// and end with the user-visible marker line. The first chunk of the
+    /// stream is preserved (head retention).
+    #[test]
+    fn command_output_caps_oversized_stdout() {
+        // Set a tiny cap via env so the test does not have to allocate 4
+        // MiB. `serial_test` is not pulled in here; we restore the env on
+        // every exit path and the test is single-threaded for the
+        // duration.
+        let prev = std::env::var(OUTPUT_CAP_ENV).ok();
+        // SAFETY: tests under `cargo test` run on a single thread per binary.
+        unsafe { std::env::set_var(OUTPUT_CAP_ENV, "32") };
+        let huge: Vec<u8> = (0..1024).map(|i| b'a' + (i % 26) as u8).collect();
+        let output = make_test_output(0, &huge, b"");
+        let cmd_output = CommandOutput::from_raw(output);
+        // Restore env.
+        // SAFETY: same as above.
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var(OUTPUT_CAP_ENV, v),
+                None => std::env::remove_var(OUTPUT_CAP_ENV),
+            }
+        }
+
+        assert!(
+            cmd_output.stdout.contains("[ops] output truncated"),
+            "expected truncation marker, got: {:?}",
+            cmd_output.stdout
+        );
+        assert!(
+            cmd_output.stdout.contains("dropped"),
+            "marker should mention dropped byte count"
+        );
+        // First 32 bytes must survive (head retention).
+        assert!(
+            cmd_output
+                .stdout
+                .starts_with("abcdefghijklmnopqrstuvwxyzabcdef"),
+            "head must be preserved, got prefix: {:?}",
+            &cmd_output.stdout[..40.min(cmd_output.stdout.len())]
+        );
+    }
+
+    #[test]
+    fn command_output_under_cap_is_unchanged() {
+        let output = make_test_output(0, b"short stdout", b"short stderr");
+        let cmd_output = CommandOutput::from_raw(output);
+        assert_eq!(cmd_output.stdout, "short stdout");
+        assert_eq!(cmd_output.stderr, "short stderr");
     }
 
     #[test]
