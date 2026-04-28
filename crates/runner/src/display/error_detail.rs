@@ -17,10 +17,7 @@ impl<'a> ErrorDetailRenderer<'a> {
     }
 
     pub fn render(&self, message: &str, stderr_tail: &[String]) -> Vec<String> {
-        let detail = ErrorDetail {
-            message: message.to_string(),
-            stderr_tail: stderr_tail.to_vec(),
-        };
+        let detail = ErrorDetail::new(message.to_string(), stderr_tail.to_vec());
         self.theme.render_error_detail(&detail, self.columns)
     }
 

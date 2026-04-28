@@ -36,7 +36,13 @@ impl PlanLifecycle {
 }
 
 /// Events emitted during command execution for plain-text (theme) output.
+///
+/// API-9 / TASK-0455: marked `#[non_exhaustive]` so adding new variants
+/// (e.g. `StepOutputDropped` from TASK-0457) is not a SemVer break for
+/// downstream matchers in display / CLI / extensions. Cross-crate `match`
+/// sites must include a wildcard arm.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub enum RunnerEvent {
     /// Execution plan started (list of command ids).
     PlanStarted { command_ids: Vec<CommandId> },
@@ -52,6 +58,11 @@ pub enum RunnerEvent {
         line: String,
         stderr: bool,
     },
+    /// CONC-7 / TASK-0457: emitted when the per-task event buffer
+    /// overflowed during a noisy command, so the display can surface
+    /// "(N output lines dropped under load)" instead of silently losing
+    /// stdout/stderr lines that explain the failure.
+    StepOutputDropped { id: CommandId, dropped_count: u64 },
     /// A single command finished successfully.
     StepFinished {
         id: CommandId,

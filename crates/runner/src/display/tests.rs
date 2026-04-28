@@ -18,11 +18,7 @@ impl<'a> StepRenderer<'a> {
     }
 
     pub fn render(&self, status: StepStatus, label: &str, elapsed: Option<f64>) -> String {
-        let step = StepLine {
-            status,
-            label: label.to_string(),
-            elapsed,
-        };
+        let step = StepLine::new(status, label.to_string(), elapsed);
         self.theme.render(&step, self.columns)
     }
 }

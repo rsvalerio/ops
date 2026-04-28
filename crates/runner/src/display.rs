@@ -80,6 +80,16 @@ pub struct ProgressDisplay {
     total_steps: usize,
     run_started_at: Option<Instant>,
     tap_file: Option<File>,
+    /// ERR-2 / TASK-0458: retained so that on a write error we can attempt
+    /// to reopen the tap and append a final "truncated" marker line in
+    /// addition to the stderr warning.
+    tap_path: Option<PathBuf>,
+    /// ERR-2 / TASK-0458: when `tap_file` is dropped due to a write error,
+    /// remember the error kind and the step id that triggered it so
+    /// RunFinished can emit a single user-visible warning ("tap file
+    /// truncated after step X due to <kind>") instead of leaving the tap
+    /// silently truncated.
+    tap_truncation: Option<(String, String)>,
 }
 
 impl ProgressDisplay {
@@ -119,6 +129,7 @@ impl ProgressDisplay {
         });
         let resolved_theme = theme::resolve_theme(&output.theme, custom_themes)?;
         let running_style = build_running_style(resolved_theme.as_ref(), &output.theme)?;
+        let tap_path = tap.clone();
         let tap_file = tap.and_then(Self::open_tap_file);
 
         Ok(Self {
@@ -140,6 +151,8 @@ impl ProgressDisplay {
             total_steps: 0,
             run_started_at: None,
             tap_file,
+            tap_path,
+            tap_truncation: None,
         })
     }
 
@@ -234,6 +247,16 @@ impl ProgressDisplay {
                 duration_secs,
                 success,
             } => self.on_run_finished(duration_secs, success),
+            RunnerEvent::StepOutputDropped { id, dropped_count } => {
+                // CONC-7 / TASK-0457: render to stderr and the tap so the
+                // operator sees that some output lines were lost under
+                // backpressure instead of inferring it from a step
+                // failure with no visible cause.
+                let line = format!("[ops] {id}: {dropped_count} output line(s) dropped under load");
+                tracing::warn!(target: "ops::runner", "{line}");
+                self.emit_line(&line);
+                self.tap_line_for(&line, Some(id.as_str()));
+            }
         }
     }
 
@@ -328,6 +351,9 @@ impl ProgressDisplay {
             StepStatus::Pending => "░",
             StepStatus::Running => "▓",
             StepStatus::Succeeded | StepStatus::Failed | StepStatus::Skipped => "█",
+            // API-9: StepStatus is #[non_exhaustive]; future variants
+            // render as a "done" glyph rather than break the build.
+            _ => "█",
         }
     }
 
@@ -349,11 +375,7 @@ impl ProgressDisplay {
             .steps
             .iter()
             .map(|(_, display)| {
-                let step = StepLine {
-                    status: StepStatus::Pending,
-                    label: display.clone(),
-                    elapsed: None,
-                };
+                let step = StepLine::new(StepStatus::Pending, display.clone(), None);
                 self.render_and_wrap_step(&step)
             })
             .collect();
@@ -437,11 +459,7 @@ impl ProgressDisplay {
         let Some(i) = self.step_index(id) else {
             return;
         };
-        let step = StepLine {
-            status: StepStatus::Running,
-            label: self.state.steps[i].1.clone(),
-            elapsed: None,
-        };
+        let step = StepLine::new(StepStatus::Running, self.state.steps[i].1.clone(), None);
         // Running rows: the running_template owns the full line (left chrome,
         // spinner, elapsed, right chrome). `running_template_overhead` already
         // reserves width for every fixed part, so we pass the full terminal
@@ -471,15 +489,23 @@ impl ProgressDisplay {
         }
     }
 
-    fn tap_line(&mut self, line: &str) {
+    fn tap_line_for(&mut self, line: &str, step_id: Option<&str>) {
         // ERR-1: previously dropped the writeln Result silently; a broken tap
         // fd (disk full, NFS drop, closed underneath) would swallow every
-        // subsequent line without the user seeing any diagnostic. On first
-        // failure log once at debug level and drop the handle so we stop
-        // trying — subsequent lines then no-op rather than spamming debug.
+        // subsequent line without the user seeing any diagnostic.
+        // ERR-2 / TASK-0458: on first failure capture the kind + step id so
+        // RunFinished can emit a user-visible "tap truncated" line. We do
+        // not retry: the inner File is `std::fs::File` whose write
+        // interface does not surface EAGAIN distinctly, and a retry-once
+        // strategy is documented as optional in the task. Subsequent lines
+        // no-op rather than spamming.
         if let Some(ref mut f) = self.tap_file {
             if let Err(e) = writeln!(f, "{}", line) {
                 tracing::debug!(error = %e, "tap file write failed; disabling further tap writes");
+                self.tap_truncation = Some((
+                    step_id.unwrap_or("<unknown>").to_string(),
+                    e.kind().to_string(),
+                ));
                 self.tap_file = None;
             }
         }
@@ -489,7 +515,7 @@ impl ProgressDisplay {
         if stderr {
             self.state.record_stderr(id, line.clone());
         }
-        self.tap_line(&line);
+        self.tap_line_for(&line, Some(id));
     }
 
     fn finish_step(
@@ -502,11 +528,7 @@ impl ProgressDisplay {
         let i = self.step_index(id)?;
         self.state.bars[i].disable_steady_tick();
         let display = display_cmd.unwrap_or(self.state.steps[i].1.as_str());
-        let step = StepLine {
-            status,
-            label: display.to_string(),
-            elapsed: Some(duration_secs),
-        };
+        let step = StepLine::new(status, display.to_string(), Some(duration_secs));
         // Count the step as complete before rendering so its row's progress
         // cell shows the "done" glyph (█) instead of the "current" glyph (▓).
         self.completed_steps += 1;
@@ -605,11 +627,11 @@ impl ProgressDisplay {
             }
             self.state.bars[i].disable_steady_tick();
             let elapsed = self.state.bars[i].elapsed().as_secs_f64();
-            let step = StepLine {
-                status: StepStatus::Skipped,
-                label: self.state.steps[i].1.clone(),
-                elapsed: Some(elapsed),
-            };
+            let step = StepLine::new(
+                StepStatus::Skipped,
+                self.state.steps[i].1.clone(),
+                Some(elapsed),
+            );
             self.completed_steps += 1;
             let line = self.render_and_wrap_step(&step);
             self.finish_bar(&self.state.bars[i], &line);
@@ -618,6 +640,25 @@ impl ProgressDisplay {
 
     fn on_run_finished(&mut self, duration_secs: f64, success: bool) {
         self.finalize_orphan_bars();
+        // ERR-2 / TASK-0458: surface tap-file truncation if we hit a write
+        // error mid-run. Emitted exactly once per run to both stderr (for
+        // the user) and the tap file itself (for downstream test harnesses
+        // that scan the tap), so a partial tap is never silently treated
+        // as "no failures".
+        if let Some((step_id, kind)) = self.tap_truncation.take() {
+            let line = format!("[ops] tap file truncated after step {step_id} due to: {kind}");
+            tracing::warn!(target: "ops::tap", "{}", line);
+            write_stderr(Some(&line));
+            // Best-effort: try to append the marker as the last tap line
+            // so a downstream parser that only inspects the file (no
+            // stderr capture) still sees the truncation. If this open
+            // also fails, the stderr warning above is still visible.
+            if let Some(path) = self.tap_path.as_ref() {
+                if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(path) {
+                    let _ = writeln!(f, "{line}");
+                }
+            }
+        }
         // Boxed layout: finalize header bar to "Done" state and emit bottom border.
         if let Some(bottom) = self.render.theme.box_bottom_border(BoxSnapshot {
             completed: self.completed_steps,
