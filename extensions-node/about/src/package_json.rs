@@ -81,7 +81,19 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
         }
     };
 
-    let mut out = PackageJson {
+    let mut authors = Vec::new();
+    if let Some(a) = raw.author {
+        if let Some(s) = format_person(a) {
+            authors.push(s);
+        }
+    }
+    for c in raw.contributors {
+        if let Some(s) = format_person(c) {
+            authors.push(s);
+        }
+    }
+
+    Some(PackageJson {
         name: raw.name,
         version: raw.version,
         description: raw
@@ -97,25 +109,10 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
             RepositoryField::Text(s) => Some(normalize_repo_url(&s)),
             RepositoryField::Object { url } => url.map(|u| normalize_repo_url(&u)),
         }),
+        authors,
         engines_node: raw.engines.and_then(|e| e.node),
         has_packagemanager: raw.package_manager,
-        ..PackageJson::default()
-    };
-
-    let mut authors = Vec::new();
-    if let Some(a) = raw.author {
-        if let Some(s) = format_person(a) {
-            authors.push(s);
-        }
-    }
-    for c in raw.contributors {
-        if let Some(s) = format_person(c) {
-            authors.push(s);
-        }
-    }
-    out.authors = authors;
-
-    Some(out)
+    })
 }
 
 fn format_person(p: PersonField) -> Option<String> {
@@ -133,6 +130,9 @@ fn format_person(p: PersonField) -> Option<String> {
 /// Normalize shorthand repository URLs used by npm:
 /// - `github:user/repo` → `https://github.com/user/repo`
 /// - `git+https://…` / `git://…` → stripped scheme
+/// - `git+ssh://git@host[:port]/path.git` / `ssh://git@host/path.git` →
+///   `https://host/path` (user-info, port hint, and `.git` are stripped so the
+///   identity is browsable in the About card).
 fn normalize_repo_url(raw: &str) -> String {
     /// (shorthand prefix, host) for npm hostname shortcuts.
     const HOST_PREFIXES: &[(&str, &str)] = &[
@@ -147,6 +147,12 @@ fn normalize_repo_url(raw: &str) -> String {
             return format!("https://{host}/{rest}");
         }
     }
+    if let Some(rest) = s
+        .strip_prefix("git+ssh://")
+        .or_else(|| s.strip_prefix("ssh://"))
+    {
+        return ssh_to_https(rest);
+    }
     if let Some(rest) = s.strip_prefix("git+") {
         return rest.trim_end_matches(".git").to_string();
     }
@@ -154,6 +160,24 @@ fn normalize_repo_url(raw: &str) -> String {
         return format!("https://{}", rest.trim_end_matches(".git"));
     }
     s.trim_end_matches(".git").to_string()
+}
+
+/// Convert the body of an `ssh://` (or `git+ssh://`) URL to its `https://`
+/// equivalent: drop the `git@` user-info, replace an scp-form `host:path`
+/// separator with `/`, and strip any trailing `.git` suffix. A numeric port
+/// (e.g. `host:22/path`) is preserved verbatim.
+fn ssh_to_https(rest: &str) -> String {
+    let no_user = rest.strip_prefix("git@").unwrap_or(rest);
+    let trimmed = no_user.trim_end_matches(".git");
+    // scp-form: host:path (path does not start with a digit). Replace the first
+    // `:` with `/` so the result is a valid https URL.
+    let body = match trimmed.split_once(':') {
+        Some((host, path)) if !path.starts_with(|c: char| c.is_ascii_digit()) => {
+            format!("{host}/{path}")
+        }
+        _ => trimmed.to_string(),
+    };
+    format!("https://{body}")
 }
 
 #[cfg(test)]
@@ -190,5 +214,37 @@ mod tests {
     #[test]
     fn format_person_empty_text() {
         assert_eq!(format_person(PersonField::Text(String::new())), None);
+    }
+
+    #[test]
+    fn normalize_git_ssh_to_https() {
+        assert_eq!(
+            normalize_repo_url("git+ssh://git@github.com/o/r.git"),
+            "https://github.com/o/r"
+        );
+    }
+
+    #[test]
+    fn normalize_ssh_scp_form_url() {
+        assert_eq!(
+            normalize_repo_url("ssh://git@gitlab.com:owner/r.git"),
+            "https://gitlab.com/owner/r"
+        );
+    }
+
+    #[test]
+    fn normalize_git_https_unchanged_path() {
+        assert_eq!(
+            normalize_repo_url("git+https://github.com/o/r.git"),
+            "https://github.com/o/r"
+        );
+    }
+
+    #[test]
+    fn normalize_github_shorthand() {
+        assert_eq!(
+            normalize_repo_url("github:owner/repo"),
+            "https://github.com/owner/repo"
+        );
     }
 }

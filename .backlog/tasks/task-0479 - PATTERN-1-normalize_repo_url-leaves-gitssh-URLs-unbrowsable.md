@@ -1,11 +1,11 @@
 ---
 id: TASK-0479
 title: 'PATTERN-1: normalize_repo_url leaves git+ssh URLs unbrowsable'
-status: To Do
+status: Done
 assignee:
   - TASK-0532
 created_date: '2026-04-28 05:48'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 15:44'
 labels:
   - code-review-rust
   - PATTERN
