@@ -24,7 +24,8 @@ use std::collections::BTreeMap;
 ///     println!("Package: {} v{}", pkg.name, pkg.version.as_str().unwrap_or(""));
 /// }
 /// ```
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[non_exhaustive]
 pub struct CargoToml {
     /// The `[package]` section. Present for package manifests, absent for virtual workspaces.
     pub package: Option<Package>,
@@ -88,6 +89,7 @@ impl CargoToml {
 
 /// The `[package]` section of Cargo.toml.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[non_exhaustive]
 pub struct Package {
     /// The crate name.
     pub name: String,
@@ -229,7 +231,8 @@ impl PublishSpec {
 }
 
 /// The `[workspace]` section of Cargo.toml.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[non_exhaustive]
 pub struct Workspace {
     /// Workspace member paths (globs supported by Cargo).
     #[serde(default)]
@@ -247,7 +250,7 @@ pub struct Workspace {
     pub default_members: Vec<String>,
 
     /// Path to workspace root (excluding this crate).
-    #[serde(default, alias = "exclude")]
+    #[serde(default)]
     pub exclude: Vec<String>,
 
     /// Shared package metadata from `[workspace.package]`.
@@ -256,7 +259,8 @@ pub struct Workspace {
 }
 
 /// The `[workspace.package]` section - shared metadata for workspace members.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[non_exhaustive]
 pub struct WorkspacePackage {
     /// Shared authors list.
     #[serde(default)]
@@ -364,6 +368,7 @@ impl DepSpec {
 
 /// Detailed dependency specification (table form).
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[non_exhaustive]
 pub struct DetailedDepSpec {
     /// Version requirement.
     pub version: Option<String>,
@@ -403,4 +408,23 @@ pub struct DetailedDepSpec {
 
     /// Target platform (e.g., "cfg(target_os = \"linux\")").
     pub target: Option<String>,
+}
+
+impl Default for DetailedDepSpec {
+    fn default() -> Self {
+        Self {
+            version: None,
+            path: None,
+            git: None,
+            branch: None,
+            tag: None,
+            rev: None,
+            features: Vec::new(),
+            optional: false,
+            default_features: true,
+            workspace: None,
+            package: None,
+            target: None,
+        }
+    }
 }

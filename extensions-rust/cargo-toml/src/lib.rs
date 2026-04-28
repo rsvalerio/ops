@@ -263,31 +263,61 @@ const MAX_ANCESTOR_DEPTH: usize = 64;
 
 /// Find the workspace root by walking up from `start` looking for Cargo.toml.
 ///
-/// Stops at the first directory containing Cargo.toml. The caller's `start` is
-/// canonicalized first so symlinks resolve once up front, and the walk is
-/// capped at [`MAX_ANCESTOR_DEPTH`] so a symlink-induced loop cannot hang the
-/// process.
+/// TASK-0501: prefers the *outermost* `Cargo.toml` containing `[workspace]`
+/// over the first `Cargo.toml` encountered. Running from inside a member
+/// crate (e.g. `cd crates/foo`) used to return the member manifest; the new
+/// walk continues past member manifests until it finds the workspace root.
+/// If no manifest in the chain declares `[workspace]`, the first encountered
+/// `Cargo.toml` is returned — preserving the single-crate / non-workspace
+/// project behaviour.
+///
+/// The caller's `start` is canonicalized first so symlinks resolve once up
+/// front, and the walk is capped at [`MAX_ANCESTOR_DEPTH`] so a symlink-induced
+/// loop cannot hang the process.
 pub fn find_workspace_root(start: &Path) -> Result<PathBuf, anyhow::Error> {
     let start_canonical = fs::canonicalize(start)
         .with_context(|| format!("failed to canonicalize {}", start.display()))?;
     let mut current = start_canonical.as_path();
+    let mut first_cargo_toml: Option<PathBuf> = None;
     for _ in 0..MAX_ANCESTOR_DEPTH {
         let cargo_toml = current.join("Cargo.toml");
         if cargo_toml.exists() {
-            return Ok(current.to_path_buf());
+            if manifest_declares_workspace(&cargo_toml) {
+                return Ok(current.to_path_buf());
+            }
+            if first_cargo_toml.is_none() {
+                first_cargo_toml = Some(current.to_path_buf());
+            }
         }
         match current.parent() {
             Some(parent) => current = parent,
-            None => {
-                anyhow::bail!(
-                    "no Cargo.toml found in {} or any parent directory",
-                    start.display()
-                );
-            }
+            None => break,
         }
     }
-    anyhow::bail!(
-        "no Cargo.toml found within {MAX_ANCESTOR_DEPTH} ancestor directories of {}",
-        start.display()
-    );
+    if let Some(root) = first_cargo_toml {
+        return Ok(root);
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!(
+            "no Cargo.toml found in {} or any parent directory (walked up to {MAX_ANCESTOR_DEPTH} ancestors)",
+            start.display()
+        ),
+    )
+    .into())
+}
+
+/// True iff the manifest at `path` parses to TOML and contains a top-level
+/// `[workspace]` table. Read errors and parse errors return false — the walk
+/// will keep looking and ultimately fall back to the first Cargo.toml seen.
+fn manifest_declares_workspace(path: &Path) -> bool {
+    let Ok(content) = fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(value) = toml::from_str::<toml::Value>(&content) else {
+        return false;
+    };
+    value
+        .as_table()
+        .is_some_and(|t| t.contains_key("workspace"))
 }
