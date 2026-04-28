@@ -5,7 +5,6 @@ use crate::{
 };
 use ops_core::subprocess::run_cargo;
 use serde::Deserialize;
-use std::collections::HashSet;
 use std::path::Path;
 use std::time::Duration;
 
@@ -175,7 +174,16 @@ pub fn categorize_upgrades(entries: Vec<UpgradeEntry>) -> UpgradeResult {
     let mut incompatible = Vec::new();
 
     for entry in entries {
-        if entry.note.as_deref() == Some("incompatible") {
+        // TASK-0437: cargo-edit emits the literal token "incompatible" but the
+        // wording could grow a suffix (e.g. "incompatible (semver)") in a
+        // future release. Use a case-insensitive substring check so a wording
+        // drift does not silently misclassify breaking upgrades as compatible.
+        // See cargo-edit upgrade output formatting for the source token.
+        let is_incompatible = entry
+            .note
+            .as_deref()
+            .is_some_and(|n| n.to_ascii_lowercase().contains("incompatible"));
+        if is_incompatible {
             incompatible.push(entry);
         } else {
             compatible.push(entry);
@@ -299,11 +307,9 @@ struct DenyAdvisory {
 
 /// Parse newline-delimited JSON from `cargo deny --format json check` stderr.
 pub fn parse_deny_output(stderr: &str) -> DenyResult {
-    let advisory_set: HashSet<&str> = ADVISORY_CODES.iter().copied().collect();
-    let license_set: HashSet<&str> = LICENSE_CODES.iter().copied().collect();
-    let ban_set: HashSet<&str> = BAN_CODES.iter().copied().collect();
-    let source_set: HashSet<&str> = SOURCE_CODES.iter().copied().collect();
-
+    // TASK-0523: with ~5 entries per array, a linear `.contains` is faster
+    // than building four `HashSet`s on each call (and avoids the allocations
+    // entirely on the parse hot path).
     let mut result = DenyResult::default();
 
     for line in stderr.lines() {
@@ -363,7 +369,7 @@ pub fn parse_deny_output(stderr: &str) -> DenyResult {
             })
             .unwrap_or_else(|| "unknown".to_string());
 
-        if advisory_set.contains(code) {
+        if ADVISORY_CODES.contains(&code) {
             let (id, title) = if let Some(adv) = &fields.advisory {
                 (
                     adv.id.clone(),
@@ -378,24 +384,31 @@ pub fn parse_deny_output(stderr: &str) -> DenyResult {
                 severity,
                 title,
             });
-        } else if license_set.contains(code) {
+        } else if LICENSE_CODES.contains(&code) {
             result.licenses.push(LicenseEntry {
                 package,
                 message,
                 severity,
             });
-        } else if ban_set.contains(code) {
+        } else if BAN_CODES.contains(&code) {
             result.bans.push(BanEntry {
                 package,
                 message,
                 severity,
             });
-        } else if source_set.contains(code) {
+        } else if SOURCE_CODES.contains(&code) {
             result.sources.push(SourceEntry {
                 package,
                 message,
                 severity,
             });
+        } else {
+            tracing::debug!(
+                code = code,
+                severity = %severity,
+                message = %truncate_for_log(&message),
+                "TASK-0436: skipping cargo-deny diagnostic with unknown code (possible schema drift)"
+            );
         }
     }
 

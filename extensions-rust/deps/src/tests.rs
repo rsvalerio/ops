@@ -124,6 +124,38 @@ fn categorize_upgrades_splits_correctly() {
     assert_eq!(result.incompatible[0].name, "clap");
 }
 
+/// TASK-0437: any note text containing "incompatible" (case-insensitive)
+/// classifies as incompatible. Guards against future cargo-edit wording
+/// drift like "incompatible (semver bump)" silently flipping breaking
+/// upgrades into the compatible bucket.
+#[test]
+fn categorize_upgrades_matches_incompatible_substring() {
+    let mk = |name: &str, note: Option<&str>| UpgradeEntry {
+        name: name.into(),
+        old_req: String::new(),
+        compatible: String::new(),
+        latest: String::new(),
+        new_req: String::new(),
+        note: note.map(str::to_string),
+    };
+    let entries = vec![
+        mk("a", Some("incompatible")),
+        mk("b", Some("Incompatible (semver bump)")),
+        mk("c", Some("INCOMPATIBLE")),
+        mk("d", Some("pinned by parent")),
+        mk("e", None),
+    ];
+    let result = categorize_upgrades(entries);
+    let inc_names: Vec<_> = result
+        .incompatible
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
+    let cmp_names: Vec<_> = result.compatible.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(inc_names, vec!["a", "b", "c"]);
+    assert_eq!(cmp_names, vec!["d", "e"]);
+}
+
 // -- Deny exit-code interpretation --
 
 #[test]
@@ -240,6 +272,20 @@ fn parse_deny_mixed_diagnostics() {
     assert_eq!(result.advisories.len(), 1);
     assert_eq!(result.licenses.len(), 1);
     assert_eq!(result.bans.len(), 1);
+}
+
+/// TASK-0436: a diagnostic whose code is not in any of the four known sets
+/// (e.g. cargo-deny adds a new category) is dropped from the result, but
+/// still observable via tracing::debug — the entry must not silently change
+/// the DenyResult shape.
+#[test]
+fn parse_deny_unknown_code_does_not_appear_in_result() {
+    let stderr = r#"{"type":"diagnostic","fields":{"severity":"warning","message":"future schema","code":"hypothetical-new-category","labels":[],"graphs":[{"Krate":{"name":"some","version":"1.0.0"}}],"notes":[]}}"#;
+    let result = parse_deny_output(stderr);
+    assert!(result.advisories.is_empty());
+    assert!(result.licenses.is_empty());
+    assert!(result.bans.is_empty());
+    assert!(result.sources.is_empty());
 }
 
 // -- Upgrade table parser edge cases --
