@@ -56,6 +56,13 @@ pub fn check_cargo_tool_installed(name: &str) -> bool {
 
 pub(crate) fn is_in_cargo_list(stdout: &str, name: &str) -> bool {
     let cargo_name = name.strip_prefix("cargo-").unwrap_or(name);
+    // TASK-0526: an empty short-name (caller passed "cargo-" or "") would
+    // match any line whose first whitespace token is empty, i.e. any line
+    // with leading whitespace. Reject early so a malformed [tools] entry
+    // can't produce a false positive.
+    if cargo_name.is_empty() {
+        return false;
+    }
     stdout.lines().any(|line| {
         line.split_whitespace()
             .next()

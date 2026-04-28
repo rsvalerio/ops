@@ -29,7 +29,11 @@ pub(crate) fn validate_cargo_tool_arg(value: &str, label: &str) -> anyhow::Resul
             "{label} {value:?} must start with an alphanumeric character (cannot begin with `-`)"
         );
     }
-    for ch in std::iter::once(first).chain(chars) {
+    // TASK-0519: skip the explicit alphanumeric guard above when validating
+    // the rest of the string. Re-checking `first` against the broader allow-set
+    // hides a subtle SEC-13 dependency: deleting the alphanumeric check would
+    // silently accept a leading `-` again because the loop allows it.
+    for ch in chars {
         if !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == '-') {
             anyhow::bail!(
                 "{label} {value:?} contains invalid character {ch:?}; allowed: [A-Za-z0-9_.-]"
@@ -77,6 +81,8 @@ pub(crate) fn install_rustup_component_with_timeout(
     toolchain: &str,
     timeout: Duration,
 ) -> anyhow::Result<()> {
+    validate_cargo_tool_arg(component, "rustup component")?;
+    validate_cargo_tool_arg(toolchain, "rustup toolchain")?;
     let child = Command::new("rustup")
         .args(["component", "add", component, "--toolchain", toolchain])
         .spawn()

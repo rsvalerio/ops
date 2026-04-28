@@ -255,6 +255,17 @@ fn cargo_list_similar_prefix_no_match() {
     assert!(!is_in_cargo_list(stdout, "cargo-next"));
 }
 
+/// TASK-0526: an empty-after-strip name (literal "cargo-" or "") must not
+/// match a line that begins with whitespace. The empty token from
+/// split_whitespace was previously equal to the empty stripped name, so any
+/// indented line was reported as installed.
+#[test]
+fn cargo_list_empty_name_after_strip_is_rejected() {
+    let stdout = "    fmt\n    clippy\n";
+    assert!(!is_in_cargo_list(stdout, "cargo-"));
+    assert!(!is_in_cargo_list(stdout, ""));
+}
+
 // --- is_component_in_list ---
 
 #[test]
@@ -589,6 +600,38 @@ fn validate_cargo_tool_arg_rejects_other_metacharacters() {
             "expected rejection of {bad:?}"
         );
     }
+}
+
+// --- SEC-13/TASK-0434/TASK-0473: rustup component / toolchain validation ---
+
+use crate::install::install_rustup_component_with_timeout;
+
+/// Reject leading-dash component before spawning rustup. Mirrors the cargo
+/// install guard so values like `--default` cannot be re-parsed by rustup as
+/// a flag.
+#[test]
+fn install_rustup_component_rejects_dash_component() {
+    let err = install_rustup_component_with_timeout(
+        "--default",
+        "stable",
+        std::time::Duration::from_secs(1),
+    )
+    .expect_err("expected rejection of leading-dash component");
+    assert!(
+        err.to_string().contains("rustup component"),
+        "error should mention component: {err}"
+    );
+}
+
+#[test]
+fn install_rustup_component_rejects_dash_toolchain() {
+    let err =
+        install_rustup_component_with_timeout("rust-src", "-vV", std::time::Duration::from_secs(1))
+            .expect_err("expected rejection of leading-dash toolchain");
+    assert!(
+        err.to_string().contains("rustup toolchain"),
+        "error should mention toolchain: {err}"
+    );
 }
 
 // --- SEC-13: PATH-walking binary detection ---
