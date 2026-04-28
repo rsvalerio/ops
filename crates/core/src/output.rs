@@ -37,7 +37,13 @@ pub fn format_error_tail(stderr: &[u8], n: usize) -> String {
 }
 
 /// Logical status of a step for step-line rendering.
+///
+/// API-9 / TASK-0454: marked `#[non_exhaustive]` so adding a new variant
+/// (e.g. `Cancelled`) is not a breaking change for downstream consumers
+/// (themes, runner, extensions). Out-of-crate `match` sites must include a
+/// wildcard arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum StepStatus {
     Pending,
     Running,
@@ -47,22 +53,55 @@ pub enum StepStatus {
 }
 
 /// Data for one step line: status, command label, and optional elapsed time.
+///
+/// API-9 / TASK-0454: marked `#[non_exhaustive]` so adding fields is not a
+/// breaking change for downstream consumers. Construct via [`StepLine::new`]
+/// rather than struct-literal syntax.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct StepLine {
     pub status: StepStatus,
     pub label: String,
     pub elapsed: Option<f64>,
 }
 
+impl StepLine {
+    /// Constructor used by themes / runner / tests in place of struct-literal
+    /// initialization, which is forbidden under `#[non_exhaustive]`.
+    #[must_use]
+    pub fn new(status: StepStatus, label: impl Into<String>, elapsed: Option<f64>) -> Self {
+        Self {
+            status,
+            label: label.into(),
+            elapsed,
+        }
+    }
+}
+
 /// Error details shown inline below a failed step line.
 ///
 /// Contains the exit message and an optional tail of stderr output.
+///
+/// API-9 / TASK-0454: marked `#[non_exhaustive]` so adding fields is not a
+/// breaking change. Construct via [`ErrorDetail::new`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ErrorDetail {
     /// Primary error message (e.g. "exit status: 101").
     pub message: String,
     /// Last N lines of stderr captured from the failed command.
     pub stderr_tail: Vec<String>,
+}
+
+impl ErrorDetail {
+    /// Constructor used in place of struct-literal initialization.
+    #[must_use]
+    pub fn new(message: impl Into<String>, stderr_tail: Vec<String>) -> Self {
+        Self {
+            message: message.into(),
+            stderr_tail,
+        }
+    }
 }
 
 /// All possible step statuses, used by themes to compute max icon width.
