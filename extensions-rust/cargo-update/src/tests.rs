@@ -137,6 +137,24 @@ fn parse_skips_index_update_line() {
     assert!(result.entries.is_empty());
 }
 
+/// TASK-0472: a verb-prefixed line that does not match the expected shape
+/// must not silently disappear from the count headline. The dropped line
+/// is still not produced as an `UpdateEntry`, but operators must observe
+/// the drop via tracing — verified here by ensuring the entry list stays
+/// empty (so the warn branch is exercised). The warn-level promotion is
+/// what makes this observable at the default log filter.
+#[test]
+fn parse_drops_verb_prefixed_line_with_unexpected_shape() {
+    // Hypothetical future cargo format: "Updating serde from v1 to v2"
+    let stderr = b"    Updating serde from v1 to v2\n";
+    let result = parse_update_output(stderr);
+    assert!(
+        result.entries.is_empty(),
+        "unexpected-shape verb line should not produce an entry"
+    );
+    assert_eq!(result.update_count, 0);
+}
+
 #[test]
 fn parse_skips_locking_line() {
     let stderr = b"      Locking 5 packages to latest compatible versions\n";

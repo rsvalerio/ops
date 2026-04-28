@@ -111,9 +111,13 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
         if let Some(entry) = parse_action_line(clean) {
             entries.push(entry);
         } else if starts_with_known_verb(clean) {
-            tracing::debug!(
+            // TASK-0472: a line that begins with a known verb but did not
+            // parse is highly likely to indicate cargo-update format drift.
+            // Promote to warn so the count regression is observable at the
+            // default log level — debug would silently disappear.
+            tracing::warn!(
                 line = %clean,
-                "TASK-0412: skipping cargo-update line that did not match any known verb shape"
+                "skipping cargo-update line that begins with a known verb but did not parse — possible format drift"
             );
         }
     }
@@ -198,31 +202,35 @@ fn parse_action_line(line: &str) -> Option<UpdateEntry> {
         };
         let rest = rest.trim();
 
+        // TASK-0476: iterator-based destructuring avoids the per-line
+        // `Vec<&str>` allocation that `splitn(...).collect()` introduces on
+        // a hot path (must_use provider runs in CI metadata pipelines).
         if matches!(action, UpdateAction::Update) {
-            let parts: Vec<&str> = rest.splitn(4, ' ').collect();
-            if parts.len() >= 4 && parts[2] == "->" {
-                return Some(UpdateEntry {
-                    action: action.clone(),
-                    name: parts[0].to_string(),
-                    from: Some(strip_v_prefix(parts[1]).to_string()),
-                    to: Some(strip_v_prefix(parts[3]).to_string()),
-                });
+            let mut it = rest.splitn(4, ' ');
+            let name = it.next()?;
+            let from = it.next()?;
+            let arrow = it.next()?;
+            let to = it.next()?;
+            if arrow != "->" {
+                return None;
             }
-            return None;
+            return Some(UpdateEntry {
+                action: action.clone(),
+                name: name.to_string(),
+                from: Some(strip_v_prefix(from).to_string()),
+                to: Some(strip_v_prefix(to).to_string()),
+            });
         }
 
-        let parts: Vec<&str> = rest.splitn(2, ' ').collect();
-        if parts.len() < 2 {
-            return None;
-        }
-        let version = Some(strip_v_prefix(parts[1]).to_string());
+        let (name, version_raw) = rest.split_once(' ')?;
+        let version = Some(strip_v_prefix(version_raw).to_string());
         let (from, to) = match role {
             VersionRole::From => (version, None),
             VersionRole::To => (None, version),
         };
         return Some(UpdateEntry {
             action: action.clone(),
-            name: parts[0].to_string(),
+            name: name.to_string(),
             from,
             to,
         });
@@ -260,6 +268,29 @@ impl DataProvider for CargoUpdateProvider {
         let output = run_cargo_update_dry_run(&ctx.working_directory).map_err(|e| {
             DataProviderError::from(anyhow::anyhow!("cargo update --dry-run failed: {}", e))
         })?;
+
+        // TASK-0502: a successful spawn with a non-zero exit (e.g. lockfile
+        // contention, network error, malformed Cargo.toml) leaves stderr
+        // *not* shaped like the dry-run report. Parsing it would silently
+        // produce an empty `CargoUpdateResult` — i.e. "no updates available"
+        // for a failed invocation. Surface the error like sibling providers
+        // (test-coverage, metadata, deps) instead.
+        if !output.status.success() {
+            let stderr_tail: String = String::from_utf8_lossy(&output.stderr)
+                .lines()
+                .rev()
+                .take(10)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Err(DataProviderError::from(anyhow::anyhow!(
+                "cargo update --dry-run exited with status {}: {}",
+                output.status,
+                stderr_tail
+            )));
+        }
 
         let result = parse_update_output(&output.stderr);
         serde_json::to_value(&result).map_err(DataProviderError::from)
