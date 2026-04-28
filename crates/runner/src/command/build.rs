@@ -6,8 +6,15 @@
 
 use super::secret_patterns::warn_if_sensitive_env;
 use ops_core::config::ExecCommandSpec;
-use ops_core::expand::Variables;
+use ops_core::expand::{ExpandError, Variables};
 use tokio::process::Command;
+
+/// ERR-1 / TASK-0450: convert a strict-expansion error into an `io::Error`
+/// so build failures share the spawn-error pipeline and surface as a
+/// `StepFailed` event rather than panicking through `expect`.
+fn expand_err_to_io(err: ExpandError) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string())
+}
 
 /// Lexically normalize a path by resolving `.` and `..` components without I/O.
 fn normalize_path(p: &std::path::Path) -> std::path::PathBuf {
@@ -140,14 +147,24 @@ pub fn resolve_spec_cwd(
         return Ok(workspace_cwd.to_path_buf());
     };
     let lossy = p.to_string_lossy();
-    let expanded = vars.expand(&lossy);
+    let expanded = vars.try_expand(&lossy).map_err(expand_err_to_io)?;
     let ep = std::path::PathBuf::from(expanded.as_ref());
-    if !ep.is_relative() {
-        return Ok(ep);
-    }
-    let joined = workspace_cwd.join(&ep);
+    // SEC-23 / TASK-0500: an absolute spec_cwd must still be checked against
+    // the workspace root. A malicious `cwd = "/etc"` would previously bypass
+    // the policy entirely because it short-circuited here without invoking
+    // detect_workspace_escape. Run the check against the absolute path
+    // unchanged (it is its own joined form) and let `apply_escape_policy`
+    // decide whether to allow or deny.
+    let joined = if ep.is_relative() {
+        workspace_cwd.join(&ep)
+    } else {
+        ep.clone()
+    };
     if detect_workspace_escape(&joined, workspace_cwd) == EscapeKind::Escapes {
         apply_escape_policy(policy, &ep, workspace_cwd, &joined)?;
+    }
+    if !ep.is_relative() {
+        return Ok(ep);
     }
     // SEC-25: under Deny, hand the kernel a symlink-free canonical path so
     // it does not re-resolve symlinks at chdir time. Narrows (but does not
@@ -174,9 +191,20 @@ pub fn resolve_spec_cwd(
 /// Note: `current_dir` is validated by the OS when the command is spawned — if the
 /// path does not exist, `Command::output()` returns an `io::Error` that propagates
 /// through the existing error handling in `exec_command`.
-pub fn build_command(spec: &ExecCommandSpec, cwd: &std::path::Path, vars: &Variables) -> Command {
+// ERR-5 / TASK-0456: `build_command` previously panicked via
+// `.expect("WarnAndAllow policy never returns Err")` to encode "cannot
+// fail under WarnAndAllow" at the type level. After TASK-0450 the
+// expansion path itself is fallible (a non-UTF-8 env var must surface as
+// a step failure rather than crashing the runner), so the no-panic
+// guarantee is now structural in the *return type*: build_command
+// returns `Result`, and every caller threads the error to a StepFailed
+// event. There is no remaining `.expect` to revisit.
+pub fn build_command(
+    spec: &ExecCommandSpec,
+    cwd: &std::path::Path,
+    vars: &Variables,
+) -> Result<Command, std::io::Error> {
     build_command_with(spec, cwd, vars, CwdEscapePolicy::WarnAndAllow)
-        .expect("WarnAndAllow policy never returns Err")
 }
 
 /// CONC-5 / TASK-0330: async variant that runs the synchronous filesystem
@@ -187,17 +215,54 @@ pub fn build_command(spec: &ExecCommandSpec, cwd: &std::path::Path, vars: &Varia
 /// Without this, every parallel command spawn blocks a tokio worker on
 /// `canonicalize` syscalls — slow on NFS or symlink-heavy paths and
 /// proportional to the spec cwd's depth. Under high `MAX_PARALLEL` counts
-/// that starves other tasks scheduled on the same worker. The clones here
-/// (spec, vars, cwd) happen once per spawn — negligible against the cost
-/// of an actual process spawn that follows.
+/// that starves other tasks scheduled on the same worker.
+///
+/// OWN-2 / TASK-0462: `vars` and `cwd` are passed as `Arc` so the only
+/// per-spawn allocations on the parallel hot path are `Arc::clone` (a
+/// single atomic refcount bump each), not a deep `Variables`/`PathBuf`
+/// clone. The previous signature took `Variables`/`PathBuf` by value,
+/// which silently re-allocated the inner `HashMap` per spawn and mixed
+/// `Arc` indirection at the call site with per-call deep clones — the
+/// worst of both. `spec` is still moved by value because each task
+/// already owns a distinct `ExecCommandSpec` it consumes.
 pub async fn build_command_async(
     spec: ExecCommandSpec,
-    cwd: std::path::PathBuf,
-    vars: Variables,
-) -> Command {
-    tokio::task::spawn_blocking(move || build_command(&spec, &cwd, &vars))
+    cwd: std::sync::Arc<std::path::PathBuf>,
+    vars: std::sync::Arc<Variables>,
+) -> Result<Command, std::io::Error> {
+    // OWN-2 / TASK-0462: emit a trace event on every spawn so we can
+    // confirm in `RUST_LOG=trace` runs that the only allocations per
+    // spawn are Arc::clone counts (logged here as the existing
+    // strong_count) and the spec move — no Variables/PathBuf deep
+    // clones. Strong counts > 1 prove the parallel path is sharing the
+    // same instance across MAX_PARALLEL workers.
+    tracing::trace!(
+        program = %spec.program,
+        vars_strong = std::sync::Arc::strong_count(&vars),
+        cwd_strong = std::sync::Arc::strong_count(&cwd),
+        "build_command_async: Arc-only inputs, no deep clone"
+    );
+    // ERR-5 / TASK-0456: a panicking blocking task previously surfaced
+    // here as a runner-wide panic via `.expect`. Now we downgrade to a
+    // `tracing::error!` plus a synthesized `io::Error` so the calling
+    // step fails gracefully (StepFailed) instead of aborting the runner.
+    // Cancellation of the blocking task is treated identically — it can
+    // only happen if the runtime is shutting down, in which case
+    // returning Err is no worse than a hard panic.
+    match tokio::task::spawn_blocking(move || build_command(&spec, cwd.as_ref(), vars.as_ref()))
         .await
-        .expect("build_command panicked on blocking pool")
+    {
+        Ok(result) => result,
+        Err(join_err) => {
+            tracing::error!(
+                error = %join_err,
+                "ERR-5: build_command panicked on blocking pool; converting to step failure"
+            );
+            Err(std::io::Error::other(format!(
+                "build_command panicked on blocking pool: {join_err}"
+            )))
+        }
+    }
 }
 
 /// Build a tokio Command with an explicit cwd-escape policy. Returns `Err`
@@ -208,17 +273,19 @@ pub fn build_command_with(
     vars: &Variables,
     policy: CwdEscapePolicy,
 ) -> Result<Command, std::io::Error> {
-    let mut cmd = Command::new(vars.expand(&spec.program).as_ref());
-    let expanded_args: Vec<_> = spec
+    let program = vars.try_expand(&spec.program).map_err(expand_err_to_io)?;
+    let mut cmd = Command::new(program.as_ref());
+    let expanded_args: Vec<String> = spec
         .args
         .iter()
-        .map(|a| vars.expand(a).into_owned())
-        .collect();
+        .map(|a| vars.try_expand(a).map(|c| c.into_owned()))
+        .collect::<Result<_, _>>()
+        .map_err(expand_err_to_io)?;
     cmd.args(&expanded_args);
     let resolved_cwd = resolve_spec_cwd(spec.cwd.as_deref(), cwd, vars, policy)?;
     cmd.current_dir(&resolved_cwd);
     for (k, v) in &spec.env {
-        let expanded_v = vars.expand(v);
+        let expanded_v = vars.try_expand(v).map_err(expand_err_to_io)?;
         warn_if_sensitive_env(k, &expanded_v);
         cmd.env(k, expanded_v.as_ref());
     }
@@ -270,7 +337,13 @@ mod tests {
             for _ in 0..5 {
                 let spec =
                     exec_spec_with_cwd("echo", &["x"], Some(std::path::PathBuf::from("sub")));
-                let _cmd = build_command_async(spec, tmp.path().to_path_buf(), vars.clone()).await;
+                let _cmd = build_command_async(
+                    spec,
+                    std::sync::Arc::new(tmp.path().to_path_buf()),
+                    std::sync::Arc::new(vars.clone()),
+                )
+                .await
+                .unwrap();
             }
 
             counting.await.unwrap();
@@ -290,7 +363,13 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let vars = Variables::from_env(tmp.path());
         let spec = exec_spec("echo", &["hello"]);
-        let cmd = build_command_async(spec, tmp.path().to_path_buf(), vars).await;
+        let cmd = build_command_async(
+            spec,
+            std::sync::Arc::new(tmp.path().to_path_buf()),
+            std::sync::Arc::new(vars),
+        )
+        .await
+        .unwrap();
         // tokio::process::Command exposes the program via as_std()
         let program = cmd.as_std().get_program().to_string_lossy().into_owned();
         assert_eq!(program, "echo");
@@ -306,11 +385,41 @@ mod tests {
     }
 
     #[test]
-    fn resolve_spec_cwd_absolute_is_returned_verbatim() {
+    fn resolve_spec_cwd_absolute_inside_workspace_is_returned_verbatim() {
+        // SEC-23 / TASK-0500: absolute paths still go through the escape
+        // check. A path lexically inside the workspace is allowed under
+        // Deny; verbatim because absolute paths are not joined.
+        let ws = std::path::PathBuf::from("/tmp/ws");
+        let vars = Variables::from_env(&ws);
+        let abs = std::path::Path::new("/tmp/ws/inside");
+        let out = resolve_spec_cwd(Some(abs), &ws, &vars, CwdEscapePolicy::Deny).unwrap();
+        assert_eq!(out, std::path::PathBuf::from("/tmp/ws/inside"));
+    }
+
+    /// SEC-23 / TASK-0500: an absolute spec_cwd outside the workspace must
+    /// be rejected under `Deny`. The previous bug short-circuited the policy
+    /// check so a malicious `cwd = "/etc"` would silently spawn at /etc on
+    /// the hook path.
+    #[test]
+    fn resolve_spec_cwd_absolute_outside_workspace_is_denied() {
+        let ws = std::path::PathBuf::from("/tmp/ws");
+        let vars = Variables::from_env(&ws);
+        let abs = std::path::Path::new("/etc");
+        let err = resolve_spec_cwd(Some(abs), &ws, &vars, CwdEscapePolicy::Deny)
+            .expect_err("absolute path outside workspace must be denied under Deny");
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(err.to_string().contains("SEC-14"));
+    }
+
+    /// SEC-23: under WarnAndAllow the absolute path is still returned (the
+    /// interactive trust model lets `.ops.toml` choose its cwd) but the
+    /// escape is logged.
+    #[test]
+    fn resolve_spec_cwd_absolute_outside_workspace_warns_under_warn_and_allow() {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let vars = Variables::from_env(&ws);
         let abs = std::path::Path::new("/opt/elsewhere");
-        let out = resolve_spec_cwd(Some(abs), &ws, &vars, CwdEscapePolicy::Deny).unwrap();
+        let out = resolve_spec_cwd(Some(abs), &ws, &vars, CwdEscapePolicy::WarnAndAllow).unwrap();
         assert_eq!(out, std::path::PathBuf::from("/opt/elsewhere"));
     }
 

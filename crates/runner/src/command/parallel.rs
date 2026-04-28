@@ -87,8 +87,8 @@ impl CommandRunner {
     /// resource exhaustion with large parallel groups.
     pub(crate) fn spawn_parallel_tasks(
         steps: Vec<(CommandId, ExecCommandSpec)>,
-        cwd: PathBuf,
-        vars: Variables,
+        cwd: Arc<PathBuf>,
+        vars: Arc<Variables>,
     ) -> (
         mpsc::Receiver<RunnerEvent>,
         Arc<AtomicBool>,
@@ -105,8 +105,6 @@ impl CommandRunner {
         let (tx, rx) = mpsc::channel(capacity);
         let abort = Arc::new(AtomicBool::new(false));
         let semaphore = Arc::new(tokio::sync::Semaphore::new(Self::MAX_PARALLEL));
-        let cwd = Arc::new(cwd);
-        let vars = Arc::new(vars);
         let mut join_set = tokio::task::JoinSet::new();
         for (id, spec) in steps {
             let tx = tx.clone();

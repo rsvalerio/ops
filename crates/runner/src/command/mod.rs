@@ -81,8 +81,12 @@ use tracing::{debug, instrument};
 /// Runs commands from config; emits RunnerEvent stream.
 pub struct CommandRunner {
     pub(super) config: Arc<Config>,
-    pub(super) cwd: PathBuf,
-    pub(super) vars: Variables,
+    // OWN-2 / TASK-0462: Arc-wrapped so the parallel hot path only does
+    // Arc::clone (atomic refcount bump) per spawn rather than deep-cloning
+    // the inner `PathBuf` / `HashMap`. Sequential callers wrap once at
+    // construction.
+    pub(super) cwd: Arc<PathBuf>,
+    pub(super) vars: Arc<Variables>,
     pub(super) stack_commands: IndexMap<CommandId, CommandSpec>,
     pub(super) extension_commands: IndexMap<CommandId, CommandSpec>,
     /// OWN-6 / TASK-0200: pre-built `alias → canonical` map over the
@@ -123,8 +127,8 @@ impl CommandRunner {
 
         Self {
             config: Arc::new(config),
-            cwd,
-            vars,
+            cwd: Arc::new(cwd),
+            vars: Arc::new(vars),
             stack_commands,
             extension_commands,
             non_config_alias_map,
@@ -177,7 +181,7 @@ impl CommandRunner {
             Entry::Occupied(v) => Ok(Arc::clone(v.get())),
             Entry::Vacant(slot) => {
                 let mut ctx =
-                    ops_extension::Context::new(Arc::clone(&self.config), self.cwd.clone());
+                    ops_extension::Context::new(Arc::clone(&self.config), (*self.cwd).clone());
                 let v = ctx.get_or_provide(name, &self.data_registry)?;
                 slot.insert(Arc::clone(&v));
                 Ok(v)
@@ -218,6 +222,8 @@ impl CommandRunner {
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> StepResult {
         exec_command(id, spec, &self.cwd, &self.vars, on_event).await
+        // ↑ `&Arc<PathBuf>` / `&Arc<Variables>` — exec_command Arc::clones
+        // once if the build needs to spawn_blocking, no deep clone.
     }
 
     /// Run a named command (single or composite); returns step results.

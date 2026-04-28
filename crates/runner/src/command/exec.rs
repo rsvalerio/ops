@@ -196,8 +196,8 @@ pub fn build_step_result(id: &str, duration: Duration, output: CommandOutput) ->
 pub async fn exec_command(
     id: &str,
     spec: &ExecCommandSpec,
-    cwd: &std::path::Path,
-    vars: &Variables,
+    cwd: &Arc<PathBuf>,
+    vars: &Arc<Variables>,
     emit: &mut impl FnMut(RunnerEvent),
 ) -> StepResult {
     let display_cmd = Some(spec.display_cmd().into_owned());
@@ -209,7 +209,23 @@ pub async fn exec_command(
     // CONC-5 / TASK-0330: build_command performs sync std::fs::canonicalize.
     // Run it on the blocking pool so we don't stall a tokio worker per
     // spawn. The clones below are cheap relative to the process spawn itself.
-    let mut cmd = build_command_async(spec.clone(), cwd.to_path_buf(), vars.clone()).await;
+    let mut cmd = match build_command_async(spec.clone(), Arc::clone(cwd), Arc::clone(vars)).await {
+        Ok(c) => c,
+        Err(e) => {
+            // ERR-1 / TASK-0450: variable expansion or cwd-policy failure.
+            // Surface as a StepFailed so non-UTF-8 env vars and similar
+            // configuration errors are user-visible instead of materialising
+            // a literal `${VAR}` into argv / cwd.
+            let msg = log_and_redact_spawn_error(&spec.program, &e, "captured");
+            emit(RunnerEvent::StepFailed {
+                id: id.into(),
+                duration_secs: 0.0,
+                message: msg.clone(),
+                display_cmd,
+            });
+            return StepResult::failure(id, std::time::Duration::ZERO, msg);
+        }
+    };
     let (result, duration) = run_with_timeout(cmd.output(), spec.timeout()).await;
     let output = match result {
         Ok(o) => CommandOutput::from_raw(o),
@@ -247,11 +263,22 @@ pub async fn exec_command(
 pub async fn exec_command_raw(
     id: &str,
     spec: &ExecCommandSpec,
-    cwd: &std::path::Path,
-    vars: &Variables,
+    cwd: &Arc<PathBuf>,
+    vars: &Arc<Variables>,
 ) -> StepResult {
     // CONC-5 / TASK-0330: see exec_command above.
-    let mut cmd = build_command_async(spec.clone(), cwd.to_path_buf(), vars.clone()).await;
+    let mut cmd = match build_command_async(spec.clone(), Arc::clone(cwd), Arc::clone(vars)).await {
+        Ok(c) => c,
+        Err(e) => {
+            // ERR-1 / TASK-0450: surface expansion / policy failures rather
+            // than panic. Raw mode has no event stream, so we just return.
+            return StepResult::failure(
+                id,
+                std::time::Duration::ZERO,
+                log_and_redact_spawn_error(&spec.program, &e, "raw"),
+            );
+        }
+    };
     cmd.stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit());
@@ -332,10 +359,28 @@ pub async fn exec_standalone(
     // That implicit lifetime is brittle to refactoring; making cancellation
     // explicit removes the trap.
     let mut forwarders = tokio::task::JoinSet::new();
+    let forwarder_abort = Arc::clone(&abort);
     forwarders.spawn(async move {
         while let Some(ev) = local_rx.recv().await {
-            if outer.send(ev).await.is_err() {
-                break;
+            // CONC-9 / TASK-0459: race the outer.send against the abort
+            // flag so a stuck display pump cannot keep the forwarder alive
+            // after fail_fast tripped. Without this, the forwarder
+            // remains parked on `outer.send().await` and exec_standalone's
+            // join_next on the JoinSet hangs.
+            tokio::select! {
+                biased;
+                send_result = outer.send(ev) => {
+                    if send_result.is_err() {
+                        break;
+                    }
+                }
+                () = async {
+                    while !forwarder_abort.load(Ordering::Acquire) {
+                        tokio::task::yield_now().await;
+                    }
+                } => {
+                    break;
+                }
             }
         }
     });
@@ -349,7 +394,14 @@ pub async fn exec_standalone(
     // outer channel after exec_command returns, so backpressure (await) gates
     // delivery instead of silently discarding it.
     let mut terminal: Option<RunnerEvent> = None;
+    // CONC-7 / TASK-0457: count buffer-full drops per task so the display
+    // can surface them instead of silently losing the stdout/stderr lines
+    // that explain a failure.
+    let mut dropped_outputs: u64 = 0;
     let result = exec_command(&id, &spec, &cwd, &vars, &mut |ev| {
+        // OWN-2 / TASK-0462: cwd/vars are already Arcs in this scope; the
+        // `&Arc<…>` ref forwards through exec_command → build_command_async
+        // without a deep clone.
         if matches!(
             ev,
             RunnerEvent::StepFinished { .. }
@@ -360,6 +412,7 @@ pub async fn exec_standalone(
             return;
         }
         if let Err(mpsc::error::TrySendError::Full(_)) = local_tx.try_send(ev) {
+            dropped_outputs = dropped_outputs.saturating_add(1);
             tracing::debug!("per-task event buffer full; dropping event under backpressure");
         }
     })
@@ -369,8 +422,44 @@ pub async fn exec_standalone(
     // are cancelled before reaching this point, the JoinSet's own Drop will
     // abort the forwarder so it cannot outlive the parent task.
     while forwarders.join_next().await.is_some() {}
+    // CONC-7 / TASK-0457: surface the dropped count via the outer channel
+    // so the display renders "(N output lines dropped under load)" next
+    // to the step result. Awaited send so the count itself can never be
+    // silently dropped.
+    if dropped_outputs > 0 {
+        let _ = tx
+            .send(RunnerEvent::StepOutputDropped {
+                id: id.clone(),
+                dropped_count: dropped_outputs,
+            })
+            .await;
+    }
     if let Some(ev) = terminal {
-        let _ = tx.send(ev).await;
+        // CONC-9 / TASK-0459: race the terminal-event send against the
+        // abort signal. If a sibling tripped fail_fast while we were
+        // waiting on the outer channel (display pump stalled), the
+        // abort.load() check resolves quickly via a yield-poll and lets
+        // exec_standalone return without blocking on a full bounded
+        // channel. Without this, the task hangs in `tx.send` until the
+        // outer receiver is dropped, defeating fail_fast's promise to
+        // stop sibling output promptly.
+        let abort_watch = async {
+            // Cooperative poll: most fail_fast aborts arrive within a
+            // few yields once a sibling fails.
+            while !abort.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        };
+        tokio::select! {
+            biased;
+            _ = tx.send(ev) => {}
+            () = abort_watch => {
+                tracing::debug!(
+                    id = %id,
+                    "CONC-9: dropping terminal event under abort to avoid blocking on full outer channel"
+                );
+            }
+        }
     }
     result
 }
