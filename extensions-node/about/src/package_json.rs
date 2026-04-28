@@ -124,7 +124,7 @@ fn format_person(p: PersonField) -> Option<String> {
         PersonField::Object { name, email } => match (name, email) {
             (Some(n), Some(e)) => Some(format!("{n} <{e}>")),
             (Some(n), None) => Some(n),
-            (None, Some(e)) => Some(e),
+            (None, Some(e)) => Some(format!("<{e}>")),
             (None, None) => None,
         },
     }
@@ -154,4 +154,41 @@ fn normalize_repo_url(raw: &str) -> String {
         return format!("https://{}", rest.trim_end_matches(".git"));
     }
     s.trim_end_matches(".git").to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_person_email_only_wraps_in_brackets() {
+        let p = PersonField::Object {
+            name: None,
+            email: Some("a@example.com".to_string()),
+        };
+        assert_eq!(format_person(p), Some("<a@example.com>".to_string()));
+    }
+
+    #[test]
+    fn format_person_name_and_email() {
+        let p = PersonField::Object {
+            name: Some("Alice".to_string()),
+            email: Some("a@example.com".to_string()),
+        };
+        assert_eq!(format_person(p), Some("Alice <a@example.com>".to_string()));
+    }
+
+    #[test]
+    fn format_person_name_only() {
+        let p = PersonField::Object {
+            name: Some("Alice".to_string()),
+            email: None,
+        };
+        assert_eq!(format_person(p), Some("Alice".to_string()));
+    }
+
+    #[test]
+    fn format_person_empty_text() {
+        assert_eq!(format_person(PersonField::Text(String::new())), None);
+    }
 }
