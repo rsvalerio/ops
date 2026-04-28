@@ -1,11 +1,11 @@
 ---
 id: TASK-0453
 title: 'ARCH-1: crates/core/src/config/tests.rs is a 642-line monolithic test module'
-status: To Do
+status: Done
 assignee:
   - TASK-0538
 created_date: '2026-04-28 05:44'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 13:32'
 labels:
   - code-review-rust
   - ARCH
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Split per-feature: merge_tests.rs, template_tests.rs, validate_tests.rs, serde_tests.rs
-- [ ] #2 All tests still pass; no helpers duplicated
+- [x] #1 Split per-feature: merge_tests.rs, template_tests.rs, validate_tests.rs, serde_tests.rs
+- [x] #2 All tests still pass; no helpers duplicated
 <!-- AC:END -->
