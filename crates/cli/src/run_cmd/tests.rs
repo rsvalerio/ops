@@ -517,3 +517,149 @@ mod run_command_dry_run_tests {
         assert!(!output.contains("args:"), "should omit args line: {output}");
     }
 }
+
+mod raw_warnings_tests {
+    use crate::run_cmd::emit_raw_warnings;
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    struct BufWriter(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for BufWriter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    fn capture<F: FnOnce()>(f: F) -> String {
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, f);
+        let bytes = captured.lock().unwrap().clone();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    #[test]
+    fn raw_with_tap_emits_warning() {
+        let logs = capture(|| emit_raw_warnings(false, true));
+        assert!(logs.contains("--tap is ignored under --raw"), "got: {logs}");
+    }
+
+    #[test]
+    fn raw_with_parallel_emits_warning() {
+        let logs = capture(|| emit_raw_warnings(true, false));
+        assert!(
+            logs.contains("--raw forces sequential execution"),
+            "got: {logs}"
+        );
+    }
+
+    #[test]
+    fn raw_with_both_emits_two_warnings() {
+        let logs = capture(|| emit_raw_warnings(true, true));
+        assert!(logs.contains("--tap is ignored"), "got: {logs}");
+        assert!(logs.contains("--raw forces sequential"), "got: {logs}");
+    }
+
+    #[test]
+    fn raw_clean_emits_nothing() {
+        let logs = capture(|| emit_raw_warnings(false, false));
+        assert!(logs.is_empty(), "unexpected output: {logs}");
+    }
+}
+
+mod nested_parallel_detection_tests {
+    use crate::run_cmd::composite_tree_has_parallel;
+    use crate::test_utils::TestConfigBuilder;
+    use ops_core::config::{CommandSpec, CompositeCommandSpec};
+    use std::path::PathBuf;
+
+    fn runner_with(config: ops_core::config::Config) -> ops_runner::command::CommandRunner {
+        ops_runner::command::CommandRunner::new(config, PathBuf::from("."))
+    }
+
+    #[test]
+    fn detects_top_level_parallel() {
+        let mut comp = CompositeCommandSpec::new(["a", "b"]);
+        comp.parallel = true;
+        let mut config = TestConfigBuilder::new()
+            .exec("a", "echo", &["a"])
+            .exec("b", "echo", &["b"])
+            .build();
+        config
+            .commands
+            .insert("top".to_string(), CommandSpec::Composite(comp));
+        assert!(composite_tree_has_parallel(&runner_with(config), "top"));
+    }
+
+    #[test]
+    fn detects_nested_parallel() {
+        let mut inner = CompositeCommandSpec::new(["a", "b"]);
+        inner.parallel = true;
+        let outer = CompositeCommandSpec::new(["inner", "tail"]); // sequential
+        let mut config = TestConfigBuilder::new()
+            .exec("a", "echo", &["a"])
+            .exec("b", "echo", &["b"])
+            .exec("tail", "echo", &["t"])
+            .build();
+        config
+            .commands
+            .insert("inner".to_string(), CommandSpec::Composite(inner));
+        config
+            .commands
+            .insert("outer".to_string(), CommandSpec::Composite(outer));
+        assert!(
+            composite_tree_has_parallel(&runner_with(config), "outer"),
+            "nested parallel composite should be detected"
+        );
+    }
+
+    #[test]
+    fn no_parallel_returns_false() {
+        let outer = CompositeCommandSpec::new(["a", "b"]);
+        let mut config = TestConfigBuilder::new()
+            .exec("a", "echo", &["a"])
+            .exec("b", "echo", &["b"])
+            .build();
+        config
+            .commands
+            .insert("outer".to_string(), CommandSpec::Composite(outer));
+        assert!(!composite_tree_has_parallel(&runner_with(config), "outer"));
+    }
+
+    #[test]
+    fn leaf_command_returns_false() {
+        let config = TestConfigBuilder::new().exec("a", "echo", &["a"]).build();
+        assert!(!composite_tree_has_parallel(&runner_with(config), "a"));
+    }
+
+    #[test]
+    fn handles_cycles_without_panicking() {
+        // Two composites referencing each other — should terminate.
+        let a = CompositeCommandSpec::new(["b"]);
+        let b = CompositeCommandSpec::new(["a"]);
+        let mut config = ops_core::config::Config::default();
+        config
+            .commands
+            .insert("a".to_string(), CommandSpec::Composite(a));
+        config
+            .commands
+            .insert("b".to_string(), CommandSpec::Composite(b));
+        assert!(!composite_tree_has_parallel(&runner_with(config), "a"));
+    }
+}

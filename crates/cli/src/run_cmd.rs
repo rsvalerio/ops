@@ -105,34 +105,62 @@ fn run_commands(names: &[&str], opts: RunOptions) -> anyhow::Result<ExitCode> {
 
     let (all_leaf_ids, any_parallel, fail_fast) = merge_plan(&runner, names)?;
 
-    if raw {
-        // Raw mode: child owns the terminal, no display is attached, and
-        // composite `parallel = true` is ignored (sequential only).
-        if any_parallel {
-            tracing::warn!(
-                "--raw forces sequential execution; composite `parallel = true` is ignored"
-            );
-        }
-        // READ-10: there is no stream to tap in raw mode (child stdio is
-        // inherited directly). Warn so users combining the flags see the
-        // contradiction rather than getting a silent no-op or an empty
-        // file somewhere.
-        if tap.is_some() {
-            tracing::warn!(
-                "--tap is ignored under --raw because raw mode inherits child stdio; no tap file will be written"
-            );
-        }
-        let results: Vec<StepResult> =
-            run_with_runtime(async { Ok(runner.run_plan_raw(&all_leaf_ids, fail_fast).await) })?;
-        log_step_results(&results);
-        let success = results.iter().all(|r| r.success);
-        return Ok(if success {
-            ExitCode::SUCCESS
-        } else {
-            ExitCode::FAILURE
-        });
+    let results = if raw {
+        run_commands_raw(
+            &runner,
+            &all_leaf_ids,
+            any_parallel,
+            fail_fast,
+            tap.as_ref(),
+        )?
+    } else {
+        run_commands_with_display(&runner, &all_leaf_ids, any_parallel, fail_fast, tap)?
+    };
+    Ok(summarize(&results))
+}
+
+fn run_commands_raw(
+    runner: &ops_runner::command::CommandRunner,
+    leaf_ids: &[ops_core::config::CommandId],
+    any_parallel: bool,
+    fail_fast: bool,
+    tap: Option<&PathBuf>,
+) -> anyhow::Result<Vec<StepResult>> {
+    emit_raw_warnings(any_parallel, tap.is_some());
+    let results: Vec<StepResult> =
+        run_with_runtime(async { Ok(runner.run_plan_raw(leaf_ids, fail_fast).await) })?;
+    log_step_results(&results);
+    Ok(results)
+}
+
+/// Warnings emitted when `--raw` is combined with otherwise-incompatible
+/// flags. Extracted from `run_commands_raw` so the warning logic itself can
+/// be unit-tested without spinning up a full runner.
+fn emit_raw_warnings(any_parallel: bool, has_tap: bool) {
+    // Raw mode forces sequential execution; `parallel = true` composites
+    // are ignored.
+    if any_parallel {
+        tracing::warn!("--raw forces sequential execution; composite `parallel = true` is ignored");
     }
-    let display_map = build_display_map(&runner, &all_leaf_ids);
+    // READ-10: there is no stream to tap in raw mode (child stdio is
+    // inherited directly). Warn so users combining the flags see the
+    // contradiction rather than getting a silent no-op or an empty file
+    // somewhere.
+    if has_tap {
+        tracing::warn!(
+            "--tap is ignored under --raw because raw mode inherits child stdio; no tap file will be written"
+        );
+    }
+}
+
+fn run_commands_with_display(
+    runner: &ops_runner::command::CommandRunner,
+    leaf_ids: &[ops_core::config::CommandId],
+    any_parallel: bool,
+    fail_fast: bool,
+    tap: Option<PathBuf>,
+) -> anyhow::Result<Vec<StepResult>> {
+    let display_map = build_display_map(runner, leaf_ids);
     let mut display = ProgressDisplay::new(DisplayOptions {
         output: runner.output_config(),
         display_map,
@@ -144,13 +172,13 @@ fn run_commands(names: &[&str], opts: RunOptions) -> anyhow::Result<ExitCode> {
     let results: Vec<StepResult> = run_with_runtime(async {
         Ok(if any_parallel {
             runner
-                .run_plan_parallel(&all_leaf_ids, fail_fast, &mut |event| {
+                .run_plan_parallel(leaf_ids, fail_fast, &mut |event| {
                     display.handle_event(event)
                 })
                 .await
         } else {
             runner
-                .run_plan(&all_leaf_ids, fail_fast, &mut |event| {
+                .run_plan(leaf_ids, fail_fast, &mut |event| {
                     display.handle_event(event)
                 })
                 .await
@@ -158,13 +186,15 @@ fn run_commands(names: &[&str], opts: RunOptions) -> anyhow::Result<ExitCode> {
     })?;
     drop(_echo_guard);
     log_step_results(&results);
+    Ok(results)
+}
 
-    let success = results.iter().all(|r| r.success);
-    Ok(if success {
+fn summarize(results: &[StepResult]) -> ExitCode {
+    if results.iter().all(|r| r.success) {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
-    })
+    }
 }
 
 fn setup_extensions(runner: &mut ops_runner::command::CommandRunner) -> anyhow::Result<()> {
@@ -204,11 +234,11 @@ fn run_command(name: &str, opts: RunOptions) -> anyhow::Result<ExitCode> {
         run_command_cli(&mut runner, name, tap)?
     };
 
-    if success {
-        Ok(ExitCode::SUCCESS)
+    Ok(if success {
+        ExitCode::SUCCESS
     } else {
-        Ok(ExitCode::FAILURE)
-    }
+        ExitCode::FAILURE
+    })
 }
 
 fn run_command_raw(
@@ -225,18 +255,43 @@ fn run_command_raw(
     Ok(results.iter().all(|r| r.success))
 }
 
-/// If `name` resolves to a composite with `parallel = true`, emit the same
-/// warning the multi-command raw path already emits. No-op otherwise so
-/// leaf commands and sequential composites stay quiet.
+/// If `name` (or any composite reachable from it) has `parallel = true`,
+/// emit the same warning the multi-command raw path emits.
+///
+/// The multi-command path warns by walking `merge_plan`'s `any_parallel`;
+/// the single-command path used to inspect only the top-level resolve, so
+/// a composite that itself contained a nested `parallel = true` composite
+/// reached `--raw` execution silently. We now walk the whole composite
+/// tree so nested parallelism is also detected. The warning is emitted at
+/// most once per invocation.
 fn warn_raw_drops_parallel(runner: &ops_runner::command::CommandRunner, name: &str) {
-    if let Some(ops_core::config::CommandSpec::Composite(c)) = runner.resolve(name) {
-        if c.parallel {
-            tracing::warn!(
-                command = %name,
-                "--raw forces sequential execution; composite `parallel = true` is ignored"
-            );
+    if composite_tree_has_parallel(runner, name) {
+        tracing::warn!(
+            command = %name,
+            "--raw forces sequential execution; composite `parallel = true` is ignored"
+        );
+    }
+}
+
+fn composite_tree_has_parallel(runner: &ops_runner::command::CommandRunner, name: &str) -> bool {
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut stack: Vec<String> = vec![name.to_string()];
+    while let Some(current) = stack.pop() {
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+        if let Some(ops_core::config::CommandSpec::Composite(c)) = runner.resolve(&current) {
+            if c.parallel {
+                return true;
+            }
+            for child in &c.commands {
+                if !visited.contains(child) {
+                    stack.push(child.clone());
+                }
+            }
         }
     }
+    false
 }
 
 fn run_command_cli(
