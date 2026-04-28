@@ -1,6 +1,7 @@
 //! DuckDB-backed metrics for the Rust identity provider.
 
 use ops_core::project_identity::LanguageStat;
+use ops_duckdb::DuckDb;
 use ops_extension::Context;
 
 /// Metrics queried from DuckDB (LOC, dependencies, coverage, languages).
@@ -12,13 +13,26 @@ pub(super) struct IdentityMetrics {
     pub languages: Vec<LanguageStat>,
 }
 
+/// TASK-0530: resolve `get_db` once and thread the borrowed handle to each
+/// sub-query so we don't re-locate / re-lock the DuckDB handle three times
+/// per `provide()`. Same anti-pattern that about/units::enrich_from_db got
+/// fixed for. Falls back to all-`None` metrics when DuckDB is not available.
 pub(super) fn query_identity_metrics(ctx: &Context) -> IdentityMetrics {
-    let (loc, file_count) = query_loc_from_db(ctx);
-    let (coverage_percent, languages) = query_coverage_and_languages(ctx);
+    let Some(db) = ops_duckdb::get_db(ctx) else {
+        return IdentityMetrics {
+            loc: None,
+            file_count: None,
+            dependency_count: None,
+            coverage_percent: None,
+            languages: Vec::new(),
+        };
+    };
+    let (loc, file_count) = query_loc_from_db(db);
+    let (coverage_percent, languages) = query_coverage_and_languages(db);
     IdentityMetrics {
         loc,
         file_count,
-        dependency_count: query_dependency_count(ctx),
+        dependency_count: query_dependency_count(db),
         coverage_percent,
         languages,
     }
@@ -29,8 +43,7 @@ pub(super) fn query_identity_metrics(ctx: &Context) -> IdentityMetrics {
 // because all four call sites used `.ok()` / `.unwrap_or_default()` without
 // any signal.
 
-fn query_dependency_count(ctx: &Context) -> Option<usize> {
-    let db = ops_duckdb::get_db(ctx)?;
+fn query_dependency_count(db: &DuckDb) -> Option<usize> {
     match ops_duckdb::sql::query_dependency_count(db) {
         Ok(n) => Some(n),
         Err(e) => {
@@ -43,12 +56,7 @@ fn query_dependency_count(ctx: &Context) -> Option<usize> {
     }
 }
 
-fn query_coverage_and_languages(ctx: &Context) -> (Option<f64>, Vec<LanguageStat>) {
-    let db = match ops_duckdb::get_db(ctx) {
-        Some(db) => db,
-        None => return (None, vec![]),
-    };
-
+fn query_coverage_and_languages(db: &DuckDb) -> (Option<f64>, Vec<LanguageStat>) {
     let coverage = match ops_duckdb::sql::query_project_coverage(db) {
         Ok(c) if c.lines_count > 0 => Some(c.lines_percent),
         Ok(_) => None,
@@ -75,12 +83,7 @@ fn query_coverage_and_languages(ctx: &Context) -> (Option<f64>, Vec<LanguageStat
     (coverage, languages)
 }
 
-fn query_loc_from_db(ctx: &Context) -> (Option<i64>, Option<i64>) {
-    let db = match ops_duckdb::get_db(ctx) {
-        Some(db) => db,
-        None => return (None, None),
-    };
-
+fn query_loc_from_db(db: &DuckDb) -> (Option<i64>, Option<i64>) {
     let loc = match ops_duckdb::sql::query_project_loc(db) {
         Ok(n) => Some(n),
         Err(e) => {

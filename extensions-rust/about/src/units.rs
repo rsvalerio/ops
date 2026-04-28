@@ -8,7 +8,7 @@ use ops_about::cards::format_unit_name;
 use ops_core::project_identity::ProjectUnit;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
-use crate::query::load_workspace_manifest;
+use crate::query::{load_workspace_manifest, log_manifest_load_failure};
 
 pub(crate) const PROVIDER_NAME: &str = "project_units";
 
@@ -24,13 +24,14 @@ impl DataProvider for RustUnitsProvider {
 
         let manifest = match load_workspace_manifest(ctx) {
             Ok(m) => m,
-            Err(_) => return Ok(serde_json::to_value(Vec::<ProjectUnit>::new())?),
+            Err(e) => {
+                log_manifest_load_failure(&e);
+                return Ok(serde_json::to_value(Vec::<ProjectUnit>::new())?);
+            }
         };
-        let members = manifest
-            .workspace
-            .as_ref()
-            .map(|ws| ws.members.clone())
-            .unwrap_or_default();
+        // TASK-0471: take members by value so we can `into_iter` without a
+        // per-member clone for `ProjectUnit.path`.
+        let members = manifest.workspace.map(|ws| ws.members).unwrap_or_default();
 
         // Per-crate dep counts from DuckDB (Rust-specific, keyed by package name).
         // ERR-2 / TASK-0376: log query failures at warn so they don't manifest
@@ -53,16 +54,17 @@ impl DataProvider for RustUnitsProvider {
         sorted_members.sort();
 
         let units: Vec<ProjectUnit> = sorted_members
-            .iter()
+            .into_iter()
             .map(|member| {
-                let crate_toml = cwd.join(member).join("Cargo.toml");
+                let crate_toml = cwd.join(&member).join("Cargo.toml");
                 let (pkg_name, version, description) = read_crate_metadata(&crate_toml);
                 let package_name = pkg_name.unwrap_or_default();
                 let dep_count = dep_counts.get(&package_name).copied();
+                let name = format_unit_name(&member);
 
                 ProjectUnit {
-                    name: format_unit_name(member),
-                    path: member.clone(),
+                    name,
+                    path: member,
                     version,
                     description,
                     loc: None,

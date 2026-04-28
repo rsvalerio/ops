@@ -14,6 +14,28 @@ use ops_cargo_toml::{CargoToml, CargoTomlProvider};
 use ops_extension::{Context, DataProvider, DataProviderError};
 use std::path::Path;
 
+/// Log a `load_workspace_manifest` failure differentiating "no manifest /
+/// not a Rust project" (silent debug) from a real read/parse error (warn),
+/// mirroring `read_crate_metadata` (TASK-0433).
+pub(crate) fn log_manifest_load_failure(err: &DataProviderError) {
+    if is_manifest_missing(err) {
+        tracing::debug!("Cargo.toml not found; Rust providers will produce empty results: {err:#}");
+    } else {
+        tracing::warn!("failed to load workspace Cargo.toml: {err:#}");
+    }
+}
+
+fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err);
+    while let Some(e) = current {
+        if let Some(io) = e.downcast_ref::<std::io::Error>() {
+            return io.kind() == std::io::ErrorKind::NotFound;
+        }
+        current = e.source();
+    }
+    false
+}
+
 /// Load and parse `Cargo.toml` for the current context, then resolve any
 /// `[workspace].members` globs in place. Reuses any value already cached at
 /// the `cargo_toml` key; otherwise reads via [`CargoTomlProvider`].

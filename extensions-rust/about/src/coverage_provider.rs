@@ -4,7 +4,7 @@ use ops_core::project_identity::{CoverageStats, ProjectCoverage, UnitCoverage};
 use ops_duckdb::sql::{query_crate_coverage, query_project_coverage};
 use ops_extension::{Context, DataProvider, DataProviderError};
 
-use crate::query::load_workspace_manifest;
+use crate::query::{load_workspace_manifest, log_manifest_load_failure};
 use crate::units::resolve_crate_display_name;
 
 pub(crate) const PROVIDER_NAME: &str = "project_coverage";
@@ -18,7 +18,13 @@ impl DataProvider for RustCoverageProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let cwd = ctx.working_directory.clone();
-        let manifest = load_workspace_manifest(ctx).ok();
+        let manifest = match load_workspace_manifest(ctx) {
+            Ok(m) => Some(m),
+            Err(e) => {
+                log_manifest_load_failure(&e);
+                None
+            }
+        };
 
         let Some(db) = ops_duckdb::get_db(ctx) else {
             return Ok(serde_json::to_value(ProjectCoverage::default())?);
