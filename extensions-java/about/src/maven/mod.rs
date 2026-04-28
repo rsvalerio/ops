@@ -24,18 +24,13 @@ impl DataProvider for MavenIdentityProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let cwd = ctx.working_directory.clone();
-        let pom = parse_pom_xml(&cwd).map_err(|e| {
-            DataProviderError::computation_failed(format!(
-                "could not parse pom.xml at {}: {e}",
-                cwd.join("pom.xml").display()
-            ))
-        })?;
+        let pom = parse_pom_xml(&cwd).unwrap_or_default();
 
         let module_count = (!pom.modules.is_empty()).then_some(pom.modules.len());
 
         build_identity_value(
             ParsedManifest {
-                name: pom.artifact_id,
+                name: pom.name.or(pom.artifact_id),
                 version: pom.version,
                 description: pom.description,
                 license: pom.license,
@@ -72,7 +67,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let config = std::sync::Arc::new(ops_core::config::Config::default());
         let mut ctx = Context::new(config, dir.path().to_path_buf());
-        assert!(MavenIdentityProvider.provide(&mut ctx).is_err());
+        let result = MavenIdentityProvider.provide(&mut ctx).unwrap();
+
+        let name = result["name"].as_str().unwrap();
+        assert!(!name.is_empty());
+        assert_eq!(result["stack_detail"], "Maven");
+        assert!(result["version"].is_null());
     }
 
     #[test]
