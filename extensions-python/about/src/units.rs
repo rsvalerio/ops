@@ -50,13 +50,22 @@ struct RawWorkspace {
 }
 
 fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
-    let content = match std::fs::read_to_string(root.join("pyproject.toml")) {
+    let path = root.join("pyproject.toml");
+    let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
-        Err(_) => return Vec::new(),
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::debug!(path = %path.display(), error = %e, "failed to read pyproject.toml");
+            }
+            return Vec::new();
+        }
     };
     let raw: RawRoot = match toml::from_str(&content) {
         Ok(r) => r,
-        Err(_) => return Vec::new(),
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "failed to parse pyproject.toml");
+            return Vec::new();
+        }
     };
     raw.tool
         .and_then(|t| t.uv)
@@ -77,7 +86,8 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
     members
         .into_iter()
         .map(|(member, manifest)| {
-            let (name, version, description) = parse_package_metadata(&manifest);
+            let manifest_path = cwd.join(&member).join("pyproject.toml");
+            let (name, version, description) = parse_package_metadata(&manifest_path, &manifest);
             ProjectUnit {
                 name: name.unwrap_or_else(|| format_unit_name(&member)),
                 path: member,
@@ -101,10 +111,16 @@ struct ProjectProbe {
     description: Option<String>,
 }
 
-fn parse_package_metadata(content: &str) -> (Option<String>, Option<String>, Option<String>) {
+fn parse_package_metadata(
+    path: &Path,
+    content: &str,
+) -> (Option<String>, Option<String>, Option<String>) {
     let parsed: PackageProbe = match toml::from_str(content) {
         Ok(p) => p,
-        Err(_) => return (None, None, None),
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "failed to parse pyproject.toml");
+            return (None, None, None);
+        }
     };
     let p = match parsed.project {
         Some(p) => p,
