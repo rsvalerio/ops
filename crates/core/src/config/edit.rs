@@ -72,7 +72,7 @@ where
 /// concurrent writers — even within the same process — cannot race on the same
 /// sibling path. After the rename the parent directory is fsync-d on Unix so
 /// the new directory entry survives a crash.
-fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
