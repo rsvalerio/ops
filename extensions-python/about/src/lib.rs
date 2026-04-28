@@ -189,9 +189,17 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
         out.requires_python = p.requires_python;
+        // PEP 621 license can be a string, `{ text = "..." }`, or
+        // `{ file = "LICENSE" }`. The file form is a *path* to a file, not an
+        // SPDX identifier, so passing it through as the license name is
+        // misleading. When only `file` is set, surface it explicitly as
+        // `License file: <name>` so the About card communicates that an SPDX
+        // identifier was not declared but a license file is present.
         out.license = p.license.and_then(|l| match l {
             LicenseField::Text(s) => Some(s),
-            LicenseField::Table { text, file } => text.or(file),
+            LicenseField::Table { text: Some(t), .. } => Some(t),
+            LicenseField::Table { file: Some(f), .. } => Some(format!("License file: {f}")),
+            LicenseField::Table { .. } => None,
         });
         out.authors = p
             .authors
@@ -205,15 +213,17 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
             })
             .collect();
         if let Some(urls) = p.urls {
-            out.homepage = pick_url(&urls, &["Homepage", "homepage", "Home", "Documentation"]);
+            out.homepage = pick_url(&urls, &["homepage", "home", "home-page", "documentation"]);
             out.repository = pick_url(
                 &urls,
                 &[
-                    "Repository",
                     "repository",
-                    "Source",
                     "source",
-                    "Source Code",
+                    "source code",
+                    "source-code",
+                    "sourcecode",
+                    "code",
+                    "repo",
                 ],
             );
         }
@@ -222,10 +232,28 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
     Some(out)
 }
 
+/// PEP 621 places no constraints on `[project.urls]` key casing or spelling
+/// (`Homepage`, `homepage`, `Home Page`, `home-page` are all common in the
+/// wild). Look up candidates case-insensitively after trimming, and accept the
+/// kebab-case variant as equivalent to the space-separated form.
 fn pick_url(urls: &std::collections::BTreeMap<String, String>, keys: &[&str]) -> Option<String> {
+    let normalized: Vec<(String, &String)> = urls
+        .iter()
+        .map(|(k, v)| (normalize_url_key(k), v))
+        .collect();
     keys.iter()
-        .find_map(|k| urls.get(*k).cloned())
+        .find_map(|target| {
+            let target_norm = normalize_url_key(target);
+            normalized
+                .iter()
+                .find(|(k, _)| *k == target_norm)
+                .map(|(_, v)| (*v).clone())
+        })
         .filter(|s| !s.is_empty())
+}
+
+fn normalize_url_key(key: &str) -> String {
+    key.trim().to_ascii_lowercase().replace('-', " ")
 }
 
 #[cfg(test)]
@@ -343,6 +371,54 @@ dev-dependencies = []
             serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
 
         assert_eq!(id.stack_detail.as_deref(), Some("uv"));
+    }
+
+    #[test]
+    fn license_file_form_is_labeled() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "demo"
+version = "1.0.0"
+license = { file = "LICENSE" }
+"#,
+        )
+        .unwrap();
+
+        let provider = PythonIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let id: ProjectIdentity =
+            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert_eq!(id.license.as_deref(), Some("License file: LICENSE"));
+    }
+
+    #[test]
+    fn parses_urls_case_insensitive_and_kebab() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "demo"
+version = "1.0.0"
+
+[project.urls]
+homepage = "https://demo.dev"
+source-code = "https://github.com/x/demo"
+"#,
+        )
+        .unwrap();
+
+        let provider = PythonIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let id: ProjectIdentity =
+            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert_eq!(id.homepage.as_deref(), Some("https://demo.dev"));
+        assert_eq!(id.repository.as_deref(), Some("https://github.com/x/demo"));
     }
 
     #[test]
