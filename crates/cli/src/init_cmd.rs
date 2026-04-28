@@ -4,6 +4,8 @@ use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
+use ops_core::config::atomic_write;
+
 pub(crate) fn run_init(
     force: bool,
     sections: ops_core::config::InitSections,
@@ -54,10 +56,9 @@ fn run_init_to(
 ///   `AlreadyExists` if the target is present, so an attacker (or a racing
 ///   second `ops init`) cannot insert the file between the existence check
 ///   and the write.
-/// - With `--force`, the user has explicitly asked to clobber. We still
-///   stage the new content in a sibling temp file and `rename(2)` over the
-///   target so a crash mid-write cannot leave a half-written `.ops.toml`,
-///   matching the atomic-write idiom used by `ops_core::config::edit`.
+/// - With `--force`, the user has explicitly asked to clobber. Delegate to
+///   `ops_core::config::atomic_write` so the staged-temp + `rename(2)` +
+///   parent-dir fsync hardening stays in one place.
 fn write_init(path: &Path, bytes: &[u8], force: bool) -> std::io::Result<()> {
     if !force {
         let mut f = OpenOptions::new().write(true).create_new(true).open(path)?;
@@ -65,31 +66,7 @@ fn write_init(path: &Path, bytes: &[u8], force: bool) -> std::io::Result<()> {
         f.sync_all()?;
         return Ok(());
     }
-
-    let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
-    let parent = parent.unwrap_or_else(|| Path::new("."));
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidInput, "path has no file name"))?
-        .to_string_lossy()
-        .into_owned();
-    let pid = std::process::id();
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    let tmp = parent.join(format!(".{file_name}.tmp.{pid}.{nanos}"));
-
-    {
-        let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-    }
-
-    if let Err(e) = std::fs::rename(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e);
-    }
-    Ok(())
+    atomic_write(path, bytes)
 }
 
 #[cfg(test)]
