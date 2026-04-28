@@ -6,28 +6,9 @@
 //! identifiers like `version_1_2_3`. See `SEC-002` for the surrounding
 //! threat model documented in `command::exec`.
 
-/// DUP-001: Shared patterns for detecting sensitive environment variable names.
-/// Used by `warn_if_sensitive_env` for warnings and `is_sensitive_env_key` for
-/// dry-run redaction.
-///
-/// `SENSITIVE_REDACTION_PATTERNS` is a strict subset of this list. The extra
-/// entries ("access_key", "session") trigger warnings but are not redacted in
-/// dry-run output because they commonly appear in non-secret contexts.
-const SENSITIVE_KEY_PATTERNS: &[&str] = &[
-    "password",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-    "private",
-    "credential",
-    "auth",
-    "access_key",
-    "session",
-];
-
-/// DUP-001: Subset of `SENSITIVE_KEY_PATTERNS` used for dry-run redaction.
-/// Every entry here must also appear in `SENSITIVE_KEY_PATTERNS`.
+/// DUP-001 / DUP-3: Patterns that both warn and redact in dry-run output.
+/// Single source of truth; the warn list is `SENSITIVE_REDACTION_PATTERNS`
+/// chained with [`WARN_ONLY_PATTERNS`].
 const SENSITIVE_REDACTION_PATTERNS: &[&str] = &[
     "password",
     "secret",
@@ -39,6 +20,17 @@ const SENSITIVE_REDACTION_PATTERNS: &[&str] = &[
     "auth",
 ];
 
+/// Patterns that only trigger a warning. Kept separate because they commonly
+/// appear in non-secret contexts (e.g. `AWS_ACCESS_KEY_ID` is half a credential
+/// pair but not itself confidential, `SESSION_*` often refers to UI state).
+const WARN_ONLY_PATTERNS: &[&str] = &["access_key", "session"];
+
+fn warn_patterns() -> impl Iterator<Item = &'static &'static str> {
+    SENSITIVE_REDACTION_PATTERNS
+        .iter()
+        .chain(WARN_ONLY_PATTERNS.iter())
+}
+
 /// SEC-002: Warn if environment variable key or value looks sensitive.
 ///
 /// Checks for:
@@ -47,7 +39,7 @@ const SENSITIVE_REDACTION_PATTERNS: &[&str] = &[
 ///   JWT-like tokens
 pub fn warn_if_sensitive_env(key: &str, value: &str) {
     let lower = key.to_lowercase();
-    for pattern in SENSITIVE_KEY_PATTERNS {
+    for pattern in warn_patterns() {
         if lower.contains(pattern) {
             tracing::warn!(
                 key = %key,
@@ -210,13 +202,15 @@ pub(crate) fn looks_like_uuid(value: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// Redaction is a strict subset of warn by construction: warn iterates
+    /// `SENSITIVE_REDACTION_PATTERNS.chain(WARN_ONLY_PATTERNS)`. This test is
+    /// trivially true and exists to flag a future regression where someone
+    /// breaks the chained construction.
     #[test]
-    fn redaction_patterns_is_subset_of_key_patterns() {
+    fn redaction_patterns_is_subset_of_warn_patterns() {
+        let warn: Vec<&&str> = warn_patterns().collect();
         for pattern in SENSITIVE_REDACTION_PATTERNS {
-            assert!(
-                SENSITIVE_KEY_PATTERNS.contains(pattern),
-                "SENSITIVE_REDACTION_PATTERNS entry {pattern:?} missing from SENSITIVE_KEY_PATTERNS"
-            );
+            assert!(warn.iter().any(|p| **p == *pattern));
         }
     }
 

@@ -1,11 +1,11 @@
 ---
 id: TASK-0460
 title: 'DUP-3: secret_patterns kept in sync only by a runtime invariant test'
-status: To Do
+status: Done
 assignee:
   - TASK-0538
 created_date: '2026-04-28 05:45'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 13:33'
 labels:
   - code-review-rust
   - DUP
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One source-of-truth array exists; warn-but-don't-redact entries kept in a separate small array and the warn list is computed by chaining
-- [ ] #2 redaction_patterns_is_subset_of_key_patterns test becomes structurally redundant or trivially provable
+- [x] #1 One source-of-truth array exists; warn-but-don't-redact entries kept in a separate small array and the warn list is computed by chaining
+- [x] #2 redaction_patterns_is_subset_of_key_patterns test becomes structurally redundant or trivially provable
 <!-- AC:END -->
