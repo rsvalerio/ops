@@ -2266,6 +2266,8 @@ dependencies = [
  "serial_test",
  "tempfile",
  "toml_edit 0.25.11+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

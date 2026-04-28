@@ -1,11 +1,11 @@
 ---
 id: TASK-0518
 title: 'ERR-1: find_git_dir silently swallows IO errors when reading gitdir pointer'
-status: To Do
+status: Done
 assignee:
   - TASK-0535
 created_date: '2026-04-28 06:52'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 13:56'
 labels:
   - code-review-rust
   - error-handling
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Log read errors at tracing::debug! before falling through
-- [ ] #2 Test that a non-readable .git pointer is logged
+- [x] #1 Log read errors at tracing::debug! before falling through
+- [x] #2 Test that a non-readable .git pointer is logged
 <!-- AC:END -->

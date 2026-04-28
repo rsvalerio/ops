@@ -9,10 +9,12 @@ license.workspace = true
 anyhow = { workspace = true }
 ops-core = { workspace = true }
 toml_edit = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 serial_test = "3"
+tracing-subscriber = { workspace = true }
 
 [features]
 # Exposes `test_helpers` (e.g. `EnvGuard`) so wrapper crates can reuse the
