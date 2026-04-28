@@ -25,7 +25,7 @@ where
         anyhow::bail!("command cannot be empty");
     }
 
-    let (program, args) = parse_command(full_command);
+    let (program, args) = parse_command(full_command)?;
 
     let name = inquire::Text::new("Command name:")
         .with_help_message("the name used in [commands.<name>] and `ops <name>`")
@@ -47,12 +47,21 @@ where
     Ok(())
 }
 
-/// Parse a full command string into (program, args).
-fn parse_command(input: &str) -> (String, Vec<String>) {
-    let parts: Vec<&str> = input.split_whitespace().collect();
-    let program = parts.first().map(|s| s.to_string()).unwrap_or_default();
-    let args: Vec<String> = parts.iter().skip(1).map(|s| s.to_string()).collect();
-    (program, args)
+/// Parse a full command string into (program, args), honouring shell
+/// quoting and backslash escapes via [`shlex`]. Unbalanced quotes produce a
+/// clear error rather than silently mangling the args.
+fn parse_command(input: &str) -> anyhow::Result<(String, Vec<String>)> {
+    let parts = shlex::split(input).ok_or_else(|| {
+        anyhow::anyhow!(
+            "could not parse command (unbalanced quotes or trailing backslash): {input}"
+        )
+    })?;
+    let mut iter = parts.into_iter();
+    let program = iter
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("command cannot be empty"))?;
+    let args: Vec<String> = iter.collect();
+    Ok((program, args))
 }
 
 /// Append a new command entry to `.ops.toml`, creating the file if needed.
@@ -93,14 +102,15 @@ mod tests {
 
     #[test]
     fn parse_command_simple() {
-        let (prog, args) = parse_command("cargo build");
+        let (prog, args) = parse_command("cargo build").unwrap();
         assert_eq!(prog, "cargo");
         assert_eq!(args, vec!["build"]);
     }
 
     #[test]
     fn parse_command_with_flags() {
-        let (prog, args) = parse_command("cargo install --path crates/cli --force --all-features");
+        let (prog, args) =
+            parse_command("cargo install --path crates/cli --force --all-features").unwrap();
         assert_eq!(prog, "cargo");
         assert_eq!(
             args,
@@ -116,16 +126,41 @@ mod tests {
 
     #[test]
     fn parse_command_single_word() {
-        let (prog, args) = parse_command("make");
+        let (prog, args) = parse_command("make").unwrap();
         assert_eq!(prog, "make");
         assert!(args.is_empty());
     }
 
     #[test]
     fn parse_command_extra_whitespace() {
-        let (prog, args) = parse_command("  cargo   test  --lib  ");
+        let (prog, args) = parse_command("  cargo   test  --lib  ").unwrap();
         assert_eq!(prog, "cargo");
         assert_eq!(args, vec!["test", "--lib"]);
+    }
+
+    #[test]
+    fn parse_command_quoted_args_preserved() {
+        let (prog, args) = parse_command(r#"cargo install --features "a b""#).unwrap();
+        assert_eq!(prog, "cargo");
+        assert_eq!(args, vec!["install", "--features", "a b"]);
+    }
+
+    #[test]
+    fn parse_command_escaped_quotes_inside_quotes() {
+        let (prog, args) = parse_command(r#"echo "a \"quoted\" word""#).unwrap();
+        assert_eq!(prog, "echo");
+        assert_eq!(args, vec![r#"a "quoted" word"#]);
+    }
+
+    #[test]
+    fn parse_command_unbalanced_quote_errors() {
+        let result = parse_command(r#"cargo install --features "a b"#);
+        assert!(result.is_err(), "expected unbalanced-quote error");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("could not parse command"),
+            "unhelpful error: {msg}"
+        );
     }
 
     #[test]

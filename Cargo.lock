@@ -2040,6 +2040,7 @@ dependencies = [
  "ops-tools",
  "predicates",
  "serial_test",
+ "shlex",
  "tempfile",
  "tokio",
  "toml 1.1.2+spec-1.1.0",

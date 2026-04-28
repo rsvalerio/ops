@@ -60,6 +60,7 @@ assert_cmd = "2"
 predicates = "3"
 serial_test = "3"
 proptest = "1"
+shlex = "1"
 
 [patch.crates-io]
 # RUSTSEC-2026-0037: patch quinn-proto to 0.11.14 (DoS fix)
