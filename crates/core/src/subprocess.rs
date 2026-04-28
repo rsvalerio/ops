@@ -12,25 +12,39 @@
 //!
 //! # Sync-only — async callers must offload
 //!
-//! [`run_with_timeout`] is a fully synchronous helper: it uses
-//! `thread::sleep` + `Child::try_wait` polling at a fixed 100 ms cadence.
-//! That cadence is the deliberate resolution ceiling — timeouts may overshoot
-//! the requested deadline by up to one poll interval (~100 ms), which is well
-//! below the multi-second deadlines all current callers use.
+//! [`run_with_timeout`] is a fully synchronous helper. It uses
+//! `wait_timeout::ChildExt::wait_timeout` (TASK-0451) so the wait is a
+//! single OS-level wait rather than a 100 ms `thread::sleep` poll loop —
+//! no battery-burning wakeups for a 30 s `cargo metadata`, and idle waits
+//! cooperate with macOS App Nap. The wait blocks the calling thread for
+//! the full duration; async callers MUST wrap the invocation in
+//! [`tokio::task::spawn_blocking`] (or introduce a dedicated
+//! `tokio::process`-based variant) rather than awaiting it on the runtime
+//! thread.
 //!
-//! Calling this from inside a tokio task would block the runtime worker for
-//! up to 100 ms per poll and starve sibling tasks. Today every caller is sync
-//! (data providers run from the sync `about` rendering path, never from
-//! inside `run_with_runtime`), so no offload is required. Any future async
-//! caller MUST wrap the invocation in [`tokio::task::spawn_blocking`] (or
-//! introduce a dedicated `tokio::process`-based variant) rather than awaiting
-//! it on the runtime thread.
+//! ## SIGINT / Ctrl-C behaviour
+//!
+//! In typical interactive use the user's Ctrl-C lands on the foreground
+//! process group, which the spawned child belongs to by default
+//! (`std::process::Command` does not detach the child into a new pgrp).
+//! That means the child receives the same SIGINT and exits, then
+//! [`run_with_timeout`] observes the exit via `wait_timeout` and returns
+//! normally. No extra wiring is required for that case.
+//!
+//! When a non-interactive parent receives a signal that does **not**
+//! propagate to the child (e.g. a programmatic `kill(parent_pid, …)` or a
+//! supervisor that sends SIGTERM only to the leader), the child outlives
+//! the parent until the deadline. This helper is sync-only and does not
+//! install signal handlers — closing that gap would require a dedicated
+//! cancellation token threaded from the caller, which today's callers do
+//! not need.
 
 use std::io::{self, Read};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use wait_timeout::ChildExt;
 
 /// Environment variable used to override the per-operation default timeout.
 pub const TIMEOUT_ENV: &str = "OPS_SUBPROCESS_TIMEOUT_SECS";
@@ -38,10 +52,6 @@ pub const TIMEOUT_ENV: &str = "OPS_SUBPROCESS_TIMEOUT_SECS";
 /// Fallback timeout applied when a caller has no operation-specific default
 /// and `OPS_SUBPROCESS_TIMEOUT_SECS` is unset or unparseable.
 pub const FALLBACK_TIMEOUT: Duration = Duration::from_secs(180);
-
-/// Polling cadence used by [`run_with_timeout`] when waiting on the child.
-/// This is the documented resolution ceiling on timeout overshoot.
-const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// ASYNC-6 / TASK-0304: upper bound on `OPS_SUBPROCESS_TIMEOUT_SECS`.
 ///
@@ -143,10 +153,9 @@ pub fn default_timeout(op_default: Duration) -> Duration {
 ///
 /// # Blocking
 ///
-/// Synchronous: polls `Child::try_wait` every 100 ms until the deadline.
-/// Timeouts may overshoot by up to one poll interval; that is the documented
-/// resolution ceiling. Async callers MUST run this inside
-/// `tokio::task::spawn_blocking` — see the module docs.
+/// Synchronous: a single `wait_timeout` call blocks the current thread
+/// until the child exits or the deadline expires. Async callers MUST run
+/// this inside `tokio::task::spawn_blocking` — see the module docs.
 ///
 /// # Errors
 ///
@@ -178,24 +187,21 @@ pub fn run_with_timeout(
         })
     });
 
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait()? {
-            Some(s) => break s,
-            None => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    // Drain pipe readers so background threads terminate.
-                    let _ = stdout_handle.and_then(|h| h.join().ok());
-                    let _ = stderr_handle.and_then(|h| h.join().ok());
-                    return Err(RunError::Timeout(TimeoutError {
-                        label: label.to_string(),
-                        timeout,
-                    }));
-                }
-                thread::sleep(POLL_INTERVAL);
-            }
+    // TASK-0451: single OS-level wait, no polling loop. Returns Ok(None)
+    // on timeout, Ok(Some(status)) on exit; the underlying syscall sleeps
+    // the thread cooperatively, so idle waits do not burn CPU/battery.
+    let status = match child.wait_timeout(timeout)? {
+        Some(s) => s,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            // Drain pipe readers so background threads terminate.
+            let _ = stdout_handle.and_then(|h| h.join().ok());
+            let _ = stderr_handle.and_then(|h| h.join().ok());
+            return Err(RunError::Timeout(TimeoutError {
+                label: label.to_string(),
+                timeout,
+            }));
         }
     };
 

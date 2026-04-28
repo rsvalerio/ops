@@ -2194,6 +2194,7 @@ dependencies = [
  "toml_edit 0.25.11+spec-1.1.0",
  "tracing",
  "unicode-width",
+ "wait-timeout",
 ]
 
 [[package]]
@@ -2325,6 +2326,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "serial_test",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

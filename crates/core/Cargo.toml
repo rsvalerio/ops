@@ -21,6 +21,7 @@ comfy-table = "7"
 unicode-width = "0.2"
 terminal_size = "0.4"
 shellexpand = { version = "3.1.2", default-features = false, features = ["base-0"] }
+wait-timeout = "0.2"
 
 [dev-dependencies]
 tempfile = { workspace = true }
