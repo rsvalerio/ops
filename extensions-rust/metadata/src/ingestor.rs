@@ -67,10 +67,18 @@ impl DataIngestor for MetadataIngestor {
             },
         )?;
 
-        // Note: File is deleted after successful load. If the load fails before this point,
-        // the staged file remains and can be re-loaded. This is intentional - it allows
-        // recovery from transient failures without re-running cargo metadata.
-        std::fs::remove_file(&path).map_err(DbError::Io)?;
+        // TASK-0510: cleanup is best-effort. The DuckDB row is already
+        // committed; failing the whole load over a remove_file error
+        // (read-only mount, AV race) makes subsequent invocations think
+        // ingestion is incomplete and retry it. Log at warn so the leftover
+        // file is observable, but do not propagate.
+        if let Err(e) = std::fs::remove_file(&path) {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "failed to remove staged metadata file after successful load; leaving in place"
+            );
+        }
 
         Ok(LoadResult::success(self.name(), record_count))
     }

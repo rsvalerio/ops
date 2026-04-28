@@ -9,7 +9,8 @@
 //! that differ only by the filter predicate (enum variant or target kind string).
 
 use ops_extension::{Context, DataRegistry};
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, OnceLock};
 
 trait JsonValueExt {
     /// Returns the value at the given field, if present.
@@ -65,27 +66,17 @@ pub(crate) fn json_bool_with_fallback(
     value.get_bool_or(field, default)
 }
 
-/// CQ-002: Helper to collect member IDs from a workspace field.
-fn collect_member_ids<'a>(
-    metadata: &'a serde_json::Value,
-    field: &str,
-) -> std::collections::HashSet<&'a str> {
+/// CQ-002 / TASK-0477: collect member IDs once into an owned HashSet so that
+/// repeat callers (members/default_members/is_member/is_default_member) do
+/// not pay the per-call HashSet build or O(n) scan.
+fn collect_member_ids_owned(metadata: &serde_json::Value, field: &str) -> HashSet<String> {
     metadata[field]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|v| v.as_str())
+        .map(str::to_string)
         .collect()
-}
-
-/// CQ-002: Helper to check if an ID is in a workspace field.
-fn id_in_field(metadata: &serde_json::Value, field: &str, id: &str) -> bool {
-    metadata[field]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|v| v.as_str())
-        .any(|member_id| member_id == id)
 }
 
 /// Parsed cargo metadata with convenient accessor methods.
@@ -98,6 +89,10 @@ fn id_in_field(metadata: &serde_json::Value, field: &str, id: &str) -> bool {
 #[allow(dead_code)]
 pub struct Metadata {
     pub(crate) inner: Arc<serde_json::Value>,
+    /// TASK-0477: cached `workspace_members` id set, lazily computed once.
+    member_ids: OnceLock<HashSet<String>>,
+    /// TASK-0477: cached `workspace_default_members` id set, lazily computed once.
+    default_member_ids: OnceLock<HashSet<String>>,
 }
 
 #[allow(dead_code)]
@@ -106,6 +101,8 @@ impl Metadata {
     pub fn from_value(value: serde_json::Value) -> Self {
         Self {
             inner: Arc::new(value),
+            member_ids: OnceLock::new(),
+            default_member_ids: OnceLock::new(),
         }
     }
 
@@ -113,7 +110,21 @@ impl Metadata {
     /// without deep-cloning the underlying JSON.
     pub fn from_context(ctx: &mut Context, registry: &DataRegistry) -> Result<Self, anyhow::Error> {
         let value = ctx.get_or_provide("metadata", registry)?;
-        Ok(Self { inner: value })
+        Ok(Self {
+            inner: value,
+            member_ids: OnceLock::new(),
+            default_member_ids: OnceLock::new(),
+        })
+    }
+
+    fn member_ids(&self) -> &HashSet<String> {
+        self.member_ids
+            .get_or_init(|| collect_member_ids_owned(&self.inner, "workspace_members"))
+    }
+
+    fn default_member_ids(&self) -> &HashSet<String> {
+        self.default_member_ids
+            .get_or_init(|| collect_member_ids_owned(&self.inner, "workspace_default_members"))
     }
 
     /// Absolute path to the workspace root directory.
@@ -139,19 +150,19 @@ impl Metadata {
             .flatten()
             .map(|v| Package {
                 inner: v,
-                metadata: &self.inner,
+                metadata: self,
             })
     }
 
     /// Iterator over workspace member packages only.
     pub fn members(&self) -> impl Iterator<Item = Package<'_>> {
-        let member_ids = collect_member_ids(&self.inner, "workspace_members");
+        let member_ids = self.member_ids();
         self.packages().filter(move |p| member_ids.contains(p.id()))
     }
 
     /// Iterator over default workspace member packages.
     pub fn default_members(&self) -> impl Iterator<Item = Package<'_>> {
-        let default_ids = collect_member_ids(&self.inner, "workspace_default_members");
+        let default_ids = self.default_member_ids();
         self.packages()
             .filter(move |p| default_ids.contains(p.id()))
     }
@@ -179,7 +190,7 @@ impl Metadata {
 #[allow(dead_code)]
 pub struct Package<'a> {
     pub(crate) inner: &'a serde_json::Value,
-    pub(crate) metadata: &'a serde_json::Value,
+    pub(crate) metadata: &'a Metadata,
 }
 
 #[allow(dead_code)]
@@ -226,12 +237,12 @@ impl<'a> Package<'a> {
 
     /// True if this package is a workspace member.
     pub fn is_member(&self) -> bool {
-        id_in_field(self.metadata, "workspace_members", self.id())
+        self.metadata.member_ids().contains(self.id())
     }
 
     /// True if this package is a default workspace member.
     pub fn is_default_member(&self) -> bool {
-        id_in_field(self.metadata, "workspace_default_members", self.id())
+        self.metadata.default_member_ids().contains(self.id())
     }
 
     fn filter_deps_by_kind(&self, kind: DependencyKind) -> impl Iterator<Item = Dependency<'a>> {
