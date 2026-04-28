@@ -2,6 +2,58 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.21.0](https://github.com/rsvalerio/ops/compare/f7efafb1496f4a4f2213476e949e824494ca2634..v0.21.0) - 2026-04-28
+#### 🚀 Features
+- (**core/config**) expose atomic_write for cross-crate reuse - ([45c2c35](https://github.com/rsvalerio/ops/commit/45c2c3523bb6e2c26c98b7289ddac9352b787ee3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) log .git pointer read errors at debug - ([af3c268](https://github.com/rsvalerio/ops/commit/af3c2686cae4d2937043ab2c1faafae4cbe516ca)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**cli**) surface registry, hook, theme, and OPS_LOG_LEVEL errors visibly - ([7611851](https://github.com/rsvalerio/ops/commit/7611851136d0483666f1bf2ac1f1741ff9eabfa7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli/help**) stop is_toplevel_help scan at -- separator - ([8eef6c7](https://github.com/rsvalerio/ops/commit/8eef6c7eef7cd0f38f56a07e452c53bf76d9bd67)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/config**) log atomic_write tmp cleanup failure on rename error - ([bff1aee](https://github.com/rsvalerio/ops/commit/bff1aee065191cefdf261c33cb8894462066b174)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/stack**) cap detect walk at MAX_DETECT_DEPTH - ([e317ba9](https://github.com/rsvalerio/ops/commit/e317ba90af05595656b3db99f9a792442924168b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git**) tighten origin-section header parser and owner/repo allowlist - ([2683610](https://github.com/rsvalerio/ops/commit/26836100e730738c27bb0defcdcb05dc96d78dde)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**go/about**) strip inline // comments from go.work use directives - ([36b6d8c](https://github.com/rsvalerio/ops/commit/36b6d8cb5b5d3750d145787f647ddf7bafb4f720)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**java/gradle**) handle multi-arg includes, bare-method description, properties separators - ([f4444aa](https://github.com/rsvalerio/ops/commit/f4444aa004ffb1b2b6757099dda613431b11c30d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**java/maven**) tolerate missing pom, skip container sections, separate name/artifactId - ([77205d6](https://github.com/rsvalerio/ops/commit/77205d68cb7bff53eb8ca3b399fb662178c1469a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**node/about**) split workspace includes/excludes and log unit parse errors - ([66dba0b](https://github.com/rsvalerio/ops/commit/66dba0b6a1cad0c4514460dc611cd7bf918073bc)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**node/about**) detect bun in packageManager field - ([8574f19](https://github.com/rsvalerio/ops/commit/8574f19e4d8123c47819e16ef672e5d285a88a62)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**node/about**) wrap email-only person in angle brackets - ([c4664b9](https://github.com/rsvalerio/ops/commit/c4664b936e6d67f0b7d6eec486e7ef27c2f14cfd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python/about**) log pyproject parse errors in units provider - ([4aca2b7](https://github.com/rsvalerio/ops/commit/4aca2b7fe4866cce2c17d4bfc7fd248196a05557)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**cli/registry**) drop per-iteration registry snapshot in register_extension_commands - ([0b87d84](https://github.com/rsvalerio/ops/commit/0b87d84e6db375107a1d5672dd23ad25d3d4905e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**java/about**) cache field list via OnceLock - ([c6c1616](https://github.com/rsvalerio/ops/commit/c6c16169374d923722d421c1b9040cab3dae0087)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**cargo-toml**) document and test workspace=false InheritableField - ([f1c5054](https://github.com/rsvalerio/ops/commit/f1c50541ec2a9f8ebdd87dcc1f1ca96c29223c08)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**run-before-commit**) pin lossy git stderr decode behaviour - ([79dc5e4](https://github.com/rsvalerio/ops/commit/79dc5e444abbe6d3c79e9c478eb5b65606428e99)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about**) add shared identity-provider and workspace-glob helpers - ([29c9a7f](https://github.com/rsvalerio/ops/commit/29c9a7f52c80ecb9b15e5238ca75859b2559a4d3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) collapse run-before-{commit,push} cmd modules into pre_hook_cmd - ([2b739c7](https://github.com/rsvalerio/ops/commit/2b739c777aa87c03e539bab858391a7f49c43aa0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli/init**) delegate force-overwrite to ops_core atomic_write - ([f69038c](https://github.com/rsvalerio/ops/commit/f69038c81c0de3d367a86ab1f289ea53dc0cb5a2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli/new-command**) use shlex to honour quoted arguments - ([dbb885a](https://github.com/rsvalerio/ops/commit/dbb885aee27db8690fb7adf122f8e82dde07b704)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli/run**) split run_commands into raw/display helpers and warn on nested parallel - ([1cc2fb2](https://github.com/rsvalerio/ops/commit/1cc2fb2c94851252170c57db517d01164cf28fb8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/config**) split tests.rs into per-area submodules - ([7da632f](https://github.com/rsvalerio/ops/commit/7da632f500c47fbd1a436bc87415fd9c1e42ea39)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**go/about**) share go.mod parser, parse block-form replace, strip // comments - ([c1e6f11](https://github.com/rsvalerio/ops/commit/c1e6f119103f09cda16bfbd694df12b19caa9cf5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**go/about**) extract go.work parser and adopt shared identity - ([1785138](https://github.com/rsvalerio/ops/commit/1785138962ee1b0c70f059538d0fe8c1a5ed4bd9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**java/about**) split maven into module and adopt shared identity - ([0717e51](https://github.com/rsvalerio/ops/commit/0717e51948c6db4b3a878ec4d304dd5bf461ba18)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**node/about**) rewrite git+ssh repo URLs to https and exhaust PackageJson literal - ([9f3cbd7](https://github.com/rsvalerio/ops/commit/9f3cbd744bdb93f7a952a737b0674276ba05eb4c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**node/about**) split package_json/package_manager and adopt shared identity - ([c8a8898](https://github.com/rsvalerio/ops/commit/c8a8898ec8a9afd14be561fbddde2b2e376c441d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python/about**) case-insensitive pick_url and labelled license file - ([2de8ca5](https://github.com/rsvalerio/ops/commit/2de8ca5cf0fd49f90dfada5227039af5a2c5ff0f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python/about**) tighten pyproject parser and adopt shared identity - ([01dadf1](https://github.com/rsvalerio/ops/commit/01dadf10863b1151076590546d48502fb5892ab2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) dedupe sensitive-env warn/redact pattern sources - ([46ae3be](https://github.com/rsvalerio/ops/commit/46ae3be6202a1098895c9196816631ad462541c3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/about**) tighten coverage/identity/query/units - ([e050b84](https://github.com/rsvalerio/ops/commit/e050b8404b4e7a74cc3a710fa2439182ade981fd)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close wave 38 code-review tasks - ([49e1dcf](https://github.com/rsvalerio/ops/commit/49e1dcf0a9aae734a7fa22669c9096be40c3a0da)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave 34 code-review tasks - ([3a43be1](https://github.com/rsvalerio/ops/commit/3a43be1e30ffae52eefd88d3c62a08547ea84d55)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave 37 code-review tasks - ([46ad460](https://github.com/rsvalerio/ops/commit/46ad46055161499d0c431424164b0467b3d75eeb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave 40 code-review tasks - ([3bb517e](https://github.com/rsvalerio/ops/commit/3bb517ed84ea087fe69cfc0a8b092dadfc260db7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) add wave 33-40 code-review task files - ([ee5b2cc](https://github.com/rsvalerio/ops/commit/ee5b2cc2008acbd1ac176d407ede09ca42732160)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave 28 code-review tasks - ([c6353d2](https://github.com/rsvalerio/ops/commit/c6353d2694414d572f7fa01d20354e100bbb717c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) pin shared deps via workspace.dependencies - ([f7efafb](https://github.com/rsvalerio/ops/commit/f7efafb1496f4a4f2213476e949e824494ca2634)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) centralise binary deps via workspace.dependencies - ([c210178](https://github.com/rsvalerio/ops/commit/c2101786facd5b25df3c9b74600b23b70e5b74a7)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.20.3](https://github.com/rsvalerio/ops/compare/161ac844d7cb1eba967ba08d869acb081c312ab4..v0.20.3) - 2026-04-27
 #### 🐛 Bug Fixes
 - (**cargo-update**) trace cargo-update lines that match no known verb shape - ([4762520](https://github.com/rsvalerio/ops/commit/47625206e81f5529e9cae9a14edb789de60b0c8b)) - [@rsvalerio](https://github.com/rsvalerio)
