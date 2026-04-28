@@ -26,13 +26,18 @@ impl DataProvider for GradleIdentityProvider {
         let props = parse_gradle_properties(&cwd);
         let build = parse_gradle_build(&cwd);
 
-        let name = settings.as_ref().and_then(|s| s.root_project_name.clone());
-        let version = props.as_ref().and_then(|p| p.version.clone());
-        let description = build.as_ref().and_then(|b| b.description.clone());
-        let module_count = settings
-            .as_ref()
-            .map(|s| s.includes.len())
-            .filter(|&c| c > 0);
+        let (name, module_count) = match settings {
+            Some(GradleSettings {
+                root_project_name,
+                includes,
+            }) => {
+                let count = (!includes.is_empty()).then_some(includes.len());
+                (root_project_name, count)
+            }
+            None => (None, None),
+        };
+        let version = props.and_then(|GradleProperties { version }| version);
+        let description = build.and_then(|GradleBuild { description }| description);
 
         build_identity_value(
             ParsedManifest {
@@ -72,14 +77,16 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
             root_project_name = Some(name);
         }
 
-        if let Some(rest) = line.strip_prefix("include ") {
-            if let Some(val) = extract_quoted(rest.trim()) {
-                includes.push(val);
-            }
-        } else if let Some(rest) = line.strip_prefix("include(") {
-            if let Some(val) = extract_quoted(rest.trim_end_matches(')')) {
-                includes.push(val);
-            }
+        // include 'a'         (Groovy bare)
+        // include 'a', 'b'    (Groovy multi-arg)
+        // include("a", "b")   (Kotlin DSL)
+        // include 'core' // comment
+        let after_include = line
+            .strip_prefix("include(")
+            .map(|r| r.trim_end_matches(|c: char| c.is_whitespace() || c == ')'))
+            .or_else(|| line.strip_prefix("include ").map(strip_trailing_comment));
+        if let Some(rest) = after_include {
+            extract_quoted_list(rest, &mut includes);
         }
     };
 
@@ -96,10 +103,18 @@ fn parse_gradle_properties(project_root: &Path) -> Option<GradleProperties> {
     let mut version = None;
 
     for_each_trimmed_line(&project_root.join("gradle.properties"), |line| {
-        if let Some(rest) = line.strip_prefix("version=") {
-            version = Some(rest.trim().to_string());
-        } else if let Some(rest) = line.strip_prefix("version =") {
-            version = Some(rest.trim().to_string());
+        if let Some(rest) = line.strip_prefix("version") {
+            // .properties syntax: `key = value`, `key:value`, or `key value`
+            // (we accept = and : here; trailing # / ! is a comment).
+            let rest = rest.trim_start();
+            let rest = match rest.strip_prefix('=').or_else(|| rest.strip_prefix(':')) {
+                Some(r) => r,
+                None => return,
+            };
+            let value = strip_properties_comment(rest).trim();
+            if !value.is_empty() {
+                version = Some(value.to_string());
+            }
         }
     })?;
 
@@ -112,6 +127,8 @@ fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
     let mut scan = |line: &str| {
         if let Some(val) = extract_assignment(line, "description") {
             description = Some(val);
+        } else if let Some(val) = extract_bare_method(line, "description") {
+            description = Some(val);
         }
     };
 
@@ -122,24 +139,85 @@ fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
 }
 
 /// Extract a value from `key = "value"` or `key = 'value'` or `key="value"`.
+/// Requires a word boundary after `key` (next char is `=` or whitespace) so
+/// `descriptionText = …` does not match `description`.
 fn extract_assignment(line: &str, key: &str) -> Option<String> {
     let line = line.trim();
-    if !line.starts_with(key) {
+    let rest = line.strip_prefix(key)?;
+    if !rest.starts_with('=') && !rest.starts_with(char::is_whitespace) {
         return None;
     }
-    let rest = line[key.len()..].trim();
+    let rest = rest.trim_start();
     let rest = rest.strip_prefix('=')?;
-    extract_quoted(rest.trim())
+    extract_quoted(rest.trim()).map(str::to_string)
+}
+
+/// Extract a value from the Groovy bare-method form `key "value"` or
+/// `key 'value'` (no `=`). Rejects `keyTask { … }` and similar by requiring
+/// whitespace after `key` and a quoted value immediately after.
+fn extract_bare_method(line: &str, key: &str) -> Option<String> {
+    let line = line.trim();
+    let rest = line.strip_prefix(key)?;
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let rest = rest.trim_start();
+    extract_quoted(strip_trailing_comment(rest)).map(str::to_string)
 }
 
 /// Extract a quoted string value: `"foo"` or `'foo'`.
-fn extract_quoted(s: &str) -> Option<String> {
+fn extract_quoted(s: &str) -> Option<&str> {
     let s = s.trim();
-    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
-        Some(s[1..s.len() - 1].to_string())
+    let (open, rest) = if let Some(r) = s.strip_prefix('"') {
+        ('"', r)
+    } else if let Some(r) = s.strip_prefix('\'') {
+        ('\'', r)
     } else {
-        None
+        return None;
+    };
+    let end = rest.find(open)?;
+    Some(&rest[..end])
+}
+
+/// Extract every quoted token from a comma-separated list of values:
+/// `'a', 'b', "c"`. Pushes each unquoted token into `out`.
+fn extract_quoted_list(s: &str, out: &mut Vec<String>) {
+    let mut rest = strip_trailing_comment(s).trim();
+    while !rest.is_empty() {
+        let Some(quote) = rest.chars().next().filter(|c| *c == '"' || *c == '\'') else {
+            return;
+        };
+        let after = &rest[1..];
+        let Some(end) = after.find(quote) else {
+            return;
+        };
+        out.push(after[..end].to_string());
+        rest = after[end + 1..].trim_start();
+        if let Some(next) = rest.strip_prefix(',') {
+            rest = next.trim_start();
+        } else {
+            break;
+        }
     }
+}
+
+/// Strip a trailing `// ...` Groovy/Kotlin comment from a line fragment.
+fn strip_trailing_comment(s: &str) -> &str {
+    match s.find("//") {
+        Some(i) => &s[..i],
+        None => s,
+    }
+}
+
+/// Strip a trailing `# ...` or `! ...` java.util.Properties comment.
+fn strip_properties_comment(s: &str) -> &str {
+    let cut = s
+        .find('#')
+        .into_iter()
+        .chain(s.find('!'))
+        .min()
+        .unwrap_or(s.len());
+    &s[..cut]
 }
 
 #[cfg(test)]
@@ -176,7 +254,8 @@ mod tests {
     }
 
     #[test]
-    fn extract_assignment_no_equals() {
+    fn extract_assignment_no_equals_does_not_match() {
+        // bare-method form is handled by extract_bare_method, not extract_assignment
         assert_eq!(
             extract_assignment("description \"val\"", "description"),
             None
@@ -184,13 +263,45 @@ mod tests {
     }
 
     #[test]
+    fn extract_assignment_word_boundary() {
+        assert_eq!(
+            extract_assignment("rootProject.nameOverride = \"x\"", "rootProject.name"),
+            None
+        );
+        assert_eq!(
+            extract_assignment("descriptionText = \"x\"", "description"),
+            None
+        );
+    }
+
+    #[test]
+    fn extract_bare_method_basic() {
+        assert_eq!(
+            extract_bare_method("description \"My project\"", "description"),
+            Some("My project".to_string())
+        );
+        assert_eq!(
+            extract_bare_method("description 'My project'", "description"),
+            Some("My project".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_bare_method_rejects_block() {
+        assert_eq!(
+            extract_bare_method("descriptionTask { foo() }", "description"),
+            None
+        );
+    }
+
+    #[test]
     fn extract_quoted_double() {
-        assert_eq!(extract_quoted("\"hello\""), Some("hello".to_string()));
+        assert_eq!(extract_quoted("\"hello\""), Some("hello"));
     }
 
     #[test]
     fn extract_quoted_single() {
-        assert_eq!(extract_quoted("'hello'"), Some("hello".to_string()));
+        assert_eq!(extract_quoted("'hello'"), Some("hello"));
     }
 
     #[test]
@@ -241,6 +352,45 @@ mod tests {
     }
 
     #[test]
+    fn parse_gradle_settings_multi_arg_groovy() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.gradle"),
+            "include 'a', 'b', 'c'\n",
+        )
+        .unwrap();
+
+        let s = parse_gradle_settings(dir.path()).unwrap();
+        assert_eq!(s.includes, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn parse_gradle_settings_multi_arg_kotlin() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.gradle.kts"),
+            "include(\"a\", \"b\")\n",
+        )
+        .unwrap();
+
+        let s = parse_gradle_settings(dir.path()).unwrap();
+        assert_eq!(s.includes, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn parse_gradle_settings_inline_comment() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.gradle"),
+            "include 'core' // primary module\n",
+        )
+        .unwrap();
+
+        let s = parse_gradle_settings(dir.path()).unwrap();
+        assert_eq!(s.includes, vec!["core"]);
+    }
+
+    #[test]
     fn parse_gradle_settings_missing_file() {
         let dir = tempfile::tempdir().unwrap();
         assert!(parse_gradle_settings(dir.path()).is_none());
@@ -269,6 +419,28 @@ mod tests {
     }
 
     #[test]
+    fn parse_gradle_properties_colon_separator() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("gradle.properties"), "version : 1.2\n").unwrap();
+
+        let p = parse_gradle_properties(dir.path()).unwrap();
+        assert_eq!(p.version, Some("1.2".to_string()));
+    }
+
+    #[test]
+    fn parse_gradle_properties_inline_comment() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("gradle.properties"),
+            "version=1.2 # release\n",
+        )
+        .unwrap();
+
+        let p = parse_gradle_properties(dir.path()).unwrap();
+        assert_eq!(p.version, Some("1.2".to_string()));
+    }
+
+    #[test]
     fn parse_gradle_properties_missing_file() {
         let dir = tempfile::tempdir().unwrap();
         assert!(parse_gradle_properties(dir.path()).is_none());
@@ -285,6 +457,19 @@ mod tests {
 
         let b = parse_gradle_build(dir.path()).unwrap();
         assert_eq!(b.description, Some("Spring Boot Build".to_string()));
+    }
+
+    #[test]
+    fn parse_gradle_build_bare_method() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("build.gradle"),
+            "description \"Bare method form\"\n",
+        )
+        .unwrap();
+
+        let b = parse_gradle_build(dir.path()).unwrap();
+        assert_eq!(b.description, Some("Bare method form".to_string()));
     }
 
     #[test]
