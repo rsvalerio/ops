@@ -11,9 +11,7 @@ use crate::args::{
 };
 #[cfg(feature = "stack-rust")]
 use crate::tools_cmd;
-use crate::{
-    about_cmd, extension_cmd, run_before_commit_cmd, run_before_push_cmd, run_cmd, theme_cmd,
-};
+use crate::{about_cmd, extension_cmd, pre_hook_cmd, run_cmd, theme_cmd};
 
 /// Shared load-config + build-registry preamble used by `run_about`,
 /// `run_deps`, and the extension subcommand handlers. DUP-1 / TASK-0207:
@@ -88,8 +86,8 @@ fn prompt_hook_install(hook_name: &str) -> anyhow::Result<ExitCode> {
         .prompt()?;
     if answer {
         match hook_name {
-            "run-before-commit" => run_before_commit_cmd::run_before_commit_install()?,
-            "run-before-push" => run_before_push_cmd::run_before_push_install()?,
+            "run-before-commit" => pre_hook_cmd::run_before_commit_install()?,
+            "run-before-push" => pre_hook_cmd::run_before_push_install()?,
             other => anyhow::bail!("unknown hook: {other}"),
         }
         return Ok(ExitCode::SUCCESS);
@@ -117,7 +115,7 @@ const HOOK_BEFORE_COMMIT: HookDispatch = HookDispatch {
     skip_env_var: ops_run_before_commit::SKIP_ENV_VAR,
     should_skip: ops_run_before_commit::should_skip,
     preflight: Some((ops_run_before_commit::has_staged_files, "no staged files")),
-    install: run_before_commit_cmd::run_before_commit_install,
+    install: pre_hook_cmd::run_before_commit_install,
 };
 
 const HOOK_BEFORE_PUSH: HookDispatch = HookDispatch {
@@ -125,7 +123,7 @@ const HOOK_BEFORE_PUSH: HookDispatch = HookDispatch {
     skip_env_var: ops_run_before_push::SKIP_ENV_VAR,
     should_skip: ops_run_before_push::should_skip,
     preflight: None,
-    install: run_before_push_cmd::run_before_push_install,
+    install: pre_hook_cmd::run_before_push_install,
 };
 
 fn run_hook_dispatch(hook: &HookDispatch, run_preflight: bool) -> anyhow::Result<ExitCode> {

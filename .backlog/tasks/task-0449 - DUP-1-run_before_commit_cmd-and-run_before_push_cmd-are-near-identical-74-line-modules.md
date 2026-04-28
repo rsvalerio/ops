@@ -3,11 +3,11 @@ id: TASK-0449
 title: >-
   DUP-1: run_before_commit_cmd and run_before_push_cmd are near-identical
   74-line modules
-status: To Do
+status: Done
 assignee:
   - TASK-0535
 created_date: '2026-04-28 05:43'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 13:58'
 labels:
   - code-review-rust
   - DUP
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Collapse into a single pre_hook_cmd.rs module parameterised by HookOps (already the abstraction boundary), or generate the two modules from a macro
-- [ ] #2 All hook install / dispatch tests still pass
+- [x] #1 Collapse into a single pre_hook_cmd.rs module parameterised by HookOps (already the abstraction boundary), or generate the two modules from a macro
+- [x] #2 All hook install / dispatch tests still pass
 <!-- AC:END -->
