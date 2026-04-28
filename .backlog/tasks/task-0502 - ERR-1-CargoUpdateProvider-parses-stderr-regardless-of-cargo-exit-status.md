@@ -1,11 +1,11 @@
 ---
 id: TASK-0502
 title: 'ERR-1: CargoUpdateProvider parses stderr regardless of cargo exit status'
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 06:50'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:00'
 labels:
   - code-review-rust
   - error-handling
@@ -25,6 +25,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 provide() inspects output.status; non-zero exit returns DataProviderError with stderr tail
-- [ ] #2 Parse path remains unchanged on success; existing tests still pass
+- [x] #1 provide() inspects output.status; non-zero exit returns DataProviderError with stderr tail
+- [x] #2 Parse path remains unchanged on success; existing tests still pass
 <!-- AC:END -->

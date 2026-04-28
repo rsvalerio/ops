@@ -1,11 +1,11 @@
 ---
 id: TASK-0476
 title: 'PERF-1: parse_action_line allocates Vec<&str> on a per-line hot path'
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 05:47'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:57'
 labels:
   - code-review-rust
   - PERF
@@ -21,6 +21,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace Vec<&str> = rest.splitn(...).collect() with iterator-based destructuring
-- [ ] #2 Tests still pass without behaviour change
+- [x] #1 Replace Vec<&str> = rest.splitn(...).collect() with iterator-based destructuring
+- [x] #2 Tests still pass without behaviour change
 <!-- AC:END -->

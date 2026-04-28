@@ -1,11 +1,11 @@
 ---
 id: TASK-0519
 title: 'READ-2: validate_cargo_tool_arg loop redundantly re-checks the first character'
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 06:52'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:00'
 labels:
   - code-review-rust
   - readability
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Loop iterates only the remaining chars after the first
-- [ ] #2 Existing tests for leading-dash, embedded special chars, and empty input still pass
+- [x] #1 Loop iterates only the remaining chars after the first
+- [x] #2 Existing tests for leading-dash, embedded special chars, and empty input still pass
 <!-- AC:END -->

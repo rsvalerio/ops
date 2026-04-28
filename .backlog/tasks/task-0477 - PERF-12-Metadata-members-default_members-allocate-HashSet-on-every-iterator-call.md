@@ -3,11 +3,11 @@ id: TASK-0477
 title: >-
   PERF-12: Metadata members/default_members allocate HashSet on every iterator
   call
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 05:47'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:58'
 labels:
   - code-review-rust
   - PERF
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cache the workspace_members id set on Metadata (e.g. OnceLock<HashSet<String>>) and have members() / is_member() consult it
-- [ ] #2 Same caching for workspace_default_members
+- [x] #1 Cache the workspace_members id set on Metadata (e.g. OnceLock<HashSet<String>>) and have members() / is_member() consult it
+- [x] #2 Same caching for workspace_default_members
 <!-- AC:END -->

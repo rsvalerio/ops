@@ -3,11 +3,11 @@ id: TASK-0433
 title: >-
   ERR-1: RustUnitsProvider/RustCoverageProvider silently swallow
   load_workspace_manifest errors
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 04:42'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:47'
 labels:
   - code-review-rust
   - error-handling
@@ -29,6 +29,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Emit at minimum tracing::warn! (or debug! if manifest absent is expected) including the underlying error before returning the empty fallback in both providers
-- [ ] #2 Differentiate no manifest / not a Rust project (silent or debug) from manifest read/parse error (warn) by inspecting the error kind, mirroring read_crate_metadata (units.rs:86-113)
+- [x] #1 Emit at minimum tracing::warn! (or debug! if manifest absent is expected) including the underlying error before returning the empty fallback in both providers
+- [x] #2 Differentiate no manifest / not a Rust project (silent or debug) from manifest read/parse error (warn) by inspecting the error kind, mirroring read_crate_metadata (units.rs:86-113)
 <!-- AC:END -->

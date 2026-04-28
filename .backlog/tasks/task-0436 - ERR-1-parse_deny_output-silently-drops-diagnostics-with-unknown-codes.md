@@ -1,11 +1,11 @@
 ---
 id: TASK-0436
 title: 'ERR-1: parse_deny_output silently drops diagnostics with unknown codes'
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 04:43'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:49'
 labels:
   - code-review-rust
   - error-handling
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Log unknown codes at tracing::debug! with code, severity, and a truncated message so operators can detect cargo-deny schema drift
-- [ ] #2 Include a unit test that asserts the trace fires for a diagnostic whose code is not in any of the four sets, while the DenyResult remains unchanged
+- [x] #1 Log unknown codes at tracing::debug! with code, severity, and a truncated message so operators can detect cargo-deny schema drift
+- [x] #2 Include a unit test that asserts the trace fires for a diagnostic whose code is not in any of the four sets, while the DenyResult remains unchanged
 <!-- AC:END -->

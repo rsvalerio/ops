@@ -3,11 +3,11 @@ id: TASK-0474
 title: >-
   ARCH-1: extensions-rust/cargo-toml/src/tests.rs is a 1363-line monolithic test
   module
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 05:47'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:56'
 labels:
   - code-review-rust
   - ARCH
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Decompose cargo-toml/src/tests.rs into per-concern test modules mirroring the production split (inheritance, types, lib)
-- [ ] #2 No test logic change; only re-organization, with each new module under 500 lines
+- [x] #1 Decompose cargo-toml/src/tests.rs into per-concern test modules mirroring the production split (inheritance, types, lib)
+- [x] #2 No test logic change; only re-organization, with each new module under 500 lines
 <!-- AC:END -->

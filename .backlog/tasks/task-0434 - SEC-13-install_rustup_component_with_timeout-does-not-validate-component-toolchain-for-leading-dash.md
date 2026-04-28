@@ -3,11 +3,11 @@ id: TASK-0434
 title: >-
   SEC-13: install_rustup_component_with_timeout does not validate
   component/toolchain for leading dash
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 04:43'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:48'
 labels:
   - code-review-rust
   - security
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Apply validate_cargo_tool_arg (or an equivalent shape check) to both component and toolchain before spawning rustup
-- [ ] #2 Add a unit test asserting install_rustup_component_with_timeout("--default", "stable", _) is rejected before the subprocess spawns
+- [x] #1 Apply validate_cargo_tool_arg (or an equivalent shape check) to both component and toolchain before spawning rustup
+- [x] #2 Add a unit test asserting install_rustup_component_with_timeout("--default", "stable", _) is rejected before the subprocess spawns
 <!-- AC:END -->

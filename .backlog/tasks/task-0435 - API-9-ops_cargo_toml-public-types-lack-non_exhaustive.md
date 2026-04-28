@@ -1,11 +1,11 @@
 ---
 id: TASK-0435
 title: 'API-9: ops_cargo_toml public types lack #[non_exhaustive]'
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 04:43'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:49'
 labels:
   - code-review-rust
   - api
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add #[non_exhaustive] to each of CargoToml, Package, Workspace, WorkspacePackage, DetailedDepSpec
-- [ ] #2 Add public builders / Default impls where current call sites construct them by struct-literal so external users (and tests) keep compiling
-- [ ] #3 Verify deserialization still works (serde ignores #[non_exhaustive] on input)
+- [x] #1 Add #[non_exhaustive] to each of CargoToml, Package, Workspace, WorkspacePackage, DetailedDepSpec
+- [x] #2 Add public builders / Default impls where current call sites construct them by struct-literal so external users (and tests) keep compiling
+- [x] #3 Verify deserialization still works (serde ignores #[non_exhaustive] on input)
 <!-- AC:END -->

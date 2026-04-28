@@ -1,11 +1,11 @@
 ---
 id: TASK-0523
 title: 'PERF-1: parse_deny_output rebuilds four HashSets on every invocation'
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 06:52'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:01'
 labels:
   - code-review-rust
   - performance
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Slice .contains lookup OR OnceLock-cached HashSets
-- [ ] #2 Existing parse_deny_output tests still pass
+- [x] #1 Slice .contains lookup OR OnceLock-cached HashSets
+- [x] #2 Existing parse_deny_output tests still pass
 <!-- AC:END -->

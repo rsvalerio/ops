@@ -1,11 +1,11 @@
 ---
 id: TASK-0472
 title: 'ERR-1: parse_update_output drops verb-prefixed lines with debug-level logging'
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 05:47'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:51'
 labels:
   - code-review-rust
   - ERR
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Promote the "starts with known verb but did not parse" branch from debug to warn so format drift surfaces
-- [ ] #2 Cover with a unit test feeding a hypothetical-future cargo-update line and asserting the warn fires (or at minimum the entry is not silently dropped without observable signal)
+- [x] #1 Promote the "starts with known verb but did not parse" branch from debug to warn so format drift surfaces
+- [x] #2 Cover with a unit test feeding a hypothetical-future cargo-update line and asserting the warn fires (or at minimum the entry is not silently dropped without observable signal)
 <!-- AC:END -->

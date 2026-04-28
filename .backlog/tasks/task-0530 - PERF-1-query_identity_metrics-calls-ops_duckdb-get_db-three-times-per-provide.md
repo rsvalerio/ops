@@ -3,11 +3,11 @@ id: TASK-0530
 title: >-
   PERF-1: query_identity_metrics calls ops_duckdb::get_db three times per
   provide()
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 06:53'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:02'
 labels:
   - code-review-rust
   - performance
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 query_identity_metrics resolves get_db once and threads the borrowed handle to the sub-queries
-- [ ] #2 Sub-functions accept &DuckDb instead of &Context
+- [x] #1 query_identity_metrics resolves get_db once and threads the borrowed handle to the sub-queries
+- [x] #2 Sub-functions accept &DuckDb instead of &Context
 <!-- AC:END -->

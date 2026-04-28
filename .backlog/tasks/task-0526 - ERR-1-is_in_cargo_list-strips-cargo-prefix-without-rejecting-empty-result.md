@@ -1,11 +1,11 @@
 ---
 id: TASK-0526
 title: 'ERR-1: is_in_cargo_list strips ''cargo-'' prefix without rejecting empty result'
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 06:52'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:02'
 labels:
   - code-review-rust
   - error-handling
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Reject empty-after-strip names early
-- [ ] #2 Unit test for cargo- and the empty string
+- [x] #1 Reject empty-after-strip names early
+- [x] #2 Unit test for cargo- and the empty string
 <!-- AC:END -->

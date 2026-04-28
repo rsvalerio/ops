@@ -1,11 +1,11 @@
 ---
 id: TASK-0520
 title: 'READ-1: Workspace.exclude declares serde alias matching its own field name'
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 06:52'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:00'
 labels:
   - code-review-rust
   - readability
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Remove alias = "exclude" from Workspace.exclude
-- [ ] #2 Existing parse tests for [workspace].exclude still pass
+- [x] #1 Remove alias = "exclude" from Workspace.exclude
+- [x] #2 Existing parse tests for [workspace].exclude still pass
 <!-- AC:END -->

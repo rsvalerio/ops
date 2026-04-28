@@ -3,11 +3,11 @@ id: TASK-0510
 title: >-
   ERR-1: MetadataIngestor::load fails entire load when remove_file cleanup
   errors
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 06:51'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:00'
 labels:
   - code-review-rust
   - error-handling
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 remove_file failure is logged at warn but does not propagate
-- [ ] #2 load returns LoadResult::success even when cleanup fails
+- [x] #1 remove_file failure is logged at warn but does not propagate
+- [x] #2 load returns LoadResult::success even when cleanup fails
 <!-- AC:END -->

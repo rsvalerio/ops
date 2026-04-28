@@ -1,11 +1,11 @@
 ---
 id: TASK-0437
 title: 'PATTERN-1: categorize_upgrades relies on exact-string match "incompatible"'
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 04:43'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:50'
 labels:
   - code-review-rust
   - patterns
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Switch to a substring/case-insensitive match (e.g. note.to_ascii_lowercase().contains("incompatible")) or a small allowlist and add a comment naming the cargo-edit source line being matched
-- [ ] #2 Add a regression test exercising at least the bare "incompatible" form plus one mixed-case / suffixed variant
+- [x] #1 Switch to a substring/case-insensitive match (e.g. note.to_ascii_lowercase().contains("incompatible")) or a small allowlist and add a comment naming the cargo-edit source line being matched
+- [x] #2 Add a regression test exercising at least the bare "incompatible" form plus one mixed-case / suffixed variant
 <!-- AC:END -->

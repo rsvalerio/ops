@@ -3,11 +3,11 @@ id: TASK-0501
 title: >-
   ERR-1: find_workspace_root returns member Cargo.toml without checking
   [workspace]
-status: To Do
+status: Done
 assignee:
   - TASK-0533
 created_date: '2026-04-28 06:50'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:59'
 labels:
   - code-review-rust
   - error-handling
@@ -27,6 +27,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When start is inside a workspace member, find_workspace_root returns the directory whose Cargo.toml contains [workspace]
-- [ ] #2 Test added covering cd crates/foo discovering parent workspace root
+- [x] #1 When start is inside a workspace member, find_workspace_root returns the directory whose Cargo.toml contains [workspace]
+- [x] #2 Test added covering cd crates/foo discovering parent workspace root
 <!-- AC:END -->
