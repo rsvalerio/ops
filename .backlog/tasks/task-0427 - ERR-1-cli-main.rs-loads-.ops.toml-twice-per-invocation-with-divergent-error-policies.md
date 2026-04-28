@@ -7,7 +7,7 @@ status: To Do
 assignee:
   - TASK-0536
 created_date: '2026-04-28 04:41'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:10'
 labels:
   - code-review-rust
   - error-handling
@@ -31,3 +31,9 @@ priority: low
 - [ ] #2 All handlers consult the same loaded Config for the lifetime of one CLI invocation
 - [ ] #3 Add a regression test that asserts load_config is not invoked twice during a typical ops <cmd> flow
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Wave-38 run: scope larger than typical wave member — threading early_config through ~10 handler signatures (run_cmd, subcommands, extension_cmd, theme_cmd, tools_cmd, about_cmd, hook_shared) + designing the load-count regression test. Needs its own dedicated wave; moved back to To Do for re-triage.
+<!-- SECTION:NOTES:END -->

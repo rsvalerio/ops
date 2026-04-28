@@ -3,11 +3,11 @@ id: TASK-0513
 title: >-
   PERF-1: extension_summary re-runs register_commands for every list/show
   invocation
-status: To Do
+status: Done
 assignee:
   - TASK-0536
 created_date: '2026-04-28 06:51'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:18'
 labels:
   - code-review-rust
   - performance
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cache the per-extension command name list, or expose a lightweight command_names() accessor
-- [ ] #2 list/show paths avoid re-registering
+- [x] #1 Cache the per-extension command name list, or expose a lightweight command_names() accessor
+- [x] #2 list/show paths avoid re-registering
 <!-- AC:END -->

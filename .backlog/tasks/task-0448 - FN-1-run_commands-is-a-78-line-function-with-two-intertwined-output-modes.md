@@ -1,11 +1,11 @@
 ---
 id: TASK-0448
 title: 'FN-1: run_commands is a 78-line function with two intertwined output modes'
-status: To Do
+status: Done
 assignee:
   - TASK-0536
 created_date: '2026-04-28 05:43'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:16'
 labels:
   - code-review-rust
   - FN
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract run_commands_raw, run_commands_with_display, and a summarize(results) helper paralleling the run_command_raw / run_command_cli single-command split
-- [ ] #2 All existing run_cmd tests still pass; new tests cover the raw+tap warning path explicitly
+- [x] #1 Extract run_commands_raw, run_commands_with_display, and a summarize(results) helper paralleling the run_command_raw / run_command_cli single-command split
+- [x] #2 All existing run_cmd tests still pass; new tests cover the raw+tap warning path explicitly
 <!-- AC:END -->

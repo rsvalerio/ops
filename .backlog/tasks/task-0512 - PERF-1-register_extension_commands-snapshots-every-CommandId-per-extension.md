@@ -1,11 +1,11 @@
 ---
 id: TASK-0512
 title: 'PERF-1: register_extension_commands snapshots every CommandId per extension'
-status: To Do
+status: Done
 assignee:
   - TASK-0536
 created_date: '2026-04-28 06:51'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:18'
 labels:
   - code-review-rust
   - performance
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Drop the HashSet snapshot; rely on owners map for collision detection
-- [ ] #2 Bench scales linearly with extension count
+- [x] #1 Drop the HashSet snapshot; rely on owners map for collision detection
+- [x] #2 Bench scales linearly with extension count
 <!-- AC:END -->

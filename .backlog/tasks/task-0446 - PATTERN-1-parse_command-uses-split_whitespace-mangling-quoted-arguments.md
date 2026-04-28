@@ -1,11 +1,11 @@
 ---
 id: TASK-0446
 title: 'PATTERN-1: parse_command uses split_whitespace, mangling quoted arguments'
-status: To Do
+status: Done
 assignee:
   - TASK-0536
 created_date: '2026-04-28 05:43'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:13'
 labels:
   - code-review-rust
   - PATTERN
@@ -25,6 +25,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Use shlex::split (or equivalent) to honour shell quoting; bail with a clear error on unbalanced quotes
-- [ ] #2 Tests cover quoted args, escaped quotes, and a clear failure mode for malformed input
+- [x] #1 Use shlex::split (or equivalent) to honour shell quoting; bail with a clear error on unbalanced quotes
+- [x] #2 Tests cover quoted args, escaped quotes, and a clear failure mode for malformed input
 <!-- AC:END -->

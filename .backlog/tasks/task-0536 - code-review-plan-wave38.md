@@ -1,10 +1,11 @@
 ---
 id: TASK-0536
 title: code-review-plan-wave38
-status: To Do
+status: In Progress
 assignee:
   - code-review-wave
 created_date: '2026-04-28 07:13'
+updated_date: '2026-04-28 16:24'
 labels:
   - code-review-wave
 dependencies:
@@ -28,3 +29,9 @@ dependencies:
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Wave 38 — crates/cli: init/theme/run/extension/help commands, command registry, .ops.toml loading, logging init.
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Wave-38 run completed except TASK-0427 (config-load threading), which was deferred back to To Do for re-triage as a dedicated wave: scope is ~10 handler signatures across run_cmd/subcommands/extension_cmd/theme_cmd/tools_cmd/about_cmd/hook_shared plus a non-trivial load-count regression test design. ops verify and ops qa pass clean.
+<!-- SECTION:NOTES:END -->

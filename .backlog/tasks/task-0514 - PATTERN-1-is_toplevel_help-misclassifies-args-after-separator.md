@@ -1,11 +1,11 @@
 ---
 id: TASK-0514
 title: 'PATTERN-1: is_toplevel_help misclassifies args after ''--'' separator'
-status: To Do
+status: Done
 assignee:
   - TASK-0536
 created_date: '2026-04-28 06:51'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:19'
 labels:
   - code-review-rust
   - correctness
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Stop scanning when -- is seen
-- [ ] #2 Test asserts ops -- --help is not classified top-level
+- [x] #1 Stop scanning when -- is seen
+- [x] #2 Test asserts ops -- --help is not classified top-level
 <!-- AC:END -->

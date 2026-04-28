@@ -1,11 +1,11 @@
 ---
 id: TASK-0445
 title: 'ERR-1: gather_available_commands silently swallows builtin_extensions error'
-status: To Do
+status: Done
 assignee:
   - TASK-0536
 created_date: '2026-04-28 05:43'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:12'
 labels:
   - code-review-rust
   - ERR
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Log at tracing::warn! (with the error) when the extension registry build fails; ideally surface via ops_core::ui::warn
-- [ ] #2 Test confirms a misconfigured extensions.enabled produces a warning, not silent omission
+- [x] #1 Log at tracing::warn! (with the error) when the extension registry build fails; ideally surface via ops_core::ui::warn
+- [x] #2 Test confirms a misconfigured extensions.enabled produces a warning, not silent omission
 <!-- AC:END -->

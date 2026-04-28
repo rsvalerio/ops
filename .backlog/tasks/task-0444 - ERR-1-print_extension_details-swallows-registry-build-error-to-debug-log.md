@@ -1,11 +1,11 @@
 ---
 id: TASK-0444
 title: 'ERR-1: print_extension_details swallows registry build error to debug log'
-status: To Do
+status: Done
 assignee:
   - TASK-0536
 created_date: '2026-04-28 05:43'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:12'
 labels:
   - code-review-rust
   - ERR
@@ -25,6 +25,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Either propagate the error (extension show already returns anyhow::Result) or surface a visible note on stdout/stderr indicating schema unavailability with cause
-- [ ] #2 Regression test constructs a config triggering registry-build failure and asserts the error reaches the user
+- [x] #1 Either propagate the error (extension show already returns anyhow::Result) or surface a visible note on stdout/stderr indicating schema unavailability with cause
+- [x] #2 Regression test constructs a config triggering registry-build failure and asserts the error reaches the user
 <!-- AC:END -->

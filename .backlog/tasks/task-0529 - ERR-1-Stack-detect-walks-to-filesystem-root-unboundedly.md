@@ -1,11 +1,11 @@
 ---
 id: TASK-0529
 title: 'ERR-1: Stack::detect walks to filesystem root unboundedly'
-status: To Do
+status: Done
 assignee:
   - TASK-0536
 created_date: '2026-04-28 06:53'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:19'
 labels:
   - code-review-rust
   - error-handling
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add a sane MAX_DEPTH (e.g. 64) and bail out
-- [ ] #2 Document the cap
+- [x] #1 Add a sane MAX_DEPTH (e.g. 64) and bail out
+- [x] #2 Document the cap
 <!-- AC:END -->

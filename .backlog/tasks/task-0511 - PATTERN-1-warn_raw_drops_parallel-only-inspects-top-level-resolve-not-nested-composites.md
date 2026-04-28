@@ -3,11 +3,11 @@ id: TASK-0511
 title: >-
   PATTERN-1: warn_raw_drops_parallel only inspects top-level resolve, not nested
   composites
-status: To Do
+status: Done
 assignee:
   - TASK-0536
 created_date: '2026-04-28 06:51'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:17'
 labels:
   - code-review-rust
   - correctness
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Walk the expanded composite tree for any parallel=true
-- [ ] #2 Warn once if found in nested composites
+- [x] #1 Walk the expanded composite tree for any parallel=true
+- [x] #2 Warn once if found in nested composites
 <!-- AC:END -->

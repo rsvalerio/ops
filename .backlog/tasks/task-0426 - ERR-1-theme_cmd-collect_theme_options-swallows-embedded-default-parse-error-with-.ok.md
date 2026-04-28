@@ -3,11 +3,11 @@ id: TASK-0426
 title: >-
   ERR-1: theme_cmd::collect_theme_options swallows embedded-default parse error
   with .ok()
-status: To Do
+status: Done
 assignee:
   - TASK-0536
 created_date: '2026-04-28 04:41'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:08'
 labels:
   - code-review-rust
   - error-handling
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 On Err, log at tracing::warn! (or tracing::error!) with the parse error
-- [ ] #2 Add a unit test that asserts parse_default_config().is_ok() so a regression in the embedded TOML fails CI loudly
+- [x] #1 On Err, log at tracing::warn! (or tracing::error!) with the parse error
+- [x] #2 Add a unit test that asserts parse_default_config().is_ok() so a regression in the embedded TOML fails CI loudly
 <!-- AC:END -->
