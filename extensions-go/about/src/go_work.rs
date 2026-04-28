@@ -20,8 +20,8 @@ pub(crate) fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
     let mut dirs = Vec::new();
     let mut in_use_block = false;
 
-    for line in content.lines() {
-        let line = line.trim();
+    for raw in content.lines() {
+        let line = raw.trim();
         if line == "use (" {
             in_use_block = true;
             continue;
@@ -31,12 +31,16 @@ pub(crate) fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
                 in_use_block = false;
                 continue;
             }
-            if !line.is_empty() && !line.starts_with("//") {
-                dirs.push(line.to_string());
+            if line.is_empty() || line.starts_with("//") {
+                continue;
+            }
+            let stripped = strip_line_comment(line).trim();
+            if !stripped.is_empty() {
+                dirs.push(stripped.to_string());
             }
         } else if let Some(rest) = line.strip_prefix("use ") {
-            let dir = rest.trim();
-            if !dir.starts_with('(') {
+            let dir = strip_line_comment(rest.trim()).trim();
+            if !dir.is_empty() && !dir.starts_with('(') {
                 dirs.push(dir.to_string());
             }
         }
@@ -46,5 +50,37 @@ pub(crate) fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
         None
     } else {
         Some(dirs)
+    }
+}
+
+fn strip_line_comment(line: &str) -> &str {
+    match line.find("//") {
+        Some(idx) => &line[..idx],
+        None => line,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_inline_comment_in_use_block() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.work"),
+            "go 1.21\n\nuse (\n\t./api // legacy\n\t./cmd\n)\n",
+        )
+        .unwrap();
+        let dirs = parse_use_dirs(dir.path()).unwrap();
+        assert_eq!(dirs, vec!["./api", "./cmd"]);
+    }
+
+    #[test]
+    fn strips_inline_comment_in_single_line_use() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("go.work"), "go 1.21\nuse ./mymod // note\n").unwrap();
+        let dirs = parse_use_dirs(dir.path()).unwrap();
+        assert_eq!(dirs, vec!["./mymod"]);
     }
 }

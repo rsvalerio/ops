@@ -3,11 +3,11 @@ id: TASK-0497
 title: >-
   READ-2: go.work parse_use_dirs does not strip inline // comments from use
   directive lines
-status: To Do
+status: Done
 assignee:
   - TASK-0532
 created_date: '2026-04-28 06:10'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 15:44'
 labels:
   - code-review-rust
   - read
