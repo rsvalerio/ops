@@ -70,7 +70,13 @@ ops_extension::impl_extension! {
 // --- Shared ---
 
 fn java_about_fields() -> Vec<AboutFieldDef> {
-    let mut fields = base_about_fields();
-    insert_homepage_field(&mut fields);
-    fields
+    use std::sync::OnceLock;
+    static FIELDS: OnceLock<Vec<AboutFieldDef>> = OnceLock::new();
+    FIELDS
+        .get_or_init(|| {
+            let mut fields = base_about_fields();
+            insert_homepage_field(&mut fields);
+            fields
+        })
+        .clone()
 }

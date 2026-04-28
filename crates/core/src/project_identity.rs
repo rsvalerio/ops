@@ -210,6 +210,7 @@ pub struct ProjectDependencies {
 }
 
 /// Metadata for a field that can appear on the about card.
+#[derive(Clone)]
 pub struct AboutFieldDef {
     /// Identifier used in config (e.g. "project", "code").
     pub id: &'static str,
