@@ -9,11 +9,12 @@ pub(crate) fn detect_package_manager(
 ) -> Option<&'static str> {
     // `packageManager` field takes precedence.
     if let Some(pm) = has_packagemanager {
-        let name = pm.split('@').next().unwrap_or(pm);
+        let name = pm.split_once('@').map_or(pm, |(n, _)| n);
         return match name {
             "pnpm" => Some("pnpm"),
             "yarn" => Some("yarn"),
             "npm" => Some("npm"),
+            "bun" => Some("bun"),
             _ => None,
         };
     }
@@ -40,4 +41,28 @@ pub(crate) fn detect_package_manager(
 
 fn probe(dir: &Path, name: &str) -> bool {
     std::fs::symlink_metadata(dir.join(name)).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn package_manager_field_recognizes_bun() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            detect_package_manager(dir.path(), Some("bun@1.1.0")),
+            Some("bun")
+        );
+    }
+
+    #[test]
+    fn package_manager_field_without_version() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            detect_package_manager(dir.path(), Some("pnpm")),
+            Some("pnpm")
+        );
+        assert_eq!(detect_package_manager(dir.path(), Some("bun")), Some("bun"));
+    }
 }
