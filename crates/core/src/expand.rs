@@ -5,7 +5,34 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt;
 use std::path::Path;
+
+/// ERR-1 / TASK-0450: a non-recoverable variable expansion failure.
+///
+/// Returned from [`Variables::try_expand`] when `shellexpand` reports an
+/// error such as `VarError::NotUnicode` — the underlying env var exists but
+/// cannot be read as UTF-8, so the literal `${VAR}` would otherwise flow
+/// through unchanged into argv / cwd / env values. Strict callers (the
+/// command-build path) propagate this so the failure is visible instead of
+/// materialising a literal `${VAR}` path on disk.
+#[derive(Debug, Clone)]
+pub struct ExpandError {
+    pub var_name: String,
+    pub cause: String,
+}
+
+impl fmt::Display for ExpandError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "variable expansion failed for `${}`: {}",
+            self.var_name, self.cause
+        )
+    }
+}
+
+impl std::error::Error for ExpandError {}
 
 /// Built-in variables available for expansion in command specs.
 ///
@@ -39,7 +66,32 @@ impl Variables {
     }
 
     /// Expand `$VAR`, `${VAR}`, `${VAR:-default}`, and `~` in the input string.
+    ///
+    /// Lossy variant: on a `shellexpand` error this logs a warning and
+    /// returns the input unchanged. Suitable for display / dry-run paths
+    /// where rendering "${VAR}" is acceptable. **Strict callers (the path
+    /// that materialises arguments into argv, cwd, or env) MUST use
+    /// [`Self::try_expand`]** so a non-UTF-8 env var fails loudly instead
+    /// of being passed through literally (ERR-1 / TASK-0450).
     pub fn expand<'a>(&'a self, input: &'a str) -> Cow<'a, str> {
+        match self.try_expand(input) {
+            Ok(out) => out,
+            Err(err) => {
+                tracing::warn!(
+                    var = %err.var_name,
+                    cause = %err.cause,
+                    "variable expansion failed; passing input through unchanged"
+                );
+                Cow::Borrowed(input)
+            }
+        }
+    }
+
+    /// Strict variant of [`Self::expand`]: returns `Err` on `shellexpand`
+    /// errors (e.g. `VarError::NotUnicode`) instead of falling back to the
+    /// literal input. Use this on any path that turns the result into an
+    /// argv element, cwd, or env value — see ERR-1 / TASK-0450.
+    pub fn try_expand<'a>(&'a self, input: &'a str) -> Result<Cow<'a, str>, ExpandError> {
         let home_dir = || -> Option<String> {
             std::env::var("HOME")
                 .or_else(|_| std::env::var("USERPROFILE"))
@@ -60,17 +112,10 @@ impl Variables {
             }
         };
 
-        match shellexpand::full_with_context(input, home_dir, lookup) {
-            Ok(out) => out,
-            Err(err) => {
-                tracing::warn!(
-                    var = %err.var_name,
-                    cause = %err.cause,
-                    "variable expansion failed; passing input through unchanged"
-                );
-                Cow::Borrowed(input)
-            }
-        }
+        shellexpand::full_with_context(input, home_dir, lookup).map_err(|err| ExpandError {
+            var_name: err.var_name,
+            cause: err.cause.to_string(),
+        })
     }
 }
 
@@ -208,6 +253,42 @@ mod tests {
             input,
             "non-UTF-8 env value must fall back to original input"
         );
+    }
+
+    /// TASK-0450: strict `try_expand` must surface the underlying
+    /// `VarError::NotUnicode` so the caller can fail the spawn instead of
+    /// materialising a literal `${VAR}` into argv / cwd.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn try_expand_fails_loudly_on_non_utf8_env_var() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let key = "OPS_TEST_NON_UTF8_TRY_EXPAND";
+        let bad: OsString = OsString::from_vec(vec![0xff, 0xfe, 0xfd]);
+        // SAFETY: test-only guard via #[serial] attribute.
+        unsafe { std::env::set_var(key, &bad) };
+        let vars = test_vars();
+        let input = format!("${key}");
+        let outcome = vars.try_expand(&input);
+        // SAFETY: test-only guard via #[serial] attribute.
+        unsafe { std::env::remove_var(key) };
+        let err = outcome.expect_err("non-UTF-8 env var must fail strict expansion");
+        assert_eq!(err.var_name, key);
+        assert!(
+            !err.cause.is_empty(),
+            "ExpandError must carry the underlying cause"
+        );
+    }
+
+    #[test]
+    fn try_expand_propagates_value_for_known_var() {
+        let vars = test_vars();
+        let result = vars
+            .try_expand("$OPS_ROOT/src")
+            .expect("known var must succeed");
+        assert_eq!(result, "/test/project/src");
     }
 
     #[test]
