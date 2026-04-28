@@ -104,7 +104,13 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     }
 
     if let Err(e) = std::fs::rename(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
+        if let Err(cleanup) = std::fs::remove_file(&tmp) {
+            tracing::warn!(
+                tmp = %tmp.display(),
+                error = %cleanup,
+                "leaked atomic_write temp file after rename failure",
+            );
+        }
         return Err(e);
     }
 
@@ -179,6 +185,39 @@ mod tests {
         atomic_write(&path, b"first").unwrap();
         atomic_write(&path, b"second").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
+    }
+
+    #[test]
+    fn atomic_write_rename_failure_does_not_leak_tmp() {
+        // Forcing rename failure: target path is an existing non-empty
+        // directory. The remove_file fallback should clear the sibling tmp
+        // so no .{name}.tmp.* file lingers in the parent.
+        let dir = tempfile::tempdir().unwrap();
+        let target_dir = dir.path().join("target");
+        std::fs::create_dir(&target_dir).unwrap();
+        std::fs::write(target_dir.join("inside"), b"x").unwrap();
+
+        let err = atomic_write(&target_dir, b"data").unwrap_err();
+        assert!(matches!(
+            err.kind(),
+            std::io::ErrorKind::IsADirectory
+                | std::io::ErrorKind::DirectoryNotEmpty
+                | std::io::ErrorKind::Other
+        ));
+
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| {
+                let n = e.file_name();
+                let s = n.to_string_lossy();
+                s.starts_with(".target.tmp.")
+            })
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "expected tmp cleanup, leftovers: {leftovers:?}"
+        );
     }
 
     #[test]

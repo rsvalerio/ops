@@ -1,11 +1,11 @@
 ---
 id: TASK-0452
 title: 'SEC-25: atomic_write does not log cleanup failure when rename fails'
-status: To Do
+status: Done
 assignee:
   - TASK-0538
 created_date: '2026-04-28 05:44'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 13:30'
 labels:
   - code-review-rust
   - SEC
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Log at tracing::warn! if cleanup fails — a leaked tmp file is worth a single line
-- [ ] #2 Test asserts no leftover .tmp.* files after a forced rename failure (or that we logged when one is left behind)
+- [x] #1 Log at tracing::warn! if cleanup fails — a leaked tmp file is worth a single line
+- [x] #2 Test asserts no leftover .tmp.* files after a forced rename failure (or that we logged when one is left behind)
 <!-- AC:END -->
