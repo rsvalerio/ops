@@ -28,4 +28,5 @@ ops-core = { workspace = true, features = ["test-support"] }
 ops-runner = { path = ".", features = ["test-support"] }
 tempfile = { workspace = true }
 proptest = { workspace = true }
+serial_test = { workspace = true }
 tokio = { workspace = true }
