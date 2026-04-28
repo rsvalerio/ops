@@ -135,9 +135,26 @@ pub struct StepPrefixParts<'a> {
 ///   defaults into `ConfigurableTheme` and shrink the trait to the 3–4
 ///   methods that genuinely vary) — the larger mechanical change.
 ///
-/// The present shape is intentional: `ConfigurableTheme` covers every built-in
-/// theme via TOML, so the many defaulted methods don't cost real
-/// implementations. If a second non-configurable theme appears, revisit.
+/// **ARCH-2 / TASK-0461 decision (2026-04-28): keep as a single trait until
+/// the N-th impl arrives.** `ConfigurableTheme` covers every built-in theme
+/// via TOML, so the defaulted methods don't carry real implementation
+/// weight, and only a handful of call sites go through the vtable per
+/// rendered line — well under the cost of the surrounding string
+/// allocation and ANSI-escape work. Revisit when *either* a second
+/// non-configurable theme is added (then split per concern: status/icon,
+/// box-layout, error-block) *or* a profile shows the vtable hops on the
+/// hot path of a multi-thousand-step run. This is the documented criterion
+/// for AC#1.
+///
+/// **Forward-compat strategy (AC#2):** default method bodies shield
+/// downstream re-implementers from new methods (the default keeps working
+/// until they want to override). Adding a *required* method (no default)
+/// is still a breaking change, so any future addition MUST ship with a
+/// default that delegates to existing methods or returns a no-op, and the
+/// PR should explicitly call out the default's correctness for the
+/// existing impls. New variants on input types (`StepStatus`, `StepLine`,
+/// `ErrorDetail`) are guarded separately by `#[non_exhaustive]` (API-9 /
+/// TASK-0454).
 pub trait StepLineTheme: Send + Sync {
     /// Number of spaces to prepend to all rendered output lines. Default: 0.
     fn left_pad(&self) -> usize {

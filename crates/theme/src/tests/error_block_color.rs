@@ -9,10 +9,7 @@ use ops_core::output::display_width;
 fn render_with(chars: ErrorBlockChars, enabled: bool) -> Vec<String> {
     // Mirror render_error_block's structure but with explicit styling gate,
     // since apply_style itself consults stderr TTY state at runtime.
-    let detail = ErrorDetail {
-        message: "exit status: 1".to_string(),
-        stderr_tail: vec![],
-    };
+    let detail = ErrorDetail::new("exit status: 1".to_string(), vec![]);
     let pad = String::new();
     let gutter = if chars.rail.is_empty() {
         "    ".to_string()

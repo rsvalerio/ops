@@ -101,11 +101,7 @@ fn boxed_step_with_duration_matches_border_width() {
     let columns = 60u16;
     let reserve = theme.step_column_reserve();
     let effective = columns - reserve;
-    let step = StepLine {
-        status: StepStatus::Succeeded,
-        label: "cargo build".to_string(),
-        elapsed: Some(1.23),
-    };
+    let step = StepLine::new(StepStatus::Succeeded, "cargo build".to_string(), Some(1.23));
     let inner = theme.render(&step, effective);
     let wrapped = theme.wrap_step_line(&inner, "█", columns);
     let plain = strip_ansi(&wrapped);
@@ -134,10 +130,7 @@ fn boxed_step_with_duration_matches_border_width() {
 #[test]
 fn boxed_error_detail_has_right_border() {
     let theme = boxed_theme();
-    let detail = ErrorDetail {
-        message: "exit status: 1".to_string(),
-        stderr_tail: vec!["boom".to_string()],
-    };
+    let detail = ErrorDetail::new("exit status: 1".to_string(), vec!["boom".to_string()]);
     let lines = theme.render_error_detail(&detail, 60);
     for line in &lines {
         let plain = strip_ansi(line);
@@ -167,10 +160,7 @@ fn boxed_error_detail_aligns_mid_with_label_column() {
         },
         ..ThemeConfig::compact()
     });
-    let detail = ErrorDetail {
-        message: "exit status: 1".to_string(),
-        stderr_tail: vec![],
-    };
+    let detail = ErrorDetail::new("exit status: 1".to_string(), vec![]);
     let lines = theme.render_error_detail(&detail, 80);
     let plain_top = strip_ansi(&lines[0]);
     let plain_mid = strip_ansi(&lines[1]);

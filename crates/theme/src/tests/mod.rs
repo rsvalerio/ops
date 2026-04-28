@@ -45,10 +45,6 @@ fn render_line(
     label: &str,
     elapsed: Option<f64>,
 ) -> String {
-    let step = StepLine {
-        status,
-        label: label.to_string(),
-        elapsed,
-    };
+    let step = StepLine::new(status, label.to_string(), elapsed);
     theme.render(&step, 80)
 }

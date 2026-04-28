@@ -8,11 +8,7 @@ use ops_core::output::StepLine;
 #[test]
 fn render_with_zero_columns_does_not_panic() {
     let theme = ConfigurableTheme(ThemeConfig::compact());
-    let step = StepLine {
-        status: StepStatus::Succeeded,
-        label: "test".to_string(),
-        elapsed: Some(1.0),
-    };
+    let step = StepLine::new(StepStatus::Succeeded, "test".to_string(), Some(1.0));
     let line = theme.render(&step, 0);
     assert!(!line.is_empty(), "should still produce output");
 }
@@ -20,11 +16,7 @@ fn render_with_zero_columns_does_not_panic() {
 #[test]
 fn render_with_one_column_does_not_panic() {
     let theme = ConfigurableTheme(ThemeConfig::compact());
-    let step = StepLine {
-        status: StepStatus::Succeeded,
-        label: "test".to_string(),
-        elapsed: Some(1.0),
-    };
+    let step = StepLine::new(StepStatus::Succeeded, "test".to_string(), Some(1.0));
     let line = theme.render(&step, 1);
     assert!(!line.is_empty(), "should still produce output");
 }
@@ -32,11 +24,7 @@ fn render_with_one_column_does_not_panic() {
 #[test]
 fn render_with_two_columns_does_not_panic() {
     let theme = ConfigurableTheme(ThemeConfig::compact());
-    let step = StepLine {
-        status: StepStatus::Succeeded,
-        label: "x".to_string(),
-        elapsed: None,
-    };
+    let step = StepLine::new(StepStatus::Succeeded, "x".to_string(), None);
     let line = theme.render(&step, 2);
     assert!(!line.is_empty(), "should still produce output");
 }
@@ -44,11 +32,11 @@ fn render_with_two_columns_does_not_panic() {
 #[test]
 fn render_with_very_small_columns_handles_gracefully() {
     let theme = ConfigurableTheme(ThemeConfig::compact());
-    let step = StepLine {
-        status: StepStatus::Succeeded,
-        label: "very long label that exceeds column width".to_string(),
-        elapsed: Some(1.0),
-    };
+    let step = StepLine::new(
+        StepStatus::Succeeded,
+        "very long label that exceeds column width".to_string(),
+        Some(1.0),
+    );
     let line = theme.render(&step, 5);
     assert!(!line.is_empty(), "should handle small width");
 }
@@ -56,11 +44,7 @@ fn render_with_very_small_columns_handles_gracefully() {
 #[test]
 fn render_pending_with_zero_columns() {
     let theme = ConfigurableTheme(ThemeConfig::classic());
-    let step = StepLine {
-        status: StepStatus::Pending,
-        label: "pending".to_string(),
-        elapsed: None,
-    };
+    let step = StepLine::new(StepStatus::Pending, "pending".to_string(), None);
     let line = theme.render(&step, 0);
     assert!(!line.is_empty());
 }
@@ -68,11 +52,7 @@ fn render_pending_with_zero_columns() {
 #[test]
 fn render_failed_with_minimal_columns() {
     let theme = ConfigurableTheme(ThemeConfig::classic());
-    let step = StepLine {
-        status: StepStatus::Failed,
-        label: "f".to_string(),
-        elapsed: Some(0.01),
-    };
+    let step = StepLine::new(StepStatus::Failed, "f".to_string(), Some(0.01));
     let line = theme.render(&step, 3);
     assert!(!line.is_empty());
 }
@@ -82,11 +62,7 @@ fn render_failed_with_minimal_columns() {
 fn render_label_longer_than_columns() {
     let theme = ConfigurableTheme(ThemeConfig::classic());
     let long_label = "a_very_long_command_name_that_exceeds_the_terminal_column_width_by_far";
-    let step = StepLine {
-        status: StepStatus::Succeeded,
-        label: long_label.to_string(),
-        elapsed: Some(1.23),
-    };
+    let step = StepLine::new(StepStatus::Succeeded, long_label.to_string(), Some(1.23));
     let line = theme.render(&step, 20);
     assert!(
         !line.is_empty(),

@@ -14,11 +14,7 @@ fn render_prefix_width_matches_helper_components_for_multi_char_icon() {
     let mut cfg = ThemeConfig::compact();
     cfg.icon_succeeded = "OK".into();
     let theme = ConfigurableTheme(cfg);
-    let step = StepLine {
-        status: StepStatus::Succeeded,
-        label: "cargo build".to_string(),
-        elapsed: None,
-    };
+    let step = StepLine::new(StepStatus::Succeeded, "cargo build".to_string(), None);
 
     let plain_prefix = theme.render_prefix(&step, false);
     let parts = theme.step_prefix_parts(StepStatus::Succeeded, false);
@@ -159,13 +155,13 @@ fn compact_plan_header_plain() {
 #[test]
 fn classic_error_detail_with_stderr() {
     let theme = ConfigurableTheme(ThemeConfig::classic());
-    let detail = ErrorDetail {
-        message: "exit status: 101".to_string(),
-        stderr_tail: vec![
+    let detail = ErrorDetail::new(
+        "exit status: 101".to_string(),
+        vec![
             "thread 'main' panicked at ...".to_string(),
             "error: test failed".to_string(),
         ],
-    };
+    );
     let lines = theme.render_error_detail(&detail, 80);
     assert_eq!(lines[0], " │   ┌─");
     assert_eq!(lines[1], " │   │ exit status: 101");
@@ -179,10 +175,7 @@ fn classic_error_detail_with_stderr() {
 #[test]
 fn compact_error_detail_gutter_width() {
     let theme = ConfigurableTheme(ThemeConfig::compact());
-    let detail = ErrorDetail {
-        message: "exit status: 1".to_string(),
-        stderr_tail: vec![],
-    };
+    let detail = ErrorDetail::new("exit status: 1".to_string(), vec![]);
     let lines = theme.render_error_detail(&detail, 80);
     assert_eq!(lines[0], "     ╭─");
     assert_eq!(lines[1], "     │ exit status: 1");
@@ -207,10 +200,7 @@ fn compact_summary_separator_is_empty() {
 #[test]
 fn error_detail_empty_returns_nothing() {
     let theme = ConfigurableTheme(ThemeConfig::classic());
-    let detail = ErrorDetail {
-        message: String::new(),
-        stderr_tail: vec![],
-    };
+    let detail = ErrorDetail::new(String::new(), vec![]);
     let lines = theme.render_error_detail(&detail, 80);
     assert!(lines.is_empty());
 }
@@ -218,11 +208,7 @@ fn error_detail_empty_returns_nothing() {
 #[test]
 fn classic_theme_very_small_columns() {
     let theme = ConfigurableTheme(ThemeConfig::classic());
-    let step = StepLine {
-        status: StepStatus::Succeeded,
-        label: "cmd".to_string(),
-        elapsed: Some(0.5),
-    };
+    let step = StepLine::new(StepStatus::Succeeded, "cmd".to_string(), Some(0.5));
     let line = theme.render(&step, 10);
     assert!(line.contains("cmd"));
 }
@@ -230,11 +216,7 @@ fn classic_theme_very_small_columns() {
 #[test]
 fn compact_theme_very_small_columns() {
     let theme = ConfigurableTheme(ThemeConfig::compact());
-    let step = StepLine {
-        status: StepStatus::Succeeded,
-        label: "x".to_string(),
-        elapsed: Some(0.5),
-    };
+    let step = StepLine::new(StepStatus::Succeeded, "x".to_string(), Some(0.5));
     let line = theme.render(&step, 5);
     assert!(line.contains('x'));
 }
