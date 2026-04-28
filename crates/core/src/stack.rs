@@ -44,6 +44,16 @@ impl Stack {
             .or_else(|| Self::detect(workspace_root))
     }
 
+    /// Maximum number of parent directories `detect` walks before giving up.
+    ///
+    /// Stack manifests realistically live within a few dozen levels of any
+    /// project root; capping the walk guards against pathological cwds
+    /// (thousands of components on FUSE/network mounts) and accidental
+    /// symlink loops above the cwd that could otherwise trigger an
+    /// unbounded chain of `Path::join` + `exists` syscalls per CLI
+    /// invocation.
+    pub const MAX_DETECT_DEPTH: usize = 64;
+
     pub fn detect(start: &Path) -> Option<Self> {
         // Priority order for detection (Generic is excluded — no manifest files).
         const DETECT_ORDER: &[Stack] = &[
@@ -58,7 +68,7 @@ impl Stack {
         ];
 
         let mut current = start.to_path_buf();
-        loop {
+        for _ in 0..Self::MAX_DETECT_DEPTH {
             if let Some(&stack) = DETECT_ORDER
                 .iter()
                 .find(|s| s.manifest_files().iter().any(|f| current.join(f).exists()))
@@ -69,6 +79,7 @@ impl Stack {
                 return None;
             }
         }
+        None
     }
 
     /// Embedded TOML content for this stack's default commands, or None for Generic.
@@ -256,6 +267,21 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("site.yml"), "").expect("write");
         assert_eq!(Stack::detect(dir.path()), Some(Stack::Ansible));
+    }
+
+    #[test]
+    fn detect_caps_walk_at_max_depth() {
+        // ERR-1 / TASK-0529: pathological cwd depths must terminate. We
+        // build a deep tree with no manifests and ensure detect bails out
+        // after MAX_DETECT_DEPTH instead of walking to /.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut deep = dir.path().to_path_buf();
+        for i in 0..(Stack::MAX_DETECT_DEPTH + 4) {
+            deep = deep.join(format!("d{i}"));
+        }
+        std::fs::create_dir_all(&deep).expect("create_dir_all");
+        // No manifest exists in any ancestor inside the tempdir.
+        assert_eq!(Stack::detect(&deep), None);
     }
 
     #[test]
