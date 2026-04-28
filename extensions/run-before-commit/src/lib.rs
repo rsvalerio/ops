@@ -57,6 +57,9 @@ fn has_staged_files_with(program: &str, dir: &Path) -> anyhow::Result<bool> {
         .output()
         .with_context(|| format!("failed to run `{program} diff --cached`"))?;
     if !output.status.success() {
+        // Lossy decoding is intentional: git stderr is overwhelmingly UTF-8
+        // and a readable error (with U+FFFD on the rare bad byte) is more
+        // useful to the user than an opaque `[u8]` Debug dump.
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!(
             "`{program} diff --cached` failed (exit {:?}): {}",
@@ -192,6 +195,22 @@ mod tests {
             msg.contains("not a git repository") || msg.contains("failed"),
             "unexpected error: {msg}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn has_staged_files_lossily_decodes_invalid_utf8_stderr() {
+        // Pin the lossy-decode behavior: invalid UTF-8 bytes from a fake git
+        // binary become U+FFFD in the error message rather than aborting the
+        // bail with a panic or producing an opaque Debug blob.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let fake_git = dir.path().join("git-fake");
+        std::fs::write(&fake_git, "#!/bin/sh\nprintf '\\377\\376' >&2\nexit 1\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake_git, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let err = has_staged_files_with(fake_git.to_str().unwrap(), dir.path()).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains('\u{FFFD}'), "expected lossy U+FFFD in: {msg}");
     }
 
     #[test]

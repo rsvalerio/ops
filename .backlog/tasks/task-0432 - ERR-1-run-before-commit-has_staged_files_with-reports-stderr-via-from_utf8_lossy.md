@@ -3,11 +3,11 @@ id: TASK-0432
 title: >-
   ERR-1: run-before-commit has_staged_files_with reports stderr via
   from_utf8_lossy
-status: To Do
+status: Done
 assignee:
   - TASK-0535
 created_date: '2026-04-28 04:42'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 13:45'
 labels:
   - code-review-rust
   - error-handling
@@ -27,5 +27,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Either bail with the raw bytes (format!("{:?}", output.stderr)) or document that lossy is intentional with a comment plus a unit test pinning the behavior
+- [x] #1 Either bail with the raw bytes (format!("{:?}", output.stderr)) or document that lossy is intentional with a comment plus a unit test pinning the behavior
 <!-- AC:END -->
