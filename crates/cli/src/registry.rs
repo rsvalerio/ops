@@ -122,23 +122,25 @@ fn register_with_extensions<R, F>(
 /// Insertion order is preserved (the late entry wins, matching the prior
 /// observable behaviour) but the collision is now visible.
 pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut CommandRegistry) {
-    use std::collections::HashSet;
-
     let mut owners: std::collections::HashMap<ops_core::config::CommandId, &'static str> =
         std::collections::HashMap::new();
 
+    // Seed `owners` with whatever was already in `registry` so the first
+    // extension's contributions still see existing keys as foreign-owned
+    // (unknown) and we don't false-positive collisions across re-entries.
+    for id in registry.keys() {
+        owners.entry(id.clone()).or_insert("<pre-existing>");
+    }
+
     for ext in extensions {
         debug!(extension = ext.name(), action = "commands", "registering");
-        let before: HashSet<ops_core::config::CommandId> = registry.keys().cloned().collect();
-        ext.register_commands(registry);
-        for id in registry.keys() {
-            if !before.contains(id) {
-                owners.insert(id.clone(), ext.name());
-                continue;
-            }
-            // Already-present keys whose owner is a different extension are
-            // collisions: this extension just re-inserted under the same id.
-            if let Some(prev) = owners.get(id) {
+        // PERF-1 / TASK-0512: register into a per-extension scratch registry
+        // so we can detect collisions in O(commands_this_ext) instead of
+        // snapshotting every key in the shared registry on each iteration.
+        let mut local = CommandRegistry::new();
+        ext.register_commands(&mut local);
+        for (id, spec) in local {
+            if let Some(prev) = owners.get(&id) {
                 if *prev != ext.name() {
                     tracing::warn!(
                         command = %id,
@@ -146,9 +148,10 @@ pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut
                         second = %ext.name(),
                         "duplicate command registration; the later extension shadows the earlier one"
                     );
-                    owners.insert(id.clone(), ext.name());
                 }
             }
+            registry.insert(id.clone(), spec);
+            owners.insert(id, ext.name());
         }
     }
 }
