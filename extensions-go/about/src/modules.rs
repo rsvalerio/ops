@@ -84,30 +84,10 @@ fn workspace_use_dirs(root: &Path) -> Option<Vec<String>> {
 }
 
 fn read_mod_info(dir: &Path) -> (Option<String>, Option<String>) {
-    let path = dir.join("go.mod");
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::debug!(path = %path.display(), error = %e, "failed to read go.mod");
-            }
-            return (None, None);
-        }
-    };
-    let mut module = None;
-    let mut go_version = None;
-    for line in content.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("module ") {
-            module = Some(rest.trim().to_string());
-        } else if let Some(rest) = line.strip_prefix("go ") {
-            go_version = Some(rest.trim().to_string());
-        }
-        if module.is_some() && go_version.is_some() {
-            break;
-        }
+    match crate::go_mod::parse(dir) {
+        Some(m) => (m.module, m.go_version),
+        None => (None, None),
     }
-    (module, go_version)
 }
 
 #[cfg(test)]

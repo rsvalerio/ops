@@ -1,11 +1,11 @@
 ---
 id: TASK-0495
 title: 'READ-2: parse_go_mod ignores go.mod block-form replace directives'
-status: To Do
+status: Done
 assignee:
   - TASK-0532
 created_date: '2026-04-28 06:09'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 15:44'
 labels:
   - code-review-rust
   - read

@@ -7,6 +7,7 @@
 //! `tracing::debug!` so unreadable manifests do not silently look like missing
 //! ones (TASK-0394).
 
+mod go_mod;
 mod go_work;
 mod modules;
 
@@ -14,7 +15,6 @@ use std::path::Path;
 
 use ops_about::identity::{build_identity_value, ParsedManifest};
 use ops_core::project_identity::{base_about_fields, AboutFieldDef};
-use ops_core::text::for_each_trimmed_line;
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 
 const NAME: &str = "about-go";
@@ -68,14 +68,7 @@ impl DataProvider for GoIdentityProvider {
             .and_then(|m| m.go_version.clone())
             .map(|v| format!("Go {v}"));
 
-        let module_count = if let Some(ref work) = go_work {
-            Some(work.use_dirs.len())
-        } else if let Some(ref m) = go_mod {
-            let count = 1 + m.local_replaces.len();
-            (count > 1).then_some(count)
-        } else {
-            None
-        };
+        let module_count = compute_module_count(go_work.as_ref(), go_mod.as_ref());
 
         build_identity_value(
             ParsedManifest {
@@ -91,6 +84,24 @@ impl DataProvider for GoIdentityProvider {
     }
 }
 
+/// Compute the module count surfaced in the About card.
+///
+/// Precedence:
+/// - If a `go.work` is present, the count is the number of `use` directives.
+/// - Else if a `go.mod` is present, the count is `1 + local_replaces` (the
+///   main module plus each `replace ... => ./local` target). The single-module
+///   case (no local replaces) returns `None` so the card omits the field
+///   instead of displaying a meaningless `1`.
+/// - Else `None`.
+fn compute_module_count(go_work: Option<&GoWork>, go_mod: Option<&GoMod>) -> Option<usize> {
+    if let Some(work) = go_work {
+        return Some(work.use_dirs.len());
+    }
+    let m = go_mod?;
+    let count = 1 + m.local_replaces.len();
+    (count > 1).then_some(count)
+}
+
 // --- go.mod parsing ---
 
 struct GoMod {
@@ -100,30 +111,11 @@ struct GoMod {
 }
 
 fn parse_go_mod(project_root: &Path) -> Option<GoMod> {
-    let mut module = None;
-    let mut go_version = None;
-    let mut local_replaces = Vec::new();
-
-    for_each_trimmed_line(&project_root.join("go.mod"), |line| {
-        if let Some(rest) = line.strip_prefix("module ") {
-            module = Some(rest.trim().to_string());
-        } else if let Some(rest) = line.strip_prefix("go ") {
-            go_version = Some(rest.trim().to_string());
-        } else if let Some(rest) = line.strip_prefix("replace ") {
-            // Parse: replace module/path => ./local/path
-            if let Some(pos) = rest.find("=>") {
-                let target = rest[pos + 2..].trim();
-                if target.starts_with("./") {
-                    local_replaces.push(target.to_string());
-                }
-            }
-        }
-    })?;
-
-    module.map(|m| GoMod {
+    let raw = go_mod::parse(project_root)?;
+    raw.module.map(|m| GoMod {
         module: m,
-        go_version,
-        local_replaces,
+        go_version: raw.go_version,
+        local_replaces: raw.local_replaces,
     })
 }
 

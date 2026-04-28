@@ -1,11 +1,11 @@
 ---
 id: TASK-0496
 title: 'READ-2: parse_go_mod and read_mod_info do not strip end-of-line // comments'
-status: To Do
+status: Done
 assignee:
   - TASK-0532
 created_date: '2026-04-28 06:09'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 15:44'
 labels:
   - code-review-rust
   - read
