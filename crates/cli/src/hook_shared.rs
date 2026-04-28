@@ -104,20 +104,31 @@ pub fn gather_available_commands(
     }
 
     // Extension commands (lowest priority, deduped)
-    if let Ok(exts) = crate::registry::builtin_extensions(config, cwd) {
-        let ext_refs = crate::registry::as_ext_refs(&exts);
-        let mut cmd_registry = ops_extension::CommandRegistry::new();
-        crate::registry::register_extension_commands(&ext_refs, &mut cmd_registry);
-        for (name, spec) in &cmd_registry {
-            let name_str = name.to_string();
-            if name_str == exclude_name || seen.contains(&name_str) {
-                continue;
+    match crate::registry::builtin_extensions(config, cwd) {
+        Ok(exts) => {
+            let ext_refs = crate::registry::as_ext_refs(&exts);
+            let mut cmd_registry = ops_extension::CommandRegistry::new();
+            crate::registry::register_extension_commands(&ext_refs, &mut cmd_registry);
+            for (name, spec) in &cmd_registry {
+                let name_str = name.to_string();
+                if name_str == exclude_name || seen.contains(&name_str) {
+                    continue;
+                }
+                seen.insert(name_str.clone());
+                options.push(SelectOption {
+                    name: name_str,
+                    description: command_description(spec),
+                });
             }
-            seen.insert(name_str.clone());
-            options.push(SelectOption {
-                name: name_str,
-                description: command_description(spec),
-            });
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %format!("{e:#}"),
+                "failed to load extensions for hook command selection; extension-provided commands will be omitted",
+            );
+            ops_core::ui::warn(format!(
+                "could not load extensions for {exclude_name} install: {e:#}\n  extension-provided commands will not appear in the selection list",
+            ));
         }
     }
 
@@ -214,6 +225,71 @@ mod tests {
         assert!(names.contains(&"build"));
         assert!(names.contains(&"test"));
         assert!(names.contains(&"verify"));
+    }
+
+    #[test]
+    fn gather_warns_when_extensions_enabled_has_typo() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+
+        let mut config = Config::default();
+        config.extensions.enabled = Some(vec![
+            "git".to_string(),
+            "definitely-not-a-real-extension-xyz".to_string(),
+        ]);
+        config.commands.insert(
+            "lint".to_string(),
+            CommandSpec::Exec(ExecCommandSpec::new("eslint", Vec::<String>::new())),
+        );
+
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let options = tracing::subscriber::with_default(subscriber, || {
+            gather_available_commands(
+                &config,
+                None,
+                std::path::Path::new("."),
+                "run-before-commit",
+            )
+        });
+
+        // Config-level command still present.
+        let names: Vec<&str> = options.iter().map(|o| o.name.as_str()).collect();
+        assert!(
+            names.contains(&"lint"),
+            "config commands still listed: {names:?}"
+        );
+
+        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        assert!(
+            logs.contains("WARN") && logs.contains("definitely-not-a-real-extension-xyz"),
+            "expected WARN tracing event for bad extension name, got: {logs}"
+        );
     }
 
     #[test]

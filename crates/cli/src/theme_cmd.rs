@@ -16,7 +16,16 @@ fn parse_default_config() -> Result<ops_core::config::Config, anyhow::Error> {
 ///
 /// Used by both `run_theme_list` and `run_theme_select` to avoid duplication.
 fn collect_theme_options(config: &ops_core::config::Config) -> Vec<ThemeOption> {
-    let default_config = parse_default_config().ok();
+    let default_config = match parse_default_config() {
+        Ok(c) => Some(c),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "failed to parse embedded default config; built-in themes will be labelled (custom)",
+            );
+            None
+        }
+    };
 
     let mut options: Vec<ThemeOption> = config
         .themes

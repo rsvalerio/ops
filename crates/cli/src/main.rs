@@ -67,22 +67,36 @@ fn main() -> ExitCode {
     }
 }
 
-fn init_logging() {
-    let log_level = std::env::var("OPS_LOG_LEVEL")
-        .map(|v| {
-            v.parse().unwrap_or_else(|e| {
-                tracing::debug!(
-                    value = %v,
-                    error = %e,
-                    "EFF-002: invalid OPS_LOG_LEVEL, falling back to info"
-                );
-                tracing_subscriber::filter::LevelFilter::INFO.into()
-            })
-        })
-        .unwrap_or_else(|_| {
-            tracing::trace!("EFF-002: OPS_LOG_LEVEL not set, using default info");
+fn parse_log_level<W: io::Write>(
+    raw: Option<&str>,
+    warn: &mut W,
+) -> tracing_subscriber::filter::Directive {
+    let Some(v) = raw else {
+        return tracing_subscriber::filter::LevelFilter::INFO.into();
+    };
+    // Bare `info`/`debug`/etc. is the documented form. Anything else (target
+    // directives like `ops=debug`) falls through to Directive parse so we
+    // do not narrow accepted syntax.
+    if let Ok(level) = v.parse::<tracing_subscriber::filter::LevelFilter>() {
+        return level.into();
+    }
+    match v.parse::<tracing_subscriber::filter::Directive>() {
+        Ok(d) => d,
+        Err(e) => {
+            // The tracing subscriber is not yet registered when init_logging
+            // runs, so any tracing::* event is dropped — write directly.
+            let _ = writeln!(
+                warn,
+                "ops: warning: invalid OPS_LOG_LEVEL='{v}': {e}; falling back to info"
+            );
             tracing_subscriber::filter::LevelFilter::INFO.into()
-        });
+        }
+    }
+}
+
+fn init_logging() {
+    let raw = std::env::var("OPS_LOG_LEVEL").ok();
+    let log_level = parse_log_level(raw.as_deref(), &mut io::stderr());
     tracing_subscriber::registry()
         .with(fmt::layer().with_writer(io::stderr))
         .with(
@@ -91,6 +105,35 @@ fn init_logging() {
                 .add_directive("tokei=error".parse().expect("static directive is valid")),
         )
         .init();
+}
+
+#[cfg(test)]
+mod log_level_tests {
+    use super::parse_log_level;
+
+    #[test]
+    fn invalid_value_writes_visible_warning() {
+        let mut buf: Vec<u8> = Vec::new();
+        let bad = "!!not-a-level!!";
+        let _ = parse_log_level(Some(bad), &mut buf);
+        let out = String::from_utf8(buf).unwrap();
+        assert!(out.contains("invalid OPS_LOG_LEVEL"), "got: {out}");
+        assert!(out.contains(bad), "should include offending value: {out}");
+    }
+
+    #[test]
+    fn valid_value_writes_nothing() {
+        let mut buf: Vec<u8> = Vec::new();
+        let _ = parse_log_level(Some("debug"), &mut buf);
+        assert!(buf.is_empty(), "no warning for valid level");
+    }
+
+    #[test]
+    fn unset_writes_nothing() {
+        let mut buf: Vec<u8> = Vec::new();
+        let _ = parse_log_level(None, &mut buf);
+        assert!(buf.is_empty(), "no warning when unset");
+    }
 }
 
 fn run() -> anyhow::Result<ExitCode> {

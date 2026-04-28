@@ -88,6 +88,13 @@ fn write_extension_table(
 }
 
 /// Collect extension type flags and registered command names.
+///
+/// PERF-1 / TASK-0513: prefer the static `command_names()` accessor (set
+/// via `impl_extension! { command_names: &[..] }`) so list/show paths do
+/// not re-run `register_commands` (which can perform I/O for some
+/// extensions). Falls back to a one-shot `register_commands` only when an
+/// extension does not expose a static list, preserving the previous
+/// behaviour for legacy extensions.
 fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<String>) {
     let info = ext.info();
     let mut types = Vec::new();
@@ -97,9 +104,16 @@ fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<St
     if info.types.is_command() {
         types.push("COMMAND".to_string());
     }
-    let mut cmd_registry = CommandRegistry::new();
-    ext.register_commands(&mut cmd_registry);
-    let commands: Vec<String> = cmd_registry.keys().map(|s| s.to_string()).collect();
+    let commands: Vec<String> = if info.command_names.is_empty() {
+        let mut cmd_registry = CommandRegistry::new();
+        ext.register_commands(&mut cmd_registry);
+        cmd_registry.keys().map(|s| s.to_string()).collect()
+    } else {
+        info.command_names
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect()
+    };
     (types, commands)
 }
 
@@ -231,7 +245,9 @@ fn print_extension_details(
                 }
             }
             Err(e) => {
-                tracing::debug!("could not build data registry for schema display: {}", e);
+                let msg = format!("schema unavailable for provider '{provider_name}': {e:#}");
+                tracing::warn!(error = %format!("{e:#}"), provider = provider_name, "could not build data registry for schema display");
+                writeln!(w, "\n{msg}")?;
             }
         }
     }
@@ -395,6 +411,39 @@ enabled = []
         let mut buf = Vec::new();
         let result = run_extension_list_to(&mut buf);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn print_extension_details_surfaces_registry_build_error() {
+        // ERR-1: when build_data_registry fails, the user must see a visible
+        // note instead of a debug log they will not have enabled.
+        let config = ops_core::config::Config {
+            extensions: ops_core::config::ExtensionConfig {
+                enabled: Some(vec![
+                    "git".to_string(),
+                    "definitely-not-a-real-extension-xyz".to_string(),
+                ]),
+            },
+            ..ops_core::config::Config::default()
+        };
+        let cwd = std::path::PathBuf::from(".");
+        let compiled = collect_compiled_extensions(&config, &cwd);
+        let entry = compiled
+            .iter()
+            .find(|(n, _)| *n == "git")
+            .expect("git extension must be compiled in");
+        let mut buf = Vec::new();
+        print_extension_details(&mut buf, "git", entry.1.as_ref(), &config, &cwd)
+            .expect("should not propagate");
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("schema unavailable"),
+            "expected user-visible schema note, got: {output}"
+        );
+        assert!(
+            output.contains("definitely-not-a-real-extension-xyz"),
+            "expected error cause in output, got: {output}"
+        );
     }
 
     #[test]
