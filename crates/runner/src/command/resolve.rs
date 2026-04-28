@@ -132,6 +132,11 @@ impl CommandRunner {
         match spec {
             CommandSpec::Exec(_) => Ok(vec![CommandId::from(canonical)]),
             CommandSpec::Composite(c) => {
+                // PATTERN-1 / TASK-0505: track only the active recursion
+                // stack so a diamond DAG (A -> [B, C]; B, C -> [D]) does not
+                // raise a false-positive cycle on the second visit to D.
+                // True cycles (self-reference, A -> B -> A) still re-enter
+                // a node already on the stack and trigger the check.
                 if !visited.insert(canonical.to_string()) {
                     return Err(ExpandError::Cycle(canonical.to_string()));
                 }
@@ -139,6 +144,7 @@ impl CommandRunner {
                 for sub in &c.commands {
                     out.extend(self.expand_inner(sub, visited, depth + 1, max_depth)?);
                 }
+                visited.remove(canonical);
                 Ok(out)
             }
         }
