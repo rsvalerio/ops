@@ -3,11 +3,11 @@ id: TASK-0451
 title: >-
   CONC-5: run_with_timeout polls every 100ms via thread::sleep with no
   cancellation
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 05:44'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:45'
 labels:
   - code-review-rust
   - CONC
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace polling loop with wait_timeout from the wait-timeout crate (single OS-level wait), or document why polling cadence was chosen
-- [ ] #2 Document/handle SIGINT during run_with_timeout so the child dies with the parent
+- [x] #1 Replace polling loop with wait_timeout from the wait-timeout crate (single OS-level wait), or document why polling cadence was chosen
+- [x] #2 Document/handle SIGINT during run_with_timeout so the child dies with the parent
 <!-- AC:END -->

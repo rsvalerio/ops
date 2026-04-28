@@ -3,11 +3,11 @@ id: TASK-0459
 title: >-
   CONC-9: forwarder drain blocks exec_standalone until terminal event is
   delivered
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 05:45'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:01'
 labels:
   - code-review-rust
   - CONC
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Terminal-event send in exec_standalone is wrapped in select! { _ = tx.send(...) => {}, _ = abort_signal => {} } (or equivalent timeout) so an aborted task does not block on a full outer channel
-- [ ] #2 Test: with a deliberately-stalled mpsc::Receiver, an aborted parallel task completes within ~50ms instead of hanging for the full sibling duration
+- [x] #1 Terminal-event send in exec_standalone is wrapped in select! { _ = tx.send(...) => {}, _ = abort_signal => {} } (or equivalent timeout) so an aborted task does not block on a full outer channel
+- [x] #2 Test: with a deliberately-stalled mpsc::Receiver, an aborted parallel task completes within ~50ms instead of hanging for the full sibling duration
 <!-- AC:END -->

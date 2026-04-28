@@ -1,11 +1,11 @@
 ---
 id: TASK-0455
 title: 'API-9: RunnerEvent enum is public but lacks #[non_exhaustive]'
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 05:44'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:51'
 labels:
   - code-review-rust
   - API
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 RunnerEvent is annotated #[non_exhaustive] and each struct-like variant that may grow new fields is annotated similarly or documented as exhaustive
-- [ ] #2 Existing match sites inside this workspace are updated to a wildcard arm or a TODO-noted exhaustive arm without warnings
+- [x] #1 RunnerEvent is annotated #[non_exhaustive] and each struct-like variant that may grow new fields is annotated similarly or documented as exhaustive
+- [x] #2 Existing match sites inside this workspace are updated to a wildcard arm or a TODO-noted exhaustive arm without warnings
 <!-- AC:END -->

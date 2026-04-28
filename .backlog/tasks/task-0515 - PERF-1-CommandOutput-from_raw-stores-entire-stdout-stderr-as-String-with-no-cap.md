@@ -3,11 +3,11 @@ id: TASK-0515
 title: >-
   PERF-1: CommandOutput::from_raw stores entire stdout/stderr as String with no
   cap
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 06:51'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:54'
 labels:
   - code-review-rust
   - performance
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cap captured stdout/stderr at a configurable byte limit
-- [ ] #2 Drop overflow with a marker line at the tail
+- [x] #1 Cap captured stdout/stderr at a configurable byte limit
+- [x] #2 Drop overflow with a marker line at the tail
 <!-- AC:END -->

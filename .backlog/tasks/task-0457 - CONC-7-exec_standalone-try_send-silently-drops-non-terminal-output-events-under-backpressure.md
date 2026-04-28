@@ -3,11 +3,11 @@ id: TASK-0457
 title: >-
   CONC-7: exec_standalone try_send silently drops non-terminal output events
   under backpressure
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 05:45'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:06'
 labels:
   - code-review-rust
   - CONC
@@ -27,6 +27,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Output events are forwarded with backpressure (e.g. blocking_send on a dedicated thread, or async callback), or an explicit StepOutputDropped { id, dropped_count } event is emitted so display can show "(N output lines dropped under load)"
-- [ ] #2 Regression test simulates a chatty producer (>1000 lines/burst) and asserts either zero drops or a dropped-count event is emitted with correct id
+- [x] #1 Output events are forwarded with backpressure (e.g. blocking_send on a dedicated thread, or async callback), or an explicit StepOutputDropped { id, dropped_count } event is emitted so display can show "(N output lines dropped under load)"
+- [x] #2 Regression test simulates a chatty producer (>1000 lines/burst) and asserts either zero drops or a dropped-count event is emitted with correct id
 <!-- AC:END -->

@@ -1,11 +1,11 @@
 ---
 id: TASK-0505
 title: 'PATTERN-1: expand_inner false-positive cycle on diamond composite topology'
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 06:50'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:53'
 labels:
   - code-review-rust
   - correctness
@@ -25,7 +25,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Construct a diamond DAG of composites and assert expand_to_leaves succeeds
-- [ ] #2 Insert/remove canonical id only along the active path (DFS in/out)
-- [ ] #3 Keep cycle test for true self-reference green
+- [x] #1 Construct a diamond DAG of composites and assert expand_to_leaves succeeds
+- [x] #2 Insert/remove canonical id only along the active path (DFS in/out)
+- [x] #3 Keep cycle test for true self-reference green
 <!-- AC:END -->

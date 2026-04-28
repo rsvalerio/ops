@@ -1,11 +1,11 @@
 ---
 id: TASK-0450
 title: 'ERR-1: Variables::expand silently returns input unchanged on shellexpand error'
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 05:44'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:44'
 labels:
   - code-review-rust
   - ERR
@@ -25,6 +25,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Make expand return Result (or have callers opt into a strict mode) so a non-UTF-8 env var fails loudly
-- [ ] #2 Tests verify the failure path exits with a user-visible error rather than leaving ${VAR} literal in the command
+- [x] #1 Make expand return Result (or have callers opt into a strict mode) so a non-UTF-8 env var fails loudly
+- [x] #2 Tests verify the failure path exits with a user-visible error rather than leaving ${VAR} literal in the command
 <!-- AC:END -->

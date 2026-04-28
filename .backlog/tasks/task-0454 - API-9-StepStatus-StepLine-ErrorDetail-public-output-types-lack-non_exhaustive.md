@@ -3,11 +3,11 @@ id: TASK-0454
 title: >-
   API-9: StepStatus, StepLine, ErrorDetail public output types lack
   #[non_exhaustive]
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 05:44'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:51'
 labels:
   - code-review-rust
   - API
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add #[non_exhaustive] to StepStatus, StepLine, ErrorDetail, plus constructors where field-literal init was previously possible
-- [ ] #2 All downstream call sites updated; tests cover construction via the new helpers
+- [x] #1 Add #[non_exhaustive] to StepStatus, StepLine, ErrorDetail, plus constructors where field-literal init was previously possible
+- [x] #2 All downstream call sites updated; tests cover construction via the new helpers
 <!-- AC:END -->

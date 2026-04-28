@@ -3,11 +3,11 @@ id: TASK-0500
 title: >-
   SEC-23: resolve_spec_cwd silently allows absolute path escape under Deny
   policy
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 06:50'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:52'
 labels:
   - code-review-rust
   - security
@@ -27,6 +27,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 detect_workspace_escape runs against absolute spec_cwd as well
-- [ ] #2 Hook test asserts Deny rejects absolute cwd outside workspace
+- [x] #1 detect_workspace_escape runs against absolute spec_cwd as well
+- [x] #2 Hook test asserts Deny rejects absolute cwd outside workspace
 <!-- AC:END -->

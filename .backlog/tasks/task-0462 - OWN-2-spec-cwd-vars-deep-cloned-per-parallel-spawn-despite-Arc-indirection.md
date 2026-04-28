@@ -1,11 +1,11 @@
 ---
 id: TASK-0462
 title: 'OWN-2: spec/cwd/vars deep-cloned per parallel spawn despite Arc indirection'
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 05:45'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:00'
 labels:
   - code-review-rust
   - OWN
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 build_command_async signature takes Arc<Variables> (and optionally Arc<PathBuf>) so Arc::clone is the only allocation per spawn
-- [ ] #2 A microbenchmark (or tracing span on the spawn path) confirms ≤1 allocation for vars per spawn after the change
+- [x] #1 build_command_async signature takes Arc<Variables> (and optionally Arc<PathBuf>) so Arc::clone is the only allocation per spawn
+- [x] #2 A microbenchmark (or tracing span on the spawn path) confirms ≤1 allocation for vars per spawn after the change
 <!-- AC:END -->

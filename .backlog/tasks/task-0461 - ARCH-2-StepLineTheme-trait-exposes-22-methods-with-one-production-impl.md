@@ -1,11 +1,11 @@
 ---
 id: TASK-0461
 title: 'ARCH-2: StepLineTheme trait exposes 22 methods with one production impl'
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 05:45'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:54'
 labels:
   - code-review-rust
   - ARCH
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Decision recorded (or refactor executed): split into 3 cohesive traits, collapse to a concrete struct + free fns, or keep as-is with a documented criterion (revisit when N-th impl arrives)
-- [ ] #2 If kept as a single trait, forward-compat strategy is documented (defaults shield downstream, but adding a required method still breaks)
+- [x] #1 Decision recorded (or refactor executed): split into 3 cohesive traits, collapse to a concrete struct + free fns, or keep as-is with a documented criterion (revisit when N-th impl arrives)
+- [x] #2 If kept as a single trait, forward-compat strategy is documented (defaults shield downstream, but adding a required method still breaks)
 <!-- AC:END -->

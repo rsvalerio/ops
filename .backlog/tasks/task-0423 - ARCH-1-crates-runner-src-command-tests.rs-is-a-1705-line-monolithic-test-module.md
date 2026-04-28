@@ -3,11 +3,11 @@ id: TASK-0423
 title: >-
   ARCH-1: crates/runner/src/command/tests.rs is a 1705-line monolithic test
   module
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 04:41'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 16:40'
 labels:
   - code-review-rust
   - architecture

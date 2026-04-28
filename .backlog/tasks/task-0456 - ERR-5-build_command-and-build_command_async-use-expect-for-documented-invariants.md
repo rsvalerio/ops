@@ -3,11 +3,11 @@ id: TASK-0456
 title: >-
   ERR-5: build_command and build_command_async use expect() for documented
   invariants
-status: To Do
+status: Done
 assignee:
   - TASK-0537
 created_date: '2026-04-28 05:44'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 17:04'
 labels:
   - code-review-rust
   - ERR
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 build_command rewritten so the no-error guarantee is structural (e.g. private helper sharing logic with build_command_with returning Command directly for WarnAndAllow inputs)
-- [ ] #2 build_command_async either propagates the JoinError up (returning Result) or downgrades to tracing::error! plus a synthesized failing Command so a panicking blocking task does not abort the runner
+- [x] #1 build_command rewritten so the no-error guarantee is structural (e.g. private helper sharing logic with build_command_with returning Command directly for WarnAndAllow inputs)
+- [x] #2 build_command_async either propagates the JoinError up (returning Result) or downgrades to tracing::error! plus a synthesized failing Command so a panicking blocking task does not abort the runner
 <!-- AC:END -->
