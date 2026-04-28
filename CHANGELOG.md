@@ -2,6 +2,25 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.21.1](https://github.com/rsvalerio/ops/compare/b7ac48aac3b39aafd54156c48201302f6781feab..v0.21.1) - 2026-04-28
+#### 🐛 Bug Fixes
+- (**core/expand**) surface shellexpand errors and drop false-positive diamond cycle - ([b7ac48a](https://github.com/rsvalerio/ops/commit/b7ac48aac3b39aafd54156c48201302f6781feab)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/resolve**) reject absolute spec_cwd escape under Deny policy - ([b08b9ca](https://github.com/rsvalerio/ops/commit/b08b9cad82a1f9cfe71420787be6e98c0761f6d8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/results**) keep tap log handle across transient I/O errors and respect output cap - ([2b4dc8c](https://github.com/rsvalerio/ops/commit/2b4dc8c8d0861c019bf3d5cf3d8bac1d9f3f19c9)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**core/output**) cap CommandOutput stdout/stderr at a per-stream byte limit - ([53465bf](https://github.com/rsvalerio/ops/commit/53465bf05749bd26008dc0e5ffc487bbd5541e03)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/subprocess**) use wait-timeout instead of 100ms thread::sleep poll - ([9461f79](https://github.com/rsvalerio/ops/commit/9461f79ea88711f771a53e9957411160c9329181)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**runner/command**) split 1705-line tests.rs into per-area submodules - ([af29547](https://github.com/rsvalerio/ops/commit/af29547a92b8777e4fc8fc09b269ae5481cacacb)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**runner**) mark RunnerEvent and StepStatus/StepLine/ErrorDetail non_exhaustive - ([e61fef8](https://github.com/rsvalerio/ops/commit/e61fef8203e4d0864ab189d4f9017522c759858a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/command**) Arc cwd/vars on spawn path, return Result from build_command, surface spawn errors and abort drain on fail_fast - ([721f4ca](https://github.com/rsvalerio/ops/commit/721f4ca6dedb030580eabeea21aaa0ae5adf4719)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme/step-line**) trim StepLineTheme trait surface to the methods callers use - ([e9e5fd1](https://github.com/rsvalerio/ops/commit/e9e5fd1f7cd260657699d7c9c2673dcd5dfc5062)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close wave 39 code-review tasks - ([0c0c6c6](https://github.com/rsvalerio/ops/commit/0c0c6c64c05d45fd39943c3b97c17ff73db1bcb8)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.21.0](https://github.com/rsvalerio/ops/compare/f7efafb1496f4a4f2213476e949e824494ca2634..v0.21.0) - 2026-04-28
 #### 🚀 Features
 - (**core/config**) expose atomic_write for cross-crate reuse - ([45c2c35](https://github.com/rsvalerio/ops/commit/45c2c3523bb6e2c26c98b7289ddac9352b787ee3)) - [@rsvalerio](https://github.com/rsvalerio)
