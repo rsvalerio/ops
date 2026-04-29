@@ -22,7 +22,7 @@ async fn spawn_parallel_tasks_creates_correct_count() {
 #[tokio::test(flavor = "multi_thread")]
 async fn handle_parallel_events_receives_all() {
     let (tx, rx) = mpsc::channel(8);
-    let abort = Arc::new(AtomicBool::new(false));
+    let abort = Arc::new(AbortSignal::new());
 
     tx.try_send(RunnerEvent::StepStarted {
         id: "a".into(),
@@ -46,7 +46,7 @@ async fn handle_parallel_events_receives_all() {
 #[tokio::test(flavor = "multi_thread")]
 async fn handle_parallel_events_sets_abort_on_fail_fast() {
     let (tx, rx) = mpsc::channel(8);
-    let abort = Arc::new(AtomicBool::new(false));
+    let abort = Arc::new(AbortSignal::new());
 
     tx.try_send(RunnerEvent::StepFailed {
         id: "fail".into(),
@@ -62,7 +62,7 @@ async fn handle_parallel_events_sets_abort_on_fail_fast() {
         .await;
 
     assert!(
-        abort.load(std::sync::atomic::Ordering::Acquire),
+        abort.is_set(),
         "abort should be set on failure with fail_fast=true"
     );
 }
@@ -70,7 +70,7 @@ async fn handle_parallel_events_sets_abort_on_fail_fast() {
 #[tokio::test(flavor = "multi_thread")]
 async fn handle_parallel_events_no_abort_without_fail_fast() {
     let (tx, rx) = mpsc::channel(8);
-    let abort = Arc::new(AtomicBool::new(false));
+    let abort = Arc::new(AbortSignal::new());
 
     tx.try_send(RunnerEvent::StepFailed {
         id: "fail".into(),
@@ -85,10 +85,7 @@ async fn handle_parallel_events_no_abort_without_fail_fast() {
     CommandRunner::handle_parallel_events(rx, false, Arc::clone(&abort), &mut |e| events.push(e))
         .await;
 
-    assert!(
-        !abort.load(std::sync::atomic::Ordering::Acquire),
-        "abort should NOT be set without fail_fast"
-    );
+    assert!(!abort.is_set(), "abort should NOT be set without fail_fast");
 }
 
 /// TASK-0334: panic payloads from `JoinError` must not surface verbatim in

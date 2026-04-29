@@ -4,13 +4,13 @@
 //! Split out of `command/mod.rs` (ARCH-1 / TASK-0303) so the orchestrator
 //! file isn't carrying both sequential and parallel scheduling concerns.
 
+use super::abort::AbortSignal;
 use super::events::PlanLifecycle;
 use super::exec::{exec_standalone, resolution_failure};
 use super::{CommandRunner, RunnerEvent, StepResult};
 use ops_core::config::{CommandId, ExecCommandSpec};
 use ops_core::expand::Variables;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -91,7 +91,7 @@ impl CommandRunner {
         vars: Arc<Variables>,
     ) -> (
         mpsc::Receiver<RunnerEvent>,
-        Arc<AtomicBool>,
+        Arc<AbortSignal>,
         tokio::task::JoinSet<StepResult>,
     ) {
         // CONC-3 / TASK-0158+0209: bounded channel so a chatty child
@@ -103,7 +103,7 @@ impl CommandRunner {
         // throttling we want.
         let capacity = Self::MAX_PARALLEL.saturating_mul(Self::PARALLEL_EVENT_BUDGET_PER_TASK);
         let (tx, rx) = mpsc::channel(capacity);
-        let abort = Arc::new(AtomicBool::new(false));
+        let abort = Arc::new(AbortSignal::new());
         let semaphore = Arc::new(tokio::sync::Semaphore::new(Self::MAX_PARALLEL));
         let mut join_set = tokio::task::JoinSet::new();
         for (id, spec) in steps {
@@ -193,7 +193,7 @@ impl CommandRunner {
     pub(crate) async fn handle_parallel_events(
         rx: mpsc::Receiver<RunnerEvent>,
         fail_fast: bool,
-        abort: Arc<AtomicBool>,
+        abort: Arc<AbortSignal>,
         on_event: &mut impl FnMut(RunnerEvent),
     ) {
         let mut empty: tokio::task::JoinSet<StepResult> = tokio::task::JoinSet::new();
@@ -205,7 +205,7 @@ impl CommandRunner {
     pub(crate) async fn handle_parallel_events_with_cancel(
         mut rx: mpsc::Receiver<RunnerEvent>,
         fail_fast: bool,
-        abort: Arc<AtomicBool>,
+        abort: Arc<AbortSignal>,
         join_set: &mut tokio::task::JoinSet<StepResult>,
         on_event: &mut impl FnMut(RunnerEvent),
     ) {
@@ -213,7 +213,7 @@ impl CommandRunner {
         while let Some(ev) = rx.recv().await {
             if let RunnerEvent::StepFailed { .. } = &ev {
                 if fail_fast && !cancelled {
-                    abort.store(true, Ordering::Release);
+                    abort.set();
                     join_set.abort_all();
                     cancelled = true;
                 }

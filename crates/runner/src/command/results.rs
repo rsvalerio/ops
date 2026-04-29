@@ -1,11 +1,13 @@
 //! Result types for command execution.
 
 use ops_core::config::CommandId;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 /// Result of running a single command.
 #[derive(Debug, Clone)]
 #[must_use = "StepResult carries success/failure, stderr, and timing; discarding it hides command failures"]
+#[non_exhaustive]
 pub struct StepResult {
     pub id: CommandId,
     pub success: bool,
@@ -25,6 +27,22 @@ impl StepResult {
             stdout: String::new(),
             stderr: String::new(),
             message: None,
+        }
+    }
+
+    /// Construct a successful `StepResult` with captured stdout.
+    ///
+    /// Out-of-crate callers (CLI tests, downstream tools) cannot use struct
+    /// literals once the type is `#[non_exhaustive]`; this provides a stable
+    /// path for the success-with-output shape.
+    pub fn success_with_stdout(
+        id: impl Into<CommandId>,
+        duration: Duration,
+        stdout: String,
+    ) -> Self {
+        Self {
+            stdout,
+            ..Self::new(id, true, duration)
         }
     }
 
@@ -72,6 +90,7 @@ impl StepResult {
 /// typically small), this overhead is negligible. If processing very large outputs
 /// (e.g., >1MB), consider streaming output directly instead of buffering.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct CommandOutput {
     pub success: bool,
     pub stdout: String,
@@ -92,12 +111,21 @@ pub const DEFAULT_OUTPUT_BYTE_CAP: usize = 4 * 1024 * 1024; // 4 MiB / stream
 
 const OUTPUT_CAP_ENV: &str = "OPS_OUTPUT_BYTE_CAP";
 
+/// PERF-3 / TASK-0542: resolve the env-driven cap once per process. The
+/// value is process-global and constant for a run, so the prior per-spawn
+/// `std::env::var` lookup contended on the global env lock under
+/// `MAX_PARALLEL` parallel commands. `OnceLock` keeps the override /
+/// fallback semantics (parsed at first use) without re-reading.
+static OUTPUT_BYTE_CAP: OnceLock<usize> = OnceLock::new();
+
 fn output_byte_cap() -> usize {
-    std::env::var(OUTPUT_CAP_ENV)
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or(DEFAULT_OUTPUT_BYTE_CAP)
+    *OUTPUT_BYTE_CAP.get_or_init(|| {
+        std::env::var(OUTPUT_CAP_ENV)
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(DEFAULT_OUTPUT_BYTE_CAP)
+    })
 }
 
 /// PERF-1 / TASK-0515: truncate `bytes` to a UTF-8-lossy `String` capped at
@@ -115,14 +143,18 @@ fn truncate_lossy(bytes: &[u8], cap: usize) -> String {
     let mut head = head_lossy.into_owned();
     // After lossy decode any partial codepoint at the tail is already a
     // U+FFFD; nothing more to round. Append a marker so the consumer sees
-    // truncation rather than silent drop.
+    // truncation rather than silent drop. PERF-1 / TASK-0577: append via
+    // `write!` directly into `head` — the prior `format!(...)` allocated a
+    // throwaway String per truncated stream on a per-step hot path.
     let dropped = bytes.len() - cap;
     if !head.ends_with('\n') {
         head.push('\n');
     }
-    head.push_str(&format!(
-        "[ops] output truncated: dropped {dropped} bytes (cap {cap})\n"
-    ));
+    use std::fmt::Write as _;
+    let _ = writeln!(
+        &mut head,
+        "[ops] output truncated: dropped {dropped} bytes (cap {cap})"
+    );
     head
 }
 
@@ -214,44 +246,55 @@ mod tests {
     /// PERF-1 / TASK-0515: a stream larger than the cap must be truncated
     /// and end with the user-visible marker line. The first chunk of the
     /// stream is preserved (head retention).
+    ///
+    /// PERF-3 / TASK-0542: the cap is now memoized via `OnceLock`, so this
+    /// test exercises `truncate_lossy` directly with an explicit cap rather
+    /// than mutating `OPS_OUTPUT_BYTE_CAP` (which would be racy under the
+    /// memoization and pollute other tests in the same binary).
     #[test]
-    fn command_output_caps_oversized_stdout() {
-        // Set a tiny cap via env so the test does not have to allocate 4
-        // MiB. `serial_test` is not pulled in here; we restore the env on
-        // every exit path and the test is single-threaded for the
-        // duration.
-        let prev = std::env::var(OUTPUT_CAP_ENV).ok();
-        // SAFETY: tests under `cargo test` run on a single thread per binary.
-        unsafe { std::env::set_var(OUTPUT_CAP_ENV, "32") };
+    fn truncate_lossy_caps_oversized_input() {
         let huge: Vec<u8> = (0..1024).map(|i| b'a' + (i % 26) as u8).collect();
-        let output = make_test_output(0, &huge, b"");
-        let cmd_output = CommandOutput::from_raw(output);
-        // Restore env.
-        // SAFETY: same as above.
+        let truncated = truncate_lossy(&huge, 32);
+
+        assert!(
+            truncated.contains("[ops] output truncated"),
+            "expected truncation marker, got: {:?}",
+            truncated
+        );
+        assert!(
+            truncated.contains("dropped"),
+            "marker should mention dropped byte count"
+        );
+        assert!(
+            truncated.starts_with("abcdefghijklmnopqrstuvwxyzabcdef"),
+            "head must be preserved, got prefix: {:?}",
+            &truncated[..40.min(truncated.len())]
+        );
+    }
+
+    /// PERF-3 / TASK-0542: `output_byte_cap` is memoized — the first call's
+    /// resolved value sticks across many `from_raw` invocations, even if the
+    /// process env changes mid-run. We can't reset `OnceLock`, so we verify
+    /// that mutating the env after the first read does not change the cap
+    /// observed by subsequent calls.
+    #[test]
+    fn output_byte_cap_is_memoized_across_calls() {
+        let first = output_byte_cap();
+        // SAFETY: tests under `cargo test` run on a single thread per binary.
+        let prev = std::env::var(OUTPUT_CAP_ENV).ok();
+        unsafe { std::env::set_var(OUTPUT_CAP_ENV, "1") };
+        for _ in 0..100 {
+            assert_eq!(output_byte_cap(), first, "cap must not change post-init");
+        }
         unsafe {
             match prev {
                 Some(v) => std::env::set_var(OUTPUT_CAP_ENV, v),
                 None => std::env::remove_var(OUTPUT_CAP_ENV),
             }
         }
-
-        assert!(
-            cmd_output.stdout.contains("[ops] output truncated"),
-            "expected truncation marker, got: {:?}",
-            cmd_output.stdout
-        );
-        assert!(
-            cmd_output.stdout.contains("dropped"),
-            "marker should mention dropped byte count"
-        );
-        // First 32 bytes must survive (head retention).
-        assert!(
-            cmd_output
-                .stdout
-                .starts_with("abcdefghijklmnopqrstuvwxyzabcdef"),
-            "head must be preserved, got prefix: {:?}",
-            &cmd_output.stdout[..40.min(cmd_output.stdout.len())]
-        );
+        // Sanity-check from_raw goes through the same memoized path.
+        let _ = CommandOutput::from_raw(make_test_output(0, b"x", b"y"));
+        assert_eq!(output_byte_cap(), first);
     }
 
     #[test]

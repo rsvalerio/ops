@@ -176,7 +176,7 @@ async fn run_parallel_composite() {
 #[tokio::test(flavor = "multi_thread")]
 async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
     let (tx, mut rx) = mpsc::channel(8);
-    let abort = Arc::new(AtomicBool::new(false));
+    let abort = Arc::new(AbortSignal::new());
     let spec = exec_spec(
         "sh",
         &["-c", "for i in $(seq 1 500); do echo line_$i; done"],
@@ -229,7 +229,7 @@ async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
     use tokio::time::timeout;
 
     let (tx, mut rx) = mpsc::channel::<RunnerEvent>(1);
-    let abort = Arc::new(AtomicBool::new(false));
+    let abort = Arc::new(AbortSignal::new());
     let spec = exec_spec(
         "sh",
         &[
@@ -274,10 +274,8 @@ async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn exec_standalone_emits_step_output_dropped_under_burst() {
-    use std::sync::atomic::Ordering;
-
     let (tx, mut rx) = mpsc::channel::<RunnerEvent>(8);
-    let abort = Arc::new(AtomicBool::new(false));
+    let abort = Arc::new(AbortSignal::new());
     let spec = exec_spec(
         "sh",
         &["-c", "for i in $(seq 1 1500); do echo line_$i; done"],
@@ -304,7 +302,7 @@ async fn exec_standalone_emits_step_output_dropped_under_burst() {
     // Re-establish the no-leak invariant so a future change cannot
     // accidentally rely on lazy aborts.
     assert!(
-        !abort.load(Ordering::Acquire),
+        !abort.is_set(),
         "abort flag must not have been tripped by the test producer"
     );
 
@@ -348,7 +346,7 @@ async fn exec_standalone_terminal_send_aborts_on_full_outer_channel() {
     use tokio::time::timeout;
 
     let (tx, _rx) = mpsc::channel::<RunnerEvent>(1);
-    let abort = Arc::new(AtomicBool::new(false));
+    let abort = Arc::new(AbortSignal::new());
     let spec = exec_spec("sh", &["-c", "echo line; echo line; exit 0"]);
 
     // Fill the outer channel before the task can deliver a terminal event
@@ -372,7 +370,7 @@ async fn exec_standalone_terminal_send_aborts_on_full_outer_channel() {
     // Give the task a moment to reach the terminal-send.
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     // Trip fail_fast.
-    abort.store(true, std::sync::atomic::Ordering::Release);
+    abort.set();
 
     // The task must complete promptly even though the outer channel is
     // still full and the receiver is parked. Tight 1s budget so a
@@ -386,7 +384,11 @@ async fn exec_standalone_terminal_send_aborts_on_full_outer_channel() {
 #[tokio::test(flavor = "multi_thread")]
 async fn exec_standalone_skips_when_abort_set() {
     let (tx, mut rx) = mpsc::channel(8);
-    let abort = Arc::new(AtomicBool::new(true));
+    let abort = {
+        let s = Arc::new(AbortSignal::new());
+        s.set();
+        s
+    };
     let spec = echo_cmd("should not run");
     let result = exec_standalone(
         "skipped".into(),

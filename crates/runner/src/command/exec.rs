@@ -32,13 +32,13 @@
 //! values that appear to be secrets (e.g., long base64-like strings, common
 //! secret formats).
 
+use super::abort::AbortSignal;
 use super::build::build_command_async;
 use super::events::RunnerEvent;
 use super::results::{CommandOutput, StepResult};
 use ops_core::config::{CommandId, ExecCommandSpec};
 use ops_core::expand::Variables;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 #[cfg(test)]
@@ -319,9 +319,9 @@ pub async fn exec_standalone(
     cwd: Arc<PathBuf>,
     vars: Arc<Variables>,
     tx: mpsc::Sender<RunnerEvent>,
-    abort: Arc<AtomicBool>,
+    abort: Arc<AbortSignal>,
 ) -> StepResult {
-    if abort.load(Ordering::Acquire) {
+    if abort.is_set() {
         // ERR-1 / TASK-0408: this branch fires only when fail_fast already
         // tripped the abort flag — i.e. a sibling task failed. Use
         // `StepResult::cancelled` (success=false) instead of `skipped`
@@ -362,11 +362,12 @@ pub async fn exec_standalone(
     let forwarder_abort = Arc::clone(&abort);
     forwarders.spawn(async move {
         while let Some(ev) = local_rx.recv().await {
-            // CONC-9 / TASK-0459: race the outer.send against the abort
-            // flag so a stuck display pump cannot keep the forwarder alive
-            // after fail_fast tripped. Without this, the forwarder
-            // remains parked on `outer.send().await` and exec_standalone's
-            // join_next on the JoinSet hangs.
+            // CONC-9 / TASK-0459+0571: race the outer.send against the
+            // abort signal so a stuck display pump cannot keep the
+            // forwarder alive after fail_fast tripped. Replaces the prior
+            // `yield_now`-based busy-poll with `AbortSignal::cancelled`
+            // which parks on a `Notify` instead of waking the executor on
+            // every poll cycle.
             tokio::select! {
                 biased;
                 send_result = outer.send(ev) => {
@@ -374,11 +375,7 @@ pub async fn exec_standalone(
                         break;
                     }
                 }
-                () = async {
-                    while !forwarder_abort.load(Ordering::Acquire) {
-                        tokio::task::yield_now().await;
-                    }
-                } => {
+                () = forwarder_abort.cancelled() => {
                     break;
                 }
             }
@@ -435,25 +432,18 @@ pub async fn exec_standalone(
             .await;
     }
     if let Some(ev) = terminal {
-        // CONC-9 / TASK-0459: race the terminal-event send against the
-        // abort signal. If a sibling tripped fail_fast while we were
-        // waiting on the outer channel (display pump stalled), the
-        // abort.load() check resolves quickly via a yield-poll and lets
+        // CONC-9 / TASK-0459+0571: race the terminal-event send against
+        // the abort signal. If a sibling tripped fail_fast while we were
+        // waiting on the outer channel (display pump stalled),
+        // `AbortSignal::cancelled` resolves immediately and lets
         // exec_standalone return without blocking on a full bounded
         // channel. Without this, the task hangs in `tx.send` until the
         // outer receiver is dropped, defeating fail_fast's promise to
         // stop sibling output promptly.
-        let abort_watch = async {
-            // Cooperative poll: most fail_fast aborts arrive within a
-            // few yields once a sibling fails.
-            while !abort.load(Ordering::Acquire) {
-                tokio::task::yield_now().await;
-            }
-        };
         tokio::select! {
             biased;
             _ = tx.send(ev) => {}
-            () = abort_watch => {
+            () = abort.cancelled() => {
                 tracing::debug!(
                     id = %id,
                     "CONC-9: dropping terminal event under abort to avoid blocking on full outer channel"

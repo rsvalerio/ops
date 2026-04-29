@@ -28,6 +28,7 @@
 //! context, the data cache must span resolution and execution, and the
 //! public API is stable and well-tested.
 
+mod abort;
 mod build;
 mod events;
 mod exec;
@@ -45,6 +46,7 @@ pub use secret_patterns::looks_like_secret_value as looks_like_secret_value_publ
 /// Typed failure for leaf-exec resolution. ERR-10 / TASK-0130: replaces
 /// stringly-typed errors so callers can match on the specific cause.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ResolveExecError {
     /// The command id was not found in any source (config, stack, extension).
     #[error("unknown command: {0}")]
@@ -56,6 +58,7 @@ pub enum ResolveExecError {
 
 /// Typed failure for composite expansion. ERR-10 / READ-5 / TASK-0203+0215.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ExpandError {
     /// A referenced id was not defined anywhere.
     #[error("unknown command: {0}")]

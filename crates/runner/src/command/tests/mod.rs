@@ -1,6 +1,7 @@
 //! Tests for command execution, split per concern (TASK-0423).
 
 pub(crate) use super::*;
+pub(crate) use crate::command::abort::AbortSignal;
 pub(crate) use crate::command::build::build_command;
 pub(crate) use crate::command::events::RunnerEvent;
 pub(crate) use crate::command::exec::{emit_output_events, exec_standalone};
@@ -14,7 +15,6 @@ pub(crate) use ops_core::test_utils::{
 };
 pub(crate) use std::collections::HashMap;
 pub(crate) use std::path::PathBuf;
-pub(crate) use std::sync::atomic::AtomicBool;
 pub(crate) use std::sync::Arc;
 pub(crate) use std::time::Duration;
 pub(crate) use tokio::sync::mpsc;
