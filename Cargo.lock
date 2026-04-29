@@ -2161,6 +2161,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "toml 1.1.2+spec-1.1.0",
+ "tracing",
 ]
 
 [[package]]
@@ -2194,6 +2195,7 @@ dependencies = [
  "toml 1.1.2+spec-1.1.0",
  "toml_edit 0.25.11+spec-1.1.0",
  "tracing",
+ "tracing-subscriber",
  "unicode-width",
  "wait-timeout",
 ]
@@ -2298,6 +2300,7 @@ dependencies = [
  "ops-hook-common",
  "serial_test",
  "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2346,6 +2349,7 @@ dependencies = [
  "ops-extension",
  "serde_json",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -2385,6 +2389,7 @@ dependencies = [
  "ops-extension",
  "tempfile",
  "toml 1.1.2+spec-1.1.0",
+ "tracing",
  "wait-timeout",
 ]
 
