@@ -6,11 +6,8 @@ use ops_duckdb::{DataIngestor, DbResult, DuckDb, LoadResult, SidecarIngestorConf
 use ops_extension::Context;
 use std::path::Path;
 
-const PIPELINE: SidecarIngestorConfig = SidecarIngestorConfig {
-    name: "tokei",
-    json_filename: "tokei_files.json",
-    count_table: "tokei_files",
-};
+const PIPELINE: SidecarIngestorConfig =
+    SidecarIngestorConfig::new("tokei", "tokei_files.json", "tokei_files");
 
 pub struct TokeiIngestor;
 

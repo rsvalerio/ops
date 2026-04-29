@@ -542,3 +542,28 @@ fn tokei_languages_view_aggregates_correctly() {
         "view should have one row per language"
     );
 }
+
+/// READ-5 (TASK-0504): pin the lossy contract — non-UTF-8 bytes in a
+/// relative path round-trip as `U+FFFD`. Avoids silent regressions if the
+/// `to_string_lossy` is later "fixed" to a strict path policy without
+/// updating the surrounding caller chain.
+#[cfg(unix)]
+#[test]
+fn relativize_path_replaces_invalid_utf8_with_replacement_char() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::PathBuf;
+
+    let root = PathBuf::from("/ws");
+    let invalid = OsStr::from_bytes(b"/ws/bad\xFFname");
+    let path = PathBuf::from(invalid);
+    let rendered = super::relativize_path(&path, &root);
+    assert!(
+        rendered.contains('\u{FFFD}'),
+        "expected lossy U+FFFD substitution, got {rendered:?}"
+    );
+    assert!(
+        rendered.starts_with("bad") && rendered.ends_with("name"),
+        "stripped + lossy result: {rendered:?}"
+    );
+}

@@ -55,7 +55,9 @@ impl DataProvider for GoIdentityProvider {
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let cwd = ctx.working_directory.clone();
         let go_mod = parse_go_mod(&cwd);
-        let go_work = parse_go_work(&cwd);
+        // DUP-1 (TASK-0484): GoWork was a single-field newtype with no
+        // semantic value. Use the parsed `Vec<String>` directly.
+        let go_work_use_dirs = go_work::parse_use_dirs(&cwd);
 
         // Use last segment of module path as name, e.g. "github.com/openbao/openbao" → "openbao"
         let name = go_mod
@@ -68,7 +70,7 @@ impl DataProvider for GoIdentityProvider {
             .and_then(|m| m.go_version.clone())
             .map(|v| format!("Go {v}"));
 
-        let module_count = compute_module_count(go_work.as_ref(), go_mod.as_ref());
+        let module_count = compute_module_count(go_work_use_dirs.as_deref(), go_mod.as_ref());
 
         build_identity_value(
             ParsedManifest {
@@ -93,9 +95,12 @@ impl DataProvider for GoIdentityProvider {
 ///   case (no local replaces) returns `None` so the card omits the field
 ///   instead of displaying a meaningless `1`.
 /// - Else `None`.
-fn compute_module_count(go_work: Option<&GoWork>, go_mod: Option<&GoMod>) -> Option<usize> {
-    if let Some(work) = go_work {
-        return Some(work.use_dirs.len());
+fn compute_module_count(
+    go_work_use_dirs: Option<&[String]>,
+    go_mod: Option<&GoMod>,
+) -> Option<usize> {
+    if let Some(use_dirs) = go_work_use_dirs {
+        return Some(use_dirs.len());
     }
     let m = go_mod?;
     let count = 1 + m.local_replaces.len();
@@ -117,16 +122,6 @@ fn parse_go_mod(project_root: &Path) -> Option<GoMod> {
         go_version: raw.go_version,
         local_replaces: raw.local_replaces,
     })
-}
-
-// --- go.work parsing ---
-
-struct GoWork {
-    use_dirs: Vec<String>,
-}
-
-fn parse_go_work(project_root: &Path) -> Option<GoWork> {
-    go_work::parse_use_dirs(project_root).map(|use_dirs| GoWork { use_dirs })
 }
 
 #[cfg(test)]
@@ -183,22 +178,22 @@ mod tests {
             "go 1.21\n\nuse (\n\t./api\n\t./cmd\n\t./sdk\n)\n",
         )
         .unwrap();
-        let w = parse_go_work(dir.path()).unwrap();
-        assert_eq!(w.use_dirs, vec!["./api", "./cmd", "./sdk"]);
+        let w = go_work::parse_use_dirs(dir.path()).unwrap();
+        assert_eq!(w, vec!["./api", "./cmd", "./sdk"]);
     }
 
     #[test]
     fn parse_go_work_single_use() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("go.work"), "go 1.21\nuse ./mymod\n").unwrap();
-        let w = parse_go_work(dir.path()).unwrap();
-        assert_eq!(w.use_dirs, vec!["./mymod"]);
+        let w = go_work::parse_use_dirs(dir.path()).unwrap();
+        assert_eq!(w, vec!["./mymod"]);
     }
 
     #[test]
     fn parse_go_work_missing() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(parse_go_work(dir.path()).is_none());
+        assert!(go_work::parse_use_dirs(dir.path()).is_none());
     }
 
     #[test]
@@ -418,7 +413,7 @@ mod tests {
     fn parse_go_work_empty_use_block() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n)\n").unwrap();
-        assert!(parse_go_work(dir.path()).is_none());
+        assert!(go_work::parse_use_dirs(dir.path()).is_none());
     }
 
     #[test]
@@ -429,15 +424,15 @@ mod tests {
             "go 1.21\n\nuse (\n\t// a comment\n\t./real\n\t// another\n)\n",
         )
         .unwrap();
-        let w = parse_go_work(dir.path()).unwrap();
-        assert_eq!(w.use_dirs, vec!["./real"]);
+        let w = go_work::parse_use_dirs(dir.path()).unwrap();
+        assert_eq!(w, vec!["./real"]);
     }
 
     #[test]
     fn parse_go_work_empty_file() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("go.work"), "").unwrap();
-        assert!(parse_go_work(dir.path()).is_none());
+        assert!(go_work::parse_use_dirs(dir.path()).is_none());
     }
 
     #[test]
@@ -448,8 +443,8 @@ mod tests {
             "go 1.21\n\nuse (\n\n\t./a\n\n\t./b\n\n)\n",
         )
         .unwrap();
-        let w = parse_go_work(dir.path()).unwrap();
-        assert_eq!(w.use_dirs, vec!["./a", "./b"]);
+        let w = go_work::parse_use_dirs(dir.path()).unwrap();
+        assert_eq!(w, vec!["./a", "./b"]);
     }
 
     #[test]
@@ -460,7 +455,7 @@ mod tests {
             "go 1.21\nuse ./first\nuse ./second\n",
         )
         .unwrap();
-        let w = parse_go_work(dir.path()).unwrap();
-        assert_eq!(w.use_dirs, vec!["./first", "./second"]);
+        let w = go_work::parse_use_dirs(dir.path()).unwrap();
+        assert_eq!(w, vec!["./first", "./second"]);
     }
 }

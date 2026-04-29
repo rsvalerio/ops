@@ -145,6 +145,17 @@ fn report_to_json(
     })
 }
 
+/// Render a tokei `Report.name` path as a workspace-relative UTF-8 string.
+///
+/// READ-5 (TASK-0504): this is intentionally lossy. The DuckDB `tokei_files`
+/// view that consumes this column is read-only at the value level (it never
+/// round-trips the path back to disk), so corrupting an invalid UTF-8 byte
+/// to `U+FFFD` only affects display and join-by-string-prefix attribution.
+/// The strict `DbError::NonUtf8Path` policy used by `upsert_data_source`
+/// applies to **paths interpolated into SQL** — the `tokei_files` view is
+/// populated from a JSON sidecar, not from a SQL string literal, so the
+/// risks differ. The trade-off is recorded here so future refactors stop
+/// at this comment instead of "fixing" the lossy call.
 fn relativize_path(path: &Path, workspace_root: &Path) -> String {
     path.strip_prefix(workspace_root)
         .unwrap_or(path)

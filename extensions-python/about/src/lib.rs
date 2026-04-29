@@ -13,7 +13,7 @@ mod units;
 
 use std::path::Path;
 
-use ops_about::identity::{build_identity_value, ParsedManifest};
+use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
 use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use serde::Deserialize;
@@ -56,23 +56,27 @@ impl DataProvider for PythonIdentityProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+        // DUP-1 (TASK-0484): proof-of-concept of `provide_identity_from_manifest`
+        // — the parse-once / build-identity scaffold lives in `ops_about`,
+        // and the Python provider only needs to project pyproject.toml onto
+        // a [`ParsedManifest`].
         let cwd = ctx.working_directory.clone();
-        let Pyproject {
-            name,
-            version,
-            description,
-            license,
-            requires_python,
-            authors,
-            homepage,
-            repository,
-            has_tool_uv,
-        } = parse_pyproject(&cwd).unwrap_or_default();
+        provide_identity_from_manifest(&cwd, |root| {
+            let Pyproject {
+                name,
+                version,
+                description,
+                license,
+                requires_python,
+                authors,
+                homepage,
+                repository,
+                has_tool_uv,
+            } = parse_pyproject(root).unwrap_or_default();
 
-        let uses_uv = cwd.join("uv.lock").exists() || has_tool_uv;
-        let stack_detail = build_stack_detail(requires_python.as_deref(), uses_uv);
+            let uses_uv = root.join("uv.lock").exists() || has_tool_uv;
+            let stack_detail = build_stack_detail(requires_python.as_deref(), uses_uv);
 
-        build_identity_value(
             ParsedManifest {
                 name,
                 version,
@@ -86,9 +90,8 @@ impl DataProvider for PythonIdentityProvider {
                 module_label: "packages",
                 module_count: None,
                 ..ParsedManifest::default()
-            },
-            &cwd,
-        )
+            }
+        })
     }
 }
 
