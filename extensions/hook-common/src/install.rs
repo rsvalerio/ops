@@ -54,6 +54,9 @@ fn write_new_hook(
 ) -> anyhow::Result<PathBuf> {
     file.write_all(config.hook_script.as_bytes())
         .context("failed to write hook")?;
+    // Mirror write_temp_hook's durability: if the system crashes between
+    // install and the next git invocation, fsync prevents a zero-byte hook.
+    file.sync_all().context("failed to fsync hook")?;
     drop(file);
     set_hook_executable(hook_path)?;
     writeln!(w, "Installed hook at {}", hook_path.display())?;

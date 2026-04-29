@@ -1,6 +1,7 @@
 //! Run-before-commit hook extension: install and manage git pre-commit hooks.
 
 use std::path::Path;
+use std::time::Duration;
 
 use ops_extension::ExtensionType;
 
@@ -42,30 +43,126 @@ ops_hook_common::impl_hook_wrappers! {
     command_help: "Run run-before-commit checks before committing",
 }
 
+/// ASYNC-6 / TASK-0589: pre-commit hooks run on the developer's critical
+/// path. A hung `git diff --cached` (FUSE-backed worktree, network-mounted
+/// `.git`, lock contention) used to hang the commit indefinitely. We
+/// enforce a bounded wait and surface a typed timeout error so the hook
+/// fails loudly instead of silently parking the user's shell.
+const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_secs(5);
+const TIMEOUT_ENV_VAR: &str = "OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS";
+
+/// Typed failure for `has_staged_files_with`. ASYNC-6 / TASK-0589.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum HasStagedFilesError {
+    #[error("failed to run `{program} diff --cached`: {source}")]
+    Spawn {
+        program: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("`{program} diff --cached` timed out after {timeout:?}")]
+    Timeout { program: String, timeout: Duration },
+    #[error("`{program} diff --cached` failed (exit {exit_code:?}): {stderr}")]
+    NonZeroExit {
+        program: String,
+        exit_code: Option<i32>,
+        stderr: String,
+    },
+    #[error("failed to read output from `{program} diff --cached`: {source}")]
+    Io {
+        program: String,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
 /// Returns `true` if there are any staged files in the git index.
 pub fn has_staged_files() -> anyhow::Result<bool> {
     use anyhow::Context;
     let cwd = std::env::current_dir().context("failed to read current directory")?;
-    has_staged_files_with("git", &cwd)
+    let timeout = git_timeout_from_env().unwrap_or(DEFAULT_GIT_TIMEOUT);
+    has_staged_files_with_timeout("git", &cwd, timeout).map_err(anyhow::Error::from)
 }
 
-fn has_staged_files_with(program: &str, dir: &Path) -> anyhow::Result<bool> {
-    use anyhow::Context;
-    let output = std::process::Command::new(program)
+fn git_timeout_from_env() -> Option<Duration> {
+    std::env::var(TIMEOUT_ENV_VAR)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|&n| n > 0)
+        .map(Duration::from_secs)
+}
+
+#[cfg(test)]
+fn has_staged_files_with(program: &str, dir: &Path) -> Result<bool, HasStagedFilesError> {
+    has_staged_files_with_timeout(program, dir, DEFAULT_GIT_TIMEOUT)
+}
+
+fn has_staged_files_with_timeout(
+    program: &str,
+    dir: &Path,
+    timeout: Duration,
+) -> Result<bool, HasStagedFilesError> {
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new(program)
         .current_dir(dir)
         .args(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
-        .output()
-        .with_context(|| format!("failed to run `{program} diff --cached`"))?;
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| HasStagedFilesError::Spawn {
+            program: program.to_string(),
+            source: e,
+        })?;
+
+    // Poll `try_wait` with a short sleep so a hung git is killed at the
+    // bound rather than blocking on the developer's commit forever. The
+    // 50ms granularity is well below human-perceptible latency for the
+    // happy path and small enough that the timeout fires within
+    // `timeout + 50ms`.
+    let start = std::time::Instant::now();
+    let poll_interval = Duration::from_millis(50);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(HasStagedFilesError::Timeout {
+                        program: program.to_string(),
+                        timeout,
+                    });
+                }
+                std::thread::sleep(poll_interval);
+            }
+            Err(e) => {
+                return Err(HasStagedFilesError::Io {
+                    program: program.to_string(),
+                    source: e,
+                });
+            }
+        }
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| HasStagedFilesError::Io {
+            program: program.to_string(),
+            source: e,
+        })?;
     if !output.status.success() {
         // Lossy decoding is intentional: git stderr is overwhelmingly UTF-8
         // and a readable error (with U+FFFD on the rare bad byte) is more
         // useful to the user than an opaque `[u8]` Debug dump.
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!(
-            "`{program} diff --cached` failed (exit {:?}): {}",
-            output.status.code(),
-            stderr.trim()
-        );
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(HasStagedFilesError::NonZeroExit {
+            program: program.to_string(),
+            exit_code: output.status.code(),
+            stderr,
+        });
     }
     Ok(!output.stdout.is_empty())
 }
@@ -217,8 +314,42 @@ mod tests {
     fn has_staged_files_errors_when_git_binary_missing() {
         let dir = tempfile::tempdir().expect("tempdir");
         let err = has_staged_files_with("git-nonexistent-binary-xyzzy", dir.path()).unwrap_err();
-        let msg = format!("{err:#}");
+        let msg = format!("{err}");
         assert!(msg.contains("failed to run"), "unexpected error: {msg}");
+        assert!(matches!(err, HasStagedFilesError::Spawn { .. }));
+    }
+
+    /// ASYNC-6 / TASK-0589 AC#3: a fake git that hangs forever must
+    /// trigger the bounded-wait timeout rather than blocking the commit
+    /// indefinitely. Uses a short timeout so the test stays fast in CI.
+    #[cfg(unix)]
+    #[test]
+    fn has_staged_files_times_out_on_hanging_git() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let fake_git = dir.path().join("git-hang");
+        std::fs::write(&fake_git, "#!/bin/sh\nsleep 30\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake_git, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let started = std::time::Instant::now();
+        let err = has_staged_files_with_timeout(
+            fake_git.to_str().unwrap(),
+            dir.path(),
+            Duration::from_millis(200),
+        )
+        .unwrap_err();
+        let elapsed = started.elapsed();
+
+        assert!(
+            matches!(err, HasStagedFilesError::Timeout { .. }),
+            "expected Timeout variant, got {err:?}"
+        );
+        // Generous upper bound so a slow CI runner still passes; the key
+        // assertion is that we did not block on the 30s sleep.
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "timeout should fire promptly, elapsed = {elapsed:?}"
+        );
     }
 
     // -- Extension metadata --

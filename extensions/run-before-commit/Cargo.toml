@@ -10,8 +10,9 @@ ops-extension = { workspace = true }
 ops-hook-common = { workspace = true }
 linkme = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 ops-hook-common = { workspace = true, features = ["test-helpers"] }
 tempfile = { workspace = true }
-serial_test = "3"
+serial_test = { workspace = true }

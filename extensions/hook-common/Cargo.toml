@@ -13,7 +13,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-serial_test = "3"
+serial_test = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [features]
