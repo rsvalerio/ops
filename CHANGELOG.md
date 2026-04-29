@@ -2,6 +2,33 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.22.0](https://github.com/rsvalerio/ops/compare/a5cd81aabc4a6cb2bdc9985dc4d32eb0430f99c2..v0.22.0) - 2026-04-29
+#### 🚀 Features
+- (**core**) enhance configuration loading and identity metrics - ([d95dc73](https://github.com/rsvalerio/ops/commit/d95dc731daf91c31251b89b5ee0533d439a3a7f2)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**cargo-toml**) prefer workspace root over member manifest and apply non_exhaustive - ([df6d02d](https://github.com/rsvalerio/ops/commit/df6d02d7f407dff804df29f6ef6b50e98f450073)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-update**) validate exit status and optimize parse hot path - ([8f21533](https://github.com/rsvalerio/ops/commit/8f21533df77829f0759b39bca97edcbeebea7066)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) handle unknown diagnostic codes and optimize deny output parsing - ([2f73be8](https://github.com/rsvalerio/ops/commit/2f73be80889ec15c5544acc1cf9b9f1b1ffe2aa5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/about**) surface manifest load errors and drop false-positive metrics - ([97354b2](https://github.com/rsvalerio/ops/commit/97354b281fb0144564b809bf974f075402b8ecdb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tools**) validate component and toolchain args in install_rustup_component_with_timeout - ([eca7bf2](https://github.com/rsvalerio/ops/commit/eca7bf269344e3280ed8b863d1d1ec749e8601b6)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**metadata**) cache member id sets and surface ingestor cleanup errors - ([d37e0af](https://github.com/rsvalerio/ops/commit/d37e0afac64e747a98b59c31e03dd1bf91e137a8)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**cargo-toml**) split 1363-line tests into per-area submodules - ([ff9c921](https://github.com/rsvalerio/ops/commit/ff9c921cfb614c3a459a02f5d24284826175b73c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**cli**) consolidate command handlers and error paths - ([e8d5569](https://github.com/rsvalerio/ops/commit/e8d55696496f4f4bea448c56075593fac9fe1c81)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/about**) improve unit enrichment and coverage - ([9518e97](https://github.com/rsvalerio/ops/commit/9518e974d49d2de58b47acf0ac12ecd88d4f84d6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/about**) consolidate providers into shared module - ([2ca6749](https://github.com/rsvalerio/ops/commit/2ca6749ea4fe1ac14e36fc7c1757db54258dc6b9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/duckdb**) add connection safety and query validation - ([488dbe7](https://github.com/rsvalerio/ops/commit/488dbe7b6f3381cb44cadef394697871eecbdf80)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**language-extensions**) improve metadata parsing and analysis - ([f927352](https://github.com/rsvalerio/ops/commit/f927352122b8c61d0ed21f5278d5f95b7ffdc9fb)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) add task definitions for code-review wave 40 - ([8de011b](https://github.com/rsvalerio/ops/commit/8de011b28127295d46585ee889b630d973ac9936)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave 36 code-review tasks - ([9daac35](https://github.com/rsvalerio/ops/commit/9daac351533c260d472d4f33960da82469055f16)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave 35 code-review tasks - ([a5cd81a](https://github.com/rsvalerio/ops/commit/a5cd81aabc4a6cb2bdc9985dc4d32eb0430f99c2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) update lock file - ([bca0ed4](https://github.com/rsvalerio/ops/commit/bca0ed4e333610bda542a21d73d3315eb6a5a95e)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.21.1](https://github.com/rsvalerio/ops/compare/b7ac48aac3b39aafd54156c48201302f6781feab..v0.21.1) - 2026-04-28
 #### 🐛 Bug Fixes
 - (**core/expand**) surface shellexpand errors and drop false-positive diamond cycle - ([b7ac48a](https://github.com/rsvalerio/ops/commit/b7ac48aac3b39aafd54156c48201302f6781feab)) - [@rsvalerio](https://github.com/rsvalerio)
