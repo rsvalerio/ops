@@ -3,11 +3,11 @@ id: TASK-0522
 title: >-
   SEC-12: create_table_from_json_sql interpolates table_name without
   quoted_ident
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 06:52'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 19:01'
 labels:
   - code-review-rust
   - security

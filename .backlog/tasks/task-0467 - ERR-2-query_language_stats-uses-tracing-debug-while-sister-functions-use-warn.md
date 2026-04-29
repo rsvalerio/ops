@@ -3,11 +3,11 @@ id: TASK-0467
 title: >-
   ERR-2: query_language_stats uses tracing::debug! while sister functions use
   warn
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 05:46'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:49'
 labels:
   - code-review-rust
   - ERR

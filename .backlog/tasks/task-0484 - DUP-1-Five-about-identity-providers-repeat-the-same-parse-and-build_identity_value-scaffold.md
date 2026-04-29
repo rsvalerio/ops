@@ -3,11 +3,11 @@ id: TASK-0484
 title: >-
   DUP-1: Five about identity providers repeat the same
   parse-and-build_identity_value scaffold
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 05:49'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:55'
 labels:
   - code-review-rust
   - DUP

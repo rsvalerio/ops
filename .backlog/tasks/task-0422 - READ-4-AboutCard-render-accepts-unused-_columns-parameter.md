@@ -1,11 +1,11 @@
 ---
 id: TASK-0422
 title: 'READ-4: AboutCard::render accepts unused _columns parameter'
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 04:41'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:44'
 labels:
   - code-review-rust
   - readability

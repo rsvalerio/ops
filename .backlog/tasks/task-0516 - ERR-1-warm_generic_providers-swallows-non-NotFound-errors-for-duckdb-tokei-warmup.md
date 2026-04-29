@@ -3,11 +3,11 @@ id: TASK-0516
 title: >-
   ERR-1: warm_generic_providers swallows non-NotFound errors for duckdb/tokei
   warmup
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 06:51'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:58'
 labels:
   - code-review-rust
   - error-handling

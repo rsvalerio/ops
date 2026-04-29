@@ -3,11 +3,11 @@ id: TASK-0470
 title: >-
   READ-5: render_card relies on undocumented inner_width >= 2 invariant for
   truncate_to_width
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 05:47'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:51'
 labels:
   - code-review-rust
   - READ

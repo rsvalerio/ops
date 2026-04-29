@@ -3,11 +3,11 @@ id: TASK-0503
 title: >-
   PATTERN-1: matches_exclude only handles suffix-* patterns; non-suffix *
   silently mismatches
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 06:50'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:56'
 labels:
   - code-review-rust
   - correctness

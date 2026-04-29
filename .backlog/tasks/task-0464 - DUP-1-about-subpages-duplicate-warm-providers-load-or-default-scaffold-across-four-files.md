@@ -3,11 +3,11 @@ id: TASK-0464
 title: >-
   DUP-1: about subpages duplicate warm-providers + load-or-default scaffold
   across four files
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 05:46'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:49'
 labels:
   - code-review-rust
   - DUP

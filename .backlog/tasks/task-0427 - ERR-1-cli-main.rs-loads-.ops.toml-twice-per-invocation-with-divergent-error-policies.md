@@ -3,11 +3,11 @@ id: TASK-0427
 title: >-
   ERR-1: cli/main.rs loads .ops.toml twice per invocation with divergent error
   policies
-status: To Do
+status: Done
 assignee:
   - TASK-0536
 created_date: '2026-04-28 04:41'
-updated_date: '2026-04-28 16:10'
+updated_date: '2026-04-29 04:38'
 labels:
   - code-review-rust
   - error-handling

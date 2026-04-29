@@ -12,12 +12,7 @@ Instructions for AI coding agents working on this project.
 - Put tests next to the code they cover with `#[cfg(test)] mod tests` when practical.
 - Add or update tests for new behavior.
 
-<important if="language=rust">
-- Rust edition is 2021.
-- Treat clippy warnings as errors.
-- After changing any `*.rs` file, run `ops verify` and `ops qa`,.
-- If those commands report errors or warnings, fix them and rerun the same gate.
-</important>
+- Rust edition is 2021. - Treat clippy warnings as errors. - After changing any `*.rs` file, run `ops verify` and `ops qa`,. - If those commands report errors or warnings, fix them and rerun the same gate.
 
 ## Common Commands
 

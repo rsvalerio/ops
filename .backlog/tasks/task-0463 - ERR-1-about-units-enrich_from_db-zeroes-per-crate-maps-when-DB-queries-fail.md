@@ -1,11 +1,11 @@
 ---
 id: TASK-0463
 title: 'ERR-1: about/units enrich_from_db zeroes per-crate maps when DB queries fail'
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 05:45'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:47'
 labels:
   - code-review-rust
   - ERR

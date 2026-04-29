@@ -3,11 +3,11 @@ id: TASK-0521
 title: >-
   ERR-7: table_has_data formats identifier with Display while sister
   table_exists uses Debug
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 06:52'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 19:00'
 labels:
   - code-review-rust
   - error-handling

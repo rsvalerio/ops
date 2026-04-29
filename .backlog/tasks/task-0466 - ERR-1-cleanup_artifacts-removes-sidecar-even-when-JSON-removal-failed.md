@@ -1,11 +1,11 @@
 ---
 id: TASK-0466
 title: 'ERR-1: cleanup_artifacts removes sidecar even when JSON removal failed'
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 05:46'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:50'
 labels:
   - code-review-rust
   - ERR

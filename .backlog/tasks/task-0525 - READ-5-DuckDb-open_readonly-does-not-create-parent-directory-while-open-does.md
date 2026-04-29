@@ -1,11 +1,11 @@
 ---
 id: TASK-0525
 title: 'READ-5: DuckDb::open_readonly does not create parent directory while open does'
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 06:52'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 19:02'
 labels:
   - code-review-rust
   - readability

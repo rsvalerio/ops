@@ -1,11 +1,11 @@
 ---
 id: TASK-0517
 title: 'ERR-1: resolve_member_globs swallows read_dir errors silently'
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 06:52'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:59'
 labels:
   - code-review-rust
   - error-handling

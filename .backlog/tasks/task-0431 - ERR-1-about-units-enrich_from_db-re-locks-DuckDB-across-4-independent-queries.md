@@ -1,11 +1,11 @@
 ---
 id: TASK-0431
 title: 'ERR-1: about/units enrich_from_db re-locks DuckDB across 4 independent queries'
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 04:42'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:46'
 labels:
   - code-review-rust
   - concurrency

@@ -1,11 +1,11 @@
 ---
 id: TASK-0506
 title: 'ERR-1: query_dependency_count silently coerces negative i64 count to 0'
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 06:51'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:57'
 labels:
   - code-review-rust
   - error-handling

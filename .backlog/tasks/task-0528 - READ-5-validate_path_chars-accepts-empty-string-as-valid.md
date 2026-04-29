@@ -1,11 +1,11 @@
 ---
 id: TASK-0528
 title: 'READ-5: validate_path_chars accepts empty string as valid'
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 06:53'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 19:03'
 labels:
   - code-review-rust
   - readability

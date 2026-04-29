@@ -3,11 +3,11 @@ id: TASK-0475
 title: >-
   DUP-1: DuckDB query-with-warn-fallback boilerplate duplicated 7+ times across
   about providers
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 05:47'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:54'
 labels:
   - code-review-rust
   - DUP

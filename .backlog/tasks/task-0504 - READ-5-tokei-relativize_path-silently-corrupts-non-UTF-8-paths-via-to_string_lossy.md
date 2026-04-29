@@ -3,11 +3,11 @@ id: TASK-0504
 title: >-
   READ-5: tokei relativize_path silently corrupts non-UTF-8 paths via
   to_string_lossy
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 06:50'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:57'
 labels:
   - code-review-rust
   - readability

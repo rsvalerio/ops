@@ -1,11 +1,11 @@
 ---
 id: TASK-0468
 title: 'API-9: SidecarIngestorConfig is pub but lacks #[non_exhaustive]'
-status: To Do
+status: Done
 assignee:
   - TASK-0534
 created_date: '2026-04-28 05:46'
-updated_date: '2026-04-28 07:14'
+updated_date: '2026-04-28 18:51'
 labels:
   - code-review-rust
   - API
