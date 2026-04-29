@@ -2,6 +2,41 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.23.0](https://github.com/rsvalerio/ops/compare/1ded6161057eb63d72355ea530006b35ff6ba8e6..v0.23.0) - 2026-04-29
+#### 🚀 Features
+- (**cli**) preserve cwd bytes in dry-run and tighten registry/tools wiring - ([d83d555](https://github.com/rsvalerio/ops/commit/d83d555559c0b9d874db76b60c50d9b188649400)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) warn on unknown stacks and validate composite config refs - ([a1007b5](https://github.com/rsvalerio/ops/commit/a1007b543d0df9a57f522d4ed9d59afae599e271)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) detect intra-extension command collisions and apply non_exhaustive - ([9f68395](https://github.com/rsvalerio/ops/commit/9f68395889f341cbf55ce7efeb4f677350caefd1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/about**) extract manifest_io and tighten card/text rendering - ([20ee6ac](https://github.com/rsvalerio/ops/commit/20ee6ac34e65f89e6eba4c1eb85d93f48b231b66)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**extensions-go/about**) handle go.work use blocks and harden module parsing - ([498814d](https://github.com/rsvalerio/ops/commit/498814dd39fe590016ad439764fadad1540fe4e0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-java/about**) tighten gradle/pom parsing and align IO error handling - ([7a0cbd8](https://github.com/rsvalerio/ops/commit/7a0cbd8de1e26e417757cdd2c1931eae2ae4e9a5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-node/about**) trim metadata fields and detect packageManager edge cases - ([a9c63f0](https://github.com/rsvalerio/ops/commit/a9c63f0a005dcd439f8cd0787600c45a1de154bb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/about**) align identity/coverage provider with query_or_warn convention - ([d258203](https://github.com/rsvalerio/ops/commit/d25820374f59f35143cfede475e075985c3b4666)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/cargo-toml**) respect kebab-case default-features and harden inheritance - ([cf1edc0](https://github.com/rsvalerio/ops/commit/cf1edc0f8515cdc2ae6f62cda7dc900fd188ff98)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/deps**) handle missing severities and unknown deny diagnostic codes - ([a5692ce](https://github.com/rsvalerio/ops/commit/a5692ce2d16c2cb8c131b3f03d47c4b647b48c5a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/metadata**) enforce single-row invariant and surface load errors - ([bb3d4c0](https://github.com/rsvalerio/ops/commit/bb3d4c086c866bd3c627be1e4ffdfaeab87fcdd2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/test-coverage**) retain all coverage entries and validate section types - ([22f653b](https://github.com/rsvalerio/ops/commit/22f653be2ff4a47c082a9ab338d8139a73e7040b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/tools**) tighten rustup component matching and apply non_exhaustive - ([8d18dc4](https://github.com/rsvalerio/ops/commit/8d18dc45dcb74d9feef0c8e96b6e084489310d30)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/duckdb**) apply quoted_ident wrapper and apply non_exhaustive to public types - ([0da859c](https://github.com/rsvalerio/ops/commit/0da859cf6000051aab059223d37e74bc374ce767)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/git**) honour git config last-wins semantics for origin URL - ([aefc135](https://github.com/rsvalerio/ops/commit/aefc135953234e03b401aecea1410f83b780a425)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/hooks**) fsync new hooks and bound staged-file git wait - ([1406eb5](https://github.com/rsvalerio/ops/commit/1406eb50fbd75f074c0f95be15af29c30370b833)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/tokei**) preserve LanguageStat percentages and quote view identifiers - ([2b1667b](https://github.com/rsvalerio/ops/commit/2b1667be7ff376a0afc6c5be7af521c3adbf55ad)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**core**) memoize OPS_OUTPUT_BYTE_CAP and mark subprocess errors non_exhaustive - ([4f3c163](https://github.com/rsvalerio/ops/commit/4f3c163ff5b1c0b2d92cf8dd54140889171bf564)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-python/about**) avoid full tool.uv deserialization and align unit detection - ([cc80abb](https://github.com/rsvalerio/ops/commit/cc80abbd8f293fbe2919102c6237a31e2c042936)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**extensions-rust/cargo-update**) reuse format_error_tail and apply non_exhaustive - ([2fa2437](https://github.com/rsvalerio/ops/commit/2fa24378f35614ba325d390a05f762fc72e5baef)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) introduce abort module and bound parallel exec watchdog - ([7e51ce2](https://github.com/rsvalerio/ops/commit/7e51ce291fd2828ed9b56ea87e5ee7c051a140ad)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) split display into finalize/tap modules and bound stderr ring - ([b034536](https://github.com/rsvalerio/ops/commit/b034536b2493971ba4e8c8cedc1f2546dd404c00)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) standardize toml, proptest, serial_test to workspace refs - ([27307be](https://github.com/rsvalerio/ops/commit/27307be8a10dfddd5306cb5d4bfcf2837ad03219)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close wave 38 and 41-50 code-review tasks - ([7917aa4](https://github.com/rsvalerio/ops/commit/7917aa49006bb59f76410d4e650402db3ad3774d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) add wave 41-50 plans and new triage tasks - ([1ded616](https://github.com/rsvalerio/ops/commit/1ded6161057eb63d72355ea530006b35ff6ba8e6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) refresh workspace dependencies and lockfile - ([1fe1155](https://github.com/rsvalerio/ops/commit/1fe1155a2d36e6ba4f84e3c51c60d75dbf0deb6c)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.22.0](https://github.com/rsvalerio/ops/compare/a5cd81aabc4a6cb2bdc9985dc4d32eb0430f99c2..v0.22.0) - 2026-04-29
 #### 🚀 Features
 - (**core**) enhance configuration loading and identity metrics - ([d95dc73](https://github.com/rsvalerio/ops/commit/d95dc731daf91c31251b89b5ee0533d439a3a7f2)) - [@rsvalerio](https://github.com/rsvalerio)
