@@ -97,15 +97,22 @@ pub(crate) fn find_on_path_in(
             continue;
         }
         let candidate = dir.join(name);
-        if is_executable(&candidate) {
-            return Some(candidate);
+        match check_executable(&candidate) {
+            ExecCheck::Yes => return Some(candidate),
+            ExecCheck::BrokenSymlink => {
+                tracing::warn!(
+                    path = %candidate.display(),
+                    "PATH entry is a broken symlink; skipping"
+                );
+            }
+            ExecCheck::NotExec | ExecCheck::Missing => {}
         }
         if cfg!(windows) {
             for ext in pathext_suffixes() {
                 let mut with_ext = candidate.clone().into_os_string();
                 with_ext.push(&ext);
                 let p = std::path::PathBuf::from(with_ext);
-                if is_executable(&p) {
+                if matches!(check_executable(&p), ExecCheck::Yes) {
                     return Some(p);
                 }
             }
@@ -129,22 +136,45 @@ fn pathext_suffixes() -> Vec<std::ffi::OsString> {
     Vec::new()
 }
 
+/// ERR-1 / TASK-0607: distinguish between "metadata succeeded and target is
+/// not executable", "metadata succeeded but the path is a broken symlink"
+/// (`symlink_metadata` sees the symlink, `metadata` follows it and fails),
+/// and "missing / metadata error". Lets the PATH walk keep looking while
+/// surfacing the broken-symlink case to operators.
+enum ExecCheck {
+    Yes,
+    NotExec,
+    BrokenSymlink,
+    Missing,
+}
+
 #[cfg(unix)]
-fn is_executable(path: &std::path::Path) -> bool {
+fn check_executable(path: &std::path::Path) -> ExecCheck {
     use std::os::unix::fs::PermissionsExt;
     match std::fs::metadata(path) {
-        Ok(m) => m.is_file() && m.permissions().mode() & 0o111 != 0,
-        Err(_) => false,
+        Ok(m) if m.is_file() && m.permissions().mode() & 0o111 != 0 => ExecCheck::Yes,
+        Ok(_) => ExecCheck::NotExec,
+        Err(_) => match std::fs::symlink_metadata(path) {
+            Ok(m) if m.file_type().is_symlink() => ExecCheck::BrokenSymlink,
+            _ => ExecCheck::Missing,
+        },
     }
 }
 
 #[cfg(not(unix))]
-fn is_executable(path: &std::path::Path) -> bool {
+fn check_executable(path: &std::path::Path) -> ExecCheck {
     // On Windows, file existence + extension match (caller's PATHEXT loop)
     // is the standard heuristic; the OS does not surface an executable bit
     // through `Permissions`. Match the behaviour of `which` and similar
     // tooling.
-    std::fs::metadata(path).is_ok_and(|m| m.is_file())
+    match std::fs::metadata(path) {
+        Ok(m) if m.is_file() => ExecCheck::Yes,
+        Ok(_) => ExecCheck::NotExec,
+        Err(_) => match std::fs::symlink_metadata(path) {
+            Ok(m) if m.file_type().is_symlink() => ExecCheck::BrokenSymlink,
+            _ => ExecCheck::Missing,
+        },
+    }
 }
 
 pub fn check_rustup_component_installed(component: &str) -> bool {
@@ -164,11 +194,63 @@ pub fn check_rustup_component_installed(component: &str) -> bool {
     is_component_in_list(&stdout, component)
 }
 
+/// Architectures that prefix a rustup target-triple. Used to find the
+/// component-name / target-triple boundary in lines like
+/// `clippy-preview-aarch64-apple-darwin`. Open-ended prefix matching would
+/// also hit unrelated siblings like a hypothetical `clippy-foo-...`.
+const RUSTUP_TARGET_ARCHES: &[&str] = &[
+    "aarch64",
+    "arm",
+    "armv6",
+    "armv7",
+    "armv7a",
+    "asmjs",
+    "i586",
+    "i686",
+    "loongarch64",
+    "mips",
+    "mips64",
+    "mips64el",
+    "mipsel",
+    "nvptx64",
+    "powerpc",
+    "powerpc64",
+    "powerpc64le",
+    "riscv32",
+    "riscv64",
+    "s390x",
+    "sparc",
+    "sparc64",
+    "thumbv6m",
+    "thumbv7em",
+    "thumbv7m",
+    "thumbv7neon",
+    "thumbv8m.base",
+    "thumbv8m.main",
+    "wasm32",
+    "wasm64",
+    "x86_64",
+];
+
+fn strip_target_triple(line: &str) -> &str {
+    for arch in RUSTUP_TARGET_ARCHES {
+        if let Some(idx) = line.find(&format!("-{arch}-")) {
+            return &line[..idx];
+        }
+    }
+    line
+}
+
 pub(crate) fn is_component_in_list(stdout: &str, component: &str) -> bool {
-    let base_name = component.strip_suffix("-preview").unwrap_or(component);
-    stdout
-        .lines()
-        .any(|line| line.trim().starts_with(&format!("{}-", base_name)) || line.trim() == base_name)
+    let base = component.strip_suffix("-preview").unwrap_or(component);
+    stdout.lines().any(|raw| {
+        let line = raw.trim();
+        // Drop trailing " (installed)" / " (default)" annotations and the
+        // target triple, then compare exactly against base or base-preview.
+        let head = line.split_whitespace().next().unwrap_or(line);
+        let stripped = strip_target_triple(head);
+        stripped == base || stripped.strip_suffix("-preview") == Some(base)
+    })
 }
 
 pub fn check_tool_status(name: &str, spec: &ToolSpec) -> ToolStatus {

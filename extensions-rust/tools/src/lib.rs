@@ -45,6 +45,7 @@ ops_extension::impl_extension! {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ToolStatus {
     Installed,
     NotInstalled,
@@ -53,11 +54,28 @@ pub enum ToolStatus {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ToolInfo {
     pub name: String,
     pub description: String,
     pub status: ToolStatus,
     pub has_rustup_component: bool,
+}
+
+impl ToolInfo {
+    pub fn new(
+        name: String,
+        description: String,
+        status: ToolStatus,
+        has_rustup_component: bool,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            status,
+            has_rustup_component,
+        }
+    }
 }
 
 pub fn collect_tools(tools: &IndexMap<String, ToolSpec>) -> Vec<ToolInfo> {

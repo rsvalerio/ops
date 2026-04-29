@@ -11,8 +11,9 @@ ops-extension = { workspace = true }
 linkme = { workspace = true }
 indexmap = { workspace = true }
 anyhow = { workspace = true }
+tracing = { workspace = true }
 wait-timeout = "0.2"
 
 [dev-dependencies]
-toml = "1"
+toml = { workspace = true }
 tempfile = { workspace = true }

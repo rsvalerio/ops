@@ -312,6 +312,27 @@ fn component_list_llvm_tools() {
     assert!(is_component_in_list(stdout, "llvm-tools-preview"));
 }
 
+#[test]
+fn component_list_matches_preview_listing_for_base_search() {
+    let stdout = "clippy-preview-aarch64-apple-darwin\n";
+    assert!(is_component_in_list(stdout, "clippy"));
+    assert!(is_component_in_list(stdout, "clippy-preview"));
+}
+
+#[test]
+fn component_list_rejects_unrelated_dash_sibling() {
+    // `clippy-foo-aarch64-apple-darwin` must NOT match a search for "clippy".
+    let stdout = "clippy-foo-aarch64-apple-darwin\n";
+    assert!(!is_component_in_list(stdout, "clippy"));
+    assert!(!is_component_in_list(stdout, "clippy-preview"));
+}
+
+#[test]
+fn component_list_handles_installed_annotation() {
+    let stdout = "clippy-aarch64-apple-darwin (installed)\n";
+    assert!(is_component_in_list(stdout, "clippy"));
+}
+
 // --- Integration tests (require rustup/cargo in PATH) ---
 
 #[test]
@@ -687,4 +708,40 @@ fn find_on_path_in_locates_executable_with_pathext_windows() {
 #[test]
 fn find_on_path_returns_none_for_missing_binary() {
     assert!(find_on_path("nonexistent-binary-abc123xyz-zzz").is_none());
+}
+
+/// ERR-1 / TASK-0607: a broken symlink on PATH (target removed mid-run, e.g.
+/// nix-env update) must not silently coerce the lookup to "missing"; the
+/// walk continues but emits a warning. The functional contract here pins
+/// that lookup keeps working when a sibling directory holds the real binary.
+#[cfg(unix)]
+#[test]
+fn find_on_path_in_skips_broken_symlink_continues_walk() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let broken_dir = tempfile::tempdir().expect("tempdir");
+    let real_dir = tempfile::tempdir().expect("tempdir");
+
+    // Broken symlink: PATH/<broken_dir>/ops_marker -> nonexistent target.
+    let symlink_path = broken_dir.path().join("ops_marker_broken_sym");
+    let nonexistent_target = broken_dir.path().join("does-not-exist");
+    std::os::unix::fs::symlink(&nonexistent_target, &symlink_path).unwrap();
+
+    // Real executable in a later PATH entry.
+    let real_bin = real_dir.path().join("ops_marker_broken_sym");
+    std::fs::write(&real_bin, b"#!/bin/sh\n").unwrap();
+    let mut perms = std::fs::metadata(&real_bin).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&real_bin, perms).unwrap();
+
+    let path_var = std::env::join_paths([
+        broken_dir.path().to_path_buf(),
+        real_dir.path().to_path_buf(),
+    ])
+    .unwrap();
+    assert_eq!(
+        find_on_path_in("ops_marker_broken_sym", &path_var),
+        Some(real_bin),
+        "broken symlink in earlier PATH dir must not block lookup"
+    );
 }
