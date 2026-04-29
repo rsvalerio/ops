@@ -42,6 +42,7 @@ impl From<serde_json::Error> for SharedError {
 /// `Serialization` variants to preserve the full error chain while keeping
 /// `Clone`. The `#[source]` attribute enables `Error::source()` traversal.
 #[derive(Debug, Clone, thiserror::Error)]
+#[non_exhaustive]
 pub enum DataProviderError {
     /// Returned when the requested provider name is not registered in the
     /// `DataRegistry`.

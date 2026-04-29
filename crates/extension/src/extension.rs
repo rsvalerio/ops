@@ -72,14 +72,89 @@ impl ExtensionInfo {
 
 /// Registry of command ID → CommandSpec (from config + extensions).
 ///
-/// An `IndexMap` preserving insertion order, mapping command names to their
-/// specifications. Commands are registered by:
+/// Wraps an [`IndexMap`] preserving insertion order. Commands are registered by:
 /// 1. Config file (`[commands.*]` sections)
 /// 2. Extensions via [`Extension::register_commands`]
 ///
 /// Config-defined commands take precedence over extension commands when
 /// merged into the `CommandRunner`.
-pub type CommandRegistry = IndexMap<CommandId, CommandSpec>;
+///
+/// ERR-2 (TASK-0579): unlike a bare `IndexMap`, [`CommandRegistry::insert`]
+/// remembers any keys that get re-inserted during the lifetime of the
+/// registry instance. The CLI wiring layer drains that list after each
+/// extension's `register_commands` call so a single extension that registers
+/// the same command id twice surfaces a `tracing::warn!` event instead of
+/// silently dropping the first registration.
+#[derive(Debug, Default, Clone)]
+pub struct CommandRegistry {
+    inner: IndexMap<CommandId, CommandSpec>,
+    duplicate_inserts: Vec<CommandId>,
+}
+
+impl CommandRegistry {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert a command, returning the previous value if any. ERR-2
+    /// (TASK-0579): a re-insert for the same id is recorded so the CLI
+    /// wiring layer can warn about within-extension self-shadowing instead
+    /// of letting the silent overwrite swallow the first registration.
+    pub fn insert(&mut self, id: CommandId, spec: CommandSpec) -> Option<CommandSpec> {
+        if self.inner.contains_key(&id) {
+            self.duplicate_inserts.push(id.clone());
+        }
+        self.inner.insert(id, spec)
+    }
+
+    /// Drain ids that were re-inserted into this registry since the last
+    /// drain (ERR-2 / TASK-0579). Caller decides how to surface them — the
+    /// CLI emits one `tracing::warn!` per duplicate; tests assert the list
+    /// is non-empty for malformed extensions.
+    pub fn take_duplicate_inserts(&mut self) -> Vec<CommandId> {
+        std::mem::take(&mut self.duplicate_inserts)
+    }
+}
+
+impl std::ops::Deref for CommandRegistry {
+    type Target = IndexMap<CommandId, CommandSpec>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl std::ops::DerefMut for CommandRegistry {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl IntoIterator for CommandRegistry {
+    type Item = (CommandId, CommandSpec);
+    type IntoIter = indexmap::map::IntoIter<CommandId, CommandSpec>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a CommandRegistry {
+    type Item = (&'a CommandId, &'a CommandSpec);
+    type IntoIter = indexmap::map::Iter<'a, CommandId, CommandSpec>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.iter()
+    }
+}
+
+impl FromIterator<(CommandId, CommandSpec)> for CommandRegistry {
+    fn from_iter<I: IntoIterator<Item = (CommandId, CommandSpec)>>(iter: I) -> Self {
+        let mut reg = Self::new();
+        for (id, spec) in iter {
+            reg.insert(id, spec);
+        }
+        reg
+    }
+}
 
 /// Extension: registers commands and/or data providers.
 ///
