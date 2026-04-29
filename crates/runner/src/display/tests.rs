@@ -219,7 +219,7 @@ fn tap_file_captures_raw_output() {
 #[test]
 fn tap_none_produces_no_file() {
     let display = test_display(&[("cmd", "test")]);
-    assert!(display.tap_file.is_none());
+    assert!(display.tap.is_none());
 }
 
 #[test]

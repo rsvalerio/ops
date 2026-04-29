@@ -7,9 +7,11 @@
 //! - [`progress_state`] — per-plan step bookkeeping (bars, steps, captured stderr)
 
 mod error_detail;
+mod finalize;
 mod progress_state;
 mod render_config;
 mod style;
+mod tap;
 #[cfg(test)]
 mod tests;
 
@@ -23,10 +25,9 @@ use ops_theme::{self as theme, BoxSnapshot};
 
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use progress_state::ProgressState;
-use std::fs::File;
 use std::io::{self, IsTerminal, Write};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use tap::TapWriter;
 
 use style::{build_running_style, pending_style, SPINNER_TICK_INTERVAL_MS};
 
@@ -40,7 +41,7 @@ const DEFAULT_STDERR_TAIL_LINES: usize = 5;
 /// that the application cannot recover from. We log at debug level and continue,
 /// as crashing on stderr write failures would be unexpected behavior.
 #[inline]
-fn write_stderr(line: Option<&str>) {
+pub(super) fn write_stderr(line: Option<&str>) {
     let result = match line {
         Some(text) => writeln!(io::stderr(), "{}", text),
         None => writeln!(io::stderr()),
@@ -52,59 +53,35 @@ fn write_stderr(line: Option<&str>) {
 
 /// Encapsulates progress bar state and rendering for the CLI event loop.
 ///
-/// # Architecture (ARCH-1 / TASK-0332)
-///
-/// Per-plan step bookkeeping (`bars`, `steps`, `step_stderr`, `display_map`,
-/// `plan_command_ids`) lives in [`ProgressState`]; this struct retains the
-/// rendering config, the `MultiProgress` handle, the running plan's
-/// header/footer bars, the run-scoped counters, and the tap file. This split
-/// keeps the per-step row state cohesive and shrinks `ProgressDisplay` to
-/// the surface that depends on `RenderConfig` + the indicatif lifecycle.
-///
-/// `ErrorDetailRenderer` is extracted into its own submodule for the same
-/// reason — error rendering depends only on theme + columns, not on
-/// progress state.
+/// Per-plan step bookkeeping lives in [`ProgressState`] (ARCH-1 / TASK-0332);
+/// tap-file lifecycle lives in [`tap::TapWriter`] (ARCH-1 / TASK-0581);
+/// error rendering lives in [`ErrorDetailRenderer`]. This struct retains the
+/// rendering config, the `MultiProgress` handle, the header/footer bars, and
+/// the run-scoped counters — i.e. only what depends on `RenderConfig` + the
+/// indicatif lifecycle.
 pub struct ProgressDisplay {
-    render: RenderConfig,
-    multi: MultiProgress,
+    pub(super) render: RenderConfig,
+    pub(super) multi: MultiProgress,
     pub(crate) state: ProgressState,
     // PERF-3: `running_style` is cloned per progress bar because `indicatif::ProgressBar::with_style`
     // takes ownership. Acceptable for typical step counts (<20 commands).
-    // `pending_style` was removed — it's trivially reconstructed via `pending_style()`.
     running_style: ProgressStyle,
     footer_separator: Option<ProgressBar>,
-    footer_bar: Option<ProgressBar>,
-    header_bar: Option<ProgressBar>,
+    pub(super) footer_bar: Option<ProgressBar>,
+    pub(super) header_bar: Option<ProgressBar>,
     pub(crate) completed_steps: usize,
-    failed_steps: usize,
-    total_steps: usize,
+    pub(super) failed_steps: usize,
+    pub(super) total_steps: usize,
     run_started_at: Option<Instant>,
-    tap_file: Option<File>,
-    /// ERR-2 / TASK-0458: retained so that on a write error we can attempt
-    /// to reopen the tap and append a final "truncated" marker line in
-    /// addition to the stderr warning.
-    tap_path: Option<PathBuf>,
-    /// ERR-2 / TASK-0458: when `tap_file` is dropped due to a write error,
-    /// remember the error kind and the step id that triggered it so
-    /// RunFinished can emit a single user-visible warning ("tap file
-    /// truncated after step X due to <kind>") instead of leaving the tap
-    /// silently truncated.
-    tap_truncation: Option<(String, String)>,
+    /// ARCH-1 (TASK-0581): tap-file lifecycle (open handle, original path
+    /// for re-opening on failure, captured truncation kind) extracted into
+    /// `tap::TapWriter`. `None` here means no tap was requested at all.
+    pub(super) tap: Option<TapWriter>,
 }
 
 impl ProgressDisplay {
     fn is_stderr_tty() -> bool {
         std::io::stderr().is_terminal()
-    }
-
-    fn open_tap_file(path: PathBuf) -> Option<File> {
-        match File::create(&path) {
-            Ok(f) => Some(f),
-            Err(e) => {
-                tracing::warn!(path = %path.display(), error = %e, "failed to open tap file");
-                None
-            }
-        }
     }
 
     pub fn new(opts: DisplayOptions<'_>) -> anyhow::Result<Self> {
@@ -129,8 +106,7 @@ impl ProgressDisplay {
         });
         let resolved_theme = theme::resolve_theme(&output.theme, custom_themes)?;
         let running_style = build_running_style(resolved_theme.as_ref(), &output.theme)?;
-        let tap_path = tap.clone();
-        let tap_file = tap.and_then(Self::open_tap_file);
+        let tap = tap.map(TapWriter::new);
 
         Ok(Self {
             render: RenderConfig {
@@ -150,9 +126,7 @@ impl ProgressDisplay {
             failed_steps: 0,
             total_steps: 0,
             run_started_at: None,
-            tap_file,
-            tap_path,
-            tap_truncation: None,
+            tap,
         })
     }
 
@@ -168,7 +142,7 @@ impl ProgressDisplay {
 
     /// DUP-008: Helper to write line to stderr when not in TTY mode.
     #[inline]
-    fn write_non_tty(&self, line: &str) {
+    pub(super) fn write_non_tty(&self, line: &str) {
         if !self.render.is_tty {
             write_stderr(Some(line));
         }
@@ -186,7 +160,7 @@ impl ProgressDisplay {
         }
     }
 
-    fn finish_bar(&self, bar: &ProgressBar, line: &str) {
+    pub(super) fn finish_bar(&self, bar: &ProgressBar, line: &str) {
         bar.set_style(pending_style());
         bar.finish_with_message(line.to_string());
         self.write_non_tty(line);
@@ -194,36 +168,11 @@ impl ProgressDisplay {
 
     /// Dispatch a RunnerEvent to the appropriate handler method.
     ///
-    /// # Async safety invariant (CONC-5 / TASK-0331)
-    ///
-    /// `handle_event` performs **blocking** I/O on two paths:
-    ///
-    /// 1. `tap_line` calls `writeln!` on a `std::fs::File`. Under a chatty
-    ///    command (e.g. `cargo build` emitting thousands of stderr lines),
-    ///    each line incurs a synchronous `write(2)`. On NFS or a slow
-    ///    fsync-heavy filesystem this can stall.
-    /// 2. `emit_line` and `write_stderr` write to stderr (also sync).
-    ///
-    /// **This method must never be polled from inside a tokio async task.**
-    /// Today it is consumed exclusively from the dedicated event-pump loop in
-    /// the CLI (synchronous draining of `mpsc::Receiver<RunnerEvent>`), so
-    /// the blocking writes do not stall the runtime. If a future refactor
-    /// moves the consumer into `tokio::spawn`, switch the tap file to a
-    /// buffered/async writer fed via an mpsc channel and a dedicated writer
-    /// task before doing so — otherwise a single noisy command will starve
-    /// every other task on the same worker.
-    ///
-    /// CQ-009: This method is a dispatcher that routes events to specialized
-    /// handlers. At 25 lines with 8 match arms, it's at the threshold of what
-    /// would benefit from refactoring. The current design is kept because:
-    ///
-    /// 1. Each match arm is a single method call -- clear and readable
-    /// 2. The match is exhaustive, ensuring all events are handled
-    /// 3. Extracting to a visitor pattern would add indirection without benefit
-    ///
-    /// If more event types are added, consider:
-    /// - Grouping related events (StepStarted/StepOutput/StepFinished) into sub-handlers
-    /// - Using a `fn handle_X(&mut self, ...)` pattern for each event type
+    /// CONC-5 / TASK-0331 — async-safety invariant: this method performs
+    /// blocking I/O (synchronous `write(2)` on the tap file and stderr) and
+    /// must only be driven from a synchronous event-pump loop, never polled
+    /// inside a tokio task. If the consumer ever moves into `tokio::spawn`,
+    /// route the tap through a buffered/async writer first.
     pub fn handle_event(&mut self, event: RunnerEvent) {
         match event {
             RunnerEvent::PlanStarted { command_ids } => self.on_plan_started(&command_ids),
@@ -333,7 +282,7 @@ impl ProgressDisplay {
         }
     }
 
-    fn render_header_message(&self) -> String {
+    pub(super) fn render_header_message(&self) -> String {
         self.render
             .theme
             .box_top_border(self.live_box_snapshot())
@@ -359,7 +308,7 @@ impl ProgressDisplay {
 
     /// Render a step with the theme, reserving columns for the box frame and
     /// wrapping the result for boxed layouts.
-    fn render_and_wrap_step(&self, step: &StepLine) -> String {
+    pub(super) fn render_and_wrap_step(&self, step: &StepLine) -> String {
         let reserve = self.render.theme.step_column_reserve();
         let effective = self.render.columns.saturating_sub(reserve);
         let inner = self.render.theme.render(step, effective);
@@ -490,30 +439,15 @@ impl ProgressDisplay {
     }
 
     fn tap_line_for(&mut self, line: &str, step_id: Option<&str>) {
-        // ERR-1: previously dropped the writeln Result silently; a broken tap
-        // fd (disk full, NFS drop, closed underneath) would swallow every
-        // subsequent line without the user seeing any diagnostic.
-        // ERR-2 / TASK-0458: on first failure capture the kind + step id so
-        // RunFinished can emit a user-visible "tap truncated" line. We do
-        // not retry: the inner File is `std::fs::File` whose write
-        // interface does not surface EAGAIN distinctly, and a retry-once
-        // strategy is documented as optional in the task. Subsequent lines
-        // no-op rather than spamming.
-        if let Some(ref mut f) = self.tap_file {
-            if let Err(e) = writeln!(f, "{}", line) {
-                tracing::debug!(error = %e, "tap file write failed; disabling further tap writes");
-                self.tap_truncation = Some((
-                    step_id.unwrap_or("<unknown>").to_string(),
-                    e.kind().to_string(),
-                ));
-                self.tap_file = None;
-            }
+        if let Some(ref mut tap) = self.tap {
+            tap.write_line(line, step_id);
         }
     }
 
     fn on_step_output(&mut self, id: &str, line: String, stderr: bool) {
         if stderr {
-            self.state.record_stderr(id, line.clone());
+            self.state
+                .record_stderr(id, line.clone(), self.render.stderr_tail_lines);
         }
         self.tap_line_for(&line, Some(id));
     }
@@ -592,14 +526,17 @@ impl ProgressDisplay {
             return;
         }
 
-        let stderr_tail = ErrorDetailRenderer::extract_stderr_tail(
-            self.state
-                .step_stderr
-                .get(id)
-                .map(|v| v.as_slice())
-                .unwrap_or(&[]),
-            self.render.stderr_tail_lines,
-        );
+        let stderr_tail = self
+            .state
+            .step_stderr
+            .get_mut(id)
+            .map(|buf| {
+                ErrorDetailRenderer::extract_stderr_tail(
+                    buf.make_contiguous(),
+                    self.render.stderr_tail_lines,
+                )
+            })
+            .unwrap_or_default();
         let renderer = ErrorDetailRenderer::new(self.render.theme.as_ref(), self.render.columns);
         let detail_lines = renderer.render(message, &stderr_tail);
 
@@ -610,136 +547,15 @@ impl ProgressDisplay {
         }
     }
 
-    /// Finalize any step bars still in the "running" state. Without this, a bar
-    /// whose task was aborted mid-flight (e.g. `fail_fast` cancellation) never
-    /// receives a `StepFinished/Failed/Skipped` event, so its row gets dropped
-    /// from the multi-progress draw on the next redraw — leaving a hole in the
-    /// boxed frame and a visible row count that disagrees with `Done N/M`.
-    ///
-    /// Each finalized orphan also bumps `completed_steps` (ERR-1 / TASK-0333):
-    /// without that, the footer shows `Done 1/3` while three rows are visibly
-    /// finished — defeating the very disagreement this routine was added to
-    /// fix.
-    fn finalize_orphan_bars(&mut self) {
-        for i in 0..self.state.bars.len() {
-            if self.state.bars[i].is_finished() {
-                continue;
-            }
-            self.state.bars[i].disable_steady_tick();
-            let elapsed = self.state.bars[i].elapsed().as_secs_f64();
-            let step = StepLine::new(
-                StepStatus::Skipped,
-                self.state.steps[i].1.clone(),
-                Some(elapsed),
-            );
-            self.completed_steps += 1;
-            let line = self.render_and_wrap_step(&step);
-            self.finish_bar(&self.state.bars[i], &line);
-        }
-    }
-
     fn on_run_finished(&mut self, duration_secs: f64, success: bool) {
+        // FN-1 (TASK-0582) + ARCH-1 (TASK-0581): each finishing concern lives
+        // in its own helper in the `finalize` submodule. This body is a flat
+        // dispatcher.
         self.finalize_orphan_bars();
-        // ERR-2 / TASK-0458: surface tap-file truncation if we hit a write
-        // error mid-run. Emitted exactly once per run to both stderr (for
-        // the user) and the tap file itself (for downstream test harnesses
-        // that scan the tap), so a partial tap is never silently treated
-        // as "no failures".
-        if let Some((step_id, kind)) = self.tap_truncation.take() {
-            let line = format!("[ops] tap file truncated after step {step_id} due to: {kind}");
-            tracing::warn!(target: "ops::tap", "{}", line);
-            write_stderr(Some(&line));
-            // Best-effort: try to append the marker as the last tap line
-            // so a downstream parser that only inspects the file (no
-            // stderr capture) still sees the truncation. If this open
-            // also fails, the stderr warning above is still visible.
-            if let Some(path) = self.tap_path.as_ref() {
-                if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(path) {
-                    let _ = writeln!(f, "{line}");
-                }
-            }
-        }
-        // Boxed layout: finalize header bar to "Done" state and emit bottom border.
-        if let Some(bottom) = self.render.theme.box_bottom_border(BoxSnapshot {
-            completed: self.completed_steps,
-            total: self.total_steps,
-            elapsed_secs: duration_secs,
-            success,
-            columns: self.render.columns,
-            command_ids: &self.state.plan_command_ids,
-        }) {
-            if let Some(ref hb) = self.header_bar {
-                hb.finish_with_message(self.render_header_message());
-            }
-            if let Some(ref fb) = self.footer_bar {
-                fb.finish_with_message(bottom.clone());
-                self.write_non_tty(&bottom);
-            } else {
-                let pb = self.multi.add(ProgressBar::new(0));
-                self.finish_bar(&pb, &bottom);
-            }
+        self.report_tap_truncation();
+        if self.finalize_boxed_layout(duration_secs, success) {
             return;
         }
-
-        let summary = self.format_summary(duration_secs, success);
-
-        // If we have a footer bar from on_plan_started, finalize it in place.
-        if let Some(ref fb) = self.footer_bar {
-            fb.finish_with_message(summary.clone());
-            self.write_non_tty(&summary);
-            return;
-        }
-
-        // Fallback: no footer (e.g. no plan was started), create bars inline.
-        self.render_fallback_separator();
-
-        let summary_pb = self.multi.add(ProgressBar::new(0));
-        self.finish_bar(&summary_pb, &summary);
-    }
-
-    fn format_summary(&self, duration_secs: f64, success: bool) -> String {
-        if self.total_steps > 0 {
-            let label = if success { "Done" } else { "Failed" };
-            let elapsed = theme::format_duration(duration_secs);
-            let body = format!(
-                "{} {}/{} in {}",
-                label, self.completed_steps, self.total_steps, elapsed
-            );
-            let colored = theme::apply_style(&body, self.render.theme.summary_color());
-            format!(
-                "{}{}{}",
-                self.render.theme.left_pad_str(),
-                self.render.theme.summary_prefix(),
-                colored
-            )
-        } else {
-            self.render.theme.render_summary(success, duration_secs)
-        }
-    }
-
-    fn render_fallback_separator(&self) {
-        let separator = self
-            .render
-            .theme
-            .render_summary_separator(self.render.columns);
-
-        if self.render.is_tty {
-            let separator_message = if separator.is_empty() {
-                " ".to_string()
-            } else {
-                separator
-            };
-            let pb = if let Some(last_bar) = self.state.bars.last() {
-                self.multi.insert_after(last_bar, ProgressBar::new(0))
-            } else {
-                self.multi.add(ProgressBar::new(0))
-            };
-            pb.set_style(pending_style());
-            pb.finish_with_message(separator_message);
-        } else if separator.is_empty() {
-            write_stderr(None);
-        } else if let Err(e) = write!(io::stderr(), "{}", separator) {
-            tracing::debug!(error = %e, "stderr write failed");
-        }
+        self.finalize_flat_layout(duration_secs, success);
     }
 }
