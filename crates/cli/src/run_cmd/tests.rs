@@ -332,14 +332,11 @@ args = ["test"]
 
 #[test]
 fn log_step_results_does_not_panic() {
-    let results = vec![StepResult {
-        id: "test".into(),
-        success: true,
-        duration: std::time::Duration::from_millis(100),
-        stdout: "output".to_string(),
-        stderr: String::new(),
-        message: None,
-    }];
+    let results = vec![StepResult::success_with_stdout(
+        "test",
+        std::time::Duration::from_millis(100),
+        "output".to_string(),
+    )];
     log_step_results(&results);
 }
 
@@ -541,6 +538,62 @@ mod run_command_dry_run_tests {
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("program: echo"), "got: {output}");
         assert!(!output.contains("args:"), "should omit args line: {output}");
+    }
+
+    /// ERR-7 (TASK-0576): when an env var referenced in argv is non-UTF-8,
+    /// dry-run must surface the failure to the user via a returned error
+    /// rather than silently rendering the literal `${VAR}` and only logging.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn dry_run_surfaces_non_utf8_env_var_in_args() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let key = "OPS_TEST_DRY_RUN_NON_UTF8";
+        let bad: OsString = OsString::from_vec(vec![0xff, 0xfe]);
+        // SAFETY: serialised by #[serial_test::serial] to avoid env races.
+        unsafe { std::env::set_var(key, &bad) };
+
+        let config = TestConfigBuilder::new()
+            .exec("leaks_env", "echo", &[format!("${key}").as_str()])
+            .build();
+        let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+        let mut buf = Vec::new();
+        let result = run_command_dry_run_to(&runner, "leaks_env", &mut buf);
+        // SAFETY: serialised by #[serial_test::serial].
+        unsafe { std::env::remove_var(key) };
+        let err = result.expect_err("dry-run must propagate non-UTF-8 env failure");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains(key),
+            "error must name the offending var: {msg}"
+        );
+    }
+
+    /// READ-5 (TASK-0543): a non-UTF-8 cwd PathBuf is rendered through a
+    /// lossy conversion in the dry-run preview. Annotate explicitly so the
+    /// user can tell the printed path is approximate, not byte-exact.
+    #[cfg(unix)]
+    #[test]
+    fn dry_run_annotates_non_utf8_cwd() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let bad: OsString = OsString::from_vec(b"/tmp/\xff\xfe".to_vec());
+        let mut spec = exec_spec("echo", &[]);
+        spec.cwd = Some(PathBuf::from(bad));
+        let config = TestConfigBuilder::new()
+            .command("non_utf8_cwd", ops_core::config::CommandSpec::Exec(spec))
+            .build();
+        let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+        let mut buf = Vec::new();
+        run_command_dry_run_to(&runner, "non_utf8_cwd", &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("(non-UTF-8 path; lossy preview)"),
+            "annotation missing: {output}"
+        );
     }
 }
 

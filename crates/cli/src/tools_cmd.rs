@@ -33,12 +33,14 @@ fn run_tools_list_to(config: &Config, w: &mut dyn Write) -> anyhow::Result<()> {
             ToolStatus::Installed => green("✓"),
             ToolStatus::NotInstalled => red("✗"),
             ToolStatus::Unknown => dim("?"),
+            _ => dim("?"),
         };
 
         let status_text = match tool.status {
             ToolStatus::Installed => "",
             ToolStatus::NotInstalled => " (NOT INSTALLED)",
             ToolStatus::Unknown => " (UNKNOWN)",
+            _ => " (UNKNOWN)",
         };
 
         let padded_name = format!("{:width$}", tool.name, width = max_name_len);
@@ -219,12 +221,7 @@ mod tests {
     // -- install_command_description --
 
     fn tool_info(name: &str, status: ToolStatus, has_rustup: bool) -> ToolInfo {
-        ToolInfo {
-            name: name.to_string(),
-            description: "desc".to_string(),
-            status,
-            has_rustup_component: has_rustup,
-        }
+        ToolInfo::new(name.to_string(), "desc".to_string(), status, has_rustup)
     }
 
     #[test]

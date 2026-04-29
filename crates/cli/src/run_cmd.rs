@@ -174,12 +174,12 @@ fn run_commands_with_display(
     tap: Option<PathBuf>,
 ) -> anyhow::Result<Vec<StepResult>> {
     let display_map = build_display_map(runner, leaf_ids);
-    let mut display = ProgressDisplay::new(DisplayOptions {
-        output: runner.output_config(),
+    let mut display = ProgressDisplay::new(DisplayOptions::new(
+        runner.output_config(),
         display_map,
-        custom_themes: &runner.config().themes,
+        &runner.config().themes,
         tap,
-    })?;
+    ))?;
 
     let _echo_guard = EchoGuard::disable_echo();
     let results: Vec<StepResult> = run_with_runtime(async {
@@ -323,12 +323,12 @@ fn run_command_cli(
 
     let display_map = build_display_map(runner, &leaf_ids);
 
-    let mut display = ProgressDisplay::new(DisplayOptions {
-        output: runner.output_config(),
+    let mut display = ProgressDisplay::new(DisplayOptions::new(
+        runner.output_config(),
         display_map,
-        custom_themes: &runner.config().themes,
+        &runner.config().themes,
         tap,
-    })?;
+    ))?;
 
     let _echo_guard = EchoGuard::disable_echo();
     let results: Vec<StepResult> = run_with_runtime(async {

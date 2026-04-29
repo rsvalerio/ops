@@ -25,9 +25,25 @@ pub fn collect_compiled_extensions(
     config: &Config,
     workspace_root: &Path,
 ) -> Vec<(&'static str, Box<dyn Extension>)> {
+    // ERR-4 (TASK-0584): factories that return None (prerequisites not met,
+    // e.g. wrong stack, missing tool on PATH) used to be dropped silently —
+    // an extension that compiled in but quietly opts out was
+    // indistinguishable from one that never linked. Emit a one-shot debug
+    // event per slot so `RUST_LOG=ops=debug` answers "the X extension is not
+    // running for me" without changing behaviour for the success path.
     ops_extension::EXTENSION_REGISTRY
         .iter()
-        .filter_map(|factory| factory(config, workspace_root))
+        .enumerate()
+        .filter_map(|(slot, factory)| match factory(config, workspace_root) {
+            Some(pair) => Some(pair),
+            None => {
+                debug!(
+                    slot,
+                    "extension factory declined to construct (returned None); compiled in but inactive"
+                );
+                None
+            }
+        })
         .collect()
 }
 
@@ -139,9 +155,24 @@ pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut
         // snapshotting every key in the shared registry on each iteration.
         let mut local = CommandRegistry::new();
         ext.register_commands(&mut local);
+        // ERR-2 (TASK-0579): the per-extension scratch registry tracks
+        // duplicate inserts so a single extension that registers the same
+        // command id twice no longer silently drops the first version.
+        for dup in local.take_duplicate_inserts() {
+            tracing::warn!(
+                command = %dup,
+                extension = ext.name(),
+                "extension registered the same command id more than once; the later registration shadows the earlier within this extension"
+            );
+        }
         for (id, spec) in local {
-            if let Some(prev) = owners.get(&id) {
-                if *prev != ext.name() {
+            // PATTERN-3: hash the key once via owners.insert (which returns
+            // the previous owner) instead of get-then-insert. Still one clone
+            // — id needs to live in both registry and owners — but we no
+            // longer probe owners twice.
+            let prev_owner = owners.insert(id.clone(), ext.name());
+            if let Some(prev) = prev_owner {
+                if prev != ext.name() {
                     tracing::warn!(
                         command = %id,
                         first = %prev,
@@ -150,8 +181,7 @@ pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut
                     );
                 }
             }
-            registry.insert(id.clone(), spec);
-            owners.insert(id, ext.name());
+            registry.insert(id, spec);
         }
     }
 }
@@ -329,6 +359,75 @@ mod tests {
             Some(CommandSpec::Exec(e)) => assert_eq!(e.args, vec!["b".to_string()]),
             other => panic!("expected exec spec, got {other:?}"),
         }
+    }
+
+    /// ERR-2 (TASK-0579): a single extension that calls `insert` twice for
+    /// the same id must surface the self-shadow via a tracing warning. Prior
+    /// to the fix the IndexMap silently overwrote the first registration and
+    /// the cross-extension warning loop only fires for foreign owners.
+    #[test]
+    fn register_extension_commands_warns_on_self_shadow() {
+        use ops_core::config::{CommandSpec, ExecCommandSpec};
+        use ops_extension::{CommandRegistry, Extension};
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        struct DoubleRegisterExt;
+        impl Extension for DoubleRegisterExt {
+            fn name(&self) -> &'static str {
+                "double_register"
+            }
+            fn register_commands(&self, registry: &mut CommandRegistry) {
+                registry.insert(
+                    "lint".into(),
+                    CommandSpec::Exec(ExecCommandSpec::new("first", Vec::<String>::new())),
+                );
+                registry.insert(
+                    "lint".into(),
+                    CommandSpec::Exec(ExecCommandSpec::new("second", Vec::<String>::new())),
+                );
+            }
+        }
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let ext = DoubleRegisterExt;
+        let exts: Vec<&dyn Extension> = vec![&ext];
+        let mut registry = CommandRegistry::new();
+        tracing::subscriber::with_default(subscriber, || {
+            register_extension_commands(&exts, &mut registry);
+        });
+
+        let captured = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        assert!(
+            captured.contains("double_register") && captured.contains("lint"),
+            "self-shadow warning must name extension and command id, got: {captured}"
+        );
+        assert_eq!(registry.len(), 1, "only the surviving entry remains");
     }
 
     #[test]

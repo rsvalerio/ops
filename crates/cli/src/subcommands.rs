@@ -33,7 +33,7 @@ pub(crate) fn run_about(
 ) -> anyhow::Result<()> {
     let (cwd, registry) = cli_data_context(config)?;
     match action {
-        Some(AboutAction::Setup) => about_cmd::run_about_setup(config, &registry),
+        Some(AboutAction::Setup) => about_cmd::run_about_setup(config, &registry, &cwd),
         #[cfg(feature = "duckdb")]
         Some(AboutAction::Code) => ops_about::run_about_code(&registry),
         #[cfg(not(feature = "duckdb"))]
@@ -44,11 +44,11 @@ pub(crate) fn run_about(
         Some(AboutAction::Coverage) => ops_about::run_about_coverage(&registry),
         Some(AboutAction::Dependencies) => ops_about::run_about_deps(&registry),
         None => {
-            let opts = ops_about::AboutOptions {
+            let opts = ops_about::AboutOptions::new(
                 refresh,
-                visible_fields: config.about.fields.clone(),
-                is_tty: crate::tty::is_stdout_tty(),
-            };
+                config.about.fields.clone(),
+                crate::tty::is_stdout_tty(),
+            );
             ops_about::run_about(&registry, &opts, &cwd, &mut std::io::stdout())
         }
     }

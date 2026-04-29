@@ -1,7 +1,7 @@
 //! `ops about setup` — interactively choose about card fields.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::Path;
 
 use anyhow::Context;
 use ops_core::config::edit_ops_toml;
@@ -12,13 +12,20 @@ use crate::tty::SelectOption;
 pub fn run_about_setup(
     config: &ops_core::config::Config,
     data_registry: &DataRegistry,
+    workspace_root: &Path,
 ) -> anyhow::Result<()> {
-    run_about_setup_with(config, data_registry, crate::tty::is_stdout_tty)
+    run_about_setup_with(
+        config,
+        data_registry,
+        workspace_root,
+        crate::tty::is_stdout_tty,
+    )
 }
 
 fn run_about_setup_with<F>(
     config: &ops_core::config::Config,
     data_registry: &DataRegistry,
+    workspace_root: &Path,
     is_tty: F,
 ) -> anyhow::Result<()>
 where
@@ -60,7 +67,7 @@ where
 
     let field_ids: Vec<String> = selected.into_iter().map(|o| o.name).collect();
 
-    save_about_fields(&field_ids)?;
+    save_about_fields(&field_ids, workspace_root)?;
 
     writeln!(
         std::io::stdout(),
@@ -70,8 +77,12 @@ where
     Ok(())
 }
 
-fn save_about_fields(fields: &[String]) -> anyhow::Result<()> {
-    let config_path = PathBuf::from(".ops.toml");
+/// READ-5 / TASK-0578: anchor the saved `.ops.toml` to the same root the rest
+/// of the CLI threads through (`crate::cwd()` → `Stack::resolve(...)`), so
+/// running `ops about setup` from a subdirectory writes the file alongside
+/// the loaded config rather than next to the user's cwd.
+fn save_about_fields(fields: &[String], workspace_root: &Path) -> anyhow::Result<()> {
+    let config_path = workspace_root.join(".ops.toml");
     edit_ops_toml(&config_path, |doc| {
         if !doc.contains_key("about") {
             doc["about"] = toml_edit::Item::Table(toml_edit::Table::new());
@@ -96,7 +107,8 @@ mod tests {
     fn run_about_setup_non_tty_returns_error() {
         let registry = DataRegistry::new();
         let config = ops_core::config::Config::default();
-        let result = run_about_setup_with(&config, &registry, || false);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let result = run_about_setup_with(&config, &registry, dir.path(), || false);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -107,10 +119,9 @@ mod tests {
     #[test]
     fn save_about_fields_creates_new_file() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
         let fields = vec!["project".to_string(), "codebase".to_string()];
-        save_about_fields(&fields).expect("save should succeed");
+        save_about_fields(&fields, dir.path()).expect("save should succeed");
 
         let config_path = dir.path().join(".ops.toml");
         assert!(config_path.exists());
@@ -123,13 +134,12 @@ mod tests {
     #[test]
     fn save_about_fields_preserves_existing_config() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
         let existing = "[output]\ntheme = \"classic\"\n";
         std::fs::write(dir.path().join(".ops.toml"), existing).unwrap();
 
         let fields = vec!["authors".to_string(), "repository".to_string()];
-        save_about_fields(&fields).expect("save should succeed");
+        save_about_fields(&fields, dir.path()).expect("save should succeed");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(
@@ -143,7 +153,6 @@ mod tests {
     #[test]
     fn save_about_fields_updates_existing_about_section() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
         let existing = "[about]\nfields = [\"project\"]\n";
         std::fs::write(dir.path().join(".ops.toml"), existing).unwrap();
@@ -153,7 +162,7 @@ mod tests {
             "codebase".to_string(),
             "repository".to_string(),
         ];
-        save_about_fields(&fields).expect("save should succeed");
+        save_about_fields(&fields, dir.path()).expect("save should succeed");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("codebase"), "got: {content}");
@@ -163,12 +172,11 @@ mod tests {
     #[test]
     fn save_about_fields_refuses_to_overwrite_malformed_toml() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
         let path = dir.path().join(".ops.toml");
         let malformed = "not = = valid\n{{{";
         std::fs::write(&path, malformed).unwrap();
 
-        let result = save_about_fields(&["project".to_string()]);
+        let result = save_about_fields(&["project".to_string()], dir.path());
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed);
     }
@@ -176,12 +184,31 @@ mod tests {
     #[test]
     fn save_about_fields_empty_selection() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
-        save_about_fields(&[]).expect("save should succeed");
+        save_about_fields(&[], dir.path()).expect("save should succeed");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("[about]"), "got: {content}");
         assert!(content.contains("fields = []"), "got: {content}");
+    }
+
+    /// READ-5 regression (TASK-0578): when the user runs `ops about setup`
+    /// from a subdirectory but the workspace root is one level up, the saved
+    /// `.ops.toml` must land at the workspace root — not in the cwd.
+    #[test]
+    fn save_about_fields_writes_to_workspace_root_from_subdir() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace_root = dir.path();
+        let subdir = workspace_root.join("nested/deeper");
+        std::fs::create_dir_all(&subdir).unwrap();
+        let _guard = crate::CwdGuard::new(&subdir).expect("CwdGuard");
+
+        save_about_fields(&["project".to_string()], workspace_root).expect("save should succeed");
+
+        assert!(workspace_root.join(".ops.toml").exists());
+        assert!(
+            !subdir.join(".ops.toml").exists(),
+            "must not have written into the subdirectory cwd"
+        );
     }
 }

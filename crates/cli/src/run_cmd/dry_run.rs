@@ -51,8 +51,11 @@ pub(crate) fn print_exec_spec(
     e: &ops_core::config::ExecCommandSpec,
     vars: &ops_core::expand::Variables,
 ) -> anyhow::Result<()> {
-    writeln!(w, "      program: {}", vars.expand(&e.program))?;
-    if let Some(args) = e.expanded_args_display(vars) {
+    // ERR-7 (TASK-0576): switch to strict expansion so a non-UTF-8 env var
+    // surfaces in the dry-run preview instead of being silently logged while
+    // the literal `${VAR}` flows to display.
+    writeln!(w, "      program: {}", vars.try_expand(&e.program)?)?;
+    if let Some(args) = e.expanded_args_display(vars)? {
         writeln!(w, "      args:    {}", args)?;
     }
     if !e.env.is_empty() {
@@ -78,7 +81,7 @@ pub(crate) fn print_exec_spec(
             // Defense in depth: name sensitive env vars with one of the
             // standard prefixes (TOKEN, SECRET, PASSWORD, KEY, AUTH, …) so
             // key-based redaction kicks in even if the value heuristic misses.
-            let expanded = vars.expand(v);
+            let expanded = vars.try_expand(v)?;
             let display_val =
                 if is_sensitive_env_key(k) || looks_like_secret_value_public(&expanded) {
                     "***REDACTED***".to_string()
@@ -89,11 +92,22 @@ pub(crate) fn print_exec_spec(
         }
     }
     if let Some(cwd) = &e.cwd {
-        writeln!(
-            w,
-            "      cwd:     {}",
-            vars.expand(&cwd.display().to_string())
-        )?;
+        // READ-5 (TASK-0543): Path::display() lossily replaces non-UTF-8 bytes
+        // with U+FFFD before expansion. The actual spawn (resolve_spec_cwd)
+        // uses to_string_lossy() too, so the preview is consistent — but the
+        // user has no way to know the rendered path is approximate. Annotate
+        // explicitly when the underlying PathBuf is not valid UTF-8.
+        let lossy = cwd.to_string_lossy();
+        let expanded = vars.try_expand(&lossy)?;
+        if cwd.to_str().is_some() {
+            writeln!(w, "      cwd:     {}", expanded)?;
+        } else {
+            writeln!(
+                w,
+                "      cwd:     {} (non-UTF-8 path; lossy preview)",
+                expanded
+            )?;
+        }
     }
     if let Some(timeout) = e.timeout_secs {
         writeln!(w, "      timeout: {}s", timeout)?;
