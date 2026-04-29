@@ -121,7 +121,7 @@ impl AboutCard {
     /// Render the about card as styled text lines.
     ///
     /// Pass `is_tty = true` to enable ANSI colors in the output.
-    pub fn render(&self, _columns: u16, is_tty: bool) -> String {
+    pub fn render(&self, is_tty: bool) -> String {
         let mut lines: Vec<String> = Vec::new();
 
         if let Some(desc) = &self.description {

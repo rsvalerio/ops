@@ -48,8 +48,28 @@ fn merge_env_vars(config: &mut Config) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Counter for `load_config` invocations. Used by the CLI regression test
+/// (TASK-0427) to assert that a typical `ops <cmd>` flow only loads
+/// `.ops.toml` once. The atomic increment is a sub-nanosecond cost on a
+/// single-core machine and load_config itself parses TOML, so the overhead
+/// is unmeasurable in practice.
+static LOAD_CONFIG_CALL_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Snapshot the current `load_config` invocation count. Public so external
+/// crates (e.g. `cli/main.rs` integration tests) can assert it.
+pub fn load_config_call_count() -> usize {
+    LOAD_CONFIG_CALL_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Reset the `load_config` invocation count to zero. Intended for tests.
+pub fn reset_load_config_call_count() {
+    LOAD_CONFIG_CALL_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[instrument(skip_all)]
 pub fn load_config() -> anyhow::Result<Config> {
+    LOAD_CONFIG_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut config: Config =
         toml::from_str(default_ops_toml()).context("failed to parse internal default config")?;
     debug!("loaded internal default config");

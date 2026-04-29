@@ -223,7 +223,7 @@ fn sample_identity() -> ProjectIdentity {
 #[test]
 fn render_non_tty_contains_identity_fields() {
     let card = AboutCard::from_identity(&sample_identity());
-    let output = card.render(80, false);
+    let output = card.render(false);
     assert!(output.contains("ops"), "got: {output}");
     assert!(output.contains("v0.10.0"), "got: {output}");
     assert!(output.contains("Rust"), "got: {output}");
@@ -233,7 +233,7 @@ fn render_non_tty_contains_identity_fields() {
 #[test]
 fn render_non_tty_contains_fields() {
     let card = AboutCard::from_identity(&sample_identity());
-    let output = card.render(80, false);
+    let output = card.render(false);
     assert!(output.contains("/home/user/ops"), "got: {output}");
     assert!(output.contains("21,324 loc"), "got: {output}");
     assert!(output.contains("96 files"), "got: {output}");
@@ -243,14 +243,14 @@ fn render_non_tty_contains_fields() {
 #[test]
 fn render_non_tty_contains_description() {
     let card = AboutCard::from_identity(&sample_identity());
-    let output = card.render(80, false);
+    let output = card.render(false);
     assert!(output.contains("Task runner"), "got: {output}");
 }
 
 #[test]
 fn render_tty_contains_ansi_escapes() {
     let card = AboutCard::from_identity(&sample_identity());
-    let output = card.render(80, true);
+    let output = card.render(true);
     // ANSI escape codes start with \x1b[
     assert!(
         output.contains("\x1b["),
@@ -261,7 +261,7 @@ fn render_tty_contains_ansi_escapes() {
 #[test]
 fn render_non_tty_no_ansi_escapes() {
     let card = AboutCard::from_identity(&sample_identity());
-    let output = card.render(80, false);
+    let output = card.render(false);
     assert!(
         !output.contains("\x1b["),
         "non-TTY output should not contain ANSI escapes: {output}"
@@ -291,7 +291,7 @@ fn render_minimal_card_no_description() {
         languages: vec![],
     };
     let card = AboutCard::from_identity(&id);
-    let output = card.render(80, false);
+    let output = card.render(false);
     assert!(output.contains("bare"), "got: {output}");
     assert!(output.contains("/tmp"), "got: {output}");
     // stack, project — project spans 2 lines (name + path). 3 output lines.
@@ -303,7 +303,7 @@ fn file_count_singular() {
     let mut id = sample_identity();
     id.file_count = Some(1);
     let card = AboutCard::from_identity(&id);
-    let output = card.render(80, false);
+    let output = card.render(false);
     assert!(output.contains("1 file"), "got: {output}");
     assert!(!output.contains("1 files"), "should be singular: {output}");
 }

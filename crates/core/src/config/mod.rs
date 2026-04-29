@@ -19,7 +19,10 @@ pub use overlay::{
 
 #[cfg(test)]
 pub(crate) use loader::global_config_path;
-pub use loader::{load_config, load_config_or_default, read_config_file};
+pub use loader::{
+    load_config, load_config_call_count, load_config_or_default, read_config_file,
+    reset_load_config_call_count,
+};
 pub use merge::merge_config;
 
 use crate::config::theme_types::ThemeConfig;
