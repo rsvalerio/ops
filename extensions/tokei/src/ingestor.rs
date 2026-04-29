@@ -24,7 +24,7 @@ impl DataIngestor for TokeiIngestor {
     fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<LoadResult> {
         let json_path = data_dir.join(PIPELINE.json_filename);
         let create_sql = views::tokei_files_create_sql(&json_path).map_err(io_err)?;
-        let view_sql = views::tokei_languages_view_sql();
+        let view_sql = views::tokei_languages_view_sql().map_err(io_err)?;
         PIPELINE.load_with_sidecar(db, data_dir, &create_sql, &view_sql)
     }
 

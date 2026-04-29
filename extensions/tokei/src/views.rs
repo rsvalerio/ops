@@ -6,19 +6,26 @@
 //! (shared defense-in-depth validation). This module only contains
 //! tokei-specific SQL generation.
 
-use ops_duckdb::sql::SqlError;
+use ops_duckdb::sql::{quoted_ident, SqlError};
 use std::path::Path;
 
 pub fn tokei_files_create_sql(path: &Path) -> Result<String, SqlError> {
     ops_duckdb::sql::create_table_from_json_sql("tokei_files", path, None)
 }
 
-pub fn tokei_languages_view_sql() -> String {
-    "CREATE OR REPLACE VIEW tokei_languages AS \
-     SELECT language, COUNT(*) AS files, SUM(code) AS code, \
-     SUM(comments) AS comments, SUM(blanks) AS blanks, SUM(lines) AS lines \
-     FROM tokei_files GROUP BY language ORDER BY code DESC"
-        .to_string()
+/// SEC-12 (TASK-0593): identifiers are routed through `quoted_ident` even
+/// though they are static today, matching the policy of sister
+/// `tokei_files_create_sql`. A future rename or templating refactor would
+/// otherwise re-introduce un-quoted interpolation.
+pub fn tokei_languages_view_sql() -> Result<String, SqlError> {
+    let view = quoted_ident("tokei_languages")?;
+    let table = quoted_ident("tokei_files")?;
+    Ok(format!(
+        "CREATE OR REPLACE VIEW {view} AS \
+         SELECT language, COUNT(*) AS files, SUM(code) AS code, \
+         SUM(comments) AS comments, SUM(blanks) AS blanks, SUM(lines) AS lines \
+         FROM {table} GROUP BY language ORDER BY code DESC"
+    ))
 }
 
 #[cfg(test)]
@@ -29,11 +36,26 @@ mod tests {
 
     #[test]
     fn tokei_languages_view_sql_contains_aggregation() {
-        let sql = tokei_languages_view_sql();
+        let sql = tokei_languages_view_sql().expect("static idents must validate");
         assert!(sql.contains("tokei_languages"));
         assert!(sql.contains("GROUP BY language"));
         assert!(sql.contains("SUM(code)"));
         assert!(sql.contains("COUNT(*)"));
         assert!(sql.contains("ORDER BY code DESC"));
+    }
+
+    /// SEC-12: identifiers must be double-quoted, matching the parity policy
+    /// of the sister `tokei_files_create_sql` helper.
+    #[test]
+    fn tokei_languages_view_sql_quotes_identifiers() {
+        let sql = tokei_languages_view_sql().expect("static idents must validate");
+        assert!(
+            sql.contains("\"tokei_languages\""),
+            "view name should be double-quoted: {sql}"
+        );
+        assert!(
+            sql.contains("\"tokei_files\""),
+            "table name should be double-quoted: {sql}"
+        );
     }
 }
