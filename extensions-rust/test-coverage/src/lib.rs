@@ -129,22 +129,44 @@ fn extract_section(summary: &serde_json::Value, key: &str) -> Section {
         return Section::default();
     };
     Section {
-        count: s
-            .get("count")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(0),
-        covered: s
-            .get("covered")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(0),
-        notcovered: s
-            .get("notcovered")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(0),
-        percent: s
-            .get("percent")
-            .and_then(serde_json::Value::as_f64)
-            .unwrap_or(0.0),
+        count: read_i64_field(s, key, "count"),
+        covered: read_i64_field(s, key, "covered"),
+        notcovered: read_i64_field(s, key, "notcovered"),
+        percent: read_f64_field(s, key, "percent"),
+    }
+}
+
+/// ERR-1: an absent field is legitimately empty (`0`); a field that is
+/// present but the wrong shape (e.g. llvm-cov bumping `count` to a string or
+/// float) is a schema-drift signal that must surface as a warn so coverage
+/// does not silently drop to zero.
+fn read_i64_field(section: &serde_json::Value, section_key: &str, field: &str) -> i64 {
+    match section.get(field) {
+        None => 0,
+        Some(v) => v.as_i64().unwrap_or_else(|| {
+            tracing::warn!(
+                section = section_key,
+                field,
+                value = %v,
+                "coverage field present but not an integer; coercing to 0 (llvm-cov schema drift?)"
+            );
+            0
+        }),
+    }
+}
+
+fn read_f64_field(section: &serde_json::Value, section_key: &str, field: &str) -> f64 {
+    match section.get(field) {
+        None => 0.0,
+        Some(v) => v.as_f64().unwrap_or_else(|| {
+            tracing::warn!(
+                section = section_key,
+                field,
+                value = %v,
+                "coverage field present but not a float; coercing to 0.0 (llvm-cov schema drift?)"
+            );
+            0.0
+        }),
     }
 }
 
@@ -154,18 +176,31 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
         .and_then(|d| d.as_array())
         .context("missing or invalid 'data' array in coverage JSON")?;
 
-    let first = data
-        .first()
-        .context("'data' array is empty in coverage JSON")?;
-
-    let files = first
-        .get("files")
-        .and_then(|f| f.as_array())
-        .context("missing or invalid 'files' array in coverage data")?;
+    if data.is_empty() {
+        anyhow::bail!("'data' array is empty in coverage JSON");
+    }
+    // ERR-1: cargo llvm-cov --json's `data` is an array (one entry per
+    // export); future per-target merging produces multiple exports. Iterate
+    // every entry instead of silently dropping data[1..].
+    if data.len() > 1 {
+        tracing::warn!(
+            entries = data.len(),
+            "coverage JSON contains more than one data export; flattening all entries"
+        );
+    }
 
     let empty = serde_json::json!({});
-    let mut records = Vec::with_capacity(files.len());
-    for file in files {
+    let mut records = Vec::new();
+    let mut files_iter = Vec::new();
+    for entry in data {
+        let files = entry
+            .get("files")
+            .and_then(|f| f.as_array())
+            .context("missing or invalid 'files' array in coverage data")?;
+        files_iter.extend(files.iter());
+    }
+    records.reserve(files_iter.len());
+    for file in &files_iter {
         let filename = file.get("filename").and_then(|f| f.as_str()).unwrap_or("");
         let summary = file.get("summary").unwrap_or(&empty);
 

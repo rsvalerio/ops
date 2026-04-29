@@ -148,6 +148,29 @@ fn flatten_coverage_json_missing_summary_fields() {
     assert_eq!(record["lines_percent"], 0.0);
 }
 
+/// ERR-1 / TASK-0595: when llvm-cov emits multiple data[] entries (per-target
+/// merging), every file across all entries must end up in the output. The
+/// previous shape silently dropped data[1..] producing under-reported coverage.
+#[test]
+fn flatten_coverage_json_iterates_all_data_entries() {
+    let raw = serde_json::json!({
+        "data": [
+            { "files": [{ "filename": "a.rs", "summary": { "lines": { "count": 10, "covered": 5, "percent": 50.0 }}}]},
+            { "files": [{ "filename": "b.rs", "summary": { "lines": { "count": 20, "covered": 20, "percent": 100.0 }}}]}
+        ]
+    });
+    let arr = flatten_coverage_json(&raw)
+        .expect("multi-entry data must flatten")
+        .as_array()
+        .cloned()
+        .unwrap();
+    let names: Vec<&str> = arr
+        .iter()
+        .map(|r| r["filename"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, vec!["a.rs", "b.rs"]);
+}
+
 // -- DuckDB integration tests --
 
 fn write_coverage_fixture(data_dir: &Path) {
@@ -369,18 +392,22 @@ fn flatten_coverage_json_missing_summary_entirely() {
     assert_eq!(record["branches_count"], 0);
 }
 
+/// ERR-1 / TASK-0595: when `data` has multiple entries, every entry's files
+/// are flattened — the earlier "uses first only" behaviour silently dropped
+/// per-target merge exports.
 #[test]
-fn flatten_coverage_json_multiple_data_entries_uses_first() {
+fn flatten_coverage_json_multiple_data_entries_includes_all() {
     let raw = serde_json::json!({
         "data": [
             { "files": [{ "filename": "first.rs", "summary": {} }] },
             { "files": [{ "filename": "second.rs", "summary": {} }] }
         ]
     });
-    let result = flatten_coverage_json(&raw).expect("should use first data entry");
+    let result = flatten_coverage_json(&raw).expect("should flatten all data entries");
     let arr = result.as_array().unwrap();
-    assert_eq!(arr.len(), 1);
+    assert_eq!(arr.len(), 2);
     assert_eq!(arr[0]["filename"], "first.rs");
+    assert_eq!(arr[1]["filename"], "second.rs");
 }
 
 // -- load_coverage tests --
