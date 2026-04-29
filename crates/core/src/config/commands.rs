@@ -142,17 +142,23 @@ impl ExecCommandSpec {
     /// SEC-21: see `display_cmd`. Each expanded argument is shell-quoted so
     /// values containing whitespace or metacharacters cannot be confused
     /// with multiple separate arguments.
-    pub fn expanded_args_display(&self, vars: &crate::expand::Variables) -> Option<String> {
+    ///
+    /// ERR-7 (TASK-0576): uses the strict [`Variables::try_expand`] so a
+    /// non-UTF-8 / unparsable env var produces a visible diagnostic in the
+    /// dry-run preview rather than silently rendering the literal `${VAR}`
+    /// while a `tracing` event hides in the log buffer.
+    pub fn expanded_args_display(
+        &self,
+        vars: &crate::expand::Variables,
+    ) -> Result<Option<String>, crate::expand::ExpandError> {
         if self.args.is_empty() {
-            None
-        } else {
-            let expanded: Vec<String> = self
-                .args
-                .iter()
-                .map(|a| vars.expand(a).into_owned())
-                .collect();
-            Some(join_shell_quoted(&expanded))
+            return Ok(None);
         }
+        let mut expanded = Vec::with_capacity(self.args.len());
+        for arg in &self.args {
+            expanded.push(vars.try_expand(arg)?.into_owned());
+        }
+        Ok(Some(join_shell_quoted(&expanded)))
     }
 }
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::test_utils::EnvGuard;
+use crate::test_utils::{exec_spec, EnvGuard};
 use serial_test::serial;
 use std::time::Duration;
 
@@ -170,6 +170,110 @@ mod read_config_file_error_paths {
 
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
     }
+}
+
+#[test]
+fn validate_commands_rejects_unknown_composite_ref() {
+    let mut config = Config::default();
+    config.commands.insert(
+        "verify".to_string(),
+        CommandSpec::Composite(crate::config::CompositeCommandSpec::new(["buidl"])),
+    );
+    let err = config
+        .validate_commands(&[])
+        .expect_err("unknown ref must fail");
+    let msg = format!("{err:#}");
+    assert!(msg.contains("unknown command 'buidl'"), "got: {msg}");
+}
+
+#[test]
+fn validate_commands_accepts_unknown_ref_resolved_via_externals() {
+    let mut config = Config::default();
+    config.commands.insert(
+        "run-before-commit".to_string(),
+        CommandSpec::Composite(crate::config::CompositeCommandSpec::new(["verify"])),
+    );
+    // `verify` is provided by stack defaults — pass it as external.
+    config
+        .validate_commands(&["verify"])
+        .expect("composite resolves via externals");
+}
+
+#[test]
+fn validate_commands_rejects_self_cycle() {
+    let mut config = Config::default();
+    config.commands.insert(
+        "loop".to_string(),
+        CommandSpec::Composite(crate::config::CompositeCommandSpec::new(["loop"])),
+    );
+    let err = config
+        .validate_commands(&[])
+        .expect_err("self-cycle must fail");
+    assert!(format!("{err:#}").contains("cycle"));
+}
+
+#[test]
+fn validate_commands_rejects_indirect_cycle() {
+    let mut config = Config::default();
+    config.commands.insert(
+        "a".to_string(),
+        CommandSpec::Composite(crate::config::CompositeCommandSpec::new(["b"])),
+    );
+    config.commands.insert(
+        "b".to_string(),
+        CommandSpec::Composite(crate::config::CompositeCommandSpec::new(["a"])),
+    );
+    let err = config
+        .validate_commands(&[])
+        .expect_err("indirect cycle must fail");
+    assert!(format!("{err:#}").contains("cycle"));
+}
+
+#[test]
+fn validate_commands_rejects_depth_violation() {
+    use crate::config::{CompositeCommandSpec, MAX_COMPOSITE_DEPTH};
+    let mut config = Config::default();
+    // Build a strict chain c0 -> c1 -> ... -> cN with N > MAX_COMPOSITE_DEPTH.
+    let n = MAX_COMPOSITE_DEPTH + 5;
+    for i in 0..n {
+        let next = format!("c{}", i + 1);
+        config.commands.insert(
+            format!("c{i}"),
+            CommandSpec::Composite(CompositeCommandSpec::new([next])),
+        );
+    }
+    // Final exec leaf so refs resolve.
+    config
+        .commands
+        .insert(format!("c{n}"), CommandSpec::Exec(exec_spec("echo", &[])));
+    let err = config.validate_commands(&[]).expect_err("depth must fail");
+    assert!(format!("{err:#}").contains("depth"));
+}
+
+#[test]
+fn validate_commands_accepts_diamond_dag() {
+    use crate::config::CompositeCommandSpec;
+    // a -> [b, c]; b -> [d]; c -> [d]; d -> exec. Visiting `d` twice must
+    // not be flagged as a cycle (matches runner expand_inner semantics).
+    let mut config = Config::default();
+    config.commands.insert(
+        "a".to_string(),
+        CommandSpec::Composite(CompositeCommandSpec::new(["b", "c"])),
+    );
+    config.commands.insert(
+        "b".to_string(),
+        CommandSpec::Composite(CompositeCommandSpec::new(["d"])),
+    );
+    config.commands.insert(
+        "c".to_string(),
+        CommandSpec::Composite(CompositeCommandSpec::new(["d"])),
+    );
+    config
+        .commands
+        .insert("d".to_string(), make_exec_spec("echo", &[]));
+    config
+        .validate_commands(&[])
+        .expect("diamond is not a cycle");
 }
 
 #[test]

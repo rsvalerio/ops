@@ -33,6 +33,11 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// Maximum recursion depth for composite expansion. Mirrors the runner's
+/// `MAX_DEPTH` so the same configs that are accepted at load time are also
+/// accepted at run time.
+pub const MAX_COMPOSITE_DEPTH: usize = 100;
+
 /// Root configuration structure.
 ///
 /// `Config::default` is intended for tests and downstream extension wiring
@@ -63,12 +68,84 @@ pub struct Config {
 
 impl Config {
     /// Validate all command specs. Called after loading to fail fast on invalid config.
+    ///
+    /// Validates exec specs unconditionally. Composite specs are not checked
+    /// here because composite commands may reference stack defaults or
+    /// extension-registered commands that are not known at config load time —
+    /// see [`Config::validate_commands`] for full composite validation.
     pub fn validate(&self) -> anyhow::Result<()> {
         for (name, spec) in &self.commands {
             if let CommandSpec::Exec(exec) = spec {
                 exec.validate(name)?;
             }
         }
+        Ok(())
+    }
+
+    /// Validate exec specs and every composite's references against the
+    /// merged set of `config.commands` plus `externals` (stack defaults +
+    /// registered extension command ids).
+    ///
+    /// Catches three failure modes that would otherwise only surface when
+    /// the user invokes the affected command:
+    /// - unknown reference (typo such as `commands = ["buidl"]`)
+    /// - cycle (self-reference or indirect cycle)
+    /// - depth violation (deeper than [`MAX_COMPOSITE_DEPTH`])
+    ///
+    /// Does not stand up a [`crate::runner::CommandRunner`]; the caller
+    /// passes in the externally-known ids explicitly, so this can run from
+    /// tests or from any setup path that already knows the extra command
+    /// stores.
+    pub fn validate_commands(&self, externals: &[&str]) -> anyhow::Result<()> {
+        self.validate()?;
+
+        let known: std::collections::HashSet<&str> = self
+            .commands
+            .keys()
+            .map(String::as_str)
+            .chain(externals.iter().copied())
+            .collect();
+
+        for (name, spec) in &self.commands {
+            if let CommandSpec::Composite(_) = spec {
+                let mut visiting = std::collections::HashSet::new();
+                self.walk_composite(name, &known, &mut visiting, 0)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn walk_composite<'a>(
+        &'a self,
+        name: &'a str,
+        known: &std::collections::HashSet<&'a str>,
+        visiting: &mut std::collections::HashSet<&'a str>,
+        depth: usize,
+    ) -> anyhow::Result<()> {
+        if depth > MAX_COMPOSITE_DEPTH {
+            anyhow::bail!(
+                "command '{name}': composite expansion exceeded depth limit {MAX_COMPOSITE_DEPTH}"
+            );
+        }
+        if !visiting.insert(name) {
+            anyhow::bail!("command '{name}': cycle detected in composite command");
+        }
+        if let Some(CommandSpec::Composite(c)) = self.commands.get(name) {
+            for sub in &c.commands {
+                let sub_str = sub.as_str();
+                if !known.contains(sub_str) {
+                    anyhow::bail!("command '{name}': references unknown command '{sub_str}'");
+                }
+                // Only recurse into config-defined composites; externals are
+                // opaque from this side and may be exec or composite — their
+                // internal cycles, if any, would be caught by their own
+                // validate path, not this one.
+                if let Some(CommandSpec::Composite(_)) = self.commands.get(sub_str) {
+                    self.walk_composite(sub_str, known, visiting, depth + 1)?;
+                }
+            }
+        }
+        visiting.remove(name);
         Ok(())
     }
 

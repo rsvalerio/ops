@@ -38,11 +38,46 @@ impl Stack {
     /// DUP-001: Resolve stack from config override or auto-detection.
     ///
     /// Shared by `CommandRunner::new()` and `extensions::resolve_stack()`.
+    ///
+    /// ERR-2 (TASK-0540): an unparseable `config.stack` value emits a
+    /// `tracing::warn!` event and a user-visible `ui::warn` listing accepted
+    /// stack names before falling back to filesystem detection. Without the
+    /// diagnostic the override is silently dropped and users debugging
+    /// "wrong stack detected" have no signal that their config typo was
+    /// rejected.
     pub fn resolve(config_stack: Option<&str>, workspace_root: &Path) -> Option<Self> {
-        config_stack
-            .and_then(|s| s.parse().ok())
-            .or_else(|| Self::detect(workspace_root))
+        if let Some(raw) = config_stack {
+            match raw.parse::<Self>() {
+                Ok(stack) => return Some(stack),
+                Err(_) => {
+                    let accepted = Self::ACCEPTED_NAMES.join(", ");
+                    tracing::warn!(
+                        value = raw,
+                        accepted = %accepted,
+                        "unrecognised stack override in config; falling back to detection"
+                    );
+                    crate::ui::warn(format!(
+                        "config.stack = \"{raw}\" is not a recognised stack; falling back to auto-detection (accepted: {accepted})"
+                    ));
+                }
+            }
+        }
+        Self::detect(workspace_root)
     }
+
+    /// Stack names accepted in `config.stack` overrides, used in diagnostics
+    /// when an unrecognised value is rejected.
+    const ACCEPTED_NAMES: &'static [&'static str] = &[
+        "rust",
+        "node",
+        "go",
+        "python",
+        "terraform",
+        "ansible",
+        "java-maven",
+        "java-gradle",
+        "generic",
+    ];
 
     /// Maximum number of parent directories `detect` walks before giving up.
     ///
@@ -182,6 +217,96 @@ mod tests {
         std::fs::write(dir.path().join("Cargo.toml"), "").expect("write");
         let resolved = Stack::resolve(Some("not-a-real-stack"), dir.path());
         assert_eq!(resolved, Some(Stack::Rust));
+    }
+
+    /// ERR-2 (TASK-0540): a typo in `config.stack` must surface a tracing
+    /// warning rather than silently fall through to detection. Captures the
+    /// tracing fmt output in-process and asserts the offending value plus the
+    /// list of accepted names appears.
+    #[test]
+    fn resolve_unknown_config_override_emits_tracing_warning() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("lock").extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        tracing::subscriber::with_default(subscriber, || {
+            let _ = Stack::resolve(Some("not-a-stack"), dir.path());
+        });
+
+        let captured = String::from_utf8(captured.lock().expect("lock").clone()).expect("utf8");
+        assert!(
+            captured.contains("not-a-stack"),
+            "warning must include offending value, got: {captured}"
+        );
+        assert!(
+            captured.contains("rust") && captured.contains("generic"),
+            "warning must list accepted stack names, got: {captured}"
+        );
+    }
+
+    /// Companion to the typo case: an accepted value must not emit a warning.
+    #[test]
+    fn resolve_known_config_override_silent() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("lock").extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        tracing::subscriber::with_default(subscriber, || {
+            let _ = Stack::resolve(Some("rust"), dir.path());
+        });
+        assert!(captured.lock().expect("lock").is_empty());
     }
 
     #[test]
