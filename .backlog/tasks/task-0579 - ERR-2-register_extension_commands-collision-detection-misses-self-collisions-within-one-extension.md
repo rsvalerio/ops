@@ -3,9 +3,11 @@ id: TASK-0579
 title: >-
   ERR-2: register_extension_commands collision detection misses self-collisions
   within one extension
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0639
 created_date: '2026-04-29 05:17'
+updated_date: '2026-04-29 10:57'
 labels:
   - code-review-rust
   - ERR
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Per-extension registration tracks duplicates and warns when register_commands re-uses the same id within itself
-- [ ] #2 Test: fake extension that inserts X twice triggers a tracing warning
+- [x] #1 Per-extension registration tracks duplicates and warns when register_commands re-uses the same id within itself
+- [x] #2 Test: fake extension that inserts X twice triggers a tracing warning
 <!-- AC:END -->

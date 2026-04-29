@@ -3,9 +3,11 @@ id: TASK-0590
 title: >-
   READ-5: layout_cards_in_grid_with_width does not narrow CARD_WIDTH for very
   small terminals
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0644
 created_date: '2026-04-29 05:18'
+updated_date: '2026-04-29 17:04'
 labels:
   - code-review-rust
   - READ
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Sub-32-column terminals produce documented degraded render or use narrower CARD_WIDTH
-- [ ] #2 Unit test pins behavior at term_width = 24
-- [ ] #3 Render contract documented on layout_cards_in_grid_with_width
+- [x] #1 Sub-32-column terminals produce documented degraded render or use narrower CARD_WIDTH
+- [x] #2 Unit test pins behavior at term_width = 24
+- [x] #3 Render contract documented on layout_cards_in_grid_with_width
 <!-- AC:END -->

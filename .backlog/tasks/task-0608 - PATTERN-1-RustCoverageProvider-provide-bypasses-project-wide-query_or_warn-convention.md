@@ -3,9 +3,11 @@ id: TASK-0608
 title: >-
   PATTERN-1: RustCoverageProvider::provide bypasses project-wide query_or_warn
   convention
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0645
 created_date: '2026-04-29 05:20'
+updated_date: '2026-04-29 17:48'
 labels:
   - code-review-rust
   - PATTERN

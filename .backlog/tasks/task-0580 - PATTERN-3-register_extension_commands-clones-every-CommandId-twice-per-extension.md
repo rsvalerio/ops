@@ -3,9 +3,11 @@ id: TASK-0580
 title: >-
   PATTERN-3: register_extension_commands clones every CommandId twice per
   extension
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0645
 created_date: '2026-04-29 05:17'
+updated_date: '2026-04-29 17:44'
 labels:
   - code-review-rust
   - PATTERN

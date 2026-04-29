@@ -1,9 +1,11 @@
 ---
 id: TASK-0592
 title: 'ERR-1: collect_per_crate_map silently drops duplicate keys via HashMap::insert'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0638
 created_date: '2026-04-29 05:18'
+updated_date: '2026-04-29 10:36'
 labels:
   - code-review-rust
   - ERR

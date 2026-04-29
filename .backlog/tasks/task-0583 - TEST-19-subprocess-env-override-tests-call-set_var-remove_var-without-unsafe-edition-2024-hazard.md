@@ -3,9 +3,11 @@ id: TASK-0583
 title: >-
   TEST-19: subprocess env-override tests call set_var/remove_var without unsafe
   (edition-2024 hazard)
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0645
 created_date: '2026-04-29 05:17'
+updated_date: '2026-04-29 17:44'
 labels:
   - code-review-rust
   - TEST

@@ -3,9 +3,11 @@ id: TASK-0620
 title: >-
   DUP-3: parse_package_metadata duplicated structurally between Node and Python
   units providers
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0642
 created_date: '2026-04-29 05:21'
+updated_date: '2026-04-29 12:51'
 labels:
   - code-review-rust
   - DUP
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Shared helper in ops_about::workspace returns (Option<String>, Option<String>, Option<String>) from parsed-manifest projection
-- [ ] #2 Both Node and Python units.rs use it
-- [ ] #3 All existing units-provider tests pass
+- [x] #1 Shared helper in ops_about::workspace returns (Option<String>, Option<String>, Option<String>) from parsed-manifest projection
+- [x] #2 Both Node and Python units.rs use it
+- [x] #3 All existing units-provider tests pass
 <!-- AC:END -->

@@ -1,9 +1,11 @@
 ---
 id: TASK-0589
 title: 'ASYNC-6: has_staged_files_with spawns git subprocess with no bounded wait'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0643
 created_date: '2026-04-29 05:18'
+updated_date: '2026-04-29 14:34'
 labels:
   - code-review-rust
   - ASYNC
@@ -23,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 has_staged_files_with enforces a bounded wait (e.g. 5s default, configurable)
-- [ ] #2 On timeout, function returns a typed error (not generic 'failed to run')
-- [ ] #3 Test simulates a hanging fake-git binary and asserts timeout fires
+- [x] #1 has_staged_files_with enforces a bounded wait (e.g. 5s default, configurable)
+- [x] #2 On timeout, function returns a typed error (not generic 'failed to run')
+- [x] #3 Test simulates a hanging fake-git binary and asserts timeout fires
 <!-- AC:END -->

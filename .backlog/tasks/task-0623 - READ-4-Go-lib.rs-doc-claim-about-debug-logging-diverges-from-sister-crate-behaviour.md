@@ -3,9 +3,11 @@ id: TASK-0623
 title: >-
   READ-4: Go lib.rs doc-claim about debug logging diverges from sister-crate
   behaviour
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:21'
+updated_date: '2026-04-29 12:09'
 labels:
   - code-review-rust
   - READ

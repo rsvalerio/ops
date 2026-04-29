@@ -3,9 +3,11 @@ id: TASK-0598
 title: >-
   ERR-7: interpret_deny_result treats exit_code = None (process killed by
   signal) as a clean run
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0639
 created_date: '2026-04-29 05:19'
+updated_date: '2026-04-29 11:00'
 labels:
   - code-review-rust
   - ERR
@@ -25,6 +27,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 exit_code == None returns Err with clear 'deny terminated by signal' message
-- [ ] #2 Test exercises the None arm against interpret_deny_result
+- [x] #1 exit_code == None returns Err with clear 'deny terminated by signal' message
+- [x] #2 Test exercises the None arm against interpret_deny_result
 <!-- AC:END -->

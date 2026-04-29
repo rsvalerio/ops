@@ -3,9 +3,11 @@ id: TASK-0632
 title: >-
   READ-4: compute_module_count precedence rule lives in 11-line doc-comment but
   function is 8 lines
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:22'
+updated_date: '2026-04-29 12:12'
 labels:
   - code-review-rust
   - READ

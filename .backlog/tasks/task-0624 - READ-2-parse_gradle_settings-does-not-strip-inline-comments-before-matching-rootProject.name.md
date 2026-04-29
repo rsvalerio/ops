@@ -3,9 +3,11 @@ id: TASK-0624
 title: >-
   READ-2: parse_gradle_settings does not strip inline comments before matching
   rootProject.name
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:21'
+updated_date: '2026-04-29 12:09'
 labels:
   - code-review-rust
   - READ

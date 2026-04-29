@@ -3,9 +3,11 @@ id: TASK-0622
 title: >-
   ERR-2: pyproject/package_json/go.mod readers diverge in NotFound vs other-IO
   log severity
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0639
 created_date: '2026-04-29 05:21'
+updated_date: '2026-04-29 11:02'
 labels:
   - code-review-rust
   - ERR
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Shared read_optional_text helper added in ops_about (or shared crate) encapsulating NotFound→silent, other→tracing::debug rule
-- [ ] #2 All six listed sites consume it
-- [ ] #3 Unit test covers NotFound and other-IO branches at helper layer
+- [x] #1 Shared read_optional_text helper added in ops_about (or shared crate) encapsulating NotFound→silent, other→tracing::debug rule
+- [x] #2 All six listed sites consume it
+- [x] #3 Unit test covers NotFound and other-IO branches at helper layer
 <!-- AC:END -->

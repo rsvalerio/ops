@@ -3,9 +3,11 @@ id: TASK-0607
 title: >-
   ERR-1: is_executable on Unix returns false for any non-readable executable due
   to metadata failure
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0638
 created_date: '2026-04-29 05:20'
+updated_date: '2026-04-29 10:43'
 labels:
   - code-review-rust
   - ERR

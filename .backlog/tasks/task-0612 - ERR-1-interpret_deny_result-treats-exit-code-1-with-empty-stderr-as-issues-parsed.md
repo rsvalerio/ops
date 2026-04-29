@@ -3,9 +3,11 @@ id: TASK-0612
 title: >-
   ERR-1: interpret_deny_result treats exit code 1 with empty stderr as "issues
   parsed"
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0638
 created_date: '2026-04-29 05:20'
+updated_date: '2026-04-29 10:43'
 labels:
   - code-review-rust
   - ERR

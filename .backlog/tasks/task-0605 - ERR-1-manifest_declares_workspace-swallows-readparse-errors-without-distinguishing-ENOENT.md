@@ -3,9 +3,11 @@ id: TASK-0605
 title: >-
   ERR-1: manifest_declares_workspace swallows read+parse errors without
   distinguishing ENOENT
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0638
 created_date: '2026-04-29 05:19'
+updated_date: '2026-04-29 10:41'
 labels:
   - code-review-rust
   - ERR

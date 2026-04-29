@@ -3,9 +3,11 @@ id: TASK-0600
 title: >-
   ERR-1: format_upgrade_section discards compatible and latest columns from
   UpgradeEntry
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0638
 created_date: '2026-04-29 05:19'
+updated_date: '2026-04-29 10:40'
 labels:
   - code-review-rust
   - ERR

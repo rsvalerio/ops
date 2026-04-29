@@ -3,9 +3,11 @@ id: TASK-0584
 title: >-
   ERR-4: collect_compiled_extensions silently drops extensions whose factory
   returns None
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0639
 created_date: '2026-04-29 05:17'
+updated_date: '2026-04-29 10:58'
 labels:
   - code-review-rust
   - ERR
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Factories that return None log at tracing::debug! with source location or registration name
-- [ ] #2 No behaviour change for success path
+- [x] #1 Factories that return None log at tracing::debug! with source location or registration name
+- [x] #2 No behaviour change for success path
 <!-- AC:END -->

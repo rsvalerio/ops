@@ -3,9 +3,11 @@ id: TASK-0594
 title: >-
   ERR-4: read_origin_url_from accepts the first url= line, contradicting
   git-config last-wins semantics
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0639
 created_date: '2026-04-29 05:18'
+updated_date: '2026-04-29 10:58'
 labels:
   - code-review-rust
   - ERR
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_origin_url_from collects all url= matches in the section and returns the last
-- [ ] #2 Regression test exercises a config that sets url twice in [remote 'origin']
-- [ ] #3 Doc comment updated to note last-value-wins matches git-config semantics
+- [x] #1 read_origin_url_from collects all url= matches in the section and returns the last
+- [x] #2 Regression test exercises a config that sets url twice in [remote 'origin']
+- [x] #3 Doc comment updated to note last-value-wins matches git-config semantics
 <!-- AC:END -->

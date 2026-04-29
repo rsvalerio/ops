@@ -3,9 +3,11 @@ id: TASK-0581
 title: >-
   ARCH-1: runner/src/display.rs ProgressDisplay still mixes 6 concerns at 745
   lines
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0644
 created_date: '2026-04-29 05:17'
+updated_date: '2026-04-29 17:04'
 labels:
   - code-review-rust
   - ARCH
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tap-file logic extracted into sibling module display/tap.rs
-- [ ] #2 ProgressDisplay retains tap: Option<TapWriter> field; tap_line_for and on_run_finished tap branch delegate to it
-- [ ] #3 File length below 600 lines after split
+- [x] #1 Tap-file logic extracted into sibling module display/tap.rs
+- [x] #2 ProgressDisplay retains tap: Option<TapWriter> field; tap_line_for and on_run_finished tap branch delegate to it
+- [x] #3 File length below 600 lines after split
 <!-- AC:END -->

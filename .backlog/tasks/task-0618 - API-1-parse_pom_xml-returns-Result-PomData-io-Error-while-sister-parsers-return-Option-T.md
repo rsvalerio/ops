@@ -3,9 +3,11 @@ id: TASK-0618
 title: >-
   API-1: parse_pom_xml returns Result<PomData, io::Error> while sister parsers
   return Option<T>
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:21'
+updated_date: '2026-04-29 12:07'
 labels:
   - code-review-rust
   - API

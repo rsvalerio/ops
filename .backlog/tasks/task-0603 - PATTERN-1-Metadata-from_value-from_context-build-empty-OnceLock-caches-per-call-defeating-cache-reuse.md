@@ -3,9 +3,11 @@ id: TASK-0603
 title: >-
   PATTERN-1: Metadata::from_value/from_context build empty OnceLock caches per
   call, defeating cache reuse
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0640
 created_date: '2026-04-29 05:19'
+updated_date: '2026-04-29 11:53'
 labels:
   - code-review-rust
   - PATTERN
@@ -25,5 +27,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc-comment on Metadata::from_context clarifies cache lifetime, OR HashSets move into structure shared via Arc
+- [x] #1 Doc-comment on Metadata::from_context clarifies cache lifetime, OR HashSets move into structure shared via Arc
 <!-- AC:END -->

@@ -3,9 +3,11 @@ id: TASK-0591
 title: >-
   READ-5: format_dependencies_section panics on len() - 1 if deps becomes empty
   after a future filter
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0644
 created_date: '2026-04-29 05:18'
+updated_date: '2026-04-29 17:05'
 labels:
   - code-review-rust
   - READ
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 last_idx computation replaced with pattern that does not subtract from possibly-zero length
-- [ ] #2 Regression test passes a unit with empty deps directly
+- [x] #1 last_idx computation replaced with pattern that does not subtract from possibly-zero length
+- [x] #2 Regression test passes a unit with empty deps directly
 <!-- AC:END -->

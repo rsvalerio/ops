@@ -3,9 +3,11 @@ id: TASK-0617
 title: >-
   ARCH-11: extensions-java/about dev-dependencies missing ops-extension
   test-support feature flag
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0637
 created_date: '2026-04-29 05:21'
+updated_date: '2026-04-29 06:33'
 labels:
   - code-review-rust
   - ARCH

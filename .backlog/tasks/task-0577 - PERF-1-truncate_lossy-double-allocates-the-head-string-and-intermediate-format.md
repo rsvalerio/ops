@@ -3,9 +3,11 @@ id: TASK-0577
 title: >-
   PERF-1: truncate_lossy double-allocates the head string and intermediate
   format!
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0643
 created_date: '2026-04-29 05:17'
+updated_date: '2026-04-29 14:31'
 labels:
   - code-review-rust
   - PERF
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Marker append uses write!(&mut head, ...) without intermediate format! allocation
-- [ ] #2 Existing tests pass
+- [x] #1 Marker append uses write!(&mut head, ...) without intermediate format! allocation
+- [x] #2 Existing tests pass
 <!-- AC:END -->

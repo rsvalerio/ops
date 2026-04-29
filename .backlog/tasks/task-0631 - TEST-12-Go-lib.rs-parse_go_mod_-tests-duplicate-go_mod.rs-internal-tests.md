@@ -1,9 +1,11 @@
 ---
 id: TASK-0631
 title: 'TEST-12: Go lib.rs parse_go_mod_* tests duplicate go_mod.rs internal tests'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:22'
+updated_date: '2026-04-29 12:12'
 labels:
   - code-review-rust
   - TEST

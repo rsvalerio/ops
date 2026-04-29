@@ -3,9 +3,11 @@ id: TASK-0596
 title: >-
   ERR-1: extract_section silently coerces missing/wrong-type coverage fields to
   0
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0638
 created_date: '2026-04-29 05:18'
+updated_date: '2026-04-29 10:38'
 labels:
   - code-review-rust
   - ERR

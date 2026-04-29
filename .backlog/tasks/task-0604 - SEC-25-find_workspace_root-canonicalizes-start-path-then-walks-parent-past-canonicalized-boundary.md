@@ -3,9 +3,11 @@ id: TASK-0604
 title: >-
   SEC-25: find_workspace_root canonicalizes start path then walks parent() past
   canonicalized boundary
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0645
 created_date: '2026-04-29 05:19'
+updated_date: '2026-04-29 17:47'
 labels:
   - code-review-rust
   - SEC

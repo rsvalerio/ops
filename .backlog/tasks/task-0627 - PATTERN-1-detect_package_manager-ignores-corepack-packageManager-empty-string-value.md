@@ -3,9 +3,11 @@ id: TASK-0627
 title: >-
   PATTERN-1: detect_package_manager ignores corepack packageManager empty-string
   value
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0642
 created_date: '2026-04-29 05:22'
+updated_date: '2026-04-29 12:51'
 labels:
   - code-review-rust
   - PATTERN
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 detect_package_manager treats Some("") (and pure-whitespace) same as None and falls through to lockfile probe
-- [ ] #2 Unit test covers empty-string packageManager field
+- [x] #1 detect_package_manager treats Some("") (and pure-whitespace) same as None and falls through to lockfile probe
+- [x] #2 Unit test covers empty-string packageManager field
 <!-- AC:END -->

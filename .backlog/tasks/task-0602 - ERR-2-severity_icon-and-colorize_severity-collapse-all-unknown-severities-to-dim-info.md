@@ -3,9 +3,11 @@ id: TASK-0602
 title: >-
   ERR-2: severity_icon and colorize_severity collapse all unknown severities to
   dim/info
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0639
 created_date: '2026-04-29 05:19'
+updated_date: '2026-04-29 11:00'
 labels:
   - code-review-rust
   - ERR
@@ -25,5 +27,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Unknown severities log once per render and use a clearly distinct fallback (e.g. red question-mark icon)
+- [x] #1 Unknown severities log once per render and use a clearly distinct fallback (e.g. red question-mark icon)
 <!-- AC:END -->

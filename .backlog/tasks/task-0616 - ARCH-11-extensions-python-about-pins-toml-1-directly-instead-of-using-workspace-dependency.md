@@ -3,9 +3,11 @@ id: TASK-0616
 title: >-
   ARCH-11: extensions-python/about pins toml = "1" directly instead of using
   workspace dependency
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0637
 created_date: '2026-04-29 05:20'
+updated_date: '2026-04-29 06:33'
 labels:
   - code-review-rust
   - ARCH

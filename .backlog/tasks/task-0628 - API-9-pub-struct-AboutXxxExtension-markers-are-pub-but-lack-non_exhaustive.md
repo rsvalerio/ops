@@ -1,9 +1,11 @@
 ---
 id: TASK-0628
 title: 'API-9: pub struct AboutXxxExtension markers are pub but lack #[non_exhaustive]'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0636
 created_date: '2026-04-29 05:22'
+updated_date: '2026-04-29 06:17'
 labels:
   - code-review-rust
   - API

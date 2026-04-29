@@ -1,9 +1,11 @@
 ---
 id: TASK-0573
 title: 'API-9: DataProviderError public enum lacks #[non_exhaustive]'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0636
 created_date: '2026-04-29 05:16'
+updated_date: '2026-04-29 06:14'
 labels:
   - code-review-rust
   - API

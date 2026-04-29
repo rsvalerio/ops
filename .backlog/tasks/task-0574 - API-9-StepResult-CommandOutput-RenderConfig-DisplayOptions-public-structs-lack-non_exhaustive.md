@@ -3,9 +3,11 @@ id: TASK-0574
 title: >-
   API-9: StepResult, CommandOutput, RenderConfig, DisplayOptions public structs
   lack #[non_exhaustive]
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0636
 created_date: '2026-04-29 05:16'
+updated_date: '2026-04-29 06:15'
 labels:
   - code-review-rust
   - API

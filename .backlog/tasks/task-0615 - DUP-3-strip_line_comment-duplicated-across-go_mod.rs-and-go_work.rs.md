@@ -1,9 +1,11 @@
 ---
 id: TASK-0615
 title: 'DUP-3: strip_line_comment duplicated across go_mod.rs and go_work.rs'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:20'
+updated_date: '2026-04-29 12:07'
 labels:
   - code-review-rust
   - DUP

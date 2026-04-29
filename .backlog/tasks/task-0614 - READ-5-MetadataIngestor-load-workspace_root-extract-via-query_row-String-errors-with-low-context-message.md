@@ -3,9 +3,11 @@ id: TASK-0614
 title: >-
   READ-5: MetadataIngestor::load workspace_root extract via query_row<String>
   errors with low-context message
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0644
 created_date: '2026-04-29 05:20'
+updated_date: '2026-04-29 17:07'
 labels:
   - code-review-rust
   - READ
@@ -25,5 +27,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Error includes full row JSON or at minimum the column type observed
+- [x] #1 Error includes full row JSON or at minimum the column type observed
 <!-- AC:END -->

@@ -3,9 +3,11 @@ id: TASK-0593
 title: >-
   SEC-12: tokei_languages_view_sql hard-codes table identifiers without
   quoted_ident wrapper
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0645
 created_date: '2026-04-29 05:18'
+updated_date: '2026-04-29 17:46'
 labels:
   - code-review-rust
   - SEC

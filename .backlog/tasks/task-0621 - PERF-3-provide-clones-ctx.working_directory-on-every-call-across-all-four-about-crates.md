@@ -3,9 +3,11 @@ id: TASK-0621
 title: >-
   PERF-3: provide() clones ctx.working_directory on every call across all four
   about crates
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0640
 created_date: '2026-04-29 05:21'
+updated_date: '2026-04-29 11:55'
 labels:
   - code-review-rust
   - PERF
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 All eight provide() sites borrow &ctx.working_directory instead of cloning
-- [ ] #2 No new lifetime obstacles surface
-- [ ] #3 Existing tests pass
+- [x] #1 All eight provide() sites borrow &ctx.working_directory instead of cloning
+- [x] #2 No new lifetime obstacles surface
+- [x] #3 Existing tests pass
 <!-- AC:END -->

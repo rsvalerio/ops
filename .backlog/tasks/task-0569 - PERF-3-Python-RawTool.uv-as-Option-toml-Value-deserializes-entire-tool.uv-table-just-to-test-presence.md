@@ -3,9 +3,11 @@ id: TASK-0569
 title: >-
   PERF-3: Python RawTool.uv as Option<toml::Value> deserializes entire [tool.uv]
   table just to test presence
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0643
 created_date: '2026-04-29 05:04'
+updated_date: '2026-04-29 14:27'
 labels:
   - code-review-rust
   - performance
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 RawTool.uv becomes Option<serde::de::IgnoredAny> (or equivalent presence-only marker)
-- [ ] #2 has_tool_uv semantics unchanged — uv.lock and [tool.uv] continue to flip stack_detail
+- [x] #1 RawTool.uv becomes Option<serde::de::IgnoredAny> (or equivalent presence-only marker)
+- [x] #2 has_tool_uv semantics unchanged — uv.lock and [tool.uv] continue to flip stack_detail
 <!-- AC:END -->

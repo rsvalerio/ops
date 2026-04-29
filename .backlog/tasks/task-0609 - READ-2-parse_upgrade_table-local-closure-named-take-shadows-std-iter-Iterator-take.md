@@ -3,9 +3,11 @@ id: TASK-0609
 title: >-
   READ-2: parse_upgrade_table local closure named take shadows
   std::iter::Iterator::take
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0645
 created_date: '2026-04-29 05:20'
+updated_date: '2026-04-29 17:48'
 labels:
   - code-review-rust
   - READ

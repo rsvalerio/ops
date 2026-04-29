@@ -3,9 +3,11 @@ id: TASK-0606
 title: >-
   API-1: MetadataIngestor::load hard-codes record_count = 1u64 regardless of
   actual table state
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0645
 created_date: '2026-04-29 05:19'
+updated_date: '2026-04-29 17:47'
 labels:
   - code-review-rust
   - API

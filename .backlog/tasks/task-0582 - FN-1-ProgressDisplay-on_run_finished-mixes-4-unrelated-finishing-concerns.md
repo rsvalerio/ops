@@ -1,9 +1,11 @@
 ---
 id: TASK-0582
 title: 'FN-1: ProgressDisplay::on_run_finished mixes 4 unrelated finishing concerns'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0644
 created_date: '2026-04-29 05:17'
+updated_date: '2026-04-29 17:04'
 labels:
   - code-review-rust
   - FN
@@ -23,8 +25,8 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tap-truncation block extracted into report_tap_truncation(&mut self)
-- [ ] #2 Boxed-finalization block extracted into finalize_boxed_layout
-- [ ] #3 Flat-summary fallback extracted into finalize_flat_layout
-- [ ] #4 on_run_finished becomes a 5-10-line dispatcher
+- [x] #1 Tap-truncation block extracted into report_tap_truncation(&mut self)
+- [x] #2 Boxed-finalization block extracted into finalize_boxed_layout
+- [x] #3 Flat-summary fallback extracted into finalize_flat_layout
+- [x] #4 on_run_finished becomes a 5-10-line dispatcher
 <!-- AC:END -->

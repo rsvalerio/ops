@@ -1,9 +1,11 @@
 ---
 id: TASK-0585
 title: 'ARCH-11: ops-about pins unicode-width = "0.2" outside [workspace.dependencies]'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0637
 created_date: '2026-04-29 05:17'
+updated_date: '2026-04-29 06:31'
 labels:
   - code-review-rust
   - ARCH

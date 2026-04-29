@@ -3,9 +3,11 @@ id: TASK-0629
 title: >-
   DUP-1: identity-provider provide impl scaffolds remain near-parallel after
   TASK-0484
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0640
 created_date: '2026-04-29 05:22'
+updated_date: '2026-04-29 11:57'
 labels:
   - code-review-rust
   - DUP
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Go, Node, Maven, Gradle providers migrate to provide_identity_from_manifest (or thin variant)
-- [ ] #2 All provide() impls in the four about crates use the same call shape
-- [ ] #3 Existing tests pass with no behaviour change
+- [x] #1 Go, Node, Maven, Gradle providers migrate to provide_identity_from_manifest (or thin variant)
+- [x] #2 All provide() impls in the four about crates use the same call shape
+- [x] #3 Existing tests pass with no behaviour change
 <!-- AC:END -->

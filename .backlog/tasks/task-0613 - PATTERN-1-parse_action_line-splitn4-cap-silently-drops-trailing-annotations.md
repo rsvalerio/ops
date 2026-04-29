@@ -1,9 +1,11 @@
 ---
 id: TASK-0613
 title: 'PATTERN-1: parse_action_line splitn(4) cap silently drops trailing annotations'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:20'
+updated_date: '2026-04-29 12:06'
 labels:
   - code-review-rust
   - PATTERN

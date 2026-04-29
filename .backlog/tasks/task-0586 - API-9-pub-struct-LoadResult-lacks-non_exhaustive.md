@@ -1,9 +1,11 @@
 ---
 id: TASK-0586
 title: 'API-9: pub struct LoadResult lacks #[non_exhaustive]'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0636
 created_date: '2026-04-29 05:17'
+updated_date: '2026-04-29 06:15'
 labels:
   - code-review-rust
   - API

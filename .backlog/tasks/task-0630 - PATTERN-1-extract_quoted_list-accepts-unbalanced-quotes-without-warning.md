@@ -1,9 +1,11 @@
 ---
 id: TASK-0630
 title: 'PATTERN-1: extract_quoted_list accepts unbalanced quotes without warning'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0642
 created_date: '2026-04-29 05:22'
+updated_date: '2026-04-29 12:51'
 labels:
   - code-review-rust
   - PATTERN
@@ -23,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 extract_quoted_list logs at tracing::debug when it bails on malformed remainder OR returns sentinel caller surfaces
-- [ ] #2 Test covers unbalanced-quote and bare-token cases and pins chosen behaviour
+- [x] #1 extract_quoted_list logs at tracing::debug when it bails on malformed remainder OR returns sentinel caller surfaces
+- [x] #2 Test covers unbalanced-quote and bare-token cases and pins chosen behaviour
 <!-- AC:END -->

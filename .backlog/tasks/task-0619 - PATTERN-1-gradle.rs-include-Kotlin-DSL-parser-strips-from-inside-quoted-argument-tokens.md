@@ -3,9 +3,11 @@ id: TASK-0619
 title: >-
   PATTERN-1: gradle.rs include() Kotlin-DSL parser strips ) from inside quoted
   argument tokens
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:21'
+updated_date: '2026-04-29 12:08'
 labels:
   - code-review-rust
   - PATTERN

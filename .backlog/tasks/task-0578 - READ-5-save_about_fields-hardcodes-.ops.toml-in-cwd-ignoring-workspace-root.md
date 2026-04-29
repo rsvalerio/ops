@@ -3,9 +3,11 @@ id: TASK-0578
 title: >-
   READ-5: save_about_fields hardcodes ".ops.toml" in cwd, ignoring workspace
   root
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0640
 created_date: '2026-04-29 05:17'
+updated_date: '2026-04-29 11:52'
 labels:
   - code-review-rust
   - READ
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 save_about_fields accepts the resolved workspace root and joins .ops.toml to it
-- [ ] #2 Caller threads same workspace root used for data_registry.about_fields(...)
-- [ ] #3 Test: running from subdirectory writes to workspace-root .ops.toml
+- [x] #1 save_about_fields accepts the resolved workspace root and joins .ops.toml to it
+- [x] #2 Caller threads same workspace root used for data_registry.about_fields(...)
+- [x] #3 Test: running from subdirectory writes to workspace-root .ops.toml
 <!-- AC:END -->

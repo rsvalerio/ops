@@ -1,9 +1,11 @@
 ---
 id: TASK-0601
 title: 'ERR-2: has_issues ignores any cargo-deny severity outside error|warning'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0639
 created_date: '2026-04-29 05:19'
+updated_date: '2026-04-29 11:00'
 labels:
   - code-review-rust
   - ERR
@@ -23,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Either fail-closed (any severity not explicitly matched fails) or fail-open with warn log naming unknown severity
-- [ ] #2 Test covers an injected unknown severity
+- [x] #1 Either fail-closed (any severity not explicitly matched fails) or fail-open with warn log naming unknown severity
+- [x] #2 Test covers an injected unknown severity
 <!-- AC:END -->

@@ -3,9 +3,11 @@ id: TASK-0568
 title: >-
   READ-2: go.work block opener requires exact spaced 'use (' — no-space variant
   silently disables block mode
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:04'
+updated_date: '2026-04-29 12:05'
 labels:
   - code-review-rust
   - readability

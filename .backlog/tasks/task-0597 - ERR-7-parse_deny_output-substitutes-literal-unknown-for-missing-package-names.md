@@ -3,9 +3,11 @@ id: TASK-0597
 title: >-
   ERR-7: parse_deny_output substitutes literal "unknown" for missing package
   names
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0639
 created_date: '2026-04-29 05:19'
+updated_date: '2026-04-29 11:00'
 labels:
   - code-review-rust
   - ERR
@@ -25,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Either model the missing case as Option<String> in entry struct (preferred) or emit tracing::debug when substitution fires
-- [ ] #2 Format helpers render unknown case visibly distinct (e.g. <no package>)
+- [x] #1 Either model the missing case as Option<String> in entry struct (preferred) or emit tracing::debug when substitution fires
+- [x] #2 Format helpers render unknown case visibly distinct (e.g. <no package>)
 <!-- AC:END -->

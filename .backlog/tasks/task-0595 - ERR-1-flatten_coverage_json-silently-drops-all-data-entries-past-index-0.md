@@ -1,9 +1,11 @@
 ---
 id: TASK-0595
 title: 'ERR-1: flatten_coverage_json silently drops all data[] entries past index 0'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0638
 created_date: '2026-04-29 05:18'
+updated_date: '2026-04-29 10:37'
 labels:
   - code-review-rust
   - ERR

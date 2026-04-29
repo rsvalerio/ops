@@ -1,9 +1,11 @@
 ---
 id: TASK-0599
 title: 'ERR-1: query_metadata_raw uses LIMIT 1 without enforcing single-row invariant'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0638
 created_date: '2026-04-29 05:19'
+updated_date: '2026-04-29 10:39'
 labels:
   - code-review-rust
   - ERR

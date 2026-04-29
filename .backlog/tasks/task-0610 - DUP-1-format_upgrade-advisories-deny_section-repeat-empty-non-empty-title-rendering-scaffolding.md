@@ -3,9 +3,11 @@ id: TASK-0610
 title: >-
   DUP-1: format_upgrade/advisories/deny_section repeat empty/non-empty title
   rendering scaffolding
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0644
 created_date: '2026-04-29 05:20'
+updated_date: '2026-04-29 17:06'
 labels:
   - code-review-rust
   - DUP
@@ -25,5 +27,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Empty-state line produced by single helper invoked by all section formatters
+- [x] #1 Empty-state line produced by single helper invoked by all section formatters
 <!-- AC:END -->

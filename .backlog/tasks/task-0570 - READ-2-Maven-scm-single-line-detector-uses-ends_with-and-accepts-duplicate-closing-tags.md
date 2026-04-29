@@ -3,9 +3,11 @@ id: TASK-0570
 title: >-
   READ-2: Maven scm single-line detector uses ends_with and accepts duplicate
   closing tags
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:04'
+updated_date: '2026-04-29 12:06'
 labels:
   - code-review-rust
   - readability

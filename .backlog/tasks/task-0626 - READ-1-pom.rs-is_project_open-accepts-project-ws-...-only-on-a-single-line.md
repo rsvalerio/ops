@@ -1,9 +1,11 @@
 ---
 id: TASK-0626
 title: 'READ-1: pom.rs::is_project_open accepts <project<ws>...> only on a single line'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:22'
+updated_date: '2026-04-29 12:10'
 labels:
   - code-review-rust
   - READ

@@ -3,9 +3,11 @@ id: TASK-0625
 title: >-
   PATTERN-1: parse_replace_directive accepts ./ prefix only — Windows-style .\\
   paths silently dropped
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:21'
+updated_date: '2026-04-29 12:10'
 labels:
   - code-review-rust
   - PATTERN

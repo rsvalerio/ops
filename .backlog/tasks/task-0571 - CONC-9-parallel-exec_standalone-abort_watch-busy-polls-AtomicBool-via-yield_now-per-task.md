@@ -3,9 +3,11 @@ id: TASK-0571
 title: >-
   CONC-9: parallel exec_standalone abort_watch busy-polls AtomicBool via
   yield_now per task
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0643
 created_date: '2026-04-29 05:16'
+updated_date: '2026-04-29 14:31'
 labels:
   - code-review-rust
   - CONC
@@ -25,8 +27,8 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Abort signal exposed as Notify/watch::Receiver/CancellationToken instead of Arc<AtomicBool>
-- [ ] #2 abort_watch async block in exec.rs replaced with single await on the notification future
-- [ ] #3 Both call sites (forwarder ~376 and terminal-event ~446) updated together
-- [ ] #4 Existing parallel-cancellation tests still pass
+- [x] #1 Abort signal exposed as Notify/watch::Receiver/CancellationToken instead of Arc<AtomicBool>
+- [x] #2 abort_watch async block in exec.rs replaced with single await on the notification future
+- [x] #3 Both call sites (forwarder ~376 and terminal-event ~446) updated together
+- [x] #4 Existing parallel-cancellation tests still pass
 <!-- AC:END -->

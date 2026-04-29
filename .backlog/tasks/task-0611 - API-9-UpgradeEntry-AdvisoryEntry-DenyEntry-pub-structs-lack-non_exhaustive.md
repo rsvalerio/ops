@@ -3,9 +3,11 @@ id: TASK-0611
 title: >-
   API-9: UpgradeEntry, AdvisoryEntry, DenyEntry pub structs lack
   #[non_exhaustive]
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0636
 created_date: '2026-04-29 05:20'
+updated_date: '2026-04-29 06:16'
 labels:
   - code-review-rust
   - API
