@@ -30,6 +30,7 @@ use std::path::Path;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum SqlError {
     #[error("invalid character in path: {0:?}")]
     InvalidPathChar(char),

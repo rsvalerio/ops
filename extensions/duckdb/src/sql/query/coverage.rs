@@ -24,11 +24,7 @@ pub fn query_project_coverage(db: &DuckDb) -> anyhow::Result<CrateCoverage> {
 
     let sql = format!("SELECT {} FROM coverage_files", coverage_col_select(None));
     conn.query_row(&sql, [], |row: &duckdb::Row| {
-        Ok(CrateCoverage {
-            lines_count: row.get(0)?,
-            lines_covered: row.get(1)?,
-            lines_percent: row.get(2)?,
-        })
+        Ok(CrateCoverage::new(row.get(0)?, row.get(1)?, row.get(2)?))
     })
     .context("querying project coverage")
 }
@@ -95,11 +91,7 @@ pub fn query_crate_coverage(
     collect_per_crate_map(&conn, &sql, label, params, |row| {
         Ok((
             row.get::<_, String>(0)?,
-            CrateCoverage {
-                lines_count: row.get(1)?,
-                lines_covered: row.get(2)?,
-                lines_percent: row.get(3)?,
-            },
+            CrateCoverage::new(row.get(1)?, row.get(2)?, row.get(3)?),
         ))
     })
 }

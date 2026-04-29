@@ -51,8 +51,9 @@ pub use query::{
     query_crate_loc, query_dependency_count, query_project_coverage, query_project_file_count,
     query_project_languages, query_project_loc, CrateCoverage,
 };
-// Only `SqlError` needs to cross the crate boundary; the granular validation
-// helpers are used internally by ingest/query and should not become part of
-// the stable API surface (ARCH-9). Add a re-export here only when an external
-// consumer is added.
-pub use validation::SqlError;
+// `SqlError` and `quoted_ident` cross the crate boundary; the rest of the
+// granular validation helpers stay module-internal (ARCH-9). `quoted_ident` is
+// the SEC-12 defense-in-depth wrapper and is needed at every site that
+// interpolates an identifier into a hand-written SQL string (e.g.
+// `extensions/tokei/src/views::tokei_languages_view_sql`).
+pub use validation::{quoted_ident, SqlError};

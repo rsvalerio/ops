@@ -47,12 +47,31 @@ pub fn get_source_checksum(
 }
 
 /// Metadata describing a loaded data source row.
+#[non_exhaustive]
 pub struct DataSourceMetadata<'a> {
     pub source_name: &'a str,
     pub workspace_root: &'a str,
     pub source_path: &'a Path,
     pub record_count: u64,
     pub checksum: &'a str,
+}
+
+impl<'a> DataSourceMetadata<'a> {
+    pub fn new(
+        source_name: &'a str,
+        workspace_root: &'a str,
+        source_path: &'a Path,
+        record_count: u64,
+        checksum: &'a str,
+    ) -> Self {
+        Self {
+            source_name,
+            workspace_root,
+            source_path,
+            record_count,
+            checksum,
+        }
+    }
 }
 
 /// Upsert a data_sources row after a load.
@@ -124,13 +143,7 @@ mod tests {
         let bad_path = std::path::Path::new(OsStr::from_bytes(bytes));
         let result = upsert_data_source(
             &db,
-            &DataSourceMetadata {
-                source_name: "metadata",
-                workspace_root: "/ws",
-                source_path: bad_path,
-                record_count: 1,
-                checksum: "abc",
-            },
+            &DataSourceMetadata::new("metadata", "/ws", bad_path, 1, "abc"),
         );
         assert!(matches!(result, Err(DbError::NonUtf8Path(_))));
     }
@@ -141,13 +154,13 @@ mod tests {
         init_schema(&db).unwrap();
         upsert_data_source(
             &db,
-            &DataSourceMetadata {
-                source_name: "metadata",
-                workspace_root: "/ws",
-                source_path: Path::new("/ws/target/ops/metadata.json"),
-                record_count: 1,
-                checksum: "abc123",
-            },
+            &DataSourceMetadata::new(
+                "metadata",
+                "/ws",
+                Path::new("/ws/target/ops/metadata.json"),
+                1,
+                "abc123",
+            ),
         )
         .unwrap();
         let c = get_source_checksum(&db, "metadata", "/ws").unwrap();

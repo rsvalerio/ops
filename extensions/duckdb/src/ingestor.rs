@@ -13,6 +13,7 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 #[must_use = "LoadResult carries the ingested record_count — discarding it silently hides whether any rows landed in DuckDB"]
 #[allow(dead_code)]
+#[non_exhaustive]
 pub struct LoadResult {
     pub source_name: &'static str,
     pub record_count: u64,
@@ -195,13 +196,13 @@ impl SidecarIngestorConfig {
         let checksum = crate::sql::checksum_file(json_path)?;
         crate::schema::upsert_data_source(
             db,
-            &crate::schema::DataSourceMetadata {
-                source_name: self.name,
+            &crate::schema::DataSourceMetadata::new(
+                self.name,
                 workspace_root,
-                source_path: json_path,
+                json_path,
                 record_count,
-                checksum: &checksum,
-            },
+                &checksum,
+            ),
         )
     }
 

@@ -41,6 +41,7 @@ sql_ident_newtype!(ColumnName, "A validated SQL column name.");
 
 /// Per-crate coverage data from `coverage_files`.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CrateCoverage {
     pub lines_count: i64,
     pub lines_covered: i64,
@@ -48,6 +49,14 @@ pub struct CrateCoverage {
 }
 
 impl CrateCoverage {
+    pub fn new(lines_count: i64, lines_covered: i64, lines_percent: f64) -> Self {
+        Self {
+            lines_count,
+            lines_covered,
+            lines_percent,
+        }
+    }
+
     pub fn zero() -> Self {
         Self {
             lines_count: 0,
@@ -251,7 +260,16 @@ where
     let mut result = HashMap::new();
     for row in rows {
         let (path, val) = row.with_context(|| format!("reading {label} row"))?;
-        result.insert(path, val);
+        // ERR-1: a duplicate key is a query-shape invariant violation
+        // (workspace glob bug, dropped GROUP BY) — surface it instead of
+        // silently overwriting the prior row.
+        if result.insert(path.clone(), val).is_some() {
+            tracing::warn!(
+                label,
+                path = %path,
+                "duplicate row in per-crate query; later value overwrites earlier"
+            );
+        }
     }
     Ok(result)
 }
@@ -330,6 +348,35 @@ mod tests {
     /// SQL because `ColumnAlias::new` rejects non-identifier strings before
     /// a value can be passed in. This is the regression guard the typed
     /// signature is meant to provide.
+    /// ERR-1: a query that returns the same key twice (e.g. dropped GROUP BY)
+    /// must not silently produce a single row in the resulting map. Pinning
+    /// behaviour via in-memory DuckDB so the regression is visible without a
+    /// tracing-subscriber dev-dep.
+    #[test]
+    fn collect_per_crate_map_keeps_one_entry_for_duplicate_keys() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE t (path VARCHAR, val INT);
+             INSERT INTO t VALUES ('a', 1), ('a', 2), ('b', 3);",
+        )
+        .unwrap();
+        let res = collect_per_crate_map::<i64, _, _>(
+            &conn,
+            "SELECT path, val FROM t",
+            "dup-test",
+            std::iter::empty::<&str>(),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .unwrap();
+        assert_eq!(
+            res.len(),
+            2,
+            "duplicate-key collision must collapse to one entry per key"
+        );
+        // The insert-overwrite contract is preserved: the second row wins.
+        assert_eq!(res.get("a").copied(), Some(2));
+    }
+
     #[test]
     fn column_alias_rejects_non_identifier_prefix() {
         assert!(ColumnAlias::new("c.").is_err());

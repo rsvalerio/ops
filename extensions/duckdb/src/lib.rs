@@ -107,8 +107,7 @@ impl DataProvider for DuckDbProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        if let Some(ref db) = ctx.db {
-            let _ = db;
+        if ctx.db.is_some() {
             return Ok(serde_json::Value::Null);
         }
         let db = DuckDb::open(&self.db_path).map_err(DataProviderError::computation_error)?;
@@ -141,13 +140,13 @@ mod tests {
         init_schema(&db).expect("init_schema");
         upsert_data_source(
             &db,
-            &DataSourceMetadata {
-                source_name: "test_source",
-                workspace_root: "/test/workspace",
-                source_path: std::path::Path::new("/test/data.json"),
-                record_count: 42,
-                checksum: "abc123",
-            },
+            &DataSourceMetadata::new(
+                "test_source",
+                "/test/workspace",
+                std::path::Path::new("/test/data.json"),
+                42,
+                "abc123",
+            ),
         )
         .expect("upsert should succeed");
         let checksum = schema::get_source_checksum(&db, "test_source", "/test/workspace")

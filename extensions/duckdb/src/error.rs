@@ -5,6 +5,7 @@ use thiserror::Error;
 /// Database operations error.
 #[derive(Debug, Error)]
 #[allow(dead_code)]
+#[non_exhaustive]
 pub enum DbError {
     #[error("database mutex poisoned: {0}")]
     MutexPoisoned(String),
