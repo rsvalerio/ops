@@ -29,9 +29,11 @@ impl DataProvider for RustUnitsProvider {
                 return Ok(serde_json::to_value(Vec::<ProjectUnit>::new())?);
             }
         };
-        // TASK-0471: take members by value so we can `into_iter` without a
-        // per-member clone for `ProjectUnit.path`.
-        let members = manifest.workspace.map(|ws| ws.members).unwrap_or_default();
+        let members = manifest
+            .workspace
+            .as_ref()
+            .map(|ws| ws.members.clone())
+            .unwrap_or_default();
 
         // Per-crate dep counts from DuckDB (Rust-specific, keyed by package name).
         // ERR-2 / TASK-0376: query failures route through `query_or_warn` so

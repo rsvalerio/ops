@@ -54,25 +54,25 @@ impl DataProvider for RustIdentityProvider {
         let metrics = query_identity_metrics(ctx);
 
         build_identity_value(
-            ParsedManifest {
-                name: pkg.map(|p| p.name.clone()),
-                version: fields.version,
-                description: fields.description,
-                license: fields.license,
-                authors: fields.authors,
-                homepage: fields.homepage,
-                repository: fields.repository,
-                stack_label: "Rust",
-                stack_detail: fields.edition.as_ref().map(|e| format!("Edition {e}")),
-                module_label: "crates",
-                module_count: manifest.workspace.as_ref().map(|w| w.members.len()),
-                loc: metrics.loc,
-                file_count: metrics.file_count,
-                msrv: fields.msrv,
-                dependency_count: metrics.dependency_count,
-                coverage_percent: metrics.coverage_percent,
-                languages: metrics.languages,
-            },
+            ParsedManifest::build(|m| {
+                m.name = pkg.map(|p| p.name.clone());
+                m.version = fields.version;
+                m.description = fields.description;
+                m.license = fields.license;
+                m.authors = fields.authors;
+                m.homepage = fields.homepage;
+                m.repository = fields.repository;
+                m.stack_label = "Rust";
+                m.stack_detail = fields.edition.as_ref().map(|e| format!("Edition {e}"));
+                m.module_label = "crates";
+                m.module_count = manifest.workspace.as_ref().map(|w| w.members.len());
+                m.loc = metrics.loc;
+                m.file_count = metrics.file_count;
+                m.msrv = fields.msrv;
+                m.dependency_count = metrics.dependency_count;
+                m.coverage_percent = metrics.coverage_percent;
+                m.languages = metrics.languages;
+            }),
             &cwd,
         )
     }

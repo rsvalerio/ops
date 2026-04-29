@@ -30,22 +30,26 @@ impl DataProvider for RustCoverageProvider {
             return Ok(serde_json::to_value(ProjectCoverage::default())?);
         };
 
-        // ERR-2 / TASK-0376: surface query failures at warn so a DuckDB
-        // schema mismatch / migration bug does not silently render as
-        // "0% coverage".
-        let total = match query_project_coverage(db) {
-            Ok(p) => CoverageStats {
-                lines_percent: p.lines_percent,
-                lines_covered: p.lines_covered,
-                lines_count: p.lines_count,
-            },
-            Err(e) => {
-                tracing::warn!(
-                    query = "query_project_coverage",
-                    "duckdb query failed; reporting empty coverage: {e:#}"
-                );
-                return Ok(serde_json::to_value(ProjectCoverage::default())?);
-            }
+        // ERR-2 / TASK-0376 / PATTERN-1 (TASK-0608): route through
+        // `query_or_warn` so this site matches the convention used by every
+        // sister DuckDB call in the crate (units, identity::metrics,
+        // deps_provider). Wrapping the return in `Option` preserves the
+        // early-return-on-failure semantics — if the project_coverage query
+        // fails we return a fully-default `ProjectCoverage` rather than
+        // partial data, matching the prior behaviour.
+        let project_total = query_or_warn(
+            "query_project_coverage",
+            "reporting empty coverage",
+            None,
+            || query_project_coverage(db).map(Some),
+        );
+        let Some(p) = project_total else {
+            return Ok(serde_json::to_value(ProjectCoverage::default())?);
+        };
+        let total = CoverageStats {
+            lines_percent: p.lines_percent,
+            lines_covered: p.lines_covered,
+            lines_count: p.lines_count,
         };
 
         let units = if let Some(manifest) = manifest {

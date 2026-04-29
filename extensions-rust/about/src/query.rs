@@ -12,7 +12,9 @@
 
 use ops_cargo_toml::{CargoToml, CargoTomlProvider};
 use ops_extension::{Context, DataProvider, DataProviderError};
-use std::path::Path;
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Log a `load_workspace_manifest` failure differentiating "no manifest /
 /// not a Rust project" (silent debug) from a real read/parse error (warn),
@@ -36,12 +38,41 @@ fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
     false
 }
 
+// PERF-1 / TASK-0558: identity, units, and coverage providers each call
+// `load_workspace_manifest` during a single `ops about` invocation. The
+// previous implementation cloned the cached `serde_json::Value` and
+// re-deserialized it every time, even though the resolved manifest is
+// identical across providers. The typed `Arc<CargoToml>` is now cached in
+// this thread-local keyed by working directory; `ctx.refresh` invalidates
+// the entry so `--refresh` semantics are preserved.
+thread_local! {
+    static TYPED_MANIFEST_CACHE: RefCell<Option<(PathBuf, Arc<CargoToml>)>> =
+        const { RefCell::new(None) };
+}
+
 /// Load and parse `Cargo.toml` for the current context, then resolve any
 /// `[workspace].members` globs in place. Reuses any value already cached at
 /// the `cargo_toml` key; otherwise reads via [`CargoTomlProvider`].
 /// Centralises the parse + glob-resolve step that identity / units /
 /// coverage providers all need (TASK-0381).
-pub(crate) fn load_workspace_manifest(ctx: &mut Context) -> Result<CargoToml, DataProviderError> {
+pub(crate) fn load_workspace_manifest(
+    ctx: &mut Context,
+) -> Result<Arc<CargoToml>, DataProviderError> {
+    let cwd = ctx.working_directory.clone();
+
+    if !ctx.refresh {
+        if let Some(cached) = TYPED_MANIFEST_CACHE.with(|cell| {
+            cell.borrow()
+                .as_ref()
+                .filter(|(p, _)| p == &cwd)
+                .map(|(_, m)| Arc::clone(m))
+        }) {
+            return Ok(cached);
+        }
+    } else {
+        TYPED_MANIFEST_CACHE.with(|cell| cell.borrow_mut().take());
+    }
+
     let value = if let Some(cached) = ctx.cached(ops_cargo_toml::DATA_PROVIDER_NAME) {
         (**cached).clone()
     } else {
@@ -50,13 +81,16 @@ pub(crate) fn load_workspace_manifest(ctx: &mut Context) -> Result<CargoToml, Da
     let mut manifest: CargoToml =
         serde_json::from_value(value).map_err(DataProviderError::computation_error)?;
 
-    let cwd = ctx.working_directory.clone();
     let resolved = resolved_workspace_members(&manifest, &cwd);
     if let Some(ws) = manifest.workspace.as_mut() {
         ws.members = resolved;
     }
 
-    Ok(manifest)
+    let arc = Arc::new(manifest);
+    TYPED_MANIFEST_CACHE.with(|cell| {
+        *cell.borrow_mut() = Some((cwd, Arc::clone(&arc)));
+    });
+    Ok(arc)
 }
 
 /// Resolve `[workspace].members` globs to concrete member paths, honoring
@@ -90,14 +124,39 @@ pub(crate) fn resolved_workspace_members(
             }
             let prefix = &member[..idx];
             let parent = workspace_root.join(prefix);
-            if let Ok(entries) = std::fs::read_dir(&parent) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() && path.join("Cargo.toml").exists() {
-                        if let Ok(rel) = path.strip_prefix(workspace_root) {
-                            resolved.push(rel.to_string_lossy().to_string());
+            // ERR-1: log read_dir failures at warn (matching the
+            // unsupported-glob warn above) so a permission-denied / EIO on
+            // crates/* does not silently produce empty about/units/coverage
+            // views. Mirrors the sibling `resolve_member_globs` arm.
+            match std::fs::read_dir(&parent) {
+                Ok(entries) => {
+                    for entry in entries {
+                        match entry {
+                            Ok(entry) => {
+                                let path = entry.path();
+                                if path.is_dir() && path.join("Cargo.toml").exists() {
+                                    if let Ok(rel) = path.strip_prefix(workspace_root) {
+                                        resolved.push(rel.to_string_lossy().to_string());
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    parent = %parent.display(),
+                                    error = %e,
+                                    "workspace glob entry unreadable; skipped"
+                                );
+                            }
                         }
                     }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        pattern = %member,
+                        parent = %parent.display(),
+                        error = %e,
+                        "workspace glob prefix unreadable; member skipped"
+                    );
                 }
             }
         } else {
@@ -124,6 +183,42 @@ fn is_unsupported_glob(member: &str, first_star: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ops_extension::Context;
+
+    /// PERF-1 / TASK-0558: load_workspace_manifest caches the typed
+    /// CargoToml in a thread-local so identity / units / coverage do not
+    /// each pay for a JSON clone + reparse. Verify (a) the second call in
+    /// the same context returns an `Arc` that points to the same
+    /// allocation as the first, and (b) `ctx.refresh = true` invalidates
+    /// the cache and yields a freshly parsed allocation.
+    #[test]
+    fn typed_manifest_cache_returns_same_arc_then_invalidates_on_refresh() {
+        TYPED_MANIFEST_CACHE.with(|c| c.borrow_mut().take());
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname=\"x\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
+        let first = load_workspace_manifest(&mut ctx).expect("load1");
+        let second = load_workspace_manifest(&mut ctx).expect("load2");
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "second call must reuse cached Arc"
+        );
+
+        ctx.refresh = true;
+        let third = load_workspace_manifest(&mut ctx).expect("load3");
+        assert!(
+            !Arc::ptr_eq(&first, &third),
+            "refresh=true must invalidate cache and reparse"
+        );
+
+        TYPED_MANIFEST_CACHE.with(|c| c.borrow_mut().take());
+    }
 
     fn manifest_with_members(members: &[&str]) -> CargoToml {
         let toml_str = format!(
