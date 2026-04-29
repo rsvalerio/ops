@@ -19,12 +19,12 @@ pub const PUSH_OPS: HookOps = HookOps {
     ensure_config_command: ops_run_before_push::ensure_config_command,
 };
 
-pub fn run_before_commit_install() -> anyhow::Result<()> {
-    hook_shared::run_hook_install(&COMMIT_OPS)
+pub fn run_before_commit_install(config: &ops_core::config::Config) -> anyhow::Result<()> {
+    hook_shared::run_hook_install(config, &COMMIT_OPS)
 }
 
-pub fn run_before_push_install() -> anyhow::Result<()> {
-    hook_shared::run_hook_install(&PUSH_OPS)
+pub fn run_before_push_install(config: &ops_core::config::Config) -> anyhow::Result<()> {
+    hook_shared::run_hook_install(config, &PUSH_OPS)
 }
 
 #[cfg(test)]

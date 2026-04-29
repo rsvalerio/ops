@@ -54,15 +54,14 @@ fn collect_theme_options(config: &ops_core::config::Config) -> Vec<ThemeOption> 
 /// Lists all available themes (from config, including built-in classic/compact).
 ///
 /// Prints theme names with descriptions to stdout. Local overrides are marked.
-pub fn run_theme_list() -> anyhow::Result<()> {
-    run_theme_list_to(&mut std::io::stdout())
+pub fn run_theme_list(config: &config::Config) -> anyhow::Result<()> {
+    run_theme_list_to(config, &mut std::io::stdout())
 }
 
-fn run_theme_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
-    let config = config::load_config()?;
+fn run_theme_list_to(config: &config::Config, w: &mut dyn Write) -> anyhow::Result<()> {
     let is_tty = crate::tty::is_stdout_tty();
 
-    let options = collect_theme_options(&config);
+    let options = collect_theme_options(config);
 
     let max_name_len = options.iter().map(|o| o.name.len()).max().unwrap_or(0);
 
@@ -107,18 +106,17 @@ fn run_theme_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
 /// 1. Mock `inquire::Select` using a trait
 /// 2. Use a TTY emulation library
 /// 3. Run manual testing with `cargo ops theme select`
-pub fn run_theme_select() -> anyhow::Result<()> {
-    run_theme_select_with_tty_check(crate::tty::is_stdout_tty)
+pub fn run_theme_select(config: &config::Config) -> anyhow::Result<()> {
+    run_theme_select_with_tty_check(config, crate::tty::is_stdout_tty)
 }
 
-fn run_theme_select_with_tty_check<F>(is_tty: F) -> anyhow::Result<()>
+fn run_theme_select_with_tty_check<F>(config: &config::Config, is_tty: F) -> anyhow::Result<()>
 where
     F: FnOnce() -> bool,
 {
     crate::tty::require_tty_with("theme select", is_tty)?;
 
-    let config = config::load_config()?;
-    let options = collect_theme_options(&config);
+    let options = collect_theme_options(config);
 
     let current_theme = &config.output.theme;
 
@@ -281,7 +279,8 @@ build = "cargo build"
 
     #[test]
     fn run_theme_select_non_tty_returns_error() {
-        let result = run_theme_select_with_tty_check(|| false);
+        let config = ops_core::config::Config::default();
+        let result = run_theme_select_with_tty_check(&config, || false);
         assert!(result.is_err(), "run_theme_select should fail without TTY");
         assert!(result
             .unwrap_err()
@@ -344,8 +343,9 @@ theme = "compact"
         fn run_theme_list_includes_builtin_themes() {
             let (_dir, _guard) = crate::test_utils::with_temp_config("");
 
+            let config = ops_core::config::load_config_or_default("test");
             let mut buf = Vec::new();
-            run_theme_list_to(&mut buf).expect("should succeed");
+            run_theme_list_to(&config, &mut buf).expect("should succeed");
             let output = String::from_utf8(buf).unwrap();
             assert!(output.contains("classic"), "should list classic: {output}");
             assert!(output.contains("compact"), "should list compact: {output}");

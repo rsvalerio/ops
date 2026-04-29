@@ -18,14 +18,17 @@ fn format_list(items: &[String]) -> String {
     }
 }
 
-pub fn run_extension_list() -> anyhow::Result<()> {
-    run_extension_list_to(&mut std::io::stdout())
+pub fn run_extension_list(config: &ops_core::config::Config) -> anyhow::Result<()> {
+    run_extension_list_to(config, &mut std::io::stdout())
 }
 
-fn run_extension_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
-    let (config, cwd) = crate::load_config_and_cwd()?;
+fn run_extension_list_to(
+    config: &ops_core::config::Config,
+    w: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let cwd = crate::cwd()?;
 
-    let compiled = collect_compiled_extensions(&config, &cwd);
+    let compiled = collect_compiled_extensions(config, &cwd);
 
     if compiled.is_empty() {
         writeln!(w, "No extensions compiled in.")?;
@@ -147,16 +150,23 @@ fn build_extension_row(
     ]
 }
 
-pub fn run_extension_show(name: Option<&str>) -> anyhow::Result<()> {
-    run_extension_show_with_tty_check(name, crate::tty::is_stdout_tty)
+pub fn run_extension_show(
+    config: &ops_core::config::Config,
+    name: Option<&str>,
+) -> anyhow::Result<()> {
+    run_extension_show_with_tty_check(config, name, crate::tty::is_stdout_tty)
 }
 
-fn run_extension_show_with_tty_check<F>(name: Option<&str>, is_tty: F) -> anyhow::Result<()>
+fn run_extension_show_with_tty_check<F>(
+    config: &ops_core::config::Config,
+    name: Option<&str>,
+    is_tty: F,
+) -> anyhow::Result<()>
 where
     F: FnOnce() -> bool,
 {
-    let (config, cwd) = crate::load_config_and_cwd()?;
-    let compiled = collect_compiled_extensions(&config, &cwd);
+    let cwd = crate::cwd()?;
+    let compiled = collect_compiled_extensions(config, &cwd);
 
     let resolved_name: String = match name {
         Some(n) => n.to_string(),
@@ -198,7 +208,7 @@ where
         &mut std::io::stdout(),
         &resolved_name,
         ext.as_ref(),
-        &config,
+        config,
         &cwd,
     )
 }
@@ -303,8 +313,9 @@ mod tests {
     fn run_extension_list_outputs_extensions() {
         let (_dir, _guard) = crate::test_utils::with_temp_config("");
 
+        let config = ops_core::config::load_config_or_default("test");
         let mut buf = Vec::new();
-        run_extension_list_to(&mut buf).expect("should succeed");
+        run_extension_list_to(&config, &mut buf).expect("should succeed");
         let output = String::from_utf8(buf).unwrap();
         // Should contain table headers or extension names
         assert!(
@@ -317,7 +328,8 @@ mod tests {
     fn run_extension_show_unknown_returns_error() {
         let (_dir, _guard) = crate::test_utils::with_temp_config("");
 
-        let result = run_extension_show(Some("nonexistent"));
+        let config = ops_core::config::load_config_or_default("test");
+        let result = run_extension_show(&config, Some("nonexistent"));
         assert!(
             result.is_err(),
             "run_extension_show should error for unknown extension"
@@ -331,7 +343,8 @@ mod tests {
     fn run_extension_show_tools_succeeds() {
         let (_dir, _guard) = crate::test_utils::with_temp_config("");
 
-        let result = run_extension_show(Some("tools"));
+        let config = ops_core::config::load_config_or_default("test");
+        let result = run_extension_show(&config, Some("tools"));
         assert!(
             result.is_ok(),
             "run_extension_show should succeed for 'tools' (requires stack-rust)"
@@ -342,7 +355,8 @@ mod tests {
     fn run_extension_show_no_tty_returns_error() {
         let (_dir, _guard) = crate::test_utils::with_temp_config("");
 
-        let result = run_extension_show_with_tty_check(None, || false);
+        let config = ops_core::config::load_config_or_default("test");
+        let result = run_extension_show_with_tty_check(&config, None, || false);
         assert!(
             result.is_err(),
             "run_extension_show should fail without TTY when no name given"
@@ -408,8 +422,9 @@ enabled = []
         );
         // With empty enabled list, collect_compiled_extensions still returns all,
         // but the list output should still work
+        let config = ops_core::config::load_config_or_default("test");
         let mut buf = Vec::new();
-        let result = run_extension_list_to(&mut buf);
+        let result = run_extension_list_to(&config, &mut buf);
         assert!(result.is_ok());
     }
 

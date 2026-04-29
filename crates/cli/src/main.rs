@@ -107,35 +107,6 @@ fn init_logging() {
         .init();
 }
 
-#[cfg(test)]
-mod log_level_tests {
-    use super::parse_log_level;
-
-    #[test]
-    fn invalid_value_writes_visible_warning() {
-        let mut buf: Vec<u8> = Vec::new();
-        let bad = "!!not-a-level!!";
-        let _ = parse_log_level(Some(bad), &mut buf);
-        let out = String::from_utf8(buf).unwrap();
-        assert!(out.contains("invalid OPS_LOG_LEVEL"), "got: {out}");
-        assert!(out.contains(bad), "should include offending value: {out}");
-    }
-
-    #[test]
-    fn valid_value_writes_nothing() {
-        let mut buf: Vec<u8> = Vec::new();
-        let _ = parse_log_level(Some("debug"), &mut buf);
-        assert!(buf.is_empty(), "no warning for valid level");
-    }
-
-    #[test]
-    fn unset_writes_nothing() {
-        let mut buf: Vec<u8> = Vec::new();
-        let _ = parse_log_level(None, &mut buf);
-        assert!(buf.is_empty(), "no warning when unset");
-    }
-}
-
 fn run() -> anyhow::Result<ExitCode> {
     init_logging();
 
@@ -184,6 +155,12 @@ fn dispatch(
     early_config: &ops_core::config::Config,
     detected_stack: Option<ops_core::stack::Stack>,
 ) -> anyhow::Result<ExitCode> {
+    // ERR-1 (TASK-0427): the same Config loaded once in `run()` is threaded
+    // through every handler so a single CLI invocation reads `.ops.toml`
+    // exactly once. Previously dispatch -> handler -> `load_config_and_cwd`
+    // re-loaded the file with a stricter (hard-error) policy than the
+    // early `load_config_or_default("early")`, so a malformed manifest
+    // could succeed `--help` and bail later in the same run.
     match cli.subcommand {
         Some(CoreSubcommand::Init {
             force,
@@ -194,24 +171,26 @@ fn dispatch(
             let sections = ops_core::config::InitSections::from_flags(output, themes, commands);
             init_cmd::run_init(force, sections)?;
         }
-        Some(CoreSubcommand::Theme { action }) => run_theme(action)?,
-        Some(CoreSubcommand::Extension { action }) => run_extension(action)?,
+        Some(CoreSubcommand::Theme { action }) => run_theme(early_config, action)?,
+        Some(CoreSubcommand::Extension { action }) => run_extension(early_config, action)?,
         Some(CoreSubcommand::NewCommand) => new_command_cmd::run_new_command()?,
         Some(CoreSubcommand::RunBeforeCommit {
             changed_only,
             action,
-        }) => return run_before_commit(action, changed_only),
+        }) => return run_before_commit(early_config, action, changed_only),
         Some(CoreSubcommand::RunBeforePush {
             changed_only,
             action,
-        }) => return run_before_push(action, changed_only),
-        Some(CoreSubcommand::About { refresh, action }) => run_about(refresh, action)?,
+        }) => return run_before_push(early_config, action, changed_only),
+        Some(CoreSubcommand::About { refresh, action }) => {
+            run_about(early_config, refresh, action)?
+        }
         #[cfg(feature = "stack-rust")]
-        Some(CoreSubcommand::Deps { refresh }) => run_deps(refresh)?,
+        Some(CoreSubcommand::Deps { refresh }) => run_deps(early_config, refresh)?,
         Some(CoreSubcommand::Tools { action }) => {
             #[cfg(feature = "stack-rust")]
             {
-                return run_tools(action);
+                return run_tools(early_config, action);
             }
             #[cfg(not(feature = "stack-rust"))]
             {
@@ -221,6 +200,7 @@ fn dispatch(
         }
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(
+                early_config,
                 &args,
                 run_cmd::RunOptions {
                     dry_run: cli.dry_run,
@@ -239,8 +219,37 @@ fn dispatch(
     Ok(ExitCode::SUCCESS)
 }
 
-pub(crate) fn load_config_and_cwd() -> anyhow::Result<(ops_core::config::Config, PathBuf)> {
-    let config = ops_core::config::load_config()?;
-    let cwd = std::env::current_dir()?;
-    Ok((config, cwd))
+/// CLI-level cwd lookup. The pre-resolved `Config` is threaded by the caller
+/// (TASK-0427) — we only need the current directory at the handler boundary.
+pub(crate) fn cwd() -> anyhow::Result<PathBuf> {
+    Ok(std::env::current_dir()?)
+}
+
+#[cfg(test)]
+mod log_level_tests {
+    use super::parse_log_level;
+
+    #[test]
+    fn invalid_value_writes_visible_warning() {
+        let mut buf: Vec<u8> = Vec::new();
+        let bad = "!!not-a-level!!";
+        let _ = parse_log_level(Some(bad), &mut buf);
+        let out = String::from_utf8(buf).unwrap();
+        assert!(out.contains("invalid OPS_LOG_LEVEL"), "got: {out}");
+        assert!(out.contains(bad), "should include offending value: {out}");
+    }
+
+    #[test]
+    fn valid_value_writes_nothing() {
+        let mut buf: Vec<u8> = Vec::new();
+        let _ = parse_log_level(Some("debug"), &mut buf);
+        assert!(buf.is_empty(), "no warning for valid level");
+    }
+
+    #[test]
+    fn unset_writes_nothing() {
+        let mut buf: Vec<u8> = Vec::new();
+        let _ = parse_log_level(None, &mut buf);
+        assert!(buf.is_empty(), "no warning when unset");
+    }
 }

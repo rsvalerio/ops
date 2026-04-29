@@ -1,8 +1,9 @@
 //! Thin wrappers that route each CLI subcommand to its implementation crate.
 
+use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::Context;
+use ops_core::config::Config;
 
 #[cfg(feature = "stack-rust")]
 use crate::args::ToolsAction;
@@ -13,25 +14,26 @@ use crate::args::{
 use crate::tools_cmd;
 use crate::{about_cmd, extension_cmd, pre_hook_cmd, run_cmd, theme_cmd};
 
-/// Shared load-config + build-registry preamble used by `run_about`,
-/// `run_deps`, and the extension subcommand handlers. DUP-1 / TASK-0207:
-/// the three handlers previously repeated the same 3-line boilerplate;
-/// centralizing it here means adding a fourth handler does not duplicate
-/// error-context wording again.
-pub(crate) fn cli_data_context() -> anyhow::Result<(
-    ops_core::config::Config,
-    std::path::PathBuf,
-    ops_extension::DataRegistry,
-)> {
-    let (config, cwd) = crate::load_config_and_cwd()?;
-    let registry = crate::registry::build_data_registry(&config, &cwd)?;
-    Ok((config, cwd, registry))
+/// Shared cwd + registry preamble used by `run_about`, `run_deps`, and the
+/// extension subcommand handlers. DUP-1 / TASK-0207 collapsed the original
+/// per-handler boilerplate; TASK-0427 then threaded the pre-resolved
+/// `Config` so the helper no longer re-loads `.ops.toml`.
+pub(crate) fn cli_data_context(
+    config: &Config,
+) -> anyhow::Result<(PathBuf, ops_extension::DataRegistry)> {
+    let cwd = crate::cwd()?;
+    let registry = crate::registry::build_data_registry(config, &cwd)?;
+    Ok((cwd, registry))
 }
 
-pub(crate) fn run_about(refresh: bool, action: Option<AboutAction>) -> anyhow::Result<()> {
-    let (config, cwd, registry) = cli_data_context()?;
+pub(crate) fn run_about(
+    config: &Config,
+    refresh: bool,
+    action: Option<AboutAction>,
+) -> anyhow::Result<()> {
+    let (cwd, registry) = cli_data_context(config)?;
     match action {
-        Some(AboutAction::Setup) => about_cmd::run_about_setup(&registry),
+        Some(AboutAction::Setup) => about_cmd::run_about_setup(config, &registry),
         #[cfg(feature = "duckdb")]
         Some(AboutAction::Code) => ops_about::run_about_code(&registry),
         #[cfg(not(feature = "duckdb"))]
@@ -42,40 +44,41 @@ pub(crate) fn run_about(refresh: bool, action: Option<AboutAction>) -> anyhow::R
         Some(AboutAction::Coverage) => ops_about::run_about_coverage(&registry),
         Some(AboutAction::Dependencies) => ops_about::run_about_deps(&registry),
         None => {
-            let columns = config.output.columns;
             let opts = ops_about::AboutOptions {
                 refresh,
                 visible_fields: config.about.fields.clone(),
                 is_tty: crate::tty::is_stdout_tty(),
             };
-            ops_about::run_about(&registry, &opts, columns, &cwd, &mut std::io::stdout())
+            ops_about::run_about(&registry, &opts, &cwd, &mut std::io::stdout())
         }
     }
 }
 
 #[cfg(feature = "stack-rust")]
-pub(crate) fn run_deps(refresh: bool) -> anyhow::Result<()> {
-    let (_config, _cwd, registry) = cli_data_context()?;
+pub(crate) fn run_deps(config: &Config, refresh: bool) -> anyhow::Result<()> {
+    let (_cwd, registry) = cli_data_context(config)?;
     let opts = ops_deps::DepsOptions { refresh };
     ops_deps::run_deps(&registry, &opts)
 }
 
-pub(crate) fn run_theme(action: ThemeAction) -> anyhow::Result<()> {
+pub(crate) fn run_theme(config: &Config, action: ThemeAction) -> anyhow::Result<()> {
     match action {
-        ThemeAction::List => theme_cmd::run_theme_list(),
-        ThemeAction::Select => theme_cmd::run_theme_select(),
+        ThemeAction::List => theme_cmd::run_theme_list(config),
+        ThemeAction::Select => theme_cmd::run_theme_select(config),
     }
 }
 
-pub(crate) fn run_extension(action: ExtensionAction) -> anyhow::Result<()> {
+pub(crate) fn run_extension(config: &Config, action: ExtensionAction) -> anyhow::Result<()> {
     match action {
-        ExtensionAction::List => extension_cmd::run_extension_list(),
-        ExtensionAction::Show { name } => extension_cmd::run_extension_show(name.as_deref()),
+        ExtensionAction::List => extension_cmd::run_extension_list(config),
+        ExtensionAction::Show { name } => {
+            extension_cmd::run_extension_show(config, name.as_deref())
+        }
     }
 }
 
 /// Prompt the user to run `ops <hook> install` when the hook command is not configured.
-fn prompt_hook_install(hook_name: &str) -> anyhow::Result<ExitCode> {
+fn prompt_hook_install(config: &Config, hook_name: &str) -> anyhow::Result<ExitCode> {
     ops_core::ui::note(format!("no '{hook_name}' command configured in .ops.toml."));
     if !crate::tty::is_stdout_tty() {
         ops_core::ui::note(format!("run `ops {hook_name} install` to set it up."));
@@ -86,8 +89,8 @@ fn prompt_hook_install(hook_name: &str) -> anyhow::Result<ExitCode> {
         .prompt()?;
     if answer {
         match hook_name {
-            "run-before-commit" => pre_hook_cmd::run_before_commit_install()?,
-            "run-before-push" => pre_hook_cmd::run_before_push_install()?,
+            "run-before-commit" => pre_hook_cmd::run_before_commit_install(config)?,
+            "run-before-push" => pre_hook_cmd::run_before_push_install(config)?,
             other => anyhow::bail!("unknown hook: {other}"),
         }
         return Ok(ExitCode::SUCCESS);
@@ -107,7 +110,7 @@ struct HookDispatch {
     /// Optional pre-flight predicate; returning `Ok(false)` short-circuits with
     /// the supplied skip message instead of executing the hook command.
     preflight: Option<HookPreflight>,
-    install: fn() -> anyhow::Result<()>,
+    install: fn(&Config) -> anyhow::Result<()>,
 }
 
 const HOOK_BEFORE_COMMIT: HookDispatch = HookDispatch {
@@ -126,11 +129,13 @@ const HOOK_BEFORE_PUSH: HookDispatch = HookDispatch {
     install: pre_hook_cmd::run_before_push_install,
 };
 
-fn run_hook_dispatch(hook: &HookDispatch, run_preflight: bool) -> anyhow::Result<ExitCode> {
-    let config = ops_core::config::load_config()
-        .with_context(|| format!("failed to load config for {} check", hook.name))?;
+fn run_hook_dispatch(
+    config: &Config,
+    hook: &HookDispatch,
+    run_preflight: bool,
+) -> anyhow::Result<ExitCode> {
     if !config.commands.contains_key(hook.name) {
-        return prompt_hook_install(hook.name);
+        return prompt_hook_install(config, hook.name);
     }
     if (hook.should_skip)() {
         ops_core::ui::note(format!(
@@ -148,43 +153,97 @@ fn run_hook_dispatch(hook: &HookDispatch, run_preflight: bool) -> anyhow::Result
         }
     }
     let args = vec![std::ffi::OsString::from(hook.name)];
-    run_cmd::run_external_command(&args, run_cmd::RunOptions::default())
+    run_cmd::run_external_command(config, &args, run_cmd::RunOptions::default())
 }
 
 pub(crate) fn run_before_commit(
+    config: &Config,
     action: Option<RunBeforeCommitAction>,
     changed_only: bool,
 ) -> anyhow::Result<ExitCode> {
     match action {
         Some(RunBeforeCommitAction::Install) => {
-            (HOOK_BEFORE_COMMIT.install)()?;
+            (HOOK_BEFORE_COMMIT.install)(config)?;
             Ok(ExitCode::SUCCESS)
         }
-        None => run_hook_dispatch(&HOOK_BEFORE_COMMIT, changed_only),
+        None => run_hook_dispatch(config, &HOOK_BEFORE_COMMIT, changed_only),
     }
 }
 
 pub(crate) fn run_before_push(
+    config: &Config,
     action: Option<RunBeforePushAction>,
     _changed_only: bool,
 ) -> anyhow::Result<ExitCode> {
     match action {
         Some(RunBeforePushAction::Install) => {
-            (HOOK_BEFORE_PUSH.install)()?;
+            (HOOK_BEFORE_PUSH.install)(config)?;
             Ok(ExitCode::SUCCESS)
         }
-        None => run_hook_dispatch(&HOOK_BEFORE_PUSH, false),
+        None => run_hook_dispatch(config, &HOOK_BEFORE_PUSH, false),
     }
 }
 
 #[cfg(feature = "stack-rust")]
-pub(crate) fn run_tools(action: ToolsAction) -> anyhow::Result<ExitCode> {
+pub(crate) fn run_tools(config: &Config, action: ToolsAction) -> anyhow::Result<ExitCode> {
     match action {
         ToolsAction::List => {
-            tools_cmd::run_tools_list()?;
+            tools_cmd::run_tools_list(config)?;
             Ok(ExitCode::SUCCESS)
         }
-        ToolsAction::Check => tools_cmd::run_tools_check(),
-        ToolsAction::Install { name } => tools_cmd::run_tools_install(name.as_deref()),
+        ToolsAction::Check => tools_cmd::run_tools_check(config),
+        ToolsAction::Install { name } => tools_cmd::run_tools_install(config, name.as_deref()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ERR-1 (TASK-0427): a typical `ops <cmd>` flow must load `.ops.toml`
+    /// at most once. Previously `run()` loaded it via
+    /// `load_config_or_default("early")` and then `load_config_and_cwd` /
+    /// `load_config()` re-loaded inside each handler, so a single CLI
+    /// invocation hit the parser multiple times with divergent error
+    /// policies. This test pins the new contract: handler-side helpers
+    /// take `&Config` and never re-invoke `load_config`.
+    #[test]
+    #[serial_test::serial]
+    fn handlers_do_not_reload_config() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config(
+            r#"
+[commands.echo_test]
+program = "echo"
+args = ["hi"]
+"#,
+        );
+
+        // Simulate the early `run()` load.
+        ops_core::config::reset_load_config_call_count();
+        let config = ops_core::config::load_config_or_default("test-early");
+        assert_eq!(
+            ops_core::config::load_config_call_count(),
+            1,
+            "early load should be the only load_config call so far"
+        );
+
+        // Each handler-side helper that previously re-loaded `.ops.toml`
+        // is now expected to consult the threaded `&Config`.
+        let _ = cli_data_context(&config).expect("cli_data_context");
+
+        assert_eq!(
+            ops_core::config::load_config_call_count(),
+            1,
+            "cli_data_context must not reload .ops.toml"
+        );
+
+        // run_hook_dispatch's config-presence check used to load_config
+        // independently; verify the threaded config now drives that path.
+        let _ = run_hook_dispatch(&config, &HOOK_BEFORE_COMMIT, false);
+        assert_eq!(
+            ops_core::config::load_config_call_count(),
+            1,
+            "run_hook_dispatch must not reload .ops.toml"
+        );
     }
 }

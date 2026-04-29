@@ -4,21 +4,20 @@ use indexmap::IndexMap;
 use std::io::Write;
 use std::process::ExitCode;
 
-use ops_core::config::load_config;
+use ops_core::config::Config;
 use ops_core::style::{cyan, dim, green, red};
 use ops_tools::{collect_tools, install_tool, ToolInfo, ToolSource, ToolSpec, ToolStatus};
 
-fn load_tools() -> anyhow::Result<Vec<ToolInfo>> {
-    let config = load_config()?;
-    Ok(collect_tools(&config.tools))
+fn load_tools(config: &Config) -> Vec<ToolInfo> {
+    collect_tools(&config.tools)
 }
 
-pub fn run_tools_list() -> anyhow::Result<()> {
-    run_tools_list_to(&mut std::io::stdout())
+pub fn run_tools_list(config: &Config) -> anyhow::Result<()> {
+    run_tools_list_to(config, &mut std::io::stdout())
 }
 
-fn run_tools_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
-    let tools = load_tools()?;
+fn run_tools_list_to(config: &Config, w: &mut dyn Write) -> anyhow::Result<()> {
+    let tools = load_tools(config);
 
     if tools.is_empty() {
         writeln!(w, "No tools configured in .ops.toml")?;
@@ -56,12 +55,16 @@ fn run_tools_list_to(w: &mut dyn Write) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn run_tools_check() -> anyhow::Result<ExitCode> {
-    run_tools_check_to(&mut std::io::stdout(), &mut std::io::stderr())
+pub fn run_tools_check(config: &Config) -> anyhow::Result<ExitCode> {
+    run_tools_check_to(config, &mut std::io::stdout(), &mut std::io::stderr())
 }
 
-fn run_tools_check_to(w: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<ExitCode> {
-    let tools = load_tools()?;
+fn run_tools_check_to(
+    config: &Config,
+    w: &mut dyn Write,
+    err: &mut dyn Write,
+) -> anyhow::Result<ExitCode> {
+    let tools = load_tools(config);
 
     if tools.is_empty() {
         writeln!(w, "No tools configured")?;
@@ -85,8 +88,8 @@ fn run_tools_check_to(w: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<
     }
 }
 
-pub fn run_tools_install(name: Option<&str>) -> anyhow::Result<ExitCode> {
-    run_tools_install_to(name, &mut std::io::stdout(), &mut std::io::stderr())
+pub fn run_tools_install(config: &Config, name: Option<&str>) -> anyhow::Result<ExitCode> {
+    run_tools_install_to(config, name, &mut std::io::stdout(), &mut std::io::stderr())
 }
 
 /// Returns the shell command description for installing a tool, or None for system tools.
@@ -110,12 +113,11 @@ pub(crate) fn install_command_description(tool: &ToolInfo, spec: &ToolSpec) -> O
 }
 
 fn run_tools_install_to(
+    config: &Config,
     name: Option<&str>,
     w: &mut dyn Write,
     err: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
-    let config = load_config()?;
-
     let tools_to_install: IndexMap<String, ToolSpec> = if let Some(tool_name) = name {
         let spec = config
             .tools
@@ -302,7 +304,8 @@ program = "echo"
 "#,
         );
         let mut buf = Vec::new();
-        run_tools_list_to(&mut buf).expect("run_tools_list_to");
+        run_tools_list_to(&ops_core::config::load_config_or_default("test"), &mut buf)
+            .expect("run_tools_list_to");
         let output = String::from_utf8(buf).unwrap();
         assert!(
             output.contains("No tools configured"),
@@ -320,7 +323,8 @@ cargo-nonexistent-abc123 = "Fake tool"
 "#,
         );
         let mut buf = Vec::new();
-        run_tools_list_to(&mut buf).expect("run_tools_list_to");
+        run_tools_list_to(&ops_core::config::load_config_or_default("test"), &mut buf)
+            .expect("run_tools_list_to");
         let output = String::from_utf8(buf).unwrap();
         assert!(
             output.contains("Tools configured: 2"),
@@ -338,7 +342,8 @@ cargo-nonexistent-abc123 = "Fake tool"
 "#,
         );
         let mut buf = Vec::new();
-        run_tools_list_to(&mut buf).expect("run_tools_list_to");
+        run_tools_list_to(&ops_core::config::load_config_or_default("test"), &mut buf)
+            .expect("run_tools_list_to");
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("cargo-fmt"), "should list cargo-fmt");
         assert!(
@@ -363,7 +368,12 @@ program = "echo"
         );
         let mut out = Vec::new();
         let mut err = Vec::new();
-        let code = run_tools_check_to(&mut out, &mut err).expect("run_tools_check_to");
+        let code = run_tools_check_to(
+            &ops_core::config::load_config_or_default("test"),
+            &mut out,
+            &mut err,
+        )
+        .expect("run_tools_check_to");
         let output = String::from_utf8(out).unwrap();
         assert_eq!(code, ExitCode::SUCCESS);
         assert!(
@@ -382,7 +392,12 @@ cargo-fmt = "Format code"
         );
         let mut out = Vec::new();
         let mut err = Vec::new();
-        let code = run_tools_check_to(&mut out, &mut err).expect("run_tools_check_to");
+        let code = run_tools_check_to(
+            &ops_core::config::load_config_or_default("test"),
+            &mut out,
+            &mut err,
+        )
+        .expect("run_tools_check_to");
         let output = String::from_utf8(out).unwrap();
         assert_eq!(code, ExitCode::SUCCESS);
         assert!(
@@ -401,7 +416,12 @@ cargo-nonexistent-abc123 = "Fake tool"
         );
         let mut out = Vec::new();
         let mut err = Vec::new();
-        let code = run_tools_check_to(&mut out, &mut err).expect("run_tools_check_to");
+        let code = run_tools_check_to(
+            &ops_core::config::load_config_or_default("test"),
+            &mut out,
+            &mut err,
+        )
+        .expect("run_tools_check_to");
         let err_output = String::from_utf8(err).unwrap();
         assert_eq!(code, ExitCode::FAILURE);
         assert!(
@@ -426,7 +446,13 @@ cargo-fmt = "Format code"
         );
         let mut out = Vec::new();
         let mut err = Vec::new();
-        let code = run_tools_install_to(None, &mut out, &mut err).expect("run_tools_install_to");
+        let code = run_tools_install_to(
+            &ops_core::config::load_config_or_default("test"),
+            None,
+            &mut out,
+            &mut err,
+        )
+        .expect("run_tools_install_to");
         let output = String::from_utf8(out).unwrap();
         assert_eq!(code, ExitCode::SUCCESS);
         assert!(
@@ -445,7 +471,12 @@ cargo-fmt = "Format code"
         );
         let mut out = Vec::new();
         let mut err = Vec::new();
-        let result = run_tools_install_to(Some("nonexistent"), &mut out, &mut err);
+        let result = run_tools_install_to(
+            &ops_core::config::load_config_or_default("test"),
+            Some("nonexistent"),
+            &mut out,
+            &mut err,
+        );
         assert!(result.is_err(), "should error for unknown tool name");
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -464,8 +495,13 @@ cargo-fmt = "Format code"
         );
         let mut out = Vec::new();
         let mut err = Vec::new();
-        let code =
-            run_tools_install_to(Some("cargo-fmt"), &mut out, &mut err).expect("install by name");
+        let code = run_tools_install_to(
+            &ops_core::config::load_config_or_default("test"),
+            Some("cargo-fmt"),
+            &mut out,
+            &mut err,
+        )
+        .expect("install by name");
         let output = String::from_utf8(out).unwrap();
         assert_eq!(code, ExitCode::SUCCESS);
         assert!(

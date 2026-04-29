@@ -36,6 +36,7 @@ pub(crate) struct RunOptions {
 }
 
 pub(crate) fn run_external_command(
+    config: &ops_core::config::Config,
     args: &[OsString],
     opts: RunOptions,
 ) -> anyhow::Result<ExitCode> {
@@ -55,13 +56,21 @@ pub(crate) fn run_external_command(
         anyhow::bail!("missing command name");
     }
     if names.len() == 1 {
-        return run_command(names[0], opts);
+        return run_command(config, names[0], opts);
     }
-    run_commands(&names, opts)
+    run_commands(config, &names, opts)
 }
 
-fn build_runner(verbose: bool) -> anyhow::Result<ops_runner::command::CommandRunner> {
-    let (mut config, cwd) = crate::load_config_and_cwd()?;
+/// TASK-0427: the runner takes ownership of the Config, so we clone the
+/// pre-resolved Config threaded from `run()` rather than re-loading
+/// `.ops.toml`. The clone is bounded by command-spec maps and theme
+/// configs — well under the cost of re-parsing the manifest.
+fn build_runner(
+    config: &ops_core::config::Config,
+    verbose: bool,
+) -> anyhow::Result<ops_runner::command::CommandRunner> {
+    let mut config = config.clone();
+    let cwd = crate::cwd()?;
     if verbose {
         config.output.stderr_tail_lines = usize::MAX;
     }
@@ -87,14 +96,18 @@ where
         .block_on(f)
 }
 
-fn run_commands(names: &[&str], opts: RunOptions) -> anyhow::Result<ExitCode> {
+fn run_commands(
+    config: &ops_core::config::Config,
+    names: &[&str],
+    opts: RunOptions,
+) -> anyhow::Result<ExitCode> {
     let RunOptions {
         dry_run,
         verbose,
         tap,
         raw,
     } = opts;
-    let runner = build_runner(verbose)?;
+    let runner = build_runner(config, verbose)?;
 
     if dry_run {
         for name in names {
@@ -210,14 +223,18 @@ fn setup_extensions(runner: &mut ops_runner::command::CommandRunner) -> anyhow::
 }
 
 #[tracing::instrument(skip_all, fields(command = %name))]
-fn run_command(name: &str, opts: RunOptions) -> anyhow::Result<ExitCode> {
+fn run_command(
+    config: &ops_core::config::Config,
+    name: &str,
+    opts: RunOptions,
+) -> anyhow::Result<ExitCode> {
     let RunOptions {
         dry_run,
         verbose,
         tap,
         raw,
     } = opts;
-    let mut runner = build_runner(verbose)?;
+    let mut runner = build_runner(config, verbose)?;
 
     if dry_run {
         return run_command_dry_run(&runner, name);

@@ -17,17 +17,19 @@ pub struct HookOps {
 }
 
 /// Shared interactive install orchestration for all hook types.
-pub fn run_hook_install(ops: &HookOps) -> anyhow::Result<()> {
+///
+/// TASK-0427: takes the pre-resolved CLI config so the install path does
+/// not re-parse `.ops.toml` after `run()` already loaded it.
+pub fn run_hook_install(config: &Config, ops: &HookOps) -> anyhow::Result<()> {
     crate::tty::require_tty(&format!("{} install", ops.hook_name))?;
 
     let cwd = std::env::current_dir()?;
     let git_dir = (ops.find_git_dir)(&cwd)
         .ok_or_else(|| anyhow::anyhow!("not inside a git repository (no .git found)"))?;
 
-    let config = ops_core::config::load_config_or_default(&format!("{} install", ops.hook_name));
     let stack = Stack::resolve(config.stack.as_deref(), &cwd);
 
-    let options = gather_available_commands(&config, stack, &cwd, ops.hook_name);
+    let options = gather_available_commands(config, stack, &cwd, ops.hook_name);
 
     let selected = if options.is_empty() {
         ops_core::ui::note(

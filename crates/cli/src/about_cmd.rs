@@ -9,11 +9,18 @@ use ops_extension::DataRegistry;
 
 use crate::tty::SelectOption;
 
-pub fn run_about_setup(data_registry: &DataRegistry) -> anyhow::Result<()> {
-    run_about_setup_with(data_registry, crate::tty::is_stdout_tty)
+pub fn run_about_setup(
+    config: &ops_core::config::Config,
+    data_registry: &DataRegistry,
+) -> anyhow::Result<()> {
+    run_about_setup_with(config, data_registry, crate::tty::is_stdout_tty)
 }
 
-fn run_about_setup_with<F>(data_registry: &DataRegistry, is_tty: F) -> anyhow::Result<()>
+fn run_about_setup_with<F>(
+    config: &ops_core::config::Config,
+    data_registry: &DataRegistry,
+    is_tty: F,
+) -> anyhow::Result<()>
 where
     F: FnOnce() -> bool,
 {
@@ -24,10 +31,9 @@ where
         anyhow::bail!("no project_identity provider registered — cannot configure about fields");
     }
 
-    // ERR-5 / DUP-3: shared helper surfaces the parse error via
-    // tracing::warn! + ui::warn so the user sees the diagnostic before they
-    // save what would otherwise look like a benign reset-to-default.
-    let config = ops_core::config::load_config_or_default("about edit");
+    // ERR-5 / DUP-3 / TASK-0427: the Config is now threaded from `run()` so
+    // the warn-and-default policy applies to the whole CLI invocation,
+    // including the `about setup` save path.
     let currently_enabled = config.about.fields.as_deref();
 
     let options: Vec<SelectOption> = about_fields
@@ -89,7 +95,8 @@ mod tests {
     #[test]
     fn run_about_setup_non_tty_returns_error() {
         let registry = DataRegistry::new();
-        let result = run_about_setup_with(&registry, || false);
+        let config = ops_core::config::Config::default();
+        let result = run_about_setup_with(&config, &registry, || false);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
