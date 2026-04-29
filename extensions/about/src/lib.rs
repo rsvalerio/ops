@@ -8,6 +8,7 @@ pub mod cards;
 pub mod coverage;
 pub mod deps;
 pub mod identity;
+pub mod manifest_io;
 pub mod providers;
 pub mod text_util;
 pub mod units;
@@ -61,10 +62,21 @@ ops_extension::impl_extension! {
 /// `is_tty` reflects the `writer` the caller hands in (READ-5/TASK-0411):
 /// set `true` when writing to a real terminal, `false` for buffers/files,
 /// regardless of whether `stdout` happens to be a TTY.
+#[non_exhaustive]
 pub struct AboutOptions {
     pub refresh: bool,
     pub visible_fields: Option<Vec<String>>,
     pub is_tty: bool,
+}
+
+impl AboutOptions {
+    pub fn new(refresh: bool, visible_fields: Option<Vec<String>>, is_tty: bool) -> Self {
+        Self {
+            refresh,
+            visible_fields,
+            is_tty,
+        }
+    }
 }
 
 /// Run the generic about command.

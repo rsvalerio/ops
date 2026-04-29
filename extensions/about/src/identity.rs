@@ -15,7 +15,12 @@ use ops_extension::DataProviderError;
 /// Stack-agnostic projection of a parsed manifest, ready to be turned into
 /// a [`ProjectIdentity`] via [`build_identity_value`]. Fields with no
 /// equivalent in a given stack should remain at their `Default` value.
+///
+/// `#[non_exhaustive]`: out-of-crate construction must go through
+/// [`ParsedManifest::build`] so new identity fields can be added without
+/// breaking existing stack providers.
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct ParsedManifest {
     pub name: Option<String>,
     pub version: Option<String>,
@@ -34,6 +39,19 @@ pub struct ParsedManifest {
     pub dependency_count: Option<usize>,
     pub coverage_percent: Option<f64>,
     pub languages: Vec<LanguageStat>,
+}
+
+impl ParsedManifest {
+    /// Build a `ParsedManifest` by mutating a default value through a closure.
+    ///
+    /// Out-of-crate stack providers cannot use struct-literal syntax once the
+    /// type is `#[non_exhaustive]`, so this helper provides a stable
+    /// construction path that ignores fields the stack does not populate.
+    pub fn build(f: impl FnOnce(&mut Self)) -> Self {
+        let mut m = Self::default();
+        f(&mut m);
+        m
+    }
 }
 
 /// Run a stack's manifest parser against the working directory and serialise

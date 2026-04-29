@@ -153,6 +153,23 @@ pub fn layout_cards_in_grid(cards: &[Vec<String>]) -> Vec<String> {
     layout_cards_in_grid_with_width(cards, get_terminal_width())
 }
 
+/// Lay out a slice of pre-rendered cards into a grid sized for `term_width`.
+///
+/// READ-5 (TASK-0590) — Render contract:
+///
+/// The grid switches between 3, 2, and 1 cards per row at the
+/// [`CardLayoutConfig::MIN_WIDTH_3_CARDS`] and
+/// [`CardLayoutConfig::MIN_WIDTH_2_CARDS`] thresholds, but each card is
+/// always rendered at fixed [`CardLayoutConfig::CARD_WIDTH`] (32) columns —
+/// the underlying [`render_card`] is width-agnostic.
+///
+/// Minimum supported terminal width is therefore CARD_WIDTH + 2 (the leading
+/// indent), i.e. 34 columns. Below that, single-card rows still render at
+/// 32 columns and visibly overflow narrower terminals; the layout itself is
+/// preserved (no truncated borders or mangled rows). The grid does not
+/// further narrow CARD_WIDTH because render_card pre-computes its content
+/// against a fixed inner-width and reflowing it would invalidate the
+/// pre-rendered card lines.
 pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize) -> Vec<String> {
     if cards.is_empty() {
         return vec![];
@@ -299,6 +316,31 @@ mod tests {
         let card = vec!["line1".to_string(), "line2".to_string()];
         let result = layout_cards_in_grid(&[card]);
         assert!(result.iter().any(|l| l.contains("line1")));
+    }
+
+    /// READ-5 (TASK-0590): below the minimum supported terminal width the
+    /// grid stays in single-card mode and renders each card at the fixed
+    /// CARD_WIDTH. Pin this so a future "responsive" refactor that picks
+    /// 0-cards-per-row or panics on small terminals fails the test rather
+    /// than the user.
+    #[test]
+    fn layout_cards_in_24col_terminal_uses_single_card_mode() {
+        let card = render_card(&unit("T", "t"), false);
+        let result = layout_cards_in_grid_with_width(&[card.clone()], 24);
+        assert!(!result.is_empty(), "must not return empty for narrow term");
+        // Borders are preserved at fixed CARD_WIDTH (=32 inner cols + 2
+        // border chars) regardless of terminal width.
+        assert!(
+            result.iter().any(|l| l.contains('\u{256d}')),
+            "top border missing: {result:?}"
+        );
+        // Single-card mode: no two cards on the same line.
+        let top_border_lines = result
+            .iter()
+            .filter(|l| l.matches('\u{256d}').count() > 0)
+            .count();
+        let cards_with_top = card.iter().filter(|l| l.contains('\u{256d}')).count();
+        assert_eq!(top_border_lines, cards_with_top);
     }
 
     #[test]

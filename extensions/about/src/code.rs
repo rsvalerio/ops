@@ -43,19 +43,13 @@ pub fn format_language_stats_section(stats: Option<&[LanguageStat]>) -> Vec<Stri
     let mut table = OpsTable::new();
     table.set_header(vec!["Language", "Lines of Code", "Files"]);
 
-    let total_loc: i64 = stats.iter().map(|s| s.loc).sum();
-
     for stat in stats {
-        let pct = if total_loc > 0 {
-            format!("{:.1}%", (stat.loc as f64 / total_loc as f64) * 100.0)
-        } else {
-            String::new()
-        };
-        let loc_str = format!("{} ({})", format_number(stat.loc), pct);
+        let loc_str = format!("{} ({:.1}%)", format_number(stat.loc), stat.loc_pct);
+        let files_str = format!("{} ({:.1}%)", format_number(stat.files), stat.files_pct);
         table.add_row(vec![
             Cell::new(&stat.name),
             Cell::new(&loc_str),
-            Cell::new(format_number(stat.files)),
+            Cell::new(&files_str),
         ]);
     }
 
@@ -150,5 +144,36 @@ mod tests {
         let output = format_language_stats_section(Some(&stats)).join("\n");
         assert!(output.contains("75.0%"));
         assert!(output.contains("25.0%"));
+    }
+
+    /// DUP-1 regression (TASK-0549): when the upstream `loc_pct` reflects a
+    /// full-project denominator that includes languages elided from the
+    /// rendered slice (e.g. sub-0.1% languages dropped before display), the
+    /// renderer must surface the stored `loc_pct` rather than re-deriving it
+    /// from the truncated subset. Likewise `files_pct` must be rendered.
+    #[test]
+    fn format_language_stats_section_uses_stored_pct_after_filter() {
+        // Upstream computed pcts against a denominator of 10_000 LOC / 100
+        // files, but only the top two languages are passed to the renderer.
+        // A naive recompute over the slice would yield 80%/20%; the stored
+        // values (60%/30%) must win.
+        let stats = vec![
+            LanguageStat::new("Rust", 6000, 60, 60.0, 60.0),
+            LanguageStat::new("TOML", 1500, 30, 15.0, 30.0),
+        ];
+        let output = format_language_stats_section(Some(&stats)).join("\n");
+        assert!(
+            output.contains("60.0%"),
+            "stored loc_pct expected: {output}"
+        );
+        assert!(
+            output.contains("15.0%"),
+            "stored loc_pct expected: {output}"
+        );
+        assert!(output.contains("30.0%"), "files_pct expected: {output}");
+        assert!(
+            !output.contains("80.0%"),
+            "renderer must not recompute pct from truncated slice: {output}"
+        );
     }
 }

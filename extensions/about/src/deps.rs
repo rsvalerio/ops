@@ -57,18 +57,33 @@ pub fn format_dependencies_section(deps: &ProjectDependencies, is_tty: bool) -> 
         lines.push(String::new());
         lines.push(format!("  {}", tty_style(&unit.unit_name, cyan, is_tty)));
 
-        let last_idx = unit.deps.len() - 1;
-        for (i, (name, version)) in unit.deps.iter().enumerate() {
-            let connector = if i == last_idx {
-                "\u{2514}\u{2500}\u{2500}"
-            } else {
-                "\u{251c}\u{2500}\u{2500}"
-            };
+        // READ-5 (TASK-0591): use `split_last` so the connector choice never
+        // depends on `len() - 1` over a possibly-zero-length slice. The
+        // outer filter already rejects empty deps today, but a future
+        // refactor that adds another filter and lets an empty slice through
+        // would otherwise panic on `0usize - 1`.
+        let Some((last, rest)) = unit.deps.split_last() else {
+            continue;
+        };
+        for (name, version) in rest {
             lines.push(format!(
                 "  {}",
-                tty_style(&format!("{} {} {}", connector, name, version), dim, is_tty)
+                tty_style(
+                    &format!("\u{251c}\u{2500}\u{2500} {} {}", name, version),
+                    dim,
+                    is_tty,
+                )
             ));
         }
+        let (last_name, last_version) = last;
+        lines.push(format!(
+            "  {}",
+            tty_style(
+                &format!("\u{2514}\u{2500}\u{2500} {} {}", last_name, last_version),
+                dim,
+                is_tty,
+            )
+        ));
     }
 
     lines
@@ -127,6 +142,21 @@ mod tests {
             !out.contains('\x1b'),
             "non-TTY writer must receive plain text: {out:?}"
         );
+    }
+
+    /// READ-5 (TASK-0591): pass a unit with empty deps directly and verify
+    /// no panic. The outer filter currently skips it, but the inner loop
+    /// must be safe for an empty slice on its own merits.
+    #[test]
+    fn format_dependencies_section_unit_with_empty_deps_does_not_panic() {
+        let deps = ProjectDependencies {
+            units: vec![UnitDeps {
+                unit_name: "lonely".to_string(),
+                deps: vec![],
+            }],
+        };
+        let out = format_dependencies_section(&deps, false);
+        assert!(out.is_empty(), "expected empty output, got: {out:?}");
     }
 
     #[test]

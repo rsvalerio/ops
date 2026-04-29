@@ -79,9 +79,13 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
 
     lines.truncate(max_lines);
 
-    if let Some(last) = lines.last_mut() {
-        if display_width(last) > max_width.saturating_sub(1) {
-            *last = truncate_to_width(last, max_width);
+    // READ-5 (TASK-0550): an unbreakable word wider than max_width is pushed
+    // verbatim when current_line is empty and may land on an intermediate
+    // line, so truncating only the last line lets earlier lines exceed the
+    // contract. Enforce display_width(line) <= max_width on every line.
+    for line in &mut lines {
+        if display_width(line) > max_width.saturating_sub(1) {
+            *line = truncate_to_width(line, max_width);
         }
     }
 
@@ -169,6 +173,25 @@ mod tests {
     fn wrap_text_long_word_exceeds_width() {
         let result = wrap_text("superlongword short", 5, 3);
         assert!(!result.is_empty());
+    }
+
+    /// READ-5 (TASK-0550): every emitted line — including intermediate ones —
+    /// must satisfy display_width(line) <= max_width when an unbreakable word
+    /// wider than max_width appears in the first of three lines.
+    #[test]
+    fn wrap_text_truncates_intermediate_overlong_lines() {
+        let result = wrap_text(
+            "https://example.com/very/long/path-that-overflows aa bb",
+            10,
+            3,
+        );
+        for line in &result {
+            assert!(
+                display_width(line) <= 10,
+                "line {line:?} exceeds max_width 10 (got {})",
+                display_width(line)
+            );
+        }
     }
 
     #[test]

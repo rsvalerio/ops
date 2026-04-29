@@ -76,7 +76,23 @@ pub fn resolve_member_globs(
 }
 
 fn try_read_manifest(dir: &Path, marker: &str) -> Option<String> {
-    std::fs::read_to_string(dir.join(marker)).ok()
+    let path = dir.join(marker);
+    match std::fs::read_to_string(&path) {
+        Ok(s) => Some(s),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            // ERR-1: a permission-denied / EIO / partial-write read must not
+            // silently drop a unit from the workspace listing. Mirrors the
+            // sibling `resolve_member_globs` arm that warns on read_dir
+            // failures.
+            tracing::warn!(
+                manifest = %path.display(),
+                error = %e,
+                "workspace manifest unreadable; member skipped"
+            );
+            None
+        }
+    }
 }
 
 /// PATTERN-1 (TASK-0503): exclude patterns now support a single `*` anywhere
@@ -109,6 +125,41 @@ fn matches_exclude(pattern: &str, candidate: &str) -> bool {
         return false;
     };
     !middle.is_empty() && !middle.contains('/')
+}
+
+/// DUP-3 (TASK-0620): shared `(name, version, description)` projection
+/// shared by Node `package.json` and Python `pyproject.toml` units providers.
+///
+/// Calls `parse` to produce the raw triple from the manifest contents. On
+/// parser error, logs at warn with the manifest path and returns
+/// `(None, None, None)` — matching the swallow-and-warn shape established
+/// by TASK-0440. Description is trimmed and empty values are filtered out.
+pub fn parse_package_metadata<E, F>(
+    path: &Path,
+    content: &str,
+    parse: F,
+) -> (Option<String>, Option<String>, Option<String>)
+where
+    E: std::fmt::Display,
+    F: FnOnce(&str) -> Result<(Option<String>, Option<String>, Option<String>), E>,
+{
+    match parse(content) {
+        Ok((name, version, description)) => (
+            name,
+            version,
+            description
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+        ),
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "failed to parse package manifest",
+            );
+            (None, None, None)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -205,6 +256,40 @@ mod tests {
         std::fs::set_permissions(&parent, restore).unwrap();
 
         assert!(resolved.is_empty());
+    }
+
+    /// ERR-1: an unreadable manifest (permission denied) must drop the unit
+    /// out of the resolved listing. The previous `.ok()` shape coerced every
+    /// IO failure to `NotFound`, silently producing "no project units".
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_manifest_is_skipped_not_silent() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = dir.path().join("services/api/pyproject.toml");
+        write(&manifest, "[project]\nname=\"api\"\n");
+        // Drop read permissions on the manifest itself so read_to_string
+        // fails with PermissionDenied (not NotFound).
+        let mut perms = std::fs::metadata(&manifest).unwrap().permissions();
+        perms.set_mode(0o000);
+        std::fs::set_permissions(&manifest, perms).unwrap();
+
+        let resolved = resolve_member_globs(
+            &["services/api".to_string()],
+            &[],
+            dir.path(),
+            "pyproject.toml",
+        );
+
+        // Restore so tempdir cleanup works.
+        let mut restore = std::fs::metadata(&manifest).unwrap().permissions();
+        restore.set_mode(0o644);
+        std::fs::set_permissions(&manifest, restore).unwrap();
+
+        assert!(
+            resolved.is_empty(),
+            "unreadable manifest must be skipped (not falsely included)"
+        );
     }
 
     /// PATTERN-1 (TASK-0503): `prefix*suffix` excludes match a single

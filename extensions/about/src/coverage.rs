@@ -123,7 +123,7 @@ fn format_coverage_table(units: &[&ops_core::project_identity::UnitCoverage]) ->
     let mut table = OpsTable::new();
     table.set_header(vec!["", "Unit", "Coverage", "Covered", "Total"]);
 
-    let mut sorted: Vec<&&ops_core::project_identity::UnitCoverage> = units.iter().collect();
+    let mut sorted: Vec<&ops_core::project_identity::UnitCoverage> = units.to_vec();
     sorted.sort_by(|a, b| a.unit_path.cmp(&b.unit_path));
 
     for u in &sorted {
