@@ -18,8 +18,16 @@ pub fn read_origin_url(git_dir: &Path) -> Option<String> {
 /// (`#` / `;`) starting a line are skipped; everything else falls through.
 /// Section headers and the `url` key are matched case-insensitively, since
 /// git-config keys are case-insensitive.
+///
+/// ERR-4 (TASK-0594): git-config keys are multi-valued and the *last*
+/// assignment wins (templated includes routinely rewrite `url` after an
+/// initial value). Returning the first match silently disagreed with what
+/// `git config --get remote.origin.url` reports. The scanner now collects
+/// every `url` line inside the `origin` section across the file and returns
+/// the final one so the parser matches git-config last-wins semantics.
 pub fn read_origin_url_from(content: &str) -> Option<String> {
     let mut in_origin = false;
+    let mut last: Option<String> = None;
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
@@ -31,11 +39,11 @@ pub fn read_origin_url_from(content: &str) -> Option<String> {
         }
         if in_origin {
             if let Some(value) = strip_url_key(trimmed) {
-                return Some(redact_userinfo(value));
+                last = Some(redact_userinfo(value));
             }
         }
     }
-    None
+    last
 }
 
 /// Strip a `user[:password]@` segment from a URL-like value.
@@ -279,6 +287,42 @@ mod tests {
         assert_eq!(
             read_origin_url_from(cfg),
             Some("https://github.com/o/r.git".to_string())
+        );
+    }
+
+    /// ERR-4 (TASK-0594): git-config returns the *last* value when a key is
+    /// set multiple times. A config that rewrites `url` after an initial
+    /// value (templated includes do this) must report the rewritten URL,
+    /// matching `git config --get remote.origin.url`.
+    #[test]
+    fn origin_url_returns_last_value_when_set_twice() {
+        let cfg = "\
+[remote \"origin\"]
+\turl = https://github.com/old/repo.git
+\turl = https://github.com/new/repo.git
+";
+        assert_eq!(
+            read_origin_url_from(cfg),
+            Some("https://github.com/new/repo.git".to_string())
+        );
+    }
+
+    /// Last-wins must hold even across an intervening section: a later
+    /// `[remote "origin"]` block that re-assigns `url` overrides the earlier
+    /// one, mirroring git-config(1)'s flat key-resolution model.
+    #[test]
+    fn origin_url_returns_last_value_across_sections() {
+        let cfg = "\
+[remote \"origin\"]
+\turl = https://github.com/first/repo.git
+[core]
+\trepositoryformatversion = 0
+[remote \"origin\"]
+\turl = https://github.com/second/repo.git
+";
+        assert_eq!(
+            read_origin_url_from(cfg),
+            Some("https://github.com/second/repo.git".to_string())
         );
     }
 
