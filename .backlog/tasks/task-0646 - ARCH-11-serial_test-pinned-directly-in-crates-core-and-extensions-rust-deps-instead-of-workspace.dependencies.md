@@ -3,9 +3,10 @@ id: TASK-0646
 title: >-
   ARCH-11: serial_test pinned directly in crates/core and extensions-rust/deps
   instead of workspace.dependencies
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-29 09:02'
+updated_date: '2026-04-29 19:21'
 labels:
   - code-review-rust
   - architecture
@@ -27,7 +28,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 All two crates use serial_test = { workspace = true } in dev-dependencies
-- [ ] #2 cargo build --all-targets and cargo test pass
-- [ ] #3 No other workspace-managed dep is directly pinned in these two Cargo.toml files
+- [x] #1 All two crates use serial_test = { workspace = true } in dev-dependencies
+- [x] #2 cargo build --all-targets and cargo test pass
+- [x] #3 No other workspace-managed dep is directly pinned in these two Cargo.toml files
 <!-- AC:END -->

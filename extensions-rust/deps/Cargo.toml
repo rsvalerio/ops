@@ -15,6 +15,6 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-tracing-subscriber = { version = "0.3", features = ["fmt"] }
+tracing-subscriber = { workspace = true, features = ["fmt"] }
 tempfile = { workspace = true }
-serial_test = "3"
+serial_test = { workspace = true }
