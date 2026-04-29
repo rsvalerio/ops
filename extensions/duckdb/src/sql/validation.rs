@@ -41,6 +41,8 @@ pub enum SqlError {
     InvalidExtraOpts(String),
     #[error("path is not valid UTF-8: {0:?}")]
     InvalidUtf8Path(std::ffi::OsString),
+    #[error("path is empty")]
+    EmptyPath,
 }
 
 /// Validate that a string is a safe SQL identifier (`[a-zA-Z_][a-zA-Z0-9_]*`).
@@ -121,6 +123,14 @@ pub fn sanitize_path_for_sql(path: &str) -> String {
 }
 
 pub fn validate_path_chars(path: &str) -> Result<(), SqlError> {
+    // READ-5 (TASK-0528): reject empty paths up front. The character-by-
+    // character loop below trivially returns Ok for "", which let
+    // forgotten-population bugs slip through and produced
+    // `read_json_auto('')` SQL that surfaced as opaque DuckDB errors.
+    // Failing fast here keeps the diagnostic close to the offending caller.
+    if path.is_empty() {
+        return Err(SqlError::EmptyPath);
+    }
     for ch in path.chars() {
         let is_safe = ch.is_alphanumeric()
             || ch == '-'
@@ -466,9 +476,23 @@ mod tests {
         assert!(validate_path_chars("/home/用户/file").is_ok());
     }
 
+    /// READ-5 (TASK-0528): empty paths are now rejected up front, both at
+    /// the leaf validator and through `prepare_path_for_sql`. Previously
+    /// the for-loop had zero iterations and produced `Ok(())`, letting an
+    /// unpopulated path slip through and surface as a confusing
+    /// `read_json_auto('')` failure.
     #[test]
-    fn validate_path_chars_empty_is_ok() {
-        assert!(validate_path_chars("").is_ok());
+    fn validate_path_chars_empty_is_rejected() {
+        assert!(matches!(validate_path_chars(""), Err(SqlError::EmptyPath)));
+    }
+
+    #[test]
+    fn prepare_path_for_sql_rejects_empty() {
+        let path = std::path::PathBuf::new();
+        assert!(matches!(
+            prepare_path_for_sql(&path),
+            Err(SqlError::EmptyPath)
+        ));
     }
 
     #[test]

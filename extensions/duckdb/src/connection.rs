@@ -44,6 +44,16 @@ impl DuckDb {
     }
 
     /// Open a database at the given path in read-only mode.
+    ///
+    /// READ-5 (TASK-0525): unlike [`Self::open`], this does **not**
+    /// `create_dir_all` the parent directory. A read-only opener that
+    /// creates writable directories on disk would contradict the access
+    /// mode the caller requested — an unresolvable path is the caller's
+    /// signal that the DB has not been provisioned yet, not an invitation
+    /// for the read path to mutate the filesystem. The asymmetry with
+    /// `open` is intentional and the resulting `DuckDb`-level error
+    /// (rather than a more friendly mkdir error) is the price of that
+    /// honesty.
     pub fn open_readonly(path: &Path) -> DbResult<Self> {
         let path = path.to_path_buf();
         let conn = duckdb::Connection::open_with_flags(
@@ -172,6 +182,23 @@ mod tests {
         fn duck_db_open_readonly_nonexistent_fails() {
             let result = DuckDb::open_readonly(Path::new("/nonexistent/path/db.duckdb"));
             assert!(result.is_err(), "readonly open of nonexistent should fail");
+        }
+
+        /// READ-5 (TASK-0525): pin the asymmetry — `open_readonly` does not
+        /// create parent directories, and the resulting error is a duckdb
+        /// error rather than the parent-mkdir IO error `open` produces.
+        #[test]
+        fn duck_db_open_readonly_does_not_create_parent_dir() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let missing_parent = dir.path().join("does/not/exist");
+            let db_path = missing_parent.join("db.duckdb");
+            let result = DuckDb::open_readonly(&db_path);
+            assert!(result.is_err(), "readonly open of nonexistent should fail");
+            assert!(
+                !missing_parent.exists(),
+                "open_readonly must not mkdir parent: {:?}",
+                missing_parent
+            );
         }
     }
 }

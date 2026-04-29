@@ -6,6 +6,11 @@ use std::collections::HashMap;
 use super::helpers::{query_project_scalar, query_rows_fold, QuerySpec};
 
 /// Query total dependency count from `crate_dependencies`.
+///
+/// ERR-1 (TASK-0506): a negative i64 from COUNT (which DuckDB should never
+/// emit but a future cast or schema bug could) used to be silently coerced
+/// to 0. Now we surface the anomaly via `tracing::warn` before falling back
+/// so a misbehaving view doesn't impersonate "no dependencies".
 pub fn query_dependency_count(db: &DuckDb) -> anyhow::Result<usize> {
     let count = query_project_scalar(
         db,
@@ -13,7 +18,45 @@ pub fn query_dependency_count(db: &DuckDb) -> anyhow::Result<usize> {
         "SELECT COUNT(DISTINCT dependency_name) FROM crate_dependencies",
         "query_dependency_count",
     )?;
-    Ok(usize::try_from(count).unwrap_or(0))
+    Ok(coerce_count_to_usize(count))
+}
+
+/// Convert a `COUNT(*)` scalar to `usize`, logging anomalous (negative)
+/// values via `tracing::warn` instead of silently returning 0. Negative
+/// values from DuckDB COUNT should be impossible; surfacing them lets a
+/// schema bug be diagnosed instead of presenting as "no data".
+fn coerce_count_to_usize(count: i64) -> usize {
+    match usize::try_from(count) {
+        Ok(n) => n,
+        Err(e) => {
+            tracing::warn!(
+                count,
+                error = %e,
+                "query_dependency_count: negative scalar from COUNT; coercing to 0"
+            );
+            0
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::coerce_count_to_usize;
+
+    /// ERR-1 (TASK-0506): a negative scalar coerces to 0 (the safe degraded
+    /// value) but does not panic. The accompanying warn covers the alerting
+    /// requirement; this test pins the value-level contract.
+    #[test]
+    fn negative_count_coerces_to_zero() {
+        assert_eq!(coerce_count_to_usize(-1), 0);
+        assert_eq!(coerce_count_to_usize(i64::MIN), 0);
+    }
+
+    #[test]
+    fn non_negative_count_round_trips() {
+        assert_eq!(coerce_count_to_usize(0), 0);
+        assert_eq!(coerce_count_to_usize(42), 42);
+    }
 }
 
 /// Query per-crate external dependencies (name + version_req) from `crate_dependencies` view.

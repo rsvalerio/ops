@@ -34,6 +34,7 @@ impl LoadResult {
 /// files (e.g., tokei, coverage). The methods handle the common collect/load/checksum
 /// workflow, eliminating duplicated boilerplate across ingestor implementations.
 #[allow(dead_code)]
+#[non_exhaustive]
 pub struct SidecarIngestorConfig {
     pub name: &'static str,
     pub json_filename: &'static str,
@@ -46,6 +47,25 @@ pub struct SidecarIngestorConfig {
 
 #[allow(dead_code)]
 impl SidecarIngestorConfig {
+    /// Construct a sidecar ingestor config (API-9 / TASK-0468).
+    ///
+    /// `#[non_exhaustive]` forbids struct-init on the type, so downstream
+    /// extensions must route through this constructor. New fields can be
+    /// added (with backward-compatible defaults) without bumping every
+    /// caller.
+    #[must_use]
+    pub const fn new(
+        name: &'static str,
+        json_filename: &'static str,
+        count_table: &'static str,
+    ) -> Self {
+        Self {
+            name,
+            json_filename,
+            count_table,
+        }
+    }
+
     /// Write serializable data to JSON and create workspace sidecar.
     pub fn collect_sidecar(
         &self,
@@ -191,16 +211,28 @@ impl SidecarIngestorConfig {
     /// the time we get here, so a leftover staged JSON or sidecar is a
     /// recoverable disk-hygiene issue, not a load failure. A transient
     /// permission error must not fail the whole ingest.
+    ///
+    /// ERR-1 (TASK-0466): the sidecar is removed only after the JSON
+    /// removal has succeeded. If the JSON cannot be deleted, the sidecar
+    /// is left in place so `read_workspace_sidecar` can drive a clean
+    /// recovery on the next run instead of failing on a missing sidecar
+    /// while leftover JSON still sits on disk.
     fn cleanup_artifacts(&self, data_dir: &Path, json_path: &Path) {
-        if let Err(err) = std::fs::remove_file(json_path) {
-            tracing::warn!(
-                source = self.name,
-                path = %json_path.display(),
-                error = %err,
-                "failed to remove staged JSON after ingest; continuing"
-            );
+        match std::fs::remove_file(json_path) {
+            Ok(()) => crate::sql::remove_workspace_sidecar(data_dir, self.name),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                crate::sql::remove_workspace_sidecar(data_dir, self.name);
+            }
+            Err(err) => {
+                tracing::warn!(
+                    source = self.name,
+                    path = %json_path.display(),
+                    error = %err,
+                    "failed to remove staged JSON after ingest; \
+                     leaving sidecar to drive recovery on next run"
+                );
+            }
         }
-        crate::sql::remove_workspace_sidecar(data_dir, self.name);
     }
 
     /// Compute checksum of the JSON file.
@@ -336,6 +368,59 @@ mod tests {
         assert_eq!(ingestor.checksum(temp_dir.path()).unwrap(), "empty");
         std::fs::write(temp_dir.path().join("data.json"), r#"{"test": "data"}"#).unwrap();
         assert_eq!(ingestor.checksum(temp_dir.path()).unwrap(), "mock_checksum");
+    }
+
+    /// ERR-1 (TASK-0466): if JSON removal fails for a real I/O reason
+    /// (write-protected parent dir), the sidecar must remain on disk so the
+    /// next run can recompute the checksum from leftover JSON.
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_keeps_sidecar_when_json_removal_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let config = SidecarIngestorConfig {
+            name: "cleanup_keeps_sidecar",
+            json_filename: "data.json",
+            count_table: "data_sources",
+        };
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let parent = temp_dir.path().join("locked");
+        std::fs::create_dir(&parent).expect("mkdir");
+        let json_path = parent.join("data.json");
+        std::fs::write(&json_path, "{}").expect("write json");
+        crate::sql::write_workspace_sidecar(temp_dir.path(), config.name, temp_dir.path())
+            .expect("write sidecar");
+
+        // Strip write permissions from the parent dir so remove_file fails
+        // with PermissionDenied. Restore on drop via a guard so a panicking
+        // assertion doesn't leak an unwritable temp dir.
+        struct PermsGuard {
+            path: std::path::PathBuf,
+            original: std::fs::Permissions,
+        }
+        impl Drop for PermsGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::set_permissions(&self.path, self.original.clone());
+            }
+        }
+        let original = std::fs::metadata(&parent).expect("meta").permissions();
+        let _guard = PermsGuard {
+            path: parent.clone(),
+            original: original.clone(),
+        };
+        let mut readonly = original.clone();
+        readonly.set_mode(0o500);
+        std::fs::set_permissions(&parent, readonly).expect("chmod");
+
+        config.cleanup_artifacts(temp_dir.path(), &json_path);
+
+        // Restore perms before asserting so the test environment can clean up.
+        std::fs::set_permissions(&parent, original).expect("restore");
+
+        let sidecar = crate::sql::sidecar_path(temp_dir.path(), config.name);
+        assert!(
+            sidecar.exists(),
+            "sidecar must remain when JSON removal fails: {sidecar:?}"
+        );
     }
 
     #[test]

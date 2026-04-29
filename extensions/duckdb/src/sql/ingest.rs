@@ -3,9 +3,7 @@
 use crate::{DbError, DbResult, DuckDb};
 use std::path::{Path, PathBuf};
 
-use super::validation::{
-    prepare_path_for_sql, quoted_ident, validate_extra_opts, validate_identifier, SqlError,
-};
+use super::validation::{prepare_path_for_sql, quoted_ident, validate_extra_opts, SqlError};
 
 /// Generate `CREATE OR REPLACE TABLE <name> AS SELECT * FROM read_json_auto(...)` SQL (DUP-009).
 ///
@@ -16,17 +14,21 @@ pub fn create_table_from_json_sql(
     path: &Path,
     extra_opts: Option<&str>,
 ) -> Result<String, SqlError> {
-    validate_identifier(table_name)?;
+    // SEC-12 (TASK-0522): use the same `quoted_ident` defense-in-depth as
+    // `table_has_data` and `drop_table_if_exists` so a future widening of
+    // `validate_identifier` (e.g. allowing schema-qualified names) does
+    // not silently break the safety contract here.
+    let quoted = quoted_ident(table_name)?;
     let escaped = prepare_path_for_sql(path)?;
     match extra_opts {
         Some(opts) => {
             validate_extra_opts(opts)?;
             Ok(format!(
-            "CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_json_auto('{escaped}', {opts})",
+            "CREATE OR REPLACE TABLE {quoted} AS SELECT * FROM read_json_auto('{escaped}', {opts})",
         ))
         }
         None => Ok(format!(
-            "CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_json_auto('{escaped}')",
+            "CREATE OR REPLACE TABLE {quoted} AS SELECT * FROM read_json_auto('{escaped}')",
         )),
     }
 }
@@ -75,7 +77,10 @@ pub fn table_has_data(db: &DuckDb, table_name: &str) -> Result<bool, anyhow::Err
             [],
             |row: &duckdb::Row| row.get(0),
         )
-        .with_context(|| format!("counting rows in {}", table_name))?;
+        // ERR-7 (TASK-0521): Debug-format the table name to defang
+        // control-character/log-injection, matching the sibling
+        // `table_exists` error context.
+        .with_context(|| format!("counting rows in {table_name:?}"))?;
     Ok(row_count > 0)
 }
 
@@ -126,7 +131,7 @@ pub fn checksum_file(path: &Path) -> DbResult<String> {
 
 /// Single source of truth for the workspace sidecar filename convention
 /// (DUP-3). All write/read/remove helpers route through here.
-fn sidecar_path(data_dir: &Path, name: &str) -> PathBuf {
+pub fn sidecar_path(data_dir: &Path, name: &str) -> PathBuf {
     data_dir.join(format!("{name}_workspace.txt"))
 }
 
@@ -435,6 +440,23 @@ mod tests {
         assert!(create_table_from_json_sql("123start", &path, None).is_err());
     }
 
+    /// SEC-12 (TASK-0522): the generated SQL wraps the validated identifier
+    /// in double quotes — defense-in-depth that survives a future widening
+    /// of `validate_identifier`.
+    #[test]
+    fn create_table_from_json_sql_quotes_identifier() {
+        let path = PathBuf::from("/safe/path.json");
+        let sql = create_table_from_json_sql("tokei_files", &path, None).expect("ok");
+        assert!(
+            sql.contains("\"tokei_files\""),
+            "expected quoted identifier in: {sql}"
+        );
+        assert!(
+            !sql.contains("CREATE OR REPLACE TABLE tokei_files "),
+            "bare identifier interpolation regressed: {sql}"
+        );
+    }
+
     /// ERR-7: a control-character-laden table name must not reach the error
     /// message verbatim. `Debug` formatting escapes such bytes so log
     /// readers cannot be tricked into seeing forged lines.
@@ -453,6 +475,22 @@ mod tests {
 
         let nasty = "name\nADMIN: forged log line\rwith ESC\x1b[31m red";
         let rendered = format!("checking if {nasty:?} exists");
+        assert!(
+            !rendered.contains('\n') && !rendered.contains('\r') && !rendered.contains('\x1b'),
+            "control chars must be escaped in error context: {rendered}"
+        );
+        assert!(rendered.contains("\\n"), "newline escaped: {rendered}");
+        assert!(rendered.contains("\\u{1b}"), "ESC escaped: {rendered}");
+    }
+
+    /// ERR-7 (TASK-0521): the `counting rows in {table_name:?}` error
+    /// context must Debug-format the identifier so a control-character
+    /// laden name cannot forge log lines, mirroring the regression guard
+    /// on `table_exists_error_message_sanitizes_control_chars`.
+    #[test]
+    fn table_has_data_error_message_sanitizes_control_chars() {
+        let nasty = "name\nADMIN: forged log line\rwith ESC\x1b[31m red";
+        let rendered = format!("counting rows in {nasty:?}");
         assert!(
             !rendered.contains('\n') && !rendered.contains('\r') && !rendered.contains('\x1b'),
             "control chars must be escaped in error context: {rendered}"
