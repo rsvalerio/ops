@@ -177,6 +177,52 @@ fn interpret_deny_result_treats_exit_code_2_as_config_error() {
     );
 }
 
+/// ERR-1 / TASK-0612: cargo-deny exit 1 with empty stderr is "binary crashed
+/// before emitting diagnostics", not "no issues found". Returning Ok(default)
+/// would let `ops deps` exit 0 on a silently broken supply-chain pipeline.
+#[test]
+fn interpret_deny_result_errs_on_exit_1_with_empty_stderr() {
+    let result = interpret_deny_result(Some(1), "");
+    let err = result.expect_err("empty stderr at exit 1 must surface");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("status 1") && msg.contains("no diagnostics"),
+        "got: {msg}"
+    );
+}
+
+#[test]
+fn interpret_deny_result_errs_on_exit_1_with_whitespace_stderr() {
+    let result = interpret_deny_result(Some(1), "   \n\t \n");
+    assert!(
+        result.is_err(),
+        "whitespace-only stderr at exit 1 must surface"
+    );
+}
+
+/// ERR-7 (TASK-0598): exit_code = None means cargo-deny was killed by
+/// signal. Treating partial stderr as an authoritative diagnostic stream
+/// silently turns a SIGKILL/OOM into a "clean" run; the gate must error
+/// instead so CI does not score a killed run as green.
+#[test]
+fn interpret_deny_result_errs_on_signal_kill() {
+    let result = interpret_deny_result(None, "");
+    let err = result.expect_err("None exit code must surface");
+    assert!(
+        err.to_string().contains("signal"),
+        "error must name the signal-kill case, got: {err}"
+    );
+}
+
+#[test]
+fn interpret_deny_result_errs_on_signal_kill_even_with_partial_stderr() {
+    // Even if the binary flushed some JSON before being killed, partial
+    // diagnostics are not a clean run.
+    let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"x","code":"vulnerability","advisory":{"id":"RUSTSEC-2024-0001","package":"x","title":"t"},"graphs":[]}}"#;
+    let result = interpret_deny_result(None, stderr);
+    assert!(result.is_err());
+}
+
 #[test]
 fn interpret_deny_result_passes_exit_code_0_through() {
     // Clean run: empty stderr, no diagnostics.
@@ -372,10 +418,13 @@ fn parse_deny_package_from_graphs_when_no_advisory_package() {
 
 #[test]
 fn parse_deny_package_unknown_when_no_graphs_or_advisory_package() {
+    // ERR-7 (TASK-0597): the missing-package sentinel must be visibly
+    // distinct from any plausible crate name so operators can tell schema
+    // drift apart from a real dependency on a crate named "unknown".
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"bad license","code":"unlicensed","labels":[],"notes":[]}}"#;
     let result = parse_deny_output(stderr);
     assert_eq!(result.licenses.len(), 1);
-    assert_eq!(result.licenses[0].package, "unknown");
+    assert_eq!(result.licenses[0].package, "<no package>");
 }
 
 #[test]
@@ -494,6 +543,12 @@ fn format_report_with_breaking_upgrades_shows_advice() {
     let output = format_report(&report);
     assert!(output.contains("Breaking Upgrades (1):"));
     assert!(output.contains("cargo upgrade --incompatible"));
+    // ERR-1 / TASK-0600: a breaking-upgrade row must surface the absolute
+    // `latest` so operators see how far behind the compatible cap is.
+    assert!(
+        output.contains("4.6.0") && output.contains("(latest"),
+        "breaking row must include 'latest' column: {output}"
+    );
 }
 
 #[test]
@@ -605,6 +660,31 @@ fn has_issues_advisory_info_not_actionable() {
         ..Default::default()
     };
     assert!(!has_issues(&report));
+}
+
+/// ERR-2 (TASK-0601): an unknown severity (e.g. cargo-deny adding a new
+/// `critical` severity in a future release) must fail the gate, not slip
+/// through silently. Combined with the missing-severity `error` default in
+/// `parse_deny_output`, this guarantees schema drift either surfaces or
+/// errs on the side of failing CI.
+#[test]
+fn has_issues_unknown_severity_fails_closed() {
+    let report = DepsReport {
+        deny: DenyResult {
+            advisories: vec![AdvisoryEntry {
+                id: "RUSTSEC-2024-0099".into(),
+                package: "x".into(),
+                severity: "critical".into(),
+                title: "future severity".into(),
+            }],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert!(
+        has_issues(&report),
+        "unknown severities must be treated as actionable"
+    );
 }
 
 #[test]

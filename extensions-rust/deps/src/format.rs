@@ -5,11 +5,29 @@ use ops_core::style::{bold, dim, green, red, yellow};
 
 const P: &str = "  "; // left padding for the entire report
 
+/// DUP-1 (TASK-0610): single source of truth for the "section is empty"
+/// line. Every section formatter (`format_upgrade_section`,
+/// `format_advisories`, `format_deny_section`, `format_bans_summary`)
+/// previously open-coded the same `"{P}{title} ✓ None\n\n"` shape, so a
+/// style tweak meant editing five places. Centralised here so future
+/// changes to the empty-state line (e.g. a different glyph or color) ripple
+/// to every section.
+fn format_empty_section(out: &mut String, title: &str) {
+    out.push_str(&format!("{P}{} {}\n\n", title, green("\u{2714} None")));
+}
+
+/// ERR-2 (TASK-0602): the previous `_ => info-icon` fallback collapsed any
+/// unknown severity (cargo-deny schema drift, e.g. a new `critical` level)
+/// onto the lowest-emphasis style — exactly inverting what the icon set
+/// is meant to communicate. Render unknown severities with a clearly
+/// distinct fallback (red `?` icon) so a misclassified critical never
+/// looks like info.
 fn severity_icon(severity: &str) -> &'static str {
     match severity {
-        "error" => "\u{2718}",   // ✘
-        "warning" => "\u{26a0}", // ⚠
-        _ => "\u{2139}",         // ℹ
+        "error" => "\u{2718}",                  // ✘
+        "warning" => "\u{26a0}",                // ⚠
+        "note" | "help" | "info" => "\u{2139}", // ℹ
+        _ => "?",
     }
 }
 
@@ -17,7 +35,18 @@ fn colorize_severity(text: &str, severity: &str) -> String {
     match severity {
         "error" => red(text),
         "warning" => yellow(text),
-        _ => dim(text),
+        "note" | "help" | "info" => dim(text),
+        // ERR-2 (TASK-0602): unknown severity prints in red so it stands
+        // out from the dim-info fallback that previously hid schema drift.
+        // tracing::warn fires once per render so the operator log carries
+        // the offending value alongside the visible icon change.
+        other => {
+            tracing::warn!(
+                severity = %other,
+                "TASK-0602: unknown cargo-deny severity rendered with fallback style"
+            );
+            red(text)
+        }
     }
 }
 
@@ -76,20 +105,42 @@ fn format_upgrade_section(
     is_breaking: bool,
 ) {
     if entries.is_empty() {
-        out.push_str(&format!("{P}{} {}\n\n", title, green("\u{2714} None")));
+        format_empty_section(out, title);
     } else {
         out.push_str(&format!("{P}{} ({}):\n", title, entries.len()));
         let name_width = entries.iter().map(|e| e.name.len()).max().unwrap_or(0);
         let old_width = entries.iter().map(|e| e.old_req.len()).max().unwrap_or(0);
+        // ERR-1 / TASK-0600: for breaking upgrades, surface the absolute
+        // `latest` column too — operators need to see how far behind the
+        // compatible-cap (`new_req`) is from the latest published version
+        // (e.g. cap stuck at 3.x while latest is 5.x). Compatible upgrades
+        // already collapse cap == latest so the column would be redundant.
+        let latest_width = if is_breaking {
+            entries.iter().map(|e| e.latest.len()).max().unwrap_or(0)
+        } else {
+            0
+        };
         for e in entries {
-            out.push_str(&format!(
-                "{P}    {:<name_w$}  {}  {}  {}\n",
-                e.name,
-                dim(&format!("{:<old_w$}", e.old_req, old_w = old_width)),
-                dim("->"),
-                green(&e.new_req),
-                name_w = name_width,
-            ));
+            if is_breaking {
+                out.push_str(&format!(
+                    "{P}    {:<name_w$}  {}  {}  {}  (latest {})\n",
+                    e.name,
+                    dim(&format!("{:<old_w$}", e.old_req, old_w = old_width)),
+                    dim("->"),
+                    green(&e.new_req),
+                    dim(&format!("{:<latest_w$}", e.latest, latest_w = latest_width)),
+                    name_w = name_width,
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{P}    {:<name_w$}  {}  {}  {}\n",
+                    e.name,
+                    dim(&format!("{:<old_w$}", e.old_req, old_w = old_width)),
+                    dim("->"),
+                    green(&e.new_req),
+                    name_w = name_width,
+                ));
+            }
         }
         out.push('\n');
         let advice = if is_breaking {
@@ -103,10 +154,7 @@ fn format_upgrade_section(
 
 fn format_advisories(out: &mut String, advisories: &[AdvisoryEntry]) {
     if advisories.is_empty() {
-        out.push_str(&format!(
-            "{P}\u{1f6e1}\u{fe0f} Advisories {}\n\n",
-            green("\u{2714} None")
-        ));
+        format_empty_section(out, "\u{1f6e1}\u{fe0f} Advisories");
     } else {
         out.push_str(&format!(
             "{P}\u{1f6e1}\u{fe0f} Advisories ({}):\n",
@@ -142,7 +190,7 @@ fn format_advisories(out: &mut String, advisories: &[AdvisoryEntry]) {
 fn format_bans_summary(out: &mut String, bans: &[BanEntry]) {
     let title = "\u{1f4e6} Duplicate Crates";
     if bans.is_empty() {
-        out.push_str(&format!("{P}{} {}\n\n", title, green("\u{2714} None")));
+        format_empty_section(out, title);
     } else {
         let errors = bans.iter().filter(|b| b.severity == "error").count();
         let warnings = bans.iter().filter(|b| b.severity == "warning").count();
@@ -181,7 +229,7 @@ where
     F: Fn(&T) -> (&String, &String, &String),
 {
     if entries.is_empty() {
-        out.push_str(&format!("{P}{} {}\n\n", title, green("\u{2714} None")));
+        format_empty_section(out, title);
     } else {
         out.push_str(&format!("{P}{} ({}):\n", title, entries.len()));
         let pkg_width = entries

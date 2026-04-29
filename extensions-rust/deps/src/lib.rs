@@ -31,6 +31,7 @@ pub const DATA_PROVIDER_NAME: &str = "deps";
 
 /// A single available upgrade entry from `cargo upgrade --dry-run`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct UpgradeEntry {
     pub name: String,
     pub old_req: String,
@@ -43,6 +44,7 @@ pub struct UpgradeEntry {
 /// Parsed result from `cargo upgrade --dry-run`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[must_use = "UpgradeResult carries compatible/incompatible upgrade entries — silently dropping it loses the parsed report"]
+#[non_exhaustive]
 pub struct UpgradeResult {
     pub compatible: Vec<UpgradeEntry>,
     pub incompatible: Vec<UpgradeEntry>,
@@ -50,6 +52,7 @@ pub struct UpgradeResult {
 
 /// A single advisory finding from `cargo deny check`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct AdvisoryEntry {
     pub id: String,
     pub package: String,
@@ -59,6 +62,7 @@ pub struct AdvisoryEntry {
 
 /// A single issue (license, ban, or source) from `cargo deny check`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct DenyEntry {
     pub package: String,
     pub message: String,
@@ -73,6 +77,7 @@ pub type SourceEntry = DenyEntry;
 /// Combined result from `cargo deny check`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[must_use = "DenyResult carries advisory/license/ban/source findings — silently dropping it hides cargo-deny output"]
+#[non_exhaustive]
 pub struct DenyResult {
     pub advisories: Vec<AdvisoryEntry>,
     pub licenses: Vec<LicenseEntry>,
@@ -82,6 +87,7 @@ pub struct DenyResult {
 
 /// Full dependency health report.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct DepsReport {
     pub upgrades: UpgradeResult,
     pub deny: DenyResult,
@@ -187,10 +193,36 @@ pub fn run_deps(
     Ok(())
 }
 
-/// Returns true if the report contains any error- or warning-level issues.
+/// Returns true if the report contains any actionable issues.
+///
 /// Duplicate crate bans (warnings) are excluded — they are informational.
+///
+/// ERR-2 (TASK-0601): fail-closed for unknown severities. Previously the
+/// allowlist `matches!(s, "error" | "warning")` silently treated any
+/// future cargo-deny severity (`help`, `note`, a hypothetical `critical`)
+/// as non-actionable, exactly inverting the desired safety property.
+/// Combined with `parse_deny_output` defaulting a missing severity field
+/// to `error`, the prior code treated explicit-but-unknown severities as
+/// benign while treating absent severities as failures — backwards. Now
+/// any severity outside the explicitly-known-benign set fails the gate;
+/// unknown severities fire a one-off `tracing::warn!` so schema drift
+/// surfaces in logs without skipping the gate.
 fn has_issues(report: &DepsReport) -> bool {
-    let is_actionable = |s: &str| matches!(s, "error" | "warning");
+    let is_actionable = |severity: &str| -> bool {
+        match severity {
+            "error" | "warning" => true,
+            // Known-benign in cargo-deny output: informational diagnostics
+            // that should not fail CI.
+            "note" | "help" | "info" => false,
+            other => {
+                tracing::warn!(
+                    severity = %other,
+                    "TASK-0601: unknown cargo-deny severity treated as actionable (fail-closed); update has_issues if this is benign"
+                );
+                true
+            }
+        }
+    };
 
     report
         .deny

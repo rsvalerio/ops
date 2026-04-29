@@ -82,8 +82,11 @@ pub fn parse_upgrade_table(stdout: &str) -> Vec<UpgradeEntry> {
             continue;
         }
 
-        let take = |idx: usize| -> Option<String> {
-            let (start, end) = cols[idx];
+        // READ-2 (TASK-0609): closure renamed from `take` (shadowed
+        // `Iterator::take`) to `slice_col`; both row fields and note now
+        // index `cols` via `.get(...)` for consistency.
+        let slice_col = |idx: usize| -> Option<String> {
+            let &(start, end) = cols.get(idx)?;
             if start >= line.len() {
                 return None;
             }
@@ -99,9 +102,13 @@ pub fn parse_upgrade_table(stdout: &str) -> Vec<UpgradeEntry> {
         // Require all five fixed fields to be present; a row that doesn't
         // reach the `new req` column is an incomplete table line and should
         // be skipped to match prior behavior.
-        let (Some(name), Some(old_req), Some(compatible), Some(latest), Some(new_req)) =
-            (take(0), take(1), take(2), take(3), take(4))
-        else {
+        let (Some(name), Some(old_req), Some(compatible), Some(latest), Some(new_req)) = (
+            slice_col(0),
+            slice_col(1),
+            slice_col(2),
+            slice_col(3),
+            slice_col(4),
+        ) else {
             tracing::debug!(
                 line = %line,
                 "TASK-0404: skipping cargo-upgrade row that did not fill the 5 fixed columns"
@@ -267,6 +274,28 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
             stderr.trim()
         );
     }
+    // ERR-7 (TASK-0598): exit_code == None means cargo-deny was killed by a
+    // signal (SIGKILL / OOM-killer / parent timeout). Falling through to
+    // parse_deny_output(stderr) here would surface whatever partial JSON had
+    // already flushed and report it as a (possibly clean) diagnostic stream
+    // — a security-grade silent-failure mode for the supply-chain gate.
+    // Fail loudly so CI does not score a killed run as a green build.
+    if exit_code.is_none() {
+        anyhow::bail!(
+            "cargo deny terminated by signal (exit_code = None); \
+             refusing to treat partial diagnostics as authoritative"
+        );
+    }
+    // ERR-1 / TASK-0612: cargo-deny's contract for exit 1 is "stderr has the
+    // JSON diagnostic stream". An empty/whitespace-only stderr at exit 1
+    // means the binary crashed before printing diagnostics — treating it as
+    // "no issues parsed" silently masks a supply-chain pipeline failure.
+    if exit_code == Some(1) && stderr.trim().is_empty() {
+        anyhow::bail!(
+            "cargo deny exited with status 1 but produced no diagnostics on stderr; \
+             treating as pipeline failure (binary may have crashed before emitting JSON)"
+        );
+    }
     Ok(parse_deny_output(stderr))
 }
 
@@ -354,7 +383,14 @@ pub fn parse_deny_output(stderr: &str) -> DenyResult {
         let severity = fields.severity.as_deref().unwrap_or("error").to_string();
         let message = fields.message.clone().unwrap_or_default();
 
-        // Extract package name from graphs or advisory
+        // Extract package name from graphs or advisory.
+        //
+        // ERR-7 (TASK-0597): when both sources are missing the previous
+        // sentinel was the literal string "unknown", which renders
+        // identically to a real crate named `unknown`. Use a clearly
+        // non-package sentinel and emit a tracing::debug so operators can
+        // tell schema drift (cargo-deny dropped the field) from a project
+        // that genuinely depends on a crate called `unknown`.
         let package = fields
             .advisory
             .as_ref()
@@ -367,7 +403,16 @@ pub fn parse_deny_output(stderr: &str) -> DenyResult {
                     .and_then(|g| g.krate.as_ref())
                     .map(|k| k.name.clone())
             })
-            .unwrap_or_else(|| "unknown".to_string());
+            .unwrap_or_else(|| {
+                tracing::debug!(
+                    code = code,
+                    severity = %severity,
+                    message = %truncate_for_log(&message),
+                    "TASK-0597: cargo-deny diagnostic had no package name in advisory or graphs[0].krate; \
+                     substituting <no package> sentinel"
+                );
+                "<no package>".to_string()
+            });
 
         if ADVISORY_CODES.contains(&code) {
             let (id, title) = if let Some(adv) = &fields.advisory {
