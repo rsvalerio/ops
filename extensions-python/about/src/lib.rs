@@ -6,8 +6,8 @@
 //! Workspace members come from `[tool.uv.workspace].members`.
 //!
 //! Parse and read errors fall back to defaults; non-NotFound read errors and
-//! TOML parse errors are reported via `tracing` (`debug!` / `warn!`) so a
-//! malformed manifest does not silently look like a missing one (TASK-0394).
+//! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
+//! manifest does not silently look like a missing one (TASK-0394).
 
 mod units;
 
@@ -23,6 +23,7 @@ const DESCRIPTION: &str = "Python project identity";
 const SHORTNAME: &str = "about-python";
 const DATA_PROVIDER_NAME: &str = "project_identity";
 
+#[non_exhaustive]
 pub struct AboutPythonExtension;
 
 ops_extension::impl_extension! {
@@ -60,8 +61,7 @@ impl DataProvider for PythonIdentityProvider {
         // — the parse-once / build-identity scaffold lives in `ops_about`,
         // and the Python provider only needs to project pyproject.toml onto
         // a [`ParsedManifest`].
-        let cwd = ctx.working_directory.clone();
-        provide_identity_from_manifest(&cwd, |root| {
+        provide_identity_from_manifest(ctx.working_directory.as_path(), |root| {
             let Pyproject {
                 name,
                 version,
@@ -74,23 +74,25 @@ impl DataProvider for PythonIdentityProvider {
                 has_tool_uv,
             } = parse_pyproject(root).unwrap_or_default();
 
-            let uses_uv = root.join("uv.lock").exists() || has_tool_uv;
+            // SEC-25 (mirrors extensions-node/about/src/package_manager.rs::probe):
+            // use symlink_metadata so a hostile uv.lock symlink isn't followed
+            // to an arbitrary target during workspace probing.
+            let uses_uv = std::fs::symlink_metadata(root.join("uv.lock")).is_ok() || has_tool_uv;
             let stack_detail = build_stack_detail(requires_python.as_deref(), uses_uv);
 
-            ParsedManifest {
-                name,
-                version,
-                description,
-                license,
-                authors,
-                homepage,
-                repository,
-                stack_label: "Python",
-                stack_detail,
-                module_label: "packages",
-                module_count: None,
-                ..ParsedManifest::default()
-            }
+            ParsedManifest::build(|m| {
+                m.name = name;
+                m.version = version;
+                m.description = description;
+                m.license = license;
+                m.authors = authors;
+                m.homepage = homepage;
+                m.repository = repository;
+                m.stack_label = "Python";
+                m.stack_detail = stack_detail;
+                m.module_label = "packages";
+                m.module_count = None;
+            })
         })
     }
 }
@@ -157,20 +159,16 @@ struct RawAuthor {
 
 #[derive(Debug, Deserialize)]
 struct RawTool {
-    uv: Option<toml::Value>,
+    // PERF-3 / TASK-0569: only presence of `[tool.uv]` matters here. Using
+    // `serde::de::IgnoredAny` skips the entire subtree (often holding
+    // dev-dependencies, sources, indexes) instead of materialising it into
+    // an arbitrary `toml::Value` that is immediately thrown away.
+    uv: Option<serde::de::IgnoredAny>,
 }
 
 fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
     let path = project_root.join("pyproject.toml");
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::debug!(path = %path.display(), error = %e, "failed to read pyproject.toml");
-            }
-            return None;
-        }
-    };
+    let content = ops_about::manifest_io::read_optional_text(&path, "pyproject.toml")?;
     let raw: RawPyproject = match toml::from_str(&content) {
         Ok(r) => r,
         Err(e) => {
@@ -185,12 +183,13 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
     };
 
     if let Some(p) = raw.project {
-        out.name = p.name;
-        out.version = p.version;
-        out.description = p
-            .description
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
+        // ERR-2 (TASK-0563 AC#3): apply the same trim+empty-filter to
+        // name/version that we already apply to description, so a
+        // whitespace-only PEP 621 field falls through to the dir-name
+        // fallback rather than rendering as a blank About card.
+        out.name = trim_nonempty(p.name);
+        out.version = trim_nonempty(p.version);
+        out.description = trim_nonempty(p.description);
         out.requires_python = p.requires_python;
         // PEP 621 license can be a string, `{ text = "..." }`, or
         // `{ file = "LICENSE" }`. The file form is a *path* to a file, not an
@@ -257,6 +256,12 @@ fn pick_url(urls: &std::collections::BTreeMap<String, String>, keys: &[&str]) ->
 
 fn normalize_url_key(key: &str) -> String {
     key.trim().to_ascii_lowercase().replace('-', " ")
+}
+
+fn trim_nonempty(value: Option<String>) -> Option<String> {
+    value
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 #[cfg(test)]

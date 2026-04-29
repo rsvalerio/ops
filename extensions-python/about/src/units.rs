@@ -20,8 +20,7 @@ impl DataProvider for PythonUnitsProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let cwd = ctx.working_directory.clone();
-        let units = collect_units(&cwd);
+        let units = collect_units(ctx.working_directory.as_path());
         serde_json::to_value(&units).map_err(DataProviderError::from)
     }
 }
@@ -51,14 +50,8 @@ struct RawWorkspace {
 
 fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
     let path = root.join("pyproject.toml");
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::debug!(path = %path.display(), error = %e, "failed to read pyproject.toml");
-            }
-            return Vec::new();
-        }
+    let Some(content) = ops_about::manifest_io::read_optional_text(&path, "pyproject.toml") else {
+        return Vec::new();
     };
     let raw: RawRoot = match toml::from_str(&content) {
         Ok(r) => r,
@@ -115,24 +108,13 @@ fn parse_package_metadata(
     path: &Path,
     content: &str,
 ) -> (Option<String>, Option<String>, Option<String>) {
-    let parsed: PackageProbe = match toml::from_str(content) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::warn!(path = %path.display(), error = %e, "failed to parse pyproject.toml");
-            return (None, None, None);
-        }
-    };
-    let p = match parsed.project {
-        Some(p) => p,
-        None => return (None, None, None),
-    };
-    (
-        p.name,
-        p.version,
-        p.description
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty()),
-    )
+    ops_about::workspace::parse_package_metadata(path, content, |c| {
+        toml::from_str::<PackageProbe>(c).map(|p| {
+            p.project
+                .map(|p| (p.name, p.version, p.description))
+                .unwrap_or((None, None, None))
+        })
+    })
 }
 
 #[cfg(test)]
