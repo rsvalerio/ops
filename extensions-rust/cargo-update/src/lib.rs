@@ -6,6 +6,7 @@
 #[cfg(test)]
 mod tests;
 
+use ops_core::output::format_error_tail;
 use ops_core::subprocess::{run_cargo, RunError};
 use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
@@ -23,6 +24,7 @@ pub const DATA_PROVIDER_NAME: &str = "cargo_update";
 /// The action type for a dependency update entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum UpdateAction {
     Update,
     Add,
@@ -31,6 +33,7 @@ pub enum UpdateAction {
 
 /// A single dependency update entry parsed from `cargo update --dry-run` output.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct UpdateEntry {
     pub action: UpdateAction,
     pub name: String,
@@ -43,6 +46,7 @@ pub struct UpdateEntry {
 /// Result of parsing `cargo update --dry-run` output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use = "CargoUpdateResult carries the parsed update entries and counts — silently dropping it makes the cargo update --dry-run invocation observe nothing"]
+#[non_exhaustive]
 pub struct CargoUpdateResult {
     pub entries: Vec<UpdateEntry>,
     pub update_count: usize,
@@ -206,13 +210,21 @@ fn parse_action_line(line: &str) -> Option<UpdateEntry> {
         // `Vec<&str>` allocation that `splitn(...).collect()` introduces on
         // a hot path (must_use provider runs in CI metadata pipelines).
         if matches!(action, UpdateAction::Update) {
-            let mut it = rest.splitn(4, ' ');
+            let mut it = rest.split_whitespace();
             let name = it.next()?;
             let from = it.next()?;
             let arrow = it.next()?;
             let to = it.next()?;
             if arrow != "->" {
                 return None;
+            }
+            // TASK-0613: a future cargo could append annotations such as
+            // `Updating serde v1 -> v2 (yanked)`. The previous `splitn(4, ' ')`
+            // silently glued the trailing tokens onto `to`, corrupting the
+            // version. Warn loudly so format drift is visible instead of
+            // producing wrong-but-plausible output.
+            if it.next().is_some() {
+                tracing::warn!(line, "cargo-update `Updating` line has unexpected trailing tokens; annotation discarded");
             }
             return Some(UpdateEntry {
                 action: action.clone(),
@@ -276,15 +288,7 @@ impl DataProvider for CargoUpdateProvider {
         // for a failed invocation. Surface the error like sibling providers
         // (test-coverage, metadata, deps) instead.
         if !output.status.success() {
-            let stderr_tail: String = String::from_utf8_lossy(&output.stderr)
-                .lines()
-                .rev()
-                .take(10)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
-                .join("\n");
+            let stderr_tail = format_error_tail(&output.stderr, 10);
             return Err(DataProviderError::from(anyhow::anyhow!(
                 "cargo update --dry-run exited with status {}: {}",
                 output.status,
