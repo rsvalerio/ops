@@ -20,8 +20,7 @@ impl DataProvider for GoUnitsProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let cwd = ctx.working_directory.clone();
-        let units = collect_units(&cwd);
+        let units = collect_units(ctx.working_directory.as_path());
         serde_json::to_value(&units).map_err(DataProviderError::from)
     }
 }
@@ -31,6 +30,15 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
         dirs.into_iter()
             .map(|dir| {
                 let normalized = normalize_module_path(&dir);
+                if normalized.starts_with("..") {
+                    // Out-of-tree workspace members (e.g. `use ../shared`) match no
+                    // `tokei_files.file` entry under cwd, so the unit would render
+                    // with zero LOC and no diagnostic. Surface it instead.
+                    tracing::warn!(
+                        directive = %dir,
+                        "go.work `use` directive points outside the project root; LOC stats will be empty",
+                    );
+                }
                 let mod_path = cwd.join(&normalized);
                 let (module, go_version) = read_mod_info(&mod_path);
                 let name = last_segment(module.as_deref())
@@ -65,7 +73,10 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
 /// `.` → empty string (signals project-root module; enriched via project-wide
 /// stats instead of the per-crate SQL join).
 fn normalize_module_path(dir: &str) -> String {
-    let trimmed = dir.trim_start_matches("./").trim_end_matches('/');
+    let trimmed = dir
+        .trim_start_matches("./")
+        .trim_start_matches(".\\")
+        .trim_end_matches(['/', '\\']);
     if trimmed == "." {
         String::new()
     } else {
@@ -165,6 +176,22 @@ mod tests {
         assert_eq!(normalize_module_path("./api/"), "api");
         assert_eq!(normalize_module_path("."), "");
         assert_eq!(normalize_module_path("pkg/foo"), "pkg/foo");
+    }
+
+    #[test]
+    fn collect_units_out_of_tree_use_directive_does_not_panic() {
+        // `use ../shared` is accepted by cmd/go but lives outside cwd; the
+        // resulting unit has a `..` path that won't match tokei_files. We
+        // surface a diagnostic and emit the unit anyway (zero LOC).
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.work"),
+            "go 1.21\n\nuse (\n\t../shared\n)\n",
+        )
+        .unwrap();
+        let units = collect_units(dir.path());
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].path, "../shared");
     }
 
     #[test]

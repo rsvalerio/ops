@@ -3,9 +3,9 @@
 //! Parses `go.mod` for module name, Go version, and local `replace` directives.
 //! Parses `go.work` for workspace modules.
 //!
-//! Read errors fall back to defaults; non-NotFound read errors are reported via
-//! `tracing::debug!` so unreadable manifests do not silently look like missing
-//! ones (TASK-0394).
+//! Parse and read errors fall back to defaults; non-NotFound read errors and
+//! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
+//! manifest does not silently look like a missing one (TASK-0394).
 
 mod go_mod;
 mod go_work;
@@ -13,7 +13,7 @@ mod modules;
 
 use std::path::Path;
 
-use ops_about::identity::{build_identity_value, ParsedManifest};
+use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
 use ops_core::project_identity::{base_about_fields, AboutFieldDef};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 
@@ -22,6 +22,7 @@ const DESCRIPTION: &str = "Go project identity";
 const SHORTNAME: &str = "about-go";
 const DATA_PROVIDER_NAME: &str = "project_identity";
 
+#[non_exhaustive]
 pub struct AboutGoExtension;
 
 ops_extension::impl_extension! {
@@ -53,48 +54,42 @@ impl DataProvider for GoIdentityProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let cwd = ctx.working_directory.clone();
-        let go_mod = parse_go_mod(&cwd);
-        // DUP-1 (TASK-0484): GoWork was a single-field newtype with no
-        // semantic value. Use the parsed `Vec<String>` directly.
-        let go_work_use_dirs = go_work::parse_use_dirs(&cwd);
+        provide_identity_from_manifest(ctx.working_directory.as_path(), |root| {
+            let go_mod = parse_go_mod(root);
+            // DUP-1 (TASK-0484): GoWork was a single-field newtype with no
+            // semantic value. Use the parsed `Vec<String>` directly.
+            let go_work_use_dirs = go_work::parse_use_dirs(root);
 
-        // Use last segment of module path as name, e.g. "github.com/openbao/openbao" → "openbao"
-        let name = go_mod
-            .as_ref()
-            .and_then(|m| m.module.rsplit('/').next())
-            .map(str::to_string);
+            // Use last segment of module path as name,
+            // e.g. "github.com/openbao/openbao" → "openbao"
+            let name = go_mod
+                .as_ref()
+                .and_then(|m| m.module.rsplit('/').next())
+                .map(str::to_string);
 
-        let stack_detail = go_mod
-            .as_ref()
-            .and_then(|m| m.go_version.clone())
-            .map(|v| format!("Go {v}"));
+            let stack_detail = go_mod
+                .as_ref()
+                .and_then(|m| m.go_version.clone())
+                .map(|v| format!("Go {v}"));
 
-        let module_count = compute_module_count(go_work_use_dirs.as_deref(), go_mod.as_ref());
+            let module_count = compute_module_count(go_work_use_dirs.as_deref(), go_mod.as_ref());
 
-        build_identity_value(
-            ParsedManifest {
-                name,
-                stack_label: "Go",
-                stack_detail,
-                module_label: "modules",
-                module_count,
-                ..ParsedManifest::default()
-            },
-            &cwd,
-        )
+            ParsedManifest::build(|m| {
+                m.name = name;
+                m.stack_label = "Go";
+                m.stack_detail = stack_detail;
+                m.module_label = "modules";
+                m.module_count = module_count;
+            })
+        })
     }
 }
 
 /// Compute the module count surfaced in the About card.
 ///
-/// Precedence:
-/// - If a `go.work` is present, the count is the number of `use` directives.
-/// - Else if a `go.mod` is present, the count is `1 + local_replaces` (the
-///   main module plus each `replace ... => ./local` target). The single-module
-///   case (no local replaces) returns `None` so the card omits the field
-///   instead of displaying a meaningless `1`.
-/// - Else `None`.
+/// Precedence: `go.work` use-dir count, else `go.mod` (1 + local replaces),
+/// else `None`. A bare `go.mod` with no local replaces returns `None` so the
+/// card omits a meaningless `1`.
 fn compute_module_count(
     go_work_use_dirs: Option<&[String]>,
     go_mod: Option<&GoMod>,
@@ -103,8 +98,8 @@ fn compute_module_count(
         return Some(use_dirs.len());
     }
     let m = go_mod?;
-    let count = 1 + m.local_replaces.len();
-    (count > 1).then_some(count)
+    let has_local_replaces = !m.local_replaces.is_empty();
+    has_local_replaces.then(|| 1 + m.local_replaces.len())
 }
 
 // --- go.mod parsing ---
@@ -130,70 +125,35 @@ mod tests {
     use ops_core::project_identity::ProjectIdentity;
 
     #[test]
-    fn parse_go_mod_basic() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module github.com/user/myapp\n\ngo 1.21\n",
-        )
-        .unwrap();
-        let m = parse_go_mod(dir.path()).unwrap();
-        assert_eq!(m.module, "github.com/user/myapp");
-        assert_eq!(m.go_version, Some("1.21".to_string()));
+    fn compute_module_count_workspace_precedence() {
+        let work = vec!["./a".to_string(), "./b".to_string()];
+        let m = GoMod {
+            module: "x".to_string(),
+            go_version: None,
+            local_replaces: vec!["./c".to_string()],
+        };
+        // go.work wins — even when go.mod has replaces.
+        assert_eq!(compute_module_count(Some(&work), Some(&m)), Some(2));
     }
 
     #[test]
-    fn parse_go_mod_no_go_version() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.mod"), "module example.com/foo\n").unwrap();
-        let m = parse_go_mod(dir.path()).unwrap();
-        assert_eq!(m.module, "example.com/foo");
-        assert!(m.go_version.is_none());
+    fn compute_module_count_single_module_returns_none() {
+        let m = GoMod {
+            module: "x".to_string(),
+            go_version: None,
+            local_replaces: Vec::new(),
+        };
+        assert_eq!(compute_module_count(None, Some(&m)), None);
     }
 
     #[test]
-    fn parse_go_mod_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(parse_go_mod(dir.path()).is_none());
-    }
-
-    #[test]
-    fn parse_go_mod_local_replaces() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module github.com/openbao/openbao\n\ngo 1.25.7\n\nreplace github.com/openbao/openbao/api/v2 => ./api\n\nreplace github.com/openbao/openbao/sdk/v2 => ./sdk\n",
-        )
-        .unwrap();
-        let m = parse_go_mod(dir.path()).unwrap();
-        assert_eq!(m.module, "github.com/openbao/openbao");
-        assert_eq!(m.local_replaces, vec!["./api", "./sdk"]);
-    }
-
-    #[test]
-    fn parse_go_work_multi_use() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.work"),
-            "go 1.21\n\nuse (\n\t./api\n\t./cmd\n\t./sdk\n)\n",
-        )
-        .unwrap();
-        let w = go_work::parse_use_dirs(dir.path()).unwrap();
-        assert_eq!(w, vec!["./api", "./cmd", "./sdk"]);
-    }
-
-    #[test]
-    fn parse_go_work_single_use() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.work"), "go 1.21\nuse ./mymod\n").unwrap();
-        let w = go_work::parse_use_dirs(dir.path()).unwrap();
-        assert_eq!(w, vec!["./mymod"]);
-    }
-
-    #[test]
-    fn parse_go_work_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(go_work::parse_use_dirs(dir.path()).is_none());
+    fn compute_module_count_with_local_replaces() {
+        let m = GoMod {
+            module: "x".to_string(),
+            go_version: None,
+            local_replaces: vec!["./a".to_string(), "./b".to_string()],
+        };
+        assert_eq!(compute_module_count(None, Some(&m)), Some(3));
     }
 
     #[test]
@@ -364,98 +324,5 @@ mod tests {
 
         // No slashes, so name is the whole module path
         assert_eq!(id.name, "myutil");
-    }
-
-    // --- additional parse_go_mod tests ---
-
-    #[test]
-    fn parse_go_mod_ignores_remote_replaces() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module example.com/foo\n\ngo 1.21\n\nreplace example.com/bar => github.com/fork/bar v1.2.3\n",
-        )
-        .unwrap();
-        let m = parse_go_mod(dir.path()).unwrap();
-        assert!(m.local_replaces.is_empty());
-    }
-
-    #[test]
-    fn parse_go_mod_whitespace_handling() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "  module   example.com/ws  \n\n  go   1.23  \n",
-        )
-        .unwrap();
-        let m = parse_go_mod(dir.path()).unwrap();
-        assert_eq!(m.module, "example.com/ws");
-        assert_eq!(m.go_version, Some("1.23".to_string()));
-    }
-
-    #[test]
-    fn parse_go_mod_empty_file() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.mod"), "").unwrap();
-        assert!(parse_go_mod(dir.path()).is_none());
-    }
-
-    #[test]
-    fn parse_go_mod_no_module_line() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.mod"), "go 1.21\n").unwrap();
-        assert!(parse_go_mod(dir.path()).is_none());
-    }
-
-    // --- additional parse_go_work tests ---
-
-    #[test]
-    fn parse_go_work_empty_use_block() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n)\n").unwrap();
-        assert!(go_work::parse_use_dirs(dir.path()).is_none());
-    }
-
-    #[test]
-    fn parse_go_work_comments_in_use_block() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.work"),
-            "go 1.21\n\nuse (\n\t// a comment\n\t./real\n\t// another\n)\n",
-        )
-        .unwrap();
-        let w = go_work::parse_use_dirs(dir.path()).unwrap();
-        assert_eq!(w, vec!["./real"]);
-    }
-
-    #[test]
-    fn parse_go_work_empty_file() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("go.work"), "").unwrap();
-        assert!(go_work::parse_use_dirs(dir.path()).is_none());
-    }
-
-    #[test]
-    fn parse_go_work_blank_lines_in_use_block() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.work"),
-            "go 1.21\n\nuse (\n\n\t./a\n\n\t./b\n\n)\n",
-        )
-        .unwrap();
-        let w = go_work::parse_use_dirs(dir.path()).unwrap();
-        assert_eq!(w, vec!["./a", "./b"]);
-    }
-
-    #[test]
-    fn parse_go_work_multiple_single_line_uses() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.work"),
-            "go 1.21\nuse ./first\nuse ./second\n",
-        )
-        .unwrap();
-        let w = go_work::parse_use_dirs(dir.path()).unwrap();
-        assert_eq!(w, vec!["./first", "./second"]);
     }
 }

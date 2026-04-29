@@ -16,15 +16,7 @@ pub(crate) struct GoMod {
 
 pub(crate) fn parse(dir: &Path) -> Option<GoMod> {
     let path = dir.join("go.mod");
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::debug!(path = %path.display(), error = %e, "failed to read go.mod");
-            }
-            return None;
-        }
-    };
+    let content = ops_about::manifest_io::read_optional_text(&path, "go.mod")?;
 
     let mut out = GoMod::default();
     let mut in_replace_block = false;
@@ -48,7 +40,7 @@ pub(crate) fn parse(dir: &Path) -> Option<GoMod> {
             out.module = Some(rest.trim().to_string());
         } else if let Some(rest) = line.strip_prefix("go ") {
             out.go_version = Some(rest.trim().to_string());
-        } else if line == "replace (" || line.starts_with("replace (") {
+        } else if crate::go_work::is_block_opener(line, "replace") {
             in_replace_block = true;
         } else if let Some(rest) = line.strip_prefix("replace ") {
             if let Some(target) = parse_replace_directive(rest) {
@@ -60,7 +52,9 @@ pub(crate) fn parse(dir: &Path) -> Option<GoMod> {
     Some(out)
 }
 
-fn strip_line_comment(line: &str) -> &str {
+/// Strip a trailing `// ...` line comment. Shared by the `go.mod` and
+/// `go.work` parsers; both follow the same Go syntax for trailing comments.
+pub(crate) fn strip_line_comment(line: &str) -> &str {
     match line.find("//") {
         Some(idx) => &line[..idx],
         None => line,
@@ -70,7 +64,10 @@ fn strip_line_comment(line: &str) -> &str {
 fn parse_replace_directive(rest: &str) -> Option<String> {
     let pos = rest.find("=>")?;
     let target = rest[pos + 2..].trim();
-    if target.starts_with("./") {
+    // PATTERN-1 / TASK-0625: accept both Unix `./` and Windows `.\` relative
+    // prefixes — cmd/go honours either, so silently dropping `.\sub` would
+    // hide a legitimate local replace on Windows projects.
+    if target.starts_with("./") || target.starts_with(".\\") {
         Some(target.to_string())
     } else {
         None
@@ -120,6 +117,18 @@ mod tests {
     }
 
     #[test]
+    fn accepts_windows_style_backslash_replace_target() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace example.com/m/api => .\\api\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.local_replaces, vec![".\\api"]);
+    }
+
+    #[test]
     fn parses_single_line_replace() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -132,8 +141,85 @@ mod tests {
     }
 
     #[test]
+    fn replace_block_opener_accepts_no_space_before_paren() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace(\n\texample.com/m/api => ./api\n)\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.local_replaces, vec!["./api"]);
+    }
+
+    #[test]
     fn missing_file_returns_none() {
         let dir = tempfile::tempdir().unwrap();
         assert!(parse(dir.path()).is_none());
+    }
+
+    #[test]
+    fn no_go_version_yields_none_field() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module example.com/foo\n").unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.module.as_deref(), Some("example.com/foo"));
+        assert!(m.go_version.is_none());
+    }
+
+    #[test]
+    fn ignores_remote_replaces() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/foo\n\ngo 1.21\n\nreplace example.com/bar => github.com/fork/bar v1.2.3\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert!(m.local_replaces.is_empty());
+    }
+
+    #[test]
+    fn whitespace_handling() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "  module   example.com/ws  \n\n  go   1.23  \n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.module.as_deref(), Some("example.com/ws"));
+        assert_eq!(m.go_version.as_deref(), Some("1.23"));
+    }
+
+    #[test]
+    fn empty_file_yields_empty_struct() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("go.mod"), "").unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert!(m.module.is_none());
+        assert!(m.go_version.is_none());
+        assert!(m.local_replaces.is_empty());
+    }
+
+    #[test]
+    fn no_module_line_yields_none_module() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("go.mod"), "go 1.21\n").unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert!(m.module.is_none());
+        assert_eq!(m.go_version.as_deref(), Some("1.21"));
+    }
+
+    #[test]
+    fn multiple_single_line_local_replaces() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module github.com/openbao/openbao\n\ngo 1.25.7\n\nreplace github.com/openbao/openbao/api/v2 => ./api\n\nreplace github.com/openbao/openbao/sdk/v2 => ./sdk\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.local_replaces, vec!["./api", "./sdk"]);
     }
 }
