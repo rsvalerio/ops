@@ -6,9 +6,10 @@
 use std::io::{IsTerminal, Write};
 
 use ops_core::project_identity::ProjectUnit;
-use ops_extension::{Context, DataProviderError, DataRegistry};
+use ops_extension::{Context, DataRegistry};
 
 use crate::cards::{layout_cards_in_grid, render_card};
+use crate::providers::{load_or_default, warm_providers};
 
 pub const PROJECT_UNITS_PROVIDER: &str = "project_units";
 
@@ -31,19 +32,10 @@ pub fn run_about_units_with(
 
     // Warm duckdb + tokei so the stack provider can enrich Rust-specific
     // fields (e.g. dep_count) and so we can fill loc/file_count below.
-    // NotFound is expected per stack; anything else is logged for debugging.
-    for provider in ["duckdb", "tokei"] {
-        match ctx.get_or_provide(provider, data_registry) {
-            Ok(_) | Err(DataProviderError::NotFound(_)) => {}
-            Err(e) => tracing::debug!("about/units: warm-up {provider} failed: {e:#}"),
-        }
-    }
+    warm_providers(&mut ctx, data_registry, &["duckdb", "tokei"], "units");
 
-    let mut units = match ctx.get_or_provide(PROJECT_UNITS_PROVIDER, data_registry) {
-        Ok(value) => serde_json::from_value::<Vec<ProjectUnit>>((*value).clone())?,
-        Err(DataProviderError::NotFound(_)) => Vec::new(),
-        Err(e) => return Err(e.into()),
-    };
+    let mut units: Vec<ProjectUnit> =
+        load_or_default(&mut ctx, data_registry, PROJECT_UNITS_PROVIDER)?;
 
     if units.is_empty() {
         writeln!(writer, "No project units found.")?;
@@ -60,6 +52,16 @@ pub fn run_about_units_with(
     Ok(())
 }
 
+/// Enrich `units` with LOC and file-count data sampled from the duckdb
+/// `tokei_files` table.
+///
+/// ERR-1 (TASK-0431): the four underlying queries each acquire `db.lock()`
+/// independently, so a concurrent ingestion that runs between samples can
+/// leave per-crate sums inconsistent with the project totals shown in the
+/// same render. This is accepted as a render-time visual artefact: the
+/// alternative — holding one lock across all four queries — would require
+/// reshaping the helper layer to take an already-held `&Connection`. About
+/// pages re-render on every invocation, so a stale frame is self-correcting.
 #[cfg(feature = "duckdb")]
 fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
     let Some(db) = ops_duckdb::get_db(ctx) else {
@@ -73,14 +75,30 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
         .filter(|p| !p.is_empty() && *p != ".")
         .collect();
 
-    let locs = ops_duckdb::sql::query_crate_loc(db, &per_crate_paths).unwrap_or_else(|e| {
-        tracing::warn!("about/units: query_crate_loc failed: {e:#}");
-        Default::default()
-    });
-    let files = ops_duckdb::sql::query_crate_file_count(db, &per_crate_paths).unwrap_or_else(|e| {
-        tracing::warn!("about/units: query_crate_file_count failed: {e:#}");
-        Default::default()
-    });
+    let unit_count = units.len();
+    // ERR-1 (TASK-0463): a query failure must NOT silently overwrite
+    // provider-supplied unit fields with None. Track each query's outcome
+    // separately and only enrich units when we actually have data.
+    let locs = match ops_duckdb::sql::query_crate_loc(db, &per_crate_paths) {
+        Ok(map) => Some(map),
+        Err(e) => {
+            tracing::warn!(
+                "about/units: query_crate_loc failed across {unit_count} units; \
+                 leaving provider-supplied loc untouched: {e:#}"
+            );
+            None
+        }
+    };
+    let files = match ops_duckdb::sql::query_crate_file_count(db, &per_crate_paths) {
+        Ok(map) => Some(map),
+        Err(e) => {
+            tracing::warn!(
+                "about/units: query_crate_file_count failed across {unit_count} units; \
+                 leaving provider-supplied file_count untouched: {e:#}"
+            );
+            None
+        }
+    };
     let project_loc = match ops_duckdb::sql::query_project_loc(db) {
         Ok(v) => Some(v),
         Err(e) => {
@@ -99,21 +117,55 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
     for unit in units.iter_mut() {
         let is_root = unit.path.is_empty() || unit.path == ".";
         if unit.loc.is_none() {
-            unit.loc = if is_root {
+            let candidate = if is_root {
                 project_loc
             } else {
-                locs.get(&unit.path).copied()
+                locs.as_ref().and_then(|m| m.get(&unit.path).copied())
             };
+            if candidate.is_some() {
+                unit.loc = candidate;
+            }
         }
         if unit.file_count.is_none() {
-            unit.file_count = if is_root {
+            let candidate = if is_root {
                 project_files
             } else {
-                files.get(&unit.path).copied()
+                files.as_ref().and_then(|m| m.get(&unit.path).copied())
             };
+            if candidate.is_some() {
+                unit.file_count = candidate;
+            }
         }
     }
 }
 
 #[cfg(not(feature = "duckdb"))]
 fn enrich_from_db(_ctx: &Context, _units: &mut [ProjectUnit]) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression for TASK-0431: when no DuckDB is wired up, enrich_from_db is
+    /// a no-op and leaves caller-supplied unit fields untouched. Codifies the
+    /// "independent samples are acceptable" contract — the function never
+    /// fails the render pipeline even if the underlying data is inconsistent
+    /// or absent.
+    #[test]
+    fn enrich_from_db_without_db_is_noop() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let ctx = Context::new(config, cwd);
+        let mut units = vec![ProjectUnit {
+            name: "demo".into(),
+            path: "demo".into(),
+            description: None,
+            loc: Some(42),
+            file_count: Some(7),
+            ..ProjectUnit::default()
+        }];
+        enrich_from_db(&ctx, &mut units);
+        assert_eq!(units[0].loc, Some(42));
+        assert_eq!(units[0].file_count, Some(7));
+    }
+}

@@ -8,8 +8,9 @@ use ops_core::project_identity::ProjectCoverage;
 use ops_core::style::green;
 use ops_core::table::{Color, OpsTable};
 use ops_core::text::format_number;
-use ops_extension::{Context, DataProviderError, DataRegistry};
+use ops_extension::{Context, DataRegistry};
 
+use crate::providers::{load_or_default, warm_providers};
 use crate::text_util::tty_style;
 
 pub const PROJECT_COVERAGE_PROVIDER: &str = "project_coverage";
@@ -65,21 +66,15 @@ pub fn run_about_coverage_with(
     let mut ctx = Context::new(config, cwd);
 
     // Warm the providers stacks may rely on for coverage + unit metadata.
-    // NotFound is expected when a provider is not registered for the current
-    // stack — silently skip it. Anything else is a real warm-up failure and
-    // should be visible at debug level for diagnosis.
-    for provider in ["duckdb", "coverage", "cargo_toml"] {
-        match ctx.get_or_provide(provider, data_registry) {
-            Ok(_) | Err(DataProviderError::NotFound(_)) => {}
-            Err(e) => tracing::debug!("about/coverage: warm-up {provider} failed: {e:#}"),
-        }
-    }
+    warm_providers(
+        &mut ctx,
+        data_registry,
+        &["duckdb", "coverage", "cargo_toml"],
+        "coverage",
+    );
 
-    let coverage = match ctx.get_or_provide(PROJECT_COVERAGE_PROVIDER, data_registry) {
-        Ok(v) => serde_json::from_value::<ProjectCoverage>((*v).clone())?,
-        Err(DataProviderError::NotFound(_)) => ProjectCoverage::default(),
-        Err(e) => return Err(e.into()),
-    };
+    let coverage: ProjectCoverage =
+        load_or_default(&mut ctx, data_registry, PROJECT_COVERAGE_PROVIDER)?;
 
     if coverage.total.lines_count == 0 {
         writeln!(writer, "No coverage data available.")?;

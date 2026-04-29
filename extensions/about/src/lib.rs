@@ -8,6 +8,7 @@ pub mod cards;
 pub mod coverage;
 pub mod deps;
 pub mod identity;
+pub mod providers;
 pub mod text_util;
 pub mod units;
 pub mod workspace;
@@ -73,7 +74,6 @@ pub struct AboutOptions {
 pub fn run_about(
     data_registry: &ops_extension::DataRegistry,
     opts: &AboutOptions,
-    columns: u16,
     cwd: &Path,
     writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
@@ -93,7 +93,7 @@ pub fn run_about(
     }
 
     let card = AboutCard::from_identity_filtered(&identity, opts.visible_fields.as_deref());
-    writeln!(writer, "{}", card.render(columns, opts.is_tty))?;
+    writeln!(writer, "{}", card.render(opts.is_tty))?;
 
     Ok(())
 }
@@ -103,8 +103,10 @@ fn warm_generic_providers(
     data_registry: &ops_extension::DataRegistry,
     refresh: bool,
 ) {
-    let _ = ctx.get_or_provide("duckdb", data_registry);
-    let _ = ctx.get_or_provide("tokei", data_registry);
+    // ERR-1 (TASK-0516): duckdb/tokei warm-up failures are now warn-logged
+    // for parity with the coverage branch. Previously a real provider
+    // error (permissions, disk full) silently rendered as zeros.
+    crate::providers::warm_providers(ctx, data_registry, &["duckdb", "tokei"], "main");
     if refresh {
         match ctx.get_or_provide("coverage", data_registry) {
             Ok(_) | Err(DataProviderError::NotFound(_)) => {}

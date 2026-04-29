@@ -29,17 +29,38 @@ pub fn resolve_member_globs(
         if let Some(idx) = member.find('*') {
             let prefix = &member[..idx];
             let parent = root.join(prefix);
-            if let Ok(entries) = std::fs::read_dir(&parent) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if !path.is_dir() {
-                        continue;
-                    }
-                    if let Some(manifest) = try_read_manifest(&path, marker) {
-                        if let Ok(rel) = path.strip_prefix(root) {
-                            resolved.push((rel.to_string_lossy().to_string(), manifest));
+            // ERR-1 (TASK-0517): a read_dir error here used to silently
+            // produce "No project units found". Log at warn so a permissions
+            // or missing-prefix issue is visible without changing the
+            // best-effort behavior that lets the rest of the globs resolve.
+            match std::fs::read_dir(&parent) {
+                Ok(entries) => {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if !path.is_dir() {
+                            continue;
+                        }
+                        if let Some(manifest) = try_read_manifest(&path, marker) {
+                            if let Ok(rel) = path.strip_prefix(root) {
+                                resolved.push((rel.to_string_lossy().to_string(), manifest));
+                            }
                         }
                     }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    tracing::debug!(
+                        member,
+                        parent = %parent.display(),
+                        "workspace glob prefix does not exist; skipping"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        member,
+                        parent = %parent.display(),
+                        error = %e,
+                        "workspace glob prefix unreadable; member skipped"
+                    );
                 }
             }
         } else if let Some(manifest) = try_read_manifest(&root.join(member), marker) {
@@ -58,22 +79,36 @@ fn try_read_manifest(dir: &Path, marker: &str) -> Option<String> {
     std::fs::read_to_string(dir.join(marker)).ok()
 }
 
+/// PATTERN-1 (TASK-0503): exclude patterns now support a single `*` anywhere
+/// in the final path segment — `prefix*`, `*suffix`, `prefix*suffix`, and
+/// bare `*`. The `*` matches any non-empty run of characters that does not
+/// cross a `/`, mirroring Cargo / yarn / npm single-segment glob semantics.
+/// Multi-`*` patterns are not supported and surface a `tracing::warn` so a
+/// silently-failed-closed exclude becomes visible.
 fn matches_exclude(pattern: &str, candidate: &str) -> bool {
-    if let Some(idx) = pattern.find('*') {
-        let prefix = &pattern[..idx];
-        let after_star = &pattern[idx + 1..];
-        if after_star.is_empty() {
-            if let Some(rest) = candidate.strip_prefix(prefix) {
-                !rest.is_empty() && !rest.contains('/')
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    } else {
-        pattern == candidate
+    let star_count = pattern.bytes().filter(|b| *b == b'*').count();
+    if star_count == 0 {
+        return pattern == candidate;
     }
+    if star_count > 1 {
+        tracing::warn!(
+            pattern,
+            "workspace exclude pattern has more than one `*`; not supported, ignoring"
+        );
+        return false;
+    }
+    let idx = pattern
+        .find('*')
+        .expect("star_count == 1 implies a `*` exists");
+    let prefix = &pattern[..idx];
+    let suffix = &pattern[idx + 1..];
+    let Some(rest) = candidate.strip_prefix(prefix) else {
+        return false;
+    };
+    let Some(middle) = rest.strip_suffix(suffix) else {
+        return false;
+    };
+    !middle.is_empty() && !middle.contains('/')
 }
 
 #[cfg(test)]
@@ -142,6 +177,72 @@ mod tests {
         );
         let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
         assert_eq!(names, vec!["packages/keep"]);
+    }
+
+    /// ERR-1 (TASK-0517): an unreadable glob-prefix directory must not
+    /// crash; resolution returns empty for that member while other globs
+    /// still resolve normally. The accompanying tracing::warn is exercised
+    /// by the read_dir failure path; pinning the value-level contract here
+    /// keeps the test free of a tracing-subscriber dev-dep.
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_glob_prefix_yields_no_panic_and_empty() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("packages");
+        std::fs::create_dir(&parent).unwrap();
+        // Drop read permissions so read_dir fails with PermissionDenied.
+        let mut perms = std::fs::metadata(&parent).unwrap().permissions();
+        perms.set_mode(0o000);
+        std::fs::set_permissions(&parent, perms).unwrap();
+
+        let resolved =
+            resolve_member_globs(&["packages/*".to_string()], &[], dir.path(), "package.json");
+
+        // Restore so tempdir cleanup works.
+        let mut restore = std::fs::metadata(&parent).unwrap().permissions();
+        restore.set_mode(0o755);
+        std::fs::set_permissions(&parent, restore).unwrap();
+
+        assert!(resolved.is_empty());
+    }
+
+    /// PATTERN-1 (TASK-0503): `prefix*suffix` excludes match a single
+    /// non-`/`-spanning segment middle.
+    #[test]
+    fn prefix_star_suffix_exclude_matches_single_segment() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["internal-x-tool", "internal-y-tool", "keep"] {
+            write(
+                &dir.path().join(format!("packages/{name}/package.json")),
+                r#"{"name":"x"}"#,
+            );
+        }
+
+        let resolved = resolve_member_globs(
+            &["packages/*".to_string()],
+            &["packages/internal-*-tool".to_string()],
+            dir.path(),
+            "package.json",
+        );
+        let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(names, vec!["packages/keep"]);
+    }
+
+    /// PATTERN-1 (TASK-0503): bare `*` only matches a single path segment, so
+    /// nested multi-segment members are left in place.
+    #[test]
+    fn bare_star_exclude_only_matches_single_segment() {
+        assert!(matches_exclude("*", "foo"));
+        assert!(!matches_exclude("*", "packages/foo"));
+        assert!(!matches_exclude("*", ""));
+    }
+
+    /// PATTERN-1 (TASK-0503): multi-`*` patterns are explicitly unsupported
+    /// and must not silently drop the exclude.
+    #[test]
+    fn multi_star_exclude_is_ignored() {
+        assert!(!matches_exclude("a/*/b/*", "a/x/b/y"));
     }
 
     /// Suffix-after-`*` (e.g. `prefix/*/suffix`) is documented but unsupported

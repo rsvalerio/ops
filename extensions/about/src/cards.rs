@@ -12,10 +12,19 @@ use crate::text_util::{
 };
 
 /// Layout constants for about pages.
-pub struct CardLayoutConfig;
+///
+/// READ-4 (TASK-0527): kept crate-private. Out-of-crate consumers do not
+/// need to compose card layouts; the struct exists only as a namespace for
+/// the constants below.
+struct CardLayoutConfig;
 
 impl CardLayoutConfig {
     /// Width of each unit card in characters.
+    ///
+    /// READ-5 (TASK-0470): minimum supported value is 4 — `render_card`
+    /// passes `CARD_WIDTH - 2` to `truncate_to_width`, which uses
+    /// `max_width.saturating_sub(1)` and produces a single-ellipsis card
+    /// when `inner_width < 2`. The compile-time assertion below pins this.
     const CARD_WIDTH: usize = 32;
     /// Maximum lines for description in a card.
     const CARD_DESC_LINES: usize = 3;
@@ -26,6 +35,12 @@ impl CardLayoutConfig {
     /// Minimum terminal width to show 2 cards per row.
     const MIN_WIDTH_2_CARDS: usize = 70;
 }
+
+const _: () = assert!(
+    CardLayoutConfig::CARD_WIDTH >= 4,
+    "CARD_WIDTH must be >= 4: render_card relies on inner_width >= 2 \
+     to keep truncate_to_width from emitting a pure-ellipsis card",
+);
 
 /// Capitalize the last path segment of a member-style string (e.g. "crates/foo" → "Foo").
 pub fn format_unit_name(member: &str) -> String {

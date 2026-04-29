@@ -6,8 +6,9 @@ use std::io::{IsTerminal, Write};
 
 use ops_core::project_identity::ProjectDependencies;
 use ops_core::style::{cyan, dim};
-use ops_extension::{Context, DataProviderError, DataRegistry};
+use ops_extension::{Context, DataRegistry};
 
+use crate::providers::{load_or_default, warm_providers};
 use crate::text_util::tty_style;
 
 pub const PROJECT_DEPENDENCIES_PROVIDER: &str = "project_dependencies";
@@ -28,18 +29,10 @@ pub fn run_about_deps_with(
     let config = std::sync::Arc::new(ops_core::config::Config::default());
     let mut ctx = Context::new(config, cwd);
 
-    for provider in ["duckdb", "metadata"] {
-        match ctx.get_or_provide(provider, data_registry) {
-            Ok(_) | Err(DataProviderError::NotFound(_)) => {}
-            Err(e) => tracing::debug!("about/deps: warm-up {provider} failed: {e:#}"),
-        }
-    }
+    warm_providers(&mut ctx, data_registry, &["duckdb", "metadata"], "deps");
 
-    let deps = match ctx.get_or_provide(PROJECT_DEPENDENCIES_PROVIDER, data_registry) {
-        Ok(v) => serde_json::from_value::<ProjectDependencies>((*v).clone())?,
-        Err(DataProviderError::NotFound(_)) => ProjectDependencies::default(),
-        Err(e) => return Err(e.into()),
-    };
+    let deps: ProjectDependencies =
+        load_or_default(&mut ctx, data_registry, PROJECT_DEPENDENCIES_PROVIDER)?;
 
     let lines = format_dependencies_section(&deps, is_tty);
     if lines.is_empty() {

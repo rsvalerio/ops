@@ -10,6 +10,8 @@ use ops_core::table::{Cell, OpsTable};
 use ops_core::text::format_number;
 use ops_extension::{Context, DataRegistry};
 
+use crate::providers::warm_providers;
+
 /// ARCH-2 / TASK-0370: delegate to the shared `query_project_languages`
 /// helper so the `about code` page and any other LOC consumer share one
 /// implementation. The previous inline aggregate query lacked
@@ -19,21 +21,14 @@ pub fn query_language_stats(
     ctx: &mut Context,
     data_registry: &DataRegistry,
 ) -> Option<Vec<LanguageStat>> {
-    if let Err(e) = ctx.get_or_provide("duckdb", data_registry) {
-        tracing::debug!("language_stats: duckdb provider failed: {e:#}");
-        return None;
-    }
-    if let Err(e) = ctx.get_or_provide("tokei", data_registry) {
-        tracing::debug!("language_stats: tokei provider failed: {e:#}");
-        return None;
-    }
+    warm_providers(ctx, data_registry, &["duckdb", "tokei"], "code");
 
     let db = ops_duckdb::get_db(ctx)?;
     match ops_duckdb::sql::query_project_languages(db) {
         Ok(stats) if stats.is_empty() => None,
         Ok(stats) => Some(stats),
         Err(e) => {
-            tracing::debug!("language_stats: query_project_languages failed: {e:#}");
+            tracing::warn!("language_stats: query_project_languages failed: {e:#}");
             None
         }
     }

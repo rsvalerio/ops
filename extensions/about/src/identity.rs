@@ -36,6 +36,26 @@ pub struct ParsedManifest {
     pub languages: Vec<LanguageStat>,
 }
 
+/// Run a stack's manifest parser against the working directory and serialise
+/// the result via [`build_identity_value`]. Captures the
+/// `let cwd = ...; let parsed = parser(&cwd); build_identity_value(parsed, &cwd)`
+/// scaffold every stack `*IdentityProvider::provide` was duplicating
+/// (DUP-1 / TASK-0484).
+///
+/// Stack providers that need to merge data from multiple manifests (e.g. the
+/// Go provider, which combines `go.mod` and `go.work`) can still call
+/// [`build_identity_value`] directly; this helper covers the common
+/// single-parser case.
+pub fn provide_identity_from_manifest<F>(
+    cwd: &Path,
+    parser: F,
+) -> Result<serde_json::Value, DataProviderError>
+where
+    F: FnOnce(&Path) -> ParsedManifest,
+{
+    build_identity_value(parser(cwd), cwd)
+}
+
 /// Build a [`ProjectIdentity`] JSON value from a [`ParsedManifest`].
 ///
 /// Falls back to the working-directory name when `name` is absent and
