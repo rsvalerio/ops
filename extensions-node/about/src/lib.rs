@@ -5,14 +5,14 @@
 //! `workspaces` field; pnpm workspaces come from `pnpm-workspace.yaml`.
 //!
 //! Parse and read errors fall back to defaults; non-NotFound read errors and
-//! JSON parse errors are reported via `tracing` (`debug!` / `warn!`) so a
-//! malformed manifest does not silently look like a missing one (TASK-0394).
+//! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
+//! manifest does not silently look like a missing one (TASK-0394).
 
 mod package_json;
 mod package_manager;
 mod units;
 
-use ops_about::identity::{build_identity_value, ParsedManifest};
+use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
 use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 
@@ -24,6 +24,7 @@ const DESCRIPTION: &str = "Node project identity";
 const SHORTNAME: &str = "about-node";
 const DATA_PROVIDER_NAME: &str = "project_identity";
 
+#[non_exhaustive]
 pub struct AboutNodeExtension;
 
 ops_extension::impl_extension! {
@@ -57,39 +58,36 @@ impl DataProvider for NodeIdentityProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let cwd = ctx.working_directory.clone();
-        let PackageJson {
-            name,
-            version,
-            description,
-            license,
-            homepage,
-            repository,
-            authors,
-            engines_node,
-            has_packagemanager,
-        } = parse_package_json(&cwd).unwrap_or_default();
-
-        let pkg_manager = detect_package_manager(&cwd, has_packagemanager.as_deref());
-        let stack_detail = build_stack_detail(engines_node.as_deref(), pkg_manager);
-
-        build_identity_value(
-            ParsedManifest {
+        provide_identity_from_manifest(ctx.working_directory.as_path(), |root| {
+            let PackageJson {
                 name,
                 version,
                 description,
                 license,
-                authors,
                 homepage,
                 repository,
-                stack_label: "Node",
-                stack_detail,
-                module_label: "packages",
-                module_count: None,
-                ..ParsedManifest::default()
-            },
-            &cwd,
-        )
+                authors,
+                engines_node,
+                has_packagemanager,
+            } = parse_package_json(root).unwrap_or_default();
+
+            let pkg_manager = detect_package_manager(root, has_packagemanager.as_deref());
+            let stack_detail = build_stack_detail(engines_node.as_deref(), pkg_manager);
+
+            ParsedManifest::build(|m| {
+                m.name = name;
+                m.version = version;
+                m.description = description;
+                m.license = license;
+                m.authors = authors;
+                m.homepage = homepage;
+                m.repository = repository;
+                m.stack_label = "Node";
+                m.stack_detail = stack_detail;
+                m.module_label = "packages";
+                m.module_count = None;
+            })
+        })
     }
 }
 

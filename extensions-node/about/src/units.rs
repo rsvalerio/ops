@@ -27,8 +27,7 @@ impl DataProvider for NodeUnitsProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let cwd = ctx.working_directory.clone();
-        let units = collect_units(&cwd);
+        let units = collect_units(ctx.working_directory.as_path());
         serde_json::to_value(&units).map_err(DataProviderError::from)
     }
 }
@@ -78,8 +77,8 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
     let mut excludes: Vec<String> = Vec::new();
 
     let pkg_path = root.join("package.json");
-    match std::fs::read_to_string(&pkg_path) {
-        Ok(content) => match serde_json::from_str::<RawRoot>(&content) {
+    if let Some(content) = ops_about::manifest_io::read_optional_text(&pkg_path, "package.json") {
+        match serde_json::from_str::<RawRoot>(&content) {
             Ok(raw) => {
                 if let Some(ws) = raw.workspaces {
                     let items = match ws {
@@ -96,28 +95,16 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
                     "failed to parse package.json"
                 );
             }
-        },
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-            tracing::debug!(path = %pkg_path.display(), error = %e, "failed to read package.json");
         }
-        Err(_) => {}
     }
 
     if includes.is_empty() {
         let pnpm_path = root.join("pnpm-workspace.yaml");
-        match std::fs::read_to_string(&pnpm_path) {
-            Ok(content) => {
-                let items = parse_pnpm_workspace_yaml(&content);
-                split_include_exclude(items, &mut includes, &mut excludes);
-            }
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                tracing::debug!(
-                    path = %pnpm_path.display(),
-                    error = %e,
-                    "failed to read pnpm-workspace.yaml"
-                );
-            }
-            Err(_) => {}
+        if let Some(content) =
+            ops_about::manifest_io::read_optional_text(&pnpm_path, "pnpm-workspace.yaml")
+        {
+            let items = parse_pnpm_workspace_yaml(&content);
+            split_include_exclude(items, &mut includes, &mut excludes);
         }
     }
 
@@ -153,7 +140,19 @@ fn parse_pnpm_workspace_yaml(content: &str) -> Vec<String> {
         if line.trim_start().starts_with('#') || line.trim().is_empty() {
             continue;
         }
-        if line.trim_start().starts_with("packages:") && !line.contains('[') {
+        let trimmed_start = line.trim_start();
+        if let Some(rest) = trimmed_start.strip_prefix("packages:") {
+            let rest = rest.trim();
+            if let Some(inner) = rest.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                for item in inner.split(',') {
+                    let item = item.trim();
+                    if !item.is_empty() {
+                        out.push(unquote(item).to_string());
+                    }
+                }
+                in_packages = false;
+                continue;
+            }
             in_packages = true;
             continue;
         }
@@ -197,21 +196,9 @@ fn parse_package_metadata(
     path: &Path,
     content: &str,
 ) -> (Option<String>, Option<String>, Option<String>) {
-    let parsed: PackageProbe = match serde_json::from_str(content) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::warn!(path = %path.display(), error = %e, "failed to parse package.json");
-            return (None, None, None);
-        }
-    };
-    (
-        parsed.name,
-        parsed.version,
-        parsed
-            .description
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty()),
-    )
+    ops_about::workspace::parse_package_metadata(path, content, |c| {
+        serde_json::from_str::<PackageProbe>(c).map(|p| (p.name, p.version, p.description))
+    })
 }
 
 #[cfg(test)]
@@ -408,6 +395,13 @@ mod tests {
     #[test]
     fn parses_pnpm_packages_list() {
         let yaml = "packages:\n  - 'apps/*'\n  - \"libs/core\"\n  - services/api\n\nother: key\n";
+        let pats = parse_pnpm_workspace_yaml(yaml);
+        assert_eq!(pats, vec!["apps/*", "libs/core", "services/api"]);
+    }
+
+    #[test]
+    fn parses_pnpm_packages_inline_list() {
+        let yaml = "packages: ['apps/*', \"libs/core\", services/api]\n";
         let pats = parse_pnpm_workspace_yaml(yaml);
         assert_eq!(pats, vec!["apps/*", "libs/core", "services/api"]);
     }

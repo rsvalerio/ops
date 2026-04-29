@@ -7,8 +7,10 @@ pub(crate) fn detect_package_manager(
     project_root: &Path,
     has_packagemanager: Option<&str>,
 ) -> Option<&'static str> {
-    // `packageManager` field takes precedence.
-    if let Some(pm) = has_packagemanager {
+    // `packageManager` field takes precedence — but treat an empty or
+    // whitespace-only value (PATTERN-1 / TASK-0627: real corepack-disable
+    // pattern) as effectively unset, so lockfile probing still runs.
+    if let Some(pm) = has_packagemanager.map(str::trim).filter(|s| !s.is_empty()) {
         let name = pm.split_once('@').map_or(pm, |(n, _)| n);
         return match name {
             "pnpm" => Some("pnpm"),
@@ -64,5 +66,16 @@ mod tests {
             Some("pnpm")
         );
         assert_eq!(detect_package_manager(dir.path(), Some("bun")), Some("bun"));
+    }
+
+    #[test]
+    fn empty_package_manager_field_falls_through_to_lockfile_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("pnpm-lock.yaml"), "").unwrap();
+        assert_eq!(detect_package_manager(dir.path(), Some("")), Some("pnpm"));
+        assert_eq!(
+            detect_package_manager(dir.path(), Some("   ")),
+            Some("pnpm")
+        );
     }
 }

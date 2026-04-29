@@ -64,15 +64,7 @@ struct Engines {
 
 pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
     let path = project_root.join("package.json");
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::debug!(path = %path.display(), error = %e, "failed to read package.json");
-            }
-            return None;
-        }
-    };
+    let content = ops_about::manifest_io::read_optional_text(&path, "package.json")?;
     let raw: RawPackage = match serde_json::from_str(&content) {
         Ok(r) => r,
         Err(e) => {
@@ -94,17 +86,14 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
     }
 
     Some(PackageJson {
-        name: raw.name,
-        version: raw.version,
-        description: raw
-            .description
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty()),
+        name: trim_nonempty(raw.name),
+        version: trim_nonempty(raw.version),
+        description: trim_nonempty(raw.description),
         license: raw.license.and_then(|l| match l {
             LicenseField::Text(s) => Some(s),
             LicenseField::Object { r#type } => r#type,
         }),
-        homepage: raw.homepage.filter(|s| !s.is_empty()),
+        homepage: trim_nonempty(raw.homepage),
         repository: raw.repository.and_then(|r| match r {
             RepositoryField::Text(s) => Some(normalize_repo_url(&s)),
             RepositoryField::Object { url } => url.map(|u| normalize_repo_url(&u)),
@@ -115,15 +104,38 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
     })
 }
 
+/// ERR-2 (TASK-0563): trim then drop empties, mirroring how `description`
+/// has been normalised since the field landed. Used for `name`, `version`,
+/// `homepage` so `package.json` with whitespace-only fields falls through to
+/// the dir-name fallback rather than rendering blank About cards.
+pub(crate) fn trim_nonempty(value: Option<String>) -> Option<String> {
+    value
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 fn format_person(p: PersonField) -> Option<String> {
+    // ERR-2 (TASK-0566): trim and re-check empty so whitespace-only authors do
+    // not render as empty bullets in the About card.
     match p {
-        PersonField::Text(s) => Some(s).filter(|s| !s.is_empty()),
-        PersonField::Object { name, email } => match (name, email) {
-            (Some(n), Some(e)) => Some(format!("{n} <{e}>")),
-            (Some(n), None) => Some(n),
-            (None, Some(e)) => Some(format!("<{e}>")),
-            (None, None) => None,
-        },
+        PersonField::Text(s) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        PersonField::Object { name, email } => {
+            let name = trim_nonempty(name);
+            let email = trim_nonempty(email);
+            match (name, email) {
+                (Some(n), Some(e)) => Some(format!("{n} <{e}>")),
+                (Some(n), None) => Some(n),
+                (None, Some(e)) => Some(format!("<{e}>")),
+                (None, None) => None,
+            }
+        }
     }
 }
 
@@ -214,6 +226,34 @@ mod tests {
     #[test]
     fn format_person_empty_text() {
         assert_eq!(format_person(PersonField::Text(String::new())), None);
+    }
+
+    #[test]
+    fn format_person_whitespace_text_is_dropped() {
+        assert_eq!(format_person(PersonField::Text("   ".into())), None);
+    }
+
+    #[test]
+    fn format_person_whitespace_object_components_dropped() {
+        let p = PersonField::Object {
+            name: Some("   ".into()),
+            email: Some("\t".into()),
+        };
+        assert_eq!(format_person(p), None);
+    }
+
+    #[test]
+    fn parse_package_json_trims_whitespace_only_name_to_none() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"   ","version":"\t","homepage":"  "}"#,
+        )
+        .expect("write");
+        let pkg = parse_package_json(dir.path()).expect("parse");
+        assert_eq!(pkg.name, None);
+        assert_eq!(pkg.version, None);
+        assert_eq!(pkg.homepage, None);
     }
 
     #[test]
