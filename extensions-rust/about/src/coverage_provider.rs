@@ -1,7 +1,7 @@
 //! Rust `project_coverage` data provider.
 
 use ops_core::project_identity::{CoverageStats, ProjectCoverage, UnitCoverage};
-use ops_duckdb::sql::{query_crate_coverage, query_project_coverage};
+use ops_duckdb::sql::{query_crate_coverage, query_or_warn, query_project_coverage};
 use ops_extension::{Context, DataProvider, DataProviderError};
 
 use crate::query::{load_workspace_manifest, log_manifest_load_failure};
@@ -59,16 +59,12 @@ impl DataProvider for RustCoverageProvider {
             } else {
                 let workspace_root = cwd.to_string_lossy();
                 let member_strs: Vec<&str> = members.iter().map(String::as_str).collect();
-                let per_crate = match query_crate_coverage(db, &member_strs, &workspace_root) {
-                    Ok(map) => map,
-                    Err(e) => {
-                        tracing::warn!(
-                            query = "query_crate_coverage",
-                            "duckdb query failed; per-crate coverage will be blank: {e:#}"
-                        );
-                        Default::default()
-                    }
-                };
+                let per_crate = query_or_warn(
+                    "query_crate_coverage",
+                    "per-crate coverage will be blank",
+                    Default::default(),
+                    || query_crate_coverage(db, &member_strs, &workspace_root),
+                );
                 members
                     .iter()
                     .filter_map(|member| {

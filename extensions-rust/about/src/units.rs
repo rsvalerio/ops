@@ -34,20 +34,16 @@ impl DataProvider for RustUnitsProvider {
         let members = manifest.workspace.map(|ws| ws.members).unwrap_or_default();
 
         // Per-crate dep counts from DuckDB (Rust-specific, keyed by package name).
-        // ERR-2 / TASK-0376: log query failures at warn so they don't manifest
-        // as a silent "no deps" on a misconfigured DB.
+        // ERR-2 / TASK-0376: query failures route through `query_or_warn` so
+        // they don't manifest as a silent "no deps" on a misconfigured DB.
         let dep_counts: std::collections::HashMap<String, i64> = match ops_duckdb::get_db(ctx) {
             None => Default::default(),
-            Some(db) => match ops_duckdb::sql::query_crate_dep_counts(db) {
-                Ok(m) => m,
-                Err(e) => {
-                    tracing::warn!(
-                        query = "query_crate_dep_counts",
-                        "duckdb query failed; per-crate dep_counts will be empty: {e:#}"
-                    );
-                    Default::default()
-                }
-            },
+            Some(db) => ops_duckdb::sql::query_or_warn(
+                "query_crate_dep_counts",
+                "per-crate dep_counts will be empty",
+                Default::default(),
+                || ops_duckdb::sql::query_crate_dep_counts(db),
+            ),
         };
 
         let mut sorted_members = members;

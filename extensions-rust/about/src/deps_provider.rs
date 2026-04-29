@@ -3,7 +3,7 @@
 //! Queries DuckDB for per-crate direct dependencies via cargo metadata.
 
 use ops_core::project_identity::{ProjectDependencies, UnitDeps};
-use ops_duckdb::sql::query_crate_deps;
+use ops_duckdb::sql::{query_crate_deps, query_or_warn};
 use ops_extension::{Context, DataProvider, DataProviderError};
 
 pub(crate) const PROVIDER_NAME: &str = "project_dependencies";
@@ -21,18 +21,14 @@ impl DataProvider for RustDepsProvider {
         };
 
         // ERR-2 / TASK-0376: a DuckDB schema/migration error here used to
-        // surface as an empty deps list with no signal. Log at warn before
-        // falling back so the failure is visible.
-        let per_crate = match query_crate_deps(db) {
-            Ok(map) => map,
-            Err(e) => {
-                tracing::warn!(
-                    query = "query_crate_deps",
-                    "duckdb query failed; project_dependencies will be empty: {e:#}"
-                );
-                Default::default()
-            }
-        };
+        // surface as an empty deps list with no signal. `query_or_warn`
+        // routes the failure through tracing::warn before falling back.
+        let per_crate = query_or_warn(
+            "query_crate_deps",
+            "project_dependencies will be empty",
+            Default::default(),
+            || query_crate_deps(db),
+        );
         let units: Vec<UnitDeps> = per_crate
             .into_iter()
             .map(|(unit_name, deps)| UnitDeps { unit_name, deps })

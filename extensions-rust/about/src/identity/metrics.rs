@@ -1,6 +1,7 @@
 //! DuckDB-backed metrics for the Rust identity provider.
 
 use ops_core::project_identity::LanguageStat;
+use ops_duckdb::sql::query_or_warn;
 use ops_duckdb::DuckDb;
 use ops_extension::Context;
 
@@ -44,65 +45,49 @@ pub(super) fn query_identity_metrics(ctx: &Context) -> IdentityMetrics {
 // any signal.
 
 fn query_dependency_count(db: &DuckDb) -> Option<usize> {
-    match ops_duckdb::sql::query_dependency_count(db) {
-        Ok(n) => Some(n),
-        Err(e) => {
-            tracing::warn!(
-                query = "query_dependency_count",
-                "duckdb query failed; dependency_count will be None: {e:#}"
-            );
-            None
-        }
-    }
+    query_or_warn(
+        "query_dependency_count",
+        "dependency_count will be None",
+        None,
+        || ops_duckdb::sql::query_dependency_count(db).map(Some),
+    )
 }
 
 fn query_coverage_and_languages(db: &DuckDb) -> (Option<f64>, Vec<LanguageStat>) {
-    let coverage = match ops_duckdb::sql::query_project_coverage(db) {
-        Ok(c) if c.lines_count > 0 => Some(c.lines_percent),
-        Ok(_) => None,
-        Err(e) => {
-            tracing::warn!(
-                query = "query_project_coverage",
-                "duckdb query failed; coverage_percent will be None: {e:#}"
-            );
-            None
-        }
-    };
+    let coverage = query_or_warn(
+        "query_project_coverage",
+        "coverage_percent will be None",
+        None,
+        || {
+            ops_duckdb::sql::query_project_coverage(db).map(|c| {
+                if c.lines_count > 0 {
+                    Some(c.lines_percent)
+                } else {
+                    None
+                }
+            })
+        },
+    );
 
-    let languages = match ops_duckdb::sql::query_project_languages(db) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!(
-                query = "query_project_languages",
-                "duckdb query failed; languages will be empty: {e:#}"
-            );
-            vec![]
-        }
-    };
+    let languages = query_or_warn(
+        "query_project_languages",
+        "languages will be empty",
+        vec![],
+        || ops_duckdb::sql::query_project_languages(db),
+    );
 
     (coverage, languages)
 }
 
 fn query_loc_from_db(db: &DuckDb) -> (Option<i64>, Option<i64>) {
-    let loc = match ops_duckdb::sql::query_project_loc(db) {
-        Ok(n) => Some(n),
-        Err(e) => {
-            tracing::warn!(
-                query = "query_project_loc",
-                "duckdb query failed; loc will be None: {e:#}"
-            );
-            None
-        }
-    };
-    let files = match ops_duckdb::sql::query_project_file_count(db) {
-        Ok(n) => Some(n),
-        Err(e) => {
-            tracing::warn!(
-                query = "query_project_file_count",
-                "duckdb query failed; file_count will be None: {e:#}"
-            );
-            None
-        }
-    };
+    let loc = query_or_warn("query_project_loc", "loc will be None", None, || {
+        ops_duckdb::sql::query_project_loc(db).map(Some)
+    });
+    let files = query_or_warn(
+        "query_project_file_count",
+        "file_count will be None",
+        None,
+        || ops_duckdb::sql::query_project_file_count(db).map(Some),
+    );
     (loc, files)
 }

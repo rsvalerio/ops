@@ -6,11 +6,8 @@ use ops_duckdb::{DataIngestor, DbResult, DuckDb, LoadResult, SidecarIngestorConf
 use ops_extension::Context;
 use std::path::Path;
 
-const PIPELINE: SidecarIngestorConfig = SidecarIngestorConfig {
-    name: "coverage",
-    json_filename: "coverage_files.json",
-    count_table: "coverage_files",
-};
+const PIPELINE: SidecarIngestorConfig =
+    SidecarIngestorConfig::new("coverage", "coverage_files.json", "coverage_files");
 
 pub struct CoverageIngestor;
 
