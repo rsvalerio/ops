@@ -10,6 +10,7 @@ use crate::types::{CargoToml, DepSpec, DetailedDepSpec, InheritableField, Inheri
 
 /// Error during workspace inheritance resolution.
 #[derive(Debug, Clone, thiserror::Error)]
+#[non_exhaustive]
 pub enum InheritanceError {
     /// Dependency marked as `workspace = true` but not found in workspace.
     #[error("dependency '{name}' not found in workspace.dependencies")]
@@ -130,6 +131,26 @@ fn resolve_from_simple_dep(version: &str, local: &DepSpec) -> DetailedDepSpec {
     }
 }
 
+/// Merge a workspace `DetailedDepSpec` with a local override, mirroring
+/// cargo's workspace-inheritance precedence:
+///
+/// - **features**: union of workspace + local (additive; cargo never lets a
+///   member subtract features its workspace requested).
+/// - **optional**: `ws.optional || local_optional`. Cargo treats `optional`
+///   as "either side may turn this on, neither side may turn it off"; a
+///   workspace dep marked `optional = true` stays optional even if the
+///   member omits the flag, and a member can opt-in locally when the
+///   workspace did not.
+/// - **default_features**: `ws.default_features && local_default_features`.
+///   Cargo's documented footgun: once the workspace sets
+///   `default-features = false`, members **cannot** re-enable them with
+///   `default-features = true` (cargo emits a warning and keeps defaults
+///   off). The AND fold reproduces that behavior.
+///
+/// AC for TASK-0555: this is the rule the resolver implements; deviations
+/// from cargo's actual precedence (e.g. cargo > 1.71's edge cases) are not
+/// modeled because the resolver consumes manifests for reporting, not for
+/// build-graph fidelity.
 fn resolve_from_detailed_dep(ws: &DetailedDepSpec, local: &DepSpec) -> DetailedDepSpec {
     let (local_features, local_optional, local_default_features) = extract_local_overrides(local);
     DetailedDepSpec {

@@ -271,9 +271,18 @@ const MAX_ANCESTOR_DEPTH: usize = 64;
 /// `Cargo.toml` is returned — preserving the single-crate / non-workspace
 /// project behaviour.
 ///
-/// The caller's `start` is canonicalized first so symlinks resolve once up
-/// front, and the walk is capped at [`MAX_ANCESTOR_DEPTH`] so a symlink-induced
-/// loop cannot hang the process.
+/// The caller's `start` is canonicalized first so symlinks under `start` are
+/// resolved once up front, and the walk is capped at [`MAX_ANCESTOR_DEPTH`]
+/// so a symlink-induced loop cannot hang the process.
+///
+/// SEC-25 (TASK-0604): canonicalisation is *not* re-applied on each ancestor.
+/// Because `start_canonical` is already a resolved path, walking it with
+/// `.parent()` returns a prefix that is itself canonical — for the typical
+/// case this is sufficient. The remaining gap is a TOCTOU window: if a
+/// parent directory is replaced with a symlink between canonicalisation and
+/// `manifest_declares_workspace`, the walk reads through the new symlink.
+/// The depth cap bounds the damage; treat the result as "best-effort
+/// symlink-safe" rather than absolute.
 pub fn find_workspace_root(start: &Path) -> Result<PathBuf, anyhow::Error> {
     let start_canonical = fs::canonicalize(start)
         .with_context(|| format!("failed to canonicalize {}", start.display()))?;
@@ -311,13 +320,33 @@ pub fn find_workspace_root(start: &Path) -> Result<PathBuf, anyhow::Error> {
 /// `[workspace]` table. Read errors and parse errors return false — the walk
 /// will keep looking and ultimately fall back to the first Cargo.toml seen.
 fn manifest_declares_workspace(path: &Path) -> bool {
-    let Ok(content) = fs::read_to_string(path) else {
-        return false;
+    // ERR-1 / TASK-0605: distinguish NotFound (legitimately absent during the
+    // ancestor walk) from other IO errors (permission denied, EIO, partial
+    // write) so a flaky disk does not silently mis-root the entire
+    // about/units/coverage stack.
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(e) => {
+            tracing::debug!(
+                path = %path.display(),
+                error = %e,
+                "Cargo.toml unreadable during workspace walk; skipping candidate"
+            );
+            return false;
+        }
     };
-    let Ok(value) = toml::from_str::<toml::Value>(&content) else {
-        return false;
-    };
-    value
-        .as_table()
-        .is_some_and(|t| t.contains_key("workspace"))
+    match toml::from_str::<toml::Value>(&content) {
+        Ok(value) => value
+            .as_table()
+            .is_some_and(|t| t.contains_key("workspace")),
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "Cargo.toml parse failed during workspace walk; skipping candidate"
+            );
+            false
+        }
+    }
 }

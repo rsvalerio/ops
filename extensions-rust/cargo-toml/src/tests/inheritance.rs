@@ -234,6 +234,58 @@ tokio = { version = "1", default_features = true, features = ["full"] }
     assert!(!tokio.uses_default_features());
 }
 
+/// ERR-1 regression (TASK-0555): with `default-features = false` set on the
+/// workspace dep, a member that *re-enables* defaults locally still gets
+/// `default-features = false` resolved — matching cargo's documented
+/// behavior (member cannot un-disable workspace defaults).
+#[test]
+fn resolve_workspace_default_features_false_local_true_stays_false() {
+    let toml = r#"
+[package]
+name = "member"
+version = "0.1.0"
+
+[dependencies]
+tokio = { workspace = true, default-features = true }
+
+[workspace.dependencies]
+tokio = { version = "1", default-features = false, features = ["macros"] }
+"#;
+    let mut manifest = CargoToml::parse(toml).expect("should parse");
+    manifest.resolve_inheritance().expect("should resolve");
+
+    let tokio = &manifest.dependencies["tokio"];
+    assert!(
+        !tokio.uses_default_features(),
+        "workspace default-features = false must win over local true"
+    );
+}
+
+/// ERR-1 regression (TASK-0555): a non-optional workspace dep can be
+/// opted-in to optional by an inheriting member.
+#[test]
+fn resolve_workspace_non_optional_local_optional_becomes_optional() {
+    let toml = r#"
+[package]
+name = "member"
+version = "0.1.0"
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
+[workspace.dependencies]
+serde = { version = "1", optional = false }
+"#;
+    let mut manifest = CargoToml::parse(toml).expect("should parse");
+    manifest.resolve_inheritance().expect("should resolve");
+
+    let serde = &manifest.dependencies["serde"];
+    assert!(
+        serde.is_optional(),
+        "local optional = true must take effect over a non-optional workspace dep"
+    );
+}
+
 #[test]
 fn inheritable_field_value_and_inherited() {
     let val: crate::types::InheritableField<String> =

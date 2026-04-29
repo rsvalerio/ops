@@ -11,9 +11,10 @@ ops-extension = { workspace = true }
 linkme = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-toml = "1"
+toml = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 ops-extension = { workspace = true, features = ["test-support"] }

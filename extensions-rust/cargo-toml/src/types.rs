@@ -397,7 +397,7 @@ pub struct DetailedDepSpec {
     pub optional: bool,
 
     /// Whether default features are enabled.
-    #[serde(default = "serde_defaults::default_true")]
+    #[serde(default = "serde_defaults::default_true", alias = "default-features")]
     pub default_features: bool,
 
     /// Inherit from workspace dependencies.

@@ -85,6 +85,38 @@ fn find_root_falls_back_to_nearest_when_no_workspace_in_chain() {
     assert_eq!(found, fs::canonicalize(root).unwrap());
 }
 
+/// SEC-25 / TASK-0604: `start` is canonicalised once before the walk, so a
+/// symlinked parent directory in the input path resolves to the real
+/// filesystem location and the walk operates on that resolved chain.
+#[cfg(unix)]
+#[test]
+fn find_root_resolves_symlinked_parent_in_start_path() {
+    let temp_dir = tempfile::tempdir().expect("create temp dir");
+    let real_root = temp_dir.path().join("real");
+    let real_member = real_root.join("crates").join("foo");
+    fs::create_dir_all(&real_member).expect("create real member");
+    fs::write(
+        real_root.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crates/foo\"]\n",
+    )
+    .expect("write workspace");
+    fs::write(
+        real_member.join("Cargo.toml"),
+        "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("write member");
+
+    // Create a symlink that aliases `real/crates` → accessed via a sibling path.
+    let alias = temp_dir.path().join("alias_crates");
+    std::os::unix::fs::symlink(real_root.join("crates"), &alias).expect("create symlink");
+    let symlinked_member = alias.join("foo");
+
+    let found = find_workspace_root(&symlinked_member).expect("should find workspace root");
+    // Walk operates on the canonical (real) chain, so the workspace root is
+    // returned at its real location, not under the alias.
+    assert_eq!(found, fs::canonicalize(&real_root).unwrap());
+}
+
 #[test]
 fn find_root_not_found() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");

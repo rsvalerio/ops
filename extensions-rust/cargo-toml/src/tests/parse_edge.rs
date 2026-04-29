@@ -150,6 +150,24 @@ serde = { version = "1.0", default_features = false }
     assert!(!serde.uses_default_features());
 }
 
+/// ERR-1 regression (TASK-0554): real-world Cargo manifests use the
+/// kebab-case `default-features` key. Without a serde alias, the field
+/// silently defaults back to `true`, masking the user's intent.
+#[test]
+fn dep_spec_detailed_default_features_false_kebab_case() {
+    let toml = r#"
+[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+serde = { version = "1.0", default-features = false }
+"#;
+    let manifest = CargoToml::parse(toml).expect("should parse");
+    let serde = &manifest.dependencies["serde"];
+    assert!(!serde.uses_default_features());
+}
+
 #[test]
 fn dep_spec_git_with_branch_tag_rev() {
     let toml = r#"
