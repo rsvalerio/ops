@@ -86,6 +86,18 @@ fn collect_member_ids_owned(metadata: &serde_json::Value, field: &str) -> HashSe
 /// for a workspace with hundreds of dependencies routinely exceeds 1 MB and
 /// the cache exists precisely so that repeat consumers (about, deps, units,
 /// coverage providers) share one allocation.
+///
+/// **Cache lifetime (PATTERN-1 / TASK-0603):** `member_ids` and
+/// `default_member_ids` live on this wrapper, not behind the `Arc`. Each call
+/// to [`Metadata::from_context`] / [`Metadata::from_value`] returns a fresh
+/// wrapper with empty `OnceLock`s. The HashSet build (one pass over
+/// `workspace_members`) is therefore amortized within a single `Metadata`
+/// instance — callers that hit `members` / `is_member` / `default_members` /
+/// `is_default_member` repeatedly should hold the same `Metadata` value
+/// across those calls. Building a new wrapper per call still avoids the deep
+/// JSON clone (the dominant cost) but pays the HashSet build once. Moving
+/// the caches behind the `Arc` would shrink that further but requires
+/// interior-mutability gymnastics that the current call sites don't justify.
 #[allow(dead_code)]
 pub struct Metadata {
     pub(crate) inner: Arc<serde_json::Value>,

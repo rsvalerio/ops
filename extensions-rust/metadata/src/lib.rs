@@ -165,9 +165,25 @@ impl DataProvider for MetadataProvider {
 fn query_metadata_raw(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
     use anyhow::Context as AnyhowContext;
     let conn = db.lock().context("acquiring db lock for metadata query")?;
+    // ERR-1 / TASK-0599: `metadata_raw` is a singleton table — the prior
+    // `LIMIT 1` form silently picked an arbitrary row if a future ingest
+    // path inserted more than one (re-collect without truncate, schema
+    // version row). Read every row, assert one, and surface a clear error
+    // if the invariant breaks.
+    let count: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM metadata_raw",
+            [],
+            |row: &duckdb::Row| row.get(0),
+        )
+        .context("counting metadata_raw rows")?;
+    anyhow::ensure!(
+        count == 1,
+        "metadata_raw must contain exactly one row, found {count}"
+    );
     let json_text: String = conn
         .query_row(
-            "SELECT to_json(m)::VARCHAR FROM metadata_raw m LIMIT 1",
+            "SELECT to_json(m)::VARCHAR FROM metadata_raw m",
             [],
             |row: &duckdb::Row| row.get(0),
         )

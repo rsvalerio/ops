@@ -807,6 +807,47 @@ mod metadata_edge_case_tests {
             .is_none());
     }
 
+    /// ERR-1 / TASK-0599: `metadata_raw` is a singleton invariant. If a
+    /// future ingest path (re-collect without truncate, schema-version row)
+    /// inserts more than one row, `query_metadata_raw` must surface a
+    /// clear error rather than silently picking an arbitrary row via
+    /// `LIMIT 1`.
+    #[test]
+    fn query_metadata_raw_errors_on_multiple_rows() {
+        let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory");
+        {
+            let conn = db.lock().expect("lock");
+            conn.execute_batch(
+                "CREATE TABLE metadata_raw (workspace_root VARCHAR, payload INTEGER);
+                 INSERT INTO metadata_raw VALUES ('/a', 1), ('/b', 2);",
+            )
+            .expect("seed");
+        }
+        let err = super::query_metadata_raw(&db).expect_err("multi-row must fail");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("exactly one row") || msg.contains("found 2"),
+            "got: {msg}"
+        );
+    }
+
+    /// ERR-1 / TASK-0599: companion to the multi-row test — single-row
+    /// metadata_raw flows through unchanged.
+    #[test]
+    fn query_metadata_raw_succeeds_on_single_row() {
+        let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory");
+        {
+            let conn = db.lock().expect("lock");
+            conn.execute_batch(
+                "CREATE TABLE metadata_raw (workspace_root VARCHAR, payload INTEGER);
+                 INSERT INTO metadata_raw VALUES ('/a', 1);",
+            )
+            .expect("seed");
+        }
+        let v = super::query_metadata_raw(&db).expect("single-row must succeed");
+        assert_eq!(v["workspace_root"], "/a");
+    }
+
     #[test]
     fn metadata_missing_packages_key() {
         let m = Metadata::from_value(serde_json::json!({

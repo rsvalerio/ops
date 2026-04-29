@@ -24,6 +24,9 @@ impl DataIngestor for MetadataIngestor {
                 label: t.label,
                 timeout_secs: t.timeout.as_secs(),
             },
+            other => DbError::Io(std::io::Error::other(format!(
+                "unexpected RunError variant: {other:?}"
+            ))),
         })?;
         check_metadata_output(&output).map_err(io_err)?;
         let path = data_dir.join("metadata.json");
@@ -44,27 +47,58 @@ impl DataIngestor for MetadataIngestor {
         conn.execute(&view_sql, [])
             .map_err(|e| DbError::query_failed("crate_dependencies view", e))?;
 
+        // API-1 (TASK-0606): record_count is what `data_sources` exposes to
+        // downstream tooling as a health signal. Query it instead of hard-
+        // coding 1 — today the `metadata_raw` JSON ingest produces a single
+        // row per workspace, but a future schema variant (multi-target,
+        // workspace-of-workspaces) could yield more, and a hard-coded 1
+        // would silently misreport that.
+        let record_count: u64 = conn
+            .query_row("SELECT count(*) FROM metadata_raw", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map(|c| u64::try_from(c).unwrap_or(0))
+            .map_err(|e| DbError::query_failed("metadata_raw count", e))?;
+
         let workspace_root: String = conn
             .query_row(
                 "SELECT workspace_root FROM metadata_raw LIMIT 1",
                 [],
                 |row| row.get(0),
             )
-            .map_err(|e| DbError::query_failed("metadata_raw workspace_root extract", e))?;
+            .map_err(|e| {
+                // READ-5 (TASK-0614): when DuckDB infers `workspace_root`
+                // as null or non-VARCHAR (cargo metadata edge case), the
+                // raw error names neither the observed type nor the
+                // offending value. Probe the column type via `typeof(...)`
+                // so the operator sees what shape DuckDB actually saw —
+                // probe failures fall back to a static label so the error
+                // is at worst as informative as before.
+                let observed_type = conn
+                    .query_row(
+                        "SELECT typeof(workspace_root) FROM metadata_raw LIMIT 1",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .unwrap_or_else(|_| "<probe failed>".to_string());
+                DbError::query_failed(
+                    format!("metadata_raw workspace_root extract (observed type: {observed_type})"),
+                    e,
+                )
+            })?;
 
         drop(conn);
 
-        let record_count = 1u64;
         let checksum = ops_duckdb::sql::checksum_file(&data_dir.join("metadata.json"))?;
         upsert_data_source(
             db,
-            &ops_duckdb::DataSourceMetadata {
-                source_name: self.name(),
-                workspace_root: &workspace_root,
-                source_path: &path,
+            &ops_duckdb::DataSourceMetadata::new(
+                self.name(),
+                &workspace_root,
+                &path,
                 record_count,
-                checksum: &checksum,
-            },
+                &checksum,
+            ),
         )?;
 
         // TASK-0510: cleanup is best-effort. The DuckDB row is already
