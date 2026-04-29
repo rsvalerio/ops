@@ -1,9 +1,11 @@
 ---
 id: TASK-0561
 title: 'ERR-1: parse_pom_xml logs at debug for NotFound, diverging from sister parsers'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0638
 created_date: '2026-04-29 05:03'
+updated_date: '2026-04-29 10:35'
 labels:
   - code-review-rust
   - error-handling

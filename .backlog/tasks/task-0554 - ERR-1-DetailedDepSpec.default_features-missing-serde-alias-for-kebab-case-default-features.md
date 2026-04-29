@@ -3,9 +3,11 @@ id: TASK-0554
 title: >-
   ERR-1: DetailedDepSpec.default_features missing serde alias for kebab-case
   default-features
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0640
 created_date: '2026-04-29 05:02'
+updated_date: '2026-04-29 11:48'
 labels:
   - code-review-rust
   - error-handling
@@ -25,6 +27,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add #[serde(alias = "default-features")] to DetailedDepSpec.default_features
-- [ ] #2 Regression test asserting parsing foo = { version = "1", default-features = false } yields default_features == false
+- [x] #1 Add #[serde(alias = "default-features")] to DetailedDepSpec.default_features
+- [x] #2 Regression test asserting parsing foo = { version = "1", default-features = false } yields default_features == false
 <!-- AC:END -->

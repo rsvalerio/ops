@@ -1,9 +1,11 @@
 ---
 id: TASK-0551
 title: 'ERR-1: write_new_hook does not fsync, but the legacy-upgrade temp path does'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0645
 created_date: '2026-04-29 05:02'
+updated_date: '2026-04-29 17:43'
 labels:
   - code-review-rust
   - error-handling

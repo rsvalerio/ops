@@ -3,9 +3,11 @@ id: TASK-0558
 title: >-
   PERF-1: load_workspace_manifest re-parses the cached cargo_toml JSON value on
   every provider call
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0643
 created_date: '2026-04-29 05:02'
+updated_date: '2026-04-29 14:26'
 labels:
   - code-review-rust
   - performance
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cache the typed CargoToml (e.g. via Arc<CargoToml>) instead of re-deserializing from serde_json::Value
-- [ ] #2 Confirm ctx.refresh = true still invalidates correctly
+- [x] #1 Cache the typed CargoToml (e.g. via Arc<CargoToml>) instead of re-deserializing from serde_json::Value
+- [x] #2 Confirm ctx.refresh = true still invalidates correctly
 <!-- AC:END -->

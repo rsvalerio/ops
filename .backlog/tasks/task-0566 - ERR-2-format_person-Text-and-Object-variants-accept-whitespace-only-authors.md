@@ -1,9 +1,11 @@
 ---
 id: TASK-0566
 title: 'ERR-2: format_person Text and Object variants accept whitespace-only authors'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0639
 created_date: '2026-04-29 05:03'
+updated_date: '2026-04-29 10:53'
 labels:
   - code-review-rust
   - error-handling
@@ -23,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Text branch trims and re-checks is_empty before emitting
-- [ ] #2 Object branch skips whitespace-only name and email components
+- [x] #1 Text branch trims and re-checks is_empty before emitting
+- [x] #2 Object branch skips whitespace-only name and email components
 <!-- AC:END -->

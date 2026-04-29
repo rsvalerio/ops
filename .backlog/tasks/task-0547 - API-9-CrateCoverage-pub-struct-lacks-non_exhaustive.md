@@ -1,9 +1,11 @@
 ---
 id: TASK-0547
 title: 'API-9: CrateCoverage pub struct lacks #[non_exhaustive]'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0636
 created_date: '2026-04-29 05:01'
+updated_date: '2026-04-29 06:13'
 labels:
   - code-review-rust
   - api-design

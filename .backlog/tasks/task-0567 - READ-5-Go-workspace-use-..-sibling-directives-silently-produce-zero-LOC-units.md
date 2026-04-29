@@ -1,9 +1,11 @@
 ---
 id: TASK-0567
 title: 'READ-5: Go workspace use ../sibling directives silently produce zero-LOC units'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0641
 created_date: '2026-04-29 05:03'
+updated_date: '2026-04-29 12:04'
 labels:
   - code-review-rust
   - readability

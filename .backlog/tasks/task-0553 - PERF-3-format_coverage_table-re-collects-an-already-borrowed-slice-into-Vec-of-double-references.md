@@ -3,9 +3,11 @@ id: TASK-0553
 title: >-
   PERF-3: format_coverage_table re-collects an already-borrowed slice into Vec
   of double references
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0643
 created_date: '2026-04-29 05:02'
+updated_date: '2026-04-29 14:23'
 labels:
   - code-review-rust
   - performance
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 sorted is Vec<&UnitCoverage> (or function takes &mut [&UnitCoverage] and sorts in place)
-- [ ] #2 No behaviour change in the rendered table
+- [x] #1 sorted is Vec<&UnitCoverage> (or function takes &mut [&UnitCoverage] and sorts in place)
+- [x] #2 No behaviour change in the rendered table
 <!-- AC:END -->

@@ -3,9 +3,11 @@ id: TASK-0560
 title: >-
   PATTERN-1: is_component_in_list uses open-ended prefix match against rustup
   component lines
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0645
 created_date: '2026-04-29 05:03'
+updated_date: '2026-04-29 17:43'
 labels:
   - code-review-rust
   - pattern

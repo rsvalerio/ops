@@ -3,9 +3,11 @@ id: TASK-0543
 title: >-
   READ-5: print_exec_spec lossily renders cwd via Path::display().to_string()
   before expansion
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0644
 created_date: '2026-04-29 04:58'
+updated_date: '2026-04-29 16:56'
 labels:
   - code-review-rust
   - readability
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dry-run either errors on non-UTF-8 cwd with the same message style as the argv check, or appends an explicit annotation
-- [ ] #2 Unix-only test exercises a PathBuf with a non-UTF-8 byte sequence end-to-end through dry-run
+- [x] #1 dry-run either errors on non-UTF-8 cwd with the same message style as the argv check, or appends an explicit annotation
+- [x] #2 Unix-only test exercises a PathBuf with a non-UTF-8 byte sequence end-to-end through dry-run
 <!-- AC:END -->

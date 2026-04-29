@@ -3,9 +3,11 @@ id: TASK-0550
 title: >-
   READ-5: wrap_text only truncates the final line, leaving overlong intermediate
   lines for unbreakable words
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0644
 created_date: '2026-04-29 05:02'
+updated_date: '2026-04-29 16:57'
 labels:
   - code-review-rust
   - readability
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every emitted line satisfies display_width(line) <= max_width, including intermediate lines
-- [ ] #2 Regression test pins the contract for an unbreakable word in the first of three lines
+- [x] #1 Every emitted line satisfies display_width(line) <= max_width, including intermediate lines
+- [x] #2 Regression test pins the contract for an unbreakable word in the first of three lines
 <!-- AC:END -->

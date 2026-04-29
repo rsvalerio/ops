@@ -3,9 +3,11 @@ id: TASK-0559
 title: >-
   DUP-1: cargo-update stderr-tail collector reimplements
   ops_core::output::format_error_tail inline
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0645
 created_date: '2026-04-29 05:03'
+updated_date: '2026-04-29 17:43'
 labels:
   - code-review-rust
   - duplication

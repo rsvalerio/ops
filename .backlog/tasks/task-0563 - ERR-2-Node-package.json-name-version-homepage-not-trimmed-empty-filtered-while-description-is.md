@@ -3,9 +3,11 @@ id: TASK-0563
 title: >-
   ERR-2: Node package.json name/version/homepage not trimmed/empty-filtered
   while description is
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0639
 created_date: '2026-04-29 05:03'
+updated_date: '2026-04-29 10:53'
 labels:
   - code-review-rust
   - error-handling
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 name/version trimmed-and-empty-filtered identically to description
-- [ ] #2 homepage trimmed before the empty-filter
-- [ ] #3 Same normalization applied in extensions-python/about/src/lib.rs at project.name / project.version
+- [x] #1 name/version trimmed-and-empty-filtered identically to description
+- [x] #2 homepage trimmed before the empty-filter
+- [x] #3 Same normalization applied in extensions-python/about/src/lib.rs at project.name / project.version
 <!-- AC:END -->

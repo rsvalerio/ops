@@ -3,9 +3,11 @@ id: TASK-0564
 title: >-
   PATTERN-1: Python uv.lock detection uses .exists() while sibling Node code
   uses symlink_metadata
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0642
 created_date: '2026-04-29 05:03'
+updated_date: '2026-04-29 12:51'
 labels:
   - code-review-rust
   - pattern
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Probe uses std::fs::symlink_metadata(...).is_ok() (or equivalent presence-only API)
-- [ ] #2 Comment near the probe documents the choice, mirroring package_manager.rs
+- [x] #1 Probe uses std::fs::symlink_metadata(...).is_ok() (or equivalent presence-only API)
+- [x] #2 Comment near the probe documents the choice, mirroring package_manager.rs
 <!-- AC:END -->

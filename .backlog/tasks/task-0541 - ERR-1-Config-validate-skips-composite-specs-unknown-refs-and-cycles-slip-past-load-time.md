@@ -3,9 +3,11 @@ id: TASK-0541
 title: >-
   ERR-1: Config::validate skips composite specs; unknown refs and cycles slip
   past load-time
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0638
 created_date: '2026-04-29 04:58'
+updated_date: '2026-04-29 10:33'
 labels:
   - code-review-rust
   - error-handling

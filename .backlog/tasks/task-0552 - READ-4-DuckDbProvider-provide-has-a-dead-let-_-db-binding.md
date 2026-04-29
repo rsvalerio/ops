@@ -1,9 +1,11 @@
 ---
 id: TASK-0552
 title: 'READ-4: DuckDbProvider::provide has a dead let _ = db binding'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0642
 created_date: '2026-04-29 05:02'
+updated_date: '2026-04-29 12:51'
 labels:
   - code-review-rust
   - readability
@@ -23,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replaced with if ctx.db.is_some() { return Ok(serde_json::Value::Null); }
-- [ ] #2 Behaviour unchanged
+- [x] #1 Replaced with if ctx.db.is_some() { return Ok(serde_json::Value::Null); }
+- [x] #2 Behaviour unchanged
 <!-- AC:END -->

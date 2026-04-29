@@ -3,9 +3,11 @@ id: TASK-0562
 title: >-
   PATTERN-1: Java about lib.rs docstring claims pom read errors propagate but
   provider unwrap_or_defaults
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0640
 created_date: '2026-04-29 05:03'
+updated_date: '2026-04-29 11:50'
 labels:
   - code-review-rust
   - pattern
@@ -25,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Either the docstring is rewritten to match the unwrap_or_default behaviour, or non-NotFound io::Errors are mapped to DataProviderError::computation_failed in MavenIdentityProvider::provide
-- [ ] #2 Final behaviour aligned with the gradle paragraph of the same docstring (which is accurate)
+- [x] #1 Either the docstring is rewritten to match the unwrap_or_default behaviour, or non-NotFound io::Errors are mapped to DataProviderError::computation_failed in MavenIdentityProvider::provide
+- [x] #2 Final behaviour aligned with the gradle paragraph of the same docstring (which is accurate)
 <!-- AC:END -->

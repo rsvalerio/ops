@@ -3,9 +3,11 @@ id: TASK-0555
 title: >-
   ERR-1: resolve_from_detailed_dep AND-folds workspace default-features = false
   over local override
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0640
 created_date: '2026-04-29 05:02'
+updated_date: '2026-04-29 11:50'
 labels:
   - code-review-rust
   - error-handling
@@ -25,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Document the cargo precedence rule the resolver implements (or fix to match cargo)
-- [ ] #2 Add fixtures covering { workspace = true, default-features = true } against a workspace-disabled default and { workspace = true, optional = true } against a non-optional workspace dep
+- [x] #1 Document the cargo precedence rule the resolver implements (or fix to match cargo)
+- [x] #2 Add fixtures covering { workspace = true, default-features = true } against a workspace-disabled default and { workspace = true, optional = true } against a non-optional workspace dep
 <!-- AC:END -->

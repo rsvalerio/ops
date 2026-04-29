@@ -1,9 +1,11 @@
 ---
 id: TASK-0557
 title: 'API-9: ops_cargo_toml::InheritanceError lacks #[non_exhaustive]'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0636
 created_date: '2026-04-29 05:02'
+updated_date: '2026-04-29 06:14'
 labels:
   - code-review-rust
   - api-design

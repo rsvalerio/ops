@@ -3,9 +3,11 @@ id: TASK-0548
 title: >-
   ERR-1: try_read_manifest silently swallows non-NotFound IO errors in workspace
   glob expansion
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0638
 created_date: '2026-04-29 05:01'
+updated_date: '2026-04-29 10:34'
 labels:
   - code-review-rust
   - error-handling

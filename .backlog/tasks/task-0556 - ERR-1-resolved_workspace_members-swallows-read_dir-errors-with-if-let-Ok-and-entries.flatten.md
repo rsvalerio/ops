@@ -3,9 +3,11 @@ id: TASK-0556
 title: >-
   ERR-1: resolved_workspace_members swallows read_dir errors with if-let-Ok and
   entries.flatten()
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0638
 created_date: '2026-04-29 05:02'
+updated_date: '2026-04-29 10:35'
 labels:
   - code-review-rust
   - error-handling

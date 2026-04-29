@@ -1,9 +1,11 @@
 ---
 id: TASK-0542
 title: 'PERF-3: output_byte_cap re-reads OPS_OUTPUT_BYTE_CAP env per command spawn'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0643
 created_date: '2026-04-29 04:58'
+updated_date: '2026-04-29 14:23'
 labels:
   - code-review-rust
   - performance
@@ -23,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 output_byte_cap is memoized via OnceLock<usize> (or read once at CommandRunner construction)
-- [ ] #2 Existing override / fallback semantics are preserved with a regression test that verifies the value sticks across many from_raw calls
+- [x] #1 output_byte_cap is memoized via OnceLock<usize> (or read once at CommandRunner construction)
+- [x] #2 Existing override / fallback semantics are preserved with a regression test that verifies the value sticks across many from_raw calls
 <!-- AC:END -->

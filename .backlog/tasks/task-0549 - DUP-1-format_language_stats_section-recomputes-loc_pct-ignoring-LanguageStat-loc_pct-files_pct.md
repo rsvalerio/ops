@@ -3,9 +3,11 @@ id: TASK-0549
 title: >-
   DUP-1: format_language_stats_section recomputes loc_pct, ignoring
   LanguageStat::loc_pct/files_pct
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0640
 created_date: '2026-04-29 05:02'
+updated_date: '2026-04-29 11:48'
 labels:
   - code-review-rust
   - duplication
@@ -25,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Renderer uses stat.loc_pct directly (and either renders or drops files_pct consistently)
-- [ ] #2 A test exercises a multi-language case where the upstream loc_pct and the post-filter recompute differ and confirms the rendered value matches the stored one
+- [x] #1 Renderer uses stat.loc_pct directly (and either renders or drops files_pct consistently)
+- [x] #2 A test exercises a multi-language case where the upstream loc_pct and the post-filter recompute differ and confirms the rendered value matches the stored one
 <!-- AC:END -->

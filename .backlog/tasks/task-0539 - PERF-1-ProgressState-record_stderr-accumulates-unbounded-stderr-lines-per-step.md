@@ -3,9 +3,11 @@ id: TASK-0539
 title: >-
   PERF-1: ProgressState::record_stderr accumulates unbounded stderr lines per
   step
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0643
 created_date: '2026-04-29 04:58'
+updated_date: '2026-04-29 14:22'
 labels:
   - code-review-rust
   - performance
@@ -25,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 record_stderr maintains a bounded ring (e.g. VecDeque sized to max(stderr_tail_lines, verbose-cap) per id) so peak memory is O(tail), not O(captured stderr)
-- [ ] #2 --verbose mode preserves today's full-tail rendering by raising the cap or bypassing the ring, with a regression test for a 100k-line stderr stream
+- [x] #1 record_stderr maintains a bounded ring (e.g. VecDeque sized to max(stderr_tail_lines, verbose-cap) per id) so peak memory is O(tail), not O(captured stderr)
+- [x] #2 --verbose mode preserves today's full-tail rendering by raising the cap or bypassing the ring, with a regression test for a 100k-line stderr stream
 <!-- AC:END -->

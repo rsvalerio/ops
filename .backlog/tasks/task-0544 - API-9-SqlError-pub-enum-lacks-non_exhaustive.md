@@ -1,9 +1,11 @@
 ---
 id: TASK-0544
 title: 'API-9: SqlError pub enum lacks #[non_exhaustive]'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0636
 created_date: '2026-04-29 04:58'
+updated_date: '2026-04-29 06:12'
 labels:
   - code-review-rust
   - api-design
