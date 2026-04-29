@@ -66,6 +66,7 @@ pub const MAX_TIMEOUT_SECS: u64 = 3600;
 /// outran the deadline. The label is the human-readable operation name
 /// passed in by the caller (e.g. `"cargo metadata"`).
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct TimeoutError {
     pub label: String,
     pub timeout: Duration,
@@ -87,6 +88,7 @@ impl std::error::Error for TimeoutError {}
 /// Error returned by [`run_with_timeout`]: either the underlying spawn/IO
 /// failed, or the child outran the deadline.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum RunError {
     Io(io::Error),
     Timeout(TimeoutError),
@@ -264,28 +266,36 @@ mod tests {
             Duration::from_secs(60)
         }
 
+        // SAFETY (UNSAFE-8 / TEST-19): set_var/remove_var become unsafe in
+        // edition 2024. The mutation race they guard against is process-wide
+        // env state being read concurrently from another thread. These tests
+        // are gated on `#[serial]` so no other test in the same binary mutates
+        // env at the same time, and no application code reads `TIMEOUT_ENV`
+        // from a background thread during the test body — the only reader is
+        // `default_timeout` invoked synchronously below. Wrapped in `unsafe`
+        // pre-emptively so the upcoming edition migration is a no-op.
         #[test]
         #[serial]
         fn clamps_huge_value_to_max() {
-            std::env::set_var(TIMEOUT_ENV, u64::MAX.to_string());
+            unsafe { std::env::set_var(TIMEOUT_ENV, u64::MAX.to_string()) };
             let got = default_timeout(op_default());
-            std::env::remove_var(TIMEOUT_ENV);
+            unsafe { std::env::remove_var(TIMEOUT_ENV) };
             assert_eq!(got, Duration::from_secs(MAX_TIMEOUT_SECS));
         }
 
         #[test]
         #[serial]
         fn zero_value_falls_back_to_op_default() {
-            std::env::set_var(TIMEOUT_ENV, "0");
+            unsafe { std::env::set_var(TIMEOUT_ENV, "0") };
             let got = default_timeout(op_default());
-            std::env::remove_var(TIMEOUT_ENV);
+            unsafe { std::env::remove_var(TIMEOUT_ENV) };
             assert_eq!(got, op_default());
         }
 
         #[test]
         #[serial]
         fn unset_returns_op_default() {
-            std::env::remove_var(TIMEOUT_ENV);
+            unsafe { std::env::remove_var(TIMEOUT_ENV) };
             let got = default_timeout(op_default());
             assert_eq!(got, op_default());
         }
@@ -293,9 +303,9 @@ mod tests {
         #[test]
         #[serial]
         fn within_bounds_is_honored() {
-            std::env::set_var(TIMEOUT_ENV, "30");
+            unsafe { std::env::set_var(TIMEOUT_ENV, "30") };
             let got = default_timeout(op_default());
-            std::env::remove_var(TIMEOUT_ENV);
+            unsafe { std::env::remove_var(TIMEOUT_ENV) };
             assert_eq!(got, Duration::from_secs(30));
         }
     }
