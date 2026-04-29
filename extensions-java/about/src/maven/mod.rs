@@ -4,7 +4,7 @@
 
 mod pom;
 
-use ops_about::identity::{build_identity_value, ParsedManifest};
+use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
 use ops_core::project_identity::AboutFieldDef;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
@@ -23,27 +23,23 @@ impl DataProvider for MavenIdentityProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let cwd = ctx.working_directory.clone();
-        let pom = parse_pom_xml(&cwd).unwrap_or_default();
+        provide_identity_from_manifest(ctx.working_directory.as_path(), |root| {
+            let pom = parse_pom_xml(root).unwrap_or_default();
+            let module_count = (!pom.modules.is_empty()).then_some(pom.modules.len());
 
-        let module_count = (!pom.modules.is_empty()).then_some(pom.modules.len());
-
-        build_identity_value(
-            ParsedManifest {
-                name: pom.name.or(pom.artifact_id),
-                version: pom.version,
-                description: pom.description,
-                license: pom.license,
-                authors: pom.developers,
-                repository: pom.scm_url,
-                stack_label: "Java",
-                stack_detail: Some("Maven".to_string()),
-                module_label: "modules",
-                module_count,
-                ..ParsedManifest::default()
-            },
-            &cwd,
-        )
+            ParsedManifest::build(|m| {
+                m.name = pom.name.or(pom.artifact_id);
+                m.version = pom.version;
+                m.description = pom.description;
+                m.license = pom.license;
+                m.authors = pom.developers;
+                m.repository = pom.scm_url;
+                m.stack_label = "Java";
+                m.stack_detail = Some("Maven".to_string());
+                m.module_label = "modules";
+                m.module_count = module_count;
+            })
+        })
     }
 }
 
@@ -65,8 +61,7 @@ mod tests {
     #[test]
     fn maven_provider_provide_no_pom() {
         let dir = tempfile::tempdir().unwrap();
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
-        let mut ctx = Context::new(config, dir.path().to_path_buf());
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
         let result = MavenIdentityProvider.provide(&mut ctx).unwrap();
 
         let name = result["name"].as_str().unwrap();
@@ -84,8 +79,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
-        let mut ctx = Context::new(config, dir.path().to_path_buf());
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
         let result = MavenIdentityProvider.provide(&mut ctx).unwrap();
 
         let name = result["name"].as_str().unwrap();
@@ -104,8 +98,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
-        let mut ctx = Context::new(config, dir.path().to_path_buf());
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
         let result = MavenIdentityProvider.provide(&mut ctx).unwrap();
 
         assert_eq!(result["stack_detail"], "Maven");

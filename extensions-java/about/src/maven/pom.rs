@@ -71,26 +71,46 @@ const SKIP_SECTIONS: &[(&str, &str)] = &[
     ("<distributionManagement>", "</distributionManagement>"),
 ];
 
-pub(super) fn parse_pom_xml(project_root: &Path) -> Result<PomData, std::io::Error> {
+pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
     let path = project_root.join("pom.xml");
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
         Err(e) => {
-            tracing::debug!(path = %path.display(), error = %e, "failed to read pom.xml");
-            return Err(e);
+            // ERR-1 / TASK-0394: NotFound is the legitimate "no pom.xml here"
+            // case for sister parsers (go_mod, go_work, package_json,
+            // pyproject); only log unexpected IO failures so a directory
+            // without a pom emits no spurious tracing event.
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::debug!(path = %path.display(), error = %e, "failed to read pom.xml");
+            }
+            return None;
         }
     };
 
     let mut data = PomData::default();
     let mut started = false;
+    let mut opener_pending = false;
     let mut section = PomSection::TopLevel;
 
     for line in content.lines() {
         let line = line.trim();
 
         if !started {
+            // TASK-0626: support multi-line `<project ... >` openers, which
+            // real-world Maven formatters often emit (xmlns/xsi attributes
+            // split across lines). Track an "opener pending" state until the
+            // closing `>` arrives.
+            if opener_pending {
+                if line.contains('>') {
+                    opener_pending = false;
+                    started = true;
+                }
+                continue;
+            }
             if is_project_open(line) {
                 started = true;
+            } else if is_project_open_start(line) {
+                opener_pending = true;
             }
             continue;
         }
@@ -112,7 +132,7 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Result<PomData, std::io::Err
         }
     }
 
-    Ok(data)
+    Some(data)
 }
 
 /// Match the `<project>` opener exactly: the bare tag or one carrying
@@ -128,6 +148,16 @@ fn is_project_open(line: &str) -> bool {
         return rest.starts_with(char::is_whitespace) && rest.contains('>');
     }
     false
+}
+
+/// Match the start of a multi-line `<project ...` opener: `<project` followed
+/// by whitespace (attributes) but no closing `>` on this line. Rejects
+/// `<projectInfo>` for the same reason as [`is_project_open`].
+fn is_project_open_start(line: &str) -> bool {
+    let Some(rest) = line.strip_prefix("<project") else {
+        return false;
+    };
+    rest.starts_with(char::is_whitespace) && !rest.contains('>')
 }
 
 /// Dispatch a line to the active section's handler. Returns `true` when the
@@ -218,7 +248,9 @@ fn match_section_open(line: &str, data: &mut PomData) -> Option<PomSection> {
 
     // Single-line forms: `<scm><url>...</url></scm>` or
     // `<licenses><license><name>...</name></license></licenses>`.
-    if line.starts_with("<scm>") && line.ends_with("</scm>") {
+    // Reject malformed inputs with duplicated openers (e.g. `<scm>...<scm>`)
+    // to keep the partial-input handler honest.
+    if line.starts_with("<scm>") && line.ends_with("</scm>") && line.matches("<scm>").count() == 1 {
         if data.scm_url.is_none() {
             if let Some(val) = extract_xml_value(line, "<url>", "</url>") {
                 data.scm_url = Some(val.to_string());
@@ -226,7 +258,10 @@ fn match_section_open(line: &str, data: &mut PomData) -> Option<PomSection> {
         }
         return None;
     }
-    if line.starts_with("<licenses>") && line.ends_with("</licenses>") {
+    if line.starts_with("<licenses>")
+        && line.ends_with("</licenses>")
+        && line.matches("<licenses>").count() == 1
+    {
         if data.license.is_none() {
             if let Some(val) = extract_xml_value(line, "<name>", "</name>") {
                 data.license = Some(val.to_string());
@@ -400,7 +435,7 @@ mod tests {
     #[test]
     fn parse_pom_missing_file() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(parse_pom_xml(dir.path()).is_err());
+        assert!(parse_pom_xml(dir.path()).is_none());
     }
 
     #[test]
@@ -542,6 +577,44 @@ mod tests {
 
         let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.artifact_id, Some("real".to_string()));
+    }
+
+    #[test]
+    fn parse_pom_duplicate_scm_opener_deterministic() {
+        // Two `<scm>` openers on one line is malformed. The single-line scm
+        // detector now rejects this shape (it would otherwise extract a URL
+        // from a line we have not really proven to be one scm element). The
+        // top-level `<url>` fallback still picks up the first URL, which is
+        // the deterministic outcome we pin here.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project>\n    <scm><url>https://first.example</url></scm><scm><url>https://second.example</url></scm>\n</project>",
+        )
+        .unwrap();
+
+        let pom = parse_pom_xml(dir.path()).unwrap();
+        assert_eq!(pom.scm_url, Some("https://first.example".to_string()));
+    }
+
+    #[test]
+    fn parse_pom_multiline_project_opener() {
+        // Real-world formatters often split xmlns/xsi attributes across
+        // lines. TASK-0626: parser must treat the opener as continuing until
+        // the first `>` and resume normal scanning afterwards.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            r#"<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <artifactId>multiline</artifactId>
+</project>"#,
+        )
+        .unwrap();
+
+        let pom = parse_pom_xml(dir.path()).unwrap();
+        assert_eq!(pom.artifact_id, Some("multiline".to_string()));
     }
 
     #[test]

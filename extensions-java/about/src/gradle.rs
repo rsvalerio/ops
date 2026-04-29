@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use ops_about::identity::{build_identity_value, ParsedManifest};
+use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
 use ops_core::project_identity::AboutFieldDef;
 use ops_core::text::for_each_trimmed_line;
 use ops_extension::{Context, DataProvider, DataProviderError};
@@ -21,37 +21,34 @@ impl DataProvider for GradleIdentityProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let cwd = ctx.working_directory.clone();
-        let settings = parse_gradle_settings(&cwd);
-        let props = parse_gradle_properties(&cwd);
-        let build = parse_gradle_build(&cwd);
+        provide_identity_from_manifest(ctx.working_directory.as_path(), |root| {
+            let settings = parse_gradle_settings(root);
+            let props = parse_gradle_properties(root);
+            let build = parse_gradle_build(root);
 
-        let (name, module_count) = match settings {
-            Some(GradleSettings {
-                root_project_name,
-                includes,
-            }) => {
-                let count = (!includes.is_empty()).then_some(includes.len());
-                (root_project_name, count)
-            }
-            None => (None, None),
-        };
-        let version = props.and_then(|GradleProperties { version }| version);
-        let description = build.and_then(|GradleBuild { description }| description);
+            let (name, module_count) = match settings {
+                Some(GradleSettings {
+                    root_project_name,
+                    includes,
+                }) => {
+                    let count = (!includes.is_empty()).then_some(includes.len());
+                    (root_project_name, count)
+                }
+                None => (None, None),
+            };
+            let version = props.and_then(|GradleProperties { version }| version);
+            let description = build.and_then(|GradleBuild { description }| description);
 
-        build_identity_value(
-            ParsedManifest {
-                name,
-                version,
-                description,
-                stack_label: "Java",
-                stack_detail: Some("Gradle".to_string()),
-                module_label: "subprojects",
-                module_count,
-                ..ParsedManifest::default()
-            },
-            &cwd,
-        )
+            ParsedManifest::build(|m| {
+                m.name = name;
+                m.version = version;
+                m.description = description;
+                m.stack_label = "Java";
+                m.stack_detail = Some("Gradle".to_string());
+                m.module_label = "subprojects";
+                m.module_count = module_count;
+            })
+        })
     }
 }
 
@@ -81,9 +78,18 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
         // include 'a', 'b'    (Groovy multi-arg)
         // include("a", "b")   (Kotlin DSL)
         // include 'core' // comment
+        // PATTERN-1 / TASK-0619: split once on the structural `)` rather than
+        // `trim_end_matches(')')`, so a quoted argument containing `)` (e.g.
+        // `include("legacy)module")`) is preserved instead of having
+        // characters chewed off its tail. Strip trailing line comments first
+        // so a `)` inside a `// (foo)` comment doesn't masquerade as the
+        // closing paren.
         let after_include = line
             .strip_prefix("include(")
-            .map(|r| r.trim_end_matches(|c: char| c.is_whitespace() || c == ')'))
+            .and_then(|r| {
+                let r = strip_trailing_comment(r).trim_end();
+                r.rsplit_once(')').map(|(args, _)| args)
+            })
             .or_else(|| line.strip_prefix("include ").map(strip_trailing_comment));
         if let Some(rest) = after_include {
             extract_quoted_list(rest, &mut includes);
@@ -140,7 +146,10 @@ fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
 
 /// Extract a value from `key = "value"` or `key = 'value'` or `key="value"`.
 /// Requires a word boundary after `key` (next char is `=` or whitespace) so
-/// `descriptionText = …` does not match `description`.
+/// `descriptionText = …` does not match `description`. Trailing `// ...`
+/// comments are silently ignored: [`extract_quoted`] terminates at the
+/// closing quote, leaving any post-quote text out of the result
+/// (`parse_gradle_settings_root_project_name_with_inline_comment` pins this).
 fn extract_assignment(line: &str, key: &str) -> Option<String> {
     let line = line.trim();
     let rest = line.strip_prefix(key)?;
@@ -181,14 +190,30 @@ fn extract_quoted(s: &str) -> Option<&str> {
 
 /// Extract every quoted token from a comma-separated list of values:
 /// `'a', 'b', "c"`. Pushes each unquoted token into `out`.
+///
+/// PATTERN-1 (TASK-0630): when a malformed remainder is encountered (a bare
+/// token without an opening quote, or an unbalanced opening quote), log at
+/// `tracing::debug` so a partially-parsed include is visible. Tokens already
+/// pushed are kept (best-effort recovery, matching the surrounding parser).
 fn extract_quoted_list(s: &str, out: &mut Vec<String>) {
+    let original = s;
     let mut rest = strip_trailing_comment(s).trim();
     while !rest.is_empty() {
         let Some(quote) = rest.chars().next().filter(|c| *c == '"' || *c == '\'') else {
+            tracing::debug!(
+                line = original,
+                remainder = rest,
+                "extract_quoted_list: bailed on bare (unquoted) token"
+            );
             return;
         };
         let after = &rest[1..];
         let Some(end) = after.find(quote) else {
+            tracing::debug!(
+                line = original,
+                remainder = rest,
+                "extract_quoted_list: bailed on unbalanced quote"
+            );
             return;
         };
         out.push(after[..end].to_string());
@@ -223,6 +248,20 @@ fn strip_properties_comment(s: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_quoted_list_bails_on_bare_token() {
+        let mut out = Vec::new();
+        extract_quoted_list(r#""core", noise"#, &mut out);
+        assert_eq!(out, vec!["core".to_string()]);
+    }
+
+    #[test]
+    fn extract_quoted_list_bails_on_unbalanced_quote() {
+        let mut out = Vec::new();
+        extract_quoted_list(r#""core", "dangling"#, &mut out);
+        assert_eq!(out, vec!["core".to_string()]);
+    }
 
     #[test]
     fn extract_assignment_double_quoted() {
@@ -378,6 +417,35 @@ mod tests {
     }
 
     #[test]
+    fn parse_gradle_settings_kotlin_quoted_arg_with_paren() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.gradle.kts"),
+            "include(\"legacy)module\")\n",
+        )
+        .unwrap();
+
+        let s = parse_gradle_settings(dir.path()).unwrap();
+        assert_eq!(s.includes, vec!["legacy)module"]);
+    }
+
+    #[test]
+    fn parse_gradle_settings_root_project_name_with_inline_comment() {
+        // The quote-bounded extract_quoted closes at the second `"`, so any
+        // trailing `// comment` is silently discarded. Pin that contract here
+        // so a future caller can't regress to a greedy match without breaking
+        // a test.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.gradle"),
+            "rootProject.name = \"myapp\" // primary\n",
+        )
+        .unwrap();
+        let s = parse_gradle_settings(dir.path()).unwrap();
+        assert_eq!(s.root_project_name, Some("myapp".to_string()));
+    }
+
+    #[test]
     fn parse_gradle_settings_inline_comment() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -517,8 +585,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
-        let mut ctx = Context::new(config, dir.path().to_path_buf());
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
         let result = GradleIdentityProvider.provide(&mut ctx).unwrap();
 
         assert_eq!(result["name"], "mygradle");
@@ -535,8 +602,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("settings.gradle"), "// empty settings\n").unwrap();
 
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
-        let mut ctx = Context::new(config, dir.path().to_path_buf());
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
         let result = GradleIdentityProvider.provide(&mut ctx).unwrap();
 
         let name = result["name"].as_str().unwrap();

@@ -4,11 +4,12 @@
 //! - `AboutMavenExtension` (stack: JavaMaven) — parses `pom.xml`
 //! - `AboutGradleExtension` (stack: JavaGradle) — parses `settings.gradle` + `gradle.properties`
 //!
-//! Read errors on `pom.xml` are surfaced through
-//! `DataProviderError::computation_failed` (with the underlying I/O error in
-//! the message) and via `tracing::debug!`. Gradle's line-based scans use the
-//! shared `for_each_trimmed_line` helper, which silently treats read failure
-//! as "absent" — diagnostics there are best-effort (TASK-0394).
+//! Parse and read errors fall back to defaults; non-NotFound read errors and
+//! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
+//! manifest does not silently look like a missing one (TASK-0394). The Maven
+//! provider folds the parser's `Option<PomData>` via `unwrap_or_default`
+//! (TASK-0438) and Gradle line-based scans use `for_each_trimmed_line`, which
+//! treats unreadable files as absent (TASK-0562).
 
 mod gradle;
 mod maven;
@@ -25,6 +26,7 @@ const MAVEN_NAME: &str = "about-java-maven";
 const MAVEN_DESCRIPTION: &str = "Java Maven project identity";
 const MAVEN_SHORTNAME: &str = "about-mvn";
 
+#[non_exhaustive]
 pub struct AboutMavenExtension;
 
 ops_extension::impl_extension! {
@@ -49,6 +51,7 @@ const GRADLE_NAME: &str = "about-java-gradle";
 const GRADLE_DESCRIPTION: &str = "Java Gradle project identity";
 const GRADLE_SHORTNAME: &str = "about-gradle";
 
+#[non_exhaustive]
 pub struct AboutGradleExtension;
 
 ops_extension::impl_extension! {
