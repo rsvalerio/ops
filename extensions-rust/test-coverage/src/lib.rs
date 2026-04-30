@@ -279,10 +279,6 @@ fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyh
 }
 
 pub fn load_coverage(data_dir: &Path, db: &DuckDb) -> Result<(), anyhow::Error> {
-    let json_path = data_dir.join("coverage_files.json");
-    if !json_path.exists() {
-        anyhow::bail!("coverage_files.json not found. Run collect first.");
-    }
     init_schema(db)?;
     let ingestor = CoverageIngestor;
     let _load_result = ingestor.load(data_dir, db)?;

@@ -1,7 +1,7 @@
 //! CoverageIngestor: collect LLVM coverage data and load into DuckDB.
 
 use crate::views;
-use ops_duckdb::sql::io_err;
+use ops_duckdb::sql::external_err;
 use ops_duckdb::{DataIngestor, DbResult, DuckDb, LoadResult, SidecarIngestorConfig};
 use ops_extension::Context;
 use std::path::Path;
@@ -17,19 +17,15 @@ impl DataIngestor for CoverageIngestor {
     }
 
     fn collect(&self, ctx: &Context, data_dir: &Path) -> DbResult<()> {
-        let records = super::collect_coverage(&ctx.working_directory).map_err(io_err)?;
+        let records = super::collect_coverage(&ctx.working_directory).map_err(external_err)?;
         PIPELINE.collect_sidecar(data_dir, &records, &ctx.working_directory)
     }
 
     fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<LoadResult> {
         let json_path = data_dir.join(PIPELINE.json_filename);
-        let create_sql = views::coverage_files_create_sql(&json_path).map_err(io_err)?;
+        let create_sql = views::coverage_files_create_sql(&json_path)?;
         let view_sql = views::coverage_summary_view_sql();
         PIPELINE.load_with_sidecar(db, data_dir, &create_sql, &view_sql)
-    }
-
-    fn checksum(&self, data_dir: &Path) -> DbResult<String> {
-        PIPELINE.checksum(data_dir)
     }
 }
 
@@ -52,14 +48,6 @@ mod tests {
         let ctx = ops_extension::Context::test_context(missing);
         let data_dir = tempfile::tempdir().unwrap();
         let result = ingestor.collect(&ctx, data_dir.path());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn coverage_checksum_fails_when_file_missing() {
-        let data_dir = tempfile::tempdir().unwrap();
-        let ingestor = CoverageIngestor;
-        let result = ingestor.checksum(data_dir.path());
         assert!(result.is_err());
     }
 

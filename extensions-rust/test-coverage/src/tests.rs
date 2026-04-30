@@ -424,30 +424,6 @@ fn load_coverage_missing_json_file_errors() {
     );
 }
 
-// -- CoverageIngestor checksum tests --
-
-#[test]
-fn coverage_ingestor_checksum_with_json_file() {
-    let data_dir = tempfile::tempdir().expect("tempdir");
-    write_coverage_fixture(data_dir.path());
-    let ingestor = CoverageIngestor;
-    let checksum = ingestor.checksum(data_dir.path()).expect("checksum");
-    assert_eq!(checksum.len(), 64, "SHA-256 hex should be 64 chars");
-    assert!(checksum.chars().all(|c| c.is_ascii_hexdigit()));
-
-    // Deterministic
-    let checksum2 = ingestor.checksum(data_dir.path()).expect("checksum2");
-    assert_eq!(checksum, checksum2);
-}
-
-#[test]
-fn coverage_ingestor_checksum_missing_file_errors() {
-    let data_dir = tempfile::tempdir().expect("tempdir");
-    let ingestor = CoverageIngestor;
-    let result = ingestor.checksum(data_dir.path());
-    assert!(result.is_err(), "should fail when json file missing");
-}
-
 // -- query_coverage_files round-trip test --
 
 #[test]
