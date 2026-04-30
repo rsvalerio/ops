@@ -2,7 +2,7 @@
 
 use crate::views;
 use crate::{check_metadata_output, run_cargo_metadata};
-use ops_duckdb::sql::io_err;
+use ops_duckdb::sql::external_err;
 use ops_duckdb::{
     init_schema, upsert_data_source, DataIngestor, DbError, DbResult, DuckDb, LoadResult,
 };
@@ -24,11 +24,9 @@ impl DataIngestor for MetadataIngestor {
                 label: t.label,
                 timeout_secs: t.timeout.as_secs(),
             },
-            other => DbError::Io(std::io::Error::other(format!(
-                "unexpected RunError variant: {other:?}"
-            ))),
+            other => DbError::External(format!("cargo metadata: {other}")),
         })?;
-        check_metadata_output(&output).map_err(io_err)?;
+        check_metadata_output(&output).map_err(external_err)?;
         let path = data_dir.join("metadata.json");
         std::fs::write(&path, &output.stdout).map_err(DbError::Io)?;
         Ok(())
@@ -39,7 +37,7 @@ impl DataIngestor for MetadataIngestor {
         let conn = db.lock()?;
 
         let path = data_dir.join("metadata.json");
-        let sql = views::metadata_raw_create_sql(&path).map_err(io_err)?;
+        let sql = views::metadata_raw_create_sql(&path)?;
         conn.execute(&sql, [])
             .map_err(|e| DbError::query_failed("metadata_raw create", e))?;
 
@@ -57,12 +55,17 @@ impl DataIngestor for MetadataIngestor {
             .query_row("SELECT count(*) FROM metadata_raw", [], |row| {
                 row.get::<_, i64>(0)
             })
-            .map(|c| u64::try_from(c).unwrap_or(0))
-            .map_err(|e| DbError::query_failed("metadata_raw count", e))?;
+            .map_err(|e| DbError::query_failed("metadata_raw count", e))
+            .and_then(|raw| {
+                u64::try_from(raw).map_err(|_| DbError::InvalidRecordCount {
+                    table: "metadata_raw".to_string(),
+                    count: raw,
+                })
+            })?;
 
         let workspace_root: String = conn
             .query_row(
-                "SELECT workspace_root FROM metadata_raw LIMIT 1",
+                "SELECT workspace_root FROM metadata_raw ORDER BY rowid LIMIT 1",
                 [],
                 |row| row.get(0),
             )
@@ -76,7 +79,7 @@ impl DataIngestor for MetadataIngestor {
                 // is at worst as informative as before.
                 let observed_type = conn
                     .query_row(
-                        "SELECT typeof(workspace_root) FROM metadata_raw LIMIT 1",
+                        "SELECT typeof(workspace_root) FROM metadata_raw ORDER BY rowid LIMIT 1",
                         [],
                         |row| row.get::<_, String>(0),
                     )
@@ -116,10 +119,6 @@ impl DataIngestor for MetadataIngestor {
 
         Ok(LoadResult::success(self.name(), record_count))
     }
-
-    fn checksum(&self, data_dir: &Path) -> DbResult<String> {
-        ops_duckdb::sql::checksum_file(&data_dir.join("metadata.json"))
-    }
 }
 
 #[cfg(test)]
@@ -143,14 +142,6 @@ mod tests {
         let ctx = ops_extension::Context::test_context(missing);
         let data_dir = tempfile::tempdir().unwrap();
         let result = ingestor.collect(&ctx, data_dir.path());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn metadata_checksum_fails_when_file_missing() {
-        let data_dir = tempfile::tempdir().unwrap();
-        let ingestor = MetadataIngestor;
-        let result = ingestor.checksum(data_dir.path());
         assert!(result.is_err());
     }
 
@@ -239,5 +230,22 @@ mod tests {
 
         // Verify JSON file was cleaned up
         assert!(!json_path.exists());
+    }
+
+    #[test]
+    fn negative_record_count_surfaces_as_invalid_record_count_error() {
+        let raw_count: i64 = -1;
+        let result: Result<u64, _> =
+            u64::try_from(raw_count).map_err(|_| DbError::InvalidRecordCount {
+                table: "metadata_raw".to_string(),
+                count: raw_count,
+            });
+        match result {
+            Err(DbError::InvalidRecordCount { table, count }) => {
+                assert_eq!(table, "metadata_raw");
+                assert_eq!(count, -1);
+            }
+            _ => panic!("expected InvalidRecordCount error"),
+        }
     }
 }
