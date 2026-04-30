@@ -174,18 +174,23 @@ pub fn run_with_timeout(
         .stdin(Stdio::null())
         .spawn()?;
 
+    // ERR-1 / TASK-0694: drain threads return both the bytes read so far
+    // and any IO error encountered. We surface drain failures via
+    // `tracing::warn!` so callers parsing the captured output have a
+    // breadcrumb when a buffer is truncated, instead of seeing a silently
+    // empty stream that round-trips as "the command produced no output".
     let stdout_handle = child.stdout.take().map(|mut s| {
-        thread::spawn(move || {
+        thread::spawn(move || -> (Vec<u8>, Option<io::Error>) {
             let mut buf = Vec::new();
-            let _ = s.read_to_end(&mut buf);
-            buf
+            let err = s.read_to_end(&mut buf).err();
+            (buf, err)
         })
     });
     let stderr_handle = child.stderr.take().map(|mut s| {
-        thread::spawn(move || {
+        thread::spawn(move || -> (Vec<u8>, Option<io::Error>) {
             let mut buf = Vec::new();
-            let _ = s.read_to_end(&mut buf);
-            buf
+            let err = s.read_to_end(&mut buf).err();
+            (buf, err)
         })
     });
 
@@ -195,11 +200,12 @@ pub fn run_with_timeout(
     let status = match child.wait_timeout(timeout)? {
         Some(s) => s,
         None => {
+            // Kill first so the drain threads see EOF and unblock; then
+            // collect their results before returning the timeout error.
             let _ = child.kill();
             let _ = child.wait();
-            // Drain pipe readers so background threads terminate.
-            let _ = stdout_handle.and_then(|h| h.join().ok());
-            let _ = stderr_handle.and_then(|h| h.join().ok());
+            let _ = collect_drain(stdout_handle, label, "stdout");
+            let _ = collect_drain(stderr_handle, label, "stderr");
             return Err(RunError::Timeout(TimeoutError {
                 label: label.to_string(),
                 timeout,
@@ -207,18 +213,50 @@ pub fn run_with_timeout(
         }
     };
 
-    let stdout = stdout_handle
-        .and_then(|h| h.join().ok())
-        .unwrap_or_default();
-    let stderr = stderr_handle
-        .and_then(|h| h.join().ok())
-        .unwrap_or_default();
+    let stdout = collect_drain(stdout_handle, label, "stdout");
+    let stderr = collect_drain(stderr_handle, label, "stderr");
 
     Ok(Output {
         status,
         stdout,
         stderr,
     })
+}
+
+/// Join a pipe-drain thread, log any `read_to_end` failure or join panic
+/// against `label`/`stream`, and return whatever bytes were successfully
+/// read. ERR-1 / TASK-0694: a truncated buffer used to be indistinguishable
+/// from a clean empty stream — this routine ensures every failure mode has
+/// a tracing breadcrumb.
+fn collect_drain(
+    handle: Option<thread::JoinHandle<(Vec<u8>, Option<io::Error>)>>,
+    label: &str,
+    stream: &'static str,
+) -> Vec<u8> {
+    let Some(handle) = handle else {
+        return Vec::new();
+    };
+    match handle.join() {
+        Ok((buf, None)) => buf,
+        Ok((buf, Some(err))) => {
+            tracing::warn!(
+                label,
+                stream,
+                bytes_read = buf.len(),
+                error = %err,
+                "subprocess pipe drain failed mid-read; captured output is truncated"
+            );
+            buf
+        }
+        Err(_) => {
+            tracing::warn!(
+                label,
+                stream,
+                "subprocess pipe drain thread panicked; captured output is missing"
+            );
+            Vec::new()
+        }
+    }
 }
 
 /// Run `cargo <args...>` in `working_dir` under [`run_with_timeout`].
