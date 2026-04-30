@@ -169,9 +169,20 @@ impl Stack {
         };
         // `.default.<stack>.ops.toml` is `include_str!`-embedded at compile
         // time and validated by [`tests::all_embedded_default_tomls_parse`].
-        // A parse failure here would mean the CI gate was skipped.
-        let config: Config =
-            toml::from_str(toml).expect("stack default commands TOML must be valid");
+        // A parse failure here means the CI gate was skipped. Log at warn
+        // instead of panicking so a bad default TOML degrades gracefully
+        // (empty command map) rather than aborting the process.
+        let config: Config = match toml::from_str(toml) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    stack = ?self,
+                    error = %e,
+                    "embedded default commands TOML failed to parse; returning empty command map"
+                );
+                return IndexMap::new();
+            }
+        };
         config.commands
     }
 }
