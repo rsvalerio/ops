@@ -5,8 +5,25 @@ use std::path::Path;
 pub use ops_hook_common::find_git_dir;
 
 /// Read the URL of the `origin` remote from `<git_dir>/config`.
+///
+/// NotFound is silent (no remotes configured is normal). Other IO errors
+/// (PermissionDenied, IsADirectory, etc.) log at `tracing::warn!` before
+/// returning None, matching the policy of `try_read_manifest` (TASK-0548)
+/// and `resolve_member_globs` (TASK-0517).
 pub fn read_origin_url(git_dir: &Path) -> Option<String> {
-    let content = std::fs::read_to_string(git_dir.join("config")).ok()?;
+    let path = git_dir.join("config");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "failed to read .git/config; treating as no remote"
+            );
+            return None;
+        }
+    };
     read_origin_url_from(&content)
 }
 
@@ -364,5 +381,33 @@ mod tests {
         )
         .unwrap();
         assert!(read_head_branch(&git_dir).is_none());
+    }
+
+    /// Non-NotFound IO errors (e.g. unreadable config) must return None but
+    /// emit a tracing::warn so operators can diagnose ACL / permission drift.
+    #[cfg(unix)]
+    #[test]
+    fn read_origin_url_unreadable_config_returns_none() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        let config = git_dir.join("config");
+        std::fs::write(
+            &config,
+            "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n",
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&config).unwrap().permissions();
+        perms.set_mode(0o000);
+        std::fs::set_permissions(&config, perms).unwrap();
+
+        let result = read_origin_url(&git_dir);
+        assert!(result.is_none(), "unreadable config should return None");
+
+        // Restore so tempdir cleanup works.
+        let mut restore = std::fs::metadata(&config).unwrap().permissions();
+        restore.set_mode(0o644);
+        std::fs::set_permissions(&config, restore).unwrap();
     }
 }

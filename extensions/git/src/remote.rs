@@ -102,15 +102,20 @@ fn is_valid_host(host: &str) -> bool {
 
 fn split_owner_repo(path: &str) -> Option<(&str, &str)> {
     let path = path.trim_start_matches('/');
-    // Take the last two non-empty path segments (handles nested GitLab groups by
-    // using only owner = last dir before repo; callers can refine later if needed).
-    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    if segments.len() < 2 {
+    // PATTERN-1 / TASK-0724: preserve the full owner path so nested GitLab
+    // subgroups (`group/subgroup/repo`) round-trip correctly. The previous
+    // behaviour kept only the last two segments, which produced a 404 URL
+    // for any subgroup project. Each owner segment is still validated by
+    // `is_valid_path_segment` to keep the smuggled-char allowlist intact.
+    let trimmed = path.trim_end_matches('/');
+    let (owner, repo) = trimmed.rsplit_once('/')?;
+    if owner.is_empty() || repo.is_empty() {
         return None;
     }
-    let repo = segments[segments.len() - 1];
-    let owner = segments[segments.len() - 2];
-    if !is_valid_path_segment(owner) || !is_valid_path_segment(repo) {
+    if !is_valid_path_segment(repo) {
+        return None;
+    }
+    if owner.split('/').any(|seg| !is_valid_path_segment(seg)) {
         return None;
     }
     Some((owner, repo))
@@ -198,12 +203,21 @@ mod tests {
     }
 
     #[test]
-    fn gitlab_nested_group_uses_last_two_segments() {
-        // GitLab subgroups: owner/subgroup/repo — we take the last two as owner/repo.
+    fn gitlab_nested_group_preserves_full_owner_path() {
+        // PATTERN-1 / TASK-0724: nested GitLab subgroups round-trip with the
+        // full owner path (`group/subgroup`), so the synthesised URL points
+        // at a real project page instead of a 404.
         assert_eq!(
             parse_remote_url("https://gitlab.com/group/subgroup/repo.git"),
-            Some(info("gitlab.com", "subgroup", "repo")),
+            Some(info("gitlab.com", "group/subgroup", "repo")),
         );
+    }
+
+    #[test]
+    fn gitlab_deeply_nested_group_round_trips() {
+        let parsed = parse_remote_url("https://gitlab.com/a/b/c/d/repo.git").expect("parsed");
+        assert_eq!(parsed.owner, "a/b/c/d");
+        assert_eq!(parsed.url, "https://gitlab.com/a/b/c/d/repo");
     }
 
     #[test]
