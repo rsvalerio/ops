@@ -85,6 +85,12 @@ fn parse_log_level<W: io::Write>(
         Err(e) => {
             // The tracing subscriber is not yet registered when init_logging
             // runs, so any tracing::* event is dropped — write directly.
+            //
+            // The writeln result is intentionally discarded: if stderr is
+            // unwritable (closed pipe, broken consumer), the user has already
+            // lost the diagnostic channel — propagating the write error up
+            // would abort startup over a secondary concern (the log level is
+            // still correctly defaulted to INFO below).
             let _ = writeln!(
                 warn,
                 "ops: warning: invalid OPS_LOG_LEVEL='{v}': {e}; falling back to info"
@@ -251,5 +257,32 @@ mod log_level_tests {
         let mut buf: Vec<u8> = Vec::new();
         let _ = parse_log_level(None, &mut buf);
         assert!(buf.is_empty(), "no warning when unset");
+    }
+
+    #[test]
+    fn failed_write_still_returns_info_fallback() {
+        struct FailingWriter;
+        impl std::io::Write for FailingWriter {
+            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "broken",
+                ))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "broken",
+                ))
+            }
+        }
+        let directive = parse_log_level(Some("!!bad!!"), &mut FailingWriter);
+        // The returned directive should still be the INFO fallback despite
+        // the writeln failure — the swallow is documented and intentional.
+        let s = format!("{directive}");
+        assert!(
+            s.contains("info"),
+            "expected INFO fallback directive, got: {s}"
+        );
     }
 }
