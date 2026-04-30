@@ -40,12 +40,12 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
         .into_iter()
         .map(|(member, manifest)| {
             let manifest_path = cwd.join(&member).join("package.json");
-            let (name, version, description) = parse_package_metadata(&manifest_path, &manifest);
+            let meta = parse_package_metadata(&manifest_path, &manifest);
             ProjectUnit {
-                name: name.unwrap_or_else(|| format_unit_name(&member)),
+                name: meta.name.unwrap_or_else(|| format_unit_name(&member)),
                 path: member,
-                version,
-                description,
+                version: meta.version,
+                description: meta.description,
                 ..Default::default()
             }
         })
@@ -103,7 +103,21 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
         if let Some(content) =
             ops_about::manifest_io::read_optional_text(&pnpm_path, "pnpm-workspace.yaml")
         {
-            let items = parse_pnpm_workspace_yaml(&content);
+            let PnpmParse {
+                items,
+                saw_packages_key,
+            } = parse_pnpm_workspace_yaml(&content);
+            // ERR-4 / TASK-0684: distinguish "no packages: key" from
+            // "packages: key matched but produced 0 entries" — the second
+            // case is the symptom of a YAML shape we don't recognise (block
+            // scalar, anchored list, nested mapping). Operators couldn't
+            // tell them apart before this debug event landed.
+            if items.is_empty() && saw_packages_key {
+                tracing::debug!(
+                    path = %pnpm_path.display(),
+                    "pnpm-workspace.yaml: packages: key matched but no entries parsed"
+                );
+            }
             split_include_exclude(items, &mut includes, &mut excludes);
         }
     }
@@ -126,14 +140,24 @@ fn split_include_exclude(
     }
 }
 
+/// Outcome of `parse_pnpm_workspace_yaml`. `saw_packages_key` distinguishes
+/// "no packages: key in this file" from "key matched but the shape isn't
+/// one we recognise" — the caller emits a debug log on the second case
+/// (ERR-4 / TASK-0684).
+struct PnpmParse {
+    items: Vec<String>,
+    saw_packages_key: bool,
+}
+
 /// Minimal parser for the `packages:` list in `pnpm-workspace.yaml`.
 /// Handles the common shapes:
 ///   packages:
 ///     - 'apps/*'
 ///     - "libs/*"
 ///     - services/api
-fn parse_pnpm_workspace_yaml(content: &str) -> Vec<String> {
+fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
     let mut out = Vec::new();
+    let mut saw_packages_key = false;
     let mut in_packages = false;
     for raw_line in content.lines() {
         let line = raw_line.trim_end();
@@ -142,6 +166,7 @@ fn parse_pnpm_workspace_yaml(content: &str) -> Vec<String> {
         }
         let trimmed_start = line.trim_start();
         if let Some(rest) = trimmed_start.strip_prefix("packages:") {
+            saw_packages_key = true;
             let rest = rest.trim();
             if let Some(inner) = rest.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
                 for item in inner.split(',') {
@@ -174,7 +199,10 @@ fn parse_pnpm_workspace_yaml(content: &str) -> Vec<String> {
             }
         }
     }
-    out
+    PnpmParse {
+        items: out,
+        saw_packages_key,
+    }
 }
 
 fn unquote(s: &str) -> &str {
@@ -192,12 +220,13 @@ struct PackageProbe {
     description: Option<String>,
 }
 
-fn parse_package_metadata(
-    path: &Path,
-    content: &str,
-) -> (Option<String>, Option<String>, Option<String>) {
+fn parse_package_metadata(path: &Path, content: &str) -> ops_about::workspace::PackageMetadata {
     ops_about::workspace::parse_package_metadata(path, content, |c| {
-        serde_json::from_str::<PackageProbe>(c).map(|p| (p.name, p.version, p.description))
+        serde_json::from_str::<PackageProbe>(c).map(|p| ops_about::workspace::PackageMetadata {
+            name: p.name,
+            version: p.version,
+            description: p.description,
+        })
     })
 }
 
@@ -260,6 +289,23 @@ mod tests {
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].path, "apps/web");
         assert_eq!(units[0].name, "web");
+    }
+
+    #[test]
+    fn parse_pnpm_block_scalar_shape_flags_empty_with_packages_key() {
+        // ERR-4 / TASK-0684: a block-scalar `packages: |\n  apps/*` is not
+        // a shape we recognise. The parser must record that `packages:`
+        // matched even though no entries came out, so the caller can emit
+        // a debug log distinguishing it from "no packages: key at all".
+        let yaml = "packages: |\n  apps/*\n";
+        let r = parse_pnpm_workspace_yaml(yaml);
+        assert!(r.items.is_empty());
+        assert!(r.saw_packages_key);
+
+        let no_key = "name: foo\n";
+        let r = parse_pnpm_workspace_yaml(no_key);
+        assert!(r.items.is_empty());
+        assert!(!r.saw_packages_key);
     }
 
     #[test]
@@ -395,14 +441,14 @@ mod tests {
     #[test]
     fn parses_pnpm_packages_list() {
         let yaml = "packages:\n  - 'apps/*'\n  - \"libs/core\"\n  - services/api\n\nother: key\n";
-        let pats = parse_pnpm_workspace_yaml(yaml);
+        let pats = parse_pnpm_workspace_yaml(yaml).items;
         assert_eq!(pats, vec!["apps/*", "libs/core", "services/api"]);
     }
 
     #[test]
     fn parses_pnpm_packages_inline_list() {
         let yaml = "packages: ['apps/*', \"libs/core\", services/api]\n";
-        let pats = parse_pnpm_workspace_yaml(yaml);
+        let pats = parse_pnpm_workspace_yaml(yaml).items;
         assert_eq!(pats, vec!["apps/*", "libs/core", "services/api"]);
     }
 }

@@ -40,11 +40,21 @@ enum LicenseField {
     Object { r#type: Option<String> },
 }
 
+/// npm's package.json `repository` field. The object form supports a
+/// `directory` property that points at a sub-path inside the repository, used
+/// by monorepos to distinguish member packages that share one root URL.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum RepositoryField {
     Text(String),
-    Object { url: Option<String> },
+    Object {
+        url: Option<String>,
+        /// Sub-path within the repository (npm-supported, used by monorepos
+        /// like babel/react-router). Surfaced as a `/tree/HEAD/<directory>`
+        /// suffix on the normalised URL so the About card distinguishes
+        /// member packages that share a repository root.
+        directory: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,7 +78,12 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
     let raw: RawPackage = match serde_json::from_str(&content) {
         Ok(r) => r,
         Err(e) => {
-            tracing::warn!(path = %path.display(), error = %e, "failed to parse package.json");
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                recovery = "default-identity",
+                "failed to parse package.json"
+            );
             return None;
         }
     };
@@ -96,7 +111,13 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
         homepage: trim_nonempty(raw.homepage),
         repository: raw.repository.and_then(|r| match r {
             RepositoryField::Text(s) => Some(normalize_repo_url(&s)),
-            RepositoryField::Object { url } => url.map(|u| normalize_repo_url(&u)),
+            RepositoryField::Object { url, directory } => url.map(|u| {
+                let base = normalize_repo_url(&u);
+                match trim_nonempty(directory) {
+                    Some(dir) => append_tree_directory(&base, &dir),
+                    None => base,
+                }
+            }),
         }),
         authors,
         engines_node: raw.engines.and_then(|e| e.node),
@@ -178,18 +199,43 @@ fn normalize_repo_url(raw: &str) -> String {
 /// equivalent: drop the `git@` user-info, replace an scp-form `host:path`
 /// separator with `/`, and strip any trailing `.git` suffix. A numeric port
 /// (e.g. `host:22/path`) is preserved verbatim.
+///
+/// PATTERN-1 / TASK-0692: distinguish a numeric port from an scp-form path
+/// whose first segment merely begins with a digit (e.g. `host:42-archive/x`)
+/// by requiring **all** characters before the next `/` to be digits — a
+/// `host:42/foo` is a port, `host:42-archive/x` is an scp-form path.
 fn ssh_to_https(rest: &str) -> String {
     let no_user = rest.strip_prefix("git@").unwrap_or(rest);
     let trimmed = no_user.trim_end_matches(".git");
-    // scp-form: host:path (path does not start with a digit). Replace the first
-    // `:` with `/` so the result is a valid https URL.
     let body = match trimmed.split_once(':') {
-        Some((host, path)) if !path.starts_with(|c: char| c.is_ascii_digit()) => {
+        Some((host, path)) if !is_numeric_port_prefix(path) => {
             format!("{host}/{path}")
         }
         _ => trimmed.to_string(),
     };
     format!("https://{body}")
+}
+
+/// Append `/tree/HEAD/<directory>` to a base repository URL so monorepo
+/// member packages render distinguishable links. Strips a leading `./` from
+/// the directory; canonicalises slashes; idempotent if the URL already
+/// includes the same suffix.
+fn append_tree_directory(base: &str, directory: &str) -> String {
+    let dir = directory
+        .trim()
+        .trim_start_matches("./")
+        .trim_matches('/')
+        .replace('\\', "/");
+    if dir.is_empty() {
+        return base.to_string();
+    }
+    let trimmed_base = base.trim_end_matches('/');
+    format!("{trimmed_base}/tree/HEAD/{dir}")
+}
+
+fn is_numeric_port_prefix(path: &str) -> bool {
+    let port = path.split('/').next().unwrap_or("");
+    !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())
 }
 
 #[cfg(test)]
@@ -277,6 +323,69 @@ mod tests {
         assert_eq!(
             normalize_repo_url("git+https://github.com/o/r.git"),
             "https://github.com/o/r"
+        );
+    }
+
+    #[test]
+    fn repository_object_with_directory_appends_tree_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{
+                "name": "@scope/foo",
+                "version": "1.0.0",
+                "repository": {
+                    "type": "git",
+                    "url": "https://github.com/example/mono.git",
+                    "directory": "packages/foo"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let parsed = parse_package_json(dir.path()).expect("parsed");
+        assert_eq!(
+            parsed.repository.as_deref(),
+            Some("https://github.com/example/mono/tree/HEAD/packages/foo")
+        );
+    }
+
+    #[test]
+    fn repository_object_without_directory_matches_text_form() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{
+                "name": "@scope/foo",
+                "version": "1.0.0",
+                "repository": {
+                    "type": "git",
+                    "url": "https://github.com/example/mono.git"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let parsed = parse_package_json(dir.path()).expect("parsed");
+        assert_eq!(
+            parsed.repository.as_deref(),
+            Some("https://github.com/example/mono")
+        );
+    }
+
+    #[test]
+    fn normalize_ssh_scp_form_with_digit_prefixed_owner() {
+        assert_eq!(
+            normalize_repo_url("ssh://git@github.com:42-archive/x.git"),
+            "https://github.com/42-archive/x"
+        );
+    }
+
+    #[test]
+    fn normalize_ssh_with_numeric_port_keeps_port() {
+        assert_eq!(
+            normalize_repo_url("ssh://git@host:22/path.git"),
+            "https://host:22/path"
         );
     }
 
