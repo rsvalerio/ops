@@ -11,6 +11,8 @@ ops-hook-common = { workspace = true }
 linkme = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
+wait-timeout = { workspace = true }
 
 [dev-dependencies]
 ops-hook-common = { workspace = true, features = ["test-helpers"] }

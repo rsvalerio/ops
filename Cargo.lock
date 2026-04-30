@@ -2260,6 +2260,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -2301,6 +2302,8 @@ dependencies = [
  "serial_test",
  "tempfile",
  "thiserror 2.0.18",
+ "tracing",
+ "wait-timeout",
 ]
 
 [[package]]
