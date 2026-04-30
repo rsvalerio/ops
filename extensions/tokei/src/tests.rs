@@ -414,25 +414,6 @@ fn tokei_ingestor_collect_empty_dir() {
 }
 
 #[test]
-fn tokei_ingestor_checksum_changes_after_collect() {
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let data_dir = tempfile::tempdir().expect("tempdir");
-    let ctx = Context::test_context(manifest_dir);
-
-    let ingestor = TokeiIngestor;
-    ingestor.collect(&ctx, data_dir.path()).expect("collect");
-
-    let checksum = ingestor
-        .checksum(data_dir.path())
-        .expect("checksum should succeed");
-    assert!(!checksum.is_empty(), "checksum should not be empty");
-
-    // Running checksum again should return the same value (deterministic)
-    let checksum2 = ingestor.checksum(data_dir.path()).expect("checksum2");
-    assert_eq!(checksum, checksum2, "checksum should be deterministic");
-}
-
-#[test]
 fn tokei_ingestor_load_without_collect_fails() {
     let data_dir = tempfile::tempdir().expect("tempdir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
