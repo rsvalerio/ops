@@ -6,7 +6,10 @@
 
 use std::collections::BTreeMap;
 
-use crate::types::{CargoToml, DepSpec, DetailedDepSpec, InheritableField, InheritableString};
+use crate::types::{
+    CargoToml, DepSpec, DetailedDepSpec, InheritableField, InheritableString, InheritableVec,
+    PublishSpec, ReadmeSpec,
+};
 
 /// Error during workspace inheritance resolution.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -51,6 +54,10 @@ impl CargoToml {
             return;
         };
 
+        // Each line below routes one inheritable field through its matching
+        // resolver. Adding a new inheritable field is one line here plus a
+        // counterpart in `WorkspacePackage` — no risk of touching three
+        // places to add a single field.
         resolve_string_field(&mut pkg.version, &ws_pkg.version);
         resolve_string_field(&mut pkg.edition, &ws_pkg.edition);
         resolve_string_field(&mut pkg.rust_version, &ws_pkg.rust_version);
@@ -60,9 +67,16 @@ impl CargoToml {
         resolve_string_field(&mut pkg.repository, &ws_pkg.repository);
         resolve_string_field(&mut pkg.license, &ws_pkg.license);
 
+        resolve_vec_field(&mut pkg.keywords, &ws_pkg.keywords);
+        resolve_vec_field(&mut pkg.categories, &ws_pkg.categories);
+
         if let InheritableField::Inherited { workspace: true } = &pkg.authors {
             pkg.authors = InheritableField::Value(ws_pkg.authors.clone());
         }
+
+        resolve_optional_string(&mut pkg.license_file, &ws_pkg.license_file);
+        resolve_readme(&mut pkg.readme, &ws_pkg.readme);
+        resolve_publish(&mut pkg.publish, &ws_pkg.publish);
     }
 }
 
@@ -79,6 +93,42 @@ pub(crate) fn resolve_string_field(field: &mut InheritableString, ws_value: &Opt
         if let Some(v) = ws_value {
             *field = InheritableField::Value(v.clone());
         }
+    }
+}
+
+/// Like [`resolve_string_field`] but for `Vec<String>` fields. Substitutes the
+/// workspace value verbatim (cloning) when the local field is in the
+/// `Inherited { workspace: true }` state.
+pub(crate) fn resolve_vec_field(field: &mut InheritableVec, ws_value: &[String]) {
+    if let InheritableField::Inherited { workspace: true } = field {
+        *field = InheritableField::Value(ws_value.to_vec());
+    }
+}
+
+/// Resolve `license-file = { workspace = true }` against the workspace's
+/// `license-file`. Mirrors [`resolve_string_field`] but for `Option<InheritableString>`.
+pub(crate) fn resolve_optional_string(
+    field: &mut Option<InheritableString>,
+    ws_value: &Option<String>,
+) {
+    if let Some(inner) = field {
+        resolve_string_field(inner, ws_value);
+    }
+}
+
+/// Resolve `readme = { workspace = true }` against the workspace's `readme`.
+pub(crate) fn resolve_readme(field: &mut Option<ReadmeSpec>, ws_value: &Option<ReadmeSpec>) {
+    if let Some(ReadmeSpec::Inherited { workspace: true }) = field {
+        if let Some(v) = ws_value {
+            *field = Some(v.clone());
+        }
+    }
+}
+
+/// Resolve `publish = { workspace = true }` against the workspace's `publish`.
+pub(crate) fn resolve_publish(field: &mut PublishSpec, ws_value: &PublishSpec) {
+    if let PublishSpec::Inherited { workspace: true } = field {
+        *field = ws_value.clone();
     }
 }
 

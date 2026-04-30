@@ -118,7 +118,7 @@ pub struct Package {
     #[serde(default)]
     pub documentation: InheritableString,
 
-    /// README file path.
+    /// README file path (can be inherited from workspace).
     pub readme: Option<ReadmeSpec>,
 
     /// Homepage URL (can be inherited from workspace).
@@ -133,17 +133,17 @@ pub struct Package {
     #[serde(default)]
     pub license: InheritableString,
 
-    /// Path to license file.
+    /// Path to license file (can be inherited from workspace).
     #[serde(alias = "license-file")]
-    pub license_file: Option<String>,
+    pub license_file: Option<InheritableString>,
 
-    /// Keywords for crates.io.
+    /// Keywords for crates.io (can be inherited from workspace).
     #[serde(default)]
-    pub keywords: Vec<String>,
+    pub keywords: InheritableVec,
 
-    /// Categories for crates.io.
+    /// Categories for crates.io (can be inherited from workspace).
     #[serde(default)]
-    pub categories: Vec<String>,
+    pub categories: InheritableVec,
 
     /// Path to the main source file.
     #[serde(alias = "default-run")]
@@ -193,7 +193,7 @@ pub type InheritableVec = InheritableField<Vec<String>>;
 /// A string field that can be inherited from workspace.
 pub type InheritableString = InheritableField<String>;
 
-/// README specification: can be a boolean, string, or table.
+/// README specification: can be a boolean, string, table, or workspace-inherited.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ReadmeSpec {
@@ -201,11 +201,13 @@ pub enum ReadmeSpec {
     Bool(bool),
     /// `readme = "README.md"`
     Path(String),
+    /// `readme = { workspace = true }`
+    Inherited { workspace: bool },
     /// `readme = { file = "...", ... }`
     Table { file: String },
 }
 
-/// Publish specification: can be a boolean or list of registries.
+/// Publish specification: can be a boolean, list of registries, or workspace-inherited.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(untagged)]
 pub enum PublishSpec {
@@ -213,6 +215,8 @@ pub enum PublishSpec {
     Bool(bool),
     /// `publish = ["my-registry"]`
     Registries(Vec<String>),
+    /// `publish = { workspace = true }`
+    Inherited { workspace: bool },
     /// No publish field (defaults to true).
     #[default]
     None,
@@ -225,7 +229,10 @@ impl PublishSpec {
         match self {
             PublishSpec::Bool(b) => *b,
             PublishSpec::Registries(v) => !v.is_empty(),
-            PublishSpec::None => true,
+            // Conservatively report unresolved-inherited as publishable; the
+            // resolved value (after `resolve_package_inheritance`) is what
+            // callers should rely on.
+            PublishSpec::Inherited { .. } | PublishSpec::None => true,
         }
     }
 }
@@ -290,6 +297,25 @@ pub struct WorkspacePackage {
     /// Shared rust-version.
     #[serde(alias = "rust-version")]
     pub rust_version: Option<String>,
+
+    /// Shared README.
+    pub readme: Option<ReadmeSpec>,
+
+    /// Shared keywords.
+    #[serde(default)]
+    pub keywords: Vec<String>,
+
+    /// Shared categories.
+    #[serde(default)]
+    pub categories: Vec<String>,
+
+    /// Shared license file path.
+    #[serde(alias = "license-file")]
+    pub license_file: Option<String>,
+
+    /// Shared publish setting.
+    #[serde(default)]
+    pub publish: PublishSpec,
 }
 
 /// Dependency specification from `[dependencies]`, `[dev-dependencies]`, etc.

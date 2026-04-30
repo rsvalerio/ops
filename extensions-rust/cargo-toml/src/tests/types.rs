@@ -66,7 +66,10 @@ default-run = "full-crate"
         pkg.license,
         crate::types::InheritableField::Value("MIT OR Apache-2.0".to_string())
     );
-    assert_eq!(pkg.keywords, vec!["example", "test"]);
+    assert_eq!(
+        pkg.keywords,
+        crate::types::InheritableField::Value(vec!["example".to_string(), "test".to_string()])
+    );
 }
 
 #[test]

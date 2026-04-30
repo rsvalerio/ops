@@ -115,6 +115,54 @@ authors = ["Alice", "Bob"]
 }
 
 #[test]
+fn resolve_package_inheritance_keywords_categories_readme_license_file_and_publish() {
+    let toml = r#"
+[package]
+name = "member"
+version = "0.1.0"
+keywords = { workspace = true }
+categories = { workspace = true }
+readme = { workspace = true }
+license-file = { workspace = true }
+publish = { workspace = true }
+
+[workspace]
+members = []
+
+[workspace.package]
+keywords = ["a", "b"]
+categories = ["dev-tools"]
+readme = "README.md"
+license-file = "LICENSE.shared"
+publish = false
+"#;
+    let mut manifest = CargoToml::parse(toml).expect("should parse");
+    manifest.resolve_package_inheritance();
+
+    let pkg = manifest.package.as_ref().unwrap();
+    assert_eq!(
+        pkg.keywords,
+        crate::types::InheritableField::Value(vec!["a".to_string(), "b".to_string()])
+    );
+    assert_eq!(
+        pkg.categories,
+        crate::types::InheritableField::Value(vec!["dev-tools".to_string()])
+    );
+    match pkg.readme.as_ref().expect("readme set") {
+        crate::types::ReadmeSpec::Path(p) => assert_eq!(p, "README.md"),
+        other => panic!("expected ReadmeSpec::Path after inheritance, got {other:?}"),
+    }
+    assert_eq!(
+        pkg.license_file
+            .as_ref()
+            .expect("license_file set")
+            .as_str(),
+        Some("LICENSE.shared")
+    );
+    assert!(!pkg.publish.is_publishable());
+}
+
+#[test]
 fn resolve_package_inheritance_no_workspace_package() {
     let toml = r#"
 [package]
