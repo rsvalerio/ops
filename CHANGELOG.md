@@ -2,6 +2,36 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.23.1](https://github.com/rsvalerio/ops/compare/ce8b4bf69cc3f1809d77b15e358b93d1756eba2c..v0.23.1) - 2026-04-30
+#### 🐛 Bug Fixes
+- (**cli**) document parse_log_level write swallow and cover failing-writer fallback - ([513320c](https://github.com/rsvalerio/ops/commit/513320cc8b7df53785bbeb7926e5ec5fbb504181)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/config**) log overlay key collisions and conf.d read errors - ([4c6ccc4](https://github.com/rsvalerio/ops/commit/4c6ccc4fad9963102ebecce51288c2845f066761)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/stack**) warn and return empty commands instead of panicking on bad default TOML - ([cdd5c18](https://github.com/rsvalerio/ops/commit/cdd5c1838ae0dc42c591bf7b52e731e245e633b7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/subprocess**) log pipe-drain truncations instead of silently dropping output - ([3ce0941](https://github.com/rsvalerio/ops/commit/3ce0941c0ce1472e55137ee4aa8ef3028be4dbd0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/text**) log non-NotFound IO errors in for_each_trimmed_line - ([64a5748](https://github.com/rsvalerio/ops/commit/64a57482c5b82953758cd33df12c594e474d855a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-go/about**) handle replace directives and harden module parsing - ([e1d4ae9](https://github.com/rsvalerio/ops/commit/e1d4ae9ab9493d596f943dd211f394f66ac8b1f8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-java/about**) tighten gradle/pom parsing edge cases - ([f48ac86](https://github.com/rsvalerio/ops/commit/f48ac865893b6f46d487ae98cceef6d7b1a1dbb5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-node/about**) harden package.json fields and unit detection - ([2b3d105](https://github.com/rsvalerio/ops/commit/2b3d1050c8525a13f4ff8c0c8309c175def1287c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-python/about**) harden pyproject parsing and unit detection - ([8184544](https://github.com/rsvalerio/ops/commit/8184544e14bfd2ad3bf90e6fc88bff9cd84c898d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/cargo-toml**) extend inheritance coverage and types - ([cc7e7e6](https://github.com/rsvalerio/ops/commit/cc7e7e624024e3bb71bfa18bc54a5403634e4e46)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/cargo-update**) tighten cargo-update output handling - ([d6c6dbc](https://github.com/rsvalerio/ops/commit/d6c6dbc094612324be1f54c8a41c29c93611c419)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/deps**) expand severity and diagnostic coverage - ([e9ba2e6](https://github.com/rsvalerio/ops/commit/e9ba2e63e5bf9ab64499140a387f1c83ef48042f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/metadata**) harden ingest invariants - ([dcd9ff4](https://github.com/rsvalerio/ops/commit/dcd9ff4c9c87446f68460dc114f97ad20d614f11)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/test-coverage**) tighten ingestor and trim redundant lib code - ([b756ffc](https://github.com/rsvalerio/ops/commit/b756ffcc1ca440a0fedbb2295cfffdf1a5212d65)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/tools**) tighten install spawn and probe matching - ([4747b64](https://github.com/rsvalerio/ops/commit/4747b64cba95e831ac2ee8f99fc5e61b1d23b25d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/about**) tighten manifest_io errors, coverage helpers and workspace logging - ([54b86b0](https://github.com/rsvalerio/ops/commit/54b86b04d1fd172d9e7fae0ff0eecd70749df735)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/duckdb**) tighten error mapping and SQL ingest paths - ([0096e12](https://github.com/rsvalerio/ops/commit/0096e12558a1c66004d68d20e3fe7392cef2bc1a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/git**) honour git config last-wins and harden remote URL parsing - ([fd0d09b](https://github.com/rsvalerio/ops/commit/fd0d09b4bfda4c6bb60afafd0e69f1ff6a4b2156)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/run-before-commit**) bound subprocess wait with wait-timeout and tracing - ([9352fdb](https://github.com/rsvalerio/ops/commit/9352fdb5f795abe6505bd2ae1c64c191543a9a32)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/tokei**) harden ingestor and trim redundant tests - ([4153844](https://github.com/rsvalerio/ops/commit/415384494ed9a4ec534a5179da13d606f5bdb29d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/command**) warn on alias collisions across command stores - ([fab8944](https://github.com/rsvalerio/ops/commit/fab8944e4748e06e46219f9da8232d49631e33eb)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**workspace**) promote wait-timeout and pull tracing into hook extensions - ([ce8b4bf](https://github.com/rsvalerio/ops/commit/ce8b4bf69cc3f1809d77b15e358b93d1756eba2c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) refresh triage queue, add terraform plan doc, drop completed plan - ([19c6721](https://github.com/rsvalerio/ops/commit/19c6721ea3c3e6e16c4559928a46a73461ee2179)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.23.0](https://github.com/rsvalerio/ops/compare/1ded6161057eb63d72355ea530006b35ff6ba8e6..v0.23.0) - 2026-04-29
 #### 🚀 Features
 - (**cli**) preserve cwd bytes in dry-run and tighten registry/tools wiring - ([d83d555](https://github.com/rsvalerio/ops/commit/d83d555559c0b9d874db76b60c50d9b188649400)) - [@rsvalerio](https://github.com/rsvalerio)
