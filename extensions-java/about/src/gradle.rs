@@ -74,9 +74,10 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
             root_project_name = Some(name);
         }
 
-        // include 'a'         (Groovy bare)
-        // include 'a', 'b'    (Groovy multi-arg)
-        // include("a", "b")   (Kotlin DSL)
+        // include 'a'                   (Groovy bare)
+        // include 'a', 'b'              (Groovy multi-arg)
+        // include("a", "b")             (Kotlin DSL)
+        // include("a"); include("b")    (Kotlin DSL, multiple per line)
         // include 'core' // comment
         // PATTERN-1 / TASK-0619: split once on the structural `)` rather than
         // `trim_end_matches(')')`, so a quoted argument containing `)` (e.g.
@@ -84,14 +85,25 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
         // characters chewed off its tail. Strip trailing line comments first
         // so a `)` inside a `// (foo)` comment doesn't masquerade as the
         // closing paren.
-        let after_include = line
-            .strip_prefix("include(")
-            .and_then(|r| {
-                let r = strip_trailing_comment(r).trim_end();
-                r.rsplit_once(')').map(|(args, _)| args)
-            })
-            .or_else(|| line.strip_prefix("include ").map(strip_trailing_comment));
-        if let Some(rest) = after_include {
+        // PATTERN-1 / TASK-0687: iterate over every `include(` occurrence so
+        // chained Kotlin DSL invocations on the same line don't silently drop
+        // all but one call.
+        let stripped = strip_trailing_comment(line).trim_end();
+        if stripped.starts_with("include(") {
+            let mut remaining = stripped;
+            while let Some(rest) = remaining.strip_prefix("include(") {
+                match split_at_unquoted_close_paren(rest) {
+                    Some((args, after)) => {
+                        extract_quoted_list(args, &mut includes);
+                        remaining = after.trim_start().trim_start_matches(';').trim_start();
+                    }
+                    None => {
+                        extract_quoted_list(rest, &mut includes);
+                        break;
+                    }
+                }
+            }
+        } else if let Some(rest) = stripped.strip_prefix("include ") {
             extract_quoted_list(rest, &mut includes);
         }
     };
@@ -164,6 +176,12 @@ fn extract_assignment(line: &str, key: &str) -> Option<String> {
 /// Extract a value from the Groovy bare-method form `key "value"` or
 /// `key 'value'` (no `=`). Rejects `keyTask { … }` and similar by requiring
 /// whitespace after `key` and a quoted value immediately after.
+///
+/// READ-2 / TASK-0647: do NOT pre-strip `// …` from `rest` — that chops a
+/// quoted URL (`description "see https://example.com"`) at the URL's `//`
+/// and silently drops the value. `extract_quoted` terminates at the closing
+/// quote, leaving any trailing `// comment` outside the result, which is
+/// the same invariant `extract_assignment` relies on.
 fn extract_bare_method(line: &str, key: &str) -> Option<String> {
     let line = line.trim();
     let rest = line.strip_prefix(key)?;
@@ -171,7 +189,7 @@ fn extract_bare_method(line: &str, key: &str) -> Option<String> {
         return None;
     }
     let rest = rest.trim_start();
-    extract_quoted(strip_trailing_comment(rest)).map(str::to_string)
+    extract_quoted(rest).map(str::to_string)
 }
 
 /// Extract a quoted string value: `"foo"` or `'foo'`.
@@ -224,6 +242,33 @@ fn extract_quoted_list(s: &str, out: &mut Vec<String>) {
             break;
         }
     }
+}
+
+/// Split a Kotlin DSL `include(...)` argument tail at the matching `)`,
+/// ignoring `)` characters that appear inside double or single quotes. Returns
+/// `(args_inside, remainder_after_close)` or `None` if no closing paren is
+/// found outside of a string.
+fn split_at_unquoted_close_paren(s: &str) -> Option<(&str, &str)> {
+    let bytes = s.as_bytes();
+    let mut quote: Option<u8> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match quote {
+            Some(q) => {
+                if b == q {
+                    quote = None;
+                }
+            }
+            None => match b {
+                b'"' | b'\'' => quote = Some(b),
+                b')' => return Some((&s[..i], &s[i + 1..])),
+                _ => {}
+            },
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Strip a trailing `// ...` Groovy/Kotlin comment from a line fragment.
@@ -417,6 +462,19 @@ mod tests {
     }
 
     #[test]
+    fn parse_gradle_settings_kotlin_chained_includes_same_line() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.gradle.kts"),
+            "include(\"a\"); include(\"b\")\n",
+        )
+        .unwrap();
+
+        let s = parse_gradle_settings(dir.path()).unwrap();
+        assert_eq!(s.includes, vec!["a", "b"]);
+    }
+
+    #[test]
     fn parse_gradle_settings_kotlin_quoted_arg_with_paren() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -538,6 +596,36 @@ mod tests {
 
         let b = parse_gradle_build(dir.path()).unwrap();
         assert_eq!(b.description, Some("Bare method form".to_string()));
+    }
+
+    #[test]
+    fn parse_gradle_build_bare_method_url_in_description() {
+        // READ-2 / TASK-0647: a `//` inside the quoted value (URL) must not
+        // be stripped as a trailing comment.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("build.gradle"),
+            "description \"see https://example.com\"\n",
+        )
+        .unwrap();
+
+        let b = parse_gradle_build(dir.path()).unwrap();
+        assert_eq!(b.description, Some("see https://example.com".to_string()));
+    }
+
+    #[test]
+    fn parse_gradle_build_bare_method_trailing_comment_ignored() {
+        // READ-2 / TASK-0647: `extract_quoted` terminates at the closing
+        // quote, so any trailing `// ...` is naturally outside the result.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("build.gradle"),
+            "description \"My project\" // primary\n",
+        )
+        .unwrap();
+
+        let b = parse_gradle_build(dir.path()).unwrap();
+        assert_eq!(b.description, Some("My project".to_string()));
     }
 
     #[test]

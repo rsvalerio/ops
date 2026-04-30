@@ -72,20 +72,12 @@ const SKIP_SECTIONS: &[(&str, &str)] = &[
 ];
 
 pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
+    // DUP-1 / TASK-0683: route through the shared manifest_io helper so the
+    // NotFound-vs-other-IO classification stays consistent with sibling
+    // parsers (go_mod, go_work, package_json, pyproject). Avoids a copy
+    // drifting the next time the policy changes (e.g. log severity bump).
     let path = project_root.join("pom.xml");
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            // ERR-1 / TASK-0394: NotFound is the legitimate "no pom.xml here"
-            // case for sister parsers (go_mod, go_work, package_json,
-            // pyproject); only log unexpected IO failures so a directory
-            // without a pom emits no spurious tracing event.
-            if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::debug!(path = %path.display(), error = %e, "failed to read pom.xml");
-            }
-            return None;
-        }
-    };
+    let content = ops_about::manifest_io::read_optional_text(&path, "pom.xml")?;
 
     let mut data = PomData::default();
     let mut started = false;
@@ -258,6 +250,13 @@ fn match_section_open(line: &str, data: &mut PomData) -> Option<PomSection> {
         }
         return None;
     }
+    // READ-2 / TASK-0691: a single-line `<licenses>...</licenses>` may carry
+    // multiple `<license>` children. Unlike the `<scm>` shortcut above (which
+    // rejects pathological lines with duplicate `<scm>` openers), this branch
+    // intentionally accepts the multi-license shape and keeps the **first**
+    // `<name>` it finds — matching the multi-line `handle_licenses` policy
+    // ("first license wins"). The asymmetry with `<scm>` is deliberate: SCM
+    // is a single-valued element, while `<licenses>` is a list container.
     if line.starts_with("<licenses>")
         && line.ends_with("</licenses>")
         && line.matches("<licenses>").count() == 1
@@ -400,6 +399,19 @@ mod tests {
             pom.scm_url,
             Some("https://github.com/user/myapp".to_string())
         );
+        assert_eq!(pom.license, Some("Apache-2.0".to_string()));
+    }
+
+    #[test]
+    fn parse_pom_single_line_licenses_with_multiple_children_keeps_first() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project>\n<licenses><license><name>Apache-2.0</name></license><license><name>MIT</name></license></licenses>\n</project>",
+        )
+        .unwrap();
+
+        let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.license, Some("Apache-2.0".to_string()));
     }
 
