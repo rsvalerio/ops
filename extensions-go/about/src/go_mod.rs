@@ -1,9 +1,10 @@
 //! Shared `go.mod` parser used by identity and modules providers.
 //!
 //! Produces module path, Go toolchain version, and the list of local
-//! `replace` targets (those with `./...` paths). Single-line and block-form
-//! `replace ( ... )` directives are both recognized. Trailing `// ...`
-//! comments are stripped from each line before further parsing.
+//! `replace` targets (any filesystem path: `./sub`, `../shared`, `/abs`, or a
+//! Windows-style `C:\path`). Single-line and block-form `replace ( ... )`
+//! directives are both recognized. Trailing `// ...` comments are stripped
+//! from each line before further parsing.
 
 use std::path::Path;
 
@@ -64,14 +65,33 @@ pub(crate) fn strip_line_comment(line: &str) -> &str {
 fn parse_replace_directive(rest: &str) -> Option<String> {
     let pos = rest.find("=>")?;
     let target = rest[pos + 2..].trim();
-    // PATTERN-1 / TASK-0625: accept both Unix `./` and Windows `.\` relative
-    // prefixes — cmd/go honours either, so silently dropping `.\sub` would
-    // hide a legitimate local replace on Windows projects.
-    if target.starts_with("./") || target.starts_with(".\\") {
-        Some(target.to_string())
-    } else {
-        None
+    if target.is_empty() {
+        return None;
     }
+    // cmd/go requires the replacement to omit a version when the target is a
+    // filesystem path; anything carrying a whitespace-separated `vX.Y.Z` is a
+    // remote module replacement.
+    if target.split_whitespace().count() > 1 {
+        return None;
+    }
+    if target.starts_with("./")
+        || target.starts_with("../")
+        || target.starts_with(".\\")
+        || target.starts_with("..\\")
+        || target.starts_with('/')
+        || is_windows_absolute(target)
+    {
+        return Some(target.to_string());
+    }
+    None
+}
+
+fn is_windows_absolute(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
 }
 
 #[cfg(test)]
@@ -165,6 +185,30 @@ mod tests {
         let m = parse(dir.path()).unwrap();
         assert_eq!(m.module.as_deref(), Some("example.com/foo"));
         assert!(m.go_version.is_none());
+    }
+
+    #[test]
+    fn accepts_parent_relative_replace_target() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace example.com/m/shared => ../shared\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.local_replaces, vec!["../shared"]);
+    }
+
+    #[test]
+    fn accepts_absolute_replace_target() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace example.com/m/shared => /abs/path\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.local_replaces, vec!["/abs/path"]);
     }
 
     #[test]

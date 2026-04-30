@@ -30,7 +30,8 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
         dirs.into_iter()
             .map(|dir| {
                 let normalized = normalize_module_path(&dir);
-                if normalized.starts_with("..") {
+                let out_of_tree = normalized.starts_with("..");
+                if out_of_tree {
                     // Out-of-tree workspace members (e.g. `use ../shared`) match no
                     // `tokei_files.file` entry under cwd, so the unit would render
                     // with zero LOC and no diagnostic. Surface it instead.
@@ -43,11 +44,19 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
                 let (module, go_version) = read_mod_info(&mod_path);
                 let name = last_segment(module.as_deref())
                     .unwrap_or_else(|| format_unit_name(&normalized));
+                let description = if out_of_tree {
+                    Some(match module {
+                        Some(m) => format!("{m} (outside project root)"),
+                        None => "(outside project root)".to_string(),
+                    })
+                } else {
+                    module
+                };
                 ProjectUnit {
                     name,
                     path: normalized,
                     version: go_version,
-                    description: module,
+                    description,
                     ..Default::default()
                 }
             })
@@ -192,6 +201,10 @@ mod tests {
         let units = collect_units(dir.path());
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].path, "../shared");
+        assert_eq!(
+            units[0].description.as_deref(),
+            Some("(outside project root)")
+        );
     }
 
     #[test]
