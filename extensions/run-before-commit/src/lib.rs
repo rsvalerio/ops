@@ -86,11 +86,21 @@ pub fn has_staged_files() -> anyhow::Result<bool> {
 }
 
 fn git_timeout_from_env() -> Option<Duration> {
-    std::env::var(TIMEOUT_ENV_VAR)
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .filter(|&n| n > 0)
-        .map(Duration::from_secs)
+    let raw = match std::env::var(TIMEOUT_ENV_VAR) {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+    match raw.parse::<u64>() {
+        Ok(0) | Err(_) => {
+            tracing::warn!(
+                env = TIMEOUT_ENV_VAR,
+                value = %raw,
+                "unparseable or zero value; falling back to default timeout"
+            );
+            None
+        }
+        Ok(n) => Some(Duration::from_secs(n)),
+    }
 }
 
 #[cfg(test)]
@@ -103,13 +113,20 @@ fn has_staged_files_with_timeout(
     dir: &Path,
     timeout: Duration,
 ) -> Result<bool, HasStagedFilesError> {
+    use std::io::Read;
     use std::process::{Command, Stdio};
+    use wait_timeout::ChildExt;
 
+    // `--quiet` (implies `--exit-code`) signals presence of a diff via the
+    // exit status without writing the path list to stdout, so we route
+    // stdout to /dev/null. This sidesteps the pipe-buffer deadlock that
+    // would otherwise occur when a large monorepo's staged path list
+    // overflows the OS pipe buffer while the parent is in `try_wait`.
     let mut child = Command::new(program)
         .current_dir(dir)
-        .args(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
+        .args(["diff", "--cached", "--quiet", "--diff-filter=ACMR"])
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| HasStagedFilesError::Spawn {
@@ -117,54 +134,73 @@ fn has_staged_files_with_timeout(
             source: e,
         })?;
 
-    // Poll `try_wait` with a short sleep so a hung git is killed at the
-    // bound rather than blocking on the developer's commit forever. The
-    // 50ms granularity is well below human-perceptible latency for the
-    // happy path and small enough that the timeout fires within
-    // `timeout + 50ms`.
-    let start = std::time::Instant::now();
-    let poll_interval = Duration::from_millis(50);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if start.elapsed() >= timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(HasStagedFilesError::Timeout {
-                        program: program.to_string(),
-                        timeout,
-                    });
-                }
-                std::thread::sleep(poll_interval);
-            }
-            Err(e) => {
-                return Err(HasStagedFilesError::Io {
-                    program: program.to_string(),
-                    source: e,
-                });
-            }
+    // Drain stderr concurrently so a chatty git (or fake binary) cannot
+    // fill the stderr pipe buffer and deadlock the wait below. Hand the
+    // bytes back through a channel rather than a JoinHandle: an orphaned
+    // grandchild (e.g. a `sleep` spawned by a wrapper script) can keep
+    // the pipe open after we've killed our direct child, so a blocking
+    // `join()` would stall on the grandchild's lifetime. `recv_timeout`
+    // gives us a bounded wait either way.
+    let mut stderr_pipe = child.stderr.take().expect("stderr piped");
+    let (stderr_tx, stderr_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr_pipe.read_to_end(&mut buf);
+        let _ = stderr_tx.send(buf);
+    });
+
+    // CONC-5 / TASK-0725: a single `wait_timeout` syscall blocks until
+    // either the child exits or the deadline expires, so a fast `git diff
+    // --cached` (typical <5ms) returns immediately rather than paying the
+    // 50ms floor of the previous busy-poll loop. The pre-commit hook runs
+    // on every commit, so this latency cut matters on the developer hot
+    // path.
+    let status = match child.wait_timeout(timeout) {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(HasStagedFilesError::Timeout {
+                program: program.to_string(),
+                timeout,
+            });
+        }
+        Err(e) => {
+            return Err(HasStagedFilesError::Io {
+                program: program.to_string(),
+                source: e,
+            });
+        }
+    };
+
+    // Bounded wait: after a normal exit the drain thread should finish
+    // immediately, but a misbehaving wrapper that kept stderr open via an
+    // orphan must not be allowed to stall the commit hook. We only use
+    // stderr_bytes in the error branch below, so an empty fallback is
+    // acceptable.
+    let stderr_bytes = stderr_rx
+        .recv_timeout(Duration::from_millis(200))
+        .unwrap_or_default();
+
+    // `git diff --quiet`: exit 0 = no staged diff, exit 1 = staged diff
+    // present (not an error), other codes = real failure (e.g. not a git
+    // repo, which exits 128).
+    match status.code() {
+        Some(0) => Ok(false),
+        Some(1) => Ok(true),
+        _ => {
+            // Lossy decoding is intentional: git stderr is overwhelmingly
+            // UTF-8 and a readable error (with U+FFFD on the rare bad
+            // byte) is more useful to the user than an opaque `[u8]`
+            // Debug dump.
+            let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
+            Err(HasStagedFilesError::NonZeroExit {
+                program: program.to_string(),
+                exit_code: status.code(),
+                stderr,
+            })
         }
     }
-
-    let output = child
-        .wait_with_output()
-        .map_err(|e| HasStagedFilesError::Io {
-            program: program.to_string(),
-            source: e,
-        })?;
-    if !output.status.success() {
-        // Lossy decoding is intentional: git stderr is overwhelmingly UTF-8
-        // and a readable error (with U+FFFD on the rare bad byte) is more
-        // useful to the user than an opaque `[u8]` Debug dump.
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(HasStagedFilesError::NonZeroExit {
-            program: program.to_string(),
-            exit_code: output.status.code(),
-            stderr,
-        });
-    }
-    Ok(!output.stdout.is_empty())
 }
 
 #[cfg(test)]
@@ -302,7 +338,10 @@ mod tests {
         // bail with a panic or producing an opaque Debug blob.
         let dir = tempfile::tempdir().expect("tempdir");
         let fake_git = dir.path().join("git-fake");
-        std::fs::write(&fake_git, "#!/bin/sh\nprintf '\\377\\376' >&2\nexit 1\n").unwrap();
+        // Exit 128 mirrors what real git emits for "not a repository" and
+        // similar fatal conditions; under `--quiet` semantics exit 1 is
+        // reserved for "diff present" so we cannot reuse it here.
+        std::fs::write(&fake_git, "#!/bin/sh\nprintf '\\377\\376' >&2\nexit 128\n").unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&fake_git, std::fs::Permissions::from_mode(0o755)).unwrap();
         let err = has_staged_files_with(fake_git.to_str().unwrap(), dir.path()).unwrap_err();
@@ -352,6 +391,48 @@ mod tests {
         );
     }
 
+    /// CONC-3 / TASK-0650 AC#2: a fake git that emits well over the OS
+    /// pipe buffer (~64 KiB on Linux, 16 KiB on macOS) must complete
+    /// within the configured timeout instead of deadlocking. Routing
+    /// stdout to `/dev/null` (via `--quiet`) and draining stderr in a
+    /// thread is what makes this work — verify it stays that way.
+    #[cfg(unix)]
+    #[test]
+    fn has_staged_files_handles_large_output_without_deadlock() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let fake_git = dir.path().join("git-loud");
+        // ~200 KiB to stdout and ~200 KiB to stderr, then exit 1 (= diff
+        // present under --quiet semantics). The fake ignores `--quiet` to
+        // simulate the worst case where git would emit despite the flag.
+        std::fs::write(
+            &fake_git,
+            "#!/bin/sh\n\
+             yes path/to/some/file.txt | head -n 20000\n\
+             yes path/to/some/file.txt | head -n 20000 >&2\n\
+             exit 1\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake_git, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let started = std::time::Instant::now();
+        let result = has_staged_files_with_timeout(
+            fake_git.to_str().unwrap(),
+            dir.path(),
+            Duration::from_millis(500),
+        );
+        let elapsed = started.elapsed();
+
+        assert!(
+            matches!(result, Ok(true)),
+            "expected Ok(true), got {result:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "should not deadlock on full pipe buffers, elapsed = {elapsed:?}"
+        );
+    }
+
     // -- Extension metadata --
 
     #[test]
@@ -359,5 +440,35 @@ mod tests {
         assert_eq!(NAME, "run-before-commit");
         assert_eq!(SHORTNAME, "run-before-commit");
         assert!(!DESCRIPTION.is_empty());
+    }
+
+    // -- git_timeout_from_env --
+
+    #[test]
+    #[serial_test::serial]
+    fn git_timeout_from_env_valid_value() {
+        let _guard = EnvGuard::set(TIMEOUT_ENV_VAR, "10");
+        assert_eq!(git_timeout_from_env(), Some(Duration::from_secs(10)));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn git_timeout_from_env_zero_falls_back() {
+        let _guard = EnvGuard::set(TIMEOUT_ENV_VAR, "0");
+        assert_eq!(git_timeout_from_env(), None);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn git_timeout_from_env_unparseable_falls_back() {
+        let _guard = EnvGuard::set(TIMEOUT_ENV_VAR, "10s");
+        assert_eq!(git_timeout_from_env(), None);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn git_timeout_from_env_unset_returns_none() {
+        let _guard = EnvGuard::remove(TIMEOUT_ENV_VAR);
+        assert_eq!(git_timeout_from_env(), None);
     }
 }
