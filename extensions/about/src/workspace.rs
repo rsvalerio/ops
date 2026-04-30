@@ -14,6 +14,8 @@
 
 use std::path::Path;
 
+use crate::manifest_io::read_optional_text;
+
 /// Resolve workspace member globs against `root`, looking for `marker`
 /// (e.g. `"package.json"`, `"pyproject.toml"`) inside each candidate
 /// directory. Excludes are matched with the same prefix-only glob shape and
@@ -77,22 +79,7 @@ pub fn resolve_member_globs(
 
 fn try_read_manifest(dir: &Path, marker: &str) -> Option<String> {
     let path = dir.join(marker);
-    match std::fs::read_to_string(&path) {
-        Ok(s) => Some(s),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => {
-            // ERR-1: a permission-denied / EIO / partial-write read must not
-            // silently drop a unit from the workspace listing. Mirrors the
-            // sibling `resolve_member_globs` arm that warns on read_dir
-            // failures.
-            tracing::warn!(
-                manifest = %path.display(),
-                error = %e,
-                "workspace manifest unreadable; member skipped"
-            );
-            None
-        }
-    }
+    read_optional_text(&path, marker)
 }
 
 /// PATTERN-1 (TASK-0503): exclude patterns now support a single `*` anywhere
@@ -127,37 +114,45 @@ fn matches_exclude(pattern: &str, candidate: &str) -> bool {
     !middle.is_empty() && !middle.contains('/')
 }
 
+/// Manifest-level identity fields surfaced by the units providers. Replaces
+/// the old positional `(Option<String>, Option<String>, Option<String>)` so
+/// argument-order errors at call sites become compile errors.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PackageMetadata {
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub description: Option<String>,
+}
+
 /// DUP-3 (TASK-0620): shared `(name, version, description)` projection
 /// shared by Node `package.json` and Python `pyproject.toml` units providers.
 ///
-/// Calls `parse` to produce the raw triple from the manifest contents. On
+/// Calls `parse` to produce the raw fields from the manifest contents. On
 /// parser error, logs at warn with the manifest path and returns
-/// `(None, None, None)` — matching the swallow-and-warn shape established
-/// by TASK-0440. Description is trimmed and empty values are filtered out.
-pub fn parse_package_metadata<E, F>(
-    path: &Path,
-    content: &str,
-    parse: F,
-) -> (Option<String>, Option<String>, Option<String>)
+/// `PackageMetadata::default()` — matching the swallow-and-warn shape
+/// established by TASK-0440. Description is trimmed and empty values are
+/// filtered out.
+pub fn parse_package_metadata<E, F>(path: &Path, content: &str, parse: F) -> PackageMetadata
 where
     E: std::fmt::Display,
-    F: FnOnce(&str) -> Result<(Option<String>, Option<String>, Option<String>), E>,
+    F: FnOnce(&str) -> Result<PackageMetadata, E>,
 {
     match parse(content) {
-        Ok((name, version, description)) => (
-            name,
-            version,
-            description
+        Ok(meta) => PackageMetadata {
+            name: meta.name,
+            version: meta.version,
+            description: meta
+                .description
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
-        ),
+        },
         Err(e) => {
             tracing::warn!(
                 path = %path.display(),
                 error = %e,
                 "failed to parse package manifest",
             );
-            (None, None, None)
+            PackageMetadata::default()
         }
     }
 }

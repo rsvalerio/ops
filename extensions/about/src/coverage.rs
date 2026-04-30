@@ -22,7 +22,7 @@ enum CoverageTier {
 }
 
 fn coverage_tier(pct: f64) -> CoverageTier {
-    if pct < 50.0 {
+    if pct.is_nan() || pct < 50.0 {
         CoverageTier::Low
     } else if pct < 80.0 {
         CoverageTier::Medium
@@ -76,19 +76,21 @@ pub fn run_about_coverage_with(
     let coverage: ProjectCoverage =
         load_or_default(&mut ctx, data_registry, PROJECT_COVERAGE_PROVIDER)?;
 
-    if coverage.total.lines_count == 0 {
-        writeln!(writer, "No coverage data available.")?;
-        return Ok(());
+    match format_coverage_section(&coverage, is_tty) {
+        Some(lines) => writeln!(writer, "{}", lines.join("\n"))?,
+        None => writeln!(writer, "No coverage data available.")?,
     }
-
-    let lines = format_coverage_section(&coverage, is_tty);
-    writeln!(writer, "{}", lines.join("\n"))?;
     Ok(())
 }
 
-pub fn format_coverage_section(coverage: &ProjectCoverage, is_tty: bool) -> Vec<String> {
+/// Format coverage data as a displayable section.
+///
+/// Returns `None` when `lines_count == 0` (no coverage data collected),
+/// signalling the caller to emit a user-friendly message. All other cases
+/// return `Some(lines)`.
+pub fn format_coverage_section(coverage: &ProjectCoverage, is_tty: bool) -> Option<Vec<String>> {
     if coverage.total.lines_count == 0 {
-        return vec![];
+        return None;
     }
 
     let mut lines = vec![String::new()];
@@ -116,7 +118,7 @@ pub fn format_coverage_section(coverage: &ProjectCoverage, is_tty: bool) -> Vec<
         format_number(coverage.total.lines_count),
     ));
 
-    lines
+    Some(lines)
 }
 
 fn format_coverage_table(units: &[&ops_core::project_identity::UnitCoverage]) -> String {
@@ -163,9 +165,24 @@ mod tests {
     }
 
     #[test]
-    fn format_coverage_section_empty_when_zero_total() {
+    fn coverage_tier_classifies_nan_as_low() {
+        assert!(matches!(coverage_tier(f64::NAN), CoverageTier::Low));
+    }
+
+    #[test]
+    fn coverage_icon_nan_is_skull_not_checkmark() {
+        assert_eq!(coverage_icon(f64::NAN), "\u{1f480}");
+    }
+
+    #[test]
+    fn coverage_color_nan_is_red_not_green() {
+        assert!(matches!(coverage_color(f64::NAN), Color::Red));
+    }
+
+    #[test]
+    fn format_coverage_section_none_when_zero_total() {
         let cov = ProjectCoverage::default();
-        assert!(format_coverage_section(&cov, false).is_empty());
+        assert!(format_coverage_section(&cov, false).is_none());
     }
 
     #[test]
@@ -186,7 +203,7 @@ mod tests {
                 },
             }],
         };
-        let lines = format_coverage_section(&cov, false);
+        let lines = format_coverage_section(&cov, false).expect("non-zero coverage returns Some");
         // Structural contract, not substring: one blank, N table lines, one blank, total.
         assert!(lines.len() >= 4, "got lines: {lines:?}");
         assert!(lines.first().unwrap().is_empty(), "leading blank");
@@ -243,7 +260,7 @@ mod tests {
                 },
             ],
         };
-        let lines = format_coverage_section(&cov, false);
+        let lines = format_coverage_section(&cov, false).expect("non-zero coverage returns Some");
         // Same structural contract as the units test: active unit appears
         // exactly once in the table block, empty unit is filtered out, and
         // the total line matches the pinned format.

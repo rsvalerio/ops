@@ -6,6 +6,10 @@
 //! copy/paste would silently drift the policy (TASK-0467 already filed one
 //! such drift in the duckdb providers). This helper centralises the rule
 //! so adding a stack inherits the consistent severity policy.
+//!
+//! TASK-0649: non-NotFound IO errors now log at `tracing::warn!` matching
+//! the sibling `try_read_manifest` / `resolve_member_globs` policy so that
+//! operators at default log levels see unreadable-manifest diagnostics.
 
 use std::path::Path;
 
@@ -17,9 +21,11 @@ use std::path::Path;
 ///
 /// - `ErrorKind::NotFound` → silent `None` (a missing manifest is not an
 ///   error; the caller falls back to defaults).
-/// - any other IO error → emits `tracing::debug!` with `path` and `error`,
-///   returns `None`. Stack-specific callers can still log a `tracing::warn!`
-///   on parse failure separately — this helper covers IO classification only.
+/// - any other IO error → emits `tracing::warn!` with `path` and `error`,
+///   returns `None`. This matches the policy established by
+///   `try_read_manifest` (TASK-0548) and `resolve_member_globs` (TASK-0517):
+///   a permission-denied or EIO manifest read is a real environment problem
+///   that the user needs to be told about.
 ///
 /// `kind` is included in the log event so operators can grep by manifest
 /// type ("package.json" vs "go.mod") without scraping paths.
@@ -28,7 +34,7 @@ pub fn read_optional_text(path: &Path, kind: &str) -> Option<String> {
         Ok(content) => Some(content),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => {
-            tracing::debug!(
+            tracing::warn!(
                 path = %path.display(),
                 error = %e,
                 kind = kind,
@@ -60,7 +66,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn other_io_error_returns_none_after_debug_log() {
+    fn other_io_error_returns_none_after_warn_log() {
         // Path is a directory, so read_to_string returns IsADirectory (not NotFound).
         let dir = tempfile::tempdir().expect("tempdir");
         let result = read_optional_text(dir.path(), "test");

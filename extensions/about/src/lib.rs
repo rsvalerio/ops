@@ -147,14 +147,19 @@ fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) 
         None => return,
     };
 
-    match ops_duckdb::sql::query_project_loc(db) {
-        Ok(loc) => identity.loc = Some(loc),
-        Err(e) => tracing::warn!("about: query_project_loc failed: {e:#}"),
+    if identity.loc.is_none() {
+        match ops_duckdb::sql::query_project_loc(db) {
+            Ok(loc) if loc > 0 => identity.loc = Some(loc),
+            Ok(_) => {}
+            Err(e) => tracing::warn!("about: query_project_loc failed: {e:#}"),
+        }
     }
-    match ops_duckdb::sql::query_project_file_count(db) {
-        Ok(files) if files > 0 => identity.file_count = Some(files),
-        Ok(_) => {}
-        Err(e) => tracing::warn!("about: query_project_file_count failed: {e:#}"),
+    if identity.file_count.is_none() {
+        match ops_duckdb::sql::query_project_file_count(db) {
+            Ok(files) if files > 0 => identity.file_count = Some(files),
+            Ok(_) => {}
+            Err(e) => tracing::warn!("about: query_project_file_count failed: {e:#}"),
+        }
     }
     if identity.dependency_count.is_none() {
         match ops_duckdb::sql::query_dependency_count(db) {
@@ -323,11 +328,62 @@ mod tests {
         enrich_from_db(&ctx, &mut identity);
 
         // Defaults preserved when underlying tables are absent
-        assert_eq!(identity.loc, Some(0));
+        assert!(identity.loc.is_none());
         assert!(identity.file_count.is_none());
         assert!(identity.dependency_count.is_none());
         assert!(identity.coverage_percent.is_none());
         assert!(identity.languages.is_empty());
+    }
+
+    #[cfg(feature = "duckdb")]
+    #[test]
+    fn enrich_from_db_preserves_provider_loc_when_db_returns_zero() {
+        let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory db");
+        ops_duckdb::init_schema(&db).expect("init_schema");
+
+        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
+        ctx.db = Some(std::sync::Arc::new(db));
+
+        let mut identity = ProjectIdentity::default();
+        identity.loc = Some(42);
+        enrich_from_db(&ctx, &mut identity);
+
+        assert_eq!(identity.loc, Some(42), "provider-supplied loc must survive");
+    }
+
+    #[cfg(feature = "duckdb")]
+    #[test]
+    fn enrich_from_db_skips_all_queries_when_identity_fully_populated() {
+        let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory db");
+        ops_duckdb::init_schema(&db).expect("init_schema");
+
+        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
+        ctx.db = Some(std::sync::Arc::new(db));
+
+        let mut identity = ProjectIdentity::default();
+        identity.loc = Some(100);
+        identity.file_count = Some(10);
+        identity.dependency_count = Some(5);
+        identity.coverage_percent = Some(85.0);
+        identity.languages = vec![ops_core::project_identity::LanguageStat {
+            name: "Rust".to_string(),
+            loc: 100,
+            files: 10,
+            loc_pct: 100.0,
+            files_pct: 100.0,
+        }];
+
+        let lang_count_before = identity.languages.len();
+
+        enrich_from_db(&ctx, &mut identity);
+
+        assert_eq!(identity.loc, Some(100));
+        assert_eq!(identity.file_count, Some(10));
+        assert_eq!(identity.dependency_count, Some(5));
+        assert_eq!(identity.coverage_percent, Some(85.0));
+        assert_eq!(identity.languages.len(), lang_count_before);
     }
 
     #[cfg(not(feature = "duckdb"))]
