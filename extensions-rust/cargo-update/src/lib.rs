@@ -148,20 +148,30 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
 }
 
 /// Strip ANSI escape sequences from a string.
+///
+/// Handles any CSI sequence: `ESC [ <params> <final byte>` where the final
+/// byte is in `0x40..=0x7E` (covers SGR `m`, erase-line `K`, cursor-move `H`,
+/// etc.). This is broader than the previous implementation which only consumed
+/// up to `m` and left stray bytes from other CSI shapes.
 fn strip_ansi(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            // Skip until 'm' (SGR terminator)
-            while let Some(&next) = chars.peek() {
-                chars.next();
-                if next == 'm' {
-                    break;
-                }
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\x1b' && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+            // Skip ESC [ then consume parameter/intermediate bytes (0x20..=0x3F)
+            // and the final byte (0x40..=0x7E).
+            i += 2;
+            while i < bytes.len() && !(bytes[i] >= 0x40 && bytes[i] <= 0x7E) {
+                i += 1;
+            }
+            // Consume the final byte itself.
+            if i < bytes.len() {
+                i += 1;
             }
         } else {
-            result.push(ch);
+            result.push(bytes[i] as char);
+            i += 1;
         }
     }
     result
