@@ -47,8 +47,24 @@ pub fn dir_name(path: &Path) -> &str {
 /// trimmed. Returns `Some(())` when the file was read, `None` if it was missing or
 /// unreadable. Used by line-based manifest parsers (`go.mod`, `go.work`,
 /// `gradle.properties`, etc.) to share the read-and-iterate skeleton.
+///
+/// Non-NotFound IO errors (PermissionDenied, IsADirectory, etc.) are logged at
+/// `tracing::warn!` so operators can diagnose "manifest exists but is unreadable"
+/// without changing log levels. NotFound remains silent — a missing manifest is
+/// a normal condition for optional stacks.
 pub fn for_each_trimmed_line<F: FnMut(&str)>(path: &Path, mut f: F) -> Option<()> {
-    let content = std::fs::read_to_string(path).ok()?;
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "failed to read manifest for line iteration"
+            );
+            return None;
+        }
+    };
     for line in content.lines() {
         f(line.trim());
     }
@@ -151,5 +167,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let res = for_each_trimmed_line(&dir.path().join("nope"), |_| {});
         assert!(res.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn for_each_trimmed_line_unreadable_file_returns_none() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("denied.txt");
+        std::fs::write(&path, "data").unwrap();
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o000);
+        std::fs::set_permissions(&path, perms).unwrap();
+
+        let res = for_each_trimmed_line(&path, |_| {});
+        assert!(res.is_none());
+
+        // Restore so tempdir cleanup works.
+        let mut restore = std::fs::metadata(&path).unwrap().permissions();
+        restore.set_mode(0o644);
+        std::fs::set_permissions(&path, restore).unwrap();
     }
 }
