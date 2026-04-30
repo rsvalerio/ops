@@ -72,13 +72,14 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>>
 
     let mut stmt = conn
         .prepare(
-            "SELECT language, \
+            "WITH totals AS (SELECT COALESCE(SUM(code), 0) AS total_loc, COUNT(*) AS total_files FROM tokei_files) \
+             SELECT language, \
                     SUM(code) AS loc, \
                     COUNT(*) AS files, \
-                    ROUND(SUM(code) * 100.0 / NULLIF((SELECT SUM(code) FROM tokei_files), 0), 1) AS loc_pct, \
-                    ROUND(COUNT(*) * 100.0 / NULLIF((SELECT COUNT(*) FROM tokei_files), 0), 1) AS files_pct \
-             FROM tokei_files \
-             GROUP BY language \
+                    ROUND(SUM(code) * 100.0 / NULLIF(totals.total_loc, 0), 1) AS loc_pct, \
+                    ROUND(COUNT(*) * 100.0 / NULLIF(totals.total_files, 0), 1) AS files_pct \
+             FROM tokei_files, totals \
+             GROUP BY language, totals.total_loc, totals.total_files \
              ORDER BY SUM(code) DESC",
         )
         .context("preparing query_project_languages")?;

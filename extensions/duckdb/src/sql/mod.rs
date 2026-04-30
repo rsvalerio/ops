@@ -43,7 +43,7 @@ where
 
 pub use ingest::{
     checksum_file, create_table_from_json_sql, data_dir_for_db, default_data_dir, default_db_path,
-    io_err, provide_via_ingestor, query_rows_to_json, read_workspace_sidecar,
+    external_err, provide_via_ingestor, query_rows_to_json, read_workspace_sidecar,
     remove_workspace_sidecar, sidecar_path, table_has_data, write_workspace_sidecar,
 };
 pub use query::{

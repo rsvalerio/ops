@@ -1,9 +1,20 @@
 //! Table creation, sidecar I/O, and data pipeline helpers.
 
 use crate::{DbError, DbResult, DuckDb};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use super::validation::{prepare_path_for_sql, quoted_ident, validate_extra_opts, SqlError};
+
+/// Per-table ingest locks keyed by `"{db_path}:{table_name}"`.
+///
+/// Prevents concurrent `provide_via_ingestor` calls from running duplicate
+/// collect+load cycles for the same table. Each key maps to a lightweight
+/// `Mutex<()>` — only one thread may hold it at a time, so a second caller
+/// blocks until the first finishes and populates the table, then skips its
+/// own collect (the `table_has_data` check now returns true).
+static INGEST_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
 
 /// Generate `CREATE OR REPLACE TABLE <name> AS SELECT * FROM read_json_auto(...)` SQL (DUP-009).
 ///
@@ -102,9 +113,13 @@ pub fn default_data_dir(workspace_root: &Path) -> PathBuf {
     data_dir_for_db(&default_db_path(workspace_root))
 }
 
-/// Convert an error into a DbError::Io (for wrapping non-IO errors).
-pub fn io_err<E: Into<Box<dyn std::error::Error + Send + Sync>>>(e: E) -> DbError {
-    DbError::Io(std::io::Error::other(e))
+/// Convert a non-IO external error into [`DbError::External`].
+///
+/// Callers that return `anyhow::Error` (collect_tokei, collect_coverage,
+/// check_metadata_output, etc.) should use this instead of the old `io_err`
+/// which misleadingly wrapped them as `DbError::Io`.
+pub fn external_err(e: impl std::fmt::Display) -> DbError {
+    DbError::External(e.to_string())
 }
 
 /// Compute SHA-256 checksum of a file, returning hex string.
@@ -212,6 +227,12 @@ where
 /// then query. Used by `provide_from_db` implementations.
 ///
 /// When `ctx.refresh` is true, drops existing data so it will be re-collected.
+///
+/// CONC-2 (TASK-0728): a per-table ingest lock prevents concurrent callers
+/// from both observing `table_has_data == false` and running duplicate
+/// collect+load cycles. The lock is held across the check and the full
+/// ingest sequence but does **not** hold the DuckDB connection lock during
+/// the (potentially expensive) `collect` phase.
 pub fn provide_via_ingestor<I, Q>(
     db: &DuckDb,
     ctx: &ops_extension::Context,
@@ -226,6 +247,15 @@ where
     if ctx.refresh {
         drop_table_if_exists(db, table_name)?;
     }
+
+    let table_key = format!("{}:{}", db.path().display(), table_name);
+    let locks = INGEST_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let ingest_mutex = {
+        let mut map = locks.lock().unwrap();
+        map.entry(table_key).or_default().clone()
+    };
+    let _ingest_guard = ingest_mutex.lock().unwrap();
+
     if !table_has_data(db, table_name)? {
         let data_dir = data_dir_for_db(db.path());
         std::fs::create_dir_all(&data_dir).map_err(DbError::Io)?;
@@ -348,8 +378,8 @@ mod tests {
     }
 
     #[test]
-    fn io_err_wraps_display_error() {
-        let err = io_err("test error message");
+    fn external_err_wraps_display_error() {
+        let err = external_err("test error message");
         let msg = err.to_string();
         assert!(msg.contains("test error message"));
     }
@@ -602,5 +632,74 @@ mod tests {
         assert!(create_table_from_json_sql("t", &path, Some("a='x'")).is_err());
         assert!(create_table_from_json_sql("t", &path, Some("a")).is_err());
         assert!(create_table_from_json_sql("t", &path, Some("")).is_err());
+    }
+
+    /// CONC-2 (TASK-0728): two threads invoking `provide_via_ingestor` against
+    /// the same empty table must run collect at most once. The second caller
+    /// blocks until the first finishes populating the table, then skips its
+    /// own collect because `table_has_data` now returns true.
+    #[test]
+    fn concurrent_provide_via_ingestor_collects_once() {
+        use crate::DataIngestor;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static COLLECT_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+        struct CountingIngestor;
+
+        impl DataIngestor for CountingIngestor {
+            fn name(&self) -> &'static str {
+                "counting"
+            }
+            fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
+                COLLECT_COUNT.fetch_add(1, Ordering::SeqCst);
+                let path = data_dir.join("counting.json");
+                std::fs::write(&path, "[{\"id\": 1}]").map_err(DbError::Io)?;
+                Ok(())
+            }
+            fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<crate::LoadResult> {
+                let json_path = data_dir.join("counting.json");
+                let create_sql = create_table_from_json_sql("counting_test", &json_path, None)?;
+                let conn = db.lock()?;
+                conn.execute(&create_sql, [])
+                    .map_err(|e| DbError::query_failed("counting_test create", e))?;
+                drop(conn);
+                Ok(crate::LoadResult::success("counting", 1))
+            }
+        }
+
+        let db = Arc::new(DuckDb::open_in_memory().expect("db"));
+        init_schema(&db).expect("init_schema");
+
+        let db1 = Arc::clone(&db);
+        let db2 = Arc::clone(&db);
+        let ctx1 = ops_extension::Context::new(
+            Arc::new(ops_core::config::Config::default()),
+            PathBuf::from("/tmp"),
+        );
+        let ctx2 = ops_extension::Context::new(
+            Arc::new(ops_core::config::Config::default()),
+            PathBuf::from("/tmp"),
+        );
+
+        let h1 = std::thread::spawn(move || {
+            provide_via_ingestor(&db1, &ctx1, "counting_test", &CountingIngestor, |_| {
+                Ok(serde_json::Value::Null)
+            })
+        });
+        let h2 = std::thread::spawn(move || {
+            provide_via_ingestor(&db2, &ctx2, "counting_test", &CountingIngestor, |_| {
+                Ok(serde_json::Value::Null)
+            })
+        });
+
+        h1.join().expect("join 1").expect("ingest 1");
+        h2.join().expect("join 2").expect("ingest 2");
+
+        assert_eq!(
+            COLLECT_COUNT.load(Ordering::SeqCst),
+            1,
+            "collect must run exactly once, not twice"
+        );
     }
 }
