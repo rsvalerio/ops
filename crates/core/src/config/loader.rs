@@ -148,7 +148,17 @@ fn read_conf_d_files(dir: &Path) -> Option<Vec<PathBuf>> {
         }
     };
     let mut files: Vec<PathBuf> = entries
-        .filter_map(|e| e.ok())
+        .filter_map(|e| match e {
+            Ok(entry) => Some(entry),
+            Err(err) => {
+                tracing::warn!(
+                    path = %dir.display(),
+                    error = %err,
+                    "failed to read entry in .ops.d directory; skipping"
+                );
+                None
+            }
+        })
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|ext| ext == "toml"))
         .collect();

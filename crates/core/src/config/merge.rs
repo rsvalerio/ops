@@ -10,11 +10,23 @@ pub(super) fn merge_field<T>(base: &mut T, overlay: Option<T>) {
     }
 }
 
-pub(super) fn merge_indexmap<K: Eq + std::hash::Hash, V>(
+/// Merge overlay entries into base, overwriting existing keys (last-write-wins).
+///
+/// When overlay keys collide with base keys, the replacement is logged at
+/// `tracing::debug!` so `OPS_LOG_LEVEL=debug` reveals the resolution during
+/// layered config loading.
+pub(super) fn merge_indexmap<K: Eq + std::hash::Hash + std::fmt::Debug, V>(
     base: &mut IndexMap<K, V>,
     overlay: Option<IndexMap<K, V>>,
 ) {
     if let Some(items) = overlay {
+        let replaced: Vec<&K> = items.keys().filter(|k| base.contains_key(*k)).collect();
+        if !replaced.is_empty() {
+            tracing::debug!(
+                keys = ?replaced,
+                "config overlay shadows base entries (last-write-wins)"
+            );
+        }
         base.extend(items);
     }
 }
@@ -123,6 +135,19 @@ mod tests {
         let overlay = IndexMap::from([("a", 99)]);
         merge_indexmap(&mut base, Some(overlay));
         assert_eq!(base["a"], 99);
+    }
+
+    #[test]
+    fn merge_indexmap_emits_debug_on_collision() {
+        // Verify that when an overlay shadows a base key, the merged result
+        // has the overlay value. The tracing::debug event is emitted but
+        // we only verify the data outcome (the log line is a side effect).
+        let mut base = IndexMap::from([("cmd-a", 1), ("cmd-b", 2)]);
+        let overlay = IndexMap::from([("cmd-a", 10), ("cmd-c", 3)]);
+        merge_indexmap(&mut base, Some(overlay));
+        assert_eq!(base["cmd-a"], 10, "overlay should win on collision");
+        assert_eq!(base["cmd-b"], 2, "non-collided base key preserved");
+        assert_eq!(base["cmd-c"], 3, "new overlay key inserted");
     }
 
     #[test]
