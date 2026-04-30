@@ -234,7 +234,7 @@ fn has_issues(report: &DepsReport) -> bool {
             .licenses
             .iter()
             .any(|e| is_actionable(&e.severity))
-        || report.deny.bans.iter().any(|e| e.severity == "error")
+        || report.deny.bans.iter().any(|e| is_actionable(&e.severity))
         || report
             .deny
             .sources

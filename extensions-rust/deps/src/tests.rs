@@ -751,6 +751,28 @@ fn has_issues_ban_warning_not_actionable() {
     assert!(!has_issues(&report));
 }
 
+/// TASK-0701: a ban with an unknown severity (e.g. 'critical') must be
+/// treated as actionable by `is_actionable`, not silently ignored as the
+/// old hardcoded `== "error"` check did.
+#[test]
+fn has_issues_ban_critical_severity_fails_closed() {
+    let report = DepsReport {
+        deny: DenyResult {
+            bans: vec![BanEntry {
+                package: "dangerous".into(),
+                message: "critical ban".into(),
+                severity: "critical".into(),
+            }],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert!(
+        has_issues(&report),
+        "unknown ban severities must be treated as actionable"
+    );
+}
+
 #[test]
 fn has_issues_source_error() {
     let report = DepsReport {
