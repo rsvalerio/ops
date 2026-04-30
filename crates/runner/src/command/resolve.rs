@@ -183,7 +183,9 @@ impl CommandRunner {
 
 /// Build an `alias → canonical_name` map by flattening one or more command
 /// stores in iteration order. Later stores override earlier ones (matching
-/// the existing stack → extension precedence).
+/// the existing stack → extension precedence). Collisions across stores are
+/// logged at `tracing::warn!` with both canonical owners, consistent with
+/// `CommandRegistry` and `DataRegistry` duplicate-detection policy.
 pub(super) fn build_alias_map<'a, I>(stores: I) -> std::collections::HashMap<String, String>
 where
     I: IntoIterator<Item = &'a IndexMap<CommandId, CommandSpec>>,
@@ -192,6 +194,14 @@ where
     for store in stores {
         for (name, spec) in store {
             for alias in spec.aliases() {
+                if let Some(existing) = map.get(alias.as_str()) {
+                    tracing::warn!(
+                        alias = %alias,
+                        existing = %existing,
+                        new = %name,
+                        "alias collision: later store overrides earlier"
+                    );
+                }
                 map.insert(alias.clone(), name.to_string());
             }
         }
