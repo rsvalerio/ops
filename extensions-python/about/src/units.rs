@@ -80,12 +80,12 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
         .into_iter()
         .map(|(member, manifest)| {
             let manifest_path = cwd.join(&member).join("pyproject.toml");
-            let (name, version, description) = parse_package_metadata(&manifest_path, &manifest);
+            let meta = parse_package_metadata(&manifest_path, &manifest);
             ProjectUnit {
-                name: name.unwrap_or_else(|| format_unit_name(&member)),
+                name: meta.name.unwrap_or_else(|| format_unit_name(&member)),
                 path: member,
-                version,
-                description,
+                version: meta.version,
+                description: meta.description,
                 ..Default::default()
             }
         })
@@ -104,15 +104,16 @@ struct ProjectProbe {
     description: Option<String>,
 }
 
-fn parse_package_metadata(
-    path: &Path,
-    content: &str,
-) -> (Option<String>, Option<String>, Option<String>) {
+fn parse_package_metadata(path: &Path, content: &str) -> ops_about::workspace::PackageMetadata {
     ops_about::workspace::parse_package_metadata(path, content, |c| {
         toml::from_str::<PackageProbe>(c).map(|p| {
             p.project
-                .map(|p| (p.name, p.version, p.description))
-                .unwrap_or((None, None, None))
+                .map(|p| ops_about::workspace::PackageMetadata {
+                    name: p.name,
+                    version: p.version,
+                    description: p.description,
+                })
+                .unwrap_or_default()
         })
     })
 }

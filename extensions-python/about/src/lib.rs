@@ -172,7 +172,12 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
     let raw: RawPyproject = match toml::from_str(&content) {
         Ok(r) => r,
         Err(e) => {
-            tracing::warn!(path = %path.display(), error = %e, "failed to parse pyproject.toml");
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                recovery = "default-identity",
+                "failed to parse pyproject.toml"
+            );
             return None;
         }
     };
@@ -190,28 +195,38 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
         out.name = trim_nonempty(p.name);
         out.version = trim_nonempty(p.version);
         out.description = trim_nonempty(p.description);
-        out.requires_python = p.requires_python;
+        out.requires_python = trim_nonempty(p.requires_python);
         // PEP 621 license can be a string, `{ text = "..." }`, or
         // `{ file = "LICENSE" }`. The file form is a *path* to a file, not an
         // SPDX identifier, so passing it through as the license name is
         // misleading. When only `file` is set, surface it explicitly as
         // `License file: <name>` so the About card communicates that an SPDX
         // identifier was not declared but a license file is present.
+        // ERR-2 / TASK-0704: trim+drop-empty for license text and author
+        // name/email so a whitespace-only field does not render as a blank
+        // bullet — matching the trim policy already applied to
+        // name/version/description above and to package.json's format_person.
         out.license = p.license.and_then(|l| match l {
-            LicenseField::Text(s) => Some(s),
-            LicenseField::Table { text: Some(t), .. } => Some(t),
-            LicenseField::Table { file: Some(f), .. } => Some(format!("License file: {f}")),
+            LicenseField::Text(s) => trim_nonempty(Some(s)),
+            LicenseField::Table { text: Some(t), .. } => trim_nonempty(Some(t)),
+            LicenseField::Table { file: Some(f), .. } => {
+                trim_nonempty(Some(f)).map(|f| format!("License file: {f}"))
+            }
             LicenseField::Table { .. } => None,
         });
         out.authors = p
             .authors
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|a| match (a.name, a.email) {
-                (Some(n), Some(e)) => Some(format!("{n} <{e}>")),
-                (Some(n), None) => Some(n),
-                (None, Some(e)) => Some(e),
-                (None, None) => None,
+            .filter_map(|a| {
+                let name = trim_nonempty(a.name);
+                let email = trim_nonempty(a.email);
+                match (name, email) {
+                    (Some(n), Some(e)) => Some(format!("{n} <{e}>")),
+                    (Some(n), None) => Some(n),
+                    (None, Some(e)) => Some(e),
+                    (None, None) => None,
+                }
             })
             .collect();
         if let Some(urls) = p.urls {
@@ -221,7 +236,6 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
                 &[
                     "repository",
                     "source",
-                    "source code",
                     "source-code",
                     "sourcecode",
                     "code",
@@ -237,7 +251,9 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
 /// PEP 621 places no constraints on `[project.urls]` key casing or spelling
 /// (`Homepage`, `homepage`, `Home Page`, `home-page` are all common in the
 /// wild). Look up candidates case-insensitively after trimming, and accept the
-/// kebab-case variant as equivalent to the space-separated form.
+/// kebab-case variant as equivalent to the space-separated form. Callers should
+/// pass the canonical kebab/space form for each variant — "home-page" and
+/// "home page" normalise identically, so passing both is dead weight.
 fn pick_url(urls: &std::collections::BTreeMap<String, String>, keys: &[&str]) -> Option<String> {
     let normalized: Vec<(String, &String)> = urls
         .iter()
@@ -305,6 +321,102 @@ mod tests {
         let fields = PythonIdentityProvider.about_fields();
         let ids: Vec<&str> = fields.iter().map(|f| f.id).collect();
         assert!(ids.contains(&"homepage"));
+    }
+
+    #[test]
+    fn whitespace_only_license_and_author_components_are_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "demo"
+version = "0.1.0"
+license = "  "
+authors = [{ name = "  ", email = "  " }]
+"#,
+        )
+        .unwrap();
+
+        let provider = PythonIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let id: ProjectIdentity =
+            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert!(id.license.is_none());
+        assert!(id.authors.is_empty());
+    }
+
+    #[test]
+    fn whitespace_only_requires_python_does_not_render() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"demo\"\nversion = \"0.1.0\"\nrequires-python = \"  \"\n",
+        )
+        .unwrap();
+
+        let provider = PythonIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let id: ProjectIdentity =
+            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert_eq!(id.stack_detail, None);
+    }
+
+    #[test]
+    fn pick_url_repository_takes_precedence_over_source_and_source_code() {
+        let mut urls = std::collections::BTreeMap::new();
+        urls.insert(
+            "Source-Code".to_string(),
+            "https://example.com/sc".to_string(),
+        );
+        urls.insert("source".to_string(), "https://example.com/src".to_string());
+        urls.insert(
+            "Repository".to_string(),
+            "https://example.com/repo".to_string(),
+        );
+
+        let picked = pick_url(
+            &urls,
+            &[
+                "repository",
+                "source",
+                "source-code",
+                "sourcecode",
+                "code",
+                "repo",
+            ],
+        );
+        assert_eq!(picked.as_deref(), Some("https://example.com/repo"));
+
+        urls.remove("Repository");
+        let picked = pick_url(
+            &urls,
+            &[
+                "repository",
+                "source",
+                "source-code",
+                "sourcecode",
+                "code",
+                "repo",
+            ],
+        );
+        assert_eq!(picked.as_deref(), Some("https://example.com/src"));
+
+        urls.remove("source");
+        let picked = pick_url(
+            &urls,
+            &[
+                "repository",
+                "source",
+                "source-code",
+                "sourcecode",
+                "code",
+                "repo",
+            ],
+        );
+        assert_eq!(picked.as_deref(), Some("https://example.com/sc"));
     }
 
     #[test]
