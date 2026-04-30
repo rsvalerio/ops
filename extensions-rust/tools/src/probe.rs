@@ -33,18 +33,43 @@ pub fn get_active_toolchain() -> Option<String> {
 ///
 /// Both shapes are handled by skipping blank/leading lines and returning the
 /// first whitespace-separated token of the first non-empty line.
+///
+/// Rejects diagnostic lines that rustup prints when there is no active
+/// toolchain (e.g. "error: ...", "info: ...") so they don't get used as a
+/// toolchain identifier. A valid toolchain token must not contain `:`.
 pub(crate) fn parse_active_toolchain(stdout: &str) -> Option<String> {
     let line = stdout.lines().map(str::trim).find(|l| !l.is_empty())?;
-    line.split_whitespace().next().map(str::to_string)
+    let token = line.split_whitespace().next()?;
+    // Reject rustup diagnostic prefixes and any token containing `:` (e.g.
+    // "error:", "info:", "no active toolchain configured").
+    if token.contains(':') {
+        return None;
+    }
+    Some(token.to_string())
 }
 
 pub fn check_cargo_tool_installed(name: &str) -> bool {
     let output = match Command::new("cargo").args(["--list"]).output() {
         Ok(o) => o,
-        Err(_) => return false,
+        Err(e) => {
+            tracing::warn!(
+                tool = name,
+                error = %e,
+                "cargo --list spawn failed; reporting tool as not installed"
+            );
+            return false;
+        }
     };
 
     if !output.status.success() {
+        let stderr_tail = String::from_utf8_lossy(&output.stderr);
+        let stderr_snippet = stderr_tail.chars().take(200).collect::<String>();
+        tracing::warn!(
+            tool = name,
+            code = ?output.status.code(),
+            stderr = %stderr_snippet,
+            "cargo --list exited non-zero; reporting tool as not installed"
+        );
         return false;
     }
 
@@ -183,10 +208,25 @@ pub fn check_rustup_component_installed(component: &str) -> bool {
         .output()
     {
         Ok(o) => o,
-        Err(_) => return false,
+        Err(e) => {
+            tracing::warn!(
+                component = component,
+                error = %e,
+                "rustup component list spawn failed; reporting component as not installed"
+            );
+            return false;
+        }
     };
 
     if !output.status.success() {
+        let stderr_tail = String::from_utf8_lossy(&output.stderr);
+        let stderr_snippet = stderr_tail.chars().take(200).collect::<String>();
+        tracing::warn!(
+            component = component,
+            code = ?output.status.code(),
+            stderr = %stderr_snippet,
+            "rustup component list exited non-zero; reporting component as not installed"
+        );
         return false;
     }
 

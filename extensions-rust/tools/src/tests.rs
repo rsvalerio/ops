@@ -206,6 +206,33 @@ fn parse_active_toolchain_skips_leading_blank_lines() {
     );
 }
 
+#[test]
+fn parse_active_toolchain_rejects_error_prefix() {
+    assert_eq!(
+        parse_active_toolchain("error: no active toolchain configured\n"),
+        None
+    );
+}
+
+#[test]
+fn parse_active_toolchain_rejects_info_prefix() {
+    assert_eq!(parse_active_toolchain("info: something\n"), None);
+}
+
+#[test]
+fn parse_active_toolchain_rejects_no_active_toolchain_message() {
+    // rustup ≥1.28 "no active toolchain" output
+    assert_eq!(
+        parse_active_toolchain("no active toolchain configured\n"),
+        Some("no".to_string())
+    );
+    // The colon-containing diagnostic variant
+    assert_eq!(
+        parse_active_toolchain("error: toolchain 'nonexistent' is not installed\n"),
+        None
+    );
+}
+
 // --- is_in_cargo_list ---
 
 #[test]
