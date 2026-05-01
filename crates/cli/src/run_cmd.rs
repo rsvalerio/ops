@@ -291,19 +291,19 @@ fn warn_raw_drops_parallel(runner: &ops_runner::command::CommandRunner, name: &s
 }
 
 fn composite_tree_has_parallel(runner: &ops_runner::command::CommandRunner, name: &str) -> bool {
-    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut stack: Vec<String> = vec![name.to_string()];
+    let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut stack: Vec<&str> = vec![name];
     while let Some(current) = stack.pop() {
-        if !visited.insert(current.clone()) {
+        if !visited.insert(current) {
             continue;
         }
-        if let Some(ops_core::config::CommandSpec::Composite(c)) = runner.resolve(&current) {
+        if let Some(ops_core::config::CommandSpec::Composite(c)) = runner.resolve(current) {
             if c.parallel {
                 return true;
             }
             for child in &c.commands {
-                if !visited.contains(child) {
-                    stack.push(child.clone());
+                if !visited.contains(child.as_str()) {
+                    stack.push(child.as_str());
                 }
             }
         }

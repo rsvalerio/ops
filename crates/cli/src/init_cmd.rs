@@ -64,6 +64,27 @@ fn write_init(path: &Path, bytes: &[u8], force: bool) -> std::io::Result<()> {
         let mut f = OpenOptions::new().write(true).create_new(true).open(path)?;
         f.write_all(bytes)?;
         f.sync_all()?;
+        // SEC-25 (TASK-0730): persist the new directory entry so a crash
+        // between this return and the next sync(2) does not lose the
+        // `.ops.toml` link on ext4/xfs. The --force branch already gets
+        // this via `atomic_write`'s parent fsync (TASK-0340); the no-force
+        // path is the common case (first run in a clean repo), so the
+        // asymmetry was the loud bug. We cannot fold this branch into
+        // `atomic_write` without losing the `create_new` exclusion that
+        // gives no-force its "do not clobber" guarantee, hence the
+        // inline parent fsync mirroring config::edit::atomic_write.
+        #[cfg(unix)]
+        if let Some(parent) = path.parent() {
+            // Empty parent path means cwd; open(".") instead.
+            let parent = if parent.as_os_str().is_empty() {
+                Path::new(".")
+            } else {
+                parent
+            };
+            if let Ok(dir) = std::fs::File::open(parent) {
+                let _ = dir.sync_all();
+            }
+        }
         return Ok(());
     }
     atomic_write(path, bytes)
@@ -131,6 +152,35 @@ mod tests {
             content.contains("[output]"),
             "file should be overwritten with defaults"
         );
+    }
+
+    /// SEC-25 (TASK-0730): both write_init branches must reach the parent
+    /// fsync codepath and produce byte-identical output for the same input,
+    /// so a crash between file-fsync and the next sync(2) is the only
+    /// scenario in which the directory entry could be lost — and that
+    /// scenario is now covered by the parent fsync on both branches. Direct
+    /// fault injection is impractical from a test, so we pin the symmetry
+    /// of the success path instead.
+    #[test]
+    fn write_init_force_and_no_force_produce_identical_bytes() {
+        let dir_a = tempfile::tempdir().expect("tempdir a");
+        let path_a = dir_a.path().join(".ops.toml");
+        let bytes = b"[output]\ntheme = \"compact\"\n";
+        write_init(&path_a, bytes, false).expect("no-force write");
+
+        let dir_b = tempfile::tempdir().expect("tempdir b");
+        let path_b = dir_b.path().join(".ops.toml");
+        // Pre-existing file so the --force branch actually clobbers.
+        std::fs::write(&path_b, b"old content").expect("seed");
+        write_init(&path_b, bytes, true).expect("force write");
+
+        let a = std::fs::read(&path_a).expect("read a");
+        let b = std::fs::read(&path_b).expect("read b");
+        assert_eq!(
+            a, b,
+            "force and no-force paths must produce identical bytes"
+        );
+        assert_eq!(a, bytes, "and the bytes must be exactly what was written");
     }
 
     #[test]

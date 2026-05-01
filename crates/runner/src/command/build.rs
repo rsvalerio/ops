@@ -230,6 +230,20 @@ pub async fn build_command_async(
     cwd: std::sync::Arc<std::path::PathBuf>,
     vars: std::sync::Arc<Variables>,
 ) -> Result<Command, std::io::Error> {
+    // API-2 / TASK-0659: pin the Arc-only invariant in debug builds. Production
+    // call sites pass `Arc::clone(cwd_ref)` from a `&Arc<...>` held by the
+    // caller, so the strong_count is always ≥ 2 on the parallel hot path.
+    // A future caller that reverts to `Arc::new(fresh_pathbuf)` per spawn
+    // (re-introducing the deep-clone regression that TASK-0462 fixed) will
+    // trip this assert in test runs.
+    debug_assert!(
+        std::sync::Arc::strong_count(&cwd) > 1,
+        "OWN-2 / API-2: cwd Arc must be shared across spawns (strong_count > 1); fresh Arc::new per call defeats the Arc-only invariant"
+    );
+    debug_assert!(
+        std::sync::Arc::strong_count(&vars) > 1,
+        "OWN-2 / API-2: vars Arc must be shared across spawns (strong_count > 1); fresh Arc::new per call defeats the Arc-only invariant"
+    );
     // OWN-2 / TASK-0462: emit a trace event on every spawn so we can
     // confirm in `RUST_LOG=trace` runs that the only allocations per
     // spawn are Arc::clone counts (logged here as the existing
@@ -334,13 +348,19 @@ mod tests {
             // Run several build_command_async invocations. Each dispatches
             // canonicalize to the blocking pool, leaving the runtime
             // worker free to poll the counting task between awaits.
+            // API-2 / TASK-0659: hold the Arcs in the test so each call's
+            // strong_count > 1, mirroring the production call pattern
+            // (`Arc::clone` from a held reference) and satisfying the
+            // debug_assert pinned in build_command_async.
+            let cwd_arc = std::sync::Arc::new(tmp.path().to_path_buf());
+            let vars_arc = std::sync::Arc::new(vars.clone());
             for _ in 0..5 {
                 let spec =
                     exec_spec_with_cwd("echo", &["x"], Some(std::path::PathBuf::from("sub")));
                 let _cmd = build_command_async(
                     spec,
-                    std::sync::Arc::new(tmp.path().to_path_buf()),
-                    std::sync::Arc::new(vars.clone()),
+                    std::sync::Arc::clone(&cwd_arc),
+                    std::sync::Arc::clone(&vars_arc),
                 )
                 .await
                 .unwrap();
@@ -363,10 +383,14 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let vars = Variables::from_env(tmp.path());
         let spec = exec_spec("echo", &["hello"]);
+        // API-2 / TASK-0659: hold the Arcs locally so strong_count > 1
+        // when the call clones them, satisfying the Arc-only debug_assert.
+        let cwd_arc = std::sync::Arc::new(tmp.path().to_path_buf());
+        let vars_arc = std::sync::Arc::new(vars);
         let cmd = build_command_async(
             spec,
-            std::sync::Arc::new(tmp.path().to_path_buf()),
-            std::sync::Arc::new(vars),
+            std::sync::Arc::clone(&cwd_arc),
+            std::sync::Arc::clone(&vars_arc),
         )
         .await
         .unwrap();

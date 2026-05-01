@@ -85,10 +85,23 @@ impl ExtensionInfo {
 /// extension's `register_commands` call so a single extension that registers
 /// the same command id twice surfaces a `tracing::warn!` event instead of
 /// silently dropping the first registration.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct CommandRegistry {
     inner: IndexMap<CommandId, CommandSpec>,
     duplicate_inserts: Vec<CommandId>,
+}
+
+// TRAIT-4 (TASK-0653): `duplicate_inserts` is a per-instance audit trail
+// drained once by `take_duplicate_inserts`. A blanket `derive(Clone)`
+// would copy that history into the clone, so a downstream reader would
+// see phantom warnings. Clone the data only and reset the audit trail.
+impl Clone for CommandRegistry {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            duplicate_inserts: Vec::new(),
+        }
+    }
 }
 
 impl CommandRegistry {
@@ -101,6 +114,14 @@ impl CommandRegistry {
     /// (TASK-0579): a re-insert for the same id is recorded so the CLI
     /// wiring layer can warn about within-extension self-shadowing instead
     /// of letting the silent overwrite swallow the first registration.
+    ///
+    /// CL-5 / TASK-0661: this registry is **last-write-wins** (matching
+    /// `IndexMap::insert` semantics) so config-defined commands can shadow
+    /// extension-provided commands when merged at the wiring layer.
+    /// Contrast with [`crate::DataRegistry::register`] which is
+    /// **first-write-wins**: data providers are security-trusted built-ins
+    /// (identity, metadata) that must not be silently shadowed by a later
+    /// extension. The asymmetry is intentional.
     pub fn insert(&mut self, id: CommandId, spec: CommandSpec) -> Option<CommandSpec> {
         if self.inner.contains_key(&id) {
             self.duplicate_inserts.push(id.clone());
@@ -117,16 +138,14 @@ impl CommandRegistry {
     }
 }
 
+// ARCH-9 (TASK-0652): only `Deref` is exposed so the audit trail in
+// `duplicate_inserts` cannot be bypassed by routing mutations through
+// `IndexMap::insert` / `entry` / etc. The single mutating path is
+// `CommandRegistry::insert`.
 impl std::ops::Deref for CommandRegistry {
     type Target = IndexMap<CommandId, CommandSpec>;
     fn deref(&self) -> &Self::Target {
         &self.inner
-    }
-}
-
-impl std::ops::DerefMut for CommandRegistry {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
     }
 }
 

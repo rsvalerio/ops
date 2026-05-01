@@ -110,6 +110,20 @@ fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<St
     let commands: Vec<String> = if info.command_names.is_empty() {
         let mut cmd_registry = CommandRegistry::new();
         ext.register_commands(&mut cmd_registry);
+        // ERR-1 / TASK-0710: surface within-extension self-shadowing on the
+        // operator-facing `extension show` / `extension list` paths. Without
+        // this, a regression that re-inserts the same command id is silently
+        // collapsed into a single entry on the rendered list while the
+        // runner-wiring path (`register_extension_commands`) emits a WARN.
+        // Mirror that warning here so operators reading `ops extension show`
+        // see the same diagnostic.
+        for dup in cmd_registry.take_duplicate_inserts() {
+            tracing::warn!(
+                command = %dup,
+                extension = ext.name(),
+                "extension registered the same command id more than once; the later registration shadows the earlier within this extension"
+            );
+        }
         cmd_registry.keys().map(|s| s.to_string()).collect()
     } else {
         info.command_names
@@ -458,6 +472,74 @@ enabled = []
         assert!(
             output.contains("definitely-not-a-real-extension-xyz"),
             "expected error cause in output, got: {output}"
+        );
+    }
+
+    /// ERR-1 / TASK-0710: an extension that registers the same command id
+    /// twice must surface a WARN through `extension_summary`, mirroring the
+    /// runner-wiring path's behaviour. Without this, the operator-facing
+    /// `extension show`/`extension list` paths silently collapsed duplicate
+    /// inserts and the diagnostic only fired on the runner path.
+    #[test]
+    fn extension_summary_warns_on_self_shadow() {
+        use ops_core::config::{CommandSpec, ExecCommandSpec};
+        use ops_extension::{CommandRegistry, Extension};
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        struct DoubleRegisterExt;
+        impl Extension for DoubleRegisterExt {
+            fn name(&self) -> &'static str {
+                "double_register_summary"
+            }
+            fn register_commands(&self, registry: &mut CommandRegistry) {
+                registry.insert(
+                    "lint".into(),
+                    CommandSpec::Exec(ExecCommandSpec::new("first", Vec::<String>::new())),
+                );
+                registry.insert(
+                    "lint".into(),
+                    CommandSpec::Exec(ExecCommandSpec::new("second", Vec::<String>::new())),
+                );
+            }
+        }
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let ext = DoubleRegisterExt;
+        tracing::subscriber::with_default(subscriber, || {
+            let (_, commands) = extension_summary(&ext);
+            assert_eq!(commands, vec!["lint".to_string()]);
+        });
+
+        let captured = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        assert!(
+            captured.contains("double_register_summary") && captured.contains("lint"),
+            "self-shadow warning must name extension and command id, got: {captured}"
         );
     }
 

@@ -120,22 +120,24 @@ fn run_tools_install_to(
     w: &mut dyn Write,
     err: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
-    let tools_to_install: IndexMap<String, ToolSpec> = if let Some(tool_name) = name {
+    // Named path constructs a single-entry map because `collect_tools` /
+    // `install_missing_tools` consume `&IndexMap<String, ToolSpec>` keyed by
+    // the tool name; the unnamed path borrows `config.tools` directly so we
+    // skip the deep-clone of every ToolSpec on the install hot path.
+    let single_entry: Option<IndexMap<String, ToolSpec>> = if let Some(tool_name) = name {
         let spec = config
             .tools
             .get(tool_name)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("tool not found: {}", tool_name))?;
-        [(tool_name.to_string(), spec)].into_iter().collect()
+        Some([(tool_name.to_string(), spec)].into_iter().collect())
     } else {
-        config
-            .tools
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
+        None
     };
+    let tools_to_install: &IndexMap<String, ToolSpec> =
+        single_entry.as_ref().unwrap_or(&config.tools);
 
-    let tools = collect_tools(&tools_to_install);
+    let tools = collect_tools(tools_to_install);
 
     let missing: Vec<&ToolInfo> = tools
         .iter()
@@ -149,7 +151,7 @@ fn run_tools_install_to(
 
     writeln!(w, "Installing {} missing tool(s)...\n", missing.len())?;
 
-    let (installed, failed) = install_missing_tools(&missing, &tools_to_install, w, err)?;
+    let (installed, failed) = install_missing_tools(&missing, tools_to_install, w, err)?;
 
     writeln!(w)?;
     let already_present = tools.len() - missing.len();

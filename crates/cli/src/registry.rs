@@ -138,14 +138,28 @@ fn register_with_extensions<R, F>(
 /// Insertion order is preserved (the late entry wins, matching the prior
 /// observable behaviour) but the collision is now visible.
 pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut CommandRegistry) {
-    let mut owners: std::collections::HashMap<ops_core::config::CommandId, &'static str> =
+    // READ-5 / TASK-0716: use a typed enum so the WARN field never surfaces
+    // an internal sentinel string at the user-facing boundary. Pre-existing
+    // entries (e.g. config-defined commands the wiring layer seeded before
+    // this call) still need to be tracked so a later extension cannot
+    // silently shadow them, but the warning rendering picks the right shape
+    // for each case instead of leaking `<pre-existing>` as the owner.
+    #[derive(Clone)]
+    enum CommandOwner {
+        PreExisting,
+        Extension(&'static str),
+    }
+
+    let mut owners: std::collections::HashMap<ops_core::config::CommandId, CommandOwner> =
         std::collections::HashMap::new();
 
     // Seed `owners` with whatever was already in `registry` so the first
     // extension's contributions still see existing keys as foreign-owned
-    // (unknown) and we don't false-positive collisions across re-entries.
+    // and we don't false-positive collisions across re-entries.
     for id in registry.keys() {
-        owners.entry(id.clone()).or_insert("<pre-existing>");
+        owners
+            .entry(id.clone())
+            .or_insert(CommandOwner::PreExisting);
     }
 
     for ext in extensions {
@@ -170,9 +184,9 @@ pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut
             // the previous owner) instead of get-then-insert. Still one clone
             // — id needs to live in both registry and owners — but we no
             // longer probe owners twice.
-            let prev_owner = owners.insert(id.clone(), ext.name());
-            if let Some(prev) = prev_owner {
-                if prev != ext.name() {
+            let prev_owner = owners.insert(id.clone(), CommandOwner::Extension(ext.name()));
+            match prev_owner {
+                Some(CommandOwner::Extension(prev)) if prev != ext.name() => {
                     tracing::warn!(
                         command = %id,
                         first = %prev,
@@ -180,6 +194,19 @@ pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut
                         "duplicate command registration; the later extension shadows the earlier one"
                     );
                 }
+                Some(CommandOwner::PreExisting) => {
+                    // READ-5 / TASK-0716: omit the `first` field rather than
+                    // emit `<pre-existing>`; the operator only needs to know
+                    // that an extension is shadowing a key the registry was
+                    // already seeded with (typically a config-defined
+                    // command), not the internal sentinel.
+                    tracing::warn!(
+                        command = %id,
+                        second = %ext.name(),
+                        "extension command shadows an entry already present in the registry (e.g. a config-defined command)"
+                    );
+                }
+                _ => {}
             }
             registry.insert(id, spec);
         }
@@ -428,6 +455,82 @@ mod tests {
             "self-shadow warning must name extension and command id, got: {captured}"
         );
         assert_eq!(registry.len(), 1, "only the surviving entry remains");
+    }
+
+    /// READ-5 / TASK-0716: the WARN emitted on a collision against a
+    /// pre-seeded registry entry must NOT surface the internal sentinel
+    /// `<pre-existing>` in any field; it is an implementation detail that
+    /// leaked into the user-facing log line before the typed-enum refactor.
+    #[test]
+    fn register_extension_commands_collision_with_pre_existing_omits_sentinel() {
+        use ops_core::config::{CommandSpec, ExecCommandSpec};
+        use ops_extension::{CommandRegistry, Extension};
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        struct ExtA;
+        impl Extension for ExtA {
+            fn name(&self) -> &'static str {
+                "ext_a"
+            }
+            fn register_commands(&self, registry: &mut CommandRegistry) {
+                registry.insert(
+                    "shared".into(),
+                    CommandSpec::Exec(ExecCommandSpec::new("echo", ["a"])),
+                );
+            }
+        }
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        // Pre-seed the registry as the wiring layer does for config-defined
+        // commands so the first extension's contribution collides against an
+        // existing entry.
+        let mut registry = CommandRegistry::new();
+        registry.insert(
+            "shared".into(),
+            CommandSpec::Exec(ExecCommandSpec::new("config", Vec::<String>::new())),
+        );
+
+        let a = ExtA;
+        let exts: Vec<&dyn Extension> = vec![&a];
+        tracing::subscriber::with_default(subscriber, || {
+            register_extension_commands(&exts, &mut registry);
+        });
+
+        let captured = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        assert!(
+            captured.contains("ext_a") && captured.contains("shared"),
+            "warning must still name the extension and command id, got: {captured}"
+        );
+        assert!(
+            !captured.contains("<pre-existing>"),
+            "WARN must not leak the internal sentinel string, got: {captured}"
+        );
     }
 
     #[test]

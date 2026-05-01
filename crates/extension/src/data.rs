@@ -141,6 +141,12 @@ impl DataRegistry {
     /// refused: the first provider wins, the second is logged at
     /// `tracing::warn!`, and a `debug_assert!` panics in debug builds so test
     /// suites catch the collision instead of shipping it.
+    ///
+    /// CL-5 / TASK-0661: this registry is **first-write-wins** because the
+    /// providers are security-trusted built-ins. Contrast with
+    /// [`crate::CommandRegistry::insert`] which is **last-write-wins** so
+    /// config commands can intentionally shadow extension-provided
+    /// commands. The two policies diverge by design.
     pub fn register(&mut self, name: impl Into<String>, provider: Box<dyn DataProvider>) {
         let name = name.into();
         if self.providers.contains_key(&name) {

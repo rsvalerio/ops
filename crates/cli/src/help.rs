@@ -142,7 +142,18 @@ pub(crate) fn sort_entries_by_category(entries: &mut [CmdEntry], category_order:
 /// Render sorted command entries into a grouped-sections string suitable for
 /// insertion into the help output.
 pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
-    let max_name_width = entries.iter().map(|e| e.name.len()).max().unwrap_or(0);
+    use ops_core::output::display_width;
+    // READ-2 / TASK-0734: width must be measured in display columns, not
+    // bytes — `String::len` undercounts CJK / wide / combining characters
+    // and mis-aligns the column when extension-supplied command names
+    // contain non-ASCII text. Pair this with a manual space-pad below so
+    // `{:<width$}` (which sizes in `char` count, not display width) cannot
+    // re-introduce the same drift.
+    let max_name_width = entries
+        .iter()
+        .map(|e| display_width(&e.name))
+        .max()
+        .unwrap_or(0);
     let mut grouped = String::new();
     let mut current_category: Option<Option<&str>> = None;
 
@@ -153,12 +164,16 @@ pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
             grouped.push_str(&format!("\n{heading}:\n"));
             current_category = Some(cat);
         }
-        grouped.push_str(&format!(
-            "  {:<width$}  {}\n",
-            entry.name,
-            entry.about,
-            width = max_name_width
-        ));
+        let name_cols = display_width(&entry.name);
+        let pad = max_name_width.saturating_sub(name_cols);
+        grouped.push_str("  ");
+        grouped.push_str(&entry.name);
+        for _ in 0..pad {
+            grouped.push(' ');
+        }
+        grouped.push_str("  ");
+        grouped.push_str(&entry.about);
+        grouped.push('\n');
     }
 
     grouped
@@ -199,10 +214,18 @@ pub(crate) fn render_categorized_help(
 
 fn splice_grouped_into_help(help_str: &str, grouped: &str) -> String {
     let mut out = String::with_capacity(help_str.len() + grouped.len());
-    if let Some(pos) = help_str.find("\nOptions:") {
-        out.push_str(&help_str[..pos]);
+    // CL-3 / TASK-0708: anchor on the blank line + heading-at-column-0 form
+    // (`\n\nOptions:`) so a subcommand `about` that itself contains the
+    // substring "Options:" cannot win the search and have the grouped
+    // section spliced into the middle of an unrelated help line. clap
+    // always emits a blank line before each top-level section heading; if
+    // that ever changes the splice falls through to the append branch
+    // rather than corrupting the help layout silently.
+    if let Some(pos) = help_str.find("\n\nOptions:") {
+        let split = pos + 1;
+        out.push_str(&help_str[..split]);
         out.push_str(grouped);
-        out.push_str(&help_str[pos..]);
+        out.push_str(&help_str[split..]);
     } else {
         out.push_str(help_str);
         out.push_str(grouped);
@@ -390,6 +413,44 @@ mod tests {
     }
 
     #[test]
+    fn render_grouped_sections_aligns_wide_command_names_by_display_width() {
+        // READ-2 / TASK-0734: extension- and config-defined command names
+        // are unrestricted, so a name like `ビルド` (display width 6, byte
+        // length 9) or `🚀deploy` (wide emoji + ASCII) must not skew the
+        // column padding. Pre-fix this used `String::len` (bytes) and
+        // `{:<width$}` (chars), so wide names landed too far left and the
+        // following column was mis-aligned.
+        let entries = vec![
+            entry("\u{30D3}\u{30EB}\u{30C9}", Some("Commands")), // ビルド, display width 6
+            entry("ascii", Some("Commands")),                    // display width 5
+        ];
+        let mut entries_with_about = entries;
+        for e in &mut entries_with_about {
+            e.about = "desc".to_string();
+        }
+
+        let output = render_grouped_sections(&entries_with_about);
+        // Each command line should pad the name out to the wider column
+        // (6) before the two-space gap and the description, so descriptions
+        // line up. We assert this by checking the column at which "desc"
+        // starts on each line is identical when measured in display width.
+        let lines: Vec<&str> = output.lines().filter(|l| l.contains("desc")).collect();
+        assert_eq!(lines.len(), 2, "rendered lines:\n{output}");
+
+        let desc_columns: Vec<usize> = lines
+            .iter()
+            .map(|l| {
+                let idx = l.find("desc").expect("desc present");
+                ops_core::output::display_width(&l[..idx])
+            })
+            .collect();
+        assert_eq!(
+            desc_columns[0], desc_columns[1],
+            "description columns not aligned by display width: {desc_columns:?}\n{output}"
+        );
+    }
+
+    #[test]
     fn render_grouped_sections_uncategorized_shows_commands_heading() {
         let entries = vec![entry("mystery", None)];
         let output = render_grouped_sections(&entries);
@@ -477,6 +538,42 @@ mod tests {
             "grouped section should precede Options:\n{out}"
         );
         assert!(out.contains("init"), "init entry is rendered: {out}");
+    }
+
+    #[test]
+    fn splice_grouped_into_help_ignores_options_substring_in_subcommand_about() {
+        // CL-3 / TASK-0708: prior to the line-anchored find, a subcommand
+        // whose `about` text contained the substring "Options:" (e.g.
+        // "Override CLI options:") would match before the real section
+        // heading and the grouped section would land in the middle of the
+        // subcommand description. The new anchor (blank line + heading at
+        // column 0) rejects the embedded substring.
+        let help = concat!(
+            "Usage: ops [OPTIONS] [COMMAND]\n",
+            "\n",
+            "Commands:\n",
+            "  cfg   Override CLI options: see manual\n",
+            "\n",
+            "Options:\n",
+            "  -v, --verbose\n",
+        );
+        let grouped = "\nSetup:\n  init  Initialize\n";
+        let out = splice_grouped_into_help(help, grouped);
+
+        let grouped_pos = out.find("\nSetup:\n").expect("grouped heading was spliced");
+        let real_options_pos = out
+            .find("\nOptions:\n")
+            .expect("real Options: section is preserved");
+        assert!(
+            grouped_pos < real_options_pos,
+            "grouped section spliced before real Options block, not into the subcommand line:\n{out}"
+        );
+        // The subcommand description line must remain intact — the grouped
+        // section must NOT have been inserted in the middle of it.
+        assert!(
+            out.contains("cfg   Override CLI options: see manual\n"),
+            "subcommand line was corrupted: {out}"
+        );
     }
 
     #[test]
