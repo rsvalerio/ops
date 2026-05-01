@@ -203,7 +203,7 @@ mod tests {
     /// even on fast machines.
     #[test]
     fn wrap_text_handles_very_long_input_in_linear_time() {
-        let words = std::iter::repeat("word").take(10_000).collect::<Vec<_>>();
+        let words = std::iter::repeat_n("word", 10_000).collect::<Vec<_>>();
         let text = words.join(" ");
         let start = std::time::Instant::now();
         let lines = wrap_text(&text, 80, 50);

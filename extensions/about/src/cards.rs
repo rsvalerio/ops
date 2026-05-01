@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn layout_cards_in_24col_terminal_uses_single_card_mode() {
         let card = render_card(&unit("T", "t"), false);
-        let result = layout_cards_in_grid_with_width(&[card.clone()], 24);
+        let result = layout_cards_in_grid_with_width(std::slice::from_ref(&card), 24);
         assert!(!result.is_empty(), "must not return empty for narrow term");
         // Borders are preserved at fixed CARD_WIDTH (=32 inner cols + 2
         // border chars) regardless of terminal width.

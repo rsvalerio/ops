@@ -80,7 +80,15 @@ pub(crate) fn run_extension(config: &Config, action: ExtensionAction) -> anyhow:
 /// Prompt the user to run `ops <hook> install` when the hook command is not configured.
 fn prompt_hook_install(config: &Config, hook_name: &str) -> anyhow::Result<ExitCode> {
     ops_core::ui::note(format!("no '{hook_name}' command configured in .ops.toml."));
-    if !crate::tty::is_stdout_tty() {
+    // Don't block on a TTY prompt under cargo test / CI / scripted
+    // invocations: `is_stdout_tty()` is true when `cargo test` inherits
+    // the user's terminal, so the test that exercises `run_hook_dispatch`
+    // would otherwise hang waiting for `inquire::Confirm`. Honor an
+    // explicit non-interactive opt-out (and the conventional `CI` flag)
+    // before consulting the TTY.
+    let noninteractive =
+        std::env::var_os("OPS_NONINTERACTIVE").is_some() || std::env::var_os("CI").is_some();
+    if noninteractive || !crate::tty::is_stdout_tty() {
         ops_core::ui::note(format!("run `ops {hook_name} install` to set it up."));
         return Ok(ExitCode::FAILURE);
     }
@@ -98,61 +106,33 @@ fn prompt_hook_install(config: &Config, hook_name: &str) -> anyhow::Result<ExitC
     Ok(ExitCode::SUCCESS)
 }
 
-/// Static hook descriptor: everything the shared dispatch needs to run a
-/// `run-before-{commit,push}` hook without re-implementing the same skip /
-/// prompt / dispatch dance per hook.
-type HookPreflight = (fn() -> anyhow::Result<bool>, &'static str);
-
-struct HookDispatch {
-    name: &'static str,
-    skip_env_var: &'static str,
-    should_skip: fn() -> bool,
-    /// Optional pre-flight predicate; returning `Ok(false)` short-circuits with
-    /// the supplied skip message instead of executing the hook command.
-    preflight: Option<HookPreflight>,
-    install: fn(&Config) -> anyhow::Result<()>,
-}
-
-const HOOK_BEFORE_COMMIT: HookDispatch = HookDispatch {
-    name: "run-before-commit",
-    skip_env_var: ops_run_before_commit::SKIP_ENV_VAR,
-    should_skip: ops_run_before_commit::should_skip,
-    preflight: Some((ops_run_before_commit::has_staged_files, "no staged files")),
-    install: pre_hook_cmd::run_before_commit_install,
-};
-
-const HOOK_BEFORE_PUSH: HookDispatch = HookDispatch {
-    name: "run-before-push",
-    skip_env_var: ops_run_before_push::SKIP_ENV_VAR,
-    should_skip: ops_run_before_push::should_skip,
-    preflight: None,
-    install: pre_hook_cmd::run_before_push_install,
-};
-
+/// TASK-0757: dispatch consumes the same `HookOps` descriptor that the install
+/// path uses, so adding a new hook means editing one constant table in
+/// `pre_hook_cmd` rather than two parallel ones.
 fn run_hook_dispatch(
     config: &Config,
-    hook: &HookDispatch,
+    hook: &crate::hook_shared::HookOps,
     run_preflight: bool,
 ) -> anyhow::Result<ExitCode> {
-    if !config.commands.contains_key(hook.name) {
-        return prompt_hook_install(config, hook.name);
+    if !config.commands.contains_key(hook.hook_name) {
+        return prompt_hook_install(config, hook.hook_name);
     }
     if (hook.should_skip)() {
         ops_core::ui::note(format!(
             "[{}] {}=1 — skipping",
-            hook.name, hook.skip_env_var
+            hook.hook_name, hook.skip_env_var
         ));
         return Ok(ExitCode::SUCCESS);
     }
     if run_preflight {
         if let Some((predicate, skip_msg)) = hook.preflight {
             if !predicate()? {
-                ops_core::ui::note(format!("[{}] {} — skipping", hook.name, skip_msg));
+                ops_core::ui::note(format!("[{}] {} — skipping", hook.hook_name, skip_msg));
                 return Ok(ExitCode::SUCCESS);
             }
         }
     }
-    let args = vec![std::ffi::OsString::from(hook.name)];
+    let args = vec![std::ffi::OsString::from(hook.hook_name)];
     run_cmd::run_external_command(config, &args, run_cmd::RunOptions::default())
 }
 
@@ -163,10 +143,10 @@ pub(crate) fn run_before_commit(
 ) -> anyhow::Result<ExitCode> {
     match action {
         Some(RunBeforeCommitAction::Install) => {
-            (HOOK_BEFORE_COMMIT.install)(config)?;
+            pre_hook_cmd::run_before_commit_install(config)?;
             Ok(ExitCode::SUCCESS)
         }
-        None => run_hook_dispatch(config, &HOOK_BEFORE_COMMIT, changed_only),
+        None => run_hook_dispatch(config, &pre_hook_cmd::COMMIT_OPS, changed_only),
     }
 }
 
@@ -177,10 +157,10 @@ pub(crate) fn run_before_push(
 ) -> anyhow::Result<ExitCode> {
     match action {
         Some(RunBeforePushAction::Install) => {
-            (HOOK_BEFORE_PUSH.install)(config)?;
+            pre_hook_cmd::run_before_push_install(config)?;
             Ok(ExitCode::SUCCESS)
         }
-        None => run_hook_dispatch(config, &HOOK_BEFORE_PUSH, false),
+        None => run_hook_dispatch(config, &pre_hook_cmd::PUSH_OPS, false),
     }
 }
 
@@ -239,7 +219,14 @@ args = ["hi"]
 
         // run_hook_dispatch's config-presence check used to load_config
         // independently; verify the threaded config now drives that path.
-        let _ = run_hook_dispatch(&config, &HOOK_BEFORE_COMMIT, false);
+        // The test config has no `run-before-commit` command, so this
+        // dispatch falls into `prompt_hook_install`. Force the
+        // non-interactive bail path so a tty-attached `cargo test` run
+        // does not block on `inquire::Confirm`.
+        // #[serial] guards this from clobbering other tests.
+        std::env::set_var("OPS_NONINTERACTIVE", "1");
+        let _ = run_hook_dispatch(&config, &pre_hook_cmd::COMMIT_OPS, false);
+        std::env::remove_var("OPS_NONINTERACTIVE");
         assert_eq!(
             ops_core::config::load_config_call_count(),
             1,
