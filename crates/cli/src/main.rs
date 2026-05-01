@@ -12,6 +12,8 @@ extern crate ops_about_node;
 extern crate ops_about_python;
 #[cfg(feature = "stack-rust")]
 extern crate ops_about_rust;
+#[cfg(feature = "stack-terraform")]
+extern crate ops_about_terraform;
 #[cfg(feature = "stack-rust")]
 extern crate ops_cargo_toml;
 #[cfg(feature = "stack-rust")]
@@ -203,6 +205,28 @@ fn dispatch(
                 let _ = action;
                 anyhow::bail!("tools subcommand requires the stack-rust feature");
             }
+        }
+        #[cfg(feature = "stack-terraform")]
+        Some(CoreSubcommand::Plans {
+            json_file,
+            out,
+            json_out,
+            keep_plan,
+            no_color,
+            detailed_exitcode,
+            show_outputs,
+            passthrough,
+        }) => {
+            return ops_tfplan::run_plan_pipeline(ops_tfplan::PlanOptions {
+                json_file,
+                out,
+                json_out,
+                keep_plan,
+                no_color,
+                detailed_exitcode,
+                show_outputs,
+                passthrough,
+            });
         }
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(
