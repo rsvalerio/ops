@@ -70,8 +70,14 @@ pub struct ProgressDisplay {
     footer_separator: Option<ProgressBar>,
     pub(super) footer_bar: Option<ProgressBar>,
     pub(super) header_bar: Option<ProgressBar>,
+    /// CL-3 / TASK-0771: counts every step that reached a terminal state —
+    /// succeeded, failed, or skipped. The legacy name "completed" is
+    /// retained for backwards compatibility with `BoxSnapshot.completed`,
+    /// but the semantics are *terminal-step count*, not success count.
+    /// `failed_steps` and `skipped_steps` carry the breakdown.
     pub(crate) completed_steps: usize,
     pub(super) failed_steps: usize,
+    pub(super) skipped_steps: usize,
     pub(super) total_steps: usize,
     run_started_at: Option<Instant>,
     /// ARCH-1 (TASK-0581): tap-file lifecycle (open handle, original path
@@ -134,6 +140,7 @@ impl ProgressDisplay {
             header_bar: None,
             completed_steps: 0,
             failed_steps: 0,
+            skipped_steps: 0,
             total_steps: 0,
             run_started_at: None,
             tap,
@@ -171,10 +178,14 @@ impl ProgressDisplay {
         }
     }
 
-    pub(super) fn finish_bar(&self, bar: &ProgressBar, line: &str) {
+    /// PERF-3 / TASK-0776: take an owned `String` instead of `&str` so the
+    /// indicatif `finish_with_message` move avoids an extra `to_string`
+    /// allocation. Every caller already constructs `line` as a `String`,
+    /// and the non-TTY mirror borrows back via `&line` before the move.
+    pub(super) fn finish_bar(&self, bar: &ProgressBar, line: String) {
         bar.set_style(pending_style());
-        bar.finish_with_message(line.to_string());
-        self.write_non_tty(line);
+        self.write_non_tty(&line);
+        bar.finish_with_message(line);
     }
 
     /// Dispatch a RunnerEvent to the appropriate handler method.
@@ -238,6 +249,7 @@ impl ProgressDisplay {
         self.total_steps = command_ids.len();
         self.completed_steps = 0;
         self.failed_steps = 0;
+        self.skipped_steps = 0;
         self.run_started_at = Some(Instant::now());
 
         let is_boxed = self
@@ -245,6 +257,8 @@ impl ProgressDisplay {
             .theme
             .box_top_border(BoxSnapshot {
                 completed: 0,
+                failed: 0,
+                skipped: 0,
                 total: self.total_steps,
                 elapsed_secs: 0.0,
                 success: true,
@@ -297,6 +311,8 @@ impl ProgressDisplay {
         let success_so_far = self.failed_steps == 0;
         BoxSnapshot {
             completed: self.completed_steps,
+            failed: self.failed_steps,
+            skipped: self.skipped_steps,
             total: self.total_steps,
             elapsed_secs: elapsed,
             success: success_so_far,
@@ -491,9 +507,11 @@ impl ProgressDisplay {
         self.completed_steps += 1;
         if matches!(status, StepStatus::Failed) {
             self.failed_steps += 1;
+        } else if matches!(status, StepStatus::Skipped) {
+            self.skipped_steps += 1;
         }
         let line = self.render_and_wrap_step(&step);
-        self.finish_bar(&self.state.bars[i], &line);
+        self.finish_bar(&self.state.bars[i], line);
         if let Some(ref fb) = self.footer_bar {
             let msg = self.render_footer_message();
             fb.set_message(msg);

@@ -38,8 +38,9 @@ impl ProgressDisplay {
                 Some(elapsed),
             );
             self.completed_steps += 1;
+            self.skipped_steps += 1;
             let line = self.render_and_wrap_step(&step);
-            self.finish_bar(&self.state.bars[i], &line);
+            self.finish_bar(&self.state.bars[i], line);
         }
     }
 
@@ -67,6 +68,8 @@ impl ProgressDisplay {
     pub(super) fn finalize_boxed_layout(&mut self, duration_secs: f64, success: bool) -> bool {
         let Some(bottom) = self.render.theme.box_bottom_border(BoxSnapshot {
             completed: self.completed_steps,
+            failed: self.failed_steps,
+            skipped: self.skipped_steps,
             total: self.total_steps,
             elapsed_secs: duration_secs,
             success,
@@ -83,7 +86,7 @@ impl ProgressDisplay {
             self.write_non_tty(&bottom);
         } else {
             let pb = self.multi.add(ProgressBar::new(0));
-            self.finish_bar(&pb, &bottom);
+            self.finish_bar(&pb, bottom);
         }
         true
     }
@@ -102,17 +105,30 @@ impl ProgressDisplay {
 
         self.render_fallback_separator();
         let summary_pb = self.multi.add(ProgressBar::new(0));
-        self.finish_bar(&summary_pb, &summary);
+        self.finish_bar(&summary_pb, summary);
     }
 
     fn format_summary(&self, duration_secs: f64, success: bool) -> String {
         if self.total_steps > 0 {
-            let label = if success { "Done" } else { "Failed" };
             let elapsed = theme::format_duration(duration_secs);
-            let body = format!(
-                "{} {}/{} in {}",
-                label, self.completed_steps, self.total_steps, elapsed
-            );
+            // CL-3 / TASK-0771: on failure, surface the succeeded/skipped/failed
+            // breakdown rather than a single "Failed N/M" — that label
+            // conflated terminal-step count with success count.
+            let body = if success {
+                format!(
+                    "Done {}/{} in {}",
+                    self.completed_steps, self.total_steps, elapsed
+                )
+            } else {
+                let succeeded = self
+                    .completed_steps
+                    .saturating_sub(self.failed_steps)
+                    .saturating_sub(self.skipped_steps);
+                format!(
+                    "{} succeeded, {} skipped, {} failed of {} in {}",
+                    succeeded, self.skipped_steps, self.failed_steps, self.total_steps, elapsed
+                )
+            };
             let colored = theme::apply_style(&body, self.render.theme.summary_color());
             format!(
                 "{}{}{}",

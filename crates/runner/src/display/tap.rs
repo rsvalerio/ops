@@ -76,9 +76,31 @@ impl TapWriter {
     /// If the open also fails, the caller's stderr warning is the only
     /// visible signal.
     pub(crate) fn append_marker(&self, line: &str) {
-        if let Some(path) = self.path.as_ref() {
-            if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(path) {
-                let _ = writeln!(f, "{line}");
+        let Some(path) = self.path.as_ref() else {
+            return;
+        };
+        // ERR-2 / TASK-0775: log distinct breadcrumbs for the open vs write
+        // failure modes. Function stays infallible (best-effort), but a
+        // silent partial tap with no stderr capture had no postmortem
+        // signal at all under the previous swallow-everything path.
+        match std::fs::OpenOptions::new().append(true).open(path) {
+            Ok(mut f) => {
+                if let Err(e) = writeln!(f, "{line}") {
+                    tracing::warn!(
+                        target: "ops::tap",
+                        error = %e,
+                        path = %path.display(),
+                        "tap append-marker write failed",
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "ops::tap",
+                    error = %e,
+                    path = %path.display(),
+                    "tap append-marker open failed",
+                );
             }
         }
     }
