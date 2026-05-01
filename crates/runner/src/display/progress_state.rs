@@ -33,6 +33,11 @@ pub(crate) struct ProgressState {
     pub step_stderr: HashMap<String, VecDeque<String>>,
     pub display_map: HashMap<String, String>,
     pub plan_command_ids: Vec<String>,
+    /// PERF-12 (TASK-0723): O(1) `id -> steps` index. Populated by
+    /// [`Self::reset_for_plan`] alongside `steps`; queried by
+    /// [`Self::step_index`] so the per-RunnerEvent lookup does not linearly
+    /// scan a 32-step plan with thousands of stderr lines per step.
+    pub index_by_id: HashMap<String, usize>,
 }
 
 impl ProgressState {
@@ -45,14 +50,19 @@ impl ProgressState {
             step_stderr: HashMap::new(),
             display_map,
             plan_command_ids: Vec::new(),
+            index_by_id: HashMap::new(),
         }
     }
 
     /// Look up the bar/step row index for a given command id. Returns
     /// `None` if no step with that id is registered (e.g. an event arrived
     /// after the plan finished).
+    ///
+    /// O(1): hits `index_by_id` directly. The map is rebuilt on every
+    /// `reset_for_plan`; tests that mutate `steps` outside that path must
+    /// also update `index_by_id` for `step_index` to stay consistent.
     pub fn step_index(&self, id: &str) -> Option<usize> {
-        self.steps.iter().position(|(sid, _)| sid == id)
+        self.index_by_id.get(id).copied()
     }
 
     /// Resolve a `CommandId` to its `(id_string, display_string)` pair,
@@ -94,6 +104,11 @@ impl ProgressState {
             .map(|id| self.resolve_step_display(id))
             .collect();
         self.plan_command_ids = command_ids.iter().map(|id| id.to_string()).collect();
+        self.index_by_id.clear();
+        self.index_by_id.reserve(self.steps.len());
+        for (idx, (sid, _)) in self.steps.iter().enumerate() {
+            self.index_by_id.insert(sid.clone(), idx);
+        }
         self.bars.clear();
         self.step_stderr.clear();
     }
@@ -106,10 +121,35 @@ mod tests {
     #[test]
     fn step_index_returns_position_of_registered_id() {
         let mut s = ProgressState::new(HashMap::new());
-        s.steps = vec![("a".into(), "A".into()), ("b".into(), "B".into())];
+        s.reset_for_plan(&["a".into(), "b".into()]);
         assert_eq!(s.step_index("a"), Some(0));
         assert_eq!(s.step_index("b"), Some(1));
         assert_eq!(s.step_index("missing"), None);
+    }
+
+    /// PERF-12 (TASK-0723): step_index hits the O(1) HashMap index instead
+    /// of linearly scanning `steps`. We can't observe the scan directly, so
+    /// we pin behavioural equivalence under a 32-step plan with many
+    /// repeated lookups: every id resolves correctly, and unknown ids
+    /// continue to return None even though the index is populated.
+    #[test]
+    fn step_index_resolves_via_o1_map_for_large_plan() {
+        let ids: Vec<CommandId> = (0..32)
+            .map(|i| CommandId::from(format!("step{i}")))
+            .collect();
+        let mut s = ProgressState::new(HashMap::new());
+        s.reset_for_plan(&ids);
+        for (i, id) in ids.iter().enumerate() {
+            for _ in 0..32 {
+                assert_eq!(s.step_index(id.as_str()), Some(i));
+            }
+        }
+        assert_eq!(s.step_index("missing"), None);
+        // After reset for a smaller plan, the index does not retain entries
+        // from the previous plan (would otherwise leak across runs).
+        s.reset_for_plan(&[CommandId::from("solo")]);
+        assert_eq!(s.step_index("step0"), None);
+        assert_eq!(s.step_index("solo"), Some(0));
     }
 
     #[test]

@@ -28,35 +28,35 @@ impl CommandRunner {
             .or_else(|| self.extension_commands.get(id))
     }
 
-    /// Check if a command ID exists in any store.
-    fn exists_in_stores(&self, id: &str) -> bool {
-        self.config.commands.contains_key(id)
-            || self.stack_commands.contains_key(id)
-            || self.extension_commands.contains_key(id)
-    }
-
     /// Resolve a command by ID or alias (config first, then stack defaults, then extension, then aliases).
     pub fn resolve(&self, id: &str) -> Option<&CommandSpec> {
         self.find_in_stores(id).or_else(|| self.resolve_alias(id))
     }
 
-    /// Return the canonical command name for a given ID or alias.
-    /// If the ID is already a direct command name, returns it as-is.
-    /// If it matches an alias, returns the canonical name.
+    /// Return the canonical command name for a given ID or alias, borrowed
+    /// from the runner's stores (lifetime tied to `&self`). Returns `None`
+    /// if the id is not known.
     ///
-    /// OWN-6 / TASK-0200: alias search is O(1) via `non_config_alias_map`
-    /// instead of scanning every spec's aliases list.
-    pub(super) fn canonical_id<'a>(&'a self, id: &'a str) -> &'a str {
-        if self.exists_in_stores(id) {
-            return id;
+    /// Borrowed return lets `expand_inner` track the active recursion stack
+    /// in a `HashSet<&str>` without allocating a new String per visit
+    /// (OWN-8 / TASK-0714).
+    pub(super) fn canonical_id<'a>(&'a self, id: &str) -> Option<&'a str> {
+        if let Some((k, _)) = self.config.commands.get_key_value(id) {
+            return Some(k.as_str());
+        }
+        if let Some((k, _)) = self.stack_commands.get_key_value(id) {
+            return Some(k.as_str());
+        }
+        if let Some((k, _)) = self.extension_commands.get_key_value(id) {
+            return Some(k.as_str());
         }
         if let Some(name) = self.config.resolve_alias(id) {
-            return name;
+            return Some(name);
         }
         if let Some(name) = self.non_config_alias_map.get(id) {
-            return name.as_str();
+            return Some(name.as_str());
         }
-        id
+        None
     }
 
     /// Look up a command by alias across all command sources.
@@ -102,14 +102,14 @@ impl CommandRunner {
         /// The cycle detection already catches circular references, so this is a
         /// defense against accidental deep nesting.
         const MAX_DEPTH: usize = 100;
-        let mut visited = std::collections::HashSet::new();
+        let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
         self.expand_inner(id, &mut visited, 0, MAX_DEPTH)
     }
 
-    fn expand_inner(
-        &self,
+    fn expand_inner<'a>(
+        &'a self,
         id: &str,
-        visited: &mut std::collections::HashSet<String>,
+        visited: &mut std::collections::HashSet<&'a str>,
         depth: usize,
         max_depth: usize,
     ) -> Result<Vec<CommandId>, ExpandError> {
@@ -125,7 +125,9 @@ impl CommandRunner {
                 max_depth,
             });
         }
-        let canonical = self.canonical_id(id);
+        let canonical = self
+            .canonical_id(id)
+            .ok_or_else(|| ExpandError::Unknown(id.to_string()))?;
         let spec = self
             .resolve(canonical)
             .ok_or_else(|| ExpandError::Unknown(id.to_string()))?;
@@ -137,7 +139,11 @@ impl CommandRunner {
                 // raise a false-positive cycle on the second visit to D.
                 // True cycles (self-reference, A -> B -> A) still re-enter
                 // a node already on the stack and trigger the check.
-                if !visited.insert(canonical.to_string()) {
+                //
+                // OWN-8 (TASK-0714): visited stores `&'a str` borrowed from
+                // the runner's command stores, so canonical names are not
+                // cloned per recursion.
+                if !visited.insert(canonical) {
                     return Err(ExpandError::Cycle(canonical.to_string()));
                 }
                 let mut out = Vec::new();

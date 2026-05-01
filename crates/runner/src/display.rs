@@ -26,6 +26,7 @@ use ops_theme::{self as theme, BoxSnapshot};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use progress_state::ProgressState;
 use std::io::{self, IsTerminal, Write};
+use std::marker::PhantomData;
 use std::time::{Duration, Instant};
 use tap::TapWriter;
 
@@ -77,6 +78,15 @@ pub struct ProgressDisplay {
     /// for re-opening on failure, captured truncation kind) extracted into
     /// `tap::TapWriter`. `None` here means no tap was requested at all.
     pub(super) tap: Option<TapWriter>,
+    /// CL-3 / TASK-0656: structurally enforce the sync-IO invariant on
+    /// [`Self::handle_event`]. `PhantomData<*const ()>` makes
+    /// `ProgressDisplay: !Send + !Sync`, so it cannot be moved into a
+    /// `tokio::spawn` task and any future that borrows it across an
+    /// `.await` point inherits `!Send` and is rejected by the multi-thread
+    /// scheduler. The doc-comment invariant is now checked by the type
+    /// system; future refactors that route the tap through an async writer
+    /// can drop this marker.
+    _not_send: PhantomData<*const ()>,
 }
 
 impl ProgressDisplay {
@@ -127,6 +137,7 @@ impl ProgressDisplay {
             total_steps: 0,
             run_started_at: None,
             tap,
+            _not_send: PhantomData,
         })
     }
 
@@ -171,8 +182,17 @@ impl ProgressDisplay {
     /// CONC-5 / TASK-0331 — async-safety invariant: this method performs
     /// blocking I/O (synchronous `write(2)` on the tap file and stderr) and
     /// must only be driven from a synchronous event-pump loop, never polled
-    /// inside a tokio task. If the consumer ever moves into `tokio::spawn`,
-    /// route the tap through a buffered/async writer first.
+    /// inside a tokio task. CL-3 / TASK-0656 makes the constraint structural:
+    /// [`ProgressDisplay`] holds a `PhantomData<*const ()>` marker, so it is
+    /// `!Send + !Sync`. Any future that borrows `&mut self` across an
+    /// `.await` is therefore non-`Send` and cannot be passed to
+    /// `tokio::spawn` on the multi-thread scheduler — the build fails
+    /// instead of silently regressing CONC-5.
+    ///
+    /// ```compile_fail
+    /// fn assert_send<T: Send>() {}
+    /// assert_send::<ops_runner::display::ProgressDisplay>();
+    /// ```
     pub fn handle_event(&mut self, event: RunnerEvent) {
         match event {
             RunnerEvent::PlanStarted { command_ids } => self.on_plan_started(&command_ids),
@@ -197,14 +217,17 @@ impl ProgressDisplay {
                 success,
             } => self.on_run_finished(duration_secs, success),
             RunnerEvent::StepOutputDropped { id, dropped_count } => {
-                // CONC-7 / TASK-0457: render to stderr and the tap so the
-                // operator sees that some output lines were lost under
-                // backpressure instead of inferring it from a step
-                // failure with no visible cause.
+                // CONC-7 / TASK-0457: surface dropped lines only at DEBUG so a
+                // green run isn't visually polluted by a noisy step. The
+                // tracing event still records the count for postmortem; the
+                // user-facing stderr/tap line is gated on the tracing level
+                // so `OPS_LOG_LEVEL=debug` (or `RUST_LOG`) re-enables it.
                 let line = format!("[ops] {id}: {dropped_count} output line(s) dropped under load");
-                tracing::warn!(target: "ops::runner", "{line}");
-                self.emit_line(&line);
-                self.tap_line_for(&line, Some(id.as_str()));
+                tracing::debug!(target: "ops::runner", "{line}");
+                if tracing::enabled!(target: "ops::runner", tracing::Level::DEBUG) {
+                    self.emit_line(&line);
+                    self.tap_line_for(&line, Some(id.as_str()));
+                }
             }
         }
     }

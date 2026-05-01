@@ -9,6 +9,19 @@ pub fn display_width(s: &str) -> usize {
     s.width()
 }
 
+/// Live terminal width in columns reported by the OS (`ioctl(TIOCGWINSZ)` or
+/// the Windows console handle), or `None` when no terminal is attached.
+///
+/// ARCH-2 / TASK-0667: prefer this over reading the `COLUMNS` environment
+/// variable, which is set on demand by interactive shells but is unset under
+/// most non-interactive parents (CI, `cargo run`, IDE terminals before the
+/// first resize). Callers should fall back to `COLUMNS` only when stdout is
+/// not a TTY.
+#[must_use]
+pub fn detect_terminal_width() -> Option<usize> {
+    terminal_size::terminal_size().map(|(w, _)| usize::from(w.0))
+}
+
 /// Return the last `n` lines from a slice, or all lines if fewer than `n`.
 pub fn tail_lines<T>(lines: &[T], n: usize) -> &[T] {
     let start = lines.len().saturating_sub(n);
@@ -16,24 +29,66 @@ pub fn tail_lines<T>(lines: &[T], n: usize) -> &[T] {
 }
 
 /// Format the last `n` lines of stderr for error display.
-/// Converts raw bytes to string (lossy), extracts lines, and joins with newlines.
 ///
-/// Uses a bounded ring buffer (`VecDeque` capped at `n`) so memory stays O(n)
-/// regardless of input size — a failed build can dump tens of thousands of
-/// lines, and we only ever surface the last few.
+/// PERF-1 (TASK-0733): scans the buffer from the end via byte-wise newline
+/// search, decoding only the tail segments instead of decoding the entire
+/// `stderr` (which can be megabytes under a failed `cargo test`). Memory and
+/// CPU cost are O(n * average-line-length) regardless of input size.
 pub fn format_error_tail(stderr: &[u8], n: usize) -> String {
-    if n == 0 {
+    if n == 0 || stderr.is_empty() {
         return String::new();
     }
-    let stderr_str = String::from_utf8_lossy(stderr);
-    let mut ring: std::collections::VecDeque<&str> = std::collections::VecDeque::with_capacity(n);
-    for line in stderr_str.lines() {
-        if ring.len() == n {
-            ring.pop_front();
+
+    // Trim a single trailing newline so a buffer ending in "...\n" does not
+    // surface a phantom empty last line (matches the prior `str::lines()`
+    // semantics which suppress the trailing empty segment).
+    let mut end = stderr.len();
+    if stderr.last() == Some(&b'\n') {
+        end -= 1;
+        if stderr.get(end.wrapping_sub(1)).copied() == Some(b'\r') {
+            end -= 1;
         }
-        ring.push_back(line);
     }
-    ring.into_iter().collect::<Vec<_>>().join("\n")
+
+    // Walk backwards collecting up to `n` line ranges. Each range stops at
+    // the byte after the preceding `\n` (or 0 for the first line).
+    let buf = &stderr[..end];
+    let mut ranges: std::collections::VecDeque<(usize, usize)> =
+        std::collections::VecDeque::with_capacity(n);
+    let mut tail_end = buf.len();
+    while tail_end > 0 && ranges.len() < n {
+        let start = match buf[..tail_end].iter().rposition(|b| *b == b'\n') {
+            Some(idx) => idx + 1,
+            None => 0,
+        };
+        // Strip a trailing CR so CRLF-terminated lines render cleanly.
+        let mut line_end = tail_end;
+        if buf.get(line_end.wrapping_sub(1)).copied() == Some(b'\r') {
+            line_end -= 1;
+        }
+        ranges.push_front((start, line_end));
+        tail_end = start.saturating_sub(1);
+        if start == 0 {
+            break;
+        }
+    }
+
+    if ranges.is_empty() {
+        return String::new();
+    }
+
+    // Decode only the tail segments, joining without an intermediate Vec.
+    let mut out =
+        String::with_capacity(ranges.iter().map(|(s, e)| e - s).sum::<usize>() + ranges.len());
+    let mut first = true;
+    for (s, e) in ranges {
+        if !first {
+            out.push('\n');
+        }
+        first = false;
+        out.push_str(&String::from_utf8_lossy(&buf[s..e]));
+    }
+    out
 }
 
 /// Logical status of a step for step-line rendering.
@@ -239,5 +294,46 @@ mod tests {
         let result = format_error_tail(stderr, 5);
         assert!(result.contains("line1"));
         assert!(result.contains("line3"));
+    }
+
+    /// PERF-1 (TASK-0733): a multi-MiB stderr buffer must not be fully
+    /// decoded just to surface the last 5 lines. Pre-fix this allocated the
+    /// full buffer via `String::from_utf8_lossy(stderr).into_owned()` —
+    /// noticeable on failed builds and easy to regress under refactor.
+    #[test]
+    fn format_error_tail_does_not_decode_entire_buffer() {
+        let mut buf = Vec::with_capacity(4 * 1024 * 1024);
+        for i in 0..200_000 {
+            buf.extend_from_slice(format!("line {i}\n").as_bytes());
+        }
+        let start = std::time::Instant::now();
+        let tail = format_error_tail(&buf, 5);
+        let elapsed = start.elapsed();
+        assert!(tail.ends_with("line 199999"));
+        assert!(tail.contains("line 199995"));
+        assert!(
+            elapsed < std::time::Duration::from_millis(50),
+            "tail extraction should not scale with buffer size; took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn format_error_tail_strips_trailing_newline() {
+        let stderr = b"line1\nline2\n";
+        let result = format_error_tail(stderr, 5);
+        assert_eq!(result, "line1\nline2");
+    }
+
+    #[test]
+    fn format_error_tail_handles_crlf() {
+        let stderr = b"line1\r\nline2\r\n";
+        let result = format_error_tail(stderr, 5);
+        assert_eq!(result, "line1\nline2");
+    }
+
+    #[test]
+    fn format_error_tail_n_zero_returns_empty() {
+        let stderr = b"line1\nline2";
+        assert!(format_error_tail(stderr, 0).is_empty());
     }
 }
