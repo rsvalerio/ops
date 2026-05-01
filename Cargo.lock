@@ -854,6 +854,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "dirs"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
+dependencies = [
+ "libc",
+ "option-ext",
+ "redox_users",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2024,6 +2045,7 @@ dependencies = [
  "ops-about-node",
  "ops-about-python",
  "ops-about-rust",
+ "ops-about-terraform",
  "ops-cargo-toml",
  "ops-cargo-update",
  "ops-core",
@@ -2036,6 +2058,7 @@ dependencies = [
  "ops-run-before-push",
  "ops-runner",
  "ops-test-coverage",
+ "ops-tfplan",
  "ops-tokei",
  "ops-tools",
  "predicates",
@@ -2146,6 +2169,21 @@ dependencies = [
  "serde_json",
  "tempfile",
  "toml 1.1.2+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "ops-about-terraform"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "linkme",
+ "ops-about",
+ "ops-core",
+ "ops-extension",
+ "ops-git",
+ "serde_json",
+ "tempfile",
  "tracing",
 ]
 
@@ -2357,6 +2395,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ops-tfplan"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "comfy-table",
+ "ops-core",
+ "serde",
+ "serde_json",
+ "shellexpand",
+ "tempfile",
+ "terminal_size",
+]
+
+[[package]]
 name = "ops-theme"
 version = "0.24.0"
 dependencies = [
@@ -2398,6 +2450,12 @@ dependencies = [
  "tracing",
  "wait-timeout",
 ]
+
+[[package]]
+name = "option-ext"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "ordered-multimap"
@@ -2876,6 +2934,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "redox_users"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
+dependencies = [
+ "getrandom 0.2.17",
+ "libredox",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "regex"
 version = "1.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3315,6 +3384,9 @@ name = "shellexpand"
 version = "3.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32824fab5e16e6c4d86dc1ba84489390419a39f97699852b66480bb87d297ed8"
+dependencies = [
+ "dirs",
+]
 
 [[package]]
 name = "shlex"

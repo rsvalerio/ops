@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "extensions/*", "extensions-rust/*", "extensions-go/*", "extensions-java/*", "extensions-node/*", "extensions-python/*"]
+members = ["crates/*", "extensions/*", "extensions-rust/*", "extensions-go/*", "extensions-java/*", "extensions-node/*", "extensions-python/*", "extensions-terraform/*"]
 default-members = ["crates/cli"]
 resolver = "2"
 
@@ -32,6 +32,8 @@ ops-deps = { path = "extensions-rust/deps" }
 ops-metadata = { path = "extensions-rust/metadata" }
 ops-tools = { path = "extensions-rust/tools" }
 ops-git = { path = "extensions/git" }
+ops-tfplan = { path = "extensions-terraform/plan" }
+ops-about-terraform = { path = "extensions-terraform/about" }
 ops-hook-common = { path = "extensions/hook-common" }
 ops-run-before-commit = { path = "extensions/run-before-commit" }
 ops-run-before-push = { path = "extensions/run-before-push" }

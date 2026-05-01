@@ -16,7 +16,7 @@ stack-rust = ["dep:ops-about-rust", "dep:ops-cargo-toml", "dep:ops-cargo-update"
 stack-node = ["dep:ops-about-node"]
 stack-go = ["dep:ops-about-go"]
 stack-python = ["dep:ops-about-python"]
-stack-terraform = []
+stack-terraform = ["dep:ops-tfplan", "dep:ops-about-terraform"]
 stack-ansible = []
 stack-java-maven = ["dep:ops-about-java"]
 stack-java-gradle = ["dep:ops-about-java"]
@@ -32,6 +32,8 @@ ops-duckdb = { workspace = true, optional = true }
 ops-tokei = { workspace = true, optional = true }
 ops-about = { workspace = true }
 ops-git = { workspace = true }
+ops-tfplan = { workspace = true, optional = true }
+ops-about-terraform = { workspace = true, optional = true }
 ops-about-rust = { workspace = true, optional = true }
 ops-about-go = { workspace = true, optional = true }
 ops-about-node = { workspace = true, optional = true }
