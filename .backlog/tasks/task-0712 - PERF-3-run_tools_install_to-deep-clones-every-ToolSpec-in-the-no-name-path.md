@@ -1,11 +1,11 @@
 ---
 id: TASK-0712
 title: 'PERF-3: run_tools_install_to deep-clones every ToolSpec in the no-name path'
-status: To Do
+status: Done
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:30'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:36'
 labels:
   - code-review-rust
   - performance
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Refactor run_tools_install_to so the no-name branch does not deep-clone every ToolSpec; pass &config.tools through to collect_tools and install_missing_tools
-- [ ] #2 Named path keeps its current owning IndexMap shape only if a code comment explains why ownership is needed there but not in the unnamed path
+- [x] #1 Refactor run_tools_install_to so the no-name branch does not deep-clone every ToolSpec; pass &config.tools through to collect_tools and install_missing_tools
+- [x] #2 Named path keeps its current owning IndexMap shape only if a code comment explains why ownership is needed there but not in the unnamed path
 <!-- AC:END -->

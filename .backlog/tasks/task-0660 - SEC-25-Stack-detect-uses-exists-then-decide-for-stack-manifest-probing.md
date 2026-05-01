@@ -1,11 +1,11 @@
 ---
 id: TASK-0660
 title: 'SEC-25: Stack::detect uses exists()-then-decide for stack manifest probing'
-status: To Do
+status: Done
 assignee:
   - TASK-0739
 created_date: '2026-04-30 05:12'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 18:55'
 labels:
   - code-review-rust
   - security
@@ -25,5 +25,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace exists() with try_exists()/metadata() and treat Err as 'not found' with tracing::debug log on permission errors
+- [x] #1 Replace exists() with try_exists()/metadata() and treat Err as 'not found' with tracing::debug log on permission errors
 <!-- AC:END -->

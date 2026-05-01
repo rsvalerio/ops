@@ -3,11 +3,11 @@ id: TASK-0656
 title: >-
   CL-3: ProgressDisplay::handle_event sync-IO contract enforced only by doc
   comment
-status: To Do
+status: Done
 assignee:
   - TASK-0742
 created_date: '2026-04-30 05:12'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 20:03'
 labels:
   - code-review-rust
   - readability

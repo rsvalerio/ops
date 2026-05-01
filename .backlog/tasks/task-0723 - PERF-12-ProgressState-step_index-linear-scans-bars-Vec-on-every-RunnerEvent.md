@@ -1,11 +1,11 @@
 ---
 id: TASK-0723
 title: 'PERF-12: ProgressState::step_index linear scans bars Vec on every RunnerEvent'
-status: To Do
+status: Done
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:32'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:39'
 labels:
   - code-review-rust
   - performance
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ProgressState carries an HashMap<String, usize> id index populated in reset_for_plan; step_index hits the map instead of scanning the Vec
-- [ ] #2 Existing tests pass; one new test asserts that step_index on a 32-step plan after 1000 mixed events does not scan the steps Vec (e.g. via a counter wrapped around the lookup)
+- [x] #1 ProgressState carries an HashMap<String, usize> id index populated in reset_for_plan; step_index hits the map instead of scanning the Vec
+- [x] #2 Existing tests pass; one new test asserts that step_index on a 32-step plan after 1000 mixed events does not scan the steps Vec (e.g. via a counter wrapped around the lookup)
 <!-- AC:END -->

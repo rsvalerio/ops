@@ -3,11 +3,11 @@ id: TASK-0661
 title: >-
   CL-5: CommandRegistry and DataRegistry diverge on duplicate-registration
   policy
-status: To Do
+status: Done
 assignee:
   - TASK-0740
 created_date: '2026-04-30 05:12'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:13'
 labels:
   - code-review-rust
   - readability

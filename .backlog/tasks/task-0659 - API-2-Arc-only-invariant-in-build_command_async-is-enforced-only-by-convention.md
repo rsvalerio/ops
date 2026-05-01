@@ -3,11 +3,11 @@ id: TASK-0659
 title: >-
   API-2: Arc-only invariant in build_command_async is enforced only by
   convention
-status: To Do
+status: Done
 assignee:
   - TASK-0740
 created_date: '2026-04-30 05:12'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:13'
 labels:
   - code-review-rust
   - api-design

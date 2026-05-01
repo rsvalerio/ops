@@ -3,11 +3,11 @@ id: TASK-0720
 title: >-
   TEST-11: extension_constants tests assert string equality with their own
   definition
-status: To Do
+status: Done
 assignee:
   - TASK-0740
 created_date: '2026-04-30 05:31'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:21'
 labels:
   - code-review-rust
   - test-quality

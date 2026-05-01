@@ -1,11 +1,11 @@
 ---
 id: TASK-0700
 title: 'OWN-8: Variables::from_env allocates unnecessarily on every CLI invocation'
-status: To Do
+status: Done
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:27'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:34'
 labels:
   - code-review-rust
   - OWN
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Use &\'static str keys (HashMap<&\'static str, String> or two named fields)
-- [ ] #2 Avoid recomputing temp_dir per call (OnceLock or lazy field)
-- [ ] #3 Benchmark before/after to confirm no regression
+- [x] #1 Use &\'static str keys (HashMap<&\'static str, String> or two named fields)
+- [x] #2 Avoid recomputing temp_dir per call (OnceLock or lazy field)
+- [x] #3 Benchmark before/after to confirm no regression
 <!-- AC:END -->

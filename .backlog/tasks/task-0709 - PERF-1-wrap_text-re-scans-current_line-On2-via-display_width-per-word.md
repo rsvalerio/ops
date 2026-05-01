@@ -1,11 +1,11 @@
 ---
 id: TASK-0709
 title: 'PERF-1: wrap_text re-scans current_line O(n^2) via display_width per word'
-status: To Do
+status: Done
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:29'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:35'
 labels:
   - code-review-rust
   - performance
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Track current line width as an incrementing counter rather than rescanning current_line via display_width inside the loop
-- [ ] #2 Avoid format! reallocation per word; push the separator + word into the existing String
-- [ ] #3 Add a regression test or bench that demonstrates the O(N) bound on a long description (>10k chars)
+- [x] #1 Track current line width as an incrementing counter rather than rescanning current_line via display_width inside the loop
+- [x] #2 Avoid format! reallocation per word; push the separator + word into the existing String
+- [x] #3 Add a regression test or bench that demonstrates the O(N) bound on a long description (>10k chars)
 <!-- AC:END -->

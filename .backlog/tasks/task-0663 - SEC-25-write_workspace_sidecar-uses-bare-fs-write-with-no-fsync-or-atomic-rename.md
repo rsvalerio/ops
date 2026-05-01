@@ -3,11 +3,11 @@ id: TASK-0663
 title: >-
   SEC-25: write_workspace_sidecar uses bare fs::write with no fsync or atomic
   rename
-status: To Do
+status: Done
 assignee:
   - TASK-0739
 created_date: '2026-04-30 05:13'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 18:56'
 labels:
   - code-review-rust
   - security
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Stage to <sidecar>.tmp, sync_all, then rename over the destination (matching install::write_temp_hook)
+- [x] #1 Stage to <sidecar>.tmp, sync_all, then rename over the destination (matching install::write_temp_hook)
 - [ ] #2 Add a test asserting that a sidecar truncated to zero length is rejected by read_workspace_sidecar (or simply cannot be produced by a successful write_workspace_sidecar after fault injection)
 <!-- AC:END -->

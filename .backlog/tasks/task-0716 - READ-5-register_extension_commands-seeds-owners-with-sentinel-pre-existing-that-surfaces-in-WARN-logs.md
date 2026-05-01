@@ -3,11 +3,11 @@ id: TASK-0716
 title: >-
   READ-5: register_extension_commands seeds owners with sentinel
   "<pre-existing>" that surfaces in WARN logs
-status: To Do
+status: Done
 assignee:
   - TASK-0740
 created_date: '2026-04-30 05:30'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:15'
 labels:
   - code-review-rust
   - readability

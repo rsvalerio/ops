@@ -3,11 +3,11 @@ id: TASK-0665
 title: >-
   ERR-7: workspace.rs path log fields use Display, allowing log injection via
   path
-status: To Do
+status: Done
 assignee:
   - TASK-0743
 created_date: '2026-04-30 05:13'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 20:26'
 labels:
   - code-review-rust
   - error-handling
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Switch path = %path.display() to path = ?path.display() (or Debug-format the value) at this call site and the matching arms in resolve_member_globs
-- [ ] #2 Add a regression test that a path containing newlines/ANSI escapes is escaped in the rendered log line
+- [x] #1 Switch path = %path.display() to path = ?path.display() (or Debug-format the value) at this call site and the matching arms in resolve_member_globs
+- [x] #2 Add a regression test that a path containing newlines/ANSI escapes is escaped in the rendered log line
 <!-- AC:END -->

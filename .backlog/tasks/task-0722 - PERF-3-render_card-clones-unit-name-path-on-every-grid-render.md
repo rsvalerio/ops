@@ -1,11 +1,11 @@
 ---
 id: TASK-0722
 title: 'PERF-3: render_card clones unit name/path on every grid render'
-status: To Do
+status: Done
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:31'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:38'
 labels:
   - code-review-rust
   - performance
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Audit render_card for redundant clone()/to_string() calls — most can be replaced by &str borrows or a single preallocated String
-- [ ] #2 layout_cards_in_grid_with_width: avoid the per-cell line.to_string() — push &str into the formatted row
-- [ ] #3 Bench the hot path on a workspace with 100+ units to confirm the reduction
+- [x] #1 Audit render_card for redundant clone()/to_string() calls — most can be replaced by &str borrows or a single preallocated String
+- [x] #2 layout_cards_in_grid_with_width: avoid the per-cell line.to_string() — push &str into the formatted row
+- [x] #3 Bench the hot path on a workspace with 100+ units to confirm the reduction
 <!-- AC:END -->

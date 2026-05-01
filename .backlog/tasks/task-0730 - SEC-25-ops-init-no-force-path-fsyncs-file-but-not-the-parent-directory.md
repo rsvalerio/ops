@@ -1,11 +1,11 @@
 ---
 id: TASK-0730
 title: 'SEC-25: ops init no-force path fsyncs file but not the parent directory'
-status: To Do
+status: Done
 assignee:
   - TASK-0739
 created_date: '2026-04-30 05:49'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 18:58'
 labels:
   - code-review-rust
   - security
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 write_init no-force path fsyncs the parent directory after create_new succeeds
+- [x] #1 write_init no-force path fsyncs the parent directory after create_new succeeds
 - [ ] #2 Behaviour parity check: a regression test asserts both --force and no-force paths produce a .ops.toml that survives a simulated fsync-only-the-file failure mode (or, at minimum, both paths pass through the same atomic helper)
 <!-- AC:END -->

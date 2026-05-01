@@ -3,11 +3,11 @@ id: TASK-0697
 title: >-
   PORT/READ-5: run_cargo hardcodes Command::new("cargo") instead of honouring
   $CARGO
-status: To Do
+status: Done
 assignee:
   - TASK-0743
 created_date: '2026-04-30 05:26'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 20:28'
 labels:
   - code-review-rust
   - READ
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Resolve cargo binary via std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into())
-- [ ] #2 Add a regression test asserting CARGO is honoured when set
-- [ ] #3 Document the precedence in run_cargo doc comment
+- [x] #1 Resolve cargo binary via std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into())
+- [x] #2 Add a regression test asserting CARGO is honoured when set
+- [x] #3 Document the precedence in run_cargo doc comment
 <!-- AC:END -->

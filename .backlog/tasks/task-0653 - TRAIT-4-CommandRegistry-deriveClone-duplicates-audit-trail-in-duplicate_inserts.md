@@ -3,11 +3,11 @@ id: TASK-0653
 title: >-
   TRAIT-4: CommandRegistry derive(Clone) duplicates audit trail in
   duplicate_inserts
-status: To Do
+status: Done
 assignee:
   - TASK-0740
 created_date: '2026-04-30 05:12'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:12'
 labels:
   - code-review-rust
   - idioms

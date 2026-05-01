@@ -1,11 +1,11 @@
 ---
 id: TASK-0655
 title: 'PERF-3: merge_config double-clones overlay IndexMaps for commands/themes/tools'
-status: To Do
+status: Done
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:12'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:32'
 labels:
   - code-review-rust
   - performance
@@ -25,5 +25,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Take the overlay by value (merge_config(base: &mut Config, overlay: ConfigOverlay)) and move the IndexMaps in, or change merge_indexmap to accept &IndexMap and extend from references with explicit clones at the leaf only
+- [x] #1 Take the overlay by value (merge_config(base: &mut Config, overlay: ConfigOverlay)) and move the IndexMaps in, or change merge_indexmap to accept &IndexMap and extend from references with explicit clones at the leaf only
 <!-- AC:END -->

@@ -1,11 +1,11 @@
 ---
 id: TASK-0679
 title: 'PERF-2: collect_tools spawns cargo/rustup serially per tool entry'
-status: To Do
+status: Done
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:15'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:33'
 labels:
   - code-review-rust
   - performance
@@ -25,5 +25,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Resolve cargo --list and rustup component list --installed once and pass references into check_tool_status
+- [x] #1 Resolve cargo --list and rustup component list --installed once and pass references into check_tool_status
 <!-- AC:END -->

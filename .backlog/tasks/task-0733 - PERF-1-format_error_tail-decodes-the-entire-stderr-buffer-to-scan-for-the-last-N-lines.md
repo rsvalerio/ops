@@ -3,11 +3,11 @@ id: TASK-0733
 title: >-
   PERF-1: format_error_tail decodes the entire stderr buffer to scan for the
   last N lines
-status: To Do
+status: Done
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:50'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:41'
 labels:
   - code-review-rust
   - performance
@@ -33,7 +33,7 @@ Final `ring.into_iter().collect::<Vec<_>>().join("\n")` is also an unnecessary c
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 format_error_tail no longer decodes the entire stderr buffer; it locates the last N \n-separated segments via byte search and decodes only those
-- [ ] #2 ring.into_iter().collect::<Vec<_>>().join("\n") is replaced with an allocation-free join (or a single String build with reserve)
-- [ ] #3 Existing tests (and a new large-buffer regression test) still pass
+- [x] #1 format_error_tail no longer decodes the entire stderr buffer; it locates the last N \n-separated segments via byte search and decodes only those
+- [x] #2 ring.into_iter().collect::<Vec<_>>().join("\n") is replaced with an allocation-free join (or a single String build with reserve)
+- [x] #3 Existing tests (and a new large-buffer regression test) still pass
 <!-- AC:END -->

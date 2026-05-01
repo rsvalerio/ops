@@ -3,11 +3,11 @@ id: TASK-0729
 title: >-
   SEC-12: escape_sql_string doubles backslashes — corrupts Windows paths
   interpolated into DuckDB SQL literals
-status: To Do
+status: Done
 assignee:
   - TASK-0743
 created_date: '2026-04-30 05:48'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 20:30'
 labels:
   - code-review-rust
   - SEC
@@ -29,6 +29,6 @@ For SQL injection defence: backslash *is* relevant in DuckDB only inside `E'…'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 escape_sql_string preserves a single backslash unchanged (only \\' and \0 receive special handling)
-- [ ] #2 Windows path round-trip test (e.g. C:\\Users\\file.json) goes through prepare_path_for_sql and yields a string DuckDB can open
+- [x] #1 escape_sql_string preserves a single backslash unchanged (only \\' and \0 receive special handling)
+- [x] #2 Windows path round-trip test (e.g. C:\\Users\\file.json) goes through prepare_path_for_sql and yields a string DuckDB can open
 <!-- AC:END -->

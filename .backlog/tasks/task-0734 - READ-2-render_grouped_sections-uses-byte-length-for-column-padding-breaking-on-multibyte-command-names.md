@@ -3,11 +3,11 @@ id: TASK-0734
 title: >-
   READ-2: render_grouped_sections uses byte length for column padding, breaking
   on multibyte command names
-status: To Do
+status: Done
 assignee:
   - TASK-0742
 created_date: '2026-04-30 05:50'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 20:06'
 labels:
   - code-review-rust
   - readability

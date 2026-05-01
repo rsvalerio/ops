@@ -3,11 +3,11 @@ id: TASK-0696
 title: >-
   PORT/READ-5: global_config_path on Windows joins USERPROFILE/.config which is
   non-idiomatic
-status: To Do
+status: Done
 assignee:
   - TASK-0743
 created_date: '2026-04-30 05:26'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 20:27'
 labels:
   - code-review-rust
   - READ
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Use dirs::config_dir() (or APPDATA-aware lookup) on Windows
-- [ ] #2 Document the resolved path in tracing::debug for diagnosis
-- [ ] #3 Add a Windows-targeted unit test that verifies the chosen base directory
+- [x] #1 Use dirs::config_dir() (or APPDATA-aware lookup) on Windows
+- [x] #2 Document the resolved path in tracing::debug for diagnosis
+- [x] #3 Add a Windows-targeted unit test that verifies the chosen base directory
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-0719
 title: >-
   ARCH-2: gather_available_commands instantiates extensions inside a
   list-collection helper
-status: To Do
+status: Done
 assignee:
   - TASK-0740
 created_date: '2026-04-30 05:31'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:20'
 labels:
   - code-review-rust
   - architecture

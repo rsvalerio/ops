@@ -3,11 +3,11 @@ id: TASK-0726
 title: >-
   READ-2: read_origin_url_from does not strip inline ; / # comments from
   git-config values
-status: To Do
+status: Done
 assignee:
   - TASK-0743
 created_date: '2026-04-30 05:47'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 20:29'
 labels:
   - code-review-rust
   - READ
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 strip_url_key (or read_origin_url_from) trims trailing #/; comments from the value, matching git-config(1) semantics
-- [ ] #2 doc comment on read_origin_url_from updates the limitations list to remove the inline-comment caveat
-- [ ] #3 test covers a config line of the form 'url = https://x.example/r.git ; comment' and asserts the comment is removed
+- [x] #1 strip_url_key (or read_origin_url_from) trims trailing #/; comments from the value, matching git-config(1) semantics
+- [x] #2 doc comment on read_origin_url_from updates the limitations list to remove the inline-comment caveat
+- [x] #3 test covers a config line of the form 'url = https://x.example/r.git ; comment' and asserts the comment is removed
 <!-- AC:END -->

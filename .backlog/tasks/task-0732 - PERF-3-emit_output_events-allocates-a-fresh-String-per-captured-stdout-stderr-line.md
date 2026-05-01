@@ -7,7 +7,7 @@ status: To Do
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:50'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:40'
 labels:
   - code-review-rust
   - performance
@@ -34,3 +34,9 @@ The lines are slices of an owned String that is no longer needed after this func
 - [ ] #1 emit_output_events no longer calls .to_string() once per line; the captured output is consumed once into the event stream without per-line heap allocation (e.g. via Bytes, Arc<str>, or move-out + split)
 - [ ] #2 Bench or trace event-allocation count for a 10k-line stderr step before/after the change to confirm the win
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Wave-57 deferral: a true per-line zero-allocation fix needs an owned-buffer slice type (bytes::Bytes or custom Arc<str>+range). Both options touch ~40 call sites and the public RunnerEvent serialization shape; a partial Arc<str> migration would still allocate per line and expose a SemVer-relevant change. Re-triage into a dedicated event-API wave so the redesign and downstream churn (display, tap, JSON event format, tests) land together rather than mid-wave.
+<!-- SECTION:NOTES:END -->

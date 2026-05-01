@@ -3,11 +3,11 @@ id: TASK-0714
 title: >-
   PERF-3: expand_inner allocates a fresh String per recursion via
   canonical.to_string()
-status: To Do
+status: Done
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:30'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:37'
 labels:
   - code-review-rust
   - performance
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace HashSet<String> with HashSet<&str> bound to the runner-borrow lifetime (or with a CommandId-keyed set if the type already exposes Arc-cheap clones) so canonical.to_string() is no longer required per recursion
-- [ ] #2 Bench/microbench (or trace) confirms zero String allocations in expand_inner for a 10-deep composite plan
+- [x] #1 Replace HashSet<String> with HashSet<&str> bound to the runner-borrow lifetime (or with a CommandId-keyed set if the type already exposes Arc-cheap clones) so canonical.to_string() is no longer required per recursion
+- [x] #2 Bench/microbench (or trace) confirms zero String allocations in expand_inner for a 10-deep composite plan
 <!-- AC:END -->

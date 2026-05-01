@@ -1,11 +1,11 @@
 ---
 id: TASK-0667
 title: 'ARCH-2: get_terminal_width reads only COLUMNS env var, ignoring real TTY size'
-status: To Do
+status: Done
 assignee:
   - TASK-0742
 created_date: '2026-04-30 05:13'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 20:04'
 labels:
   - code-review-rust
   - architecture

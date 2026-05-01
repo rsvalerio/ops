@@ -1,11 +1,11 @@
 ---
 id: TASK-0713
 title: 'SEC-25: install_hook fsyncs hook file but not the .git/hooks parent directory'
-status: To Do
+status: Done
 assignee:
   - TASK-0739
 created_date: '2026-04-30 05:30'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 18:57'
 labels:
   - code-review-rust
   - security
@@ -25,7 +25,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After the create_new + sync_all in write_new_hook, fsync the parent .git/hooks directory
+- [x] #1 After the create_new + sync_all in write_new_hook, fsync the parent .git/hooks directory
 - [ ] #2 After the rename in upgrade_legacy_hook, fsync the parent .git/hooks directory so the rename hits disk
 - [ ] #3 Match the pattern adopted by ops_core atomic_write (TASK-0340) for consistency
 <!-- AC:END -->

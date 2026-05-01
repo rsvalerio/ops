@@ -1,11 +1,11 @@
 ---
 id: TASK-0710
 title: 'ERR-1: extension_summary discards duplicate-insert audit from CommandRegistry'
-status: To Do
+status: Done
 assignee:
   - TASK-0740
 created_date: '2026-04-30 05:29'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:14'
 labels:
   - code-review-rust
   - error-handling

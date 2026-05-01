@@ -3,11 +3,11 @@ id: TASK-0706
 title: >-
   PERF-3: probe::strip_target_triple allocates format!('-{arch}-') per arch per
   line in is_component_in_list
-status: To Do
+status: Done
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:29'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:35'
 labels:
   - code-review-rust
   - performance
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 strip_target_triple does not allocate per arch per line — patterns live as &\'static str at module scope
-- [ ] #2 is_component_in_list passes a microbench / inspection showing zero allocations on the prefix matching path
-- [ ] #3 behaviour-equivalence test (existing TASK-0560 fixtures) still passes
+- [x] #1 strip_target_triple does not allocate per arch per line — patterns live as &\'static str at module scope
+- [x] #2 is_component_in_list passes a microbench / inspection showing zero allocations on the prefix matching path
+- [x] #3 behaviour-equivalence test (existing TASK-0560 fixtures) still passes
 <!-- AC:END -->

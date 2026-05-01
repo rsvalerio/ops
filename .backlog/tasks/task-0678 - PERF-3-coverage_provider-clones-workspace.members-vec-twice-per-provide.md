@@ -1,11 +1,11 @@
 ---
 id: TASK-0678
 title: 'PERF-3: coverage_provider clones workspace.members vec twice per provide()'
-status: To Do
+status: Done
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:14'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:33'
 labels:
   - code-review-rust
   - performance
@@ -25,5 +25,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Borrow members directly from manifest.workspace.as_ref() and pass &[String] slices through to the query helper
+- [x] #1 Borrow members directly from manifest.workspace.as_ref() and pass &[String] slices through to the query helper
 <!-- AC:END -->

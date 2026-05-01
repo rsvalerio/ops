@@ -1,11 +1,11 @@
 ---
 id: TASK-0664
 title: 'SEC-13: redact_userinfo bypasses scp-style git URLs (git@host:owner/repo)'
-status: To Do
+status: Done
 assignee:
   - TASK-0743
 created_date: '2026-04-30 05:13'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 20:25'
 labels:
   - code-review-rust
   - security
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extend redact_userinfo to handle the scp form: detect a leading …@ segment before the first : in non-:// inputs and strip it
-- [ ] #2 Regression test: feed an unparseable scp value with user:tok@host:weird and assert the fallback URL has no user:tok / @
+- [x] #1 Extend redact_userinfo to handle the scp form: detect a leading …@ segment before the first : in non-:// inputs and strip it
+- [x] #2 Regression test: feed an unparseable scp value with user:tok@host:weird and assert the fallback URL has no user:tok / @
 <!-- AC:END -->

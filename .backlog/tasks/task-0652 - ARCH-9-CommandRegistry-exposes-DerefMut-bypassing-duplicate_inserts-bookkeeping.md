@@ -3,11 +3,11 @@ id: TASK-0652
 title: >-
   ARCH-9: CommandRegistry exposes DerefMut, bypassing duplicate_inserts
   bookkeeping
-status: To Do
+status: Done
 assignee:
   - TASK-0740
 created_date: '2026-04-30 05:11'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-04-30 19:12'
 labels:
   - code-review-rust
   - idioms
