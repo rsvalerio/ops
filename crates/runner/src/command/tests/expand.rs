@@ -318,4 +318,50 @@ mod depth_limit_tests {
             "101 levels (exceeds MAX_DEPTH=100) should return DepthExceeded"
         );
     }
+
+    /// PERF-3 / TASK-0766: pin the post-fold hot path. The pre-fix code paid
+    /// two store traversals per node (`canonical_id` + `resolve`); folding
+    /// them into one pass via `canonical_with_spec` cuts roughly half the
+    /// lookups on every visit. This microbench builds a representative
+    /// composite graph (one root that fans out 50 wide → 5 mid composites
+    /// → 10 leaves each) and asserts that 1k expansions complete within a
+    /// generous wall-clock budget on the slowest CI runners. The point is
+    /// not to be a regression detector with millisecond precision but to
+    /// guard against an order-of-magnitude regression sneaking back in.
+    #[test]
+    fn expand_to_leaves_microbench_does_not_regress() {
+        let mut commands = HashMap::new();
+        for leaf in 0..10 {
+            commands.insert(
+                format!("leaf_{leaf}"),
+                CommandSpec::Exec(echo_cmd(&format!("{leaf}"))),
+            );
+        }
+        let leaf_names: Vec<String> = (0..10).map(|i| format!("leaf_{i}")).collect();
+        let leaf_refs: Vec<&str> = leaf_names.iter().map(String::as_str).collect();
+        for mid in 0..50 {
+            commands.insert(
+                format!("mid_{mid}"),
+                CommandSpec::Composite(composite_cmd(&leaf_refs)),
+            );
+        }
+        let mid_names: Vec<String> = (0..50).map(|i| format!("mid_{i}")).collect();
+        let mid_refs: Vec<&str> = mid_names.iter().map(String::as_str).collect();
+        commands.insert(
+            "root".to_string(),
+            CommandSpec::Composite(composite_cmd(&mid_refs)),
+        );
+
+        let runner = test_runner(commands);
+        let start = std::time::Instant::now();
+        for _ in 0..1_000 {
+            let plan = runner.expand_to_leaves("root").expect("expand");
+            assert_eq!(plan.len(), 50 * 10);
+        }
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "expand_to_leaves microbench regressed: 1k expansions took {elapsed:?}"
+        );
+    }
 }

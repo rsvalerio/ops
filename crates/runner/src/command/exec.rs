@@ -171,6 +171,13 @@ fn log_and_redact_spawn_error(program: &str, e: &std::io::Error, context: &'stat
 }
 
 /// Emit StepOutput events for captured stdout and stderr.
+///
+/// PERF-3 / TASK-0732: each capture buffer is wrapped in a single
+/// `Arc<str>` (no per-line copies) and per-line events carry an
+/// [`OutputLine`] view onto a byte sub-range of that shared buffer. A
+/// noisy step that previously paid one heap allocation per line via
+/// `line.to_string()` now pays one per buffer; the per-line event
+/// emission is just an `Arc::clone` (atomic refcount increment).
 pub fn emit_output_events(
     id: &str,
     stdout: &str,
@@ -178,12 +185,36 @@ pub fn emit_output_events(
     emit: &mut impl FnMut(RunnerEvent),
 ) {
     for (output, is_stderr) in [(stdout, false), (stderr, true)] {
-        for line in output.lines() {
+        if output.is_empty() {
+            continue;
+        }
+        let buf: std::sync::Arc<str> = std::sync::Arc::from(output);
+        let mut start = 0usize;
+        let bytes = buf.as_bytes();
+        while start < bytes.len() {
+            let rel = bytes[start..].iter().position(|b| *b == b'\n');
+            let (line_end, next_start) = match rel {
+                Some(off) => {
+                    let end = start + off;
+                    // Mirror `str::lines` and strip an optional preceding `\r`.
+                    let trimmed_end = if end > start && bytes[end - 1] == b'\r' {
+                        end - 1
+                    } else {
+                        end
+                    };
+                    (trimmed_end, end + 1)
+                }
+                None => (bytes.len(), bytes.len()),
+            };
             emit(RunnerEvent::StepOutput {
                 id: id.into(),
-                line: line.to_string(),
+                line: crate::command::OutputLine::slice(
+                    std::sync::Arc::clone(&buf),
+                    start..line_end,
+                ),
                 stderr: is_stderr,
             });
+            start = next_start;
         }
     }
 }

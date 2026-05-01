@@ -38,7 +38,7 @@ mod results;
 mod secret_patterns;
 mod sequential;
 
-pub use events::RunnerEvent;
+pub use events::{OutputLine, RunnerEvent};
 pub use results::StepResult;
 pub use secret_patterns::is_sensitive_env_key;
 pub use secret_patterns::looks_like_secret_value as looks_like_secret_value_public;

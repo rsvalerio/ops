@@ -40,6 +40,14 @@ impl CommandRunner {
     /// Borrowed return lets `expand_inner` track the active recursion stack
     /// in a `HashSet<&str>` without allocating a new String per visit
     /// (OWN-8 / TASK-0714).
+    ///
+    /// PERF-3 / TASK-0766: `expand_inner` no longer calls this (it uses
+    /// `canonical_with_spec` which folds the canonical lookup with the
+    /// spec fetch into one pass), but the signature is preserved as part
+    /// of the public-ish helper surface that tests and future callers may
+    /// depend on for canonical-name normalization without requiring the
+    /// spec.
+    #[allow(dead_code)]
     pub(super) fn canonical_id<'a>(&'a self, id: &str) -> Option<&'a str> {
         if let Some((k, _)) = self.config.commands.get_key_value(id) {
             return Some(k.as_str());
@@ -55,6 +63,47 @@ impl CommandRunner {
         }
         if let Some(name) = self.non_config_alias_map.get(id) {
             return Some(name.as_str());
+        }
+        None
+    }
+
+    /// Resolve a command id (or alias) to its `(canonical_name, spec)` pair
+    /// in a single pass over the same stores [`canonical_id`] and [`resolve`]
+    /// each walk independently.
+    ///
+    /// PERF-3 / TASK-0766: composite expansion previously called both
+    /// `canonical_id(id)` and then `resolve(canonical)`, which traversed the
+    /// config → stack → extension → alias chain twice per node. For a
+    /// recursion-heavy composite graph the duplication scales linearly with
+    /// graph size; this helper folds the work into one walk while keeping
+    /// the public `canonical_id` / `resolve` shapes untouched for callers
+    /// (and tests) that depend on them individually.
+    pub(super) fn canonical_with_spec<'a>(
+        &'a self,
+        id: &str,
+    ) -> Option<(&'a str, &'a CommandSpec)> {
+        if let Some((k, v)) = self.config.commands.get_key_value(id) {
+            return Some((k.as_str(), v));
+        }
+        if let Some((k, v)) = self.stack_commands.get_key_value(id) {
+            return Some((k.as_str(), v));
+        }
+        if let Some((k, v)) = self.extension_commands.get_key_value(id) {
+            return Some((k.as_str(), v));
+        }
+        if let Some(name) = self.config.resolve_alias(id) {
+            if let Some((k, v)) = self.config.commands.get_key_value(name) {
+                return Some((k.as_str(), v));
+            }
+        }
+        if let Some(name) = self.non_config_alias_map.get(id) {
+            let n = name.as_str();
+            if let Some((k, v)) = self.stack_commands.get_key_value(n) {
+                return Some((k.as_str(), v));
+            }
+            if let Some((k, v)) = self.extension_commands.get_key_value(n) {
+                return Some((k.as_str(), v));
+            }
         }
         None
     }
@@ -125,11 +174,10 @@ impl CommandRunner {
                 max_depth,
             });
         }
-        let canonical = self
-            .canonical_id(id)
-            .ok_or_else(|| ExpandError::Unknown(id.to_string()))?;
-        let spec = self
-            .resolve(canonical)
+        // PERF-3 / TASK-0766: fold canonical_id+resolve into one traversal
+        // over the config / stack / extension / alias chain.
+        let (canonical, spec) = self
+            .canonical_with_spec(id)
             .ok_or_else(|| ExpandError::Unknown(id.to_string()))?;
         match spec {
             CommandSpec::Exec(_) => Ok(vec![CommandId::from(canonical)]),

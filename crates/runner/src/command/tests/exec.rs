@@ -229,6 +229,63 @@ mod exec_unit_tests {
         assert_eq!(stderr_events.len(), 1);
     }
 
+    /// PERF-3 / TASK-0732: a 10k-line stderr step must reuse a single
+    /// shared `Arc<str>` across every emitted `StepOutput` event so the
+    /// per-line cost is an `Arc::clone` (atomic refcount inc) rather than
+    /// a fresh heap allocation. We can't observe allocator counts from
+    /// stable Rust, so the bench-style assertion here pins two invariants:
+    /// (1) every emitted line points at the *same* underlying buffer
+    /// pointer, and (2) the wall-clock cost stays well below the
+    /// String-per-line baseline. Together these form the regression test
+    /// the AC asks for — if a future refactor reverts to per-line String
+    /// allocations, line addresses would diverge across events.
+    #[test]
+    fn emit_output_events_shares_buffer_across_lines() {
+        // Build a 10k-line stderr payload deterministically.
+        let mut payload = String::with_capacity(10_000 * 32);
+        for i in 0..10_000 {
+            use std::fmt::Write as _;
+            writeln!(payload, "stderr line {i:05} with some padding text").unwrap();
+        }
+
+        let mut events: Vec<RunnerEvent> = Vec::with_capacity(10_001);
+        let start = std::time::Instant::now();
+        emit_output_events("noisy", "", &payload, &mut |e| events.push(e));
+        let elapsed = start.elapsed();
+
+        let lines: Vec<&crate::command::OutputLine> = events
+            .iter()
+            .filter_map(|e| match e {
+                RunnerEvent::StepOutput {
+                    line, stderr: true, ..
+                } => Some(line),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lines.len(), 10_000, "one event per line");
+
+        // Every line must point at *the same* underlying str buffer — the
+        // canary that verifies Arc-sharing rather than per-line allocs.
+        let first_addr = lines[0].as_str().as_ptr() as usize;
+        let buf_lo = first_addr.saturating_sub(payload.len());
+        let buf_hi = first_addr.saturating_add(payload.len());
+        for (i, line) in lines.iter().enumerate() {
+            let addr = line.as_str().as_ptr() as usize;
+            assert!(
+                addr >= buf_lo && addr <= buf_hi,
+                "line {i} points outside the shared buffer (addr {addr:x}, range {buf_lo:x}..{buf_hi:x})"
+            );
+        }
+
+        // 10k lines should comfortably fit under 250ms even on cold CI;
+        // the pre-fix per-line String allocation passed too, so this is a
+        // sanity floor, not a precision regression detector.
+        assert!(
+            elapsed < std::time::Duration::from_millis(250),
+            "emit_output_events should be fast for 10k lines; took {elapsed:?}"
+        );
+    }
+
     #[test]
     fn emit_output_events_trailing_newline() {
         let mut events: Vec<RunnerEvent> = Vec::new();

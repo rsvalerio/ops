@@ -3,8 +3,98 @@
 //! around every plan run.
 
 use ops_core::config::CommandId;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
+use std::ops::Range;
+use std::sync::Arc;
 use std::time::Instant;
+
+/// A captured stdout/stderr line carried by [`RunnerEvent::StepOutput`].
+///
+/// PERF-3 / TASK-0732: holds an `Arc<str>` view onto the parent capture
+/// buffer plus the byte range of this line. `emit_output_events` constructs
+/// one `Arc<str>` per buffer (transferring ownership of the existing
+/// `String` alloc — no copy) and emits per-line `OutputLine` values that
+/// share the buffer via cheap atomic refcount increments. A noisy step that
+/// previously paid one heap allocation per line (`line.to_string()`) now
+/// pays one per buffer.
+///
+/// JSON serialization preserves the historical shape: the field renders as
+/// a plain string, identical to the pre-fix `line: String` form.
+#[derive(Clone)]
+pub struct OutputLine {
+    buf: Arc<str>,
+    range: Range<usize>,
+}
+
+impl OutputLine {
+    /// Build an `OutputLine` over the entire `Arc<str>` buffer.
+    pub fn whole(buf: Arc<str>) -> Self {
+        let len = buf.len();
+        Self { buf, range: 0..len }
+    }
+
+    /// Build an `OutputLine` over a sub-range of `buf`.
+    ///
+    /// Caller is responsible for `range` being a valid byte slice that lands
+    /// on UTF-8 boundaries (the normal case when `range` came from
+    /// `str::lines` / split-on-newline byte indexing).
+    pub fn slice(buf: Arc<str>, range: Range<usize>) -> Self {
+        debug_assert!(range.end <= buf.len());
+        debug_assert!(buf.is_char_boundary(range.start));
+        debug_assert!(buf.is_char_boundary(range.end));
+        Self { buf, range }
+    }
+
+    /// Visible bytes of this line.
+    pub fn as_str(&self) -> &str {
+        &self.buf[self.range.clone()]
+    }
+}
+
+impl std::fmt::Debug for OutputLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.as_str(), f)
+    }
+}
+
+impl std::fmt::Display for OutputLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::ops::Deref for OutputLine {
+    type Target = str;
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl Serialize for OutputLine {
+    /// Preserve the pre-fix JSON shape: the field renders as a plain string.
+    fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_str(self.as_str())
+    }
+}
+
+impl PartialEq for OutputLine {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+impl Eq for OutputLine {}
+
+impl From<&str> for OutputLine {
+    fn from(s: &str) -> Self {
+        Self::whole(Arc::from(s))
+    }
+}
+
+impl From<String> for OutputLine {
+    fn from(s: String) -> Self {
+        Self::whole(Arc::from(s))
+    }
+}
 
 /// Tracks the lifecycle of a plan execution (PlanStarted → RunFinished bookends).
 pub(crate) struct PlanLifecycle {
@@ -62,9 +152,14 @@ pub enum RunnerEvent {
         display_cmd: Option<String>,
     },
     /// A single command produced stdout/stderr line(s).
+    ///
+    /// PERF-3 / TASK-0732: `line` is an [`OutputLine`] view sharing one
+    /// `Arc<str>` per capture buffer. Pre-fix this was `String`, paying one
+    /// heap allocation per line; the new shape preserves the JSON
+    /// serialization (the field still renders as a plain string).
     StepOutput {
         id: CommandId,
-        line: String,
+        line: OutputLine,
         stderr: bool,
     },
     /// CONC-7 / TASK-0457: emitted when the per-task event buffer
@@ -154,7 +249,7 @@ mod tests {
     fn step_output_serializes_stderr_flag() {
         let event = RunnerEvent::StepOutput {
             id: "build".into(),
-            line: "warning: unused variable".to_string(),
+            line: OutputLine::from("warning: unused variable"),
             stderr: true,
         };
         let json = serde_json::to_string(&event).expect("should serialize");
