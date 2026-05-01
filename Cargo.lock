@@ -2039,6 +2039,7 @@ dependencies = [
  "ops-tokei",
  "ops-tools",
  "predicates",
+ "serde_json",
  "serial_test",
  "shlex",
  "tempfile",
