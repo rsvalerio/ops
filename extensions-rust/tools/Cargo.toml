@@ -17,3 +17,4 @@ wait-timeout = "0.2"
 [dev-dependencies]
 toml = { workspace = true }
 tempfile = { workspace = true }
+serial_test = { workspace = true }

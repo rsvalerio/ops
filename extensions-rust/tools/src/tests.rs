@@ -772,3 +772,38 @@ fn find_on_path_in_skips_broken_symlink_continues_walk() {
         "broken symlink in earlier PATH dir must not block lookup"
     );
 }
+
+/// PORT (TASK-0792): probe spawns must honour `$CARGO` so they invoke the
+/// same toolchain binary the parent cargo selected, mirroring
+/// `ops_core::subprocess::run_cargo`. The fake script below prints a
+/// distinctive subcommand line; if the probe ever falls back to the real
+/// `cargo` on `$PATH`, the assertion will fail.
+#[cfg(unix)]
+#[test]
+#[serial_test::serial]
+fn check_cargo_tool_installed_honours_cargo_env() {
+    use crate::probe::check_cargo_tool_installed;
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let fake = dir.path().join("cargo");
+    std::fs::write(
+        &fake,
+        "#!/bin/sh\nif [ \"$1\" = \"--list\" ]; then echo '    fake-marker-tool   A fake'; fi\n",
+    )
+    .unwrap();
+    let mut perms = std::fs::metadata(&fake).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&fake, perms).unwrap();
+
+    // SAFETY: serial_test::serial guards against concurrent env mutation; no
+    // background thread reads CARGO during the test body.
+    unsafe { std::env::set_var("CARGO", &fake) };
+    let installed = check_cargo_tool_installed("fake-marker-tool");
+    unsafe { std::env::remove_var("CARGO") };
+
+    assert!(
+        installed,
+        "probe must invoke the binary at $CARGO; falling back to PATH would not list `fake-marker-tool`"
+    );
+}

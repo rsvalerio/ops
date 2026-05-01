@@ -1,6 +1,7 @@
 //! Detect whether tools/components are installed on the active toolchain.
 
 use ops_core::config::tools::{ToolSource, ToolSpec};
+use ops_core::subprocess::{resolve_cargo_bin, resolve_rustup_bin};
 use std::process::Command;
 
 use crate::ToolStatus;
@@ -9,7 +10,7 @@ pub fn get_active_toolchain() -> Option<String> {
     // `--quiet` is rustup's global flag, not a subcommand option, so it
     // appears before `show`. It silences "info: ..." progress lines so the
     // first line of stdout is reliably the toolchain name on every rustup.
-    let output = Command::new("rustup")
+    let output = Command::new(resolve_rustup_bin())
         .args(["--quiet", "show", "active-toolchain"])
         .output()
         .ok()?;
@@ -49,7 +50,7 @@ pub(crate) fn parse_active_toolchain(stdout: &str) -> Option<String> {
 }
 
 pub fn check_cargo_tool_installed(name: &str) -> bool {
-    let output = match Command::new("cargo").args(["--list"]).output() {
+    let output = match Command::new(resolve_cargo_bin()).args(["--list"]).output() {
         Ok(o) => o,
         Err(e) => {
             tracing::warn!(
@@ -203,7 +204,7 @@ fn check_executable(path: &std::path::Path) -> ExecCheck {
 }
 
 pub fn check_rustup_component_installed(component: &str) -> bool {
-    let output = match Command::new("rustup")
+    let output = match Command::new(resolve_rustup_bin())
         .args(["component", "list", "--installed"])
         .output()
     {
@@ -339,7 +340,10 @@ pub fn check_tool_status_with(
 /// Capture the raw stdout of `cargo --list` once. Returns `None` if the spawn or
 /// non-zero exit prevents reuse; callers fall back to per-tool spawns.
 pub fn capture_cargo_list() -> Option<String> {
-    let output = Command::new("cargo").args(["--list"]).output().ok()?;
+    let output = Command::new(resolve_cargo_bin())
+        .args(["--list"])
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -348,7 +352,7 @@ pub fn capture_cargo_list() -> Option<String> {
 
 /// Capture the raw stdout of `rustup component list --installed` once.
 pub fn capture_rustup_components() -> Option<String> {
-    let output = Command::new("rustup")
+    let output = Command::new(resolve_rustup_bin())
         .args(["component", "list", "--installed"])
         .output()
         .ok()?;

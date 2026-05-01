@@ -2,6 +2,7 @@
 
 use anyhow::Context;
 use ops_core::config::tools::{ToolSource, ToolSpec};
+use ops_core::subprocess::{resolve_cargo_bin, resolve_rustup_bin};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -71,7 +72,7 @@ pub(crate) fn install_cargo_tool_with_timeout(
     // CONC-5: stdin is closed via `Stdio::null()` so an unexpected
     // interactive prompt (rare in cargo, occasional in rustup) hits EOF
     // and bails deterministically instead of blocking until the timeout.
-    let child = Command::new("cargo")
+    let child = Command::new(resolve_cargo_bin())
         .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
@@ -99,7 +100,7 @@ pub(crate) fn install_rustup_component_with_timeout(
     validate_cargo_tool_arg(toolchain, "rustup toolchain")?;
     // CONC-3: same inherited-stdio choice as `install_cargo_tool_with_timeout`.
     // See that function for the deadlock rationale.
-    let child = Command::new("rustup")
+    let child = Command::new(resolve_rustup_bin())
         .args(["component", "add", component, "--toolchain", toolchain])
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
