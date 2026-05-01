@@ -14,6 +14,8 @@ fn snap(
 ) -> BoxSnapshot<'static> {
     BoxSnapshot {
         completed,
+        failed: 0,
+        skipped: 0,
         total,
         elapsed_secs: elapsed,
         success,
@@ -72,13 +74,22 @@ fn boxed_bottom_border_shows_done_when_success() {
 }
 
 #[test]
-fn boxed_bottom_border_shows_failed_when_not_success() {
+fn boxed_bottom_border_shows_breakdown_when_not_success() {
+    // CL-3 / TASK-0771: bottom border now surfaces the succeeded/skipped/failed
+    // breakdown instead of conflating terminal count with success count.
     let theme = boxed_theme();
     let bottom = theme
-        .box_bottom_border(snap(3, 5, 2.0, false, 50))
+        .box_bottom_border(BoxSnapshot {
+            failed: 1,
+            skipped: 1,
+            ..snap(3, 5, 2.0, false, 80)
+        })
         .expect("boxed theme returns bottom");
     let plain = strip_ansi(&bottom);
-    assert!(plain.contains("Failed 3/5"), "got: {plain}");
+    assert!(
+        plain.contains("1 succeeded, 1 skipped, 1 failed of 5"),
+        "got: {plain}"
+    );
 }
 
 #[test]

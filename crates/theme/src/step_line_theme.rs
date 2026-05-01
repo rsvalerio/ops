@@ -44,8 +44,17 @@ pub fn format_duration(secs: f64) -> String {
 /// (clippy `too_many_arguments`) and lets the caller compute each value once.
 #[derive(Debug, Clone, Copy)]
 pub struct BoxSnapshot<'a> {
-    /// Number of steps completed so far.
+    /// Number of steps in a terminal state so far (CL-3 / TASK-0771: this
+    /// includes failed and skipped, not only successful — the "completed"
+    /// label is retained for backwards compatibility).
     pub completed: usize,
+    /// Steps that ended in `StepStatus::Failed`. Used by the bottom border
+    /// to surface "F failed of T" rather than the legacy "Done N/M" line.
+    pub failed: usize,
+    /// Steps that ended in `StepStatus::Skipped` (cancelled, fail_fast
+    /// orphans, …). Distinguished from failed so summary lines can read
+    /// "S succeeded, K skipped, F failed of T".
+    pub skipped: usize,
     /// Total steps in the plan.
     pub total: usize,
     /// Elapsed seconds since the plan started (wall-clock).

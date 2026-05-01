@@ -180,14 +180,22 @@ impl StepLineTheme for ConfigurableTheme {
         if !matches!(self.0.layout_kind, LayoutKind::Boxed) {
             return None;
         }
-        let label = if snap.success { "Done" } else { "Failed" };
-        let title = format!(
-            " {} {}/{} in {} ",
-            label,
-            snap.completed,
-            snap.total,
-            format_duration(snap.elapsed_secs)
-        );
+        // CL-3 / TASK-0771: when a run did not fully succeed, surface the
+        // failed/skipped breakdown rather than a single "Done N/M" line — the
+        // legacy label conflated terminal-step count with success count.
+        let elapsed = format_duration(snap.elapsed_secs);
+        let title = if snap.success {
+            format!(" Done {}/{} in {} ", snap.completed, snap.total, elapsed)
+        } else {
+            let succeeded = snap
+                .completed
+                .saturating_sub(snap.failed)
+                .saturating_sub(snap.skipped);
+            format!(
+                " {} succeeded, {} skipped, {} failed of {} in {} ",
+                succeeded, snap.skipped, snap.failed, snap.total, elapsed
+            )
+        };
         Some(build_horizontal_border(BorderArgs {
             title: &title,
             left_corner: "╰─",
