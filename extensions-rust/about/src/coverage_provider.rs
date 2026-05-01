@@ -68,11 +68,24 @@ impl DataProvider for RustCoverageProvider {
                     Default::default(),
                     || query_crate_coverage(db, &member_strs, &workspace_root),
                 );
+                // PERF-1 (TASK-0798): resolve display names up front in one
+                // pass over members with coverage rows, so each member's
+                // Cargo.toml is read at most once per provide() call.
+                let mut display_names: std::collections::HashMap<&str, String> =
+                    std::collections::HashMap::with_capacity(per_crate.len());
+                for member in members {
+                    if per_crate.contains_key(member.as_str()) {
+                        display_names
+                            .insert(member.as_str(), resolve_crate_display_name(member, &cwd));
+                    }
+                }
                 members
                     .iter()
                     .filter_map(|member| {
-                        per_crate.get(member).map(|cov| UnitCoverage {
-                            unit_name: resolve_crate_display_name(member, &cwd),
+                        let cov = per_crate.get(member)?;
+                        let unit_name = display_names.remove(member.as_str())?;
+                        Some(UnitCoverage {
+                            unit_name,
                             unit_path: member.clone(),
                             stats: CoverageStats {
                                 lines_percent: cov.lines_percent,

@@ -12,9 +12,9 @@
 
 use ops_cargo_toml::{CargoToml, CargoTomlProvider};
 use ops_extension::{Context, DataProvider, DataProviderError};
-use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Log a `load_workspace_manifest` failure differentiating "no manifest /
 /// not a Rust project" (silent debug) from a real read/parse error (warn),
@@ -42,12 +42,19 @@ fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
 // `load_workspace_manifest` during a single `ops about` invocation. The
 // previous implementation cloned the cached `serde_json::Value` and
 // re-deserialized it every time, even though the resolved manifest is
-// identical across providers. The typed `Arc<CargoToml>` is now cached in
-// this thread-local keyed by working directory; `ctx.refresh` invalidates
-// the entry so `--refresh` semantics are preserved.
-thread_local! {
-    static TYPED_MANIFEST_CACHE: RefCell<Option<(PathBuf, Arc<CargoToml>)>> =
-        const { RefCell::new(None) };
+// identical across providers.
+//
+// ARCH-2 (TASK-0795): the cache lives in a process-global `Mutex<HashMap>`
+// keyed by working directory rather than a `thread_local!`. The previous
+// thread-local was invisible to providers scheduled on a different worker
+// thread (e.g. a future tokio fan-out), silently degrading the cache to
+// "off" with no signal. The mutex is held only for the lookup / insert and
+// never across provider work, so contention is bounded; readers clone the
+// `Arc<CargoToml>` so the typed manifest is shared across threads with no
+// reparse. `ctx.refresh` evicts the entry to preserve `--refresh` semantics.
+fn typed_manifest_cache() -> &'static Mutex<HashMap<PathBuf, Arc<CargoToml>>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<CargoToml>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Load and parse `Cargo.toml` for the current context, then resolve any
@@ -59,18 +66,16 @@ pub(crate) fn load_workspace_manifest(
     ctx: &mut Context,
 ) -> Result<Arc<CargoToml>, DataProviderError> {
     let cwd = ctx.working_directory.clone();
+    let cache = typed_manifest_cache();
 
-    if !ctx.refresh {
-        if let Some(cached) = TYPED_MANIFEST_CACHE.with(|cell| {
-            cell.borrow()
-                .as_ref()
-                .filter(|(p, _)| p == &cwd)
-                .map(|(_, m)| Arc::clone(m))
-        }) {
-            return Ok(cached);
+    if ctx.refresh {
+        if let Ok(mut guard) = cache.lock() {
+            guard.remove(&cwd);
         }
-    } else {
-        TYPED_MANIFEST_CACHE.with(|cell| cell.borrow_mut().take());
+    } else if let Ok(guard) = cache.lock() {
+        if let Some(arc) = guard.get(&cwd) {
+            return Ok(Arc::clone(arc));
+        }
     }
 
     let value = if let Some(cached) = ctx.cached(ops_cargo_toml::DATA_PROVIDER_NAME) {
@@ -87,9 +92,9 @@ pub(crate) fn load_workspace_manifest(
     }
 
     let arc = Arc::new(manifest);
-    TYPED_MANIFEST_CACHE.with(|cell| {
-        *cell.borrow_mut() = Some((cwd, Arc::clone(&arc)));
-    });
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(cwd, Arc::clone(&arc));
+    }
     Ok(arc)
 }
 
@@ -113,7 +118,20 @@ pub(crate) fn resolved_workspace_members(
 
     let mut resolved = Vec::new();
     for member in &ws.members {
-        if let Some(idx) = member.find('*') {
+        let star_idx = member.find('*');
+        // PATTERN-1 (TASK-0803): detect glob shapes that lack `*` but still
+        // contain class/alternation metacharacters (`crates/{core,cli}`,
+        // `crates/[abc]`). Without this they would slip through as literal
+        // member paths and silently produce wrong member lists.
+        if star_idx.is_none() && contains_unsupported_glob_meta(member) {
+            tracing::warn!(
+                pattern = %member,
+                "workspace member glob shape not supported by ops about; passing through unchanged"
+            );
+            resolved.push(member.clone());
+            continue;
+        }
+        if let Some(idx) = star_idx {
             if is_unsupported_glob(member, idx) {
                 tracing::warn!(
                     pattern = %member,
@@ -172,12 +190,22 @@ pub(crate) fn resolved_workspace_members(
 /// Returns true if the glob shape goes beyond a single trailing `*` after
 /// the prefix — anything we cannot expand correctly with the simple
 /// `read_dir(prefix)` approach.
+///
+/// PATTERN-1 (TASK-0803): also flag character-class closers (`]`) and brace
+/// alternation (`{`, `}`). A pattern like `crates/{core,cli}` lacks `*`,
+/// `?`, and `[`, so without these checks it would slip through as
+/// "supported" and silently produce an empty member list when `read_dir`
+/// failed on the literal-as-directory path.
 fn is_unsupported_glob(member: &str, first_star: usize) -> bool {
     let after_star = &member[first_star + 1..];
     if !after_star.is_empty() {
         return true;
     }
-    member.contains('?') || member.contains('[')
+    contains_unsupported_glob_meta(member)
+}
+
+fn contains_unsupported_glob_meta(member: &str) -> bool {
+    member.contains(['?', '[', ']', '{', '}'])
 }
 
 #[cfg(test)]
@@ -191,16 +219,21 @@ mod tests {
     /// the same context returns an `Arc` that points to the same
     /// allocation as the first, and (b) `ctx.refresh = true` invalidates
     /// the cache and yields a freshly parsed allocation.
+    fn evict_cache_for(path: &Path) {
+        if let Ok(mut guard) = typed_manifest_cache().lock() {
+            guard.remove(path);
+        }
+    }
+
     #[test]
     fn typed_manifest_cache_returns_same_arc_then_invalidates_on_refresh() {
-        TYPED_MANIFEST_CACHE.with(|c| c.borrow_mut().take());
-
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("Cargo.toml"),
             "[package]\nname=\"x\"\nversion=\"0.1.0\"\n",
         )
         .unwrap();
+        evict_cache_for(dir.path());
 
         let mut ctx = Context::test_context(dir.path().to_path_buf());
         let first = load_workspace_manifest(&mut ctx).expect("load1");
@@ -217,7 +250,46 @@ mod tests {
             "refresh=true must invalidate cache and reparse"
         );
 
-        TYPED_MANIFEST_CACHE.with(|c| c.borrow_mut().take());
+        evict_cache_for(dir.path());
+    }
+
+    /// ARCH-2 (TASK-0795): the cache must be visible to callers on other
+    /// threads. The previous `thread_local!` keyed each entry to the
+    /// inserting thread, so a parallel-provider refactor would have
+    /// silently re-parsed the manifest per worker. Drive a load on one
+    /// thread, then assert a sibling `Context` on another thread sees the
+    /// same `Arc` allocation.
+    #[test]
+    fn typed_manifest_cache_is_shared_across_threads() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname=\"x\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+        evict_cache_for(dir.path());
+
+        let path = dir.path().to_path_buf();
+        let path_for_thread = path.clone();
+        let primer = std::thread::spawn(move || {
+            let mut ctx = Context::test_context(path_for_thread.clone());
+            load_workspace_manifest(&mut ctx).expect("primer load")
+        });
+        let first = primer.join().expect("primer thread");
+
+        let path_for_reader = path.clone();
+        let reader = std::thread::spawn(move || {
+            let mut ctx = Context::test_context(path_for_reader);
+            load_workspace_manifest(&mut ctx).expect("reader load")
+        });
+        let second = reader.join().expect("reader thread");
+
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "cross-thread callers must share the cached Arc"
+        );
+
+        evict_cache_for(&path);
     }
 
     fn manifest_with_members(members: &[&str]) -> CargoToml {
@@ -275,6 +347,29 @@ mod tests {
             resolved,
             vec!["crates/bar".to_string(), "crates/foo".to_string()]
         );
+    }
+
+    /// PATTERN-1 (TASK-0803): unsupported glob shapes (brace alternation,
+    /// character classes, `?`) must pass through unchanged so downstream
+    /// rendering surfaces them as-is rather than producing a silently-empty
+    /// member list.
+    #[test]
+    fn unsupported_glob_shapes_pass_through() {
+        let root = std::path::Path::new("/nonexistent");
+        for pattern in [
+            "crates/{core,cli}",
+            "crates/[a-z]*",
+            "crates/foo?",
+            "crates/foo]",
+        ] {
+            let manifest = manifest_with_members(&[pattern]);
+            let resolved = resolved_workspace_members(&manifest, root);
+            assert_eq!(
+                resolved,
+                vec![pattern.to_string()],
+                "expected `{pattern}` to pass through unchanged"
+            );
+        }
     }
 
     #[test]
