@@ -27,8 +27,14 @@ category = "Build"
 
 [commands.test]
 program = "cargo"
-args = ["test", "--all", "--all-features", "--", "--ignored"]
+args = ["test", "--all", "--all-features"]
 help = "Run all tests (ignoring ignored tests)"
+category = "Code Quality"
+
+[commands.test-ignored]
+program = "cargo"
+args = ["test", "--all", "--all-features", "--", "--ignored"]
+help = "Run all tests (including ignored tests)"
 category = "Code Quality"
 
 [commands.clean]
@@ -45,8 +51,8 @@ help = "Run fmt, check, clippy, build"
 category = "Code Quality"
 
 [commands.qa]
-commands = ["test", "deps"]
+commands = ["deps", "test", "test-ignored"]
 parallel = true
 fail_fast = true
-help = "Run test, deps"
+help = "Run deps, test, test-ignored"
 category = "Code Quality"
