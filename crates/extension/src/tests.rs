@@ -34,18 +34,32 @@ fn data_registry_register_and_get() {
     assert!(registry.get("other").is_none());
 }
 
-/// SEC-31 / TASK-0350: registering two providers under the same name must
-/// surface the collision rather than silently swap a trusted built-in for
-/// whatever extension happens to load second. In debug builds the
-/// `debug_assert!` panics; the production behaviour (warn + keep first) is
-/// covered indirectly by every `register_*` site running in release builds
-/// without panicking.
+/// SEC-31 / TASK-0350 + CL-5 / TASK-0756: registering two providers under
+/// the same name must (1) be rejected first-write-wins and (2) record the
+/// rejected name in the audit trail so the CLI wiring layer can emit a
+/// single tracing::warn from one place. The earlier
+/// `debug_assert!(false, …)` panic was retired because it forced every
+/// in-extension duplicate to surface as a test panic instead of letting the
+/// wiring layer's per-extension scratch registry aggregate the audit trail.
 #[test]
-#[should_panic(expected = "duplicate data provider registration")]
-fn data_registry_register_duplicate_panics_in_debug() {
+fn data_registry_register_duplicate_records_audit_and_keeps_first() {
     let mut registry = DataRegistry::new();
     registry.register("stub", Box::new(StubProvider));
     registry.register("stub", Box::new(StubProvider));
+    assert!(
+        registry.get("stub").is_some(),
+        "first-write-wins must keep the original provider"
+    );
+    let dups = registry.take_duplicate_inserts();
+    assert_eq!(
+        dups,
+        vec!["stub".to_string()],
+        "the rejected name must be recorded for the wiring layer to warn on"
+    );
+    assert!(
+        registry.take_duplicate_inserts().is_empty(),
+        "draining the audit trail clears it"
+    );
 }
 
 #[test]
@@ -138,7 +152,7 @@ fn context_get_or_provide_detects_provider_cycle() {
     // After the cycle bottom-out, the in-flight set must be drained so a
     // subsequent unrelated call is not poisoned.
     assert!(
-        !ctx.cached("alpha").is_some(),
+        ctx.cached("alpha").is_none(),
         "failed cycle must not poison the cache"
     );
 }

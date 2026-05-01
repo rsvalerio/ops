@@ -123,10 +123,23 @@ impl CommandRegistry {
     /// (identity, metadata) that must not be silently shadowed by a later
     /// extension. The asymmetry is intentional.
     pub fn insert(&mut self, id: CommandId, spec: CommandSpec) -> Option<CommandSpec> {
-        if self.inner.contains_key(&id) {
-            self.duplicate_inserts.push(id.clone());
+        // PATTERN-3 / TASK-0753: route through `Entry` so the duplicate-input
+        // path consults the hash map exactly once. The previous shape did a
+        // `contains_key`, then cloned the input id into the audit trail, then
+        // called `insert` — three probes per registration. The audit clone
+        // now uses the key already stored in the map, leaving the input `id`
+        // untouched so the caller's allocation moves straight into the map
+        // (or is dropped) without a heap copy on the duplicate path.
+        match self.inner.entry(id) {
+            indexmap::map::Entry::Occupied(mut occupied) => {
+                self.duplicate_inserts.push(occupied.key().clone());
+                Some(occupied.insert(spec))
+            }
+            indexmap::map::Entry::Vacant(vacant) => {
+                vacant.insert(spec);
+                None
+            }
         }
-        self.inner.insert(id, spec)
     }
 
     /// Drain ids that were re-inserted into this registry since the last
