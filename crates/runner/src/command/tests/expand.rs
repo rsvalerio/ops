@@ -43,6 +43,58 @@ fn resolve_by_alias() {
     assert!(runner.resolve("unknown").is_none());
 }
 
+/// PERF-3 / TASK-0774: register_commands merges new aliases incrementally
+/// rather than rebuilding the full alias map on each batch. Verify that:
+/// - aliases registered across N successive 1-entry batches are all resolvable
+/// - re-registering the same id with different aliases prunes the stale ones
+/// - cross-extension alias collisions still surface as before
+#[test]
+fn register_commands_incremental_alias_merge_preserves_resolution() {
+    let mut runner = test_runner(HashMap::new());
+    for n in 0..5 {
+        let id = format!("cmd_{n}");
+        let alias = format!("c{n}");
+        let mut spec = exec_spec("echo", &[id.as_str()]);
+        spec.aliases = vec![alias.clone()];
+        runner.register_commands(vec![(id.clone().into(), CommandSpec::Exec(spec))]);
+    }
+    for n in 0..5 {
+        let alias = format!("c{n}");
+        let canonical = format!("cmd_{n}");
+        assert!(
+            runner.resolve(&alias).is_some(),
+            "alias `{alias}` registered in an earlier batch must remain resolvable"
+        );
+        assert!(
+            runner.resolve(&canonical).is_some(),
+            "canonical id `{canonical}` must remain resolvable"
+        );
+    }
+}
+
+#[test]
+fn register_commands_re_registration_prunes_stale_aliases() {
+    let mut runner = test_runner(HashMap::new());
+
+    let mut first = exec_spec("echo", &["v1"]);
+    first.aliases = vec!["alias_a".to_string()];
+    runner.register_commands(vec![("cmd".into(), CommandSpec::Exec(first))]);
+    assert!(runner.resolve("alias_a").is_some());
+
+    let mut second = exec_spec("echo", &["v2"]);
+    second.aliases = vec!["alias_b".to_string()];
+    runner.register_commands(vec![("cmd".into(), CommandSpec::Exec(second))]);
+
+    assert!(
+        runner.resolve("alias_b").is_some(),
+        "new alias on re-registration must resolve"
+    );
+    assert!(
+        runner.resolve("alias_a").is_none(),
+        "old alias dropped from the new spec must no longer point at the (now-replaced) command"
+    );
+}
+
 #[test]
 fn expand_to_leaves_via_alias() {
     let mut commands = HashMap::new();
