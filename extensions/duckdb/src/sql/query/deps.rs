@@ -39,26 +39,6 @@ fn coerce_count_to_usize(count: i64) -> usize {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::coerce_count_to_usize;
-
-    /// ERR-1 (TASK-0506): a negative scalar coerces to 0 (the safe degraded
-    /// value) but does not panic. The accompanying warn covers the alerting
-    /// requirement; this test pins the value-level contract.
-    #[test]
-    fn negative_count_coerces_to_zero() {
-        assert_eq!(coerce_count_to_usize(-1), 0);
-        assert_eq!(coerce_count_to_usize(i64::MIN), 0);
-    }
-
-    #[test]
-    fn non_negative_count_round_trips() {
-        assert_eq!(coerce_count_to_usize(0), 0);
-        assert_eq!(coerce_count_to_usize(42), 42);
-    }
-}
-
 /// Query per-crate external dependencies (name + version_req) from `crate_dependencies` view.
 ///
 /// Returns a map of crate_name -> Vec<(dep_name, version_req)>, sorted by dep name.
@@ -111,4 +91,24 @@ pub fn query_crate_dep_counts(db: &DuckDb) -> anyhow::Result<HashMap<String, i64
             map.insert(name, count);
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::coerce_count_to_usize;
+
+    /// ERR-1 (TASK-0506): a negative scalar coerces to 0 (the safe degraded
+    /// value) but does not panic. The accompanying warn covers the alerting
+    /// requirement; this test pins the value-level contract.
+    #[test]
+    fn negative_count_coerces_to_zero() {
+        assert_eq!(coerce_count_to_usize(-1), 0);
+        assert_eq!(coerce_count_to_usize(i64::MIN), 0);
+    }
+
+    #[test]
+    fn non_negative_count_round_trips() {
+        assert_eq!(coerce_count_to_usize(0), 0);
+        assert_eq!(coerce_count_to_usize(42), 42);
+    }
 }

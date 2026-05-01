@@ -2,8 +2,9 @@
 
 use crate::error::{DbError, DbResult};
 use ops_core::config::DataConfig;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// Thread-safe DuckDB connection wrapper.
 ///
@@ -26,6 +27,14 @@ pub struct DuckDb {
     conn: Mutex<duckdb::Connection>,
     #[allow(dead_code)]
     db_path: PathBuf,
+    /// Per-table ingest locks scoped to this `DuckDb` instance.
+    ///
+    /// CONC-7 (TASK-0779): keying by table name and storing the map in
+    /// the connection bounds growth to the database schema and releases
+    /// every entry when the instance is dropped, instead of leaking
+    /// `(db_path, table)` tuples in a process-global `OnceLock` for the
+    /// lifetime of the binary.
+    ingest_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 #[allow(dead_code)]
@@ -40,6 +49,7 @@ impl DuckDb {
         Ok(Self {
             conn: Mutex::new(conn),
             db_path,
+            ingest_locks: Mutex::new(HashMap::new()),
         })
     }
 
@@ -66,6 +76,7 @@ impl DuckDb {
         Ok(Self {
             conn: Mutex::new(conn),
             db_path: path,
+            ingest_locks: Mutex::new(HashMap::new()),
         })
     }
 
@@ -75,6 +86,7 @@ impl DuckDb {
         Ok(Self {
             conn: Mutex::new(conn),
             db_path: PathBuf::from(":memory:"),
+            ingest_locks: Mutex::new(HashMap::new()),
         })
     }
 
@@ -91,6 +103,32 @@ impl DuckDb {
         self.conn
             .lock()
             .map_err(|e| DbError::MutexPoisoned(e.to_string()))
+    }
+
+    /// Return the per-table ingest mutex, creating it on first use.
+    ///
+    /// ERR-5 (TASK-0780): the registry mutex recovers from poisoning via
+    /// `into_inner` so a panic inside one ingestor's `collect`/`load` does
+    /// not permanently brick every other ingest. The connection lock at
+    /// `Self::lock` continues to surface poisoning as
+    /// [`DbError::MutexPoisoned`] because a poisoned DuckDB connection
+    /// reflects partially applied state we cannot trust to keep using; a
+    /// poisoned per-table coordination mutex only guards a `()`, so
+    /// recovering is safe and avoids the documented denial-of-service.
+    pub(crate) fn ingest_mutex_for(&self, table_name: &str) -> Arc<Mutex<()>> {
+        let mut map = self
+            .ingest_locks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Arc::clone(map.entry(table_name.to_owned()).or_default())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ingest_lock_count(&self) -> usize {
+        self.ingest_locks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
     }
 
     /// Resolve the DB path from config and workspace root.

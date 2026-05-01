@@ -1,20 +1,9 @@
 //! Table creation, sidecar I/O, and data pipeline helpers.
 
 use crate::{DbError, DbResult, DuckDb};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
 
 use super::validation::{prepare_path_for_sql, quoted_ident, validate_extra_opts, SqlError};
-
-/// Per-table ingest locks keyed by `"{db_path}:{table_name}"`.
-///
-/// Prevents concurrent `provide_via_ingestor` calls from running duplicate
-/// collect+load cycles for the same table. Each key maps to a lightweight
-/// `Mutex<()>` — only one thread may hold it at a time, so a second caller
-/// blocks until the first finishes and populates the table, then skips its
-/// own collect (the `table_has_data` check now returns true).
-static INGEST_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
 
 /// Generate `CREATE OR REPLACE TABLE <name> AS SELECT * FROM read_json_auto(...)` SQL (DUP-009).
 ///
@@ -255,13 +244,20 @@ where
         drop_table_if_exists(db, table_name)?;
     }
 
-    let table_key = format!("{}:{}", db.path().display(), table_name);
-    let locks = INGEST_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let ingest_mutex = {
-        let mut map = locks.lock().unwrap();
-        map.entry(table_key).or_default().clone()
-    };
-    let _ingest_guard = ingest_mutex.lock().unwrap();
+    // ERR-5 (TASK-0780): poisoning the per-table mutex must not become a
+    // permanent denial of service for that table — a transient panic in
+    // `collect`/`load` (user-supplied code) would otherwise brick every
+    // future ingest of that data source for the lifetime of the process.
+    // The guarded value is `()`, so there is no torn state to worry about;
+    // recover via `into_inner` and continue. Cross-reference: the
+    // connection mutex at `connection.rs::DuckDb::lock` deliberately
+    // reports poisoning as `DbError::MutexPoisoned` because a panic mid
+    // DuckDB transaction can leave half-applied schema state we should
+    // not silently reuse. The asymmetry is intentional.
+    let ingest_mutex = db.ingest_mutex_for(table_name);
+    let _ingest_guard = ingest_mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     if !table_has_data(db, table_name)? {
         let data_dir = data_dir_for_db(db.path());
@@ -332,6 +328,7 @@ mod tests {
     use super::*;
     use crate::init_schema;
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     #[test]
     fn table_has_data_no_table() {
@@ -700,7 +697,14 @@ mod tests {
             }
         }
 
-        let db = Arc::new(DuckDb::open_in_memory().expect("db"));
+        // Use a tempdir-backed DB rather than `:memory:` so
+        // `data_dir_for_db` produces a path the SQL path validator
+        // accepts (a `:memory:` sentinel embeds a `:`, which the
+        // validator rejects, and would also leave a stray
+        // `:memory:.ingest/` directory in the cwd).
+        let db_dir = tempfile::tempdir().expect("tempdir");
+        let db_path = db_dir.path().join("counting.duckdb");
+        let db = Arc::new(DuckDb::open(&db_path).expect("db"));
         init_schema(&db).expect("init_schema");
 
         let db1 = Arc::clone(&db);
@@ -733,5 +737,157 @@ mod tests {
             1,
             "collect must run exactly once, not twice"
         );
+    }
+
+    /// CONC-7 (TASK-0779): the per-table ingest registry lives on the
+    /// `DuckDb` instance, so its growth is bounded by the database
+    /// schema (a fixed set of table names) and entries are released
+    /// when the connection is dropped. This guards against the previous
+    /// process-global `OnceLock<HashMap<…>>` that leaked one entry per
+    /// distinct `(db_path, table)` for the lifetime of the binary.
+    #[test]
+    fn ingest_lock_map_is_scoped_to_duckdb_instance_and_bounded_by_table_count() {
+        use crate::DataIngestor;
+
+        struct TrivialIngestor;
+        impl DataIngestor for TrivialIngestor {
+            fn name(&self) -> &'static str {
+                "trivial"
+            }
+            fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
+                let path = data_dir.join("trivial.json");
+                std::fs::write(&path, "[{\"id\":1}]").map_err(DbError::Io)?;
+                Ok(())
+            }
+            fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<crate::LoadResult> {
+                // Use a distinct table per call by reading from the same JSON.
+                let json_path = data_dir.join("trivial.json");
+                // The caller picks the table name; reuse the same registered
+                // table to keep the test about the registry, not SQL.
+                let create_sql = create_table_from_json_sql("trivial_table", &json_path, None)?;
+                let conn = db.lock()?;
+                conn.execute(&create_sql, [])
+                    .map_err(|e| DbError::query_failed("trivial create", e))?;
+                drop(conn);
+                Ok(crate::LoadResult::success("trivial", 1))
+            }
+        }
+
+        let db_dir = tempfile::tempdir().expect("tempdir");
+        let db_path = db_dir.path().join("bounded.duckdb");
+        let db = DuckDb::open(&db_path).expect("db");
+        init_schema(&db).expect("init_schema");
+
+        let ctx = ops_extension::Context::new(
+            Arc::new(ops_core::config::Config::default()),
+            PathBuf::from("/tmp"),
+        );
+
+        // Take a few distinct table-name keys: the registry should hold at
+        // most that many entries — never inherit anything from prior tests
+        // and never exceed the count of distinct names we asked for.
+        for name in ["t_a", "t_b", "t_c"] {
+            let _ = db.ingest_mutex_for(name);
+            // Sanity — calling again must not double-insert.
+            let _ = db.ingest_mutex_for(name);
+        }
+        assert_eq!(
+            db.ingest_lock_count(),
+            3,
+            "registry should hold one entry per distinct table name"
+        );
+
+        // And exercising the real ingest path through `provide_via_ingestor`
+        // does not accumulate extra entries beyond the table it touched.
+        let before = db.ingest_lock_count();
+        provide_via_ingestor(&db, &ctx, "trivial_table", &TrivialIngestor, |_| {
+            Ok(serde_json::Value::Null)
+        })
+        .expect("ingest");
+        assert_eq!(
+            db.ingest_lock_count(),
+            before + 1,
+            "one new entry for the freshly ingested table"
+        );
+
+        // Dropping the DuckDb releases the map; the next instance starts
+        // empty (no leak between connections, unlike the old global).
+        drop(db);
+        let db2 = DuckDb::open(&db_path).expect("db reopen");
+        assert_eq!(db2.ingest_lock_count(), 0, "fresh instance has no entries");
+    }
+
+    /// ERR-5 (TASK-0780): a panic inside an ingestor's `collect` must not
+    /// permanently brick the table. The per-table mutex is poisoned, but
+    /// `provide_via_ingestor` recovers it via `into_inner` so a subsequent
+    /// caller can still ingest. Cross-reference: `DuckDb::lock` keeps the
+    /// `MutexPoisoned` policy intact for the connection mutex (see
+    /// `connection.rs`).
+    #[test]
+    fn panic_in_collect_does_not_brick_subsequent_ingest() {
+        use crate::DataIngestor;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct PanickyIngestor {
+            should_panic: AtomicBool,
+        }
+        impl DataIngestor for PanickyIngestor {
+            fn name(&self) -> &'static str {
+                "panicky"
+            }
+            fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
+                if self.should_panic.swap(false, Ordering::SeqCst) {
+                    panic!("simulated transient ingest panic");
+                }
+                let path = data_dir.join("panicky.json");
+                std::fs::write(&path, "[{\"id\":1}]").map_err(DbError::Io)?;
+                Ok(())
+            }
+            fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<crate::LoadResult> {
+                let json_path = data_dir.join("panicky.json");
+                let create_sql = create_table_from_json_sql("panicky_table", &json_path, None)?;
+                let conn = db.lock()?;
+                conn.execute(&create_sql, [])
+                    .map_err(|e| DbError::query_failed("panicky create", e))?;
+                drop(conn);
+                Ok(crate::LoadResult::success("panicky", 1))
+            }
+        }
+
+        let db_dir = tempfile::tempdir().expect("tempdir");
+        let db_path = db_dir.path().join("panicky.duckdb");
+        let db = Arc::new(DuckDb::open(&db_path).expect("db"));
+        init_schema(&db).expect("init_schema");
+        let ingestor = Arc::new(PanickyIngestor {
+            should_panic: AtomicBool::new(true),
+        });
+
+        // First call panics inside `collect` while holding the per-table
+        // mutex. Catching unwinds across thread boundaries simulates the
+        // production scenario without aborting the test process.
+        let db1 = Arc::clone(&db);
+        let ing1 = Arc::clone(&ingestor);
+        let h = std::thread::spawn(move || {
+            let ctx = ops_extension::Context::new(
+                Arc::new(ops_core::config::Config::default()),
+                PathBuf::from("/tmp"),
+            );
+            provide_via_ingestor(&db1, &ctx, "panicky_table", &*ing1, |_| {
+                Ok(serde_json::Value::Null)
+            })
+        });
+        // The thread panicked; join returns Err.
+        assert!(h.join().is_err(), "first call must have panicked");
+
+        // Subsequent caller must succeed despite the poisoned per-table
+        // mutex. Without poison recovery this would itself panic.
+        let ctx = ops_extension::Context::new(
+            Arc::new(ops_core::config::Config::default()),
+            PathBuf::from("/tmp"),
+        );
+        provide_via_ingestor(&db, &ctx, "panicky_table", &*ingestor, |_| {
+            Ok(serde_json::Value::Null)
+        })
+        .expect("recovery ingest must not panic");
     }
 }
