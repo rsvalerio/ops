@@ -3,11 +3,11 @@ id: TASK-0784
 title: >-
   ERR-1: layout_cards_in_grid silently uses 120-col fallback when stdout is not
   a TTY and COLUMNS is unset
-status: To Do
+status: Done
 assignee:
   - TASK-0828
 created_date: '2026-05-01 05:58'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 10:34'
 labels:
   - code-review-rust
   - errors
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Provide an explicit-width entry point used by buffer-writing call sites; reserve the env/TTY probe for direct stdout writes
-- [ ] #2 Document the 120-col default in the API contract
+- [x] #1 Provide an explicit-width entry point used by buffer-writing call sites; reserve the env/TTY probe for direct stdout writes
+- [x] #2 Document the 120-col default in the API contract
 <!-- AC:END -->

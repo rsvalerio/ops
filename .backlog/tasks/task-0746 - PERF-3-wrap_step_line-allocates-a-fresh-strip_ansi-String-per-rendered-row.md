@@ -1,11 +1,11 @@
 ---
 id: TASK-0746
 title: 'PERF-3: wrap_step_line allocates a fresh strip_ansi String per rendered row'
-status: To Do
+status: Done
 assignee:
   - TASK-0828
 created_date: '2026-05-01 05:52'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 11:13'
 labels:
   - code-review-rust
   - performance
@@ -25,7 +25,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Introduce visible_width(s: &str) -> usize helper in theme/style.rs scanning ANSI escapes inline without allocating
-- [ ] #2 wrap_step_line and every other display_width(&strip_ansi(...)) site uses the new helper
-- [ ] #3 Test asserts the helper produces identical results to display_width(&strip_ansi(s)) across the existing strip_ansi corpus
+- [x] #1 Introduce visible_width(s: &str) -> usize helper in theme/style.rs scanning ANSI escapes inline without allocating
+- [x] #2 wrap_step_line and every other display_width(&strip_ansi(...)) site uses the new helper
+- [x] #3 Test asserts the helper produces identical results to display_width(&strip_ansi(s)) across the existing strip_ansi corpus
 <!-- AC:END -->

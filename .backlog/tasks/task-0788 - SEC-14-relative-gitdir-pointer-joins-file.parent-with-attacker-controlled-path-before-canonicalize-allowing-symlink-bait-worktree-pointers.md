@@ -3,11 +3,11 @@ id: TASK-0788
 title: >-
   SEC-14: relative gitdir pointer joins file.parent() with attacker-controlled
   path before canonicalize, allowing symlink-bait worktree pointers
-status: To Do
+status: Done
 assignee:
   - TASK-0827
 created_date: '2026-05-01 05:58'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 10:49'
 labels:
   - code-review-rust
   - security
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After computing the joined path, canonicalize and verify the result starts_with(file.parent()?) (or a documented worktree-root anchor)
-- [ ] #2 Add a regression test using a relative pointer that exercises Normal-then-ParentDir cancellation to ensure containment
+- [x] #1 After computing the joined path, canonicalize and verify the result starts_with(file.parent()?) (or a documented worktree-root anchor)
+- [x] #2 Add a regression test using a relative pointer that exercises Normal-then-ParentDir cancellation to ensure containment
 <!-- AC:END -->

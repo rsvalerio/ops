@@ -3,11 +3,11 @@ id: TASK-0811
 title: >-
   SEC-14: append_tree_directory does not sanitize .. segments in directory,
   producing traversal-shaped URLs
-status: To Do
+status: Done
 assignee:
   - TASK-0827
 created_date: '2026-05-01 06:02'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 10:50'
 labels:
   - code-review-rust
   - security
@@ -27,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Reject or strip path components equal to .. after normalising slashes; document the policy in the function doc
-- [ ] #2 Tests for directory ../foo, directory a/../b, and directory /absolute (already begins with /)
-- [ ] #3 Existing valid-monorepo tests stay green
+- [x] #1 Reject or strip path components equal to .. after normalising slashes; document the policy in the function doc
+- [x] #2 Tests for directory ../foo, directory a/../b, and directory /absolute (already begins with /)
+- [x] #3 Existing valid-monorepo tests stay green
 <!-- AC:END -->

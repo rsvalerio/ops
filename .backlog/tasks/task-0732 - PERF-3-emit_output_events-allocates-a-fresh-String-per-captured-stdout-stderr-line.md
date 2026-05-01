@@ -3,11 +3,11 @@ id: TASK-0732
 title: >-
   PERF-3: emit_output_events allocates a fresh String per captured stdout/stderr
   line
-status: To Do
+status: Done
 assignee:
   - TASK-0741
 created_date: '2026-04-30 05:50'
-updated_date: '2026-04-30 19:40'
+updated_date: '2026-05-01 11:22'
 labels:
   - code-review-rust
   - performance
@@ -31,8 +31,8 @@ The lines are slices of an owned String that is no longer needed after this func
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 emit_output_events no longer calls .to_string() once per line; the captured output is consumed once into the event stream without per-line heap allocation (e.g. via Bytes, Arc<str>, or move-out + split)
-- [ ] #2 Bench or trace event-allocation count for a 10k-line stderr step before/after the change to confirm the win
+- [x] #1 emit_output_events no longer calls .to_string() once per line; the captured output is consumed once into the event stream without per-line heap allocation (e.g. via Bytes, Arc<str>, or move-out + split)
+- [x] #2 Bench or trace event-allocation count for a 10k-line stderr step before/after the change to confirm the win
 <!-- AC:END -->
 
 ## Implementation Notes

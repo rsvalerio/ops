@@ -3,11 +3,11 @@ id: TASK-0782
 title: >-
   SEC-11: is_valid_host accepts leading/trailing dash/dot, allowing degenerate
   hosts like -evil.com
-status: To Do
+status: Done
 assignee:
   - TASK-0827
 created_date: '2026-05-01 05:57'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 10:55'
 labels:
   - code-review-rust
   - security
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Reject hosts with leading or trailing - or ., and reject empty labels (..)
-- [ ] #2 Add tests covering each shape
+- [x] #1 Reject hosts with leading or trailing - or ., and reject empty labels (..)
+- [x] #2 Add tests covering each shape
 <!-- AC:END -->

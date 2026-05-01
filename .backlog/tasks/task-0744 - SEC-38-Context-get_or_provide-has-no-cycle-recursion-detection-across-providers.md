@@ -3,11 +3,11 @@ id: TASK-0744
 title: >-
   SEC-38: Context::get_or_provide has no cycle/recursion detection across
   providers
-status: To Do
+status: Done
 assignee:
   - TASK-0825
 created_date: '2026-05-01 05:52'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 11:11'
 labels:
   - code-review-rust
   - security
@@ -27,7 +27,7 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 get_or_provide rejects re-entrant requests for an in-flight key with a typed error (e.g. DataProviderError::Cycle { key })
-- [ ] #2 Regression test wires up two providers that mutually request each other and asserts the cycle surfaces as an error rather than overflowing the stack
-- [ ] #3 Document the new error variant on DataProvider::provide and at get_or_provide call sites
+- [x] #1 get_or_provide rejects re-entrant requests for an in-flight key with a typed error (e.g. DataProviderError::Cycle { key })
+- [x] #2 Regression test wires up two providers that mutually request each other and asserts the cycle surfaces as an error rather than overflowing the stack
+- [x] #3 Document the new error variant on DataProvider::provide and at get_or_provide call sites
 <!-- AC:END -->

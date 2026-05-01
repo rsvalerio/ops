@@ -3,11 +3,11 @@ id: TASK-0745
 title: >-
   SEC-21: merge_indexmap debug-logs collided user-controlled keys without
   sanitisation
-status: To Do
+status: Done
 assignee:
   - TASK-0827
 created_date: '2026-05-01 05:52'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 10:52'
 labels:
   - code-review-rust
   - security
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Sanitize keys before logging (escape control chars/newlines) or restrict the logged form to a stable identifier subset
-- [ ] #2 Regression test injects a control-character-bearing key and asserts the emitted log line cannot forge an entry under a Display subscriber
+- [x] #1 Sanitize keys before logging (escape control chars/newlines) or restrict the logged form to a stable identifier subset
+- [x] #2 Regression test injects a control-character-bearing key and asserts the emitted log line cannot forge an entry under a Display subscriber
 <!-- AC:END -->

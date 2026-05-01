@@ -3,11 +3,11 @@ id: TASK-0766
 title: >-
   PERF-3: expand_inner does two store lookups per node (canonical_id then
   resolve)
-status: To Do
+status: Done
 assignee:
   - TASK-0825
 created_date: '2026-05-01 05:55'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 11:08'
 labels:
   - code-review-rust
   - performance
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add a helper that returns (canonical_name, spec) in one traversal, replacing the canonical_id+resolve pair in expand_inner
-- [ ] #2 Keep the public canonical_id/resolve signatures intact (callers in tests rely on them)
-- [ ] #3 Bench or microbench shows expand_to_leaves is at least as fast as before on a representative composite
+- [x] #1 Add a helper that returns (canonical_name, spec) in one traversal, replacing the canonical_id+resolve pair in expand_inner
+- [x] #2 Keep the public canonical_id/resolve signatures intact (callers in tests rely on them)
+- [x] #3 Bench or microbench shows expand_to_leaves is at least as fast as before on a representative composite
 <!-- AC:END -->

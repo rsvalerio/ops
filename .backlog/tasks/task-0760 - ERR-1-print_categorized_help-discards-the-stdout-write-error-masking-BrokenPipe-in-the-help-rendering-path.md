@@ -3,11 +3,11 @@ id: TASK-0760
 title: >-
   ERR-1: print_categorized_help discards the stdout write error, masking
   BrokenPipe in the help-rendering path
-status: To Do
+status: Done
 assignee:
   - TASK-0828
 created_date: '2026-05-01 05:54'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 10:36'
 labels:
   - code-review-rust
   - errors
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 print_categorized_help either propagates the write error (returning io::Result<()>) or carries the same "discarded — diagnostic channel is gone" comment that parse_log_level carries at main.rs:91-95
-- [ ] #2 Test (e.g. via failing writer wrapper if refactored to take &mut dyn Write) pins the chosen behaviour
+- [x] #1 print_categorized_help either propagates the write error (returning io::Result<()>) or carries the same "discarded — diagnostic channel is gone" comment that parse_log_level carries at main.rs:91-95
+- [x] #2 Test (e.g. via failing writer wrapper if refactored to take &mut dyn Write) pins the chosen behaviour
 <!-- AC:END -->
