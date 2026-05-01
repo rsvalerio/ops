@@ -3,9 +3,11 @@ id: TASK-0796
 title: >-
   PERF-1: flatten_coverage_json materialises an intermediate Vec<&Value> only to
   count it for records.reserve
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0822
 created_date: '2026-05-01 06:00'
+updated_date: '2026-05-01 06:55'
 labels:
   - code-review-rust
   - performance

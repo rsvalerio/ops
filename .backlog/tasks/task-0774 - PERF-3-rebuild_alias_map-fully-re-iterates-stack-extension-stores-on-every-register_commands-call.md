@@ -3,9 +3,11 @@ id: TASK-0774
 title: >-
   PERF-3: rebuild_alias_map fully re-iterates stack + extension stores on every
   register_commands call
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0825
 created_date: '2026-05-01 05:56'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - performance

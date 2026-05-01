@@ -3,9 +3,11 @@ id: TASK-0802
 title: >-
   PERF-3: format_report uses out.push_str(&format!(...)) repeatedly, allocating
   an intermediate String per push
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0821
 created_date: '2026-05-01 06:01'
+updated_date: '2026-05-01 06:45'
 labels:
   - code-review-rust
   - performance

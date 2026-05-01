@@ -3,9 +3,11 @@ id: TASK-0816
 title: >-
   DUP-3: pyproject.toml is read+toml-parsed twice per About run (identity
   provider + units provider)
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0823
 created_date: '2026-05-01 06:03'
+updated_date: '2026-05-01 09:21'
 labels:
   - code-review-rust
   - duplication

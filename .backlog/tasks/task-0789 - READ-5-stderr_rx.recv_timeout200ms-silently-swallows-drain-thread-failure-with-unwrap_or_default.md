@@ -3,9 +3,11 @@ id: TASK-0789
 title: >-
   READ-5: stderr_rx.recv_timeout(200ms) silently swallows drain-thread failure
   with unwrap_or_default
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0824
 created_date: '2026-05-01 05:58'
+updated_date: '2026-05-01 09:58'
 labels:
   - code-review-rust
   - errors
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Distinguish RecvTimeoutError::Timeout vs Disconnected; emit a tracing::debug! for the disconnected case so operators have a breadcrumb
-- [ ] #2 Test exercising the disconnected branch (drop the sender) confirms the warn path
+- [x] #1 Distinguish RecvTimeoutError::Timeout vs Disconnected; emit a tracing::debug! for the disconnected case so operators have a breadcrumb
+- [x] #2 Test exercising the disconnected branch (drop the sender) confirms the warn path
 <!-- AC:END -->

@@ -3,9 +3,11 @@ id: TASK-0795
 title: >-
   ARCH-2: TYPED_MANIFEST_CACHE thread_local cache is invisible to
   non-current-thread callers, defeating its purpose under multi-thread runtimes
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0821
 created_date: '2026-05-01 05:59'
+updated_date: '2026-05-01 06:45'
 labels:
   - code-review-rust
   - architecture

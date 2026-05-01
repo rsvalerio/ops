@@ -3,9 +3,11 @@ id: TASK-0752
 title: >-
   CL-3: home directory resolution duplicated with divergent semantics across
   expand and loader
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0829
 created_date: '2026-05-01 05:53'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - structure

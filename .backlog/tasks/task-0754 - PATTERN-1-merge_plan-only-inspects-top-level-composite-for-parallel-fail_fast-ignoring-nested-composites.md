@@ -3,9 +3,11 @@ id: TASK-0754
 title: >-
   PATTERN-1: merge_plan only inspects top-level composite for
   parallel/fail_fast, ignoring nested composites
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0825
 created_date: '2026-05-01 05:53'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - patterns

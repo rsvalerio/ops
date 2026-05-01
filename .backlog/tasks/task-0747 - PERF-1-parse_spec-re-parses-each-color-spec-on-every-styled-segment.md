@@ -1,9 +1,11 @@
 ---
 id: TASK-0747
 title: 'PERF-1: parse_spec re-parses each color spec on every styled segment'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0828
 created_date: '2026-05-01 05:52'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - performance

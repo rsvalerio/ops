@@ -3,9 +3,11 @@ id: TASK-0810
 title: >-
   FN-1: parse_pyproject is ~80 lines mixing parse, license normalization, author
   formatting, URL extraction
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0823
 created_date: '2026-05-01 06:02'
+updated_date: '2026-05-01 09:21'
 labels:
   - code-review-rust
   - structure

@@ -3,9 +3,11 @@ id: TASK-0771
 title: >-
   CL-3: finalize_orphan_bars increments completed_steps for skipped/aborted
   rows, conflating completed with terminal
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0824
 created_date: '2026-05-01 05:56'
+updated_date: '2026-05-01 09:52'
 labels:
   - code-review-rust
   - structure
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Either rename completed_steps → terminal_steps and document the semantics, or split into succeeded_steps / terminal_steps so summary rendering can distinguish them
-- [ ] #2 Update boxed footer rendering to surface "Failed N/M" or "N succeeded, K skipped, M failed of T" rather than a single "Done" count
-- [ ] #3 Regression test asserting the summary line under fail_fast shows the correct counts
+- [x] #1 Either rename completed_steps → terminal_steps and document the semantics, or split into succeeded_steps / terminal_steps so summary rendering can distinguish them
+- [x] #2 Update boxed footer rendering to surface "Failed N/M" or "N succeeded, K skipped, M failed of T" rather than a single "Done" count
+- [x] #3 Regression test asserting the summary line under fail_fast shows the correct counts
 <!-- AC:END -->

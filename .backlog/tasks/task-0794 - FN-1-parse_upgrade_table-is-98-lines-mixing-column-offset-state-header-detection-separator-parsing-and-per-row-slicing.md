@@ -3,9 +3,11 @@ id: TASK-0794
 title: >-
   FN-1: parse_upgrade_table is 98 lines mixing column-offset state, header
   detection, separator parsing, and per-row slicing
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0821
 created_date: '2026-05-01 05:59'
+updated_date: '2026-05-01 06:45'
 labels:
   - code-review-rust
   - structure

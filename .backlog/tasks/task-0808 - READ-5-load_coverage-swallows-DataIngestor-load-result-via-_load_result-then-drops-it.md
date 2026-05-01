@@ -3,9 +3,11 @@ id: TASK-0808
 title: >-
   READ-5: load_coverage swallows DataIngestor::load result via _load_result then
   drops it
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0822
 created_date: '2026-05-01 06:02'
+updated_date: '2026-05-01 07:02'
 labels:
   - code-review-rust
   - readability

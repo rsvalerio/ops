@@ -3,9 +3,11 @@ id: TASK-0760
 title: >-
   ERR-1: print_categorized_help discards the stdout write error, masking
   BrokenPipe in the help-rendering path
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0828
 created_date: '2026-05-01 05:54'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - errors

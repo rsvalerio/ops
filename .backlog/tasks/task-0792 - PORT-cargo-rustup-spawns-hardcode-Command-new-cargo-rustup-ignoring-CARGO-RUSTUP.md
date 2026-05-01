@@ -3,9 +3,11 @@ id: TASK-0792
 title: >-
   PORT: cargo/rustup spawns hardcode Command::new("cargo")/("rustup"), ignoring
   $CARGO/$RUSTUP
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0821
 created_date: '2026-05-01 05:59'
+updated_date: '2026-05-01 06:45'
 labels:
   - code-review-rust
   - portability

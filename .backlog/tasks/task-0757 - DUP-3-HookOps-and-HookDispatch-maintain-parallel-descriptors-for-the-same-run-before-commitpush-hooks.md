@@ -3,9 +3,11 @@ id: TASK-0757
 title: >-
   DUP-3: HookOps and HookDispatch maintain parallel descriptors for the same
   run-before-{commit,push} hooks
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0824
 created_date: '2026-05-01 05:53'
+updated_date: '2026-05-01 09:40'
 labels:
   - code-review-rust
   - duplication
@@ -25,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Two descriptor structs collapse to one HookSpec (or HookOps extended with skip/preflight fields), defined once and used by both subcommands::run_hook_dispatch and hook_shared::run_hook_install*
-- [ ] #2 pre_hook_cmd only adds the per-hook constant; no parallel struct definition
-- [ ] #3 Tests in pre_hook_cmd::tests and subcommands::tests continue to pass with the unified type
+- [x] #1 Two descriptor structs collapse to one HookSpec (or HookOps extended with skip/preflight fields), defined once and used by both subcommands::run_hook_dispatch and hook_shared::run_hook_install*
+- [x] #2 pre_hook_cmd only adds the per-hook constant; no parallel struct definition
+- [x] #3 Tests in pre_hook_cmd::tests and subcommands::tests continue to pass with the unified type
 <!-- AC:END -->

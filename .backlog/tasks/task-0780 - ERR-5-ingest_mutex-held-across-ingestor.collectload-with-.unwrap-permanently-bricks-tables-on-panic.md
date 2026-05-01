@@ -3,9 +3,11 @@ id: TASK-0780
 title: >-
   ERR-5: ingest_mutex held across ingestor.collect+load with .unwrap()
   permanently bricks tables on panic
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0826
 created_date: '2026-05-01 05:57'
+updated_date: '2026-05-01 09:32'
 labels:
   - code-review-rust
   - concurrency
@@ -26,7 +28,7 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace unwrap() on both the outer map and per-table mutex locks with explicit recovery (e.g., into_inner() / clear poison or wrap as a typed error), or use parking_lot::Mutex which does not poison
-- [ ] #2 Add a regression test where collect panics in one thread and verifies a subsequent caller still succeeds (or surfaces a typed error rather than a panic)
-- [ ] #3 Cross-reference connection.rs MutexPoisoned policy in the call site comment
+- [x] #1 Replace unwrap() on both the outer map and per-table mutex locks with explicit recovery (e.g., into_inner() / clear poison or wrap as a typed error), or use parking_lot::Mutex which does not poison
+- [x] #2 Add a regression test where collect panics in one thread and verifies a subsequent caller still succeeds (or surfaces a typed error rather than a panic)
+- [x] #3 Cross-reference connection.rs MutexPoisoned policy in the call site comment
 <!-- AC:END -->

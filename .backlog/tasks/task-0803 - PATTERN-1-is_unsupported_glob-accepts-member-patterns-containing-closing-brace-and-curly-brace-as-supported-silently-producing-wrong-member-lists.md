@@ -4,9 +4,11 @@ title: >-
   PATTERN-1: is_unsupported_glob accepts member patterns containing
   closing-brace and curly-brace as supported, silently producing wrong member
   lists
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0822
 created_date: '2026-05-01 06:01'
+updated_date: '2026-05-01 07:00'
 labels:
   - code-review-rust
   - patterns

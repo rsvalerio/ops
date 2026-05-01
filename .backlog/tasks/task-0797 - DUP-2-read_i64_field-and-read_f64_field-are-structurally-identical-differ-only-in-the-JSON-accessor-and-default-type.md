@@ -3,9 +3,11 @@ id: TASK-0797
 title: >-
   DUP-2: read_i64_field and read_f64_field are structurally identical, differ
   only in the JSON accessor and default type
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0822
 created_date: '2026-05-01 06:00'
+updated_date: '2026-05-01 06:57'
 labels:
   - code-review-rust
   - duplication

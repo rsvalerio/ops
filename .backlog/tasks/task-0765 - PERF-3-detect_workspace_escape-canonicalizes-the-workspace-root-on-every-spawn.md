@@ -3,9 +3,11 @@ id: TASK-0765
 title: >-
   PERF-3: detect_workspace_escape canonicalizes the workspace root on every
   spawn
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0824
 created_date: '2026-05-01 05:55'
+updated_date: '2026-05-01 09:45'
 labels:
   - code-review-rust
   - performance
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cache the canonical workspace path on CommandRunner (compute lazily once via OnceLock or at construction) and pass it into detect_workspace_escape
-- [ ] #2 Keep the joined-path canonicalize per call (its target legitimately changes)
-- [ ] #3 Pin behavioural parity with a test that verifies escape detection still fires on symlinked-into-workspace paths
+- [x] #1 Cache the canonical workspace path on CommandRunner (compute lazily once via OnceLock or at construction) and pass it into detect_workspace_escape
+- [x] #2 Keep the joined-path canonicalize per call (its target legitimately changes)
+- [x] #3 Pin behavioural parity with a test that verifies escape detection still fires on symlinked-into-workspace paths
 <!-- AC:END -->

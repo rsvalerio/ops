@@ -3,9 +3,11 @@ id: TASK-0764
 title: >-
   PERF-1: exec_command awaits cmd.output() which buffers full stdout/stderr
   before any cap is applied
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0824
 created_date: '2026-05-01 05:55'
+updated_date: '2026-05-01 09:44'
 labels:
   - code-review-rust
   - performance
@@ -25,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Stream stdout/stderr (e.g. via cmd.stdout(Stdio::piped()).spawn() + tokio AsyncRead loop) and stop reading after cap bytes per stream, draining the rest to /dev/null without buffering
-- [ ] #2 Regression test piping >cap bytes asserts peak RSS / collected bytes stays bounded near cap
-- [ ] #3 Update DEFAULT_OUTPUT_BYTE_CAP doc to describe streaming behaviour rather than implying truncate-on-store
+- [x] #1 Stream stdout/stderr (e.g. via cmd.stdout(Stdio::piped()).spawn() + tokio AsyncRead loop) and stop reading after cap bytes per stream, draining the rest to /dev/null without buffering
+- [x] #2 Regression test piping >cap bytes asserts peak RSS / collected bytes stays bounded near cap
+- [x] #3 Update DEFAULT_OUTPUT_BYTE_CAP doc to describe streaming behaviour rather than implying truncate-on-store
 <!-- AC:END -->

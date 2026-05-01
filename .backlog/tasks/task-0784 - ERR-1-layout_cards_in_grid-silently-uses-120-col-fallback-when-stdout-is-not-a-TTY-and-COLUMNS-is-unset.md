@@ -3,9 +3,11 @@ id: TASK-0784
 title: >-
   ERR-1: layout_cards_in_grid silently uses 120-col fallback when stdout is not
   a TTY and COLUMNS is unset
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0828
 created_date: '2026-05-01 05:58'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - errors

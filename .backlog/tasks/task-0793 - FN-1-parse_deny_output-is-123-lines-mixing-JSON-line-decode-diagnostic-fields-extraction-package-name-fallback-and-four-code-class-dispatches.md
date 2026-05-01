@@ -4,9 +4,11 @@ title: >-
   FN-1: parse_deny_output is 123 lines mixing JSON line decode,
   diagnostic-fields extraction, package-name fallback, and four code-class
   dispatches
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0821
 created_date: '2026-05-01 05:59'
+updated_date: '2026-05-01 06:45'
 labels:
   - code-review-rust
   - structure

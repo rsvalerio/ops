@@ -3,9 +3,11 @@ id: TASK-0814
 title: >-
   ERR-2: engines.node is not trim/empty-filtered, allowing whitespace-only
   engine version into stack_detail
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0823
 created_date: '2026-05-01 06:03'
+updated_date: '2026-05-01 09:21'
 labels:
   - code-review-rust
   - errors

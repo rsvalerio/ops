@@ -3,9 +3,11 @@ id: TASK-0767
 title: >-
   READ-5: collect_join_results loses the original CommandId on a panicking
   parallel task
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0824
 created_date: '2026-05-01 05:55'
+updated_date: '2026-05-01 09:47'
 labels:
   - code-review-rust
   - readability
@@ -25,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Use JoinSet::join_next_with_id (or thread the CommandId via a wrapping spawn future) so panicked-task StepResults carry their real id
-- [ ] #2 Keep SEC-21 redaction of the panic payload (no payload string in the StepResult message)
-- [ ] #3 Regression test: spawn a parallel task that panics, assert the returned StepResult.id matches the originating CommandId
+- [x] #1 Use JoinSet::join_next_with_id (or thread the CommandId via a wrapping spawn future) so panicked-task StepResults carry their real id
+- [x] #2 Keep SEC-21 redaction of the panic payload (no payload string in the StepResult message)
+- [x] #3 Regression test: spawn a parallel task that panics, assert the returned StepResult.id matches the originating CommandId
 <!-- AC:END -->

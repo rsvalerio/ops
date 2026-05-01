@@ -3,9 +3,11 @@ id: TASK-0753
 title: >-
   PATTERN-3: CommandRegistry::insert clones CommandId on every duplicate
   registration
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0825
 created_date: '2026-05-01 05:53'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - patterns

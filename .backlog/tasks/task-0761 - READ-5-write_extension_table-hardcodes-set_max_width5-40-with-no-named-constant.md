@@ -3,9 +3,11 @@ id: TASK-0761
 title: >-
   READ-5: write_extension_table hardcodes set_max_width(5, 40) with no named
   constant
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0828
 created_date: '2026-05-01 05:54'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - readability

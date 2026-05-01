@@ -3,9 +3,11 @@ id: TASK-0777
 title: >-
   ASYNC-7: run_plan_parallel uses async even when all parallel tasks would
   benefit from a sync orchestrator on len<=1
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0824
 created_date: '2026-05-01 05:57'
+updated_date: '2026-05-01 09:55'
 labels:
   - code-review-rust
   - async
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add a fast-path in run_plan_parallel for command_ids.len() <= 1 that delegates to the sequential path
-- [ ] #2 Keep observable behaviour (events emitted, results returned) identical, with a regression test pinning the event order
-- [ ] #3 Document the threshold rationale near MAX_PARALLEL
+- [x] #1 Add a fast-path in run_plan_parallel for command_ids.len() <= 1 that delegates to the sequential path
+- [x] #2 Keep observable behaviour (events emitted, results returned) identical, with a regression test pinning the event order
+- [x] #3 Document the threshold rationale near MAX_PARALLEL
 <!-- AC:END -->

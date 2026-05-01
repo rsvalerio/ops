@@ -3,9 +3,11 @@ id: TASK-0787
 title: >-
   SEC-25: data_dir create_dir_all uses default permissions; ingest dir may be
   world-writable
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0827
 created_date: '2026-05-01 05:58'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - security

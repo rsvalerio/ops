@@ -3,9 +3,11 @@ id: TASK-0745
 title: >-
   SEC-21: merge_indexmap debug-logs collided user-controlled keys without
   sanitisation
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0827
 created_date: '2026-05-01 05:52'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - security

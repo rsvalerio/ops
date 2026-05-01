@@ -3,9 +3,11 @@ id: TASK-0744
 title: >-
   SEC-38: Context::get_or_provide has no cycle/recursion detection across
   providers
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0825
 created_date: '2026-05-01 05:52'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - security

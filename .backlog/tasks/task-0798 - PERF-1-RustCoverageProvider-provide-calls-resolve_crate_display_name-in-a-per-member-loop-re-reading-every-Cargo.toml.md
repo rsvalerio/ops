@@ -3,9 +3,11 @@ id: TASK-0798
 title: >-
   PERF-1: RustCoverageProvider::provide calls resolve_crate_display_name in a
   per-member loop, re-reading every Cargo.toml
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0822
 created_date: '2026-05-01 06:01'
+updated_date: '2026-05-01 06:58'
 labels:
   - code-review-rust
   - performance

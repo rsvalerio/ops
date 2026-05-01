@@ -3,9 +3,11 @@ id: TASK-0806
 title: >-
   DUP-3: read_crate_metadata duplicates manifest parsing that the cargo-toml
   extension already exposes
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0822
 created_date: '2026-05-01 06:02'
+updated_date: '2026-05-01 07:00'
 labels:
   - code-review-rust
   - duplication

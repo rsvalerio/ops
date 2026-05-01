@@ -3,9 +3,11 @@ id: TASK-0788
 title: >-
   SEC-14: relative gitdir pointer joins file.parent() with attacker-controlled
   path before canonicalize, allowing symlink-bait worktree pointers
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0827
 created_date: '2026-05-01 05:58'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - security

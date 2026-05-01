@@ -3,9 +3,11 @@ id: TASK-0786
 title: >-
   READ-5: enrich_from_db ships partial frame mixing fresh and stale numbers
   without surfacing it
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0826
 created_date: '2026-05-01 05:58'
+updated_date: '2026-05-01 09:33'
 labels:
   - code-review-rust
   - readability
@@ -25,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When any of the four queries fails, surface a single warn including which fields were left untouched (vs four scattered warns), so an operator reading logs sees the rendered frame is partial
+- [x] #1 When any of the four queries fails, surface a single warn including which fields were left untouched (vs four scattered warns), so an operator reading logs sees the rendered frame is partial
 - [ ] #2 Optional: add a follow-up flag on ProjectIdentity indicating partial enrichment
 <!-- AC:END -->

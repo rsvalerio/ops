@@ -3,9 +3,11 @@ id: TASK-0772
 title: >-
   PERF-2: build_command_with collects expanded args into a fresh Vec<String>
   instead of streaming into Command::args
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0824
 created_date: '2026-05-01 05:56'
+updated_date: '2026-05-01 09:53'
 labels:
   - code-review-rust
   - performance
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace the collect-into-Vec<String> with a for loop calling cmd.arg(expanded.as_ref()) and propagating ExpandError via ?
-- [ ] #2 Keep the early-return semantics on the first failing arg
-- [ ] #3 Confirm with a microbench or trace that the no-op expansion path drops to zero arg-string allocations
+- [x] #1 Replace the collect-into-Vec<String> with a for loop calling cmd.arg(expanded.as_ref()) and propagating ExpandError via ?
+- [x] #2 Keep the early-return semantics on the first failing arg
+- [x] #3 Confirm with a microbench or trace that the no-op expansion path drops to zero arg-string allocations
 <!-- AC:END -->

@@ -3,9 +3,11 @@ id: TASK-0801
 title: >-
   DUP-1: format_advisories and format_deny_section share the
   title+count+pkg-width+advice block rendering shape
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0821
 created_date: '2026-05-01 06:01'
+updated_date: '2026-05-01 06:45'
 labels:
   - code-review-rust
   - duplication

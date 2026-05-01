@@ -3,9 +3,11 @@ id: TASK-0809
 title: >-
   ERR-7: tracing::warn! logs go.work use directive via Display, allowing log
   injection
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0823
 created_date: '2026-05-01 06:02'
+updated_date: '2026-05-01 09:21'
 labels:
   - code-review-rust
   - security

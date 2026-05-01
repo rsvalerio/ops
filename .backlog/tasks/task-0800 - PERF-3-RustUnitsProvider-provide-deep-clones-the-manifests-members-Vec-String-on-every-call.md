@@ -3,9 +3,11 @@ id: TASK-0800
 title: >-
   PERF-3: RustUnitsProvider::provide deep-clones the manifest's members
   Vec<String> on every call
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0822
 created_date: '2026-05-01 06:01'
+updated_date: '2026-05-01 07:00'
 labels:
   - code-review-rust
   - performance

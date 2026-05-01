@@ -3,9 +3,11 @@ id: TASK-0791
 title: >-
   ASYNC-6: deps::check_tool spawns cargo upgrade --version / cargo deny
   --version with no timeout
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0821
 created_date: '2026-05-01 05:59'
+updated_date: '2026-05-01 06:45'
 labels:
   - code-review-rust
   - async

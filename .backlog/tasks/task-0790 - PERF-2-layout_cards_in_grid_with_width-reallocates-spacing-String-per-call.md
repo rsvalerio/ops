@@ -1,9 +1,11 @@
 ---
 id: TASK-0790
 title: 'PERF-2: layout_cards_in_grid_with_width reallocates spacing String per call'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0828
 created_date: '2026-05-01 05:58'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - performance

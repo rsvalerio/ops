@@ -3,9 +3,11 @@ id: TASK-0820
 title: >-
   FN-1: collect_units workspace branch is a 36-line closure mixing path
   normalization, mod parsing, and description shaping
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0823
 created_date: '2026-05-01 06:03'
+updated_date: '2026-05-01 09:21'
 labels:
   - code-review-rust
   - structure

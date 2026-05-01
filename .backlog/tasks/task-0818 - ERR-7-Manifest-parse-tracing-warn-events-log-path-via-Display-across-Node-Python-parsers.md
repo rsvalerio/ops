@@ -3,9 +3,11 @@ id: TASK-0818
 title: >-
   ERR-7: Manifest-parse tracing::warn! events log path via Display across
   Node/Python parsers
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0823
 created_date: '2026-05-01 06:03'
+updated_date: '2026-05-01 09:21'
 labels:
   - code-review-rust
   - security

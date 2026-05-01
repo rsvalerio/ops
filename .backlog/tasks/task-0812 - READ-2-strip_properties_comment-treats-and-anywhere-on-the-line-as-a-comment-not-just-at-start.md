@@ -3,9 +3,11 @@ id: TASK-0812
 title: >-
   READ-2: strip_properties_comment treats # and ! anywhere on the line as a
   comment, not just at start
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0823
 created_date: '2026-05-01 06:03'
+updated_date: '2026-05-01 09:21'
 labels:
   - code-review-rust
   - readability

@@ -3,9 +3,11 @@ id: TASK-0817
 title: >-
   READ-2: parse_gradle_settings closure scan body is 38 lines mixing assignment
   extraction, Kotlin DSL chained-include loop, and Groovy form
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0823
 created_date: '2026-05-01 06:03'
+updated_date: '2026-05-01 09:21'
 labels:
   - code-review-rust
   - readability

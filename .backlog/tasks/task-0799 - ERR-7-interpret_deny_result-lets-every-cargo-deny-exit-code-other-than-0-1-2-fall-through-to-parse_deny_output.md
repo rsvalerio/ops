@@ -3,9 +3,11 @@ id: TASK-0799
 title: >-
   ERR-7: interpret_deny_result lets every cargo-deny exit code other than 0/1/2
   fall through to parse_deny_output
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0821
 created_date: '2026-05-01 06:01'
+updated_date: '2026-05-01 06:45'
 labels:
   - code-review-rust
   - errors

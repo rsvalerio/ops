@@ -3,9 +3,11 @@ id: TASK-0768
 title: >-
   ERR-1: finalize_orphan_bars renders Skipped state without emitting a
   StepSkipped RunnerEvent
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0824
 created_date: '2026-05-01 05:55'
+updated_date: '2026-05-01 09:49'
 labels:
   - code-review-rust
   - errors
@@ -25,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Emit RunnerEvent::StepSkipped { id, display_cmd: None } for each orphan before the bar is finalized, going through the standard on_event callback path
-- [ ] #2 Test runs a fail_fast parallel plan with a slow sibling, captures all RunnerEvents, asserts every started step has a matching terminal (Finished/Failed/Skipped) event
-- [ ] #3 Keep the visual rendering identical (still uses StepStatus::Skipped + the bar elapsed)
+- [x] #1 Emit RunnerEvent::StepSkipped { id, display_cmd: None } for each orphan before the bar is finalized, going through the standard on_event callback path
+- [x] #2 Test runs a fail_fast parallel plan with a slow sibling, captures all RunnerEvents, asserts every started step has a matching terminal (Finished/Failed/Skipped) event
+- [x] #3 Keep the visual rendering identical (still uses StepStatus::Skipped + the bar elapsed)
 <!-- AC:END -->

@@ -1,9 +1,11 @@
 ---
 id: TASK-0748
 title: 'ARCH-9: ConfigurableTheme(pub ThemeConfig) exposes inner config publicly'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0828
 created_date: '2026-05-01 05:52'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - api

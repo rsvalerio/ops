@@ -3,9 +3,11 @@ id: TASK-0805
 title: >-
   FN-4: read_crate_metadata returns a positional Option<String> triple with no
   field labels at call sites
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0822
 created_date: '2026-05-01 06:02'
+updated_date: '2026-05-01 07:00'
 labels:
   - code-review-rust
   - structure

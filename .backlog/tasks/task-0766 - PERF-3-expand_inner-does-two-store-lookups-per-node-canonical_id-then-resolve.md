@@ -3,9 +3,11 @@ id: TASK-0766
 title: >-
   PERF-3: expand_inner does two store lookups per node (canonical_id then
   resolve)
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0825
 created_date: '2026-05-01 05:55'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - performance

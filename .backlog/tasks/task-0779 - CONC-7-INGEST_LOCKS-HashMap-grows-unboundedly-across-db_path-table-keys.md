@@ -1,9 +1,11 @@
 ---
 id: TASK-0779
 title: 'CONC-7: INGEST_LOCKS HashMap grows unboundedly across (db_path, table) keys'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0826
 created_date: '2026-05-01 05:57'
+updated_date: '2026-05-01 09:32'
 labels:
   - code-review-rust
   - concurrency
@@ -23,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Document or bound the cache (size cap, LRU, or per-DuckDb instance map) so it does not grow with workspace switches
-- [ ] #2 Add a regression test exercising N distinct (db_path, table) keys and verifying memory or count stays bounded
+- [x] #1 Document or bound the cache (size cap, LRU, or per-DuckDb instance map) so it does not grow with workspace switches
+- [x] #2 Add a regression test exercising N distinct (db_path, table) keys and verifying memory or count stays bounded
 <!-- AC:END -->

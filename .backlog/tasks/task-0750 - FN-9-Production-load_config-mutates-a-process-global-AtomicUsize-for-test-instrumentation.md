@@ -3,9 +3,11 @@ id: TASK-0750
 title: >-
   FN-9: Production load_config mutates a process-global AtomicUsize for test
   instrumentation
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0829
 created_date: '2026-05-01 05:52'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - structure

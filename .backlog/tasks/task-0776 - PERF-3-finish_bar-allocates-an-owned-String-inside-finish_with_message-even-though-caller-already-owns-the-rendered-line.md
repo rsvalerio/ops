@@ -3,9 +3,11 @@ id: TASK-0776
 title: >-
   PERF-3: finish_bar allocates an owned String inside finish_with_message even
   though caller already owns the rendered line
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0824
 created_date: '2026-05-01 05:56'
+updated_date: '2026-05-01 09:55'
 labels:
   - code-review-rust
   - performance
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Change finish_bar to accept String (or impl Into<Cow<'static, str>>) and update call sites to pass owned strings already constructed
-- [ ] #2 Keep the write_non_tty(line) mirror call by borrowing back from the owned value
-- [ ] #3 Pin behaviour with the existing display tests
+- [x] #1 Change finish_bar to accept String (or impl Into<Cow<'static, str>>) and update call sites to pass owned strings already constructed
+- [x] #2 Keep the write_non_tty(line) mirror call by borrowing back from the owned value
+- [x] #3 Pin behaviour with the existing display tests
 <!-- AC:END -->

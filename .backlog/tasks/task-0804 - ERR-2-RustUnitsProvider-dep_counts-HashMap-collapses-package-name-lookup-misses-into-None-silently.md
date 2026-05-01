@@ -3,9 +3,11 @@ id: TASK-0804
 title: >-
   ERR-2: RustUnitsProvider dep_counts HashMap collapses package-name lookup
   misses into None silently
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0822
 created_date: '2026-05-01 06:01'
+updated_date: '2026-05-01 07:00'
 labels:
   - code-review-rust
   - errors

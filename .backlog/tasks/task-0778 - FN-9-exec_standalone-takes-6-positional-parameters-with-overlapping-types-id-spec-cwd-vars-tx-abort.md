@@ -3,9 +3,11 @@ id: TASK-0778
 title: >-
   FN-9: exec_standalone takes 6 positional parameters with overlapping types
   (id, spec, cwd, vars, tx, abort)
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0824
 created_date: '2026-05-01 05:57'
+updated_date: '2026-05-01 09:57'
 labels:
   - code-review-rust
   - structure
@@ -25,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Group the four shared Arc/Sender/AbortSignal parameters into an ExecTaskCtx struct with a single Clone impl, leaving (id, spec, ctx) as the public surface
-- [ ] #2 Drop the #[allow(clippy::too_many_arguments)] lint suppression
-- [ ] #3 Keep behaviour identical (no ownership/cloning regressions; pin with the existing parallel tests)
+- [x] #1 Group the four shared Arc/Sender/AbortSignal parameters into an ExecTaskCtx struct with a single Clone impl, leaving (id, spec, ctx) as the public surface
+- [x] #2 Drop the #[allow(clippy::too_many_arguments)] lint suppression
+- [x] #3 Keep behaviour identical (no ownership/cloning regressions; pin with the existing parallel tests)
 <!-- AC:END -->

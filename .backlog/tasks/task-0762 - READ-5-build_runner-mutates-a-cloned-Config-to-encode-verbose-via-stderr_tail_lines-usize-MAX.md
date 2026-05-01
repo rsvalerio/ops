@@ -3,9 +3,11 @@ id: TASK-0762
 title: >-
   READ-5: build_runner mutates a cloned Config to encode "verbose" via
   stderr_tail_lines = usize::MAX
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0828
 created_date: '2026-05-01 05:54'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - readability

@@ -3,9 +3,11 @@ id: TASK-0807
 title: >-
   PERF-2: merge_features rebuilds a HashSet<&str> on every dependency merge
   instead of in-place dedup
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0822
 created_date: '2026-05-01 06:02'
+updated_date: '2026-05-01 07:01'
 labels:
   - code-review-rust
   - performance

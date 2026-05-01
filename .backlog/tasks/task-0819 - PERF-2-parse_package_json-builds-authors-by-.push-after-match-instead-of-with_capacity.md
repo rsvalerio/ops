@@ -3,9 +3,11 @@ id: TASK-0819
 title: >-
   PERF-2: parse_package_json builds authors by .push after match instead of
   with_capacity
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0823
 created_date: '2026-05-01 06:03'
+updated_date: '2026-05-01 09:21'
 labels:
   - code-review-rust
   - performance

@@ -3,9 +3,11 @@ id: TASK-0811
 title: >-
   SEC-14: append_tree_directory does not sanitize .. segments in directory,
   producing traversal-shaped URLs
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0827
 created_date: '2026-05-01 06:02'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - security

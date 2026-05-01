@@ -1,9 +1,11 @@
 ---
 id: TASK-0749
 title: 'TRAIT-4: ToolSource derives Clone but not Copy despite being unit-variant enum'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0829
 created_date: '2026-05-01 05:52'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - traits

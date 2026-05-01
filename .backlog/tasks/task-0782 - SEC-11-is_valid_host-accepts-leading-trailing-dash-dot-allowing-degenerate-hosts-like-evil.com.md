@@ -3,9 +3,11 @@ id: TASK-0782
 title: >-
   SEC-11: is_valid_host accepts leading/trailing dash/dot, allowing degenerate
   hosts like -evil.com
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-0827
 created_date: '2026-05-01 05:57'
+updated_date: '2026-05-01 06:18'
 labels:
   - code-review-rust
   - security

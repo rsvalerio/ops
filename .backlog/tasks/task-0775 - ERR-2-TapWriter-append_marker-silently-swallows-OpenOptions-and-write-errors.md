@@ -1,9 +1,11 @@
 ---
 id: TASK-0775
 title: 'ERR-2: TapWriter::append_marker silently swallows OpenOptions and write errors'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-0824
 created_date: '2026-05-01 05:56'
+updated_date: '2026-05-01 09:54'
 labels:
   - code-review-rust
   - errors
@@ -23,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Log at tracing::warn!(target: "ops::tap") if the append-marker open or writeln fails, distinguishing the two failure modes
-- [ ] #2 Keep the function infallible (no Result propagation; it is best-effort by design)
+- [x] #1 Log at tracing::warn!(target: "ops::tap") if the append-marker open or writeln fails, distinguishing the two failure modes
+- [x] #2 Keep the function infallible (no Result propagation; it is best-effort by design)
 - [ ] #3 Optionally test by chmod'ing the tap file read-only after writes start
 <!-- AC:END -->
