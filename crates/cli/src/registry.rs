@@ -114,20 +114,6 @@ pub fn builtin_extensions(
     Ok(exts)
 }
 
-fn register_with_extensions<R, F>(
-    extensions: &[&dyn Extension],
-    registry: &mut R,
-    action_name: &'static str,
-    mut action: F,
-) where
-    F: FnMut(&dyn Extension, &mut R),
-{
-    for e in extensions {
-        debug!(extension = e.name(), action = action_name, "registering");
-        action(*e, registry);
-    }
-}
-
 /// Collect all commands from registered extensions into a registry.
 ///
 /// SEC-31 / TASK-0402 (symmetric with TASK-0350 for `DataRegistry`):
@@ -214,13 +200,86 @@ pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut
 }
 
 /// Collect all data providers from registered extensions.
+///
+/// CL-5 / TASK-0756: symmetric with [`register_extension_commands`]. Each
+/// extension registers into a per-extension scratch [`DataRegistry`] so the
+/// wiring layer can detect (a) in-extension duplicates via
+/// [`DataRegistry::take_duplicate_inserts`] and (b) cross-extension or
+/// pre-existing-owner collisions via the local `owners` map. Earlier the
+/// data-provider path was a thin pass-through with no audit at all, so a
+/// silent first-write-wins drop here was invisible to operators reading
+/// `RUST_LOG=ops=debug` even though the symmetric command-registration path
+/// already warned loudly on every collision class.
 pub fn register_extension_data_providers(
     extensions: &[&dyn Extension],
     registry: &mut DataRegistry,
 ) {
-    register_with_extensions(extensions, registry, "data_providers", |ext, reg| {
-        ext.register_data_providers(reg);
-    });
+    enum DataProviderOwner {
+        PreExisting,
+        Extension(&'static str),
+    }
+
+    let mut owners: std::collections::HashMap<String, DataProviderOwner> =
+        std::collections::HashMap::new();
+
+    // Seed `owners` with anything already in the registry so the first
+    // extension's contributions still see the existing names as foreign-owned
+    // (and thus collide loudly rather than silently).
+    for name in registry.provider_names() {
+        owners
+            .entry(name.to_string())
+            .or_insert(DataProviderOwner::PreExisting);
+    }
+
+    for ext in extensions {
+        debug!(
+            extension = ext.name(),
+            action = "data_providers",
+            "registering"
+        );
+        let mut local = DataRegistry::new();
+        ext.register_data_providers(&mut local);
+
+        // ERR-2: a single extension that registers the same provider name
+        // twice surfaces here via the audit trail rather than a silent drop.
+        for dup in local.take_duplicate_inserts() {
+            tracing::warn!(
+                provider = %dup,
+                extension = ext.name(),
+                "extension registered the same data provider name more than once; first-write-wins keeps the earlier registration within this extension and the later ones are dropped"
+            );
+        }
+
+        for (name, provider) in local {
+            use std::collections::hash_map::Entry;
+            match owners.entry(name.clone()) {
+                Entry::Occupied(occ) => match occ.get() {
+                    DataProviderOwner::Extension(prev) if *prev != ext.name() => {
+                        tracing::warn!(
+                            provider = %name,
+                            first = %prev,
+                            second = %ext.name(),
+                            "duplicate data provider registration; first-write-wins keeps the earlier extension's provider and the later one is dropped"
+                        );
+                    }
+                    DataProviderOwner::PreExisting => {
+                        tracing::warn!(
+                            provider = %name,
+                            second = %ext.name(),
+                            "extension data provider would shadow an entry already present in the registry; first-write-wins keeps the existing one"
+                        );
+                    }
+                    DataProviderOwner::Extension(_) => {
+                        // Same extension — already surfaced via take_duplicate_inserts above.
+                    }
+                },
+                Entry::Vacant(vac) => {
+                    vac.insert(DataProviderOwner::Extension(ext.name()));
+                    registry.register(name, provider);
+                }
+            }
+        }
+    }
 }
 
 /// DUP-003: Build a DataRegistry from all enabled extensions in one call.
@@ -540,6 +599,169 @@ mod tests {
         assert!(
             registry.is_empty(),
             "no extensions → no commands registered"
+        );
+    }
+
+    /// CL-5 / TASK-0756: when two extensions register the same data provider
+    /// name, the wiring layer must (a) keep the first registration
+    /// (first-write-wins, the security-trusted default) and (b) emit a
+    /// `tracing::warn!` that names both extensions and the provider so the
+    /// collision is visible to operators.
+    #[test]
+    fn register_extension_data_providers_warns_on_cross_extension_collision() {
+        use ops_extension::{
+            CommandRegistry, Context, DataProvider, DataProviderError, DataRegistry, Extension,
+        };
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        struct StubProvider(&'static str);
+        impl DataProvider for StubProvider {
+            fn name(&self) -> &'static str {
+                self.0
+            }
+            fn provide(&self, _ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+                Ok(serde_json::Value::Null)
+            }
+        }
+
+        struct ExtA;
+        impl Extension for ExtA {
+            fn name(&self) -> &'static str {
+                "ext_a"
+            }
+            fn register_commands(&self, _registry: &mut CommandRegistry) {}
+            fn register_data_providers(&self, registry: &mut DataRegistry) {
+                registry.register("shared", Box::new(StubProvider("a")));
+            }
+        }
+        struct ExtB;
+        impl Extension for ExtB {
+            fn name(&self) -> &'static str {
+                "ext_b"
+            }
+            fn register_commands(&self, _registry: &mut CommandRegistry) {}
+            fn register_data_providers(&self, registry: &mut DataRegistry) {
+                registry.register("shared", Box::new(StubProvider("b")));
+            }
+        }
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let a = ExtA;
+        let b = ExtB;
+        let exts: Vec<&dyn Extension> = vec![&a, &b];
+        let mut registry = DataRegistry::new();
+        tracing::subscriber::with_default(subscriber, || {
+            register_extension_data_providers(&exts, &mut registry);
+        });
+
+        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        assert!(
+            logs.contains("ext_a") && logs.contains("ext_b") && logs.contains("shared"),
+            "warning must name both extensions and the provider, got: {logs}"
+        );
+        assert!(
+            registry.get("shared").is_some(),
+            "first-write-wins must keep the first registration"
+        );
+    }
+
+    /// CL-5 / TASK-0756: a single extension that calls `register` twice for
+    /// the same provider name must surface the duplicate via the wiring
+    /// layer's audit drain (parallel to `take_duplicate_inserts` for
+    /// commands), rather than silently dropping the second registration.
+    #[test]
+    fn register_extension_data_providers_warns_on_in_extension_duplicate() {
+        use ops_extension::{
+            CommandRegistry, Context, DataProvider, DataProviderError, DataRegistry, Extension,
+        };
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        struct StubProvider;
+        impl DataProvider for StubProvider {
+            fn name(&self) -> &'static str {
+                "stub"
+            }
+            fn provide(&self, _ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+                Ok(serde_json::Value::Null)
+            }
+        }
+
+        struct DoubleRegisterExt;
+        impl Extension for DoubleRegisterExt {
+            fn name(&self) -> &'static str {
+                "double_register"
+            }
+            fn register_commands(&self, _registry: &mut CommandRegistry) {}
+            fn register_data_providers(&self, registry: &mut DataRegistry) {
+                registry.register("provider_x", Box::new(StubProvider));
+                registry.register("provider_x", Box::new(StubProvider));
+            }
+        }
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let ext = DoubleRegisterExt;
+        let exts: Vec<&dyn Extension> = vec![&ext];
+        let mut registry = DataRegistry::new();
+        tracing::subscriber::with_default(subscriber, || {
+            register_extension_data_providers(&exts, &mut registry);
+        });
+
+        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        assert!(
+            logs.contains("double_register") && logs.contains("provider_x"),
+            "in-extension duplicate warning must name the extension and provider, got: {logs}"
         );
     }
 

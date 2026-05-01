@@ -126,15 +126,23 @@ pub trait DataProvider: Send + Sync {
 }
 
 /// Registry of provider name → DataProvider.
+#[derive(Default)]
 pub struct DataRegistry {
     providers: HashMap<String, Box<dyn DataProvider>>,
+    /// CL-5 / TASK-0756: per-instance audit trail of names that were
+    /// rejected by [`DataRegistry::register`] because the registry was
+    /// already first-write-wins owned. The CLI wiring layer drains this via
+    /// [`DataRegistry::take_duplicate_inserts`] after each extension's
+    /// `register_data_providers` call so a single extension that registers
+    /// the same provider name twice surfaces a `tracing::warn!` event
+    /// instead of silently dropping the second registration.
+    duplicate_inserts: Vec<String>,
 }
 
 impl DataRegistry {
+    #[must_use]
     pub fn new() -> Self {
-        Self {
-            providers: HashMap::new(),
-        }
+        Self::default()
     }
 
     /// Register a data provider under `name`.
@@ -142,27 +150,39 @@ impl DataRegistry {
     /// SEC-31 / TASK-0350: previously the implementation called `HashMap::insert`
     /// and silently discarded the returned `Option`, so a second registration
     /// for the same name would replace a trusted built-in (identity, metadata)
-    /// with whatever extension loaded later. Now duplicate registrations are
-    /// refused: the first provider wins, the second is logged at
-    /// `tracing::warn!`, and a `debug_assert!` panics in debug builds so test
-    /// suites catch the collision instead of shipping it.
+    /// with whatever extension loaded later. Duplicate registrations are now
+    /// refused: the first provider wins and the second is recorded for the
+    /// CLI wiring layer to surface as a `tracing::warn!`.
     ///
     /// CL-5 / TASK-0661: this registry is **first-write-wins** because the
     /// providers are security-trusted built-ins. Contrast with
     /// [`crate::CommandRegistry::insert`] which is **last-write-wins** so
     /// config commands can intentionally shadow extension-provided
     /// commands. The two policies diverge by design.
+    ///
+    /// CL-5 / TASK-0756: the previous implementation also fired a
+    /// `debug_assert!(false)` on collision, which weaponised tests against
+    /// any in-extension duplicate (the wiring layer's per-extension scratch
+    /// registry would panic instead of letting the wiring code aggregate
+    /// the warning). The audit-trail mechanism replaces that panic so
+    /// in-extension duplicates surface as a single warning emitted from one
+    /// place rather than as a bespoke panic.
     pub fn register(&mut self, name: impl Into<String>, provider: Box<dyn DataProvider>) {
         let name = name.into();
         if self.providers.contains_key(&name) {
-            debug_assert!(false, "duplicate data provider registration for `{name}`");
-            tracing::warn!(
-                provider = %name,
-                "duplicate data provider registration ignored; keeping the first registration"
-            );
+            self.duplicate_inserts.push(name);
             return;
         }
         self.providers.insert(name, provider);
+    }
+
+    /// Drain provider names that were rejected as duplicates since the last
+    /// drain. CL-5 / TASK-0756: parallel to
+    /// [`crate::CommandRegistry::take_duplicate_inserts`]. The CLI wiring
+    /// layer calls this after each extension's `register_data_providers`
+    /// invocation and emits one `tracing::warn!` per entry.
+    pub fn take_duplicate_inserts(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.duplicate_inserts)
     }
 
     pub fn get(&self, name: &str) -> Option<&dyn DataProvider> {
@@ -206,9 +226,11 @@ impl DataRegistry {
     }
 }
 
-impl Default for DataRegistry {
-    fn default() -> Self {
-        Self::new()
+impl IntoIterator for DataRegistry {
+    type Item = (String, Box<dyn DataProvider>);
+    type IntoIter = std::collections::hash_map::IntoIter<String, Box<dyn DataProvider>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.providers.into_iter()
     }
 }
 
