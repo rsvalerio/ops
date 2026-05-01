@@ -55,6 +55,38 @@ impl Stack {
         self.metadata().0
     }
 
+    /// File extensions used for extension-based detection (in addition to exact manifest files).
+    fn manifest_extensions(&self) -> &[&str] {
+        match self {
+            Stack::Terraform => &["tf"],
+            _ => &[],
+        }
+    }
+
+    /// Whether this stack has a manifest (exact filename or extension match) in `dir`.
+    fn has_manifest_in_dir(&self, dir: &Path) -> bool {
+        if self
+            .manifest_files()
+            .iter()
+            .any(|f| manifest_present(&dir.join(f)))
+        {
+            return true;
+        }
+        let extensions = self.manifest_extensions();
+        if !extensions.is_empty() {
+            if let Ok(entries) = dir.read_dir() {
+                for entry in entries.flatten() {
+                    if let Some(ext) = entry.path().extension() {
+                        if extensions.iter().any(|e| ext == *e) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
     /// DUP-001: Resolve stack from config override or auto-detection.
     ///
     /// Shared by `CommandRunner::new()` and `extensions::resolve_stack()`.
@@ -124,11 +156,10 @@ impl Stack {
 
         let mut current = start.to_path_buf();
         for _ in 0..Self::MAX_DETECT_DEPTH {
-            if let Some(&stack) = DETECT_ORDER.iter().find(|s| {
-                s.manifest_files()
-                    .iter()
-                    .any(|f| manifest_present(&current.join(f)))
-            }) {
+            if let Some(&stack) = DETECT_ORDER
+                .iter()
+                .find(|s| s.has_manifest_in_dir(&current))
+            {
                 return Some(stack);
             }
             if !current.pop() {
@@ -416,6 +447,13 @@ mod tests {
     fn detect_finds_terraform() {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("main.tf"), "").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::Terraform));
+    }
+
+    #[test]
+    fn detect_finds_terraform_by_extension() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("network.tf"), "").expect("write");
         assert_eq!(Stack::detect(dir.path()), Some(Stack::Terraform));
     }
 
