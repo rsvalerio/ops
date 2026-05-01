@@ -660,6 +660,29 @@ mod raw_warnings_tests {
         let logs = capture(|| emit_raw_warnings(false, false));
         assert!(logs.is_empty(), "unexpected output: {logs}");
     }
+
+    /// CL-5 / TASK-0755: the single-command `--raw` path used to inline its
+    /// own copy of the tap-warning string; route it through
+    /// `emit_raw_warnings` so the message lives in one place and never fires
+    /// twice for the same invocation.
+    #[test]
+    fn single_command_raw_path_emits_tap_warning_exactly_once() {
+        use crate::run_cmd::run_command_raw;
+        use crate::test_utils::TestConfigBuilder;
+
+        let config = TestConfigBuilder::new()
+            .exec("echo_one", "echo", &["hi"])
+            .build();
+        let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
+        let logs = capture(|| {
+            let _ = run_command_raw(&runner, "echo_one", true);
+        });
+        let tap_warnings = logs.matches("--tap is ignored").count();
+        assert_eq!(
+            tap_warnings, 1,
+            "single-command raw path with --tap must emit the warning exactly once; got: {logs}"
+        );
+    }
 }
 
 mod nested_parallel_detection_tests {
@@ -740,5 +763,64 @@ mod nested_parallel_detection_tests {
             .commands
             .insert("b".to_string(), CommandSpec::Composite(b));
         assert!(!composite_tree_has_parallel(&runner_with(config), "a"));
+    }
+}
+
+/// PATTERN-1 / TASK-0754: `merge_plan` aggregates `parallel` / `fail_fast`
+/// flags by walking the composite tree, so an outer composite that wraps a
+/// parallel inner composite still surfaces `any_parallel = true` and a
+/// nested `fail_fast = false` propagates upward.
+mod merge_plan_nested_aggregation_tests {
+    use crate::run_cmd::plan::merge_plan;
+    use crate::test_utils::TestConfigBuilder;
+    use ops_core::config::{CommandSpec, CompositeCommandSpec, Config};
+    use std::path::PathBuf;
+
+    fn runner_with(config: Config) -> ops_runner::command::CommandRunner {
+        ops_runner::command::CommandRunner::new(config, PathBuf::from("."))
+    }
+
+    #[test]
+    fn merge_plan_picks_up_nested_parallel() {
+        let mut inner = CompositeCommandSpec::new(["a", "b"]);
+        inner.parallel = true;
+        let outer = CompositeCommandSpec::new(["inner"]); // outer.parallel = false
+        let mut config = TestConfigBuilder::new()
+            .exec("a", "echo", &["a"])
+            .exec("b", "echo", &["b"])
+            .build();
+        config
+            .commands
+            .insert("inner".to_string(), CommandSpec::Composite(inner));
+        config
+            .commands
+            .insert("outer".to_string(), CommandSpec::Composite(outer));
+
+        let (_, any_parallel, fail_fast) = merge_plan(&runner_with(config), &["outer"]).unwrap();
+        assert!(
+            any_parallel,
+            "nested inner.parallel must propagate to merge_plan"
+        );
+        assert!(fail_fast, "no composite disables fail_fast → defaults true");
+    }
+
+    #[test]
+    fn merge_plan_picks_up_nested_fail_fast_disabled() {
+        let mut inner = CompositeCommandSpec::new(["a"]);
+        inner.fail_fast = false;
+        let outer = CompositeCommandSpec::new(["inner"]); // outer.fail_fast defaults true
+        let mut config = TestConfigBuilder::new().exec("a", "echo", &["a"]).build();
+        config
+            .commands
+            .insert("inner".to_string(), CommandSpec::Composite(inner));
+        config
+            .commands
+            .insert("outer".to_string(), CommandSpec::Composite(outer));
+
+        let (_, _any_parallel, fail_fast) = merge_plan(&runner_with(config), &["outer"]).unwrap();
+        assert!(
+            !fail_fast,
+            "nested inner.fail_fast = false must propagate to merge_plan"
+        );
     }
 }
