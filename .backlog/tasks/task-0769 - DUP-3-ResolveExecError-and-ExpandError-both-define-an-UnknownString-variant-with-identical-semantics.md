@@ -3,11 +3,11 @@ id: TASK-0769
 title: >-
   DUP-3: ResolveExecError and ExpandError both define an Unknown(String) variant
   with identical semantics
-status: To Do
+status: Done
 assignee:
   - TASK-0825
 created_date: '2026-05-01 05:55'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 11:47'
 labels:
   - code-review-rust
   - duplication

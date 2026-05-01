@@ -3,11 +3,11 @@ id: TASK-0754
 title: >-
   PATTERN-1: merge_plan only inspects top-level composite for
   parallel/fail_fast, ignoring nested composites
-status: To Do
+status: Done
 assignee:
   - TASK-0825
 created_date: '2026-05-01 05:53'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 11:40'
 labels:
   - code-review-rust
   - patterns

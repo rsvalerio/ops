@@ -3,11 +3,11 @@ id: TASK-0756
 title: >-
   CL-5: register_extension_data_providers silently overwrites duplicates while
   register_extension_commands warns on every collision class
-status: To Do
+status: Done
 assignee:
   - TASK-0825
 created_date: '2026-05-01 05:53'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 11:44'
 labels:
   - code-review-rust
   - structure

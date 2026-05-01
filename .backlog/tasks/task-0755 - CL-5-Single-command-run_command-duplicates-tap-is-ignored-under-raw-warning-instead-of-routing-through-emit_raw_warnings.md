@@ -3,11 +3,11 @@ id: TASK-0755
 title: >-
   CL-5: Single-command run_command duplicates --tap is ignored under --raw
   warning instead of routing through emit_raw_warnings
-status: To Do
+status: Done
 assignee:
   - TASK-0825
 created_date: '2026-05-01 05:53'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-01 11:41'
 labels:
   - code-review-rust
   - structure
