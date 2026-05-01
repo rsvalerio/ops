@@ -1,50 +1,13 @@
 [output]
-theme = "studio"
+theme = "compact"
 #theme = "classic"
 
 [commands.install]
 program = "cargo"
 args = ["install", "--path", "crates/cli", "--force", "--all-features"]
 
-[commands.run-before-commit]
-commands = ["verify"]
+[commands.before-commit]
+commands = ["verify","qa"]
 fail_fast = true
-help = "Run run-before-commit checks before committing"
-
-[commands.run-before-push]
-commands = ["qa"]
-fail_fast = true
-help = "Run run-before-push checks before pushing"
-
-[commands.code-review]
-program = "claude"
-args = [
-    "--print",
-    "'/rust-code-review @crates @extensions @extensions-go @extensions-java @extensions-rust'"
-]
-category = "Code Quality"
-
-[commands.code-review-z]
-program = "claude"
-args = [
-    "--settings",
-    "$HOME/.claude/z-settings.json",
-    "--tools",
-    "default",
-    "--model",
-    "GLM-4.7",
-    # "--output-format",
-    # "stream-json",
-    # "--verbose",
-    "--print",
-    "'/rust-code-review @crates/cli"
-]
-category = "Code Quality"
-
-[commands.todo]
-program = "backlog"
-args = ["task", "list", "--status", "'To Do'", "--plain"]
-# [commands.todo]
-# program = "backlog"
-# args = ["task", "list", "--status", "'To", "Do'", "--plain"]
-
+parallel = true
+help = "Run verify (fmt, check, clippy, build) and qa (test, deps) before committing"

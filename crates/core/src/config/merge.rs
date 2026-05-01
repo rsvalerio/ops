@@ -174,6 +174,7 @@ mod tests {
     /// — the injected `\n2026-01-01 ERROR ...` line shape must not appear
     /// as a separate physical line.
     #[test]
+    #[serial_test::serial]
     fn merge_indexmap_collision_log_escapes_control_characters_in_keys() {
         use std::io::Write;
         use std::sync::{Arc, Mutex};
@@ -208,25 +209,25 @@ mod tests {
             base.insert(injected.clone(), 1);
             let overlay = IndexMap::from([(injected.clone(), 99)]);
             merge_indexmap(&mut base, Some(overlay));
-        });
 
-        let logged = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
-        assert!(
-            logged.contains("config overlay shadows base entries"),
-            "expected debug log, got: {logged}"
-        );
-        // The forged tail must not appear as the start of a physical line —
-        // the escaping turns the embedded \n into the two characters `\n`.
-        for line in logged.lines() {
+            let logged = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
             assert!(
-                !line.starts_with("2026-01-01"),
-                "control-char in key forged a log line: {logged}"
+                logged.contains("config overlay shadows base entries"),
+                "expected debug log, got: {logged}"
             );
-        }
-        assert!(
-            logged.contains("\\n"),
-            "expected escaped \\n in captured output: {logged}"
-        );
+            // The forged tail must not appear as the start of a physical line —
+            // the escaping turns the embedded \n into the two characters `\n`.
+            for line in logged.lines() {
+                assert!(
+                    !line.starts_with("2026-01-01"),
+                    "control-char in key forged a log line: {logged}"
+                );
+            }
+            assert!(
+                logged.contains("\\n"),
+                "expected escaped \\n in captured output: {logged}"
+            );
+        });
     }
 
     #[test]

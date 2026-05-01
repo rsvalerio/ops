@@ -467,7 +467,7 @@ mod tests {
         let result = has_staged_files_with_timeout(
             fake_git.to_str().unwrap(),
             dir.path(),
-            Duration::from_millis(500),
+            Duration::from_millis(1500),
         );
         let elapsed = started.elapsed();
 

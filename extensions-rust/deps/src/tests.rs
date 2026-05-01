@@ -1046,6 +1046,7 @@ fn deps_report_serialization_round_trip() {
 }
 
 #[test]
+#[serial_test::serial]
 fn parse_deny_output_skips_malformed_json_with_tracing() {
     use std::io::Write;
     use std::sync::{Arc, Mutex};
@@ -1082,18 +1083,18 @@ fn parse_deny_output_skips_malformed_json_with_tracing() {
         let stderr = "{not json\n{\"type\":\"diagnostic\",\"fields\":42}\n";
         let result = parse::parse_deny_output(stderr);
         assert!(result.advisories.is_empty());
-    });
 
-    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
-    assert!(logged.contains("ERR-1"), "missing ERR-1 marker: {logged}");
-    assert!(
-        logged.contains("malformed cargo-deny JSON line"),
-        "missing malformed-line message: {logged}"
-    );
-    assert!(
-        logged.contains("unexpected fields shape"),
-        "missing fields-shape message: {logged}"
-    );
+        let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+        assert!(logged.contains("ERR-1"), "missing ERR-1 marker: {logged}");
+        assert!(
+            logged.contains("malformed cargo-deny JSON line"),
+            "missing malformed-line message: {logged}"
+        );
+        assert!(
+            logged.contains("unexpected fields shape"),
+            "missing fields-shape message: {logged}"
+        );
+    });
 }
 
 /// ASYNC-6 (TASK-0791): `check_tool_in` must surface a clear timeout error
