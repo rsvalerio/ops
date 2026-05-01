@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.25.0](https://github.com/rsvalerio/ops/compare/cc7d4330ec8762ac772654237cc26a60f72c1aa2..v0.25.0) - 2026-05-01
+#### 🚀 Features
+- (**cli**) add terraform plans subcommand with options - ([47ade9a](https://github.com/rsvalerio/ops/commit/47ade9ab99ea8165b89681d11be5f793b938e6ad)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-terraform**) add terraform plan and about extensions - ([1ef2e5b](https://github.com/rsvalerio/ops/commit/1ef2e5beb85fb765cbafc1655e3c5ce86699fb21)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**test**) stabilize flaky tracing capture and timeout tests under parallel execution - ([3ff8c64](https://github.com/rsvalerio/ops/commit/3ff8c64296c3d20ca086511bf045fee855c8abee)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**deps**) update dependencies - ([cc7d433](https://github.com/rsvalerio/ops/commit/cc7d4330ec8762ac772654237cc26a60f72c1aa2)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**core**) improve terraform detection using file extensions - ([f1a1eac](https://github.com/rsvalerio/ops/commit/f1a1eacc12fcc00a72743be13b0c13f4bc0bd46b)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**config**) simplify ops toml configuration - ([ab69e89](https://github.com/rsvalerio/ops/commit/ab69e89a8b93dd5cc2c22db9627274862410813a)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.24.0](https://github.com/rsvalerio/ops/compare/9db5022b6558b73609a38ff0b6ed9ea5ae832ed6..v0.24.0) - 2026-05-01
 #### 🚀 Features
 - (**extensions-python/about**) add manifest caching layer - ([b399ec1](https://github.com/rsvalerio/ops/commit/b399ec1d2812358bf1fb2f592a20361f62a391bd)) - [@rsvalerio](https://github.com/rsvalerio)
