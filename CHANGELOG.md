@@ -2,6 +2,65 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.24.0](https://github.com/rsvalerio/ops/compare/9db5022b6558b73609a38ff0b6ed9ea5ae832ed6..v0.24.0) - 2026-05-01
+#### 🚀 Features
+- (**extensions-python/about**) add manifest caching layer - ([b399ec1](https://github.com/rsvalerio/ops/commit/b399ec1d2812358bf1fb2f592a20361f62a391bd)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**extensions-rust**) tighten tool probe matching and dependency introspection - ([90f3009](https://github.com/rsvalerio/ops/commit/90f30096e08d127af85d957d470bdc60adf17f8f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/cargo-toml**) improve inheritance resolution logic - ([dd06355](https://github.com/rsvalerio/ops/commit/dd063558fe0dd6d0cdfacb869b4875ac57fca7a6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/duckdb**) tighten SQL validation and ingest paths - ([083aa0a](https://github.com/rsvalerio/ops/commit/083aa0a4b28d5e7dbbd02e28cfb60651de31d1c6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/git**) harden git config and remote URL parsing - ([20a1b5b](https://github.com/rsvalerio/ops/commit/20a1b5b11a1e2b065496509813468bd8f8de7512)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/hooks**) add install validation and normalize dispatch patterns - ([08710df](https://github.com/rsvalerio/ops/commit/08710df1d2290fd194c4f6117fe0b9d020a81919)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- add comphreensive doc mapping commsnds and aliases - ([eff9d96](https://github.com/rsvalerio/ops/commit/eff9d960a05b804066965ac6992a33fa46f55405)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**cli/run_cmd**) add command execution tests - ([e793490](https://github.com/rsvalerio/ops/commit/e793490e534e710dcc9b8ea082c0fd6d879bdec7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/duckdb**) add counting fixture for in-memory ingest - ([1b5e015](https://github.com/rsvalerio/ops/commit/1b5e0155e7c8ca0b9bf76c4abb3ec9cddaf71d6a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/command**) add expand error handling tests - ([db2960b](https://github.com/rsvalerio/ops/commit/db2960b1bd0cd3aaaf059fb6fba8d5aab44c5c71)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**deps**) update dependencies - ([9d13fcb](https://github.com/rsvalerio/ops/commit/9d13fcbb8c1710d2a0ea015d91d762f3dd408d8b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**ops**) split test command to run ignored tests separately - ([c7a30f7](https://github.com/rsvalerio/ops/commit/c7a30f7a26e1cf9d840408449635177741954160)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**cli**) improve extension registry and help rendering - ([efb6c20](https://github.com/rsvalerio/ops/commit/efb6c20bbec266334437bd4ab1184375f1c800a3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) improve extension registry, command dispatch and help rendering - ([27b6d77](https://github.com/rsvalerio/ops/commit/27b6d7763c271c337166060eef3f442732791809)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli/run_cmd**) improve command execution and planning - ([6a5f512](https://github.com/rsvalerio/ops/commit/6a5f512b60d10562662283c0c684d6813b502acd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) harden subprocess invocation and error propagation - ([35873e8](https://github.com/rsvalerio/ops/commit/35873e86ff50ee59b72412f7dd1c2235cafb2000)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) harden config loading, merging, expansion and subprocess handling - ([0d818cb](https://github.com/rsvalerio/ops/commit/0d818cbd9509f3ee35d90073bef54e70eaf66589)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/config**) improve inheritance resolution and merge logic - ([15c4b4e](https://github.com/rsvalerio/ops/commit/15c4b4eb71de7dd907a1d654f706ebabe91b0052)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**display**) improve output formatting, error styling, and progress rendering - ([ed90dc1](https://github.com/rsvalerio/ops/commit/ed90dc1ef2aec689558b0d1701c1f73165486729)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**display**) improve output formatting and progress state tracking - ([0e935f9](https://github.com/rsvalerio/ops/commit/0e935f9bab0cb1a2cc8466f1940fe85d08bb1cc6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**display**) improve output formatting and progress state handling - ([c7b04a9](https://github.com/rsvalerio/ops/commit/c7b04a9f37d8c0ac46602585da4deae85cd7c87f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) improve extension interface and testing - ([7e5f61f](https://github.com/rsvalerio/ops/commit/7e5f61fc6151425a936c80bfe828fae6781d69f7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension/data**) add duplicate detection for data providers - ([6002b20](https://github.com/rsvalerio/ops/commit/6002b20012b34ad401e6a45c22d6c000095abf21)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions**) improve data handling, testing, and SQL generation - ([1451f5e](https://github.com/rsvalerio/ops/commit/1451f5e5083b5719cfda741dc6f1decdb2d6968c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/about**) improve unit and coverage data providers - ([50892dd](https://github.com/rsvalerio/ops/commit/50892dd01957125a9ed746396b3654cc68c574e3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/deps**) restructure parsing and formatting logic - ([a8c5bd0](https://github.com/rsvalerio/ops/commit/a8c5bd094825b94547ae57dbfa0cbe986253b905)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/test-coverage**) generalize coverage field reading and add record count test - ([9bbe665](https://github.com/rsvalerio/ops/commit/9bbe6654ee5513703f7ea49db68d204031b20d82)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust/tools**) tighten install spawn and probe matching - ([1836ba8](https://github.com/rsvalerio/ops/commit/1836ba83bb33a3a0461b87554c99cffc41264206)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/about**) consolidate text utilities and card rendering - ([567b521](https://github.com/rsvalerio/ops/commit/567b521d57d9103502352b7c3e7f71c46b2fd001)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/duckdb**) harden SQL generation and concurrent ingest handling - ([4c9f6b2](https://github.com/rsvalerio/ops/commit/4c9f6b2e800c3a835d3f9f6da33313da720c4a56)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/hooks**) validate install and normalize dispatch patterns - ([df03f1a](https://github.com/rsvalerio/ops/commit/df03f1a8fa4e256deaa7933c7be80109185c8dcf)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/manifest**) improve parsing and normalization across languages - ([120546d](https://github.com/rsvalerio/ops/commit/120546d4f30b460a0cfc501eedf50729cbbca5d3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) restructure command execution, orchestration, and results handling - ([a8404c4](https://github.com/rsvalerio/ops/commit/a8404c4f64f86af7d0f8b12e49f2073079e3d591)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/command**) deduplicate UnknownCommand error type - ([fa5a79d](https://github.com/rsvalerio/ops/commit/fa5a79d9a6f814e0d4c10d6b158543e3ba1e853b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/command**) enhance execution, resolution, and event emission - ([d41f127](https://github.com/rsvalerio/ops/commit/d41f12728efc97bba16d4c42f081bc45a70aa4c8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) improve configuration exposure and step line rendering - ([2814dca](https://github.com/rsvalerio/ops/commit/2814dcacc3f13d934ab63c6c185cb9e64cc4fd73)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) update code review wave 64 task statuses - ([9a1f761](https://github.com/rsvalerio/ops/commit/9a1f7619359759558eccf3bc16c47e393886c32a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) update task descriptions and categorization - ([76f2adf](https://github.com/rsvalerio/ops/commit/76f2adf9b997d0134b7f55cd783fcb3c6404a828)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) add code review waves 60-68 and track ops-duckdb regression - ([168316f](https://github.com/rsvalerio/ops/commit/168316fcf2345ce0315a66989d6533177bb3233f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) refresh issue tracking and update task status - ([3d444c4](https://github.com/rsvalerio/ops/commit/3d444c419028a9361997f75a84ae2049932c8e98)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) refresh wave open tasks - ([924a7b3](https://github.com/rsvalerio/ops/commit/924a7b3586c62a18c8e2a4cac4956db69580164d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) refresh code-review plan waves 55-59 - ([5646b21](https://github.com/rsvalerio/ops/commit/5646b21bb3fd63ba7b9e9e2b44f114fbbdb6fc43)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) archive waves 11-19 completed items - ([9db5022](https://github.com/rsvalerio/ops/commit/9db5022b6558b73609a38ff0b6ed9ea5ae832ed6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**ci**) skip broken ops deps command for a moment - ([bc8d843](https://github.com/rsvalerio/ops/commit/bc8d843a92e82c88784dc9ecc021197741921db1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) update Cargo.lock - ([a23231b](https://github.com/rsvalerio/ops/commit/a23231be77c4035593bbb7aadce73bc5a766e4ac)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) bump Cargo.lock - ([ce6a35b](https://github.com/rsvalerio/ops/commit/ce6a35bd3248f639e6fdaa44571a2f2467f8f1a1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) bump Cargo.lock - ([2499438](https://github.com/rsvalerio/ops/commit/2499438a831a32fa9d7f88d2103366f202735e10)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) tighten deny.toml constraints - ([c8497be](https://github.com/rsvalerio/ops/commit/c8497be6ad362b4615b38e4bddf2dadcf5761c6e)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.23.1](https://github.com/rsvalerio/ops/compare/ce8b4bf69cc3f1809d77b15e358b93d1756eba2c..v0.23.1) - 2026-04-30
 #### 🐛 Bug Fixes
 - (**cli**) document parse_log_level write swallow and cover failing-writer fallback - ([513320c](https://github.com/rsvalerio/ops/commit/513320cc8b7df53785bbeb7926e5ec5fbb504181)) - [@rsvalerio](https://github.com/rsvalerio)
