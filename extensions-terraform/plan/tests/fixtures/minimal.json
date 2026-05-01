@@ -1,0 +1,32 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "aws_instance.web",
+      "mode": "managed",
+      "type": "aws_instance",
+      "name": "web",
+      "change": {
+        "actions": ["create"]
+      }
+    },
+    {
+      "address": "null_resource.old",
+      "mode": "managed",
+      "type": "null_resource",
+      "name": "old",
+      "change": {
+        "actions": ["delete"]
+      }
+    },
+    {
+      "address": "aws_s3_bucket.existing",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "existing",
+      "change": {
+        "actions": ["no-op"]
+      }
+    }
+  ]
+}

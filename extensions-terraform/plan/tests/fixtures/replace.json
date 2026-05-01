@@ -1,0 +1,23 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "aws_instance.server",
+      "mode": "managed",
+      "type": "aws_instance",
+      "name": "server",
+      "change": {
+        "actions": ["delete", "create"]
+      }
+    },
+    {
+      "address": "data.aws_ami.ubuntu",
+      "mode": "data",
+      "type": "aws_ami",
+      "name": "ubuntu",
+      "change": {
+        "actions": ["read"]
+      }
+    }
+  ]
+}
