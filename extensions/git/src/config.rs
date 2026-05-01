@@ -42,6 +42,10 @@ pub fn read_origin_url(git_dir: &Path) -> Option<String> {
 /// `git config --get remote.origin.url` reports. The scanner now collects
 /// every `url` line inside the `origin` section across the file and returns
 /// the final one so the parser matches git-config last-wins semantics.
+///
+/// READ-2 (TASK-0726): inline trailing comments (`url = … ; old`) are
+/// stripped from unquoted values, matching `git config --get`. Quoted
+/// values are not yet honoured by this minimal scanner.
 pub fn read_origin_url_from(content: &str) -> Option<String> {
     let mut in_origin = false;
     let mut last: Option<String> = None;
@@ -68,28 +72,46 @@ pub fn read_origin_url_from(content: &str) -> Option<String> {
 /// Git supports embedding HTTP credentials directly in remote URLs. We never
 /// want those reaching logs, error messages, or data-provider output, so any
 /// raw value coming out of `.git/config` is scrubbed at the source.
+///
+/// Both scheme-form (`https://user:tok@host/path`) and scp-form
+/// (`user@host:owner/repo`) inputs are scrubbed; scp-form is detected as a
+/// non-`://` value containing `@` before the first `/`.
 pub(crate) fn redact_userinfo(value: &str) -> String {
-    let Some((scheme, after)) = value.split_once("://") else {
-        return value.to_string();
-    };
-    let (authority, rest) = match after.split_once('/') {
-        Some((a, r)) => (a, Some(r)),
-        None => (after, None),
-    };
-    let host = authority.rsplit('@').next().unwrap_or(authority);
-    match rest {
-        Some(r) => format!("{scheme}://{host}/{r}"),
-        None => format!("{scheme}://{host}"),
+    if let Some((scheme, after)) = value.split_once("://") {
+        let (authority, rest) = match after.split_once('/') {
+            Some((a, r)) => (a, Some(r)),
+            None => (after, None),
+        };
+        let host = authority.rsplit('@').next().unwrap_or(authority);
+        return match rest {
+            Some(r) => format!("{scheme}://{host}/{r}"),
+            None => format!("{scheme}://{host}"),
+        };
     }
+    // scp-style: strip a `user[:password]@` prefix that appears before the
+    // first `/`. Past the first `/` the `@` belongs to a path component, not
+    // userinfo.
+    let head_end = value.find('/').unwrap_or(value.len());
+    let head = &value[..head_end];
+    if let Some(at_idx) = head.rfind('@') {
+        let mut redacted = String::with_capacity(value.len() - at_idx);
+        redacted.push_str(&value[at_idx + 1..]);
+        return redacted;
+    }
+    value.to_string()
 }
 
 fn strip_url_key(line: &str) -> Option<&str> {
     let (key, value) = line.split_once('=')?;
-    if key.trim().eq_ignore_ascii_case("url") {
-        Some(value.trim())
-    } else {
-        None
+    if !key.trim().eq_ignore_ascii_case("url") {
+        return None;
     }
+    // READ-2 (TASK-0726): drop trailing inline comments (`#`, `;`) so the
+    // returned value matches `git config --get remote.origin.url`. The
+    // minimal scanner does not yet support quoted values; in the unquoted
+    // case any `#`/`;` ends the value.
+    let comment_start = value.find(['#', ';']).unwrap_or(value.len());
+    Some(value[..comment_start].trim())
 }
 
 fn is_origin_header(line: &str) -> bool {
@@ -197,10 +219,26 @@ mod tests {
 [remote \"origin\"]
 \turl = git@github.com:openbao/openbao.git
 ";
+        // SEC-13 (TASK-0664): redact_userinfo now strips the `user@` prefix
+        // from scp-style URLs as well. The conventional `git@` is treated as
+        // userinfo for redaction purposes; downstream `parse_remote_url`
+        // accepts the trimmed scp form.
         assert_eq!(
             read_origin_url_from(cfg),
-            Some("git@github.com:openbao/openbao.git".to_string())
+            Some("github.com:openbao/openbao.git".to_string())
         );
+    }
+
+    /// SEC-13 (TASK-0664): scp-style remotes that fall through unparseable
+    /// must not surface embedded credentials. `read_origin_url_from` now
+    /// redacts the `user[:tok]@` prefix on non-`://` values too.
+    #[test]
+    fn scp_style_credentials_are_redacted() {
+        let cfg = "[remote \"origin\"]\n\turl = user:tok@host:weird/garbage\n";
+        let url = read_origin_url_from(cfg).expect("origin url");
+        assert!(!url.contains("user:tok"), "leaked credentials: {url}");
+        assert!(!url.contains('@'), "retained userinfo: {url}");
+        assert_eq!(url, "host:weird/garbage");
     }
 
     #[test]
@@ -340,6 +378,24 @@ mod tests {
         assert_eq!(
             read_origin_url_from(cfg),
             Some("https://github.com/second/repo.git".to_string())
+        );
+    }
+
+    /// READ-2 (TASK-0726): git-config also supports trailing inline
+    /// comments. The scanner must strip them so the returned value matches
+    /// `git config --get remote.origin.url`.
+    #[test]
+    fn inline_trailing_comment_is_stripped() {
+        let cfg = "[remote \"origin\"]\n\turl = https://x.example/r.git ; comment\n";
+        assert_eq!(
+            read_origin_url_from(cfg),
+            Some("https://x.example/r.git".to_string())
+        );
+
+        let hash_cfg = "[remote \"origin\"]\n\turl = https://x.example/r.git # other comment\n";
+        assert_eq!(
+            read_origin_url_from(hash_cfg),
+            Some("https://x.example/r.git".to_string())
         );
     }
 

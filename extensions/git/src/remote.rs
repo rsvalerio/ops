@@ -63,16 +63,26 @@ pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
 const ALLOWED_SCHEMES: &[&str] = &["https", "http", "ssh", "git"];
 
 fn split_host_and_path(raw: &str) -> Option<(&str, &str)> {
-    // scp-style: git@host:owner/repo (implicitly ssh)
+    // scp-style: [user@]host:owner/repo (implicitly ssh). The user prefix is
+    // optional — `redact_userinfo` strips it before this point on scp inputs
+    // that pass through `read_origin_url_from`, so the parser must accept the
+    // already-redacted form (`host:owner/repo`) as well.
     if !raw.contains("://") {
-        if let Some(at) = raw.find('@') {
-            let rest = &raw[at + 1..];
-            let colon = rest.find(':')?;
-            let host = &rest[..colon];
-            let path = &rest[colon + 1..];
-            return Some((host, path));
+        let after_user = match raw.find('@') {
+            Some(at) => &raw[at + 1..],
+            None => raw,
+        };
+        let colon = after_user.find(':')?;
+        // Reject scp form when a `/` appears before the `:` — per git URL
+        // semantics, that path is a relative filesystem path, not a remote.
+        if let Some(slash) = after_user.find('/') {
+            if slash < colon {
+                return None;
+            }
         }
-        return None;
+        let host = &after_user[..colon];
+        let path = &after_user[colon + 1..];
+        return Some((host, path));
     }
 
     // URL form: scheme://[user@]host[:port]/path
