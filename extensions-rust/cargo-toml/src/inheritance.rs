@@ -227,10 +227,13 @@ fn extract_local_overrides(local: &DepSpec) -> (Vec<String>, bool, bool) {
 }
 
 fn merge_features(base: &[String], additional: &[String]) -> Vec<String> {
-    let mut seen: std::collections::HashSet<&str> = base.iter().map(|s| s.as_str()).collect();
+    // PERF-2 (TASK-0807): feature lists are typically tiny (<10 entries), so a
+    // linear scan beats allocating + hashing into a HashSet just to dedup. The
+    // merge is order-preserving (base first, then new entries from
+    // `additional`).
     let mut merged = base.to_vec();
     for f in additional {
-        if seen.insert(f.as_str()) {
+        if !merged.iter().any(|m| m == f) {
             merged.push(f.clone());
         }
     }
