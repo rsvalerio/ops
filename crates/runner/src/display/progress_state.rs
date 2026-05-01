@@ -15,6 +15,7 @@
 //! `ProgressDisplay`, which still owns rendering config, IO/tap, and the
 //! footer/header bars whose lifecycle is run-plan-scoped, not step-scoped.
 
+use crate::command::OutputLine;
 use indicatif::ProgressBar;
 use ops_core::config::CommandId;
 use std::collections::{HashMap, VecDeque};
@@ -30,7 +31,7 @@ use std::collections::{HashMap, VecDeque};
 pub(crate) struct ProgressState {
     pub bars: Vec<ProgressBar>,
     pub steps: Vec<(String, String)>,
-    pub step_stderr: HashMap<String, VecDeque<String>>,
+    pub step_stderr: HashMap<String, VecDeque<OutputLine>>,
     pub display_map: HashMap<String, String>,
     pub plan_command_ids: Vec<String>,
     /// PERF-12 (TASK-0723): O(1) `id -> steps` index. Populated by
@@ -85,7 +86,7 @@ impl ProgressState {
     /// memory is O(tail) rather than O(captured stderr). Used by
     /// `on_step_output` to accumulate the tail that error-detail rendering
     /// consumes on failure. `cap == 0` records nothing.
-    pub fn record_stderr(&mut self, id: &str, line: String, cap: usize) {
+    pub fn record_stderr(&mut self, id: &str, line: OutputLine, cap: usize) {
         if cap == 0 {
             return;
         }
@@ -176,14 +177,16 @@ mod tests {
         s.record_stderr("a", "line1".into(), 16);
         s.record_stderr("a", "line2".into(), 16);
         s.record_stderr("b", "other".into(), 16);
-        assert_eq!(
-            s.step_stderr["a"].iter().cloned().collect::<Vec<_>>(),
-            vec!["line1".to_string(), "line2".to_string()]
-        );
-        assert_eq!(
-            s.step_stderr["b"].iter().cloned().collect::<Vec<_>>(),
-            vec!["other".to_string()]
-        );
+        let a: Vec<String> = s.step_stderr["a"]
+            .iter()
+            .map(|l| l.as_str().to_string())
+            .collect();
+        assert_eq!(a, vec!["line1".to_string(), "line2".to_string()]);
+        let b: Vec<String> = s.step_stderr["b"]
+            .iter()
+            .map(|l| l.as_str().to_string())
+            .collect();
+        assert_eq!(b, vec!["other".to_string()]);
     }
 
     #[test]
@@ -193,10 +196,13 @@ mod tests {
         // confirm peak memory stays at the cap and only the tail is kept.
         let cap = 5;
         for i in 0..100_000 {
-            s.record_stderr("noisy", format!("line {i}"), cap);
+            s.record_stderr("noisy", format!("line {i}").into(), cap);
             assert!(s.step_stderr["noisy"].len() <= cap);
         }
-        let tail: Vec<String> = s.step_stderr["noisy"].iter().cloned().collect();
+        let tail: Vec<String> = s.step_stderr["noisy"]
+            .iter()
+            .map(|l| l.as_str().to_string())
+            .collect();
         assert_eq!(
             tail,
             vec![
@@ -214,7 +220,7 @@ mod tests {
         // Verbose mode (raised cap) still preserves the full captured stream.
         let mut s = ProgressState::new(HashMap::new());
         for i in 0..1_000 {
-            s.record_stderr("verbose", format!("v{i}"), usize::MAX);
+            s.record_stderr("verbose", format!("v{i}").into(), usize::MAX);
         }
         assert_eq!(s.step_stderr["verbose"].len(), 1_000);
     }

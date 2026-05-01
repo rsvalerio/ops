@@ -483,12 +483,12 @@ impl ProgressDisplay {
         }
     }
 
-    fn on_step_output(&mut self, id: &str, line: String, stderr: bool) {
+    fn on_step_output(&mut self, id: &str, line: crate::command::OutputLine, stderr: bool) {
         if stderr {
             self.state
                 .record_stderr(id, line.clone(), self.render.stderr_tail_lines);
         }
-        self.tap_line_for(&line, Some(id));
+        self.tap_line_for(line.as_str(), Some(id));
     }
 
     fn finish_step(

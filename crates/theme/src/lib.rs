@@ -17,7 +17,7 @@ pub use ops_core::config::theme_types::{ErrorBlockChars, PlanHeaderStyle, ThemeC
 pub use render::render_error_block;
 pub use resolve::{list_theme_names, resolve_theme, ThemeError};
 pub use step_line_theme::{format_duration, BoxSnapshot, StepLineTheme};
-pub use style::{apply_style, strip_ansi};
+pub use style::{apply_style, strip_ansi, visible_width};
 
 #[cfg(test)]
 mod tests;

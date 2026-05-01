@@ -60,6 +60,60 @@ pub fn apply_style_gated<'a>(text: &'a str, spec: &str, enabled: bool) -> Cow<'a
 ///   selection — the trailing `c` is consumed below), and bare `ESC <final>`.
 ///
 /// SGR-only callers can still rely on the result being free of ANSI bytes.
+/// Visible terminal width of `s` after stripping ANSI escapes, computed
+/// without allocating an intermediate `String`.
+///
+/// PERF-3 / TASK-0746: equivalent to `display_width(&strip_ansi(s))` but
+/// scans the same ANSI grammar inline and accumulates per-character widths
+/// (`UnicodeWidthChar`). The boxed-layout step renderer calls this per row,
+/// so removing the intermediate `String` allocation pays off on every step
+/// of every run. Hot-path callers should prefer this over the
+/// `display_width(&strip_ansi(...))` pair.
+#[must_use]
+pub fn visible_width(s: &str) -> usize {
+    use unicode_width::UnicodeWidthChar;
+    let mut width = 0usize;
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\x1b' {
+            width = width.saturating_add(ch.width().unwrap_or(0));
+            continue;
+        }
+        match chars.next() {
+            // CSI: ESC [ ... <final byte 0x40..=0x7E>
+            Some('[') => {
+                while let Some(&c) = chars.peek() {
+                    chars.next();
+                    if matches!(c, '\x40'..='\x7E') {
+                        break;
+                    }
+                }
+            }
+            // String-introducer sequences: terminated by BEL or ESC \.
+            Some(']' | 'P' | 'X' | '^' | '_') => {
+                while let Some(c) = chars.next() {
+                    if c == '\x07' {
+                        break;
+                    }
+                    if c == '\x1b' {
+                        if chars.peek() == Some(&'\\') {
+                            chars.next();
+                        }
+                        break;
+                    }
+                }
+            }
+            // Two-byte sequences with an intermediate selector.
+            Some('(' | ')' | '*' | '+' | '-' | '.' | '/' | '#' | ' ') => {
+                chars.next();
+            }
+            // Bare ESC <byte> / ESC at end-of-string: swallow.
+            Some(_) | None => {}
+        }
+    }
+    width
+}
+
 pub fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
@@ -210,5 +264,37 @@ mod tests {
         // Cursor move: ESC [ 2 J (clear screen). Final byte is 'J', not 'm'.
         let s = "\x1b[2Jhello\x1b[1;2Hworld";
         assert_eq!(strip_ansi(s), "helloworld");
+    }
+
+    /// PERF-3 / TASK-0746: `visible_width` must produce identical results to
+    /// `display_width(&strip_ansi(s))` across the strip_ansi corpus — that is
+    /// the contract that lets every hot-path call site swap the allocating
+    /// pair for the inline scan without a behaviour change.
+    #[test]
+    fn visible_width_matches_display_width_of_stripped() {
+        use ops_core::output::display_width;
+        let cases: &[&str] = &[
+            "",
+            "plain",
+            "plain ascii",
+            "\x1b[1;31mred bold\x1b[0m",
+            "\x1b[2Jhello\x1b[1;2Hworld",
+            "\x1b]8;;https://example.com\x1b\\click\x1b]8;;\x1b\\ next",
+            "\x1b]0;window-title\x07after",
+            "résumé café",
+            "🚀 deploy",
+            "ビルド",
+            "mix \x1b[33mwarn\x1b[0m and 🚀 emoji",
+            "trailing-esc\x1b",
+            "\x1bN single-shift two-byte",
+            "\x1b(B charset selector",
+        ];
+        for s in cases {
+            assert_eq!(
+                visible_width(s),
+                display_width(&strip_ansi(s)),
+                "visible_width disagrees with display_width(&strip_ansi(_)) for {s:?}"
+            );
+        }
     }
 }

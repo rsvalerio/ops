@@ -9,6 +9,7 @@ license.workspace = true
 ops-core = { workspace = true }
 indexmap = { workspace = true }
 thiserror = { workspace = true }
+unicode-width = { workspace = true }
 
 [dev-dependencies]
 ops-core = { workspace = true, features = ["test-support"] }

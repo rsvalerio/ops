@@ -233,6 +233,20 @@ fn splice_grouped_into_help(help_str: &str, grouped: &str) -> String {
     out
 }
 
+/// Render categorized help and write it to `writer`. Extracted from
+/// [`print_categorized_help`] so the write path can be exercised against a
+/// failing writer (ERR-1 / TASK-0760) without needing to redirect stdout.
+pub(crate) fn write_categorized_help(
+    writer: &mut dyn Write,
+    cmd: clap::Command,
+    config: &ops_core::config::Config,
+    stack: Option<ops_core::stack::Stack>,
+    long: bool,
+) -> std::io::Result<()> {
+    let out = render_categorized_help(cmd, config, stack, long);
+    write!(writer, "{out}")
+}
+
 /// Print help with all commands (built-in and dynamic) grouped by category.
 pub(crate) fn print_categorized_help(
     cmd: clap::Command,
@@ -240,8 +254,15 @@ pub(crate) fn print_categorized_help(
     stack: Option<ops_core::stack::Stack>,
     long: bool,
 ) {
-    let out = render_categorized_help(cmd, config, stack, long);
-    let _ = write!(std::io::stdout(), "{out}");
+    // ERR-1 / TASK-0760: mirrors the parse_log_level rationale at
+    // main.rs:89-93 — if stdout has gone away (closed pipe like
+    // `ops --help | head -5`, or a consumer that exited mid-write), the
+    // user has already lost the channel we would report the error on.
+    // Surfacing the error here would only turn a benign EPIPE into a
+    // non-zero startup exit; swallow it so the help-rendering path stays
+    // pipe-friendly. The error is still reachable via `write_categorized_help`
+    // for callers that need to react to it.
+    let _ = write_categorized_help(&mut std::io::stdout(), cmd, config, stack, long);
 }
 
 #[cfg(test)]
@@ -583,6 +604,31 @@ mod tests {
         let out = splice_grouped_into_help(help, grouped);
         assert!(out.ends_with(grouped), "grouped appended: {out}");
         assert!(out.starts_with("usage: ops"));
+    }
+
+    /// ERR-1 / TASK-0760: a writer that fails (e.g. closed pipe) must
+    /// surface the error from `write_categorized_help` instead of being
+    /// silently dropped. The print wrapper is the only place that swallows
+    /// it, with a documented rationale.
+    #[test]
+    fn write_categorized_help_surfaces_writer_errors() {
+        struct FailingWriter;
+        impl Write for FailingWriter {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "consumer gone",
+                ))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let cmd = clap::Command::new("ops").subcommand(clap::Command::new("init"));
+        let config = ops_core::config::Config::default();
+        let err = write_categorized_help(&mut FailingWriter, cmd, &config, None, false)
+            .expect_err("failing writer must surface its error");
+        assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
     }
 
     #[test]

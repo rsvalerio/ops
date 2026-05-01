@@ -4,7 +4,7 @@ use ops_core::output::{display_width, ErrorDetail, StepStatus};
 
 use super::render::render_error_block;
 use super::step_line_theme::{format_duration, BoxSnapshot, StepLineTheme};
-use super::style::{apply_style, strip_ansi};
+use super::style::{apply_style, visible_width};
 use super::{PlanHeaderStyle, ThemeConfig};
 use ops_core::config::theme_types::LayoutKind;
 
@@ -218,7 +218,7 @@ impl StepLineTheme for ConfigurableTheme {
         // reserve itself already includes the two vertical `│` bars.
         let frame_overhead = 2 * self.left_pad() + BOX_STEP_RESERVE as usize;
         let inner_budget = outer.saturating_sub(frame_overhead);
-        let inner_visible = display_width(&strip_ansi(inner));
+        let inner_visible = visible_width(inner);
         let right_pad = inner_budget.saturating_sub(inner_visible);
         let spaces = " ".repeat(right_pad);
         format!(
@@ -246,7 +246,7 @@ fn inject_gutter_indent(line: &str, rail_prefix: &str, indent: &str) -> String {
 /// Right-pad `line` with spaces up to `right_target` visible columns and
 /// append the closing ` │` frame border.
 fn right_pad_with_border(line: String, right_target: usize) -> String {
-    let visible = display_width(&strip_ansi(&line));
+    let visible = visible_width(&line);
     let fill = right_target.saturating_sub(visible);
     let spaces = " ".repeat(fill);
     format!("{line}{spaces} │")

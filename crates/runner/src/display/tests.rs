@@ -79,7 +79,7 @@ fn progress_display_handles_full_lifecycle() {
 
     display.handle_event(RunnerEvent::StepOutput {
         id: "echo_hi".into(),
-        line: "some error output".to_string(),
+        line: "some error output".into(),
         stderr: true,
     });
     assert_eq!(display.state.step_stderr["echo_hi"].len(), 1);
@@ -115,7 +115,7 @@ fn progress_display_handles_failure_with_error_detail() {
     });
     display.handle_event(RunnerEvent::StepOutput {
         id: "fail_cmd".into(),
-        line: "error: something went wrong".to_string(),
+        line: "error: something went wrong".into(),
         stderr: true,
     });
     display.handle_event(RunnerEvent::StepFailed {
@@ -191,12 +191,12 @@ fn tap_file_captures_raw_output() {
     });
     display.handle_event(RunnerEvent::StepOutput {
         id: "cmd".into(),
-        line: "hello world".to_string(),
+        line: "hello world".into(),
         stderr: false,
     });
     display.handle_event(RunnerEvent::StepOutput {
         id: "cmd".into(),
-        line: "error line".to_string(),
+        line: "error line".into(),
         stderr: true,
     });
 
@@ -231,17 +231,17 @@ fn step_stderr_captures_output() {
     });
     display.handle_event(RunnerEvent::StepOutput {
         id: "cmd".into(),
-        line: "stderr line 1".to_string(),
+        line: "stderr line 1".into(),
         stderr: true,
     });
     display.handle_event(RunnerEvent::StepOutput {
         id: "cmd".into(),
-        line: "stdout line".to_string(),
+        line: "stdout line".into(),
         stderr: false,
     });
     display.handle_event(RunnerEvent::StepOutput {
         id: "cmd".into(),
-        line: "stderr line 2".to_string(),
+        line: "stderr line 2".into(),
         stderr: true,
     });
 
@@ -251,8 +251,8 @@ fn step_stderr_captures_output() {
         .get("cmd")
         .expect("should capture stderr");
     assert_eq!(captured.len(), 2);
-    assert_eq!(captured[0], "stderr line 1");
-    assert_eq!(captured[1], "stderr line 2");
+    assert_eq!(captured[0].as_str(), "stderr line 1");
+    assert_eq!(captured[1].as_str(), "stderr line 2");
 }
 
 #[test]
@@ -302,7 +302,8 @@ mod edge_case_tests {
 
     #[test]
     fn extract_stderr_tail_extracts_correct_count() {
-        let lines: Vec<String> = (1..=10).map(|i| format!("line {}", i)).collect();
+        let lines: Vec<crate::command::OutputLine> =
+            (1..=10).map(|i| format!("line {}", i).into()).collect();
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, DEFAULT_STDERR_TAIL_LINES);
         assert_eq!(tail.len(), DEFAULT_STDERR_TAIL_LINES);
         assert_eq!(tail[0], "line 6");
@@ -311,7 +312,7 @@ mod edge_case_tests {
 
     #[test]
     fn extract_stderr_tail_handles_fewer_lines() {
-        let lines: Vec<String> = vec!["a".into(), "b".into()];
+        let lines: Vec<crate::command::OutputLine> = vec!["a".into(), "b".into()];
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, DEFAULT_STDERR_TAIL_LINES);
         assert_eq!(tail.len(), 2);
         assert_eq!(tail[0], "a");
@@ -320,14 +321,15 @@ mod edge_case_tests {
 
     #[test]
     fn extract_stderr_tail_handles_empty() {
-        let lines: Vec<String> = vec![];
+        let lines: Vec<crate::command::OutputLine> = vec![];
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, DEFAULT_STDERR_TAIL_LINES);
         assert!(tail.is_empty());
     }
 
     #[test]
     fn extract_stderr_tail_unlimited_returns_all() {
-        let lines: Vec<String> = (1..=100).map(|i| format!("line {}", i)).collect();
+        let lines: Vec<crate::command::OutputLine> =
+            (1..=100).map(|i| format!("line {}", i).into()).collect();
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, usize::MAX);
         assert_eq!(tail.len(), 100);
     }
@@ -543,7 +545,7 @@ mod unknown_command_tests {
 
         display.handle_event(RunnerEvent::StepOutput {
             id: "non_existent_cmd".into(),
-            line: "some output".to_string(),
+            line: "some output".into(),
             stderr: true,
         });
 
