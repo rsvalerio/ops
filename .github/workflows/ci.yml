@@ -95,7 +95,7 @@ jobs:
         with:
           repo: rsvalerio/ops
       - name: ops --raw deps
-        run: ops --raw deps
+        run: cargo deny check
 
   install:
     name: Install
