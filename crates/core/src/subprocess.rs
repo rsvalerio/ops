@@ -300,8 +300,18 @@ pub fn run_cargo(
 
 /// Resolve the cargo binary, honouring `$CARGO` so nested cargo calls stay
 /// on the parent toolchain. PORT-5 (TASK-0697).
-fn resolve_cargo_bin() -> std::ffi::OsString {
+#[must_use]
+pub fn resolve_cargo_bin() -> std::ffi::OsString {
     std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into())
+}
+
+/// Resolve the rustup binary, honouring `$RUSTUP` for symmetry with
+/// [`resolve_cargo_bin`]. PORT (TASK-0792): keeps direct rustup spawns in
+/// extensions on the same toolchain layout the parent process selected
+/// rather than forcing a fresh `$PATH` lookup.
+#[must_use]
+pub fn resolve_rustup_bin() -> std::ffi::OsString {
+    std::env::var_os("RUSTUP").unwrap_or_else(|| "rustup".into())
 }
 
 #[cfg(test)]
@@ -392,6 +402,28 @@ mod tests {
             unsafe { std::env::remove_var(CARGO_ENV) };
             let resolved = resolve_cargo_bin();
             assert_eq!(resolved, std::ffi::OsString::from("cargo"));
+        }
+
+        const RUSTUP_ENV: &str = "RUSTUP";
+
+        #[test]
+        #[serial]
+        fn rustup_honours_env_when_set() {
+            unsafe { std::env::set_var(RUSTUP_ENV, "/opt/toolchain/bin/rustup") };
+            let resolved = resolve_rustup_bin();
+            unsafe { std::env::remove_var(RUSTUP_ENV) };
+            assert_eq!(
+                resolved,
+                std::ffi::OsString::from("/opt/toolchain/bin/rustup")
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn rustup_falls_back_to_literal_when_unset() {
+            unsafe { std::env::remove_var(RUSTUP_ENV) };
+            let resolved = resolve_rustup_bin();
+            assert_eq!(resolved, std::ffi::OsString::from("rustup"));
         }
     }
 
