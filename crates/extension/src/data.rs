@@ -3,7 +3,7 @@
 use crate::error::DataProviderError;
 use ops_core::config::Config;
 use ops_core::project_identity::AboutFieldDef;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -101,6 +101,11 @@ pub trait DataProvider: Send + Sync {
     ///   itself; it originates from `DataRegistry::provide` /
     ///   `Context::get_or_provide` when the requested provider name is not
     ///   registered.
+    /// - [`DataProviderError::Cycle`] (SEC-38 / TASK-0744) is returned by
+    ///   [`Context::get_or_provide`] when a provider transitively re-requests
+    ///   its own key. Implementations that compose other providers via
+    ///   `ctx.get_or_provide(...)` should propagate this variant rather than
+    ///   swallowing it, so the cycle surfaces at the originating call site.
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError>;
 
     /// Returns a schema describing what data this provider exposes.
@@ -246,6 +251,12 @@ pub trait DuckDbHandle: Send + Sync {
 pub struct Context {
     pub config: Arc<Config>,
     pub(crate) data_cache: HashMap<String, Arc<serde_json::Value>>,
+    /// SEC-38 / TASK-0744: keys whose providers are currently executing on
+    /// this context. Inserted before `registry.provide` and removed on the
+    /// way out, so a provider that transitively re-requests its own key
+    /// surfaces as `DataProviderError::Cycle` instead of recursing until
+    /// stack overflow.
+    pub(crate) in_flight: HashSet<String>,
     pub working_directory: PathBuf,
     /// When true, data providers should re-collect data instead of using cached/persisted results.
     pub refresh: bool,
@@ -258,6 +269,7 @@ impl Context {
         Self {
             config,
             data_cache: HashMap::new(),
+            in_flight: HashSet::new(),
             working_directory,
             refresh: false,
             #[cfg(feature = "duckdb")]
@@ -289,6 +301,13 @@ impl Context {
     }
 
     /// Get cached value or compute via provider and cache.
+    ///
+    /// SEC-38 / TASK-0744: detects re-entrant requests for an in-flight key
+    /// (a provider transitively asking for itself, e.g. A → B → A) and
+    /// returns [`DataProviderError::Cycle`] instead of recursing into stack
+    /// overflow. The in-flight marker is inserted before dispatching to the
+    /// provider and removed regardless of success/failure so a provider
+    /// that fails does not poison the cache for retry.
     pub fn get_or_provide(
         &mut self,
         key: &str,
@@ -297,8 +316,14 @@ impl Context {
         if let Some(v) = self.data_cache.get(key) {
             return Ok(Arc::clone(v));
         }
-        let v = registry.provide(key, self)?;
-        let v = Arc::new(v);
+        if !self.in_flight.insert(key.to_string()) {
+            return Err(DataProviderError::Cycle {
+                key: key.to_string(),
+            });
+        }
+        let result = registry.provide(key, self);
+        self.in_flight.remove(key);
+        let v = Arc::new(result?);
         self.data_cache.insert(key.to_string(), Arc::clone(&v));
         Ok(v)
     }

@@ -103,11 +103,28 @@ fn split_host_and_path(raw: &str) -> Option<(&str, &str)> {
 /// Rejects empty hosts and anything containing whitespace, control chars, `/`,
 /// `\`, `?`, `#`, `@`, etc. — anywhere those could end up interpolated into a
 /// URL or shown as a clickable link by a downstream consumer.
+///
+/// SEC-11 / TASK-0782: also rejects degenerate shapes that pass the byte
+/// allowlist but produce hosts that no DNS resolver would accept and that
+/// downstream consumers can mis-parse — a leading `-` is treated as a flag
+/// by some legacy curl-like consumers, a leading/trailing `.` is meaningless
+/// DNS, and an empty label (e.g. `..` or `foo..bar`) is invalid.
 fn is_valid_host(host: &str) -> bool {
-    !host.is_empty()
-        && host
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+    if host.is_empty() {
+        return false;
+    }
+    let bytes = host.as_bytes();
+    let first = bytes[0];
+    let last = bytes[bytes.len() - 1];
+    if first == b'-' || first == b'.' || last == b'-' || last == b'.' {
+        return false;
+    }
+    if host.split('.').any(|label| label.is_empty()) {
+        return false;
+    }
+    bytes
+        .iter()
+        .all(|b| b.is_ascii_alphanumeric() || *b == b'.' || *b == b'-')
 }
 
 fn split_owner_repo(path: &str) -> Option<(&str, &str)> {
@@ -295,6 +312,38 @@ mod tests {
         assert!(parse_remote_url("https://github.com/foo\u{0007}/bar").is_none());
         assert!(parse_remote_url("https://github.com/foo bar/baz").is_none());
         assert!(parse_remote_url("https://github.com/foo/bar?evil").is_none());
+    }
+
+    /// SEC-11 / TASK-0782: hosts must reject leading/trailing dash or dot
+    /// and any empty label — these shapes pass the byte allowlist but are
+    /// invalid DNS and can be mis-parsed downstream (a leading `-` is a
+    /// flag to some curl-like consumers; `..` and `host.` have no resolver
+    /// meaning and would surface as broken clickable URLs).
+    #[test]
+    fn rejects_host_with_leading_dash() {
+        assert!(parse_remote_url("https://-evil.com/o/r").is_none());
+    }
+
+    #[test]
+    fn rejects_host_with_trailing_dash() {
+        assert!(parse_remote_url("https://host-/o/r").is_none());
+    }
+
+    #[test]
+    fn rejects_host_with_leading_dot() {
+        assert!(parse_remote_url("https://.com/o/r").is_none());
+    }
+
+    #[test]
+    fn rejects_host_with_trailing_dot() {
+        assert!(parse_remote_url("https://host./o/r").is_none());
+    }
+
+    #[test]
+    fn rejects_host_with_empty_label() {
+        // Consecutive dots → empty label between them.
+        assert!(parse_remote_url("https://foo..bar/o/r").is_none());
+        assert!(parse_remote_url("https://../o/r").is_none());
     }
 
     #[test]

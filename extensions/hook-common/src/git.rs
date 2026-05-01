@@ -87,7 +87,31 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
     if max_parent_escape(target) > MAX_GITDIR_PARENT_TRAVERSAL {
         return None;
     }
-    Some(file.parent()?.join(target))
+    let parent = file.parent()?;
+    let joined = parent.join(target);
+    // SEC-14 / TASK-0788: the textual `max_parent_escape` cap is symlink-blind.
+    // A pointer like `link/../../etc` has peak textual escape = 1 (well within
+    // the cap of 2), but if `link` is a symlink, `canonicalize` follows it and
+    // can land the resolved gitdir anywhere on disk. Anchor the canonical
+    // resolved path to the ancestor that the textual cap permits — exactly
+    // `MAX_GITDIR_PARENT_TRAVERSAL` levels above the pointer's parent — so any
+    // canonical result that escapes that anchor (via symlink redirection) is
+    // refused before downstream code writes into it.
+    let anchor_raw = parent
+        .ancestors()
+        .nth(MAX_GITDIR_PARENT_TRAVERSAL)
+        .unwrap_or(parent);
+    let anchor = std::fs::canonicalize(anchor_raw).ok()?;
+    let canonical_target = std::fs::canonicalize(&joined).ok()?;
+    if !canonical_target.starts_with(&anchor) {
+        tracing::debug!(
+            anchor = %anchor.display(),
+            target = %canonical_target.display(),
+            "gitdir pointer escapes worktree-root anchor; rejecting",
+        );
+        return None;
+    }
+    Some(canonical_target)
 }
 
 /// SEC-14: peak number of directories `path` ascends above its starting point
@@ -254,6 +278,45 @@ mod tests {
             logged.contains("failed to read .git pointer file"),
             "expected debug log, got: {logged}",
         );
+    }
+
+    /// SEC-14 / TASK-0788: a relative pointer using the Normal-then-ParentDir
+    /// cancellation pattern (`link/../../target`) has peak textual escape = 1
+    /// and slips past `MAX_GITDIR_PARENT_TRAVERSAL`. If `link` is a symlink to
+    /// a sibling directory outside the worktree-root anchor, `canonicalize`
+    /// follows it and the resolved gitdir lands outside the anchor. The
+    /// post-canonicalize containment check rejects the pointer before the
+    /// hook installer would write into the redirected target.
+    #[cfg(unix)]
+    #[test]
+    fn find_git_dir_rejects_symlink_redirect_through_cancellation_pattern() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Pointer is nested deep enough that nth(MAX_GITDIR_PARENT_TRAVERSAL)
+        // anchors *inside* the tempdir rather than at /tmp, so a symlink that
+        // jumps to a tempdir-level sibling provably escapes the anchor.
+        let pointer_parent = dir.path().join("w/a/b/c/d");
+        std::fs::create_dir_all(&pointer_parent).unwrap();
+        // Sibling escape target one level below tempdir root, outside the
+        // anchor (which is `<tempdir>/w/a/b`).
+        let escape_target = dir.path().join("escape_target");
+        std::fs::create_dir(&escape_target).unwrap();
+        // Plant a HEAD so a downstream `looks_like_git_dir` check would
+        // otherwise accept the redirected target.
+        std::fs::write(escape_target.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        // Symlink that, once followed by canonicalize, redirects upward
+        // through the cancellation pattern.
+        let symlink = pointer_parent.join("sym");
+        std::os::unix::fs::symlink(dir.path(), &symlink).unwrap();
+
+        let pointer = pointer_parent.join(".git");
+        // Peak textual escape: sym→depth 1, ..→0, escape_target→1 (peak 0).
+        // Passes the cap; only the canonicalize-aware containment check can
+        // refuse it.
+        std::fs::write(&pointer, "gitdir: sym/../escape_target\n").unwrap();
+
+        // No real .git anywhere up the chain — only the planted pointer. The
+        // walk must reject the pointer and fall through to None.
+        assert_eq!(find_git_dir(&pointer_parent), None);
     }
 
     #[test]

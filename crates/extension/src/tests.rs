@@ -71,6 +71,78 @@ fn context_get_or_provide_caches() {
     assert!(ctx.cached("stub").is_some());
 }
 
+/// SEC-38 / TASK-0744: two providers that mutually request each other must
+/// surface as `DataProviderError::Cycle` rather than recursing until stack
+/// overflow. The `provide` impls below model the documented composition
+/// pattern (a provider calling `ctx.get_or_provide(other, registry)`) so the
+/// test exercises the real re-entry path through `get_or_provide`.
+#[test]
+fn context_get_or_provide_detects_provider_cycle() {
+    use std::sync::Mutex;
+
+    /// A provider that, when invoked, calls `ctx.get_or_provide(other, ...)`
+    /// and surfaces the resulting error verbatim. The companion provider's
+    /// name is fetched from a Mutex so we can wire the registry first and
+    /// then connect the two providers without a chicken-and-egg construction.
+    struct ChainProvider {
+        name: &'static str,
+        other: &'static str,
+        registry: Arc<Mutex<Option<Arc<DataRegistry>>>>,
+    }
+    impl DataProvider for ChainProvider {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+        fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            let reg_handle = self
+                .registry
+                .lock()
+                .unwrap()
+                .as_ref()
+                .expect("registry wired")
+                .clone();
+            let _ = ctx.get_or_provide(self.other, &reg_handle)?;
+            Ok(serde_json::json!({"unreachable": self.name}))
+        }
+    }
+
+    let shared: Arc<Mutex<Option<Arc<DataRegistry>>>> = Arc::new(Mutex::new(None));
+    let mut registry = DataRegistry::new();
+    registry.register(
+        "alpha",
+        Box::new(ChainProvider {
+            name: "alpha",
+            other: "beta",
+            registry: Arc::clone(&shared),
+        }),
+    );
+    registry.register(
+        "beta",
+        Box::new(ChainProvider {
+            name: "beta",
+            other: "alpha",
+            registry: Arc::clone(&shared),
+        }),
+    );
+    let registry = Arc::new(registry);
+    *shared.lock().unwrap() = Some(Arc::clone(&registry));
+
+    let mut ctx = test_context();
+    let err = ctx
+        .get_or_provide("alpha", &registry)
+        .expect_err("cycle must surface as an error");
+    match err {
+        DataProviderError::Cycle { key } => assert_eq!(key, "alpha"),
+        other => panic!("expected Cycle{{alpha}}, got {other:?}"),
+    }
+    // After the cycle bottom-out, the in-flight set must be drained so a
+    // subsequent unrelated call is not poisoned.
+    assert!(
+        !ctx.cached("alpha").is_some(),
+        "failed cycle must not poison the cache"
+    );
+}
+
 #[test]
 fn context_get_or_provide_unknown_errors() {
     let registry = DataRegistry::new();

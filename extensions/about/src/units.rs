@@ -8,23 +8,39 @@ use std::io::{IsTerminal, Write};
 use ops_core::project_identity::ProjectUnit;
 use ops_extension::{Context, DataRegistry};
 
-use crate::cards::{layout_cards_in_grid, render_card};
+use crate::cards::{layout_cards_in_grid_with_width, render_card};
 use crate::providers::{load_or_default, warm_providers};
+use crate::text_util::get_terminal_width;
 
 pub const PROJECT_UNITS_PROVIDER: &str = "project_units";
 
 pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
     let is_tty = std::io::stdout().is_terminal();
-    run_about_units_with(data_registry, &mut std::io::stdout(), is_tty)
+    // ERR-1 / TASK-0784: only the direct-stdout entry point probes the
+    // terminal/`COLUMNS`. Buffer-writing call sites must hand in an explicit
+    // width via `run_about_units_with` so the 120-column fallback never
+    // sneaks into output destined for a `Vec<u8>` or pipe.
+    run_about_units_with(
+        data_registry,
+        &mut std::io::stdout(),
+        is_tty,
+        get_terminal_width(),
+    )
 }
 
 /// READ-5/TASK-0411: `is_tty` is supplied by the caller and reflects the
 /// `writer` they hand in, not stdout. Passing a `Vec<u8>` writer with
 /// `is_tty = false` guarantees no ANSI escapes regardless of stdout state.
+///
+/// ERR-1/TASK-0784: `term_width` is also caller-supplied — buffer-writing
+/// call sites pick a width matching their destination instead of inheriting
+/// the stdout TTY/`COLUMNS` probe, which silently falls back to 120 columns
+/// in non-TTY contexts.
 pub fn run_about_units_with(
     data_registry: &DataRegistry,
     writer: &mut dyn Write,
     is_tty: bool,
+    term_width: usize,
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let config = std::sync::Arc::new(ops_core::config::Config::default());
@@ -47,7 +63,7 @@ pub fn run_about_units_with(
     let cards: Vec<Vec<String>> = units.iter().map(|u| render_card(u, is_tty)).collect();
 
     let mut lines = vec![String::new()];
-    lines.extend(layout_cards_in_grid(&cards));
+    lines.extend(layout_cards_in_grid_with_width(&cards, term_width));
     writeln!(writer, "{}", lines.join("\n"))?;
     Ok(())
 }

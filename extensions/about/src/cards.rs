@@ -153,6 +153,15 @@ pub fn render_card(unit: &ProjectUnit, is_tty: bool) -> Vec<String> {
     lines
 }
 
+/// Lay out cards using a width probed from stdout (TTY size, then `COLUMNS`,
+/// then a hard-coded 120-column fallback).
+///
+/// ERR-1 (TASK-0784): the 120-column fallback fires silently when stdout is
+/// not a TTY and `COLUMNS` is unset — piped invocations get layout sized for
+/// a wide terminal regardless of caller intent. Reserve this entry point for
+/// direct stdout renders. Buffer-writing callers must use
+/// [`layout_cards_in_grid_with_width`] and supply a width that reflects the
+/// destination they are rendering into.
 pub fn layout_cards_in_grid(cards: &[Vec<String>]) -> Vec<String> {
     layout_cards_in_grid_with_width(cards, get_terminal_width())
 }

@@ -226,19 +226,28 @@ fn ssh_to_https(rest: &str) -> String {
 
 /// Append `/tree/HEAD/<directory>` to a base repository URL so monorepo
 /// member packages render distinguishable links. Strips a leading `./` from
-/// the directory; canonicalises slashes; idempotent if the URL already
-/// includes the same suffix.
+/// the directory and canonicalises slashes.
+///
+/// SEC-14 / TASK-0811: any path component equal to `..` (or any leading
+/// absolute slash) is dropped before the suffix is built. An adversarial
+/// `package.json` can otherwise emit a directory like `../../../etc/passwd`,
+/// which the previous implementation passed through verbatim and produced a
+/// traversal-shaped URL rendered into About cards / markdown / HTML. Empty
+/// segments and `.` segments are also collapsed for the same reason. If
+/// every component is filtered out, the directory suffix is omitted and the
+/// base URL is returned unchanged.
 fn append_tree_directory(base: &str, directory: &str) -> String {
-    let dir = directory
-        .trim()
-        .trim_start_matches("./")
-        .trim_matches('/')
-        .replace('\\', "/");
-    if dir.is_empty() {
+    let normalized = directory.trim().trim_start_matches("./").replace('\\', "/");
+    let cleaned = normalized
+        .split('/')
+        .filter(|seg| !seg.is_empty() && *seg != "." && *seg != "..")
+        .collect::<Vec<_>>()
+        .join("/");
+    if cleaned.is_empty() {
         return base.to_string();
     }
     let trimmed_base = base.trim_end_matches('/');
-    format!("{trimmed_base}/tree/HEAD/{dir}")
+    format!("{trimmed_base}/tree/HEAD/{cleaned}")
 }
 
 fn is_numeric_port_prefix(path: &str) -> bool {
@@ -447,6 +456,52 @@ mod tests {
             normalize_repo_url("ssh://git@host:22/path.git"),
             "https://host:22/path"
         );
+    }
+
+    /// SEC-14 / TASK-0811: a `directory` that escapes the repository root via
+    /// `..` segments must be sanitized — the URL is rendered into About cards
+    /// (and downstream markdown/HTML), so a traversal-shaped suffix is a
+    /// real surface for path-shape attacks.
+    #[test]
+    fn append_tree_directory_strips_leading_parent_segments() {
+        assert_eq!(
+            append_tree_directory("https://github.com/o/r", "../foo"),
+            "https://github.com/o/r/tree/HEAD/foo"
+        );
+    }
+
+    #[test]
+    fn append_tree_directory_strips_internal_parent_segments() {
+        assert_eq!(
+            append_tree_directory("https://github.com/o/r", "a/../b"),
+            "https://github.com/o/r/tree/HEAD/a/b"
+        );
+    }
+
+    #[test]
+    fn append_tree_directory_strips_absolute_leading_slash() {
+        assert_eq!(
+            append_tree_directory("https://github.com/o/r", "/absolute"),
+            "https://github.com/o/r/tree/HEAD/absolute"
+        );
+    }
+
+    #[test]
+    fn append_tree_directory_drops_when_only_parent_components() {
+        assert_eq!(
+            append_tree_directory("https://github.com/o/r", "../../.."),
+            "https://github.com/o/r"
+        );
+    }
+
+    #[test]
+    fn append_tree_directory_pure_traversal_etc_passwd_is_neutralised() {
+        // The motivating case from the SEC-14 finding: an adversarial
+        // package.json must not produce a URL whose path component contains
+        // `../../etc/passwd` style traversal.
+        let url = append_tree_directory("https://github.com/o/r", "../../../../etc/passwd");
+        assert!(!url.contains(".."), "url still contains ..: {url}");
+        assert_eq!(url, "https://github.com/o/r/tree/HEAD/etc/passwd");
     }
 
     #[test]

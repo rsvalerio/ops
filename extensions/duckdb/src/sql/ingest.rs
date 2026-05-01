@@ -91,6 +91,31 @@ pub fn data_dir_for_db(db_path: &Path) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Create the ingest data directory with restrictive permissions.
+///
+/// SEC-25 / TASK-0787: the ingest dir holds workspace-root sidecars and
+/// JSON staging files that the database trusts on load. On Unix we create
+/// it with mode 0o700 (and re-stamp the mode when the dir pre-exists with
+/// a more permissive default umask) so a co-tenant on a multi-user system
+/// cannot tamper with staged data between collect and load. On non-Unix
+/// platforms `create_dir_all` keeps the existing semantics.
+fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(data_dir)?;
+        std::fs::set_permissions(data_dir, std::fs::Permissions::from_mode(0o700))?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(data_dir)
+    }
+}
+
 /// Default DB path for a workspace root (using default DataConfig).
 pub fn default_db_path(workspace_root: &Path) -> PathBuf {
     DuckDb::resolve_path(&ops_core::config::DataConfig::default(), workspace_root)
@@ -261,7 +286,7 @@ where
 
     if !table_has_data(db, table_name)? {
         let data_dir = data_dir_for_db(db.path());
-        std::fs::create_dir_all(&data_dir).map_err(DbError::Io)?;
+        create_ingest_dir(&data_dir).map_err(DbError::Io)?;
         ingestor.collect(ctx, &data_dir)?;
         crate::init_schema(db)?;
         // LoadResult's record_count is not consumed here because the
@@ -362,6 +387,33 @@ mod tests {
         drop(conn);
         let result = table_has_data(&db, "test_table").expect("should succeed");
         assert!(result);
+    }
+
+    /// SEC-25 / TASK-0787: ingest dir must be 0o700 on Unix on both fresh
+    /// create and pre-existing dir paths.
+    #[cfg(unix)]
+    #[test]
+    fn create_ingest_dir_uses_restricted_mode_on_unix() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path().join("data.duckdb.ingest");
+        create_ingest_dir(&dir).expect("create");
+        let mode = std::fs::metadata(&dir).expect("meta").permissions().mode();
+        assert_eq!(
+            mode & 0o777,
+            0o700,
+            "fresh-created ingest dir must be 0o700; got {:o}",
+            mode & 0o777,
+        );
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("relax");
+        create_ingest_dir(&dir).expect("recreate");
+        let mode = std::fs::metadata(&dir).expect("meta").permissions().mode();
+        assert_eq!(
+            mode & 0o777,
+            0o700,
+            "pre-existing ingest dir must be re-stamped to 0o700; got {:o}",
+            mode & 0o777,
+        );
     }
 
     #[test]

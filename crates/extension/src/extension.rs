@@ -1,6 +1,6 @@
 //! Extension trait, type flags, info, and registries.
 
-use crate::data::{DataField, DataProviderSchema, DataRegistry};
+use crate::data::DataRegistry;
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, Config};
 pub use ops_core::stack::Stack;
@@ -249,13 +249,3 @@ pub trait Extension: Send + Sync {
 
     fn register_data_providers(&self, _registry: &mut DataRegistry) {}
 }
-
-// Suppress unused import warnings — these are used by the macros in macros.rs
-// which reference them via `$crate::` paths, but the compiler doesn't see
-// that usage from this module's perspective.
-const _: () = {
-    fn _assert_imports_used() {
-        let _ = std::any::type_name::<DataField>();
-        let _ = std::any::type_name::<DataProviderSchema>();
-    }
-};

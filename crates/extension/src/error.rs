@@ -69,6 +69,16 @@ pub enum DataProviderError {
     /// itself failed.
     #[error("data serialization error: {0}")]
     Serialization(#[source] SharedError),
+    /// SEC-38 / TASK-0744: returned when [`crate::Context::get_or_provide`]
+    /// detects a re-entrant request for a key whose provider is still
+    /// in-flight on the same context. A misconfigured or hostile extension
+    /// that registers circular provider dependencies (A → B → A) would
+    /// otherwise recurse until stack overflow.
+    #[error("data provider cycle detected: {key}")]
+    Cycle {
+        /// The key whose provider re-entered itself transitively.
+        key: String,
+    },
 }
 
 impl DataProviderError {
