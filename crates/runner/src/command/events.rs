@@ -47,6 +47,15 @@ pub enum RunnerEvent {
     /// Execution plan started (list of command ids).
     PlanStarted { command_ids: Vec<CommandId> },
     /// A single command started.
+    ///
+    /// OWN-3 / TASK-0770: `display_cmd` is kept as `Option<String>` rather
+    /// than `Option<Arc<str>>` intentionally. The Started/Finished pair
+    /// owns a separate snapshot per event so each variant is independently
+    /// movable into the bounded mpsc channel without lifetime coupling, and
+    /// the public `RunnerEvent` serde shape stays a plain string for
+    /// downstream JSON consumers (see AC #3 on the task). The single extra
+    /// allocation per spawn is below the spawn cost itself and not worth
+    /// the API / test churn an `Arc<str>` payload would force.
     StepStarted {
         id: CommandId,
         /// Display string for the command (e.g. "cargo build --all-targets").

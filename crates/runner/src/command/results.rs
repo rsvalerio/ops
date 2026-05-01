@@ -98,12 +98,14 @@ pub struct CommandOutput {
     pub status_message: String,
 }
 
-/// PERF-1 / TASK-0515: per-stream byte cap for captured stdout/stderr.
+/// PERF-1 / TASK-0515 / TASK-0764: per-stream byte cap for captured stdout/stderr.
 ///
 /// A pathological build (e.g. a runaway logger or a `cargo test` flooding
-/// stderr) used to balloon the per-step `String` to hundreds of MB. Now we
-/// keep the head of the stream up to this cap and append a single marker
-/// line so the consumer (UI tail / TAP file) sees that output was dropped.
+/// stderr) used to balloon the per-step `String` to hundreds of MB. Now the
+/// command runner **streams** each pipe and stops buffering once `cap` bytes
+/// are in memory; the rest is drained to a sink so the byte count is reported
+/// in the truncation marker without keeping the bytes resident. Peak memory
+/// per stream is bounded near `cap` regardless of how much the child writes.
 ///
 /// Override at runtime via `OPS_OUTPUT_BYTE_CAP` (parses as a u64; values
 /// `<=0` are ignored and fall back to the default).
@@ -118,7 +120,7 @@ const OUTPUT_CAP_ENV: &str = "OPS_OUTPUT_BYTE_CAP";
 /// fallback semantics (parsed at first use) without re-reading.
 static OUTPUT_BYTE_CAP: OnceLock<usize> = OnceLock::new();
 
-fn output_byte_cap() -> usize {
+pub(crate) fn output_byte_cap() -> usize {
     *OUTPUT_BYTE_CAP.get_or_init(|| {
         std::env::var(OUTPUT_CAP_ENV)
             .ok()
@@ -128,47 +130,53 @@ fn output_byte_cap() -> usize {
     })
 }
 
-/// PERF-1 / TASK-0515: truncate `bytes` to a UTF-8-lossy `String` capped at
-/// `cap` bytes. Drops trailing bytes and appends a marker line so the
-/// truncation is user-visible. The cap is applied to the byte stream
-/// **before** UTF-8 decoding, then the truncation is rounded down to a
-/// valid UTF-8 boundary so the marker is never inserted in the middle of a
-/// multibyte codepoint.
-fn truncate_lossy(bytes: &[u8], cap: usize) -> String {
-    if bytes.len() <= cap {
-        return String::from_utf8_lossy(bytes).into_owned();
+impl CommandOutput {
+    /// PERF-1 / TASK-0764: build a `CommandOutput` from streamed pipe reads.
+    ///
+    /// `stdout` / `stderr` carry the head of each stream (already capped at
+    /// `cap` by the caller) and `*_dropped` carries the count of bytes that
+    /// were drained to a sink past the cap. Used by the streaming exec path
+    /// so a misbehaving child writing far more than `cap` to a pipe does not
+    /// peak the runner's RSS at the full output size.
+    pub fn from_streamed(
+        status: std::process::ExitStatus,
+        stdout: Vec<u8>,
+        stdout_dropped: u64,
+        stderr: Vec<u8>,
+        stderr_dropped: u64,
+    ) -> Self {
+        let cap = output_byte_cap();
+        Self {
+            success: status.success(),
+            stdout: cap_streamed(stdout, stdout_dropped, cap),
+            stderr: cap_streamed(stderr, stderr_dropped, cap),
+            status_message: status.to_string(),
+        }
     }
-    // Round `cap` down to a UTF-8 char boundary on the lossy decoded output.
-    let head_lossy = String::from_utf8_lossy(&bytes[..cap]);
-    let mut head = head_lossy.into_owned();
-    // After lossy decode any partial codepoint at the tail is already a
-    // U+FFFD; nothing more to round. Append a marker so the consumer sees
-    // truncation rather than silent drop. PERF-1 / TASK-0577: append via
-    // `write!` directly into `head` — the prior `format!(...)` allocated a
-    // throwaway String per truncated stream on a per-step hot path.
-    let dropped = bytes.len() - cap;
-    if !head.ends_with('\n') {
-        head.push('\n');
+}
+
+/// PERF-1 / TASK-0764: turn a streamed `(head, dropped_after)` pair into the
+/// final `String`. Mirrors the marker shape used by `truncate_lossy` so
+/// downstream tap consumers see a single canonical truncation line.
+fn cap_streamed(mut head: Vec<u8>, dropped_after: u64, cap: usize) -> String {
+    let from_head_overflow = head.len().saturating_sub(cap);
+    if from_head_overflow > 0 {
+        head.truncate(cap);
+    }
+    let total_dropped = (from_head_overflow as u64).saturating_add(dropped_after);
+    let mut out = String::from_utf8_lossy(&head).into_owned();
+    if total_dropped == 0 {
+        return out;
+    }
+    if !out.ends_with('\n') {
+        out.push('\n');
     }
     use std::fmt::Write as _;
     let _ = writeln!(
-        &mut head,
-        "[ops] output truncated: dropped {dropped} bytes (cap {cap})"
+        &mut out,
+        "[ops] output truncated: dropped {total_dropped} bytes (cap {cap})"
     );
-    head
-}
-
-impl CommandOutput {
-    pub fn from_raw(output: std::process::Output) -> Self {
-        let success = output.status.success();
-        let cap = output_byte_cap();
-        Self {
-            success,
-            stdout: truncate_lossy(&output.stdout, cap),
-            stderr: truncate_lossy(&output.stderr, cap),
-            status_message: output.status.to_string(),
-        }
-    }
+    out
 }
 
 #[cfg(test)]
@@ -176,28 +184,32 @@ mod tests {
     use super::*;
     use ops_core::test_utils::make_test_output;
 
+    fn from_output(output: std::process::Output) -> CommandOutput {
+        CommandOutput::from_streamed(output.status, output.stdout, 0, output.stderr, 0)
+    }
+
     #[test]
-    fn command_output_from_raw_success() {
+    fn command_output_from_streamed_success() {
         let output = make_test_output(0, b"hello world", b"");
-        let cmd_output = CommandOutput::from_raw(output);
+        let cmd_output = from_output(output);
         assert!(cmd_output.success);
         assert_eq!(cmd_output.stdout, "hello world");
         assert!(cmd_output.stderr.is_empty());
     }
 
     #[test]
-    fn command_output_from_raw_failure() {
+    fn command_output_from_streamed_failure() {
         let output = make_test_output(1, b"", b"error message");
-        let cmd_output = CommandOutput::from_raw(output);
+        let cmd_output = from_output(output);
         assert!(!cmd_output.success);
         assert!(cmd_output.stdout.is_empty());
         assert_eq!(cmd_output.stderr, "error message");
     }
 
     #[test]
-    fn command_output_from_raw_invalid_utf8() {
+    fn command_output_from_streamed_invalid_utf8() {
         let output = make_test_output(0, b"hello\xffworld", b"test\xfe");
-        let cmd_output = CommandOutput::from_raw(output);
+        let cmd_output = from_output(output);
         assert!(cmd_output.stdout.contains("hello"));
         assert!(cmd_output.stdout.contains("world"));
         assert!(cmd_output.stderr.contains("test"));
@@ -206,8 +218,20 @@ mod tests {
     #[test]
     fn command_output_status_message() {
         let output = make_test_output(0, b"", b"");
-        let cmd_output = CommandOutput::from_raw(output);
+        let cmd_output = from_output(output);
         assert!(!cmd_output.status_message.is_empty());
+    }
+
+    /// PERF-1 / TASK-0764: when the streaming reader sinks bytes past the cap,
+    /// the dropped count flows through `from_streamed` into the marker line
+    /// without those bytes ever being held in memory.
+    #[test]
+    fn from_streamed_marker_reflects_sinked_bytes() {
+        let output = make_test_output(0, b"head", b"");
+        let cmd_output =
+            CommandOutput::from_streamed(output.status, b"head".to_vec(), 9_999, Vec::new(), 0);
+        assert!(cmd_output.stdout.starts_with("head"));
+        assert!(cmd_output.stdout.contains("dropped 9999 bytes"));
     }
 
     /// TQ-009: StepResult clone produces equal copy.
@@ -243,18 +267,14 @@ mod tests {
         );
     }
 
-    /// PERF-1 / TASK-0515: a stream larger than the cap must be truncated
-    /// and end with the user-visible marker line. The first chunk of the
-    /// stream is preserved (head retention).
-    ///
-    /// PERF-3 / TASK-0542: the cap is now memoized via `OnceLock`, so this
-    /// test exercises `truncate_lossy` directly with an explicit cap rather
-    /// than mutating `OPS_OUTPUT_BYTE_CAP` (which would be racy under the
-    /// memoization and pollute other tests in the same binary).
+    /// PERF-1 / TASK-0764: a stream larger than the cap is reduced to a
+    /// `cap`-byte head plus a single marker line. Exercises `cap_streamed`
+    /// directly with an explicit cap (avoids racing the memoized
+    /// `OPS_OUTPUT_BYTE_CAP`).
     #[test]
-    fn truncate_lossy_caps_oversized_input() {
+    fn cap_streamed_caps_oversized_input() {
         let huge: Vec<u8> = (0..1024).map(|i| b'a' + (i % 26) as u8).collect();
-        let truncated = truncate_lossy(&huge, 32);
+        let truncated = cap_streamed(huge, 0, 32);
 
         assert!(
             truncated.contains("[ops] output truncated"),
@@ -292,15 +312,15 @@ mod tests {
                 None => std::env::remove_var(OUTPUT_CAP_ENV),
             }
         }
-        // Sanity-check from_raw goes through the same memoized path.
-        let _ = CommandOutput::from_raw(make_test_output(0, b"x", b"y"));
+        // Sanity-check from_streamed goes through the same memoized path.
+        let _ = from_output(make_test_output(0, b"x", b"y"));
         assert_eq!(output_byte_cap(), first);
     }
 
     #[test]
     fn command_output_under_cap_is_unchanged() {
         let output = make_test_output(0, b"short stdout", b"short stderr");
-        let cmd_output = CommandOutput::from_raw(output);
+        let cmd_output = from_output(output);
         assert_eq!(cmd_output.stdout, "short stdout");
         assert_eq!(cmd_output.stderr, "short stderr");
     }

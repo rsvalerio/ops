@@ -87,6 +87,86 @@ async fn run_plan_parallel_verify_event_content() {
     }
 }
 
+/// ASYNC-7 / TASK-0777: a parallel plan with a single command must produce
+/// the same observable event stream as the sequential `run_plan` — the
+/// fast-path delegates instead of spinning up the parallel infrastructure,
+/// so the order PlanStarted → StepStarted → … → StepFinished → RunFinished
+/// must be identical.
+#[tokio::test(flavor = "multi_thread")]
+async fn run_plan_parallel_singleton_matches_sequential_event_order() {
+    let mut commands = HashMap::new();
+    commands.insert("only".to_string(), CommandSpec::Exec(true_cmd()));
+    let runner = test_runner(commands);
+
+    let mut events = Vec::new();
+    let _ = runner
+        .run_plan_parallel(&["only".into()], false, &mut |e| events.push(e))
+        .await;
+
+    let kinds: Vec<&'static str> = events
+        .iter()
+        .map(|e| match e {
+            RunnerEvent::PlanStarted { .. } => "PlanStarted",
+            RunnerEvent::StepStarted { .. } => "StepStarted",
+            RunnerEvent::StepOutput { .. } => "StepOutput",
+            RunnerEvent::StepFinished { .. } => "StepFinished",
+            RunnerEvent::StepFailed { .. } => "StepFailed",
+            RunnerEvent::StepSkipped { .. } => "StepSkipped",
+            RunnerEvent::RunFinished { .. } => "RunFinished",
+            _ => "Other",
+        })
+        .collect();
+    assert_eq!(kinds.first(), Some(&"PlanStarted"));
+    assert_eq!(kinds.last(), Some(&"RunFinished"));
+    assert!(
+        kinds.contains(&"StepStarted") && kinds.contains(&"StepFinished"),
+        "got: {kinds:?}"
+    );
+}
+
+/// ERR-1 / TASK-0768: every step that emitted `StepStarted` must also see a
+/// terminal event in the stream. Under `fail_fast` the runner aborts in-flight
+/// siblings, and previously their `StepStarted` had no matching terminal —
+/// JSON consumers were left waiting forever for a step that never finished.
+#[tokio::test(flavor = "multi_thread")]
+async fn run_plan_parallel_fail_fast_emits_terminal_for_every_started_step() {
+    let mut commands = HashMap::new();
+    commands.insert("fast_fail".to_string(), CommandSpec::Exec(false_cmd()));
+    commands.insert(
+        "slow_sibling".to_string(),
+        CommandSpec::Exec(exec_spec("sh", &["-c", "sleep 5"])),
+    );
+    let runner = test_runner(commands);
+    let mut events = Vec::new();
+    let _ = runner
+        .run_plan_parallel(
+            &["fast_fail".into(), "slow_sibling".into()],
+            true,
+            &mut |e| events.push(e),
+        )
+        .await;
+
+    let started: Vec<&CommandId> = events
+        .iter()
+        .filter_map(|e| match e {
+            RunnerEvent::StepStarted { id, .. } => Some(id),
+            _ => None,
+        })
+        .collect();
+    for id in &started {
+        let saw_terminal = events.iter().any(|e| match e {
+            RunnerEvent::StepFinished { id: t, .. }
+            | RunnerEvent::StepFailed { id: t, .. }
+            | RunnerEvent::StepSkipped { id: t, .. } => t == *id,
+            _ => false,
+        });
+        assert!(
+            saw_terminal,
+            "every started step needs a terminal event; missing for {id:?}: {events:#?}"
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn run_plan_parallel_fail_fast_emits_failure() {
     let mut commands = HashMap::new();
@@ -184,10 +264,12 @@ async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
     let exec_handle = tokio::spawn(exec_standalone(
         "buffer_full".into(),
         spec,
-        Arc::new(PathBuf::from(".")),
-        Arc::new(test_vars()),
-        tx,
-        abort,
+        ExecTaskCtx {
+            cwd: Arc::new(PathBuf::from(".")),
+            vars: Arc::new(test_vars()),
+            tx,
+            abort,
+        },
     ));
 
     let mut events = Vec::new();
@@ -241,10 +323,12 @@ async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
     let handle = tokio::spawn(exec_standalone(
         "leak_test".into(),
         spec,
-        Arc::new(PathBuf::from(".")),
-        Arc::new(test_vars()),
-        tx,
-        abort,
+        ExecTaskCtx {
+            cwd: Arc::new(PathBuf::from(".")),
+            vars: Arc::new(test_vars()),
+            tx,
+            abort,
+        },
     ));
 
     let _ = timeout(std::time::Duration::from_secs(5), rx.recv())
@@ -284,10 +368,12 @@ async fn exec_standalone_emits_step_output_dropped_under_burst() {
     let handle = tokio::spawn(exec_standalone(
         "burst".into(),
         spec,
-        Arc::new(PathBuf::from(".")),
-        Arc::new(test_vars()),
-        tx,
-        Arc::clone(&abort),
+        ExecTaskCtx {
+            cwd: Arc::new(PathBuf::from(".")),
+            vars: Arc::new(test_vars()),
+            tx,
+            abort: Arc::clone(&abort),
+        },
     ));
 
     // Pause the receiver briefly to make backpressure likely while the
@@ -361,10 +447,12 @@ async fn exec_standalone_terminal_send_aborts_on_full_outer_channel() {
     let handle = tokio::spawn(exec_standalone(
         "stuck".into(),
         spec,
-        Arc::new(PathBuf::from(".")),
-        Arc::new(test_vars()),
-        tx,
-        abort_clone,
+        ExecTaskCtx {
+            cwd: Arc::new(PathBuf::from(".")),
+            vars: Arc::new(test_vars()),
+            tx,
+            abort: abort_clone,
+        },
     ));
 
     // Give the task a moment to reach the terminal-send.
@@ -393,10 +481,12 @@ async fn exec_standalone_skips_when_abort_set() {
     let result = exec_standalone(
         "skipped".into(),
         spec,
-        Arc::new(PathBuf::from(".")),
-        Arc::new(test_vars()),
-        tx,
-        abort,
+        ExecTaskCtx {
+            cwd: Arc::new(PathBuf::from(".")),
+            vars: Arc::new(test_vars()),
+            tx,
+            abort,
+        },
     )
     .await;
     // TASK-0408: cancellation (abort flag set on entry) is now success=false.

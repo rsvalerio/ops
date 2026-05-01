@@ -39,8 +39,10 @@ use super::results::{CommandOutput, StepResult};
 use ops_core::config::{CommandId, ExecCommandSpec};
 use ops_core::expand::Variables;
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncRead, AsyncReadExt};
 #[cfg(test)]
 use tokio::process::Command;
 use tokio::sync::mpsc;
@@ -77,6 +79,60 @@ where
     let start = Instant::now();
     let result = await_with_timeout(future, timeout).await;
     (result, start.elapsed())
+}
+
+/// PERF-1 / TASK-0764: read up to `cap` bytes from `reader` into a `Vec`,
+/// then drain the rest into a sink, counting the dropped bytes. Bounds peak
+/// memory near `cap` even if the child writes orders of magnitude more.
+async fn read_capped<R: AsyncRead + Unpin>(
+    reader: R,
+    cap: usize,
+) -> std::io::Result<(Vec<u8>, u64)> {
+    let mut head = Vec::new();
+    let mut limited = reader.take(cap as u64);
+    limited.read_to_end(&mut head).await?;
+    let mut inner = limited.into_inner();
+    let dropped = tokio::io::copy(&mut inner, &mut tokio::io::sink()).await?;
+    Ok((head, dropped))
+}
+
+/// PERF-1 / TASK-0764: spawn `cmd` with piped stdio, stream both pipes through
+/// `read_capped`, and assemble a `CommandOutput`. Replaces `cmd.output()` so
+/// runaway children cannot peak the runner's RSS at the full output size — the
+/// excess bytes are sinked, not buffered.
+async fn spawn_capped(
+    cmd: &mut tokio::process::Command,
+    cap: usize,
+) -> std::io::Result<CommandOutput> {
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn()?;
+    // Tokio guarantees the handles are populated when stdio was set to piped
+    // immediately before spawn — no untrusted input governs this.
+    let stdout = child.stdout.take().expect("stdout piped");
+    let stderr = child.stderr.take().expect("stderr piped");
+    let stdout_task = tokio::spawn(read_capped(stdout, cap));
+    let stderr_task = tokio::spawn(read_capped(stderr, cap));
+    let status = child.wait().await?;
+    let join_to_io = |e: tokio::task::JoinError| std::io::Error::other(e);
+    let (stdout_bytes, stdout_dropped) = stdout_task.await.map_err(join_to_io)??;
+    let (stderr_bytes, stderr_dropped) = stderr_task.await.map_err(join_to_io)??;
+    Ok(CommandOutput::from_streamed(
+        status,
+        stdout_bytes,
+        stdout_dropped,
+        stderr_bytes,
+        stderr_dropped,
+    ))
+}
+
+/// PERF-1 / TASK-0764 test shim: expose `spawn_capped` for the streaming-cap
+/// regression test.
+#[cfg(test)]
+pub async fn spawn_capped_for_test(
+    cmd: &mut tokio::process::Command,
+    cap: usize,
+) -> std::io::Result<CommandOutput> {
+    spawn_capped(cmd, cap).await
 }
 
 /// Execute a command with an optional timeout, capturing its output.
@@ -226,9 +282,10 @@ pub async fn exec_command(
             return StepResult::failure(id, std::time::Duration::ZERO, msg);
         }
     };
-    let (result, duration) = run_with_timeout(cmd.output(), spec.timeout()).await;
+    let cap = super::results::output_byte_cap();
+    let (result, duration) = run_with_timeout(spawn_capped(&mut cmd, cap), spec.timeout()).await;
     let output = match result {
-        Ok(o) => CommandOutput::from_raw(o),
+        Ok(o) => o,
         Err(e) => {
             // SEC-22: `io::Error::to_string()` on a spawn failure embeds the
             // resolved absolute program path and cwd (e.g. `/home/alice/…`).
@@ -311,16 +368,30 @@ pub async fn exec_command_raw(
     }
 }
 
+/// FN-9 / TASK-0778: shared infrastructure passed to every parallel task.
+///
+/// Groups the four runner-scoped handles (`cwd`, `vars`, the outbound event
+/// `tx`, and the `abort` signal) so each parallel spawn site clones the bag
+/// once via `Clone` rather than threading four positional arguments through
+/// `spawn_parallel_tasks`. The struct uses `Arc`/`Sender` semantics so
+/// cloning is a refcount bump per field — the parallel hot path retains the
+/// allocation profile that TASK-0462 established.
+#[derive(Clone)]
+pub struct ExecTaskCtx {
+    pub cwd: Arc<PathBuf>,
+    pub vars: Arc<Variables>,
+    pub tx: mpsc::Sender<RunnerEvent>,
+    pub abort: Arc<AbortSignal>,
+}
+
 /// Standalone exec used by parallel plan: runs one command, sends events via channel, respects abort flag.
-#[allow(clippy::too_many_arguments)]
-pub async fn exec_standalone(
-    id: CommandId,
-    spec: ExecCommandSpec,
-    cwd: Arc<PathBuf>,
-    vars: Arc<Variables>,
-    tx: mpsc::Sender<RunnerEvent>,
-    abort: Arc<AbortSignal>,
-) -> StepResult {
+pub async fn exec_standalone(id: CommandId, spec: ExecCommandSpec, ctx: ExecTaskCtx) -> StepResult {
+    let ExecTaskCtx {
+        cwd,
+        vars,
+        tx,
+        abort,
+    } = ctx;
     if abort.is_set() {
         // ERR-1 / TASK-0408: this branch fires only when fail_fast already
         // tripped the abort flag — i.e. a sibling task failed. Use

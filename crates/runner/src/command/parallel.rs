@@ -6,14 +6,16 @@
 
 use super::abort::AbortSignal;
 use super::events::PlanLifecycle;
-use super::exec::{exec_standalone, resolution_failure};
+use super::exec::{exec_standalone, resolution_failure, ExecTaskCtx};
 use super::{CommandRunner, RunnerEvent, StepResult};
 use ops_core::config::{CommandId, ExecCommandSpec};
 use ops_core::expand::Variables;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::task::Id as TaskId;
 use tracing::instrument;
 
 impl CommandRunner {
@@ -45,20 +47,30 @@ impl CommandRunner {
     /// misbehaving command should not abort the entire run.
     pub(crate) async fn collect_join_results(
         mut join_set: tokio::task::JoinSet<StepResult>,
+        id_map: &HashMap<TaskId, CommandId>,
     ) -> Vec<StepResult> {
         let mut results = Vec::new();
-        while let Some(res) = join_set.join_next().await {
+        // READ-5 / TASK-0767: use `join_next_with_id` so a panicking task
+        // surfaces the originating `CommandId` (looked up via `id_map`)
+        // instead of a sentinel "<panicked>". JSON event consumers and CI
+        // dashboards can then correlate the panicked StepResult with the
+        // step that produced it.
+        while let Some(res) = join_set.join_next_with_id().await {
             match res {
-                Ok(step_result) => results.push(step_result),
+                Ok((_task_id, step_result)) => results.push(step_result),
                 Err(e) => {
+                    let cmd_id = id_map
+                        .get(&e.id())
+                        .cloned()
+                        .unwrap_or_else(|| CommandId::from("<panicked>"));
                     // CONC-6 / TASK-0214: distinguish a cancellation
                     // (fail_fast aborted the JoinSet) from a real panic so
                     // users see "cancelled" rather than misleading
                     // "panicked" for siblings that were intentionally
                     // stopped.
                     if e.is_cancelled() {
-                        tracing::debug!("parallel task cancelled (fail_fast abort)");
-                        results.push(StepResult::cancelled(CommandId::from("<cancelled>")));
+                        tracing::debug!(id = %cmd_id, "parallel task cancelled (fail_fast abort)");
+                        results.push(StepResult::cancelled(cmd_id));
                     } else {
                         // SEC-21 / TASK-0334: a JoinError's Display embeds the
                         // panic payload, which often contains attacker-influenced
@@ -68,9 +80,9 @@ impl CommandRunner {
                         // output, mirroring the leak channel SEC-22 closed for
                         // spawn errors. Surface a generic message and log the
                         // raw payload at debug for operators.
-                        tracing::debug!(error = %e, "parallel task panicked (full payload)");
+                        tracing::debug!(id = %cmd_id, error = %e, "parallel task panicked (full payload)");
                         results.push(StepResult::failure(
-                            "<panicked>",
+                            cmd_id,
                             Duration::ZERO,
                             "task panicked".to_string(),
                         ));
@@ -93,6 +105,7 @@ impl CommandRunner {
         mpsc::Receiver<RunnerEvent>,
         Arc<AbortSignal>,
         tokio::task::JoinSet<StepResult>,
+        HashMap<TaskId, CommandId>,
     ) {
         // CONC-3 / TASK-0158+0209: bounded channel so a chatty child
         // back-pressures on the display pump instead of growing the mpsc
@@ -106,6 +119,7 @@ impl CommandRunner {
         let abort = Arc::new(AbortSignal::new());
         let semaphore = Arc::new(tokio::sync::Semaphore::new(Self::MAX_PARALLEL));
         let mut join_set = tokio::task::JoinSet::new();
+        let mut id_map: HashMap<TaskId, CommandId> = HashMap::new();
         for (id, spec) in steps {
             let tx = tx.clone();
             let abort = Arc::clone(&abort);
@@ -113,7 +127,8 @@ impl CommandRunner {
             let vars = Arc::clone(&vars);
             let sem = Arc::clone(&semaphore);
             let task_id = id.clone();
-            join_set.spawn(async move {
+            let cmd_id = id.clone();
+            let handle = join_set.spawn(async move {
                 // ERR-5 / TASK-0210: a closed semaphore panicked the worker
                 // with expect("semaphore closed"), yielding a generic
                 // <panicked> StepResult. Since the semaphore is scoped to
@@ -134,11 +149,26 @@ impl CommandRunner {
                     }
                 };
                 let _permit = permit;
-                exec_standalone(id, spec, cwd, vars, tx, abort).await
+                exec_standalone(
+                    id,
+                    spec,
+                    ExecTaskCtx {
+                        cwd,
+                        vars,
+                        tx,
+                        abort,
+                    },
+                )
+                .await
             });
+            // READ-5 / TASK-0767: remember which tokio task carries which
+            // CommandId so `collect_join_results` can preserve the id even
+            // when the task panics (JoinError carries the task `Id`, not the
+            // CommandId).
+            id_map.insert(handle.id(), cmd_id);
         }
         drop(tx);
-        (rx, abort, join_set)
+        (rx, abort, join_set, id_map)
     }
 
     /// Run a flat list of exec command IDs in parallel; events sent via channel. When fail_fast is true, abort flag is set on first failure.
@@ -156,6 +186,16 @@ impl CommandRunner {
         fail_fast: bool,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> Vec<StepResult> {
+        // ASYNC-7 / TASK-0777: parallel orchestration (channel + JoinSet +
+        // AbortSignal + forwarder) only pays off when there are at least two
+        // tasks to overlap. For command_ids.len() <= 1, delegate to the
+        // sequential `run_plan` path: identical observable semantics
+        // (PlanStarted → step events → RunFinished), no orchestration
+        // overhead, no fresh `Arc`/channel allocations on the hot path.
+        // Threshold is documented next to `MAX_PARALLEL` above.
+        if command_ids.len() <= 1 {
+            return self.run_plan(command_ids, fail_fast, on_event).await;
+        }
         let lifecycle = PlanLifecycle::begin(command_ids, on_event);
 
         let steps = match self.resolve_exec_specs(command_ids) {
@@ -168,7 +208,7 @@ impl CommandRunner {
             }
         };
 
-        let (rx, abort, mut join_set) =
+        let (rx, abort, mut join_set, id_map) =
             Self::spawn_parallel_tasks(steps, self.cwd.clone(), self.vars.clone());
         // CONC-6 / TASK-0204: when fail_fast sees the first failure, set
         // the abort flag **and** actively `abort_all()` the JoinSet so
@@ -177,9 +217,45 @@ impl CommandRunner {
         // emitting events long after the 100ms failure that triggered
         // fail_fast. Pass a JoinSet handle to `handle_parallel_events` so
         // it can cancel in-flight work.
-        Self::handle_parallel_events_with_cancel(rx, fail_fast, abort, &mut join_set, on_event)
+        // ERR-1 / TASK-0768: track which plan command ids produced a
+        // terminal event (Finished/Failed/Skipped) so we can synthesize a
+        // `StepSkipped` for any orphan whose task was aborted before its
+        // terminal event reached the channel. JSON event consumers can then
+        // pair every `StepStarted` with a terminal event, matching the
+        // display's `finalize_orphan_bars` behaviour.
+        let mut terminal_ids: std::collections::HashSet<CommandId> =
+            std::collections::HashSet::new();
+        {
+            let on_event_inner: &mut dyn FnMut(RunnerEvent) = on_event;
+            let mut wrapped = |ev: RunnerEvent| {
+                match &ev {
+                    RunnerEvent::StepFinished { id, .. }
+                    | RunnerEvent::StepFailed { id, .. }
+                    | RunnerEvent::StepSkipped { id, .. } => {
+                        terminal_ids.insert(id.clone());
+                    }
+                    _ => {}
+                }
+                on_event_inner(ev);
+            };
+            Self::handle_parallel_events_with_cancel(
+                rx,
+                fail_fast,
+                abort,
+                &mut join_set,
+                &mut wrapped,
+            )
             .await;
-        let results = Self::collect_join_results(join_set).await;
+        }
+        for id in command_ids {
+            if !terminal_ids.contains(id) {
+                on_event(RunnerEvent::StepSkipped {
+                    id: id.clone(),
+                    display_cmd: None,
+                });
+            }
+        }
+        let results = Self::collect_join_results(join_set, &id_map).await;
 
         lifecycle.finish(results.iter().all(|r| r.success), on_event);
         results

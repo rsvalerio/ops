@@ -94,6 +94,35 @@ mod exec_unit_tests {
         assert!(result.is_ok());
     }
 
+    /// PERF-1 / TASK-0764: a child that floods stdout past the configured cap
+    /// must not buffer the full output. `spawn_capped` reads up to `cap` and
+    /// drains the rest into a sink — the resulting `CommandOutput.stdout` is
+    /// bounded near `cap` (head + the marker line) regardless of how much the
+    /// child actually wrote.
+    #[tokio::test]
+    async fn spawn_capped_bounds_collected_bytes_near_cap() {
+        let cap: usize = 1024;
+        let total: usize = 256 * 1024;
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.arg("-c")
+            .arg(format!("head -c {total} /dev/zero | tr '\\0' a"));
+        let output = crate::command::exec::spawn_capped_for_test(&mut cmd, cap)
+            .await
+            .expect("spawn_capped");
+        assert!(output.success);
+        // Head + a single short marker line; bound generously to absorb
+        // platform-dependent marker punctuation.
+        assert!(
+            output.stdout.len() < cap + 256,
+            "expected bounded stdout near cap={cap}, got {} bytes",
+            output.stdout.len()
+        );
+        assert!(
+            output.stdout.contains("[ops] output truncated"),
+            "marker line missing from streamed output"
+        );
+    }
+
     #[test]
     fn emit_step_completion_success() {
         let mut events: Vec<RunnerEvent> = Vec::new();

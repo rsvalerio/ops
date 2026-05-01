@@ -9,13 +9,13 @@ async fn spawn_parallel_tasks_creates_correct_count() {
         ("cmd2".into(), echo_cmd("b")),
         ("cmd3".into(), echo_cmd("c")),
     ];
-    let (rx, _abort, join_set) = CommandRunner::spawn_parallel_tasks(
+    let (rx, _abort, join_set, id_map) = CommandRunner::spawn_parallel_tasks(
         steps,
         Arc::new(PathBuf::from(".")),
         Arc::new(test_vars()),
     );
     drop(rx);
-    let results = CommandRunner::collect_join_results(join_set).await;
+    let results = CommandRunner::collect_join_results(join_set, &id_map).await;
     assert_eq!(results.len(), 3);
 }
 
@@ -93,13 +93,19 @@ async fn handle_parallel_events_no_abort_without_fail_fast() {
 #[tokio::test(flavor = "multi_thread")]
 async fn collect_join_results_redacts_panic_payload() {
     let mut join_set = tokio::task::JoinSet::new();
-    join_set.spawn(async { panic!("/Users/secret/home/.aws/credentials missing") });
+    let panic_handle =
+        join_set.spawn(async { panic!("/Users/secret/home/.aws/credentials missing") });
+    let mut id_map: std::collections::HashMap<tokio::task::Id, CommandId> =
+        std::collections::HashMap::new();
+    id_map.insert(panic_handle.id(), CommandId::from("real-panicker"));
     join_set.spawn(async { StepResult::success("ok", Duration::from_millis(10)) });
 
-    let results = CommandRunner::collect_join_results(join_set).await;
+    let results = CommandRunner::collect_join_results(join_set, &id_map).await;
 
     assert_eq!(results.len(), 2);
-    let panic_result = results.iter().find(|r| r.id == "<panicked>").unwrap();
+    // READ-5 / TASK-0767: panicked task carries the originating CommandId,
+    // not the previous "<panicked>" sentinel.
+    let panic_result = results.iter().find(|r| r.id == "real-panicker").unwrap();
     assert!(!panic_result.success);
     let msg = panic_result.message.as_ref().unwrap();
     assert!(
