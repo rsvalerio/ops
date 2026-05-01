@@ -11,7 +11,7 @@ pub use ingestor::CoverageIngestor;
 use anyhow::Context as AnyhowContext;
 use ops_core::output::format_error_tail;
 use ops_core::subprocess::{run_cargo, RunError};
-use ops_duckdb::{init_schema, DataIngestor, DuckDb};
+use ops_duckdb::{init_schema, DataIngestor, DuckDb, LoadResult};
 use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType};
 use std::path::Path;
 use std::process::Output;
@@ -136,38 +136,49 @@ fn extract_section(summary: &serde_json::Value, key: &str) -> Section {
     }
 }
 
-/// ERR-1: an absent field is legitimately empty (`0`); a field that is
+/// ERR-1: an absent field is legitimately empty (default); a field that is
 /// present but the wrong shape (e.g. llvm-cov bumping `count` to a string or
 /// float) is a schema-drift signal that must surface as a warn so coverage
 /// does not silently drop to zero.
-fn read_i64_field(section: &serde_json::Value, section_key: &str, field: &str) -> i64 {
+fn read_field<T: Default>(
+    section: &serde_json::Value,
+    section_key: &str,
+    field: &str,
+    accessor: impl FnOnce(&serde_json::Value) -> Option<T>,
+    type_name: &'static str,
+) -> T {
     match section.get(field) {
-        None => 0,
-        Some(v) => v.as_i64().unwrap_or_else(|| {
+        None => T::default(),
+        Some(v) => accessor(v).unwrap_or_else(|| {
             tracing::warn!(
                 section = section_key,
                 field,
                 value = %v,
-                "coverage field present but not an integer; coercing to 0 (llvm-cov schema drift?)"
+                "coverage field present but not {type_name}; coercing to default (llvm-cov schema drift?)"
             );
-            0
+            T::default()
         }),
     }
 }
 
+fn read_i64_field(section: &serde_json::Value, section_key: &str, field: &str) -> i64 {
+    read_field(
+        section,
+        section_key,
+        field,
+        serde_json::Value::as_i64,
+        "an integer",
+    )
+}
+
 fn read_f64_field(section: &serde_json::Value, section_key: &str, field: &str) -> f64 {
-    match section.get(field) {
-        None => 0.0,
-        Some(v) => v.as_f64().unwrap_or_else(|| {
-            tracing::warn!(
-                section = section_key,
-                field,
-                value = %v,
-                "coverage field present but not a float; coercing to 0.0 (llvm-cov schema drift?)"
-            );
-            0.0
-        }),
-    }
+    read_field(
+        section,
+        section_key,
+        field,
+        serde_json::Value::as_f64,
+        "a float",
+    )
 }
 
 pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Value, anyhow::Error> {
@@ -190,17 +201,18 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
     }
 
     let empty = serde_json::json!({});
-    let mut records = Vec::new();
-    let mut files_iter = Vec::new();
-    for entry in data {
-        let files = entry
-            .get("files")
-            .and_then(|f| f.as_array())
-            .context("missing or invalid 'files' array in coverage data")?;
-        files_iter.extend(files.iter());
-    }
-    records.reserve(files_iter.len());
-    for file in &files_iter {
+    let file_arrays: Vec<&Vec<serde_json::Value>> = data
+        .iter()
+        .map(|entry| {
+            entry
+                .get("files")
+                .and_then(|f| f.as_array())
+                .context("missing or invalid 'files' array in coverage data")
+        })
+        .collect::<Result<_, _>>()?;
+    let total: usize = file_arrays.iter().map(|f| f.len()).sum();
+    let mut records = Vec::with_capacity(total);
+    for file in file_arrays.into_iter().flat_map(|f| f.iter()) {
         let filename = file.get("filename").and_then(|f| f.as_str()).unwrap_or("");
         let summary = file.get("summary").unwrap_or(&empty);
 
@@ -278,9 +290,24 @@ fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyh
     )
 }
 
-pub fn load_coverage(data_dir: &Path, db: &DuckDb) -> Result<(), anyhow::Error> {
+/// Ingest coverage sidecar data into DuckDB and return the structured load
+/// report.
+///
+/// READ-5 (TASK-0808): the previous signature returned `()` and silently
+/// dropped the [`LoadResult`], leaving callers unable to distinguish a
+/// zero-row load from a healthy one. The signature now surfaces the report;
+/// a zero-record load is also logged at `warn` so even fire-and-forget
+/// callers see the health signal.
+pub fn load_coverage(data_dir: &Path, db: &DuckDb) -> Result<LoadResult, anyhow::Error> {
     init_schema(db)?;
     let ingestor = CoverageIngestor;
-    let _load_result = ingestor.load(data_dir, db)?;
-    Ok(())
+    let load_result = ingestor.load(data_dir, db)?;
+    if load_result.record_count == 0 {
+        tracing::warn!(
+            source = load_result.source_name,
+            data_dir = %data_dir.display(),
+            "coverage load completed with zero records"
+        );
+    }
+    Ok(load_result)
 }
