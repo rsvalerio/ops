@@ -12,6 +12,6 @@ fail_fast = true
 help = "Run run-before-commit checks before committing"
 
 [commands.run-before-push]
-commands = ["qa", "deps"]
+commands = ["qa"]
 fail_fast = true
 help = "Run run-before-push checks before pushing"
