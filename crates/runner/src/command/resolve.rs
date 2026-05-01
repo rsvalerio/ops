@@ -4,7 +4,7 @@
 //! Split out of `command/mod.rs` (ARCH-1 / TASK-0303) so the orchestrator
 //! file is purely about *running* plans, not naming them.
 
-use super::{CommandRunner, ExpandError, ResolveExecError};
+use super::{CommandRunner, ExpandError, ResolveExecError, UnknownCommand};
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 
@@ -178,7 +178,7 @@ impl CommandRunner {
         // over the config / stack / extension / alias chain.
         let (canonical, spec) = self
             .canonical_with_spec(id)
-            .ok_or_else(|| ExpandError::Unknown(id.to_string()))?;
+            .ok_or_else(|| ExpandError::Unknown(UnknownCommand::new(id)))?;
         match spec {
             CommandSpec::Exec(_) => Ok(vec![CommandId::from(canonical)]),
             CommandSpec::Composite(c) => {
@@ -213,7 +213,7 @@ impl CommandRunner {
             Some(CommandSpec::Composite(_)) => {
                 Err(ResolveExecError::CompositeInLeafPlan(id.to_string()))
             }
-            None => Err(ResolveExecError::Unknown(id.to_string())),
+            None => Err(ResolveExecError::Unknown(UnknownCommand::new(id))),
         }
     }
 

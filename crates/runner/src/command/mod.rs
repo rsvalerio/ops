@@ -43,14 +43,32 @@ pub use results::StepResult;
 pub use secret_patterns::is_sensitive_env_key;
 pub use secret_patterns::looks_like_secret_value as looks_like_secret_value_public;
 
+/// Shared "id not found in any store" failure. DUP-3 / TASK-0769:
+/// [`ResolveExecError`] and [`ExpandError`] previously each defined an
+/// `Unknown(String)` variant with identical Display strings. Both now wrap
+/// this single struct so the message lives in one place and a future
+/// caller can convert between the parent enums via `#[from]` without
+/// reconstructing the inner string.
+#[derive(Debug, thiserror::Error, PartialEq, Eq, Clone)]
+#[error("unknown command: {0}")]
+pub struct UnknownCommand(pub String);
+
+impl UnknownCommand {
+    /// Convenience constructor accepting any borrowed-string-ish input so
+    /// call sites stay terse: `UnknownCommand::new(id)`.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+}
+
 /// Typed failure for leaf-exec resolution. ERR-10 / TASK-0130: replaces
 /// stringly-typed errors so callers can match on the specific cause.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ResolveExecError {
     /// The command id was not found in any source (config, stack, extension).
-    #[error("unknown command: {0}")]
-    Unknown(String),
+    #[error(transparent)]
+    Unknown(#[from] UnknownCommand),
     /// The command exists but is a composite; leaf plans must be exec-only.
     #[error("internal error: composite in leaf plan: {0}")]
     CompositeInLeafPlan(String),
@@ -61,8 +79,8 @@ pub enum ResolveExecError {
 #[non_exhaustive]
 pub enum ExpandError {
     /// A referenced id was not defined anywhere.
-    #[error("unknown command: {0}")]
-    Unknown(String),
+    #[error(transparent)]
+    Unknown(#[from] UnknownCommand),
     /// A composite transitively references itself.
     #[error("cycle detected in composite command: {0}")]
     Cycle(String),
@@ -141,10 +159,39 @@ impl CommandRunner {
         }
     }
 
-    fn rebuild_alias_map(&mut self) {
-        self.non_config_alias_map = resolve::build_alias_map(
-            std::iter::once(&self.stack_commands).chain(std::iter::once(&self.extension_commands)),
-        );
+    /// PERF-3 / TASK-0774: merge a single (id, spec) pair into the
+    /// non-config alias map without re-iterating the stack + extension
+    /// stores. Earlier the registration path called `build_alias_map` over
+    /// every store on each batch, which made N successive
+    /// `register_commands` calls of one entry each O(N · (|stack| +
+    /// |extensions|)). Incremental merge keeps that work O(aliases-of-spec)
+    /// per registration. Stale aliases owned by an earlier version of the
+    /// same id are pruned first so a re-registration that drops an alias
+    /// does not leave the map pointing at a now-invalid spec.
+    fn merge_alias_for(&mut self, id: &CommandId, new_spec: &CommandSpec) {
+        if let Some(old_spec) = self.extension_commands.get(id) {
+            for old_alias in old_spec.aliases() {
+                if let Some(owner) = self.non_config_alias_map.get(old_alias.as_str()) {
+                    if owner == id.as_str() {
+                        self.non_config_alias_map.remove(old_alias.as_str());
+                    }
+                }
+            }
+        }
+        for alias in new_spec.aliases() {
+            if let Some(existing) = self.non_config_alias_map.get(alias.as_str()) {
+                if existing != id.as_str() {
+                    tracing::warn!(
+                        alias = %alias,
+                        existing = %existing,
+                        new = %id,
+                        "alias collision: later store overrides earlier"
+                    );
+                }
+            }
+            self.non_config_alias_map
+                .insert(alias.clone(), id.to_string());
+        }
     }
 
     /// Full config (for extensions that need data path, etc.).
@@ -211,9 +258,12 @@ impl CommandRunner {
                     "duplicate extension command registration; later registration shadows earlier"
                 );
             }
+            // PERF-3 / TASK-0774: merge this entry's aliases into the alias
+            // map before swapping the spec into the store, so we still see
+            // the previous spec (if any) and can prune its aliases.
+            self.merge_alias_for(&id, &spec);
             self.extension_commands.insert(id, spec);
         }
-        self.rebuild_alias_map();
     }
 
     /// Run a single exec command; returns result and can stream output via callback.
@@ -237,7 +287,7 @@ impl CommandRunner {
     ) -> anyhow::Result<Vec<StepResult>> {
         let spec = self
             .resolve(command_id)
-            .ok_or_else(|| ExpandError::Unknown(command_id.to_string()))?;
+            .ok_or_else(|| ExpandError::Unknown(UnknownCommand::new(command_id)))?;
         let plan = self
             .expand_to_leaves(command_id)
             .map_err(anyhow::Error::from)?;
