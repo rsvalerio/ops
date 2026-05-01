@@ -10,6 +10,9 @@ pub const COMMIT_OPS: HookOps = HookOps {
     find_git_dir: ops_run_before_commit::find_git_dir,
     install_hook: ops_run_before_commit::install_hook,
     ensure_config_command: ops_run_before_commit::ensure_config_command,
+    skip_env_var: ops_run_before_commit::SKIP_ENV_VAR,
+    should_skip: ops_run_before_commit::should_skip,
+    preflight: Some((ops_run_before_commit::has_staged_files, "no staged files")),
 };
 
 pub const PUSH_OPS: HookOps = HookOps {
@@ -17,6 +20,9 @@ pub const PUSH_OPS: HookOps = HookOps {
     find_git_dir: ops_run_before_push::find_git_dir,
     install_hook: ops_run_before_push::install_hook,
     ensure_config_command: ops_run_before_push::ensure_config_command,
+    skip_env_var: ops_run_before_push::SKIP_ENV_VAR,
+    should_skip: ops_run_before_push::should_skip,
+    preflight: None,
 };
 
 pub fn run_before_commit_install(config: &ops_core::config::Config) -> anyhow::Result<()> {

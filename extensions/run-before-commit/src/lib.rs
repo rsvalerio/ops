@@ -108,6 +108,30 @@ fn has_staged_files_with(program: &str, dir: &Path) -> Result<bool, HasStagedFil
     has_staged_files_with_timeout(program, dir, DEFAULT_GIT_TIMEOUT)
 }
 
+/// ERR-1 / TASK-0789: bounded wait on the stderr drain thread that
+/// distinguishes `Timeout` (expected — drain still running past deadline)
+/// from `Disconnected` (drain thread crashed before sending). The
+/// disconnect path is the one a future operator chasing an empty stderr
+/// needs to know about; logging at `debug` keeps the user-facing happy
+/// path quiet while leaving a postmortem breadcrumb.
+fn read_stderr_bounded(
+    stderr_rx: &std::sync::mpsc::Receiver<Vec<u8>>,
+    timeout: Duration,
+    program: &str,
+) -> Vec<u8> {
+    match stderr_rx.recv_timeout(timeout) {
+        Ok(bytes) => bytes,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Vec::new(),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            tracing::debug!(
+                program = %program,
+                "stderr drain thread disconnected before sending; using empty stderr"
+            );
+            Vec::new()
+        }
+    }
+}
+
 fn has_staged_files_with_timeout(
     program: &str,
     dir: &Path,
@@ -178,9 +202,12 @@ fn has_staged_files_with_timeout(
     // orphan must not be allowed to stall the commit hook. We only use
     // stderr_bytes in the error branch below, so an empty fallback is
     // acceptable.
-    let stderr_bytes = stderr_rx
-        .recv_timeout(Duration::from_millis(200))
-        .unwrap_or_default();
+    // ERR-1 / TASK-0789: distinguish a `Timeout` from `Disconnected`. The
+    // timeout case is the bounded-wait we want; a disconnect means the
+    // drain thread crashed (e.g. allocator failure on huge stderr) so a
+    // postmortem breadcrumb is the only signal a future operator gets when
+    // the user-visible error message is empty.
+    let stderr_bytes = read_stderr_bounded(&stderr_rx, Duration::from_millis(200), program);
 
     // `git diff --quiet`: exit 0 = no staged diff, exit 1 = staged diff
     // present (not an error), other codes = real failure (e.g. not a git
@@ -209,6 +236,27 @@ mod tests {
     use ops_hook_common::test_helpers::EnvGuard;
 
     // -- HOOK_SCRIPT --
+
+    /// ERR-1 / TASK-0789: dropping the sender before any `send` exercises
+    /// the `Disconnected` branch of `read_stderr_bounded`. The function
+    /// must return an empty `Vec` (matching the previous behaviour) and
+    /// log a debug breadcrumb — pin the byte-level contract so a future
+    /// refactor cannot silently swap the variants.
+    #[test]
+    fn read_stderr_bounded_handles_disconnected_sender() {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        drop(tx);
+        let bytes = super::read_stderr_bounded(&rx, Duration::from_millis(50), "git");
+        assert!(bytes.is_empty(), "disconnect must yield empty stderr");
+    }
+
+    #[test]
+    fn read_stderr_bounded_returns_payload_when_sender_sent() {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        tx.send(b"boom".to_vec()).unwrap();
+        let bytes = super::read_stderr_bounded(&rx, Duration::from_millis(50), "git");
+        assert_eq!(bytes, b"boom");
+    }
 
     #[test]
     fn hook_script_contains_ops_run_before_commit() {

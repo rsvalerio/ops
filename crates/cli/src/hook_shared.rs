@@ -8,12 +8,27 @@ use ops_core::stack::Stack;
 
 use crate::tty::SelectOption;
 
+/// Optional pre-flight predicate paired with the message used when it returns
+/// `Ok(false)`. Lifted out of `HookOps` to satisfy `clippy::type_complexity`.
+pub type HookPreflight = (fn() -> anyhow::Result<bool>, &'static str);
+
 /// Hook-specific operations provided by each extension crate.
+///
+/// TASK-0757 collapsed the parallel `HookDispatch` descriptor that lived in
+/// `subcommands` into this single struct so adding a new hook means editing
+/// one constant table, not two.
 pub struct HookOps {
     pub hook_name: &'static str,
     pub find_git_dir: fn(&Path) -> Option<PathBuf>,
     pub install_hook: fn(&Path, &mut dyn Write) -> anyhow::Result<PathBuf>,
     pub ensure_config_command: fn(&Path, &[String], &mut dyn Write) -> anyhow::Result<()>,
+    /// Env var that, when set, instructs the dispatcher to skip the hook.
+    pub skip_env_var: &'static str,
+    /// Returns `true` when the hook should be skipped (e.g. `skip_env_var` set).
+    pub should_skip: fn() -> bool,
+    /// Optional pre-flight predicate. If `Some`, returning `Ok(false)` short-circuits
+    /// the hook with the supplied skip message instead of executing the command.
+    pub preflight: Option<HookPreflight>,
 }
 
 /// Shared interactive install orchestration for all hook types.
