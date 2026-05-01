@@ -16,8 +16,9 @@ pub use ops_core::config::tools::{ExtendedToolSpec, ToolSource, ToolSpec};
 
 pub use install::{install_cargo_tool, install_rustup_component, install_tool};
 pub use probe::{
-    check_binary_installed, check_cargo_tool_installed, check_rustup_component_installed,
-    check_tool_status, get_active_toolchain,
+    capture_cargo_list, capture_rustup_components, check_binary_installed,
+    check_cargo_tool_installed, check_rustup_component_installed, check_tool_status,
+    check_tool_status_with, get_active_toolchain,
 };
 pub use timeout::{run_with_timeout, DEFAULT_INSTALL_TIMEOUT};
 
@@ -79,10 +80,29 @@ impl ToolInfo {
 }
 
 pub fn collect_tools(tools: &IndexMap<String, ToolSpec>) -> Vec<ToolInfo> {
+    let needs_cargo = tools
+        .values()
+        .any(|s| matches!(s.source(), ToolSource::Cargo));
+    let needs_rustup = tools.values().any(|s| s.rustup_component().is_some());
+    let cargo_list = if needs_cargo {
+        probe::capture_cargo_list()
+    } else {
+        None
+    };
+    let rustup_components = if needs_rustup {
+        probe::capture_rustup_components()
+    } else {
+        None
+    };
     tools
         .iter()
         .map(|(name, spec)| {
-            let status = probe::check_tool_status(name, spec);
+            let status = probe::check_tool_status_with(
+                name,
+                spec,
+                cargo_list.as_deref(),
+                rustup_components.as_deref(),
+            );
             ToolInfo {
                 name: name.clone(),
                 description: spec.description().to_string(),

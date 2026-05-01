@@ -234,47 +234,48 @@ pub fn check_rustup_component_installed(component: &str) -> bool {
     is_component_in_list(&stdout, component)
 }
 
-/// Architectures that prefix a rustup target-triple. Used to find the
-/// component-name / target-triple boundary in lines like
-/// `clippy-preview-aarch64-apple-darwin`. Open-ended prefix matching would
-/// also hit unrelated siblings like a hypothetical `clippy-foo-...`.
-const RUSTUP_TARGET_ARCHES: &[&str] = &[
-    "aarch64",
-    "arm",
-    "armv6",
-    "armv7",
-    "armv7a",
-    "asmjs",
-    "i586",
-    "i686",
-    "loongarch64",
-    "mips",
-    "mips64",
-    "mips64el",
-    "mipsel",
-    "nvptx64",
-    "powerpc",
-    "powerpc64",
-    "powerpc64le",
-    "riscv32",
-    "riscv64",
-    "s390x",
-    "sparc",
-    "sparc64",
-    "thumbv6m",
-    "thumbv7em",
-    "thumbv7m",
-    "thumbv7neon",
-    "thumbv8m.base",
-    "thumbv8m.main",
-    "wasm32",
-    "wasm64",
-    "x86_64",
+/// `-{arch}-` patterns used to find the component-name / target-triple
+/// boundary in lines like `clippy-preview-aarch64-apple-darwin`. Stored as
+/// `&'static str` constants so prefix matching does not allocate per line.
+/// Open-ended prefix matching would also hit unrelated siblings like a
+/// hypothetical `clippy-foo-...`.
+const RUSTUP_TARGET_ARCH_PATTERNS: &[&str] = &[
+    "-aarch64-",
+    "-arm-",
+    "-armv6-",
+    "-armv7-",
+    "-armv7a-",
+    "-asmjs-",
+    "-i586-",
+    "-i686-",
+    "-loongarch64-",
+    "-mips-",
+    "-mips64-",
+    "-mips64el-",
+    "-mipsel-",
+    "-nvptx64-",
+    "-powerpc-",
+    "-powerpc64-",
+    "-powerpc64le-",
+    "-riscv32-",
+    "-riscv64-",
+    "-s390x-",
+    "-sparc-",
+    "-sparc64-",
+    "-thumbv6m-",
+    "-thumbv7em-",
+    "-thumbv7m-",
+    "-thumbv7neon-",
+    "-thumbv8m.base-",
+    "-thumbv8m.main-",
+    "-wasm32-",
+    "-wasm64-",
+    "-x86_64-",
 ];
 
 fn strip_target_triple(line: &str) -> &str {
-    for arch in RUSTUP_TARGET_ARCHES {
-        if let Some(idx) = line.find(&format!("-{arch}-")) {
+    for pat in RUSTUP_TARGET_ARCH_PATTERNS {
+        if let Some(idx) = line.find(pat) {
             return &line[..idx];
         }
     }
@@ -294,14 +295,37 @@ pub(crate) fn is_component_in_list(stdout: &str, component: &str) -> bool {
 }
 
 pub fn check_tool_status(name: &str, spec: &ToolSpec) -> ToolStatus {
+    check_tool_status_with(name, spec, None, None)
+}
+
+/// Variant of [`check_tool_status`] that reuses precomputed `cargo --list` and
+/// `rustup component list --installed` outputs, so the caller can resolve them
+/// once per probe sweep and amortise the spawn cost across all entries.
+///
+/// `cargo_list` is consulted only for `ToolSource::Cargo` specs; `rustup_components`
+/// only for specs that name a `rustup_component`. Falling back to `None` runs the
+/// per-tool subprocess as before.
+pub fn check_tool_status_with(
+    name: &str,
+    spec: &ToolSpec,
+    cargo_list: Option<&str>,
+    rustup_components: Option<&str>,
+) -> ToolStatus {
     if let Some(component) = spec.rustup_component() {
-        if !check_rustup_component_installed(component) {
+        let installed = match rustup_components {
+            Some(s) => is_component_in_list(s, component),
+            None => check_rustup_component_installed(component),
+        };
+        if !installed {
             return ToolStatus::NotInstalled;
         }
     }
 
     let is_installed = match spec.source() {
-        ToolSource::Cargo => check_cargo_tool_installed(name),
+        ToolSource::Cargo => match cargo_list {
+            Some(s) => is_in_cargo_list(s, name) || check_binary_installed(name),
+            None => check_cargo_tool_installed(name),
+        },
         ToolSource::System => check_binary_installed(name),
     };
 
@@ -310,4 +334,26 @@ pub fn check_tool_status(name: &str, spec: &ToolSpec) -> ToolStatus {
     } else {
         ToolStatus::NotInstalled
     }
+}
+
+/// Capture the raw stdout of `cargo --list` once. Returns `None` if the spawn or
+/// non-zero exit prevents reuse; callers fall back to per-tool spawns.
+pub fn capture_cargo_list() -> Option<String> {
+    let output = Command::new("cargo").args(["--list"]).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Capture the raw stdout of `rustup component list --installed` once.
+pub fn capture_rustup_components() -> Option<String> {
+    let output = Command::new("rustup")
+        .args(["component", "list", "--installed"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }

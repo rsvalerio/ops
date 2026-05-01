@@ -53,11 +53,10 @@ impl DataProvider for RustCoverageProvider {
         };
 
         let units = if let Some(manifest) = manifest {
-            let members = manifest
+            let members: &[String] = manifest
                 .workspace
                 .as_ref()
-                .map(|ws| ws.members.clone())
-                .unwrap_or_default();
+                .map_or(&[][..], |ws| ws.members.as_slice());
             if members.is_empty() {
                 Vec::new()
             } else {

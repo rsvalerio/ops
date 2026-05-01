@@ -224,6 +224,26 @@ fn has_issues(report: &DepsReport) -> bool {
         }
     };
 
+    // Bans use a relaxed predicate: cargo-deny emits duplicate-crate
+    // diagnostics at severity `warning`, and the project policy treats
+    // those as informational ("transitive, usually harmless" in the
+    // report). Only `error` (and unknown severities, fail-closed) fail
+    // the gate for bans. Advisories / licenses / sources continue to
+    // treat `warning` as actionable.
+    let is_actionable_ban = |severity: &str| -> bool {
+        match severity {
+            "warning" | "note" | "help" | "info" => false,
+            "error" => true,
+            other => {
+                tracing::warn!(
+                    severity = %other,
+                    "TASK-0601: unknown cargo-deny severity treated as actionable (fail-closed); update has_issues if this is benign"
+                );
+                true
+            }
+        }
+    };
+
     report
         .deny
         .advisories
@@ -234,7 +254,11 @@ fn has_issues(report: &DepsReport) -> bool {
             .licenses
             .iter()
             .any(|e| is_actionable(&e.severity))
-        || report.deny.bans.iter().any(|e| is_actionable(&e.severity))
+        || report
+            .deny
+            .bans
+            .iter()
+            .any(|e| is_actionable_ban(&e.severity))
         || report
             .deny
             .sources
