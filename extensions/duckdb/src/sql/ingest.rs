@@ -166,7 +166,14 @@ pub fn write_workspace_sidecar(
     working_directory: &Path,
 ) -> DbResult<()> {
     let workspace_path = sidecar_path(data_dir, name);
-    std::fs::write(
+    // SEC-25 (TASK-0663): a bare `fs::write` could leave a zero-byte or torn
+    // sidecar after a crash; `read_workspace_sidecar` would then surface it
+    // as the workspace_root and `upsert_data_source` would persist a
+    // garbled row. Route through `atomic_write` so the destination only
+    // appears once the temp file has been fsync'd and renamed (and the
+    // parent directory fsync'd on Unix), matching the durability that the
+    // hook installer's `write_temp_hook` adopted in TASK-0713.
+    ops_core::config::atomic_write(
         &workspace_path,
         working_directory.as_os_str().as_encoded_bytes(),
     )
@@ -574,6 +581,31 @@ mod tests {
 
         let raw = std::fs::read(dir.path().join("tokei_workspace.txt")).expect("read raw");
         assert_eq!(raw, bytes, "non-UTF-8 bytes preserved verbatim");
+    }
+
+    /// SEC-25 (TASK-0663): a successful `write_workspace_sidecar` must
+    /// leave the destination fully populated and no sibling temp file
+    /// behind. This is the visible proof that we route through
+    /// `atomic_write` (sibling temp + fsync + rename) rather than a bare
+    /// `fs::write` that could leave a torn or zero-byte sidecar after a
+    /// crash between syscall return and inode flush.
+    #[test]
+    fn workspace_sidecar_write_is_atomic_and_leaves_no_temp() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let working = PathBuf::from("/some/workspace/root");
+        write_workspace_sidecar(dir.path(), "tokei", &working).expect("write sidecar");
+
+        let dest = dir.path().join("tokei_workspace.txt");
+        let bytes = std::fs::read(&dest).expect("read dest");
+        assert_eq!(bytes, b"/some/workspace/root");
+
+        // No `.tokei_workspace.txt.tmp.*` sibling left behind.
+        let leftover = std::fs::read_dir(dir.path())
+            .expect("readdir")
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .find(|name| name.starts_with(".tokei_workspace.txt.tmp."));
+        assert!(leftover.is_none(), "atomic_write left a temp: {leftover:?}");
     }
 
     #[test]

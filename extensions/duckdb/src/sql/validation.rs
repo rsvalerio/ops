@@ -106,13 +106,23 @@ pub fn validate_extra_opts(opts: &str) -> Result<(), SqlError> {
     Ok(())
 }
 
+/// Escape a string for safe interpolation into a SQL-standard single-quoted
+/// literal.
+///
+/// SEC-12 (TASK-0729): backslashes are passed through unchanged. DuckDB
+/// SQL literals use SQL-standard semantics by default (no `E'…'` prefix);
+/// only `'` requires escaping (as `''`). The previous behaviour doubled
+/// every `\` to `\\`, which on Windows turned `C:\Users\file.json` into
+/// `C:\\Users\\file.json` — a path DuckDB could not open. NULs are still
+/// neutralised here (callers go through `sanitize_path_for_sql` first, so
+/// no NUL should normally reach this function, but the guard preserves
+/// the previous defense in depth).
 pub fn escape_sql_string(s: &str) -> String {
     let mut escaped = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {
             '\'' => escaped.push_str("''"),
             '\0' => escaped.push_str("\\0"),
-            '\\' => escaped.push_str("\\\\"),
             _ => escaped.push(ch),
         }
     }
@@ -194,9 +204,12 @@ mod tests {
         assert_eq!(escape_sql_string("it's"), "it''s");
     }
 
+    /// SEC-12 (TASK-0729): DuckDB SQL literals are SQL-standard (no E''
+    /// prefix), so backslashes must pass through unchanged. Doubling them
+    /// previously corrupted Windows paths interpolated into DuckDB SQL.
     #[test]
-    fn escape_sql_string_backslash() {
-        assert_eq!(escape_sql_string(r#"path\to\file"#), r#"path\\to\\file"#);
+    fn escape_sql_string_backslash_is_preserved() {
+        assert_eq!(escape_sql_string(r"path\to\file"), r"path\to\file");
     }
 
     #[test]
@@ -390,9 +403,22 @@ mod tests {
 
     #[test]
     fn escape_sql_string_mixed_dangerous() {
+        // SEC-12 (TASK-0729): `'` is doubled, NUL is neutralised, `\` is
+        // preserved verbatim (SQL-standard literal semantics).
         let input = "O'Brien\\path\0end";
         let escaped = escape_sql_string(input);
-        assert_eq!(escaped, "O''Brien\\\\path\\0end");
+        assert_eq!(escaped, "O''Brien\\path\\0end");
+    }
+
+    /// SEC-12 (TASK-0729): a typical Windows absolute path must round-trip
+    /// through `prepare_path_for_sql` without backslash duplication so
+    /// DuckDB receives the same path the caller intended to open.
+    #[test]
+    #[cfg(windows)]
+    fn prepare_path_for_sql_preserves_windows_backslashes() {
+        let path = PathBuf::from(r"C:\Users\file.json");
+        let prepared = prepare_path_for_sql(&path).expect("windows path is safe");
+        assert_eq!(prepared, r"C:\Users\file.json");
     }
 
     // --- validate_path_chars edge cases ---
