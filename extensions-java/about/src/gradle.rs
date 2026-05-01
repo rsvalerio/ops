@@ -73,39 +73,7 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
         if let Some(name) = extract_assignment(line, "rootProject.name") {
             root_project_name = Some(name);
         }
-
-        // include 'a'                   (Groovy bare)
-        // include 'a', 'b'              (Groovy multi-arg)
-        // include("a", "b")             (Kotlin DSL)
-        // include("a"); include("b")    (Kotlin DSL, multiple per line)
-        // include 'core' // comment
-        // PATTERN-1 / TASK-0619: split once on the structural `)` rather than
-        // `trim_end_matches(')')`, so a quoted argument containing `)` (e.g.
-        // `include("legacy)module")`) is preserved instead of having
-        // characters chewed off its tail. Strip trailing line comments first
-        // so a `)` inside a `// (foo)` comment doesn't masquerade as the
-        // closing paren.
-        // PATTERN-1 / TASK-0687: iterate over every `include(` occurrence so
-        // chained Kotlin DSL invocations on the same line don't silently drop
-        // all but one call.
-        let stripped = strip_trailing_comment(line).trim_end();
-        if stripped.starts_with("include(") {
-            let mut remaining = stripped;
-            while let Some(rest) = remaining.strip_prefix("include(") {
-                match split_at_unquoted_close_paren(rest) {
-                    Some((args, after)) => {
-                        extract_quoted_list(args, &mut includes);
-                        remaining = after.trim_start().trim_start_matches(';').trim_start();
-                    }
-                    None => {
-                        extract_quoted_list(rest, &mut includes);
-                        break;
-                    }
-                }
-            }
-        } else if let Some(rest) = stripped.strip_prefix("include ") {
-            extract_quoted_list(rest, &mut includes);
-        }
+        parse_include_line(line, &mut includes);
     };
 
     for_each_trimmed_line(&project_root.join("settings.gradle"), &mut scan)
@@ -154,6 +122,42 @@ fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
         .or_else(|| for_each_trimmed_line(&project_root.join("build.gradle.kts"), &mut scan))?;
 
     Some(GradleBuild { description })
+}
+
+/// READ-2 / TASK-0817: handles every Gradle `include` shape on a single line:
+///
+/// - `include 'a'`                     — Groovy bare
+/// - `include 'a', 'b'`                — Groovy multi-arg
+/// - `include("a", "b")`               — Kotlin DSL
+/// - `include("a"); include("b")`      — Kotlin DSL, multiple per line
+/// - `include 'core' // comment`       — trailing comments stripped first
+///
+/// PATTERN-1 / TASK-0619: split once on the structural `)` rather than
+/// `trim_end_matches(')')`, so a quoted argument containing `)` (e.g.
+/// `include("legacy)module")`) is preserved.
+///
+/// PATTERN-1 / TASK-0687: iterate over every `include(` occurrence so chained
+/// Kotlin DSL invocations on the same line don't silently drop all but one
+/// call.
+fn parse_include_line(line: &str, includes: &mut Vec<String>) {
+    let stripped = strip_trailing_comment(line).trim_end();
+    if stripped.starts_with("include(") {
+        let mut remaining = stripped;
+        while let Some(rest) = remaining.strip_prefix("include(") {
+            match split_at_unquoted_close_paren(rest) {
+                Some((args, after)) => {
+                    extract_quoted_list(args, includes);
+                    remaining = after.trim_start().trim_start_matches(';').trim_start();
+                }
+                None => {
+                    extract_quoted_list(rest, includes);
+                    break;
+                }
+            }
+        }
+    } else if let Some(rest) = stripped.strip_prefix("include ") {
+        extract_quoted_list(rest, includes);
+    }
 }
 
 /// Extract a value from `key = "value"` or `key = 'value'` or `key="value"`.
@@ -280,14 +284,23 @@ fn strip_trailing_comment(s: &str) -> &str {
 }
 
 /// Strip a trailing `# ...` or `! ...` java.util.Properties comment.
+///
+/// READ-2 / TASK-0812: only treat `#` / `!` as a comment introducer when it
+/// appears at the start of (the already-trimmed) value or is preceded by
+/// whitespace. The Java .properties spec recognises these markers only at the
+/// beginning of a logical line, so a real value like `1.0!beta` or
+/// `pwd=foo#bar` must round-trip unchanged. The whitespace-prefix relaxation
+/// preserves the long-standing `version=1.2 # release` extraction.
 fn strip_properties_comment(s: &str) -> &str {
-    let cut = s
-        .find('#')
-        .into_iter()
-        .chain(s.find('!'))
-        .min()
-        .unwrap_or(s.len());
-    &s[..cut]
+    let bytes = s.as_bytes();
+    let mut prev_ws = true;
+    for (i, &b) in bytes.iter().enumerate() {
+        if (b == b'#' || b == b'!') && prev_ws {
+            return &s[..i];
+        }
+        prev_ws = (b as char).is_whitespace();
+    }
+    s
 }
 
 #[cfg(test)]
@@ -564,6 +577,44 @@ mod tests {
 
         let p = parse_gradle_properties(dir.path()).unwrap();
         assert_eq!(p.version, Some("1.2".to_string()));
+    }
+
+    #[test]
+    fn parse_gradle_properties_value_contains_bang() {
+        // READ-2 / TASK-0812: `!` inside the value (no preceding whitespace)
+        // is part of the value, not a comment introducer.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("gradle.properties"), "version=1.0!beta\n").unwrap();
+        let p = parse_gradle_properties(dir.path()).unwrap();
+        assert_eq!(p.version, Some("1.0!beta".to_string()));
+    }
+
+    #[test]
+    fn parse_gradle_properties_value_contains_hash() {
+        // READ-2 / TASK-0812: `#` inside the value (no preceding whitespace)
+        // is part of the value, not a comment introducer.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("gradle.properties"),
+            "version=1.0#snapshot\n",
+        )
+        .unwrap();
+        let p = parse_gradle_properties(dir.path()).unwrap();
+        assert_eq!(p.version, Some("1.0#snapshot".to_string()));
+    }
+
+    #[test]
+    fn parse_gradle_properties_real_comment_line_skipped() {
+        // A `# ...` comment line never matches `strip_prefix("version")`, so
+        // a real comment cannot leak through as a version value.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("gradle.properties"),
+            "# version=2.0\nversion=3.0\n",
+        )
+        .unwrap();
+        let p = parse_gradle_properties(dir.path()).unwrap();
+        assert_eq!(p.version, Some("3.0".to_string()));
     }
 
     #[test]

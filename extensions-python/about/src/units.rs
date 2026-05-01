@@ -49,14 +49,19 @@ struct RawWorkspace {
 }
 
 fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
-    let path = root.join("pyproject.toml");
-    let Some(content) = ops_about::manifest_io::read_optional_text(&path, "pyproject.toml") else {
+    // DUP-3 / TASK-0816: share the parsed `toml::Value` with the identity
+    // provider via the per-process cache rather than re-reading and
+    // re-parsing the same `pyproject.toml`.
+    let Some(value) = crate::manifest_cache::pyproject_value(root) else {
         return Vec::new();
     };
-    let raw: RawRoot = match toml::from_str(&content) {
+    let raw: RawRoot = match (*value).clone().try_into() {
         Ok(r) => r,
         Err(e) => {
-            tracing::warn!(path = %path.display(), error = %e, "failed to parse pyproject.toml");
+            tracing::warn!(
+                error = %e,
+                "failed to project pyproject.toml into workspace shape"
+            );
             return Vec::new();
         }
     };

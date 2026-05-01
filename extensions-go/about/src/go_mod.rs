@@ -71,8 +71,15 @@ fn parse_replace_directive(rest: &str) -> Option<String> {
     // cmd/go requires the replacement to omit a version when the target is a
     // filesystem path; anything carrying a whitespace-separated `vX.Y.Z` is a
     // remote module replacement.
-    if target.split_whitespace().count() > 1 {
-        return None;
+    //
+    // PATTERN-1 / TASK-0815: only the version-shaped second token marks a
+    // remote replace — a path containing whitespace (legal on disk) such as
+    // `./has space/sub` must still be recognised as a local target.
+    let mut tokens = target.split_whitespace();
+    if let (Some(_first), Some(second)) = (tokens.next(), tokens.next()) {
+        if looks_like_module_version(second) {
+            return None;
+        }
     }
     if target.starts_with("./")
         || target.starts_with("../")
@@ -84,6 +91,22 @@ fn parse_replace_directive(rest: &str) -> Option<String> {
         return Some(target.to_string());
     }
     None
+}
+
+/// Match cmd/go's module version token shape: a leading `v` followed by an
+/// `X.Y.Z` triple, optionally with pre-release / build / pseudo-version
+/// suffixes. We accept anything starting with `v<digit>` with at least one
+/// `.` — the parser doesn't need a strict semver matcher; it just needs to
+/// distinguish a remote replacement from a path token.
+fn looks_like_module_version(s: &str) -> bool {
+    let mut chars = s.chars();
+    if chars.next() != Some('v') {
+        return false;
+    }
+    match chars.next() {
+        Some(c) if c.is_ascii_digit() => s.contains('.'),
+        _ => false,
+    }
 }
 
 fn is_windows_absolute(s: &str) -> bool {
@@ -209,6 +232,20 @@ mod tests {
         .unwrap();
         let m = parse(dir.path()).unwrap();
         assert_eq!(m.local_replaces, vec!["/abs/path"]);
+    }
+
+    #[test]
+    fn accepts_local_replace_target_with_whitespace() {
+        // PATTERN-1 / TASK-0815: `./has space/sub` is a legal filesystem path
+        // and must be retained as a local replace target.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace ex.com/m => ./has space/sub\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.local_replaces, vec!["./has space/sub"]);
     }
 
     #[test]

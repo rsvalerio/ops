@@ -9,6 +9,7 @@
 //! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
 //! manifest does not silently look like a missing one (TASK-0394).
 
+mod manifest_cache;
 mod units;
 
 use std::path::Path;
@@ -167,16 +168,17 @@ struct RawTool {
 }
 
 fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
-    let path = project_root.join("pyproject.toml");
-    let content = ops_about::manifest_io::read_optional_text(&path, "pyproject.toml")?;
-    let raw: RawPyproject = match toml::from_str(&content) {
+    // DUP-3 / TASK-0816: read+parse pyproject.toml at most once per project
+    // root for the lifetime of the process; the units provider deserialises
+    // its own shape from the same shared `toml::Value`.
+    let value = manifest_cache::pyproject_value(project_root)?;
+    let raw: RawPyproject = match (*value).clone().try_into() {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(
-                path = %path.display(),
                 error = %e,
                 recovery = "default-identity",
-                "failed to parse pyproject.toml"
+                "failed to project pyproject.toml into identity shape"
             );
             return None;
         }
@@ -188,64 +190,75 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
     };
 
     if let Some(p) = raw.project {
-        // ERR-2 (TASK-0563 AC#3): apply the same trim+empty-filter to
-        // name/version that we already apply to description, so a
-        // whitespace-only PEP 621 field falls through to the dir-name
-        // fallback rather than rendering as a blank About card.
         out.name = trim_nonempty(p.name);
         out.version = trim_nonempty(p.version);
         out.description = trim_nonempty(p.description);
         out.requires_python = trim_nonempty(p.requires_python);
-        // PEP 621 license can be a string, `{ text = "..." }`, or
-        // `{ file = "LICENSE" }`. The file form is a *path* to a file, not an
-        // SPDX identifier, so passing it through as the license name is
-        // misleading. When only `file` is set, surface it explicitly as
-        // `License file: <name>` so the About card communicates that an SPDX
-        // identifier was not declared but a license file is present.
-        // ERR-2 / TASK-0704: trim+drop-empty for license text and author
-        // name/email so a whitespace-only field does not render as a blank
-        // bullet — matching the trim policy already applied to
-        // name/version/description above and to package.json's format_person.
-        out.license = p.license.and_then(|l| match l {
-            LicenseField::Text(s) => trim_nonempty(Some(s)),
-            LicenseField::Table { text: Some(t), .. } => trim_nonempty(Some(t)),
-            LicenseField::Table { file: Some(f), .. } => {
-                trim_nonempty(Some(f)).map(|f| format!("License file: {f}"))
-            }
-            LicenseField::Table { .. } => None,
-        });
-        out.authors = p
-            .authors
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|a| {
-                let name = trim_nonempty(a.name);
-                let email = trim_nonempty(a.email);
-                match (name, email) {
-                    (Some(n), Some(e)) => Some(format!("{n} <{e}>")),
-                    (Some(n), None) => Some(n),
-                    (None, Some(e)) => Some(e),
-                    (None, None) => None,
-                }
-            })
-            .collect();
+        out.license = p.license.and_then(normalize_license);
+        out.authors = format_authors(p.authors.unwrap_or_default());
         if let Some(urls) = p.urls {
-            out.homepage = pick_url(&urls, &["homepage", "home", "home-page", "documentation"]);
-            out.repository = pick_url(
-                &urls,
-                &[
-                    "repository",
-                    "source",
-                    "source-code",
-                    "sourcecode",
-                    "code",
-                    "repo",
-                ],
-            );
+            let (homepage, repository) = extract_urls(&urls);
+            out.homepage = homepage;
+            out.repository = repository;
         }
     }
 
     Some(out)
+}
+
+/// PEP 621 license can be a string, `{ text = "..." }`, or `{ file = "LICENSE" }`.
+/// The file form is a *path* to a file, not an SPDX identifier, so passing it
+/// through as the license name is misleading. When only `file` is set, surface
+/// it explicitly as `License file: <name>` so the About card communicates that
+/// an SPDX identifier was not declared but a license file is present.
+/// ERR-2 / TASK-0704: trim+drop-empty for license text so a whitespace-only
+/// field does not render as a blank bullet.
+fn normalize_license(license: LicenseField) -> Option<String> {
+    match license {
+        LicenseField::Text(s) => trim_nonempty(Some(s)),
+        LicenseField::Table { text: Some(t), .. } => trim_nonempty(Some(t)),
+        LicenseField::Table { file: Some(f), .. } => {
+            trim_nonempty(Some(f)).map(|f| format!("License file: {f}"))
+        }
+        LicenseField::Table { .. } => None,
+    }
+}
+
+/// ERR-2 / TASK-0704: trim+drop-empty for each author component so a
+/// whitespace-only field does not render as a blank bullet — matching
+/// package.json's `format_person`.
+fn format_authors(authors: Vec<RawAuthor>) -> Vec<String> {
+    authors
+        .into_iter()
+        .filter_map(|a| {
+            let name = trim_nonempty(a.name);
+            let email = trim_nonempty(a.email);
+            match (name, email) {
+                (Some(n), Some(e)) => Some(format!("{n} <{e}>")),
+                (Some(n), None) => Some(n),
+                (None, Some(e)) => Some(e),
+                (None, None) => None,
+            }
+        })
+        .collect()
+}
+
+fn extract_urls(
+    urls: &std::collections::BTreeMap<String, String>,
+) -> (Option<String>, Option<String>) {
+    let homepage = pick_url(urls, &["homepage", "home", "home-page", "documentation"]);
+    let repository = pick_url(
+        urls,
+        &[
+            "repository",
+            "source",
+            "source-code",
+            "sourcecode",
+            "code",
+            "repo",
+        ],
+    );
+    (homepage, repository)
 }
 
 /// PEP 621 places no constraints on `[project.urls]` key casing or spelling
@@ -284,6 +297,19 @@ fn trim_nonempty(value: Option<String>) -> Option<String> {
 mod tests {
     use super::*;
     use ops_core::project_identity::ProjectIdentity;
+
+    /// ERR-7 (TASK-0818): manifest paths flow through `tracing::warn!` via
+    /// the `?` formatter so embedded newlines or ANSI escapes cannot forge
+    /// multi-line log records. Pin the value-level escape without requiring
+    /// a tracing-subscriber dev-dep.
+    #[test]
+    fn pyproject_path_debug_escapes_control_characters() {
+        let p = Path::new("a\nb\u{1b}[31mc/pyproject.toml");
+        let rendered = format!("{:?}", p.display());
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
+    }
 
     #[test]
     fn build_stack_detail_python_with_uv() {

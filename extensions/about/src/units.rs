@@ -79,40 +79,53 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
     // ERR-1 (TASK-0463): a query failure must NOT silently overwrite
     // provider-supplied unit fields with None. Track each query's outcome
     // separately and only enrich units when we actually have data.
+    //
+    // READ-5 (TASK-0786): collect per-query failures into a single
+    // consolidated warn so an operator scanning logs sees one line that
+    // names every field left stale, instead of four scattered messages
+    // from which the partial-frame nature has to be reconstructed.
+    let mut partial_failures: Vec<(&'static str, String)> = Vec::new();
     let locs = match ops_duckdb::sql::query_crate_loc(db, &per_crate_paths) {
         Ok(map) => Some(map),
         Err(e) => {
-            tracing::warn!(
-                "about/units: query_crate_loc failed across {unit_count} units; \
-                 leaving provider-supplied loc untouched: {e:#}"
-            );
+            partial_failures.push(("crate_loc", format!("{e:#}")));
             None
         }
     };
     let files = match ops_duckdb::sql::query_crate_file_count(db, &per_crate_paths) {
         Ok(map) => Some(map),
         Err(e) => {
-            tracing::warn!(
-                "about/units: query_crate_file_count failed across {unit_count} units; \
-                 leaving provider-supplied file_count untouched: {e:#}"
-            );
+            partial_failures.push(("crate_file_count", format!("{e:#}")));
             None
         }
     };
     let project_loc = match ops_duckdb::sql::query_project_loc(db) {
         Ok(v) => Some(v),
         Err(e) => {
-            tracing::warn!("about/units: query_project_loc failed: {e:#}");
+            partial_failures.push(("project_loc", format!("{e:#}")));
             None
         }
     };
     let project_files = match ops_duckdb::sql::query_project_file_count(db) {
         Ok(v) => Some(v),
         Err(e) => {
-            tracing::warn!("about/units: query_project_file_count failed: {e:#}");
+            partial_failures.push(("project_file_count", format!("{e:#}")));
             None
         }
     };
+    if !partial_failures.is_empty() {
+        let fields: Vec<&'static str> = partial_failures.iter().map(|(f, _)| *f).collect();
+        let detail = partial_failures
+            .iter()
+            .map(|(f, e)| format!("{f}: {e}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        tracing::warn!(
+            "about/units: rendered frame is partial across {unit_count} units; \
+             leaving provider-supplied fields untouched for queries [{fields}]: {detail}",
+            fields = fields.join(", "),
+        );
+    }
 
     for unit in units.iter_mut() {
         let is_root = unit.path.is_empty() || unit.path == ".";

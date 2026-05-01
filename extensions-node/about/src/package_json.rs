@@ -79,7 +79,7 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(
-                path = %path.display(),
+                path = ?path.display(),
                 error = %e,
                 recovery = "default-identity",
                 "failed to parse package.json"
@@ -88,7 +88,9 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
         }
     };
 
-    let mut authors = Vec::new();
+    // PERF-2 / TASK-0819: bound is `1 (author) + contributors.len()`; allocate
+    // once instead of growing through repeated `push`.
+    let mut authors = Vec::with_capacity(1 + raw.contributors.len());
     if let Some(a) = raw.author {
         if let Some(s) = format_person(a) {
             authors.push(s);
@@ -104,9 +106,13 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
         name: trim_nonempty(raw.name),
         version: trim_nonempty(raw.version),
         description: trim_nonempty(raw.description),
+        // ERR-2 / TASK-0813: trim+drop-empty for license text and object
+        // forms, mirroring the pattern applied to name/version/description
+        // and to pyproject's normalize_license — a whitespace-only license
+        // value should not render as a blank About bullet.
         license: raw.license.and_then(|l| match l {
-            LicenseField::Text(s) => Some(s),
-            LicenseField::Object { r#type } => r#type,
+            LicenseField::Text(s) => trim_nonempty(Some(s)),
+            LicenseField::Object { r#type } => trim_nonempty(r#type),
         }),
         homepage: trim_nonempty(raw.homepage),
         repository: raw.repository.and_then(|r| match r {
@@ -120,7 +126,9 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
             }),
         }),
         authors,
-        engines_node: raw.engines.and_then(|e| e.node),
+        // ERR-2 / TASK-0814: trim+drop-empty so a whitespace-only `engines.node`
+        // does not render as `Node    · …` in `build_stack_detail`.
+        engines_node: raw.engines.and_then(|e| trim_nonempty(e.node)),
         has_packagemanager: raw.package_manager,
     })
 }
@@ -242,6 +250,19 @@ fn is_numeric_port_prefix(path: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// ERR-7 (TASK-0818): manifest paths flow through `tracing::warn!` via
+    /// the `?` formatter so embedded newlines or ANSI escapes cannot forge
+    /// multi-line log records. Pin the value-level escape without requiring
+    /// a tracing-subscriber dev-dep.
+    #[test]
+    fn package_json_path_debug_escapes_control_characters() {
+        let p = Path::new("a\nb\u{1b}[31mc/package.json");
+        let rendered = format!("{:?}", p.display());
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
+    }
+
     #[test]
     fn format_person_email_only_wraps_in_brackets() {
         let p = PersonField::Object {
@@ -286,6 +307,45 @@ mod tests {
             email: Some("\t".into()),
         };
         assert_eq!(format_person(p), None);
+    }
+
+    #[test]
+    fn parse_package_json_whitespace_only_license_text_dropped() {
+        // ERR-2 / TASK-0813
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"x","license":"   "}"#,
+        )
+        .expect("write");
+        let pkg = parse_package_json(dir.path()).expect("parse");
+        assert_eq!(pkg.license, None);
+    }
+
+    #[test]
+    fn parse_package_json_whitespace_only_license_object_type_dropped() {
+        // ERR-2 / TASK-0813
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"x","license":{"type":"\t"}}"#,
+        )
+        .expect("write");
+        let pkg = parse_package_json(dir.path()).expect("parse");
+        assert_eq!(pkg.license, None);
+    }
+
+    #[test]
+    fn parse_package_json_whitespace_only_engine_node_dropped() {
+        // ERR-2 / TASK-0814
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"x","engines":{"node":"  "}}"#,
+        )
+        .expect("write");
+        let pkg = parse_package_json(dir.path()).expect("parse");
+        assert_eq!(pkg.engines_node, None);
     }
 
     #[test]

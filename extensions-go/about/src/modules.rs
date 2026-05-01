@@ -27,53 +27,61 @@ impl DataProvider for GoUnitsProvider {
 
 fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
     if let Some(dirs) = workspace_use_dirs(cwd) {
-        dirs.into_iter()
-            .map(|dir| {
-                let normalized = normalize_module_path(&dir);
-                let out_of_tree = normalized.starts_with("..");
-                if out_of_tree {
-                    // Out-of-tree workspace members (e.g. `use ../shared`) match no
-                    // `tokei_files.file` entry under cwd, so the unit would render
-                    // with zero LOC and no diagnostic. Surface it instead.
-                    tracing::warn!(
-                        directive = %dir,
-                        "go.work `use` directive points outside the project root; LOC stats will be empty",
-                    );
-                }
-                let mod_path = cwd.join(&normalized);
-                let (module, go_version) = read_mod_info(&mod_path);
-                let name = last_segment(module.as_deref())
-                    .unwrap_or_else(|| format_unit_name(&normalized));
-                let description = if out_of_tree {
-                    Some(match module {
-                        Some(m) => format!("{m} (outside project root)"),
-                        None => "(outside project root)".to_string(),
-                    })
-                } else {
-                    module
-                };
-                ProjectUnit {
-                    name,
-                    path: normalized,
-                    version: go_version,
-                    description,
-                    ..Default::default()
-                }
-            })
-            .collect()
+        return dirs
+            .into_iter()
+            .map(|dir| unit_from_use_dir(cwd, &dir))
+            .collect();
+    }
+    let (module, go_version) = read_mod_info(cwd);
+    match module {
+        Some(m) => vec![ProjectUnit {
+            name: last_segment(Some(&m)).unwrap_or_else(|| m.clone()),
+            // Empty path matches every file in `tokei_files` via starts_with.
+            path: String::new(),
+            version: go_version,
+            description: Some(m),
+            ..Default::default()
+        }],
+        None => vec![],
+    }
+}
+
+/// FN-1 / TASK-0820: build the [`ProjectUnit`] for a single `go.work` use
+/// directive. Handles path normalisation, the out-of-tree diagnostic, the
+/// per-module `go.mod` lookup, and the description-shaping that distinguishes
+/// `(outside project root)` members.
+fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
+    let normalized = normalize_module_path(dir);
+    let out_of_tree = normalized.starts_with("..");
+    if out_of_tree {
+        // Out-of-tree workspace members (e.g. `use ../shared`) match no
+        // `tokei_files.file` entry under cwd, so the unit would render with
+        // zero LOC and no diagnostic. Surface it instead.
+        // ERR-7 (TASK-0665 / TASK-0809): Debug-format the directive so
+        // embedded newlines / ANSI escapes cannot forge log lines, matching
+        // the project-wide path-log policy.
+        tracing::warn!(
+            directive = ?dir,
+            "go.work `use` directive points outside the project root; LOC stats will be empty",
+        );
+    }
+    let mod_path = cwd.join(&normalized);
+    let (module, go_version) = read_mod_info(&mod_path);
+    let name = last_segment(module.as_deref()).unwrap_or_else(|| format_unit_name(&normalized));
+    let description = if out_of_tree {
+        Some(match module {
+            Some(m) => format!("{m} (outside project root)"),
+            None => "(outside project root)".to_string(),
+        })
     } else {
-        let (module, go_version) = read_mod_info(cwd);
-        match module {
-            Some(m) => vec![ProjectUnit {
-                name: last_segment(Some(&m)).unwrap_or_else(|| m.clone()),
-                // Empty path matches every file in `tokei_files` via starts_with.
-                path: String::new(),
-                version: go_version,
-                description: Some(m),
-                ..Default::default()
-            }],
-            None => vec![],
-        }
+        module
+    };
+    ProjectUnit {
+        name,
+        path: normalized,
+        version: go_version,
+        description,
+        ..Default::default()
     }
 }
 
@@ -204,6 +212,29 @@ mod tests {
         assert_eq!(
             units[0].description.as_deref(),
             Some("(outside project root)")
+        );
+    }
+
+    /// ERR-7 (TASK-0809): the `use` directive flows through `tracing::warn!`
+    /// via the `?` formatter so embedded newlines or ANSI escapes cannot
+    /// forge multi-line log records. Pin the value-level escape without
+    /// requiring a tracing-subscriber dev-dep, matching the pattern in
+    /// `extensions/about/src/manifest_io.rs`.
+    #[test]
+    fn directive_debug_escapes_control_characters() {
+        let dir = "../shared\nINJECTED line\u{1b}[31m";
+        let rendered = format!("{dir:?}");
+        assert!(
+            !rendered.contains('\n'),
+            "raw newline leaked into log value: {rendered}"
+        );
+        assert!(
+            !rendered.contains('\u{1b}'),
+            "raw ANSI ESC leaked into log value: {rendered}"
+        );
+        assert!(
+            rendered.contains("\\n"),
+            "expected escaped newline in {rendered}"
         );
     }
 
