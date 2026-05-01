@@ -10,6 +10,26 @@ use crate::config::{CommandSpec, Config};
 use indexmap::IndexMap;
 use std::path::Path;
 
+/// SEC-25: probe a manifest path with `try_exists` so transient errors are
+/// logged rather than silently swallowed by `Path::exists`. Permission errors
+/// or other I/O failures are treated as "not found" for detection purposes
+/// (a wrong stack default for one CLI invocation is acceptable), but they are
+/// surfaced via `tracing::debug` so a user investigating mis-detection has a
+/// breadcrumb to follow.
+fn manifest_present(path: &Path) -> bool {
+    match path.try_exists() {
+        Ok(present) => present,
+        Err(err) => {
+            tracing::debug!(
+                path = %path.display(),
+                error = %err,
+                "stack manifest probe failed; treating as not present",
+            );
+            false
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumString, strum::IntoStaticStr)]
 #[strum(serialize_all = "lowercase")]
 pub enum Stack {
@@ -104,10 +124,11 @@ impl Stack {
 
         let mut current = start.to_path_buf();
         for _ in 0..Self::MAX_DETECT_DEPTH {
-            if let Some(&stack) = DETECT_ORDER
-                .iter()
-                .find(|s| s.manifest_files().iter().any(|f| current.join(f).exists()))
-            {
+            if let Some(&stack) = DETECT_ORDER.iter().find(|s| {
+                s.manifest_files()
+                    .iter()
+                    .any(|f| manifest_present(&current.join(f)))
+            }) {
                 return Some(stack);
             }
             if !current.pop() {

@@ -12,7 +12,7 @@ fn merge_config_overlay_adds_commands() {
         }),
         ..Default::default()
     };
-    merge_config(&mut base, &overlay);
+    merge_config(&mut base, overlay);
     assert!(
         base.commands.contains_key("build"),
         "base command preserved"
@@ -34,7 +34,7 @@ fn merge_config_overlay_overrides_existing_command() {
         }),
         ..Default::default()
     };
-    merge_config(&mut base, &overlay);
+    merge_config(&mut base, overlay);
     match &base.commands["build"] {
         CommandSpec::Exec(e) => assert_eq!(e.args, vec!["build", "--release"]),
         _ => panic!("expected Exec"),
@@ -54,7 +54,7 @@ fn merge_config_overlay_overrides_output() {
         }),
         ..Default::default()
     };
-    merge_config(&mut base, &overlay);
+    merge_config(&mut base, overlay);
     assert_eq!(base.output.theme, "compact");
     assert_eq!(base.output.columns, 120);
     assert!(!base.output.show_error_detail);
@@ -74,7 +74,7 @@ fn merge_config_partial_overlay_preserves_base() {
         }),
         ..Default::default()
     };
-    merge_config(&mut base, &overlay);
+    merge_config(&mut base, overlay);
     assert_eq!(base.output.theme, "classic", "theme preserved from base");
     assert_eq!(base.output.columns, 200, "columns overridden by overlay");
     assert!(
@@ -102,7 +102,7 @@ fn merge_config_data_overlay_sets_path() {
         }),
         ..Default::default()
     };
-    merge_config(&mut base, &overlay);
+    merge_config(&mut base, overlay);
     assert_eq!(
         base.data.path,
         Some(std::path::PathBuf::from("/new/path")),
@@ -118,7 +118,7 @@ fn merge_config_data_overlay_none_path_preserves_base() {
         data: Some(DataConfigOverlay { path: None }),
         ..Default::default()
     };
-    merge_config(&mut base, &overlay);
+    merge_config(&mut base, overlay);
     assert_eq!(
         base.data.path,
         Some(std::path::PathBuf::from("/original/path")),
@@ -136,7 +136,7 @@ fn merge_config_extension_overlay_sets_enabled() {
         }),
         ..Default::default()
     };
-    merge_config(&mut base, &overlay);
+    merge_config(&mut base, overlay);
     assert_eq!(
         base.extensions.enabled,
         Some(vec!["metadata".to_string()]),
@@ -152,7 +152,7 @@ fn merge_config_extension_overlay_none_preserves_base() {
         extensions: Some(ExtensionConfigOverlay { enabled: None }),
         ..Default::default()
     };
-    merge_config(&mut base, &overlay);
+    merge_config(&mut base, overlay);
     assert_eq!(
         base.extensions.enabled,
         Some(vec!["metadata".to_string()]),
@@ -171,7 +171,7 @@ fn merge_config_overlay_adds_themes() {
         }),
         ..Default::default()
     };
-    merge_config(&mut base, &overlay);
+    merge_config(&mut base, overlay);
     assert!(base.themes.contains_key("dark"));
 }
 
@@ -184,7 +184,7 @@ fn merge_config_overlay_enables_extensions() {
         }),
         ..Default::default()
     };
-    merge_config(&mut base, &overlay);
+    merge_config(&mut base, overlay);
     assert_eq!(
         base.extensions.enabled,
         Some(vec!["metadata".into(), "cargo-toml".into()])
@@ -230,7 +230,7 @@ mod proptest_tests {
                 }),
                 ..Default::default()
             };
-            merge_config(&mut base, &overlay);
+            merge_config(&mut base, overlay);
             prop_assert!(base.commands.contains_key(&cmd_name));
             if let Some(CommandSpec::Exec(e)) = base.commands.get(&cmd_name) {
                 prop_assert_eq!(e.program.as_str(), overlay_program.as_str());
@@ -264,7 +264,7 @@ mod proptest_tests {
                 }),
                 ..Default::default()
             };
-            merge_config(&mut base, &overlay);
+            merge_config(&mut base, overlay);
             prop_assert_eq!(base.output.theme, "classic");
             prop_assert_eq!(base.output.columns, overlay_columns);
             prop_assert!(base.output.show_error_detail);

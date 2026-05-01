@@ -44,7 +44,7 @@ fn merge_env_vars(config: &mut Config) -> anyhow::Result<()> {
     let env_overlay: ConfigOverlay = env_config
         .try_deserialize()
         .with_context(|| format!("failed to deserialize OPS__ env config (keys: {ops_keys:?})"))?;
-    merge_config(config, &env_overlay);
+    merge_config(config, env_overlay);
     Ok(())
 }
 
@@ -80,7 +80,7 @@ pub fn load_config() -> anyhow::Result<Config> {
     match read_config_file(&local_path) {
         Ok(Some(overlay)) => {
             debug!(path = %local_path.display(), "merging local config");
-            merge_config(&mut config, &overlay);
+            merge_config(&mut config, overlay);
         }
         Ok(None) => {}
         Err(e) => return Err(e),
@@ -180,7 +180,7 @@ fn merge_conf_d(config: &mut Config) -> anyhow::Result<()> {
         match read_config_file(&path) {
             Ok(Some(overlay)) => {
                 debug!(path = %path.display(), "merging conf.d config");
-                merge_config(config, &overlay);
+                merge_config(config, overlay);
             }
             Ok(None) => {}
             Err(e) => return Err(e),
@@ -189,17 +189,40 @@ fn merge_conf_d(config: &mut Config) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Path to global config file (e.g. ~/.config/ops/config.toml).
+/// Path to global config file (e.g. ~/.config/ops/config.toml on Unix,
+/// `%APPDATA%\ops\config.toml` on Windows).
 ///
-/// Respects `XDG_CONFIG_HOME` when set; falls back to `$HOME/.config/`.
+/// Resolution order:
+/// - `XDG_CONFIG_HOME` is honoured on every platform when set (cross-platform
+///   tooling — Git, Helix, etc. — uses XDG on Windows too).
+/// - On Windows otherwise: `%APPDATA%`, then `%USERPROFILE%\AppData\Roaming`
+///   (the value `%APPDATA%` resolves to). The final file is
+///   `%APPDATA%\ops\config.toml`, matching the Windows convention.
+/// - On Unix otherwise: `$HOME/.config`.
+///
+/// PORT-5 (TASK-0696): the previous fallback unconditionally appended
+/// `.config/ops/config` to whatever `$HOME` or `$USERPROFILE` resolved to,
+/// producing `C:\Users\X\.config\ops\config.toml` on Windows — a
+/// non-idiomatic location that silently diverges from the documented
+/// platform path. The resolved path is logged at `tracing::debug` so the
+/// chosen base directory is visible when diagnosing "config not loading"
+/// reports.
 pub(crate) fn global_config_path() -> Option<PathBuf> {
     let config_dir = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         PathBuf::from(xdg)
+    } else if cfg!(windows) {
+        let appdata = std::env::var_os("APPDATA").or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .map(|up| PathBuf::from(up).join("AppData/Roaming").into_os_string())
+        })?;
+        PathBuf::from(appdata)
     } else {
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+        let home = std::env::var_os("HOME")?;
         PathBuf::from(home).join(".config")
     };
-    Some(config_dir.join("ops/config"))
+    let path = config_dir.join("ops/config");
+    debug!(path = ?path.display(), "resolved global config base path");
+    Some(path)
 }
 
 /// Load global config from standard paths.
@@ -216,7 +239,7 @@ fn load_global_config(config: &mut Config) -> anyhow::Result<()> {
         match read_config_file(path) {
             Ok(Some(overlay)) => {
                 debug!(path = %path.display(), "merging global config");
-                merge_config(config, &overlay);
+                merge_config(config, overlay);
                 return Ok(());
             }
             Ok(None) => {}

@@ -57,7 +57,11 @@ fn copy_optional_field<T: Clone>(dst: &mut Option<T>, src: Option<&Option<T>>) {
 ///
 /// Uses destructuring so adding a field to the overlay types without
 /// handling it here causes a compile error.
-pub fn merge_config(base: &mut Config, overlay: &ConfigOverlay) {
+///
+/// Takes the overlay by value so the contained `IndexMap`s
+/// (`commands`/`themes`/`tools`) move directly into the merge instead of
+/// being cloned twice (once at the call site, once inside `merge_indexmap`).
+pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
     let ConfigOverlay {
         output,
         commands,
@@ -70,20 +74,20 @@ pub fn merge_config(base: &mut Config, overlay: &ConfigOverlay) {
     } = overlay;
 
     if let Some(output_overlay) = output {
-        merge_output(&mut base.output, output_overlay);
+        merge_output(&mut base.output, &output_overlay);
     }
-    merge_indexmap(&mut base.commands, commands.clone());
+    merge_indexmap(&mut base.commands, commands);
     copy_optional_field(&mut base.data.path, data.as_ref().map(|d| &d.path));
-    merge_indexmap(&mut base.themes, themes.clone());
+    merge_indexmap(&mut base.themes, themes);
     copy_optional_field(
         &mut base.extensions.enabled,
         extensions.as_ref().map(|e| &e.enabled),
     );
     copy_optional_field(&mut base.about.fields, about.as_ref().map(|a| &a.fields));
     if let Some(s) = stack {
-        base.stack = Some(s.clone());
+        base.stack = Some(s);
     }
-    merge_indexmap(&mut base.tools, tools.clone());
+    merge_indexmap(&mut base.tools, tools);
 }
 
 #[cfg(test)]
@@ -206,7 +210,7 @@ mod tests {
             stack: Some("rust".to_string()),
             ..Default::default()
         };
-        merge_config(&mut base, &overlay);
+        merge_config(&mut base, overlay);
         assert_eq!(base.stack.as_deref(), Some("rust"));
     }
 
@@ -217,7 +221,7 @@ mod tests {
             ..Config::default()
         };
         let overlay = ConfigOverlay::default();
-        merge_config(&mut base, &overlay);
+        merge_config(&mut base, overlay);
         assert_eq!(base.stack.as_deref(), Some("java"));
     }
 
@@ -230,7 +234,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        merge_config(&mut base, &overlay);
+        merge_config(&mut base, overlay);
         assert_eq!(
             base.data.path.as_deref(),
             Some(Path::new("/custom/data.db"))
@@ -247,7 +251,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        merge_config(&mut base, &overlay);
+        merge_config(&mut base, overlay);
         assert_eq!(
             base.extensions.enabled.as_deref(),
             Some(vec!["about".to_string()].as_slice())
@@ -263,7 +267,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        merge_config(&mut base, &overlay);
+        merge_config(&mut base, overlay);
         assert_eq!(
             base.about.fields,
             Some(vec!["project".to_string(), "codebase".to_string()])
@@ -294,7 +298,7 @@ mod tests {
             commands: Some(overlay_cmds),
             ..Default::default()
         };
-        merge_config(&mut base, &overlay);
+        merge_config(&mut base, overlay);
         assert!(base.commands.contains_key("existing"));
         assert!(base.commands.contains_key("new_cmd"));
     }

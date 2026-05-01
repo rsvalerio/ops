@@ -127,6 +127,7 @@ fn global_config_path_uses_xdg_config_home() {
 
 #[test]
 #[serial]
+#[cfg(not(windows))]
 fn global_config_path_falls_back_to_home_config() {
     let _xdg_guard = EnvGuard::remove("XDG_CONFIG_HOME");
     let temp_dir = tempfile::tempdir().expect("tempdir");
@@ -139,6 +140,33 @@ fn global_config_path_falls_back_to_home_config() {
     let path = path.unwrap();
     assert!(path.to_string_lossy().contains(".config"));
     assert!(path.ends_with("ops/config"));
+}
+
+/// PORT-5 (TASK-0696): Windows must resolve the config base from `%APPDATA%`
+/// rather than appending `.config/ops/config` to USERPROFILE. Compiled only
+/// on Windows; the cross-platform XDG override remains covered above.
+#[test]
+#[serial]
+#[cfg(windows)]
+fn global_config_path_uses_appdata_on_windows() {
+    let _xdg_guard = EnvGuard::remove("XDG_CONFIG_HOME");
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let _appdata_guard = EnvGuard::set("APPDATA", temp_dir.path().to_string_lossy().as_ref());
+
+    let path = global_config_path().expect("path resolves");
+
+    assert!(
+        path.starts_with(temp_dir.path()),
+        "expected {} to live under APPDATA {}",
+        path.display(),
+        temp_dir.path().display()
+    );
+    assert!(path.ends_with("ops/config"));
+    assert!(
+        !path.to_string_lossy().contains(".config"),
+        "Windows path should not embed Unix `.config` segment: {}",
+        path.display()
+    );
 }
 
 /// TQ-EFF-001: Permission-denied error path tests.

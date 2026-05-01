@@ -53,15 +53,25 @@ impl std::error::Error for ExpandError {}
 /// bugs are visible instead of silently passing through unchanged.
 #[derive(Debug, Clone)]
 pub struct Variables {
-    builtins: HashMap<String, String>,
+    builtins: HashMap<&'static str, String>,
 }
+
+/// Cached `std::env::temp_dir()` rendering. Computed once per process: the
+/// value depends on `TMPDIR` / OS defaults that do not change after startup,
+/// and `temp_dir()` itself performs a syscall on Unix. Reused across every
+/// `Variables::from_env` call so command-spec expansion avoids the syscall +
+/// allocation on every invocation.
+static TMPDIR_DISPLAY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 impl Variables {
     /// Build from environment and workspace root.
     pub fn from_env(ops_root: &Path) -> Self {
-        let mut builtins = HashMap::new();
-        builtins.insert("OPS_ROOT".into(), ops_root.display().to_string());
-        builtins.insert("TMPDIR".into(), std::env::temp_dir().display().to_string());
+        let mut builtins: HashMap<&'static str, String> = HashMap::with_capacity(2);
+        builtins.insert("OPS_ROOT", ops_root.display().to_string());
+        let tmpdir = TMPDIR_DISPLAY
+            .get_or_init(|| std::env::temp_dir().display().to_string())
+            .clone();
+        builtins.insert("TMPDIR", tmpdir);
         Self { builtins }
     }
 
@@ -304,5 +314,23 @@ mod tests {
         let result = vars.expand("$OPS_ROOT and $TMPDIR");
         let tmpdir = std::env::temp_dir().display().to_string();
         assert_eq!(result, format!("/test/project and {}", tmpdir));
+    }
+
+    /// Microbench-style regression: constructing `Variables::from_env` many
+    /// times must amortise to the cached `TMPDIR` lookup rather than re-running
+    /// the `std::env::temp_dir()` syscall on every call. Pins the OnceLock
+    /// optimisation; if it regresses (TMPDIR resolved per call) the syscall
+    /// cost becomes visible at scale.
+    #[test]
+    fn from_env_amortises_tmpdir() {
+        let root = PathBuf::from("/bench/root");
+        // Warm the OnceLock once.
+        let warm = Variables::from_env(&root);
+        let warm_tmpdir = warm.builtins.get("TMPDIR").cloned();
+        // Subsequent calls must observe the same cached value.
+        for _ in 0..1000 {
+            let v = Variables::from_env(&root);
+            assert_eq!(v.builtins.get("TMPDIR").cloned(), warm_tmpdir);
+        }
     }
 }

@@ -269,6 +269,15 @@ fn collect_drain(
 /// `cargo update`, `cargo metadata`, `cargo upgrade`, `cargo deny`, and
 /// `cargo llvm-cov` callers in the Rust extensions.
 ///
+/// PORT-5 (TASK-0697): the cargo binary is resolved via `$CARGO` first and
+/// only falls back to a `$PATH` lookup of the literal `"cargo"` when the
+/// variable is unset. Cargo subcommands inherit `$CARGO` from the parent
+/// process pointing at the exact toolchain binary that drove the
+/// invocation; honouring that variable keeps nested cargo calls on the same
+/// toolchain (matters under `cargo +nightly ops <cmd>` and vendored rustup
+/// layouts). Standard plugins like `clippy` and `cargo-llvm-cov` follow the
+/// same convention.
+///
 /// # Errors
 ///
 /// Returns [`RunError::Io`] if the subprocess fails to spawn and
@@ -281,10 +290,18 @@ pub fn run_cargo(
     label: &str,
 ) -> Result<Output, RunError> {
     run_with_timeout(
-        Command::new("cargo").args(args).current_dir(working_dir),
+        Command::new(resolve_cargo_bin())
+            .args(args)
+            .current_dir(working_dir),
         default_timeout(op_default),
         label,
     )
+}
+
+/// Resolve the cargo binary, honouring `$CARGO` so nested cargo calls stay
+/// on the parent toolchain. PORT-5 (TASK-0697).
+fn resolve_cargo_bin() -> std::ffi::OsString {
+    std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into())
 }
 
 #[cfg(test)]
@@ -345,6 +362,36 @@ mod tests {
             let got = default_timeout(op_default());
             unsafe { std::env::remove_var(TIMEOUT_ENV) };
             assert_eq!(got, Duration::from_secs(30));
+        }
+    }
+
+    /// PORT-5 (TASK-0697): cargo subcommands inherit `$CARGO` from the
+    /// parent cargo process; `run_cargo` must honour it instead of relying
+    /// on a fresh `$PATH` lookup that may resolve to a different toolchain.
+    mod cargo_bin {
+        use super::*;
+        use serial_test::serial;
+
+        const CARGO_ENV: &str = "CARGO";
+
+        #[test]
+        #[serial]
+        fn honours_cargo_env_when_set() {
+            unsafe { std::env::set_var(CARGO_ENV, "/opt/toolchain/bin/cargo") };
+            let resolved = resolve_cargo_bin();
+            unsafe { std::env::remove_var(CARGO_ENV) };
+            assert_eq!(
+                resolved,
+                std::ffi::OsString::from("/opt/toolchain/bin/cargo")
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn falls_back_to_literal_cargo_when_unset() {
+            unsafe { std::env::remove_var(CARGO_ENV) };
+            let resolved = resolve_cargo_bin();
+            assert_eq!(resolved, std::ffi::OsString::from("cargo"));
         }
     }
 
