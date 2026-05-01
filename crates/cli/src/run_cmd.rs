@@ -241,12 +241,7 @@ fn run_command(
     }
 
     let success = if raw {
-        if tap.is_some() {
-            tracing::warn!(
-                "--tap is ignored under --raw because raw mode inherits child stdio; no tap file will be written"
-            );
-        }
-        run_command_raw(&runner, name)?
+        run_command_raw(&runner, name, tap.is_some())?
     } else {
         run_command_cli(&mut runner, name, tap)?
     };
@@ -261,45 +256,53 @@ fn run_command(
 fn run_command_raw(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
+    has_tap: bool,
 ) -> anyhow::Result<bool> {
-    // READ-10: parity with the multi-command path in `run_commands`. When
-    // `--raw` is combined with a composite that sets `parallel = true`, the
-    // raw runner forces sequential execution; warn so the user does not
-    // silently get serialized timing for a parallel-annotated composite.
-    warn_raw_drops_parallel(runner, name);
+    // CL-5 / TASK-0755: route both raw-mode warnings through
+    // `emit_raw_warnings` so the message strings live in exactly one place.
+    // Earlier the tap warning was inlined here while parallel-detection went
+    // through a separate helper, leaving the two raw paths free to drift.
+    emit_raw_warnings(composite_tree_has_parallel(runner, name), has_tap);
     let results: Vec<StepResult> = run_with_runtime(async { runner.run_raw(name).await })?;
     log_step_results(&results);
     Ok(results.iter().all(|r| r.success))
 }
 
-/// If `name` (or any composite reachable from it) has `parallel = true`,
-/// emit the same warning the multi-command raw path emits.
-///
-/// The multi-command path warns by walking `merge_plan`'s `any_parallel`;
-/// the single-command path used to inspect only the top-level resolve, so
-/// a composite that itself contained a nested `parallel = true` composite
-/// reached `--raw` execution silently. We now walk the whole composite
-/// tree so nested parallelism is also detected. The warning is emitted at
-/// most once per invocation.
-fn warn_raw_drops_parallel(runner: &ops_runner::command::CommandRunner, name: &str) {
-    if composite_tree_has_parallel(runner, name) {
-        tracing::warn!(
-            command = %name,
-            "--raw forces sequential execution; composite `parallel = true` is ignored"
-        );
-    }
+pub(super) fn composite_tree_has_parallel(
+    runner: &ops_runner::command::CommandRunner,
+    name: &str,
+) -> bool {
+    composite_tree_flags(runner, name).0
 }
 
-fn composite_tree_has_parallel(runner: &ops_runner::command::CommandRunner, name: &str) -> bool {
+/// Walk the composite tree rooted at `name` and report whether any node has
+/// `parallel = true` or `fail_fast = false`. PATTERN-1 / TASK-0754:
+/// `merge_plan` previously inspected only the top-level composite for these
+/// flags, dropping nested parallelism / fail-fast aggregation silently. The
+/// raw single-command path already walked the tree for its `parallel`
+/// warning; callers that need the same semantics for `fail_fast` use the
+/// second tuple element.
+pub(super) fn composite_tree_flags(
+    runner: &ops_runner::command::CommandRunner,
+    name: &str,
+) -> (bool, bool) {
     let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let mut stack: Vec<&str> = vec![name];
+    let mut has_parallel = false;
+    let mut fail_fast_disabled = false;
     while let Some(current) = stack.pop() {
         if !visited.insert(current) {
             continue;
         }
         if let Some(ops_core::config::CommandSpec::Composite(c)) = runner.resolve(current) {
             if c.parallel {
-                return true;
+                has_parallel = true;
+            }
+            if !c.fail_fast {
+                fail_fast_disabled = true;
+            }
+            if has_parallel && fail_fast_disabled {
+                break;
             }
             for child in &c.commands {
                 if !visited.contains(child.as_str()) {
@@ -308,7 +311,7 @@ fn composite_tree_has_parallel(runner: &ops_runner::command::CommandRunner, name
             }
         }
     }
-    false
+    (has_parallel, fail_fast_disabled)
 }
 
 fn run_command_cli(

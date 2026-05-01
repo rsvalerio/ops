@@ -4,6 +4,12 @@ use ops_core::config::CommandSpec;
 use ops_runner::command::StepResult;
 
 /// Merge leaf IDs from multiple command names into a single plan.
+///
+/// PATTERN-1 / TASK-0754: aggregation walks each name's composite tree so a
+/// nested composite with `parallel = true` or `fail_fast = false` is
+/// honoured. The earlier shape only inspected the top-level composite for
+/// each `name`, silently dropping nested parallelism / fail-fast semantics
+/// for `umbrella = { commands = ["inner"] }` where `inner.parallel = true`.
 pub(crate) fn merge_plan(
     runner: &ops_runner::command::CommandRunner,
     names: &[&str],
@@ -14,13 +20,12 @@ pub(crate) fn merge_plan(
     for name in names {
         let leaf_ids = runner.expand_to_leaves(name).map_err(anyhow::Error::from)?;
         all_leaf_ids.extend(leaf_ids);
-        if let Some(CommandSpec::Composite(c)) = runner.resolve(name) {
-            if c.parallel {
-                any_parallel = true;
-            }
-            if !c.fail_fast {
-                fail_fast = false;
-            }
+        let (has_parallel, fail_fast_disabled) = super::composite_tree_flags(runner, name);
+        if has_parallel {
+            any_parallel = true;
+        }
+        if fail_fast_disabled {
+            fail_fast = false;
         }
     }
     Ok((all_leaf_ids, any_parallel, fail_fast))
