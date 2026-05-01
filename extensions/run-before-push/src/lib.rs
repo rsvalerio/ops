@@ -88,10 +88,22 @@ mod tests {
 
     // -- Extension metadata --
 
+    /// TEST-11 / TASK-0720: pin the public identifier against external
+    /// sources of truth instead of comparing the const to a literal copy of
+    /// itself. Mirrors the structural checks in run-before-commit so both
+    /// crates stay in lockstep.
     #[test]
     fn extension_constants() {
-        assert_eq!(NAME, "run-before-push");
-        assert_eq!(SHORTNAME, "run-before-push");
+        assert!(
+            HOOK_SCRIPT.contains(&format!("ops {NAME}")),
+            "HOOK_SCRIPT must dispatch to `ops {NAME}`, got: {HOOK_SCRIPT}"
+        );
+        assert_eq!(SHORTNAME, NAME, "shortname must track NAME");
+        assert!(
+            NAME.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+                && NAME.starts_with(|c: char| c.is_ascii_lowercase()),
+            "NAME must be kebab-case, got: {NAME}"
+        );
         assert!(!DESCRIPTION.is_empty());
     }
 }

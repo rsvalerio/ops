@@ -59,6 +59,12 @@ fn write_new_hook(
     file.sync_all().context("failed to fsync hook")?;
     drop(file);
     set_hook_executable(hook_path)?;
+    // SEC-25 (TASK-0713): fsync the parent so the new directory entry
+    // survives a power loss. Without this, the inode is durable but the
+    // .git/hooks/<name> link can be lost on ext4/xfs, silently disabling
+    // the hook even though `ops install` reported success. Mirrors
+    // ops_core::config::atomic_write (TASK-0340).
+    sync_parent_dir(hook_path);
     writeln!(w, "Installed hook at {}", hook_path.display())?;
     Ok(hook_path.to_path_buf())
 }
@@ -134,7 +140,41 @@ fn upgrade_legacy_hook(
 
     writeln!(w, "Updating outdated ops hook at {}", hook_path.display())?;
     std::fs::rename(&tmp_path, hook_path).context("failed to rename temp hook into place")?;
+    // SEC-25 (TASK-0713): fsync the parent so the rename hits disk; without
+    // this a crash can leave the directory entry pointing at the temp
+    // inode (or the old hook) even though the new content is durable.
+    sync_parent_dir(hook_path);
     Ok(hook_path.to_path_buf())
+}
+
+/// Persist the parent directory entry for `path`. Unix-only; on other
+/// platforms this is a no-op (Windows does not require the equivalent for
+/// crash safety, and an `open(parent)` there would fail anyway). Errors are
+/// logged rather than returned because the install has already succeeded —
+/// surfacing a parent-dir fsync failure as a hard error would regress the
+/// success path on filesystems that do not support directory fsync.
+fn sync_parent_dir(_path: &Path) {
+    #[cfg(unix)]
+    if let Some(parent) = _path.parent() {
+        match File::open(parent) {
+            Ok(dir) => {
+                if let Err(e) = dir.sync_all() {
+                    tracing::debug!(
+                        parent = %parent.display(),
+                        error = %e,
+                        "fsync of hook parent directory failed; install kept",
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::debug!(
+                    parent = %parent.display(),
+                    error = %e,
+                    "could not open hook parent for fsync; install kept",
+                );
+            }
+        }
+    }
 }
 
 fn write_temp_hook(tmp_path: &Path, config: &HookConfig) -> anyhow::Result<()> {
