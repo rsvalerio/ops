@@ -50,16 +50,18 @@ pub fn resolve_member_globs(
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    // ERR-7 (TASK-0665): Debug-format the path so embedded
+                    // newlines / ANSI escapes cannot forge log lines.
                     tracing::debug!(
                         member,
-                        parent = %parent.display(),
+                        parent = ?parent.display(),
                         "workspace glob prefix does not exist; skipping"
                     );
                 }
                 Err(e) => {
                     tracing::warn!(
                         member,
-                        parent = %parent.display(),
+                        parent = ?parent.display(),
                         error = %e,
                         "workspace glob prefix unreadable; member skipped"
                     );
@@ -148,7 +150,7 @@ where
         },
         Err(e) => {
             tracing::warn!(
-                path = %path.display(),
+                path = ?path.display(),
                 error = %e,
                 "failed to parse package manifest",
             );

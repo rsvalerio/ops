@@ -34,8 +34,10 @@ pub fn read_optional_text(path: &Path, kind: &str) -> Option<String> {
         Ok(content) => Some(content),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => {
+            // ERR-7 (TASK-0665): Debug-format the path so embedded newlines /
+            // ANSI escapes cannot forge log lines or smuggle formatting.
             tracing::warn!(
-                path = %path.display(),
+                path = ?path.display(),
                 error = %e,
                 kind = kind,
                 "failed to read manifest"
@@ -71,5 +73,28 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let result = read_optional_text(dir.path(), "test");
         assert!(result.is_none());
+    }
+
+    /// ERR-7 (TASK-0665): paths must be Debug-formatted in log fields so
+    /// embedded newlines/ANSI escapes cannot forge log lines. This test
+    /// pins the formatting choice without requiring a tracing-subscriber
+    /// dependency: the same `?` formatter used in the `tracing::warn!` call
+    /// site escapes control characters at the value layer.
+    #[test]
+    fn path_display_debug_escapes_control_characters() {
+        let p = Path::new("a\nb\u{1b}[31mc");
+        let rendered = format!("{:?}", p.display());
+        assert!(
+            !rendered.contains('\n'),
+            "raw newline leaked into log value: {rendered}"
+        );
+        assert!(
+            !rendered.contains('\u{1b}'),
+            "raw ANSI ESC leaked into log value: {rendered}"
+        );
+        assert!(
+            rendered.contains("\\n"),
+            "expected escaped newline in {rendered}"
+        );
     }
 }

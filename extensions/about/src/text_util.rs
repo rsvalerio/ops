@@ -2,10 +2,20 @@
 //!
 //! Stack-agnostic helpers used by about subpages across stacks.
 
-use ops_core::output::display_width;
+use ops_core::output::{detect_terminal_width, display_width};
 pub use ops_core::text::format_number;
+use std::io::IsTerminal;
 
 pub fn get_terminal_width() -> usize {
+    // ARCH-2 / TASK-0667: when stdout is a TTY, ask the OS for the real
+    // window size first; `COLUMNS` is unset in many shells until the user
+    // resizes once, and the previous 120-column fallback wrapped badly on
+    // narrow terminals and under-utilised wide ones.
+    if std::io::stdout().is_terminal() {
+        if let Some(width) = detect_terminal_width() {
+            return width;
+        }
+    }
     parse_terminal_width(std::env::var("COLUMNS").ok().as_deref())
 }
 
@@ -51,21 +61,27 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
         return vec![];
     }
 
-    let words: Vec<&str> = text.split_whitespace().collect();
     let mut lines = Vec::new();
     let mut current_line = String::new();
+    // Track current line width incrementally rather than re-scanning
+    // `current_line` via display_width on every iteration. Scanning was
+    // O(N) per word, making the overall wrap O(N^2) for long descriptions.
+    let mut current_width: usize = 0;
 
-    for word in words {
+    for word in text.split_whitespace() {
         let word_width = display_width(word);
-        let current_width = display_width(&current_line);
 
         if current_line.is_empty() {
-            current_line = word.to_string();
+            current_line.push_str(word);
+            current_width = word_width;
         } else if current_width + 1 + word_width <= max_width {
-            current_line = format!("{} {}", current_line, word);
+            current_line.push(' ');
+            current_line.push_str(word);
+            current_width += 1 + word_width;
         } else {
-            lines.push(current_line);
-            current_line = word.to_string();
+            lines.push(std::mem::take(&mut current_line));
+            current_line.push_str(word);
+            current_width = word_width;
 
             if lines.len() >= max_lines {
                 break;
@@ -178,6 +194,27 @@ mod tests {
     /// READ-5 (TASK-0550): every emitted line — including intermediate ones —
     /// must satisfy display_width(line) <= max_width when an unbreakable word
     /// wider than max_width appears in the first of three lines.
+    /// PERF-1 (TASK-0709): pathological long descriptions must wrap in
+    /// linear time. Pre-fix this allocated O(N^2) work because
+    /// `display_width(&current_line)` was called inside the per-word loop;
+    /// a 10k-word input was visibly slow. We can't pin the asymptotic bound
+    /// in a unit test cheaply, but we can demand the wrapper completes a
+    /// 10k-token input in a budget that the quadratic version blows past
+    /// even on fast machines.
+    #[test]
+    fn wrap_text_handles_very_long_input_in_linear_time() {
+        let words = std::iter::repeat("word").take(10_000).collect::<Vec<_>>();
+        let text = words.join(" ");
+        let start = std::time::Instant::now();
+        let lines = wrap_text(&text, 80, 50);
+        let elapsed = start.elapsed();
+        assert!(!lines.is_empty());
+        assert!(
+            elapsed < std::time::Duration::from_millis(250),
+            "wrap_text should be O(N); 10k-word input took {elapsed:?}"
+        );
+    }
+
     #[test]
     fn wrap_text_truncates_intermediate_overlong_lines() {
         let result = wrap_text(

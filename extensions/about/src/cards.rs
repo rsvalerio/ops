@@ -78,24 +78,28 @@ pub fn build_card_stats_line(unit: &ProjectUnit) -> Option<String> {
 }
 
 pub fn render_card(unit: &ProjectUnit, is_tty: bool) -> Vec<String> {
+    use std::borrow::Cow;
+
     let inner_width = CardLayoutConfig::CARD_WIDTH - 2;
 
-    let title = if let Some(ref v) = unit.version {
-        format!("{} v{}", unit.name, v)
-    } else {
-        unit.name.clone()
+    // Borrow `unit.name` directly when no version suffix is needed (PERF-3 /
+    // OWN-8): the prior code cloned the name into an owned String even when
+    // the format! call was unreachable.
+    let title: Cow<'_, str> = match &unit.version {
+        Some(v) => Cow::Owned(format!("{} v{}", unit.name, v)),
+        None => Cow::Borrowed(unit.name.as_str()),
     };
 
-    let title_truncated = if display_width(&title) > inner_width {
-        truncate_to_width(&title, inner_width)
+    let title_truncated: Cow<'_, str> = if display_width(&title) > inner_width {
+        Cow::Owned(truncate_to_width(&title, inner_width))
     } else {
-        title.clone()
+        title
     };
 
-    let path_truncated = if display_width(&unit.path) > inner_width {
-        truncate_to_width(&unit.path, inner_width)
+    let path_truncated: Cow<'_, str> = if display_width(&unit.path) > inner_width {
+        Cow::Owned(truncate_to_width(&unit.path, inner_width))
     } else {
-        unit.path.clone()
+        Cow::Borrowed(unit.path.as_str())
     };
 
     let desc_lines = wrap_text(
@@ -190,12 +194,13 @@ pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize)
         let max_lines = chunk.iter().map(|c| c.len()).max().unwrap_or(0);
 
         for line_idx in 0..max_lines {
-            let mut row_parts = Vec::new();
-            for card in chunk {
-                let line = card.get(line_idx).map(|s| s.as_str()).unwrap_or("");
-                row_parts.push(line.to_string());
-            }
-            result.push(format!("  {}{}", row_parts.join(&spacing), spacing));
+            // Borrow card lines as &str instead of cloning per cell; the
+            // resulting `[&str].join(&str)` allocates once for the row String.
+            let row_parts: Vec<&str> = chunk
+                .iter()
+                .map(|card| card.get(line_idx).map(String::as_str).unwrap_or(""))
+                .collect();
+            result.push(format!("  {}{}", row_parts.join(spacing.as_str()), spacing));
         }
 
         result.push(String::new());
@@ -341,6 +346,27 @@ mod tests {
             .count();
         let cards_with_top = card.iter().filter(|l| l.contains('\u{256d}')).count();
         assert_eq!(top_border_lines, cards_with_top);
+    }
+
+    /// PERF-3 (TASK-0722): rendering 100+ cards must complete in trivial
+    /// time. The pre-fix layout cloned every card line into an owned String
+    /// per cell; this smoke test pins the borrow-friendly hot path.
+    #[test]
+    fn layout_cards_handles_large_workspace() {
+        let cards: Vec<Vec<String>> = (0..150)
+            .map(|i| {
+                let name = format!("unit-{i}");
+                render_card(&unit(&name, &format!("crates/{name}")), false)
+            })
+            .collect();
+        let start = std::time::Instant::now();
+        let result = layout_cards_in_grid_with_width(&cards, 120);
+        let elapsed = start.elapsed();
+        assert!(!result.is_empty());
+        assert!(
+            elapsed < std::time::Duration::from_millis(250),
+            "layout_cards_in_grid_with_width should be fast for 150 units; took {elapsed:?}"
+        );
     }
 
     #[test]
