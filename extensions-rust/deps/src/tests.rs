@@ -1095,3 +1095,46 @@ fn parse_deny_output_skips_malformed_json_with_tracing() {
         "missing fields-shape message: {logged}"
     );
 }
+
+/// ASYNC-6 (TASK-0791): `check_tool_in` must surface a clear timeout error
+/// when the cargo probe hangs, rather than blocking the process indefinitely.
+/// Drive the timeout path via `OPS_SUBPROCESS_TIMEOUT_SECS=1` plus a fake
+/// `$CARGO` that sleeps far past the deadline.
+#[cfg(unix)]
+#[test]
+#[serial_test::serial]
+fn check_tool_in_times_out_on_hung_probe() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let fake = dir.path().join("cargo");
+    // `exec` so SIGKILL on the script reaches the underlying sleep process;
+    // otherwise sleep keeps the inherited stdout/stderr pipes open and the
+    // drain threads block until sleep finishes naturally, masking the
+    // timeout firing.
+    std::fs::write(&fake, "#!/bin/sh\nexec sleep 30\n").unwrap();
+    let mut perms = std::fs::metadata(&fake).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&fake, perms).unwrap();
+
+    let tool = CargoTool {
+        subcommand: "probe-test",
+        install_crate: "cargo-probe-test",
+        probe_args: &["probe-test", "--version"],
+    };
+
+    // SAFETY: serial guards against concurrent env mutation; the helper reads
+    // these vars synchronously on this thread.
+    unsafe { std::env::set_var("CARGO", &fake) };
+    unsafe { std::env::set_var(ops_core::subprocess::TIMEOUT_ENV, "1") };
+    let result = check_tool_in(&tool, dir.path());
+    unsafe { std::env::remove_var(ops_core::subprocess::TIMEOUT_ENV) };
+    unsafe { std::env::remove_var("CARGO") };
+
+    let err = result.expect_err("hung probe must error rather than block");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("timed out") || msg.contains("wedged"),
+        "expected timeout-shaped error, got: {msg}"
+    );
+}

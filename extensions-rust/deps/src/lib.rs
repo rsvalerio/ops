@@ -10,11 +10,12 @@ mod parse;
 #[cfg(test)]
 mod tests;
 
+use ops_core::subprocess::{run_cargo, RunError};
 use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
 };
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+use std::time::Duration;
 
 pub use format::format_report;
 pub use parse::{
@@ -97,13 +98,13 @@ pub struct DepsReport {
 
 /// A cargo subcommand we depend on, paired with the install package name and
 /// the args used to probe for its presence.
-struct CargoTool {
+pub(crate) struct CargoTool {
     /// Cargo subcommand (e.g. `"upgrade"`, `"deny"`).
-    subcommand: &'static str,
+    pub(crate) subcommand: &'static str,
     /// Crate to suggest in the install hint (e.g. `"cargo-edit"`).
-    install_crate: &'static str,
+    pub(crate) install_crate: &'static str,
     /// Args to spawn for the probe. First element is typically `subcommand`.
-    probe_args: &'static [&'static str],
+    pub(crate) probe_args: &'static [&'static str],
 }
 
 const REQUIRED_CARGO_TOOLS: &[CargoTool] = &[
@@ -119,22 +120,41 @@ const REQUIRED_CARGO_TOOLS: &[CargoTool] = &[
     },
 ];
 
-fn check_tool(tool: &CargoTool) -> anyhow::Result<()> {
-    let status = Command::new("cargo")
-        .args(tool.probe_args)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|e| anyhow::anyhow!("failed to run cargo {}: {}", tool.subcommand, e))?;
+/// Default timeout for the `cargo <sub> --version` probe spawned by
+/// `check_tool`. ASYNC-6 (TASK-0791): a wedged registry probe, broken sccache
+/// shim, or sibling cargo holding `target/` lock could otherwise stall the
+/// probe indefinitely. Routed through `run_cargo` so it inherits
+/// `OPS_SUBPROCESS_TIMEOUT_SECS` overrides plus the `$CARGO` resolution that
+/// keeps nested invocations on the parent toolchain.
+const CARGO_TOOL_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
-    if status.success() {
-        Ok(())
-    } else {
-        anyhow::bail!(
+fn check_tool(tool: &CargoTool) -> anyhow::Result<()> {
+    check_tool_in(tool, std::path::Path::new("."))
+}
+
+pub(crate) fn check_tool_in(tool: &CargoTool, working_dir: &std::path::Path) -> anyhow::Result<()> {
+    match run_cargo(
+        tool.probe_args,
+        working_dir,
+        CARGO_TOOL_PROBE_TIMEOUT,
+        &format!("cargo {} --version", tool.subcommand),
+    ) {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(_) => anyhow::bail!(
             "cargo {} is not installed. Install with: cargo install {}",
             tool.subcommand,
             tool.install_crate
-        )
+        ),
+        Err(RunError::Timeout(t)) => anyhow::bail!(
+            "cargo {} probe timed out after {}s; the cargo registry, an sccache wrapper, \
+             or a sibling cargo build holding the target lock may be wedged",
+            tool.subcommand,
+            t.timeout.as_secs()
+        ),
+        Err(RunError::Io(e)) => {
+            anyhow::bail!("failed to run cargo {}: {}", tool.subcommand, e)
+        }
+        Err(other) => anyhow::bail!("cargo {} probe failed: {}", tool.subcommand, other),
     }
 }
 

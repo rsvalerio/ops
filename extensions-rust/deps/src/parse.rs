@@ -67,83 +67,88 @@ pub fn parse_upgrade_table(stdout: &str) -> Vec<UpgradeEntry> {
             continue;
         }
 
-        let Some(cols) = columns.as_deref() else {
-            continue;
-        };
-
-        // Need at least the 5 fixed columns; anything beyond column[4] (incl.
-        // any trailing characters past the last `====` block) is the note.
-        if cols.len() < 5 {
-            tracing::debug!(
-                column_count = cols.len(),
-                line = %line,
-                "TASK-0404: skipping cargo-upgrade row — separator row had fewer than 5 columns"
-            );
-            continue;
+        if let Some(cols) = columns.as_deref() {
+            if let Some(entry) = parse_upgrade_row(line, cols) {
+                entries.push(entry);
+            }
         }
-
-        // READ-2 (TASK-0609): closure renamed from `take` (shadowed
-        // `Iterator::take`) to `slice_col`; both row fields and note now
-        // index `cols` via `.get(...)` for consistency.
-        let slice_col = |idx: usize| -> Option<String> {
-            let &(start, end) = cols.get(idx)?;
-            if start >= line.len() {
-                return None;
-            }
-            let slice = &line[start..end.min(line.len())];
-            let trimmed = slice.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        };
-
-        // Require all five fixed fields to be present; a row that doesn't
-        // reach the `new req` column is an incomplete table line and should
-        // be skipped to match prior behavior.
-        let (Some(name), Some(old_req), Some(compatible), Some(latest), Some(new_req)) = (
-            slice_col(0),
-            slice_col(1),
-            slice_col(2),
-            slice_col(3),
-            slice_col(4),
-        ) else {
-            tracing::debug!(
-                line = %line,
-                "TASK-0404: skipping cargo-upgrade row that did not fill the 5 fixed columns"
-            );
-            continue;
-        };
-
-        // The note absorbs every byte from the start of column 5 to end of
-        // line so multi-word notes survive intact. If the upstream format
-        // grows extra columns past the note, they roll up here too — at least
-        // the five fixed fields stay correctly aligned. When the separator
-        // row has no note column at all, there is simply no note.
-        let note = cols.get(5).and_then(|(start, _)| {
-            if *start >= line.len() {
-                return None;
-            }
-            let slice = line[*start..].trim();
-            if slice.is_empty() {
-                None
-            } else {
-                Some(slice.to_string())
-            }
-        });
-
-        entries.push(UpgradeEntry {
-            name,
-            old_req,
-            compatible,
-            latest,
-            new_req,
-            note,
-        });
     }
 
     entries
+}
+
+/// Slice a single data row from `cargo upgrade --dry-run` into an
+/// [`UpgradeEntry`], or return `None` (with a tracing breadcrumb) when the
+/// row cannot be aligned to the column offsets carried by the preceding
+/// separator. FN-1 (TASK-0794): split out from `parse_upgrade_table` so the
+/// state-machine and the row-slicing concerns sit at one abstraction level
+/// each.
+fn parse_upgrade_row(line: &str, cols: &[(usize, usize)]) -> Option<UpgradeEntry> {
+    if cols.len() < 5 {
+        tracing::debug!(
+            column_count = cols.len(),
+            line = %line,
+            "TASK-0404: skipping cargo-upgrade row — separator row had fewer than 5 columns"
+        );
+        return None;
+    }
+
+    // READ-2 (TASK-0609): closure renamed from `take` (shadowed
+    // `Iterator::take`) to `slice_col`; both row fields and note now
+    // index `cols` via `.get(...)` for consistency.
+    let slice_col = |idx: usize| -> Option<String> {
+        let &(start, end) = cols.get(idx)?;
+        if start >= line.len() {
+            return None;
+        }
+        let slice = &line[start..end.min(line.len())];
+        let trimmed = slice.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    };
+
+    let (Some(name), Some(old_req), Some(compatible), Some(latest), Some(new_req)) = (
+        slice_col(0),
+        slice_col(1),
+        slice_col(2),
+        slice_col(3),
+        slice_col(4),
+    ) else {
+        tracing::debug!(
+            line = %line,
+            "TASK-0404: skipping cargo-upgrade row that did not fill the 5 fixed columns"
+        );
+        return None;
+    };
+
+    // The note absorbs every byte from the start of column 5 to end of
+    // line so multi-word notes survive intact. If the upstream format
+    // grows extra columns past the note, they roll up here too — at least
+    // the five fixed fields stay correctly aligned. When the separator
+    // row has no note column at all, there is simply no note.
+    let note = cols.get(5).and_then(|(start, _)| {
+        if *start >= line.len() {
+            return None;
+        }
+        let slice = line[*start..].trim();
+        if slice.is_empty() {
+            None
+        } else {
+            Some(slice.to_string())
+        }
+    });
+
+    Some(UpgradeEntry {
+        name,
+        old_req,
+        compatible,
+        latest,
+        new_req,
+        note,
+    })
 }
 
 /// Return `(start, end)` byte offsets for each `====` block in the separator
@@ -221,23 +226,45 @@ fn truncate_for_log(s: &str) -> String {
     }
 }
 
-/// Advisory-related diagnostic codes.
-const ADVISORY_CODES: &[&str] = &[
-    "vulnerability",
-    "notice",
-    "unmaintained",
-    "unsound",
-    "yanked",
+/// FN-1 (TASK-0793): cargo-deny diagnostic class. Centralises the code →
+/// section mapping so adding a new class is one row in `CODE_CLASSES`
+/// rather than a fifth `if … contains` branch in `parse_deny_output`.
+#[derive(Copy, Clone)]
+enum DiagClass {
+    Advisory,
+    License,
+    Ban,
+    Source,
+}
+
+/// Single source of truth for the cargo-deny diagnostic code dispatch.
+const CODE_CLASSES: &[(&str, DiagClass)] = &[
+    // Advisories
+    ("vulnerability", DiagClass::Advisory),
+    ("notice", DiagClass::Advisory),
+    ("unmaintained", DiagClass::Advisory),
+    ("unsound", DiagClass::Advisory),
+    ("yanked", DiagClass::Advisory),
+    // Licenses
+    ("rejected", DiagClass::License),
+    ("unlicensed", DiagClass::License),
+    ("no-license-field", DiagClass::License),
+    // Bans
+    ("banned", DiagClass::Ban),
+    ("not-allowed", DiagClass::Ban),
+    ("duplicate", DiagClass::Ban),
+    ("workspace-duplicate", DiagClass::Ban),
+    // Sources
+    ("source-not-allowed", DiagClass::Source),
+    ("git-source-underspecified", DiagClass::Source),
 ];
 
-/// License-related diagnostic codes.
-const LICENSE_CODES: &[&str] = &["rejected", "unlicensed", "no-license-field"];
-
-/// Ban-related diagnostic codes.
-const BAN_CODES: &[&str] = &["banned", "not-allowed", "duplicate", "workspace-duplicate"];
-
-/// Source-related diagnostic codes.
-const SOURCE_CODES: &[&str] = &["source-not-allowed", "git-source-underspecified"];
+fn classify_code(code: &str) -> Option<DiagClass> {
+    CODE_CLASSES
+        .iter()
+        .find(|(c, _)| *c == code)
+        .map(|(_, class)| *class)
+}
 
 /// Run `cargo deny check` and parse the JSON output.
 ///
@@ -264,39 +291,56 @@ pub fn run_cargo_deny(working_dir: &Path) -> anyhow::Result<DenyResult> {
 }
 
 /// Map a cargo-deny `(exit_code, stderr)` pair to either a parsed
-/// `DenyResult` (codes 0/1) or an error (code 2 — configuration). Split out
-/// from `run_cargo_deny` so unit tests can cover the exit-code semantics
-/// without spawning the binary.
+/// `DenyResult` or a hard error.
+///
+/// cargo-deny's documented exit contract is:
+/// * `0` — clean: no issues found.
+/// * `1` — issues: stderr is the JSON diagnostic stream.
+/// * `2` — configuration / usage error.
+///
+/// Any other code (e.g. `101` for a panic, a future code, or `None` for a
+/// signal) fails closed — the supply-chain gate must never score an
+/// unrecognised exit as a green build. Split out from `run_cargo_deny` so
+/// unit tests can cover the exit-code semantics without spawning the binary.
 pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Result<DenyResult> {
-    if exit_code == Some(2) {
-        anyhow::bail!(
+    match exit_code {
+        Some(0) => Ok(parse_deny_output(stderr)),
+        Some(1) => {
+            // ERR-1 / TASK-0612: cargo-deny's contract for exit 1 is "stderr
+            // has the JSON diagnostic stream". An empty/whitespace-only
+            // stderr at exit 1 means the binary crashed before printing
+            // diagnostics — treating it as "no issues parsed" silently masks
+            // a supply-chain pipeline failure.
+            if stderr.trim().is_empty() {
+                anyhow::bail!(
+                    "cargo deny exited with status 1 but produced no diagnostics on stderr; \
+                     treating as pipeline failure (binary may have crashed before emitting JSON)"
+                );
+            }
+            Ok(parse_deny_output(stderr))
+        }
+        Some(2) => anyhow::bail!(
             "cargo deny exited with status 2 (configuration error): {}",
             stderr.trim()
-        );
-    }
-    // ERR-7 (TASK-0598): exit_code == None means cargo-deny was killed by a
-    // signal (SIGKILL / OOM-killer / parent timeout). Falling through to
-    // parse_deny_output(stderr) here would surface whatever partial JSON had
-    // already flushed and report it as a (possibly clean) diagnostic stream
-    // — a security-grade silent-failure mode for the supply-chain gate.
-    // Fail loudly so CI does not score a killed run as a green build.
-    if exit_code.is_none() {
-        anyhow::bail!(
+        ),
+        // ERR-7 (TASK-0598): exit_code == None means cargo-deny was killed
+        // by a signal (SIGKILL / OOM-killer / parent timeout). Fail loudly
+        // so CI does not score a killed run as a green build.
+        None => anyhow::bail!(
             "cargo deny terminated by signal (exit_code = None); \
              refusing to treat partial diagnostics as authoritative"
-        );
+        ),
+        // ERR-7 (TASK-0799): unrecognised exit codes (101 panic, future
+        // additions, etc.) used to fall through to `parse_deny_output`,
+        // which for a non-diagnostic stderr returns an empty `DenyResult`
+        // — a fail-open hole in the supply-chain gate. Fail closed instead.
+        Some(other) => anyhow::bail!(
+            "cargo deny exited with unexpected status code {other}; \
+             refusing to treat partial diagnostics as authoritative. \
+             stderr (truncated): {}",
+            stderr.chars().take(200).collect::<String>()
+        ),
     }
-    // ERR-1 / TASK-0612: cargo-deny's contract for exit 1 is "stderr has the
-    // JSON diagnostic stream". An empty/whitespace-only stderr at exit 1
-    // means the binary crashed before printing diagnostics — treating it as
-    // "no issues parsed" silently masks a supply-chain pipeline failure.
-    if exit_code == Some(1) && stderr.trim().is_empty() {
-        anyhow::bail!(
-            "cargo deny exited with status 1 but produced no diagnostics on stderr; \
-             treating as pipeline failure (binary may have crashed before emitting JSON)"
-        );
-    }
-    Ok(parse_deny_output(stderr))
 }
 
 /// JSON structures for cargo deny output (newline-delimited JSON on stderr).
@@ -334,128 +378,145 @@ struct DenyAdvisory {
     title: Option<String>,
 }
 
+/// Decoded view of one `cargo deny --format json` diagnostic line, with the
+/// JSON-envelope and field-shape failures already routed to tracing. FN-1
+/// (TASK-0793): keeps `parse_deny_output` at the line-level loop while the
+/// two-stage decode lives in `decode_diagnostic`.
+struct DecodedDiagnostic {
+    code: String,
+    severity: String,
+    message: String,
+    advisory: Option<DenyAdvisory>,
+    graphs: Option<Vec<DenyGraph>>,
+}
+
+/// Parse a single trimmed stderr line. Returns `None` for non-diagnostic
+/// envelopes, malformed JSON, unexpected field shapes, or diagnostics
+/// without a `code`. Logs every drop reason at `debug` so operators can
+/// tell schema drift from a clean run.
+fn decode_diagnostic(trimmed: &str) -> Option<DecodedDiagnostic> {
+    let deny_line: DenyLine = match serde_json::from_str(trimmed) {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::debug!(
+                error = %e,
+                line = %truncate_for_log(trimmed),
+                "ERR-1: skipping malformed cargo-deny JSON line"
+            );
+            return None;
+        }
+    };
+    if deny_line.line_type != "diagnostic" {
+        return None;
+    }
+    let fields: DiagnosticFields = match serde_json::from_value(deny_line.fields) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::debug!(
+                error = %e,
+                line = %truncate_for_log(trimmed),
+                "ERR-1: skipping cargo-deny diagnostic with unexpected fields shape"
+            );
+            return None;
+        }
+    };
+    let code = fields.code?;
+    Some(DecodedDiagnostic {
+        code,
+        severity: fields.severity.unwrap_or_else(|| "error".to_string()),
+        message: fields.message.unwrap_or_default(),
+        advisory: fields.advisory,
+        graphs: fields.graphs,
+    })
+}
+
+/// Resolve the package name for a diagnostic, falling back to the
+/// `<no package>` sentinel with a tracing breadcrumb when neither source
+/// supplies one. ERR-7 (TASK-0597).
+fn resolve_package(diag: &DecodedDiagnostic) -> String {
+    diag.advisory
+        .as_ref()
+        .and_then(|a| a.package.clone())
+        .or_else(|| {
+            diag.graphs
+                .as_ref()
+                .and_then(|g| g.first())
+                .and_then(|g| g.krate.as_ref())
+                .map(|k| k.name.clone())
+        })
+        .unwrap_or_else(|| {
+            tracing::debug!(
+                code = %diag.code,
+                severity = %diag.severity,
+                message = %truncate_for_log(&diag.message),
+                "TASK-0597: cargo-deny diagnostic had no package name in advisory or graphs[0].krate; \
+                 substituting <no package> sentinel"
+            );
+            "<no package>".to_string()
+        })
+}
+
 /// Parse newline-delimited JSON from `cargo deny --format json check` stderr.
 pub fn parse_deny_output(stderr: &str) -> DenyResult {
-    // TASK-0523: with ~5 entries per array, a linear `.contains` is faster
-    // than building four `HashSet`s on each call (and avoids the allocations
-    // entirely on the parse hot path).
     let mut result = DenyResult::default();
-
     for line in stderr.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
-
-        let deny_line: DenyLine = match serde_json::from_str(trimmed) {
-            Ok(l) => l,
-            Err(e) => {
-                tracing::debug!(
-                    error = %e,
-                    line = %truncate_for_log(trimmed),
-                    "ERR-1: skipping malformed cargo-deny JSON line"
-                );
-                continue;
-            }
-        };
-
-        if deny_line.line_type != "diagnostic" {
+        let Some(diag) = decode_diagnostic(trimmed) else {
             continue;
-        }
-
-        let fields: DiagnosticFields = match serde_json::from_value(deny_line.fields) {
-            Ok(f) => f,
-            Err(e) => {
-                tracing::debug!(
-                    error = %e,
-                    line = %truncate_for_log(trimmed),
-                    "ERR-1: skipping cargo-deny diagnostic with unexpected fields shape"
-                );
-                continue;
-            }
         };
-
-        let code = match &fields.code {
-            Some(c) => c.as_str(),
-            None => continue,
+        let Some(class) = classify_code(&diag.code) else {
+            tracing::debug!(
+                code = %diag.code,
+                severity = %diag.severity,
+                message = %truncate_for_log(&diag.message),
+                "TASK-0436: skipping cargo-deny diagnostic with unknown code (possible schema drift)"
+            );
+            continue;
         };
+        push_diagnostic(&mut result, class, diag);
+    }
+    result
+}
 
-        let severity = fields.severity.as_deref().unwrap_or("error").to_string();
-        let message = fields.message.clone().unwrap_or_default();
-
-        // Extract package name from graphs or advisory.
-        //
-        // ERR-7 (TASK-0597): when both sources are missing the previous
-        // sentinel was the literal string "unknown", which renders
-        // identically to a real crate named `unknown`. Use a clearly
-        // non-package sentinel and emit a tracing::debug so operators can
-        // tell schema drift (cargo-deny dropped the field) from a project
-        // that genuinely depends on a crate called `unknown`.
-        let package = fields
-            .advisory
-            .as_ref()
-            .and_then(|a| a.package.clone())
-            .or_else(|| {
-                fields
-                    .graphs
-                    .as_ref()
-                    .and_then(|g| g.first())
-                    .and_then(|g| g.krate.as_ref())
-                    .map(|k| k.name.clone())
-            })
-            .unwrap_or_else(|| {
-                tracing::debug!(
-                    code = code,
-                    severity = %severity,
-                    message = %truncate_for_log(&message),
-                    "TASK-0597: cargo-deny diagnostic had no package name in advisory or graphs[0].krate; \
-                     substituting <no package> sentinel"
-                );
-                "<no package>".to_string()
-            });
-
-        if ADVISORY_CODES.contains(&code) {
-            let (id, title) = if let Some(adv) = &fields.advisory {
-                (
+/// Append a classified diagnostic to the appropriate `DenyResult` section.
+/// FN-1 (TASK-0793): isolates the per-class entry construction so each
+/// section's shape lives next to its sibling and not interleaved with
+/// dispatch logic.
+fn push_diagnostic(result: &mut DenyResult, class: DiagClass, diag: DecodedDiagnostic) {
+    let package = resolve_package(&diag);
+    match class {
+        DiagClass::Advisory => {
+            let (id, title) = match &diag.advisory {
+                Some(adv) => (
                     adv.id.clone(),
-                    adv.title.clone().unwrap_or_else(|| message.clone()),
-                )
-            } else {
-                (code.to_string(), message.clone())
+                    adv.title.clone().unwrap_or_else(|| diag.message.clone()),
+                ),
+                None => (diag.code.clone(), diag.message.clone()),
             };
             result.advisories.push(AdvisoryEntry {
                 id,
                 package,
-                severity,
+                severity: diag.severity,
                 title,
             });
-        } else if LICENSE_CODES.contains(&code) {
-            result.licenses.push(LicenseEntry {
-                package,
-                message,
-                severity,
-            });
-        } else if BAN_CODES.contains(&code) {
-            result.bans.push(BanEntry {
-                package,
-                message,
-                severity,
-            });
-        } else if SOURCE_CODES.contains(&code) {
-            result.sources.push(SourceEntry {
-                package,
-                message,
-                severity,
-            });
-        } else {
-            tracing::debug!(
-                code = code,
-                severity = %severity,
-                message = %truncate_for_log(&message),
-                "TASK-0436: skipping cargo-deny diagnostic with unknown code (possible schema drift)"
-            );
         }
+        DiagClass::License => result.licenses.push(LicenseEntry {
+            package,
+            message: diag.message,
+            severity: diag.severity,
+        }),
+        DiagClass::Ban => result.bans.push(BanEntry {
+            package,
+            message: diag.message,
+            severity: diag.severity,
+        }),
+        DiagClass::Source => result.sources.push(SourceEntry {
+            package,
+            message: diag.message,
+            severity: diag.severity,
+        }),
     }
-
-    result
 }
