@@ -77,6 +77,16 @@ impl AboutOptions {
             is_tty,
         }
     }
+
+    /// Build from a borrowed field slice — avoids cloning the config's Vec
+    /// when the caller already holds a reference. TASK-0763.
+    pub fn from_ref(refresh: bool, visible_fields: Option<&[String]>, is_tty: bool) -> Self {
+        Self {
+            refresh,
+            visible_fields: visible_fields.map(|f| f.to_vec()),
+            is_tty,
+        }
+    }
 }
 
 /// Run the generic about command.

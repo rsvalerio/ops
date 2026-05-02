@@ -50,11 +50,11 @@ impl DataProvider for RustUnitsProvider {
         // ERR-2 / TASK-0376: query failures route through `query_or_warn` so
         // they don't manifest as a silent "no deps" on a misconfigured DB.
         let dep_counts: std::collections::HashMap<String, i64> = match ops_duckdb::get_db(ctx) {
-            None => Default::default(),
+            None => std::collections::HashMap::new(),
             Some(db) => ops_duckdb::sql::query_or_warn(
                 "query_crate_dep_counts",
                 "per-crate dep_counts will be empty",
-                Default::default(),
+                std::collections::HashMap::<String, i64>::new(),
                 || ops_duckdb::sql::query_crate_dep_counts(db),
             ),
         };

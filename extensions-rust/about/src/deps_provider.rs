@@ -26,7 +26,7 @@ impl DataProvider for RustDepsProvider {
         let per_crate = query_or_warn(
             "query_crate_deps",
             "project_dependencies will be empty",
-            Default::default(),
+            std::collections::HashMap::<String, Vec<(String, String)>>::new(),
             || query_crate_deps(db),
         );
         let units: Vec<UnitDeps> = per_crate

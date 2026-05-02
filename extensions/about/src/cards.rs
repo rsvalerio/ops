@@ -197,7 +197,13 @@ pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize)
     };
 
     let mut result = Vec::new();
-    let spacing = " ".repeat(CardLayoutConfig::CARD_SPACING);
+    // TASK-0790: CARD_SPACING is a compile-time constant (2); avoid per-call
+    // allocation from `str::repeat`.
+    // TASK-0790: avoid per-call `" ".repeat(CARD_SPACING)` allocation.
+    const SPACING: &str = {
+        const { assert!(CardLayoutConfig::CARD_SPACING == 2) };
+        "  "
+    };
 
     for chunk in cards.chunks(cards_per_row) {
         let max_lines = chunk.iter().map(|c| c.len()).max().unwrap_or(0);
@@ -209,7 +215,7 @@ pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize)
                 .iter()
                 .map(|card| card.get(line_idx).map(String::as_str).unwrap_or(""))
                 .collect();
-            result.push(format!("  {}{}", row_parts.join(spacing.as_str()), spacing));
+            result.push(format!("  {}{}", row_parts.join(SPACING), SPACING));
         }
 
         result.push(String::new());

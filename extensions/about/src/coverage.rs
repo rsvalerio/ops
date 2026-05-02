@@ -32,7 +32,7 @@ fn coverage_tier(pct: f64) -> CoverageTier {
 }
 
 /// Status icon for coverage percentage.
-pub fn coverage_icon(pct: f64) -> &'static str {
+pub(crate) fn coverage_icon(pct: f64) -> &'static str {
     match coverage_tier(pct) {
         CoverageTier::Low => "\u{1f480}",           // skull
         CoverageTier::Medium => "\u{26a0}\u{fe0f}", // warning
@@ -41,7 +41,7 @@ pub fn coverage_icon(pct: f64) -> &'static str {
 }
 
 /// Table cell color for coverage percentage.
-pub fn coverage_color(pct: f64) -> Color {
+pub(crate) fn coverage_color(pct: f64) -> Color {
     match coverage_tier(pct) {
         CoverageTier::Low => Color::Red,
         CoverageTier::Medium => Color::Yellow,

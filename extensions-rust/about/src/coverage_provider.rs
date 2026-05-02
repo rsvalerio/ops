@@ -65,7 +65,7 @@ impl DataProvider for RustCoverageProvider {
                 let per_crate = query_or_warn(
                     "query_crate_coverage",
                     "per-crate coverage will be blank",
-                    Default::default(),
+                    std::collections::HashMap::<String, ops_duckdb::sql::CrateCoverage>::new(),
                     || query_crate_coverage(db, &member_strs, &workspace_root),
                 );
                 // PERF-1 (TASK-0798): resolve display names up front in one
