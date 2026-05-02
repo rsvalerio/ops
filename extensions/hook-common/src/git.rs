@@ -71,9 +71,12 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
             // etc.) is worth a diagnostic — the walker would otherwise fall
             // through to the parent silently. debug! keeps it out of normal
             // logs while letting `RUST_LOG=ops_hook_common=debug` surface it.
+            // ERR-7 (TASK-0937): Debug-format path/error so an
+            // attacker-controlled `.git` pointer path cannot inject
+            // newlines/ANSI escapes into operator-facing logs.
             tracing::debug!(
-                path = %file.display(),
-                error = %err,
+                path = ?file.display(),
+                error = ?err,
                 "failed to read .git pointer file; skipping",
             );
             return None;
@@ -104,9 +107,11 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
     let anchor = std::fs::canonicalize(anchor_raw).ok()?;
     let canonical_target = std::fs::canonicalize(&joined).ok()?;
     if !canonical_target.starts_with(&anchor) {
+        // ERR-7 (TASK-0937): Debug-format paths to neutralize control
+        // characters and ANSI escapes in worktree-root rejection logs.
         tracing::debug!(
-            anchor = %anchor.display(),
-            target = %canonical_target.display(),
+            anchor = ?anchor.display(),
+            target = ?canonical_target.display(),
             "gitdir pointer escapes worktree-root anchor; rejecting",
         );
         return None;
@@ -148,6 +153,19 @@ fn max_parent_escape(path: &Path) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ERR-7 (TASK-0937): tracing fields for git-pointer paths flow through
+    /// the `?` formatter so embedded newlines or ANSI escapes cannot forge
+    /// log lines. Pin the value-level escape without a tracing-subscriber
+    /// dev-dep — mirrors `manifest_io::path_display_debug_escapes_*`.
+    #[test]
+    fn git_pointer_path_debug_escapes_control_characters() {
+        let p = Path::new("a\nb\u{1b}[31mc/.git");
+        let rendered = format!("{:?}", p.display());
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
+    }
 
     #[test]
     fn find_git_dir_in_current() {
