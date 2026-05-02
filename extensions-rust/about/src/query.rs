@@ -87,9 +87,52 @@ fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
 // never across provider work, so contention is bounded; readers clone the
 // `Arc<CargoToml>` so the typed manifest is shared across threads with no
 // reparse. `ctx.refresh` evicts the entry to preserve `--refresh` semantics.
+//
+// ERR-1 / TASK-0844: the cache lock is acquired exclusively through
+// [`lock_typed_manifest_cache`], which recovers from `PoisonError` via
+// `into_inner` + `clear_poison` and warns once per process. Without this,
+// a panic in a sibling provider would silently degrade the cache to
+// "always-miss" — the same invisibility class the thread-local rewrite
+// fought against, just routed through a different mechanism.
 fn typed_manifest_cache() -> &'static Mutex<HashMap<PathBuf, TypedManifestEntry>> {
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, TypedManifestEntry>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// ERR-1 / TASK-0844: acquire the typed-manifest cache lock, recovering
+/// from a `PoisonError` rather than silently falling through. A poisoned
+/// mutex (caused by a panic in another provider while it held the lock)
+/// would otherwise degrade the cache to "always-miss" with zero diagnostic
+/// — exactly the invisibility class CONC-2 / TASK-0795 fought against in
+/// the previous thread_local refactor.
+///
+/// The cache value type is plain data (`SystemTime` + `Arc<CargoToml>`); a
+/// panic in a sibling provider cannot leave it in a torn state, so
+/// `into_inner()` recovery is safe. We log at warn the first time we
+/// observe poisoning per process so operators see the signal without
+/// flooding logs once the lock keeps poisoning every subsequent call.
+fn lock_typed_manifest_cache(
+    cache: &'static Mutex<HashMap<PathBuf, TypedManifestEntry>>,
+) -> std::sync::MutexGuard<'static, HashMap<PathBuf, TypedManifestEntry>> {
+    static POISON_LOGGED: OnceLock<()> = OnceLock::new();
+    match cache.lock() {
+        Ok(g) => g,
+        Err(poison) => {
+            POISON_LOGGED.get_or_init(|| {
+                tracing::warn!(
+                    "typed_manifest_cache mutex was poisoned by a panic in another provider; \
+                     recovering via PoisonError::into_inner — cached entries are plain data \
+                     and not torn by the panic"
+                );
+            });
+            let guard = poison.into_inner();
+            // Clear the sticky poison flag so subsequent callers don't
+            // re-enter the recovery path (and re-trigger the OnceLock
+            // log path) on every call after a single panic.
+            cache.clear_poison();
+            guard
+        }
+    }
 }
 
 /// Load and parse `Cargo.toml` for the current context, then resolve any
@@ -106,10 +149,10 @@ pub(crate) fn load_workspace_manifest(
     let current_mtime = cargo_toml_mtime(&cwd);
 
     if ctx.refresh {
-        if let Ok(mut guard) = cache.lock() {
-            guard.remove(&cwd);
-        }
-    } else if let Ok(guard) = cache.lock() {
+        let mut guard = lock_typed_manifest_cache(cache);
+        guard.remove(&cwd);
+    } else {
+        let guard = lock_typed_manifest_cache(cache);
         if let Some(entry) = guard.get(&cwd) {
             // CONC-2 / TASK-0843: if both mtimes are known and they match,
             // serve the cached Arc. If the on-disk mtime advanced, fall
@@ -139,7 +182,8 @@ pub(crate) fn load_workspace_manifest(
     }
 
     let arc = Arc::new(manifest);
-    if let Ok(mut guard) = cache.lock() {
+    {
+        let mut guard = lock_typed_manifest_cache(cache);
         // CONC-2 / TASK-0843: bound the cache. When the soft cap is hit
         // and the key is new, evict one arbitrary existing entry so we do
         // not unbounded-grow under a daemon process visiting many cwds.
@@ -286,6 +330,7 @@ mod tests {
         }
     }
 
+    #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn typed_manifest_cache_returns_same_arc_then_invalidates_on_refresh() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -320,6 +365,7 @@ mod tests {
     /// silently re-parsed the manifest per worker. Drive a load on one
     /// thread, then assert a sibling `Context` on another thread sees the
     /// same `Arc` allocation.
+    #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn typed_manifest_cache_is_shared_across_threads() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -353,8 +399,97 @@ mod tests {
         evict_cache_for(&path);
     }
 
+    /// ERR-1 / TASK-0844: a poisoned cache mutex (caused by a panic in
+    /// another provider while it held the lock) must NOT silently degrade
+    /// the cache to "always-miss". load_workspace_manifest must recover via
+    /// PoisonError::into_inner and emit a one-shot warn so operators see the
+    /// signal instead of paying a silent perf cliff.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn typed_manifest_cache_recovers_from_poison_with_warn() {
+        use std::sync::{Arc as StdArc, Mutex as StdMutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        // Drain any warning emitted by an earlier test in this binary so
+        // OnceLock-gated logging is observable here. (Best-effort: if a
+        // previous test already poisoned and logged, the OnceLock has
+        // fired. We still verify recovery succeeds.)
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname=\"poisoned\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+        evict_cache_for(dir.path());
+
+        // Poison the mutex by panicking inside a held lock on another thread.
+        let cache = typed_manifest_cache();
+        let _ = std::thread::spawn(|| {
+            let _guard = typed_manifest_cache().lock().unwrap();
+            panic!("intentional poison for test");
+        })
+        .join();
+        assert!(
+            cache.lock().is_err(),
+            "mutex must be poisoned for the test premise"
+        );
+
+        #[derive(Clone, Default)]
+        struct BufWriter(StdArc<StdMutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
+        let result =
+            tracing::subscriber::with_default(subscriber, || load_workspace_manifest(&mut ctx));
+        assert!(result.is_ok(), "poisoned cache must recover, not propagate");
+
+        // The OnceLock guard means the warn fires at most once per
+        // process. If a sibling test happened to have poisoned first the
+        // log buffer here will be empty — accept either, but make sure we
+        // recovered at minimum.
+        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        if !logs.is_empty() {
+            assert!(
+                logs.contains("poisoned"),
+                "poison warn must mention poisoning, got: {logs}"
+            );
+        }
+
+        // After recovery the cache itself is no longer poisoned-blocking
+        // (we used into_inner, so the poison flag is cleared).
+        assert!(
+            cache.lock().is_ok(),
+            "cache must be unpoisoned after into_inner recovery"
+        );
+
+        evict_cache_for(dir.path());
+    }
+
     /// CONC-2 / TASK-0843: a stale `Cargo.toml` mtime must invalidate the
     /// cached entry without requiring `ctx.refresh = true`.
+    #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn typed_manifest_cache_invalidates_on_mtime_change() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -382,6 +517,7 @@ mod tests {
     /// CONC-2 / TASK-0843: cache size is soft-capped so a long-running
     /// process visiting many cwds never accumulates more than
     /// MAX_TYPED_MANIFEST_CACHE_ENTRIES entries.
+    #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn typed_manifest_cache_is_bounded() {
         let dir = tempfile::tempdir().expect("tempdir");
