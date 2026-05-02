@@ -10,7 +10,7 @@
 //! workspace globs with the static expander below. `MetadataProvider` is used
 //! by `deps_provider` where dependency graph data is unavoidable.
 
-use ops_cargo_toml::{CargoToml, CargoTomlProvider};
+use ops_cargo_toml::{CargoToml, CargoTomlProvider, FindWorkspaceRootError};
 use ops_extension::{Context, DataProvider, DataProviderError};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -28,8 +28,16 @@ pub(crate) fn log_manifest_load_failure(err: &DataProviderError) {
 }
 
 fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
+    // ARCH-2 / TASK-0871: prefer the typed `FindWorkspaceRootError::NotFound`
+    // marker so wrapping context layers added by future callers don't silently
+    // mask the "missing manifest" signal. The legacy `io::ErrorKind::NotFound`
+    // chain-walk is retained as a fallback for IO errors raised outside the
+    // workspace-root walk (e.g. direct `read_to_string` failures).
     let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err);
     while let Some(e) = current {
+        if let Some(typed) = e.downcast_ref::<FindWorkspaceRootError>() {
+            return typed.is_not_found();
+        }
         if let Some(io) = e.downcast_ref::<std::io::Error>() {
             return io.kind() == std::io::ErrorKind::NotFound;
         }

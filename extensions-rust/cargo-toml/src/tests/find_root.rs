@@ -128,3 +128,26 @@ fn find_root_not_found() {
         .to_string()
         .contains("no Cargo.toml found"));
 }
+
+/// ARCH-2 / TASK-0871: NotFound and CanonicalizeFailed must be
+/// distinguishable via the typed error so consumers
+/// (`is_manifest_missing`) don't need to chain-walk an `io::Error`.
+#[test]
+fn find_root_typed_not_found_variant() {
+    let temp_dir = tempfile::tempdir().expect("create temp dir");
+    let err = find_workspace_root(temp_dir.path()).unwrap_err();
+    assert!(matches!(err, FindWorkspaceRootError::NotFound { .. }));
+    assert!(err.is_not_found());
+}
+
+#[test]
+fn find_root_typed_canonicalize_failed_variant() {
+    let temp_dir = tempfile::tempdir().expect("create temp dir");
+    let missing = temp_dir.path().join("does-not-exist");
+    let err = find_workspace_root(&missing).unwrap_err();
+    assert!(matches!(
+        err,
+        FindWorkspaceRootError::CanonicalizeFailed { .. }
+    ));
+    assert!(!err.is_not_found());
+}

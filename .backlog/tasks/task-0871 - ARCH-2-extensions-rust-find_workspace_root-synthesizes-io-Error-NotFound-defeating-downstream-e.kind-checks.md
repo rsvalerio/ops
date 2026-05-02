@@ -3,9 +3,10 @@ id: TASK-0871
 title: >-
   ARCH-2: extensions-rust find_workspace_root synthesizes io::Error::NotFound,
   defeating downstream e.kind() checks
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:22'
+updated_date: '2026-05-02 10:51'
 labels:
   - code-review-rust
   - architecture

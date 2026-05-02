@@ -73,6 +73,36 @@ use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// ARCH-2 / TASK-0871: typed errors for [`find_workspace_root`]. Replaces
+/// the previously synthesised `io::Error::new(NotFound, …)`, so consumers
+/// (notably `is_manifest_missing` in `extensions-rust/about`) can match a
+/// typed variant instead of walking the source chain looking for an
+/// `io::ErrorKind::NotFound` shape that another wrapping layer would mask.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum FindWorkspaceRootError {
+    #[error(
+        "no Cargo.toml found in {start} or any parent directory (walked up to {depth} ancestors)"
+    )]
+    NotFound { start: PathBuf, depth: usize },
+    #[error("failed to canonicalize {path}")]
+    CanonicalizeFailed {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+impl FindWorkspaceRootError {
+    /// True when this error indicates the search walked to its bound without
+    /// finding any `Cargo.toml`. Mirrors the legacy `io::ErrorKind::NotFound`
+    /// signal that `is_manifest_missing` consumed.
+    #[must_use]
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, Self::NotFound { .. })
+    }
+}
+
 pub const NAME: &str = "cargo-toml";
 #[allow(dead_code)]
 pub const DESCRIPTION: &str = "Cargo.toml manifest parser and workspace data provider";
@@ -169,7 +199,7 @@ impl CargoTomlProvider {
         if let Some(root) = &self.root {
             return Ok(root.clone());
         }
-        find_workspace_root(working_dir)
+        Ok(find_workspace_root(working_dir)?)
     }
 }
 
@@ -283,9 +313,12 @@ const MAX_ANCESTOR_DEPTH: usize = 64;
 /// `manifest_declares_workspace`, the walk reads through the new symlink.
 /// The depth cap bounds the damage; treat the result as "best-effort
 /// symlink-safe" rather than absolute.
-pub fn find_workspace_root(start: &Path) -> Result<PathBuf, anyhow::Error> {
-    let start_canonical = fs::canonicalize(start)
-        .with_context(|| format!("failed to canonicalize {}", start.display()))?;
+pub fn find_workspace_root(start: &Path) -> Result<PathBuf, FindWorkspaceRootError> {
+    let start_canonical =
+        fs::canonicalize(start).map_err(|source| FindWorkspaceRootError::CanonicalizeFailed {
+            path: start.to_path_buf(),
+            source,
+        })?;
     let mut current = start_canonical.as_path();
     let mut first_cargo_toml: Option<PathBuf> = None;
     for _ in 0..MAX_ANCESTOR_DEPTH {
@@ -306,14 +339,10 @@ pub fn find_workspace_root(start: &Path) -> Result<PathBuf, anyhow::Error> {
     if let Some(root) = first_cargo_toml {
         return Ok(root);
     }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::NotFound,
-        format!(
-            "no Cargo.toml found in {} or any parent directory (walked up to {MAX_ANCESTOR_DEPTH} ancestors)",
-            start.display()
-        ),
-    )
-    .into())
+    Err(FindWorkspaceRootError::NotFound {
+        start: start.to_path_buf(),
+        depth: MAX_ANCESTOR_DEPTH,
+    })
 }
 
 /// True iff the manifest at `path` parses to TOML and contains a top-level
