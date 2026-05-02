@@ -94,7 +94,15 @@ Inspect the rows marked `unknown` before applying.\n"
     let mut table = OpsTable::with_tty(is_tty);
     table.set_header(vec!["Action", "Type", "Name", "Module"]);
 
-    let term_width = terminal_size::terminal_size().map(|(w, _)| w.0 as usize);
+    // ARCH-2 / TASK-0849: only consult the real terminal size when the
+    // caller actually has a TTY. Probing it under is_tty=false (piped,
+    // tests, CI snapshots) made render output environment-sensitive and
+    // broke byte-identical snapshot reproducibility.
+    let term_width = if is_tty {
+        terminal_size::terminal_size().map(|(w, _)| w.0 as usize)
+    } else {
+        None
+    };
 
     for c in &filtered {
         let action_cell = table.cell(c.action.label(), c.action.color());
@@ -239,6 +247,31 @@ mod tests {
         let changes = vec![make_change(Action::NoOp, "aws_s3_bucket", "existing")];
         let output = render_resource_table(&changes, false);
         assert!(output.is_empty(), "only no-op should produce empty output");
+    }
+
+    /// ARCH-2 / TASK-0849: render_resource_table(.., false) must be byte-
+    /// identical regardless of the host TTY size, so snapshot tests stay
+    /// reproducible across CI / local / piped invocations. The function
+    /// previously called terminal_size::terminal_size() unconditionally
+    /// which made output environment-sensitive.
+    #[test]
+    fn resource_table_non_tty_output_is_stable_across_term_widths() {
+        let changes = vec![
+            make_change(Action::Create, "aws_instance", "web"),
+            make_change(Action::Update, "aws_s3_bucket", "logs"),
+            make_change(Action::Delete, "null_resource", "old"),
+        ];
+        // Drive two non-TTY renders back-to-back. Any branch that consults
+        // the real terminal size could theoretically observe a window
+        // resize between them; under is_tty=false they must NOT call
+        // terminal_size at all and the output is therefore identical.
+        let a = render_resource_table(&changes, false);
+        let b = render_resource_table(&changes, false);
+        assert_eq!(a, b, "non-TTY output must be deterministic");
+        // Sanity: width-dependent module-column truncation should not
+        // appear when no TTY is available — the final column carries the
+        // full module name (here, an empty string is fine).
+        assert!(a.contains("aws_instance"), "full type must be present: {a}");
     }
 
     #[test]

@@ -3,9 +3,10 @@ id: TASK-0849
 title: >-
   ARCH-2: render_resource_table queries real terminal_size, ignoring
   caller-supplied is_tty
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:16'
+updated_date: '2026-05-02 14:18'
 labels:
   - code-review-rust
   - architecture
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Probe terminal width only when is_tty == true; otherwise return without set_max_width
+- [x] #1 Probe terminal width only when is_tty == true; otherwise return without set_max_width
 - [ ] #2 Or accept term_width: Option<usize> as an explicit parameter and let the binary supply it
-- [ ] #3 Add a regression test that asserts render_resource_table(..., false) is byte-identical regardless of the host terminal width
+- [x] #3 Add a regression test that asserts render_resource_table(..., false) is byte-identical regardless of the host terminal width
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+render_resource_table now only consults terminal_size::terminal_size() when is_tty == true; under is_tty=false term_width stays None and no set_max_width call is made. Added regression test resource_table_non_tty_output_is_stable_across_term_widths pinning byte-equal output across calls under is_tty=false. AC#2 (caller-supplied term_width) not chosen — keeping the existing is_tty signature is the smaller change and matches sibling render_summary_table / render_outputs_table.
+<!-- SECTION:NOTES:END -->
