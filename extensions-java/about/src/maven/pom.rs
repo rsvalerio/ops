@@ -196,12 +196,21 @@ fn handle_scm(line: &str, data: &mut PomData) -> bool {
     if line == "</scm>" {
         return true;
     }
-    if data.scm_url.is_none() {
-        if let Some(val) = extract_xml_value(line, "<url>", "</url>") {
-            data.scm_url = Some(val.to_string());
+    try_set_once(&mut data.scm_url, line, "<url>", "</url>");
+    false
+}
+
+/// DUP-1 / TASK-0869: write `field` from a `<tag>value</tag>` line iff the
+/// field is still empty. Encodes the "first writer wins on duplicates"
+/// invariant in a single helper so a future refactor cannot accidentally
+/// let a later top-level `<url>` clobber the `<scm><url>` already captured
+/// (regression pinned by `parse_pom_scm_takes_precedence_over_url`).
+fn try_set_once(field: &mut Option<String>, line: &str, open: &str, close: &str) {
+    if field.is_none() {
+        if let Some(val) = extract_xml_value(line, open, close) {
+            *field = Some(val.to_string());
         }
     }
-    false
 }
 
 fn handle_licenses(line: &str, in_license: &mut bool, data: &mut PomData) -> bool {
@@ -210,10 +219,8 @@ fn handle_licenses(line: &str, in_license: &mut bool, data: &mut PomData) -> boo
         "<license>" => *in_license = true,
         "</license>" => *in_license = false,
         _ => {
-            if *in_license && data.license.is_none() {
-                if let Some(val) = extract_xml_value(line, "<name>", "</name>") {
-                    data.license = Some(val.to_string());
-                }
+            if *in_license {
+                try_set_once(&mut data.license, line, "<name>", "</name>");
             }
         }
     }
@@ -244,11 +251,7 @@ fn match_section_open(line: &str, data: &mut PomData) -> Option<PomSection> {
     // Reject malformed inputs with duplicated openers (e.g. `<scm>...<scm>`)
     // to keep the partial-input handler honest.
     if line.starts_with("<scm>") && line.ends_with("</scm>") && line.matches("<scm>").count() == 1 {
-        if data.scm_url.is_none() {
-            if let Some(val) = extract_xml_value(line, "<url>", "</url>") {
-                data.scm_url = Some(val.to_string());
-            }
-        }
+        try_set_once(&mut data.scm_url, line, "<url>", "</url>");
         return None;
     }
     // READ-2 / TASK-0691: a single-line `<licenses>...</licenses>` may carry
@@ -262,11 +265,7 @@ fn match_section_open(line: &str, data: &mut PomData) -> Option<PomSection> {
         && line.ends_with("</licenses>")
         && line.matches("<licenses>").count() == 1
     {
-        if data.license.is_none() {
-            if let Some(val) = extract_xml_value(line, "<name>", "</name>") {
-                data.license = Some(val.to_string());
-            }
-        }
+        try_set_once(&mut data.license, line, "<name>", "</name>");
         return None;
     }
 
@@ -285,31 +284,16 @@ fn match_section_open(line: &str, data: &mut PomData) -> Option<PomSection> {
 
 /// Parse top-level simple elements (artifactId, version, description, name, url).
 fn parse_top_level(line: &str, data: &mut PomData) {
-    if data.artifact_id.is_none() {
-        if let Some(val) = extract_xml_value(line, "<artifactId>", "</artifactId>") {
-            data.artifact_id = Some(val.to_string());
-        }
-    }
-    if data.version.is_none() {
-        if let Some(val) = extract_xml_value(line, "<version>", "</version>") {
-            data.version = Some(val.to_string());
-        }
-    }
-    if data.description.is_none() {
-        if let Some(val) = extract_xml_value(line, "<description>", "</description>") {
-            data.description = Some(val.to_string());
-        }
-    }
-    if data.name.is_none() {
-        if let Some(val) = extract_xml_value(line, "<name>", "</name>") {
-            data.name = Some(val.to_string());
-        }
-    }
-    if data.scm_url.is_none() {
-        if let Some(val) = extract_xml_value(line, "<url>", "</url>") {
-            data.scm_url = Some(val.to_string());
-        }
-    }
+    try_set_once(&mut data.artifact_id, line, "<artifactId>", "</artifactId>");
+    try_set_once(&mut data.version, line, "<version>", "</version>");
+    try_set_once(
+        &mut data.description,
+        line,
+        "<description>",
+        "</description>",
+    );
+    try_set_once(&mut data.name, line, "<name>", "</name>");
+    try_set_once(&mut data.scm_url, line, "<url>", "</url>");
 }
 
 /// Extract value from `<tag>value</tag>` on a single line. Open/close

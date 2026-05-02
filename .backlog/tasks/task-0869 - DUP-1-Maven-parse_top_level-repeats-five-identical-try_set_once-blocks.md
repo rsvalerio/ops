@@ -1,9 +1,10 @@
 ---
 id: TASK-0869
 title: 'DUP-1: Maven parse_top_level repeats five identical try_set_once blocks'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:22'
+updated_date: '2026-05-02 10:48'
 labels:
   - code-review-rust
   - duplication
