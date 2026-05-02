@@ -1,9 +1,10 @@
 ---
 id: TASK-0907
 title: 'TRAIT-9: ProgressDisplay !Send marker is brittle, undiscoverable invariant'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:10'
+updated_date: '2026-05-02 11:21'
 labels:
   - code-review-rust
   - structure

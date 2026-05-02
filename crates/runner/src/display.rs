@@ -84,14 +84,22 @@ pub struct ProgressDisplay {
     /// for re-opening on failure, captured truncation kind) extracted into
     /// `tap::TapWriter`. `None` here means no tap was requested at all.
     pub(super) tap: Option<TapWriter>,
-    /// CL-3 / TASK-0656: structurally enforce the sync-IO invariant on
-    /// [`Self::handle_event`]. `PhantomData<*const ()>` makes
-    /// `ProgressDisplay: !Send + !Sync`, so it cannot be moved into a
-    /// `tokio::spawn` task and any future that borrows it across an
-    /// `.await` point inherits `!Send` and is rejected by the multi-thread
-    /// scheduler. The doc-comment invariant is now checked by the type
-    /// system; future refactors that route the tap through an async writer
-    /// can drop this marker.
+    /// CL-3 / TASK-0656 + TRAIT-9 / TASK-0907: structurally enforce the
+    /// sync-IO invariant on [`Self::handle_event`].
+    ///
+    /// **Why this is a free-standing marker, not tied to a field:** every
+    /// real field on `ProgressDisplay` is `Send + Sync` today (the tap
+    /// uses `std::fs::File`, the indicatif handles are `Send`, etc.).
+    /// The `!Send` constraint exists *only* to keep `handle_event` —
+    /// which performs blocking sync stderr / tap writes — off
+    /// multi-thread tokio worker threads. There is therefore no field to
+    /// "tie" the marker to; if someone routes the tap through an async
+    /// writer in the future, both the writer change and this marker
+    /// removal need to land together.
+    ///
+    /// The `static_assert_not_send` block in [`tests`] pins the
+    /// invariant: removing this marker fails compilation of the test
+    /// module so the regression cannot land silently.
     _not_send: PhantomData<*const ()>,
 }
 
