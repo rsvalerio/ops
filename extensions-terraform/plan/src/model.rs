@@ -1,6 +1,7 @@
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
+#[non_exhaustive]
 pub struct Plan {
     pub format_version: Option<String>,
     pub resource_changes: Option<Vec<ResourceChange>>,
@@ -8,6 +9,7 @@ pub struct Plan {
 }
 
 #[derive(Deserialize, Debug)]
+#[non_exhaustive]
 pub struct ResourceChange {
     pub address: String,
     pub module: Option<String>,
@@ -18,11 +20,13 @@ pub struct ResourceChange {
 }
 
 #[derive(Deserialize, Debug)]
+#[non_exhaustive]
 pub struct Change {
     pub actions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum Action {
     Create,
     Delete,
@@ -86,6 +90,7 @@ impl Action {
     }
 }
 
+#[non_exhaustive]
 pub struct ClassifiedChange {
     pub action: Action,
     pub address: String,
