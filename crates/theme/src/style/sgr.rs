@@ -19,16 +19,17 @@ use std::sync::OnceLock;
 /// Honors the [NO_COLOR](https://no-color.org) convention: if `NO_COLOR` is
 /// set to any non-empty value, styling is disabled regardless of TTY state.
 ///
-/// The TTY/`NO_COLOR` decision is computed once per process via [`OnceLock`]
-/// so we don't issue an `is_terminal()` syscall and read `NO_COLOR` on every
-/// rendered step line. Tests should call [`apply_style_gated`] directly.
+/// The `is_terminal()` syscall is cached once per process via [`OnceLock`];
+/// `NO_COLOR` is re-read on each call so runtime overrides (notably tests
+/// using `EnvGuard`) take effect after the TTY check has been cached.
+/// Tests should call [`apply_style_gated`] directly.
 pub fn apply_style<'a>(text: &'a str, spec: &str) -> Cow<'a, str> {
     apply_style_gated(text, spec, color_enabled())
 }
 
 fn color_enabled() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| std::io::stderr().is_terminal() && !no_color_env())
+    static IS_TTY: OnceLock<bool> = OnceLock::new();
+    *IS_TTY.get_or_init(|| std::io::stderr().is_terminal()) && !no_color_env()
 }
 
 /// True if `NO_COLOR` is set to any non-empty value.
