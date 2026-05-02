@@ -9,7 +9,7 @@ use ops_core::config::ExecCommandSpec;
 use ops_core::expand::{ExpandError, Variables};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{OnceLock, RwLock};
 use tokio::process::Command;
 
 /// PERF-3 / TASK-0765: cache the canonical workspace path keyed by raw path.
@@ -24,15 +24,24 @@ use tokio::process::Command;
 /// by the number of distinct workspace paths the process ever sees, which
 /// is `1` in the production runner and a small constant in tests.
 fn canonical_workspace_cached(workspace: &Path) -> Option<PathBuf> {
-    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Option<PathBuf>>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Ok(guard) = cache.lock() {
+    // CONC-7 / TASK-0839: the cache is read-mostly — production has exactly
+    // one workspace key, tests a small constant — so a `RwLock` lets the
+    // 32-way parallel spawn path take a shared read lock on cache hits and
+    // only escalate to a write lock on the (per-key, once-per-process)
+    // canonicalize miss. Avoids the under-contention `Mutex::lock` that
+    // CONC-7 specifically calls out for hot-path Mutex<HashMap>.
+    static CACHE: OnceLock<RwLock<HashMap<PathBuf, Option<PathBuf>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Ok(guard) = cache.read() {
         if let Some(hit) = guard.get(workspace) {
             return hit.clone();
         }
     }
     let canonical = std::fs::canonicalize(workspace).ok();
-    if let Ok(mut guard) = cache.lock() {
+    if let Ok(mut guard) = cache.write() {
+        // Another writer may have raced us in between the read miss and
+        // the write lock; insert is idempotent (same canonicalize input
+        // yields the same value) so overwriting is fine.
         guard.insert(workspace.to_path_buf(), canonical.clone());
     }
     canonical
