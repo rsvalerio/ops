@@ -3,9 +3,10 @@ id: TASK-0881
 title: >-
   ARCH-1: theme/style.rs mixes ANSI parsing/emission, OnceLock TTY probe, and
   ANSI stripping
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:25'
+updated_date: '2026-05-02 11:04'
 labels:
   - code-review-rust
   - architecture
