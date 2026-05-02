@@ -43,7 +43,7 @@ pub fn run_about_units_with(
     term_width: usize,
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(ops_core::config::Config::default());
+    let config = std::sync::Arc::new(ops_core::config::Config::empty());
     let mut ctx = Context::new(config, cwd);
 
     // Warm duckdb + tokei so the stack provider can enrich Rust-specific
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn enrich_from_db_without_db_is_noop() {
         let cwd = std::env::current_dir().expect("cwd");
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let ctx = Context::new(config, cwd);
         let mut units = vec![ProjectUnit {
             name: "demo".into(),

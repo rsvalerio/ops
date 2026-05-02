@@ -67,7 +67,7 @@ pub fn run_about_code_with(
     writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(ops_core::config::Config::default());
+    let config = std::sync::Arc::new(ops_core::config::Config::empty());
     let mut ctx = Context::new(config, cwd);
 
     let stats = query_language_stats(&mut ctx, data_registry);

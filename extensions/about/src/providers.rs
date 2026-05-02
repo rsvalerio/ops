@@ -66,7 +66,7 @@ mod tests {
     }
 
     fn test_ctx() -> Context {
-        let config = Arc::new(ops_core::config::Config::default());
+        let config = Arc::new(ops_core::config::Config::empty());
         Context::new(config, std::path::PathBuf::from("/tmp"))
     }
 

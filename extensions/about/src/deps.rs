@@ -26,7 +26,7 @@ pub fn run_about_deps_with(
     is_tty: bool,
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(ops_core::config::Config::default());
+    let config = std::sync::Arc::new(ops_core::config::Config::empty());
     let mut ctx = Context::new(config, cwd);
 
     warm_providers(&mut ctx, data_registry, &["duckdb", "metadata"], "deps");

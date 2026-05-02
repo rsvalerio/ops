@@ -89,7 +89,7 @@ pub fn run_about(
     cwd: &Path,
     writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let config = std::sync::Arc::new(ops_core::config::Config::default());
+    let config = std::sync::Arc::new(ops_core::config::Config::empty());
     let mut ctx = ops_extension::Context::new(config, cwd.to_path_buf());
     ctx.refresh = opts.refresh;
 
@@ -320,7 +320,7 @@ mod tests {
         let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory db");
         ops_duckdb::init_schema(&db).expect("init_schema");
 
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
         ctx.db = Some(std::sync::Arc::new(db));
 
@@ -341,7 +341,7 @@ mod tests {
         let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory db");
         ops_duckdb::init_schema(&db).expect("init_schema");
 
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
         ctx.db = Some(std::sync::Arc::new(db));
 
@@ -358,7 +358,7 @@ mod tests {
         let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory db");
         ops_duckdb::init_schema(&db).expect("init_schema");
 
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
         ctx.db = Some(std::sync::Arc::new(db));
 
@@ -389,7 +389,7 @@ mod tests {
     #[cfg(not(feature = "duckdb"))]
     #[test]
     fn enrich_from_db_noop_without_duckdb() {
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
         let mut identity = ProjectIdentity::default();
         enrich_from_db(&ctx, &mut identity);

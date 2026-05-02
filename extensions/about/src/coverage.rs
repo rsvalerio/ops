@@ -62,7 +62,7 @@ pub fn run_about_coverage_with(
     is_tty: bool,
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(ops_core::config::Config::default());
+    let config = std::sync::Arc::new(ops_core::config::Config::empty());
     let mut ctx = Context::new(config, cwd);
 
     // Warm the providers stacks may rely on for coverage + unit metadata.
