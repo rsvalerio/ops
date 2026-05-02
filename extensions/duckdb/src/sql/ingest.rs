@@ -271,10 +271,6 @@ where
     I: crate::DataIngestor,
     Q: FnOnce(&DuckDb) -> Result<serde_json::Value, anyhow::Error>,
 {
-    if ctx.refresh {
-        drop_table_if_exists(db, table_name)?;
-    }
-
     // ERR-5 (TASK-0780): poisoning the per-table mutex must not become a
     // permanent denial of service for that table — a transient panic in
     // `collect`/`load` (user-supplied code) would otherwise brick every
@@ -293,6 +289,17 @@ where
         );
         poisoned.into_inner()
     });
+
+    // CONC-2 / TASK-0909: drop_table_if_exists MUST run inside the per-table
+    // ingest_mutex critical section, before the table_has_data probe.
+    // Pre-fix this was outside the mutex, so a concurrent non-refresh
+    // caller could ingest into the just-dropped table between our drop
+    // and our lock acquisition; this caller would then see
+    // table_has_data == true under the lock and silently skip the
+    // re-collection the user explicitly asked for via --refresh.
+    if ctx.refresh {
+        drop_table_if_exists(db, table_name)?;
+    }
 
     if !table_has_data(db, table_name)? {
         let data_dir = data_dir_for_db(db.path());
