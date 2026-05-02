@@ -85,12 +85,46 @@ impl std::fmt::Display for TimeoutError {
 
 impl std::error::Error for TimeoutError {}
 
-/// Error returned by [`run_with_timeout`]: either the underlying spawn/IO
-/// failed, or the child outran the deadline.
+/// Returned when [`run_with_timeout`] cannot spawn the child process.
+///
+/// ERR-4 / TASK-0925: a bare `io::Error` from `Command::spawn` renders as
+/// `No such file or directory (os error 2)` with no indication of which
+/// subprocess failed. Wrapping the error with the caller-supplied label
+/// and the program name (e.g. `cargo`) makes the rendered message
+/// self-describing — `"cargo metadata: failed to spawn cargo: No such
+/// file or directory (os error 2)"` — while preserving `source()` to the
+/// original `io::Error` so structured callers can still inspect the kind.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct SpawnError {
+    pub label: String,
+    pub program: String,
+    pub source: io::Error,
+}
+
+impl std::fmt::Display for SpawnError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}: failed to spawn {}: {}",
+            self.label, self.program, self.source
+        )
+    }
+}
+
+impl std::error::Error for SpawnError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
+/// Error returned by [`run_with_timeout`]: either spawn failed, post-spawn
+/// IO failed, or the child outran the deadline.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RunError {
     Io(io::Error),
+    Spawn(SpawnError),
     Timeout(TimeoutError),
 }
 
@@ -98,6 +132,7 @@ impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RunError::Io(e) => write!(f, "{e}"),
+            RunError::Spawn(e) => write!(f, "{e}"),
             RunError::Timeout(e) => write!(f, "{e}"),
         }
     }
@@ -107,6 +142,7 @@ impl std::error::Error for RunError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             RunError::Io(e) => Some(e),
+            RunError::Spawn(e) => Some(e),
             RunError::Timeout(e) => Some(e),
         }
     }
@@ -187,7 +223,18 @@ pub fn run_with_timeout(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
-        .spawn()?;
+        .spawn()
+        .map_err(|e| {
+            // ERR-4 / TASK-0925: name the failing operation and program in
+            // the rendered error so a missing binary surfaces as
+            // "cargo metadata: failed to spawn cargo: …" instead of a bare
+            // OS error string.
+            RunError::Spawn(SpawnError {
+                label: label.to_string(),
+                program: cmd.get_program().to_string_lossy().into_owned(),
+                source: e,
+            })
+        })?;
 
     // ERR-1 / TASK-0694: drain threads return both the bytes read so far
     // and any IO error encountered. We surface drain failures via
@@ -465,6 +512,43 @@ mod tests {
         assert_eq!(out.stdout, b"hello");
     }
 
+    /// ERR-4 / TASK-0925: a spawn failure (binary not on PATH) used to
+    /// surface as a bare `RunError::Io` carrying only `No such file or
+    /// directory (os error 2)`. The error must now be a `RunError::Spawn`
+    /// whose Display includes the caller-supplied label and the program
+    /// name, while preserving `source()` to the original `io::Error`.
+    #[test]
+    fn spawn_failure_includes_label_and_program() {
+        let err = run_with_timeout(
+            &mut Command::new("ops-nonexistent-binary-task-0925"),
+            Duration::from_secs(5),
+            "cargo metadata",
+        )
+        .expect_err("missing binary should fail to spawn");
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("cargo metadata"),
+            "rendered error {rendered:?} should contain caller label"
+        );
+        assert!(
+            rendered.contains("ops-nonexistent-binary-task-0925"),
+            "rendered error {rendered:?} should contain program name"
+        );
+        match err {
+            RunError::Spawn(s) => {
+                assert_eq!(s.label, "cargo metadata");
+                assert_eq!(s.program, "ops-nonexistent-binary-task-0925");
+                assert_eq!(s.source.kind(), io::ErrorKind::NotFound);
+                // source() must still chain to the original io::Error so
+                // structured callers can inspect the kind.
+                let src = std::error::Error::source(&s)
+                    .expect("SpawnError::source must expose the io::Error");
+                assert!(src.to_string().contains("No such file"));
+            }
+            other => panic!("expected RunError::Spawn, got {other:?}"),
+        }
+    }
+
     #[test]
     fn fires_timeout_on_hung_subprocess() {
         let err = run_with_timeout(
@@ -479,6 +563,7 @@ mod tests {
                 assert_eq!(t.timeout, Duration::from_millis(300));
             }
             RunError::Io(e) => panic!("expected timeout, got io error: {e}"),
+            RunError::Spawn(e) => panic!("expected timeout, got spawn error: {e}"),
         }
     }
 }
