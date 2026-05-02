@@ -200,15 +200,25 @@ fn format_severity_section<T, F>(
         format_empty_section(out, title);
         return;
     }
-    let rows: Vec<AdvisoryRow<'_>> = entries.iter().map(&extract).collect();
-    let _ = writeln!(out, "{P}{} ({}):", title, rows.len());
-    let pkg_width = rows.iter().map(|r| r.package.len()).max().unwrap_or(0);
-    let id_width = rows
+    // PERF-3 / TASK-0880: re-apply `extract` for the width passes instead
+    // of materialising every projected row up front. The closure is a pure
+    // borrow-projection so re-running it is free; the previous Vec was the
+    // single allocation contradicting this function's "one allocation per
+    // render" intent (PERF-3 / TASK-0802 above). The borrow contract is
+    // preserved: `AdvisoryRow<'a>` still borrows from `entries`.
+    let _ = writeln!(out, "{P}{} ({}):", title, entries.len());
+    let pkg_width = entries
         .iter()
-        .filter_map(|r| r.id.map(str::len))
+        .map(|e| extract(e).package.len())
         .max()
         .unwrap_or(0);
-    for row in &rows {
+    let id_width = entries
+        .iter()
+        .filter_map(|e| extract(e).id.map(str::len))
+        .max()
+        .unwrap_or(0);
+    for entry in entries {
+        let row = extract(entry);
         let icon = severity_icon(row.severity);
         if let Some(id) = row.id {
             let _ = writeln!(

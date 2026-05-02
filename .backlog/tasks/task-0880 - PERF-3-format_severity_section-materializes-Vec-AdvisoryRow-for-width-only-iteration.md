@@ -3,9 +3,10 @@ id: TASK-0880
 title: >-
   PERF-3: format_severity_section materializes Vec<AdvisoryRow> for width-only
   iteration
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:24'
+updated_date: '2026-05-02 11:02'
 labels:
   - code-review-rust
   - performance
