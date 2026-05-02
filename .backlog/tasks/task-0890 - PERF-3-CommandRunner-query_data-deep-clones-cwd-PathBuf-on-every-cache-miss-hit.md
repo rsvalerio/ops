@@ -3,9 +3,10 @@ id: TASK-0890
 title: >-
   PERF-3: CommandRunner::query_data deep-clones cwd PathBuf on every cache
   miss/hit
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:39'
+updated_date: '2026-05-02 11:10'
 labels:
   - code-review-rust
   - PERF

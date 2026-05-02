@@ -73,7 +73,7 @@ fn typed_manifest_cache() -> &'static Mutex<HashMap<PathBuf, Arc<CargoToml>>> {
 pub(crate) fn load_workspace_manifest(
     ctx: &mut Context,
 ) -> Result<Arc<CargoToml>, DataProviderError> {
-    let cwd = ctx.working_directory.clone();
+    let cwd: PathBuf = PathBuf::clone(&ctx.working_directory);
     let cache = typed_manifest_cache();
 
     if ctx.refresh {

@@ -80,3 +80,44 @@ fn query_data_failing_provider_errors() {
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("provider error"));
 }
+
+/// PERF-3 / TASK-0890: capture the cwd `Arc<PathBuf>` inside a provider
+/// and assert its strong_count climbs above 1 — proof that `query_data`
+/// hands out shared `Arc::clone`s instead of deep-cloning the inner path.
+#[test]
+fn query_data_shares_cwd_arc_with_provider() {
+    use std::sync::Mutex;
+    struct ArcCapturingProvider {
+        captured: std::sync::Arc<Mutex<Option<std::sync::Arc<std::path::PathBuf>>>>,
+    }
+    impl DataProvider for ArcCapturingProvider {
+        fn name(&self) -> &'static str {
+            "arc_capture"
+        }
+        fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            let arc = std::sync::Arc::clone(&ctx.working_directory);
+            *self.captured.lock().unwrap() = Some(arc);
+            Ok(serde_json::Value::Null)
+        }
+    }
+
+    let captured = std::sync::Arc::new(Mutex::new(None));
+    let mut registry = DataRegistry::new();
+    registry.register(
+        "arc_capture",
+        Box::new(ArcCapturingProvider {
+            captured: std::sync::Arc::clone(&captured),
+        }),
+    );
+    let mut runner = test_runner(HashMap::new());
+    runner.register_data_providers(registry);
+
+    let _ = runner.query_data("arc_capture").expect("query_data");
+    let inner = captured.lock().unwrap();
+    let cwd_arc = inner.as_ref().expect("provider captured cwd");
+    assert!(
+        std::sync::Arc::strong_count(cwd_arc) >= 2,
+        "expected shared cwd Arc, got strong_count = {}",
+        std::sync::Arc::strong_count(cwd_arc)
+    );
+}

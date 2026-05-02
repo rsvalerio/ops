@@ -230,8 +230,10 @@ impl CommandRunner {
         match self.data_cache.entry(name.to_string()) {
             Entry::Occupied(v) => Ok(Arc::clone(v.get())),
             Entry::Vacant(slot) => {
-                let mut ctx =
-                    ops_extension::Context::new(Arc::clone(&self.config), (*self.cwd).clone());
+                let mut ctx = ops_extension::Context::from_cwd_arc(
+                    Arc::clone(&self.config),
+                    Arc::clone(&self.cwd),
+                );
                 let v = ctx.get_or_provide(name, &self.data_registry)?;
                 slot.insert(Arc::clone(&v));
                 Ok(v)

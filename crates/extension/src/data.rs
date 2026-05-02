@@ -291,7 +291,13 @@ pub struct Context {
     /// surfaces as `DataProviderError::Cycle` instead of recursing until
     /// stack overflow.
     pub(crate) in_flight: HashSet<String>,
-    pub working_directory: PathBuf,
+    /// PERF-3 / TASK-0890: stored as `Arc<PathBuf>` so the runner can hand
+    /// out cheap `Arc::clone`s on every `query_data` invocation instead of
+    /// deep-cloning the inner path. Public field access still works through
+    /// `Arc`'s `Deref<Target = PathBuf>` (e.g. `ctx.working_directory.as_path()`,
+    /// `&ctx.working_directory`); comparisons against a bare `PathBuf` need
+    /// to dereference explicitly (`*ctx.working_directory == ...`).
+    pub working_directory: Arc<PathBuf>,
     /// When true, data providers should re-collect data instead of using cached/persisted results.
     pub refresh: bool,
     #[cfg(feature = "duckdb")]
@@ -300,6 +306,15 @@ pub struct Context {
 
 impl Context {
     pub fn new(config: Arc<Config>, working_directory: PathBuf) -> Self {
+        Self::from_cwd_arc(config, Arc::new(working_directory))
+    }
+
+    /// PERF-3 / TASK-0890: zero-clone constructor used by the runner's
+    /// `query_data` hot path. The cwd `Arc<PathBuf>` is stored directly so
+    /// repeat provider lookups within the same runner share one heap
+    /// allocation, mirroring the OWN-2 invariant established for the
+    /// parallel-exec path in TASK-0462.
+    pub fn from_cwd_arc(config: Arc<Config>, working_directory: Arc<PathBuf>) -> Self {
         Self {
             config,
             data_cache: HashMap::new(),
