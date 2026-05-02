@@ -3,9 +3,10 @@ id: TASK-0877
 title: >-
   API-3: DataRegistry::provider_names allocates Vec<&str> when callers typically
   only iterate
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:24'
+updated_date: '2026-05-02 11:00'
 labels:
   - code-review-rust
   - api-design
