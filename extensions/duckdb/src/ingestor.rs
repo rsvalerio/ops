@@ -78,6 +78,16 @@ impl SidecarIngestorConfig {
     }
 
     /// Write serializable data to JSON and create workspace sidecar.
+    ///
+    /// SEC-25 / TASK-0911: the JSON staging file is now written via
+    /// `ops_core::config::atomic_write` (sibling temp + fsync + rename),
+    /// matching the workspace-sidecar path that TASK-0663 already
+    /// hardened. A crash between the JSON write and the sidecar create
+    /// previously left a torn or zero-byte file that
+    /// `load_with_sidecar` would feed to `read_json_auto`, corrupting
+    /// the database with truncated input. With atomic_write the
+    /// destination either holds the previous content or the full new
+    /// payload — never a partial write.
     pub fn collect_sidecar(
         &self,
         data_dir: &Path,
@@ -88,7 +98,8 @@ impl SidecarIngestorConfig {
         let json_bytes =
             serde_json::to_vec_pretty(data).map_err(crate::error::DbError::Serialization)?;
         let json_path = data_dir.join(self.json_filename);
-        std::fs::write(&json_path, &json_bytes).map_err(crate::error::DbError::Io)?;
+        ops_core::config::atomic_write(&json_path, &json_bytes)
+            .map_err(crate::error::DbError::Io)?;
         crate::sql::write_workspace_sidecar(data_dir, self.name, working_directory)?;
         Ok(())
     }
@@ -345,6 +356,38 @@ mod tests {
             .collect(&ctx, temp_dir.path())
             .expect("collect should succeed");
         assert!(temp_dir.path().join("data.json").exists());
+    }
+
+    /// SEC-25 / TASK-0911: a successful collect_sidecar must leave no
+    /// `.tmp.*` leftover from the atomic_write sibling-temp pattern. Pin
+    /// the JSON path on the same crash-safe write helper that the
+    /// workspace sidecar already uses.
+    #[test]
+    fn collect_sidecar_writes_json_atomically_no_tmp_leftover() {
+        let cfg = SidecarIngestorConfig {
+            name: "atomic_collect",
+            json_filename: "data.json",
+            count_table: crate::sql::validation::TableName::from_static("data_sources"),
+        };
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let workspace = tempfile::tempdir().expect("workspace");
+        cfg.collect_sidecar(
+            temp_dir.path(),
+            &serde_json::json!({"k": "v"}),
+            workspace.path(),
+        )
+        .expect("collect_sidecar");
+        let json_path = temp_dir.path().join("data.json");
+        assert!(json_path.exists(), "json written");
+        let leftovers: Vec<_> = std::fs::read_dir(temp_dir.path())
+            .expect("read_dir")
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "atomic_write left a tmp sibling: {leftovers:?}"
+        );
     }
 
     /// ERR-1 (TASK-0466): if JSON removal fails for a real I/O reason
