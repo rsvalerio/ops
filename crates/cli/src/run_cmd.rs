@@ -114,38 +114,39 @@ fn run_commands(
     }
 
     let (all_leaf_ids, any_parallel, fail_fast) = merge_plan(&runner, names)?;
+    let plan = PlanShape {
+        leaf_ids: &all_leaf_ids,
+        any_parallel,
+        fail_fast,
+    };
 
     let results = if raw {
-        run_commands_raw(
-            &runner,
-            &all_leaf_ids,
-            any_parallel,
-            fail_fast,
-            tap.as_ref(),
-        )?
+        run_commands_raw(&runner, plan, tap.as_ref())?
     } else {
-        run_commands_with_display(
-            &runner,
-            &all_leaf_ids,
-            any_parallel,
-            fail_fast,
-            tap,
-            verbose,
-        )?
+        run_commands_with_display(&runner, plan, tap, verbose)?
     };
     Ok(summarize(&results))
 }
 
-fn run_commands_raw(
-    runner: &ops_runner::command::CommandRunner,
-    leaf_ids: &[ops_core::config::CommandId],
+/// FN-3 / TASK-0866: shape of a planned execution. Grouping the three
+/// related fields removes the adjacent `bool, bool` swap footgun from
+/// every plan-running entry point and keeps `run_commands_raw` and
+/// `run_commands_with_display` in lock-step on what a "plan" is.
+#[derive(Clone, Copy)]
+struct PlanShape<'a> {
+    leaf_ids: &'a [ops_core::config::CommandId],
     any_parallel: bool,
     fail_fast: bool,
+}
+
+fn run_commands_raw(
+    runner: &ops_runner::command::CommandRunner,
+    plan: PlanShape<'_>,
     tap: Option<&PathBuf>,
 ) -> anyhow::Result<Vec<StepResult>> {
-    emit_raw_warnings(any_parallel, tap.is_some());
+    emit_raw_warnings(plan.any_parallel, tap.is_some());
     let results: Vec<StepResult> =
-        run_with_runtime(async { Ok(runner.run_plan_raw(leaf_ids, fail_fast).await) })?;
+        run_with_runtime(async { Ok(runner.run_plan_raw(plan.leaf_ids, plan.fail_fast).await) })?;
     log_step_results(&results);
     Ok(results)
 }
@@ -170,16 +171,13 @@ fn emit_raw_warnings(any_parallel: bool, has_tap: bool) {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn run_commands_with_display(
     runner: &ops_runner::command::CommandRunner,
-    leaf_ids: &[ops_core::config::CommandId],
-    any_parallel: bool,
-    fail_fast: bool,
+    plan: PlanShape<'_>,
     tap: Option<PathBuf>,
     verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
-    let display_map = build_display_map(runner, leaf_ids);
+    let display_map = build_display_map(runner, plan.leaf_ids);
     let mut display = ProgressDisplay::new(DisplayOptions::new(
         runner.output_config(),
         display_map,
@@ -190,15 +188,15 @@ fn run_commands_with_display(
 
     let _echo_guard = EchoGuard::disable_echo();
     let results: Vec<StepResult> = run_with_runtime(async {
-        Ok(if any_parallel {
+        Ok(if plan.any_parallel {
             runner
-                .run_plan_parallel(leaf_ids, fail_fast, &mut |event| {
+                .run_plan_parallel(plan.leaf_ids, plan.fail_fast, &mut |event| {
                     display.handle_event(event)
                 })
                 .await
         } else {
             runner
-                .run_plan(leaf_ids, fail_fast, &mut |event| {
+                .run_plan(plan.leaf_ids, plan.fail_fast, &mut |event| {
                     display.handle_event(event)
                 })
                 .await

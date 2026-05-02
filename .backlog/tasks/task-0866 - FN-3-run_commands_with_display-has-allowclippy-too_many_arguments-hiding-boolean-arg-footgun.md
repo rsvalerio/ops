@@ -3,9 +3,10 @@ id: TASK-0866
 title: >-
   FN-3: run_commands_with_display has #[allow(clippy::too_many_arguments)]
   hiding boolean-arg footgun
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:21'
+updated_date: '2026-05-02 10:46'
 labels:
   - code-review-rust
   - complexity
