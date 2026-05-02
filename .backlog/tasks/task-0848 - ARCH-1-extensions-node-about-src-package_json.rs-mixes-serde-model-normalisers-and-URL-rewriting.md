@@ -3,9 +3,10 @@ id: TASK-0848
 title: >-
   ARCH-1: extensions-node/about/src/package_json.rs mixes serde model,
   normalisers, and URL rewriting
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:16'
+updated_date: '2026-05-02 14:16'
 labels:
   - code-review-rust
   - architecture
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 normalize_repo_url, ssh_to_https, append_tree_directory, is_numeric_port_prefix move to extensions-node/about/src/repo_url.rs along with their tests
-- [ ] #2 package_json.rs shrinks to serde shapes + parse_package_json + format_person + trim_nonempty
-- [ ] #3 Public surface unchanged (functions stay pub(crate))
+- [x] #1 normalize_repo_url, ssh_to_https, append_tree_directory, is_numeric_port_prefix move to extensions-node/about/src/repo_url.rs along with their tests
+- [x] #2 package_json.rs shrinks to serde shapes + parse_package_json + format_person + trim_nonempty
+- [x] #3 Public surface unchanged (functions stay pub(crate))
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Moved normalize_repo_url, ssh_to_https, append_tree_directory, is_numeric_port_prefix and their tests to extensions-node/about/src/repo_url.rs (pub(crate)). package_json.rs now imports them via  and shrinks to serde shapes + parse_package_json + format_person + trim_nonempty. Public surface unchanged. SEC-14 path-sanitisation tests for append_tree_directory now live next to their implementation.
+<!-- SECTION:NOTES:END -->

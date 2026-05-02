@@ -1,0 +1,194 @@
+//! Repository URL normalisation for `package.json::repository` values.
+//!
+//! ARCH-1 / TASK-0848: the `repository.url` rewriting surface is the
+//! highest-risk code in the package_json module — see SEC-14 / TASK-0811
+//! for the path-traversal fix that motivated this split. Living in its
+//! own module makes future adversarial-input fixes have a clear test
+//! target and a documented boundary, separate from the serde model and
+//! the parse orchestrator in [`super::package_json`].
+
+/// Normalise a `repository` URL value: turn npm shorthand
+/// (`github:owner/repo`), git+ssh, ssh scp form, git+https, and the bare
+/// `.git` suffix into a plain `https://host/path` shape that renders
+/// cleanly in the About card.
+///
+/// SSH URL handling is delegated to [`ssh_to_https`].
+pub(crate) fn normalize_repo_url(raw: &str) -> String {
+    /// (shorthand prefix, host) for npm hostname shortcuts.
+    const HOST_PREFIXES: &[(&str, &str)] = &[
+        ("github:", "github.com"),
+        ("gitlab:", "gitlab.com"),
+        ("bitbucket:", "bitbucket.org"),
+    ];
+
+    let s = raw.trim();
+    for (prefix, host) in HOST_PREFIXES {
+        if let Some(rest) = s.strip_prefix(prefix) {
+            return format!("https://{host}/{rest}");
+        }
+    }
+    if let Some(rest) = s
+        .strip_prefix("git+ssh://")
+        .or_else(|| s.strip_prefix("ssh://"))
+    {
+        return ssh_to_https(rest);
+    }
+    if let Some(rest) = s.strip_prefix("git+") {
+        return rest.trim_end_matches(".git").to_string();
+    }
+    if let Some(rest) = s.strip_prefix("git://") {
+        return format!("https://{}", rest.trim_end_matches(".git"));
+    }
+    s.trim_end_matches(".git").to_string()
+}
+
+/// Convert the body of an `ssh://` (or `git+ssh://`) URL to its `https://`
+/// equivalent: drop the `git@` user-info, replace an scp-form `host:path`
+/// separator with `/`, and strip any trailing `.git` suffix. A numeric port
+/// (e.g. `host:22/path`) is preserved verbatim.
+///
+/// PATTERN-1 / TASK-0692: distinguish a numeric port from an scp-form path
+/// whose first segment merely begins with a digit (e.g. `host:42-archive/x`)
+/// by requiring **all** characters before the next `/` to be digits — a
+/// `host:42/foo` is a port, `host:42-archive/x` is an scp-form path.
+pub(crate) fn ssh_to_https(rest: &str) -> String {
+    let no_user = rest.strip_prefix("git@").unwrap_or(rest);
+    let trimmed = no_user.trim_end_matches(".git");
+    let body = match trimmed.split_once(':') {
+        Some((host, path)) if !is_numeric_port_prefix(path) => {
+            format!("{host}/{path}")
+        }
+        _ => trimmed.to_string(),
+    };
+    format!("https://{body}")
+}
+
+/// Append `/tree/HEAD/<directory>` to a base repository URL so monorepo
+/// member packages render distinguishable links. Strips a leading `./` from
+/// the directory and canonicalises slashes.
+///
+/// SEC-14 / TASK-0811: any path component equal to `..` (or any leading
+/// absolute slash) is dropped before the suffix is built. An adversarial
+/// `package.json` can otherwise emit a directory like `../../../etc/passwd`,
+/// which the previous implementation passed through verbatim and produced a
+/// traversal-shaped URL rendered into About cards / markdown / HTML. Empty
+/// segments and `.` segments are also collapsed for the same reason. If
+/// every component is filtered out, the directory suffix is omitted and the
+/// base URL is returned unchanged.
+pub(crate) fn append_tree_directory(base: &str, directory: &str) -> String {
+    let normalized = directory.trim().trim_start_matches("./").replace('\\', "/");
+    let cleaned = normalized
+        .split('/')
+        .filter(|seg| !seg.is_empty() && *seg != "." && *seg != "..")
+        .collect::<Vec<_>>()
+        .join("/");
+    if cleaned.is_empty() {
+        return base.to_string();
+    }
+    let trimmed_base = base.trim_end_matches('/');
+    format!("{trimmed_base}/tree/HEAD/{cleaned}")
+}
+
+pub(crate) fn is_numeric_port_prefix(path: &str) -> bool {
+    let port = path.split('/').next().unwrap_or("");
+    !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_git_ssh_to_https() {
+        assert_eq!(
+            normalize_repo_url("git+ssh://git@github.com/o/r.git"),
+            "https://github.com/o/r"
+        );
+    }
+
+    #[test]
+    fn normalize_ssh_scp_form_url() {
+        assert_eq!(
+            normalize_repo_url("ssh://git@gitlab.com:owner/r.git"),
+            "https://gitlab.com/owner/r"
+        );
+    }
+
+    #[test]
+    fn normalize_git_https_unchanged_path() {
+        assert_eq!(
+            normalize_repo_url("git+https://github.com/o/r.git"),
+            "https://github.com/o/r"
+        );
+    }
+
+    #[test]
+    fn normalize_ssh_scp_form_with_digit_prefixed_owner() {
+        assert_eq!(
+            normalize_repo_url("ssh://git@github.com:42-archive/x.git"),
+            "https://github.com/42-archive/x"
+        );
+    }
+
+    #[test]
+    fn normalize_ssh_with_numeric_port_keeps_port() {
+        assert_eq!(
+            normalize_repo_url("ssh://git@host:22/path.git"),
+            "https://host:22/path"
+        );
+    }
+
+    /// SEC-14 / TASK-0811: a `directory` that escapes the repository root via
+    /// `..` segments must be sanitized — the URL is rendered into About cards
+    /// (and downstream markdown/HTML), so a traversal-shaped suffix is a
+    /// real surface for path-shape attacks.
+    #[test]
+    fn append_tree_directory_strips_leading_parent_segments() {
+        assert_eq!(
+            append_tree_directory("https://github.com/o/r", "../foo"),
+            "https://github.com/o/r/tree/HEAD/foo"
+        );
+    }
+
+    #[test]
+    fn append_tree_directory_strips_internal_parent_segments() {
+        assert_eq!(
+            append_tree_directory("https://github.com/o/r", "a/../b"),
+            "https://github.com/o/r/tree/HEAD/a/b"
+        );
+    }
+
+    #[test]
+    fn append_tree_directory_strips_absolute_leading_slash() {
+        assert_eq!(
+            append_tree_directory("https://github.com/o/r", "/absolute"),
+            "https://github.com/o/r/tree/HEAD/absolute"
+        );
+    }
+
+    #[test]
+    fn append_tree_directory_drops_when_only_parent_components() {
+        assert_eq!(
+            append_tree_directory("https://github.com/o/r", "../../.."),
+            "https://github.com/o/r"
+        );
+    }
+
+    #[test]
+    fn append_tree_directory_pure_traversal_etc_passwd_is_neutralised() {
+        // The motivating case from the SEC-14 finding: an adversarial
+        // package.json must not produce a URL whose path component contains
+        // `../../etc/passwd` style traversal.
+        let url = append_tree_directory("https://github.com/o/r", "../../../../etc/passwd");
+        assert!(!url.contains(".."), "url still contains ..: {url}");
+        assert_eq!(url, "https://github.com/o/r/tree/HEAD/etc/passwd");
+    }
+
+    #[test]
+    fn normalize_github_shorthand() {
+        assert_eq!(
+            normalize_repo_url("github:owner/repo"),
+            "https://github.com/owner/repo"
+        );
+    }
+}

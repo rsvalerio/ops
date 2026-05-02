@@ -10,6 +10,7 @@
 
 mod package_json;
 mod package_manager;
+mod repo_url;
 mod units;
 
 use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
