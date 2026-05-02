@@ -49,6 +49,16 @@ impl OutputLine {
     pub fn as_str(&self) -> &str {
         &self.buf[self.range.clone()]
     }
+
+    /// PERF-3 / TASK-0838: crate-internal handle on the backing buffer so
+    /// regression tests can pin the Arc-sharing model with `Arc::ptr_eq` /
+    /// `Arc::strong_count`. Not part of the public API — the buffer
+    /// representation is an implementation detail of how per-line events
+    /// avoid per-line allocations.
+    #[cfg(test)]
+    pub(crate) fn buf_arc(&self) -> &Arc<str> {
+        &self.buf
+    }
 }
 
 impl std::fmt::Debug for OutputLine {

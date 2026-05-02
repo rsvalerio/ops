@@ -286,6 +286,45 @@ mod exec_unit_tests {
         );
     }
 
+    /// PERF-3 / TASK-0838: explicit Arc::ptr_eq + strong_count assertion.
+    /// All emitted lines must share *one* backing `Arc<str>` per stream and
+    /// the strong_count must reflect (1 buffer + N line events).
+    #[test]
+    fn emit_output_events_arc_ptr_eq_per_stream() {
+        let stdout = "a\nb\nc\n";
+        let mut events: Vec<RunnerEvent> = Vec::new();
+        emit_output_events("t", stdout, "", &mut |e| events.push(e));
+
+        let lines: Vec<&crate::command::OutputLine> = events
+            .iter()
+            .filter_map(|e| match e {
+                RunnerEvent::StepOutput {
+                    line,
+                    stderr: false,
+                    ..
+                } => Some(line),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lines.len(), 3);
+
+        let first = lines[0].buf_arc();
+        for line in &lines[1..] {
+            assert!(
+                std::sync::Arc::ptr_eq(first, line.buf_arc()),
+                "all lines in one stream must share one Arc<str>"
+            );
+        }
+        // 3 events, each holding one Arc clone of the buffer; no extra
+        // owners exist after emit returns. (We did not retain a separate
+        // outer Arc handle in the caller.)
+        assert_eq!(
+            std::sync::Arc::strong_count(first),
+            3,
+            "strong_count must equal the number of emitted line events for the stream"
+        );
+    }
+
     #[test]
     fn emit_output_events_trailing_newline() {
         let mut events: Vec<RunnerEvent> = Vec::new();

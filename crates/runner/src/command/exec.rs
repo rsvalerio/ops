@@ -188,11 +188,25 @@ fn log_and_redact_spawn_error(program: &str, e: &std::io::Error, context: &'stat
 /// Emit StepOutput events for captured stdout and stderr.
 ///
 /// PERF-3 / TASK-0732: each capture buffer is wrapped in a single
-/// `Arc<str>` (no per-line copies) and per-line events carry an
-/// [`OutputLine`] view onto a byte sub-range of that shared buffer. A
-/// noisy step that previously paid one heap allocation per line via
-/// `line.to_string()` now pays one per buffer; the per-line event
-/// emission is just an `Arc::clone` (atomic refcount increment).
+/// `Arc<str>` and per-line events carry an [`OutputLine`] view onto a byte
+/// sub-range of that shared buffer. A noisy step that previously paid one
+/// heap allocation per line via `line.to_string()` now pays one per buffer;
+/// the per-line event emission is just an `Arc::clone` (atomic refcount
+/// increment).
+///
+/// PERF-3 / TASK-0838 — allocation accounting (be explicit, not aspirational):
+/// `Arc::<str>::from(&str)` allocates a fresh `Arc<str>` *and* memcpys the
+/// `&str` contents into it. Per stream that is one allocation + one
+/// `output.len()` byte copy on top of the existing `CommandOutput.{stdout,
+/// stderr}: String` buffers. We do *not* claim zero-copy here: the source
+/// `String`s are subsequently moved into `StepResult` by [`build_step_result`]
+/// (`StepResult.stdout: String` is part of the public runner API), so we
+/// cannot consume them in this function without forcing a re-`String`
+/// conversion at the consumer side. The trade is "one buffer-copy per
+/// stream" against "one heap allocation per emitted line"; on the noisy
+/// 4 MiB-cap worst case the per-stream copy is bounded by
+/// `OPS_OUTPUT_BYTE_CAP` and dominates over per-line allocation savings
+/// already at a few hundred lines.
 pub fn emit_output_events(
     id: &str,
     stdout: &str,
