@@ -3,9 +3,10 @@ id: TASK-0892
 title: >-
   API-9: AboutCard::new positional constructor contradicts #[non_exhaustive]
   guarantee
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:46'
+updated_date: '2026-05-02 14:42'
 labels:
   - code-review-rust
   - api
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace  with a builder (AboutCard::builder().description(..).fields(..).build()) or default-plus-setters
+- [x] #1 Replace  with a builder (AboutCard::builder().description(..).fields(..).build()) or default-plus-setters
 - [ ] #2 If only these two fields will ever exist, drop #[non_exhaustive]
-- [ ] #3 Document the chosen evolution path in the rustdoc so the contradiction is intentional
+- [x] #3 Document the chosen evolution path in the rustdoc so the contradiction is intentional
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Replaced AboutCard::new(description, fields) with AboutCard::builder().description(...).fields(...).build(). Future fields land as additional setter methods so #[non_exhaustive] keeps its sealing guarantee. Updated the only internal caller (from_identity_filtered) to use the builder. AC#2 (drop non_exhaustive) explicitly rejected — the builder option preserves the upgrade path. Doc comment on builder() spells out the rationale.
+<!-- SECTION:NOTES:END -->

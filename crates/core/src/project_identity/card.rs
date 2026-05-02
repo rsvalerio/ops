@@ -93,13 +93,14 @@ fn push_special_fields(
 }
 
 impl AboutCard {
-    /// Constructor for downstream code that needs to build an `AboutCard`
-    /// without depending on its (non-exhaustive) field set.
-    pub fn new(description: Option<String>, fields: Vec<(String, String)>) -> Self {
-        Self {
-            description,
-            fields,
-        }
+    /// API-9 / TASK-0892: builder so a future field addition stays
+    /// non-breaking. The previous `AboutCard::new(description, fields)`
+    /// positional constructor exposed every current field — adding a
+    /// third would have been a breaking signature change, defeating
+    /// `#[non_exhaustive]`.
+    #[must_use]
+    pub fn builder() -> AboutCardBuilder {
+        AboutCardBuilder::default()
     }
 
     pub fn from_identity(id: &ProjectIdentity) -> Self {
@@ -122,7 +123,10 @@ impl AboutCard {
 
         push_special_fields(&mut fields, id, show, visible_fields.is_some());
 
-        Self::new(id.description.clone(), fields)
+        Self::builder()
+            .description(id.description.clone())
+            .fields(fields)
+            .build()
     }
 
     /// Render the about card as styled text lines.
@@ -148,6 +152,38 @@ impl AboutCard {
         }
 
         lines.join("\n")
+    }
+}
+
+/// API-9 / TASK-0892: builder for [`AboutCard`]. New fields land as
+/// additional setter methods rather than positional constructor args, so
+/// downstream code that built via `AboutCard::builder().description(...)
+/// .fields(...).build()` keeps compiling unchanged.
+#[derive(Default)]
+pub struct AboutCardBuilder {
+    description: Option<String>,
+    fields: Vec<(String, String)>,
+}
+
+impl AboutCardBuilder {
+    #[must_use]
+    pub fn description(mut self, description: Option<String>) -> Self {
+        self.description = description;
+        self
+    }
+
+    #[must_use]
+    pub fn fields(mut self, fields: Vec<(String, String)>) -> Self {
+        self.fields = fields;
+        self
+    }
+
+    #[must_use]
+    pub fn build(self) -> AboutCard {
+        AboutCard {
+            description: self.description,
+            fields: self.fields,
+        }
     }
 }
 
