@@ -2,6 +2,17 @@
 //!
 //! Parses `.tf` files for `required_version` constraints and counts local
 //! modules under `modules/*/`. No terraform subprocess — purely filesystem.
+//!
+//! # Manifest IO policy
+//!
+//! ERR-1 / TASK-0851: every `.tf` read goes through
+//! [`ops_about::manifest_io::read_optional_text`] so the project-wide rule
+//! "missing manifest is silent, real IO error is `tracing::warn!`-and-fall-
+//! back" applies here the same way it does in the Python / Go siblings.
+//! A permission-denied / EIO / "is a directory" failure on `versions.tf`
+//! is therefore distinguishable from "no version declared" in the logs.
+//! The directory enumeration in [`find_required_version`] mirrors the
+//! same policy — non-NotFound `read_dir` failures are logged at `warn`.
 
 use std::path::Path;
 
@@ -69,21 +80,40 @@ fn find_required_version(root: &Path) -> Option<String> {
     let candidates = ["versions.tf", "main.tf", "terraform.tf", "version.tf"];
     for candidate in candidates {
         let path = root.join(candidate);
-        if let Ok(content) = std::fs::read_to_string(&path) {
+        // ERR-1 / TASK-0851: route through the shared helper so a
+        // permission-denied / EIO / "is a directory" failure surfaces as
+        // tracing::warn! instead of silently degrading to "no version".
+        if let Some(content) = ops_about::manifest_io::read_optional_text(&path, candidate) {
             if let Some(v) = extract_required_version(&content) {
                 return Some(v);
             }
         }
     }
-    // Scan all .tf files as fallback
-    if let Ok(entries) = std::fs::read_dir(root) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "tf") {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Some(v) = extract_required_version(&content) {
-                        return Some(v);
-                    }
+    // Scan all .tf files as fallback. A non-NotFound read_dir failure here
+    // also deserves a warn — same rationale as above for the per-candidate
+    // reads. NotFound on the workspace root is silent (caller falls back).
+    let entries = match std::fs::read_dir(root) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!(
+                root = ?root.display(),
+                error = %e,
+                "failed to enumerate workspace root for .tf files"
+            );
+            return None;
+        }
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "tf") {
+            let kind = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "<unnamed>.tf".to_string());
+            if let Some(content) = ops_about::manifest_io::read_optional_text(&path, &kind) {
+                if let Some(v) = extract_required_version(&content) {
+                    return Some(v);
                 }
             }
         }
@@ -265,6 +295,55 @@ mod tests {
         let id: ProjectIdentity = serde_json::from_value(value).unwrap();
 
         assert_eq!(id.repository.as_deref(), Some("https://github.com/o/r"));
+    }
+
+    /// ERR-1 / TASK-0851: a non-NotFound IO failure on `versions.tf`
+    /// (e.g. the path is a directory) must surface a `tracing::warn!`
+    /// instead of silently degrading to "no version declared".
+    #[test]
+    fn find_required_version_warns_when_versions_tf_is_a_directory() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        let dir = tempfile::tempdir().unwrap();
+        // Create `versions.tf` as a directory, so read_to_string fails
+        // with a non-NotFound error (IsADirectory / Other on most OSes).
+        std::fs::create_dir(dir.path().join("versions.tf")).unwrap();
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let v = tracing::subscriber::with_default(subscriber, || find_required_version(dir.path()));
+        assert!(v.is_none(), "no required_version should be returned");
+
+        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        assert!(
+            logs.contains("failed to read manifest") && logs.contains("versions.tf"),
+            "warn should name versions.tf and the read failure, got: {logs}"
+        );
     }
 
     #[test]
