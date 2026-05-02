@@ -2,6 +2,63 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.27.0](https://github.com/rsvalerio/ops/compare/1181347cbdb14488ebf17e1e2573da7f8861f5ee..v0.27.0) - 2026-05-02
+#### 🚀 Features
+- (**core/project_identity**) add #[non_exhaustive] + new() to public sibling structs (TASK-0858) - ([5c111e2](https://github.com/rsvalerio/ops/commit/5c111e2a66f1e9d0b33e78c2e3458869a92591a2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform/plan**) add run_plan_pipeline_to(&mut Write) for library reuse (TASK-0850) - ([bfd25ae](https://github.com/rsvalerio/ops/commit/bfd25ae7d5c17db759deafee3b8dacbe25aa99d6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) add resolve_theme_owned no-clone variant via swap_remove (TASK-0836) - ([78bc0b8](https://github.com/rsvalerio/ops/commit/78bc0b8eedaf770e9b7bfb0f62032eb19cac6c75)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**about**) cap manifest reads at 4 MiB (TASK-0831) - ([1181347](https://github.com/rsvalerio/ops/commit/1181347cbdb14488ebf17e1e2573da7f8861f5ee)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/about_card**) replace AboutCard::new with builder for non_exhaustive integrity (TASK-0892) - ([c1ea900](https://github.com/rsvalerio/ops/commit/c1ea900ab252a7c60f93aa5a9aacf54bdf41d8ed)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/config**) preserve restrictive perms across atomic_write (TASK-0898) - ([6afd10d](https://github.com/rsvalerio/ops/commit/6afd10d43ec86867d54aaf28e10c9ed5273bb7ae)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/config**) build atomic_write tmp basename from OsStr bytes (TASK-0837) - ([8c70061](https://github.com/rsvalerio/ops/commit/8c700616c371e55622b4e2fbc139cb121d752a60)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/expand**) preserve VarError cause via Error::source on ExpandError (TASK-0835) - ([91f720a](https://github.com/rsvalerio/ops/commit/91f720a778cf27b2cdb68d0721d7a145de3b9655)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/paths**) gate USERPROFILE fallback to non-Unix targets (TASK-0891) - ([3462d45](https://github.com/rsvalerio/ops/commit/3462d45dea988989e7f7e4c4f4b25b556d24391a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/subprocess**) propagate drain-thread panic as RunError::Io (TASK-0901) - ([9fc67e8](https://github.com/rsvalerio/ops/commit/9fc67e86c293fb33e2bbb21c1eb6749c0ae4c854)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) check cargo-upgrade exit status before parsing (TASK-0913) - ([161a701](https://github.com/rsvalerio/ops/commit/161a701b4351a79dcf788a5a4225e8f3700ef2bd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) TableName const-validated newtype for SidecarIngestorConfig.count_table (TASK-0856) - ([bd985dd](https://github.com/rsvalerio/ops/commit/bd985ddd84d2d49287a21a63cdf826ea28cc85aa)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) widen data_sources.record_count to BIGINT (TASK-0885) - ([4331d44](https://github.com/rsvalerio/ops/commit/4331d444e08c57bef803085bc1034b2413eddbbd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb/ingest**) drop table inside ingest_mutex on refresh path (TASK-0909) - ([b45306d](https://github.com/rsvalerio/ops/commit/b45306d12273eb30f8e0b58c471fdf9197927255)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb/ingestor**) collect_sidecar JSON write via atomic_write (TASK-0911) - ([b52401b](https://github.com/rsvalerio/ops/commit/b52401bba015e7e1322b97b5c7062a140370ce3b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb/sql**) escalate DbError::MutexPoisoned/Timeout to error in query_or_warn (TASK-0855) - ([108805a](https://github.com/rsvalerio/ops/commit/108805affb34a8c359ff08fb6d72356148248239)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git/config**) byte-cap read_origin_url at 4 MiB (TASK-0910) - ([39669eb](https://github.com/rsvalerio/ops/commit/39669eb4a511e03a8ed9d00b709a51d38855f63c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git/config**) introduce RedactedUrl newtype to enforce userinfo invariant (TASK-0894) - ([c6628b6](https://github.com/rsvalerio/ops/commit/c6628b6f41798dcef3cdf4c62ccd3bb1df5f5f06)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hooks**) apply CwdEscapePolicy::Deny on hook-triggered exec path (TASK-0886) - ([df4e358](https://github.com/rsvalerio/ops/commit/df4e358ecdfca51d44b229ceb76a6ffd536ed410)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**java/about**) decode XML entities in pom.xml extract_xml_value (TASK-0916) - ([5e0d8f7](https://github.com/rsvalerio/ops/commit/5e0d8f71c45b6847106f39bea99295bc9c40b77a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**java/about**) strip XML comments in pom.xml line scanner (TASK-0846) - ([a7a34c4](https://github.com/rsvalerio/ops/commit/a7a34c470558e29a5f7ccc950a8f0f2d77e75775)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/build**) reject non-UTF-8 spec cwd loudly instead of lossy-expanding (TASK-0900) - ([3bbb94e](https://github.com/rsvalerio/ops/commit/3bbb94e36e8d7605e616f9bd2b734d899b1e8e12)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/results**) warn once on invalid OPS_OUTPUT_BYTE_CAP values (TASK-0840) - ([c110d12](https://github.com/rsvalerio/ops/commit/c110d1262cb5332fcc8cb2e62eeedf3a3484a9d8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/about**) recover typed_manifest_cache from poison with one-shot warn (TASK-0844) - ([5fe196d](https://github.com/rsvalerio/ops/commit/5fe196d0d3ddbf5370bd28b8a373ca13353a15f2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/about**) bound typed_manifest_cache and invalidate on mtime change (TASK-0843) - ([d60d07b](https://github.com/rsvalerio/ops/commit/d60d07bf54533e84b932b8d008a1a4332bf4cdb1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/cargo-toml**) map canonicalize NotFound to FindWorkspaceRootError::NotFound (TASK-0918) - ([69fc39e](https://github.com/rsvalerio/ops/commit/69fc39e207e280dbc8d850f2b5935fc0aaf276e9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/cargo-update**) strip_ansi iterates chars to preserve non-ASCII UTF-8 (TASK-0882) - ([0637b86](https://github.com/rsvalerio/ops/commit/0637b862c872b91cb81f50028f86b774c89b814a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/deps**) preserve missing cargo-deny severity as distinct sentinel (TASK-0845) - ([03fbd69](https://github.com/rsvalerio/ops/commit/03fbd69cb62b37e50ec5f37e2abb58b9a7c9790c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/tools**) cap cargo/rustup probe spawns with run_with_timeout (TASK-0914) - ([d80932a](https://github.com/rsvalerio/ops/commit/d80932a697b9586b62606ce12531477dfb4d161c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform/about**) require required_version inside terraform block (TASK-0919) - ([87b703c](https://github.com/rsvalerio/ops/commit/87b703c42831a17913c3c351804347820b260cdc)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform/about**) require quoted required_version, strip comments, cap length (TASK-0853) - ([788a87a](https://github.com/rsvalerio/ops/commit/788a87a8c8ff882e27200dfba5299c509b9ed765)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform/about**) sort read_dir fallback for deterministic required_version (TASK-0852) - ([4de1367](https://github.com/rsvalerio/ops/commit/4de136713cc03b270385e1fdef639bccc1abd119)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform/about**) route .tf reads through manifest_io with warn-on-IO-error (TASK-0851) - ([240eeb1](https://github.com/rsvalerio/ops/commit/240eeb16d61f8c490348f91c8a42fe2a1e5dc8f0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform/plan**) byte-cap read_json_file with OPS_PLAN_JSON_MAX_BYTES override (TASK-0915) - ([a8ff2ea](https://github.com/rsvalerio/ops/commit/a8ff2eabad39ee0e48aafa669f3eb2c14c7c52fb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform/plan**) surface unrecognized actions as Action::Unknown (TASK-0833) - ([363e83b](https://github.com/rsvalerio/ops/commit/363e83b7ee229fb8c10cb383ca8b2785095a635c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform/render**) skip terminal_size probe when is_tty=false (TASK-0849) - ([d216611](https://github.com/rsvalerio/ops/commit/d216611610fdc03406bab154e7062678a53243d4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) explicit f64 clamp in format_duration (TASK-0857) - ([fdcb8d9](https://github.com/rsvalerio/ops/commit/fdcb8d95e659cbd44c3ec8dbadcb3b883a482e9f)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**cli**) thread Arc<Config> end-to-end via CommandRunner::from_arc_config (TASK-0841) - ([60e00af](https://github.com/rsvalerio/ops/commit/60e00afb3f58b9a29e963bc3495e8b5441fd84d4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli/extension**) hoist extension_summary out of per-row loop (TASK-0859) - ([619ded4](https://github.com/rsvalerio/ops/commit/619ded4672cc8c636ebce6a503aa24fa31e460d9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python/about**) cache pyproject.toml as Arc<str>, parse direct (TASK-0854) - ([aadb85b](https://github.com/rsvalerio/ops/commit/aadb85b3053cc62cfc2cf0d1ee0b4ec9691ad743)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/build**) switch canonical_workspace_cached to RwLock for read-mostly cache (TASK-0839) - ([e36406d](https://github.com/rsvalerio/ops/commit/e36406d5e4a80cdd5ab18db78ce99378693d96eb)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**cli/registry**) document + pin asymmetric collision policy (TASK-0904) - ([5e755ae](https://github.com/rsvalerio/ops/commit/5e755ae3053370b4026e76e25ab90201786ddd12)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/config**) document atomic_write sync-only contract for async callers (TASK-0834) - ([15aa562](https://github.com/rsvalerio/ops/commit/15aa562388f4c88084ab81f2a8cce7eadb91c174)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/exec**) clarify emit_output_events alloc accounting + add Arc::ptr_eq regression (TASK-0838) - ([24e4e92](https://github.com/rsvalerio/ops/commit/24e4e9203192e49cfa759ae58cc9632fc2b7eb7c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**cli/registry**) split into discovery + registration submodules (TASK-0842) - ([5ee8fea](https://github.com/rsvalerio/ops/commit/5ee8fea3380b5a1c637a0f6385fe6c026dbcb540)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**java/about**) split gradle.rs into lexer + parser submodules (TASK-0847) - ([e24e235](https://github.com/rsvalerio/ops/commit/e24e23586d49d6c728f1eeecfe3b2af2d786b508)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**node/about**) split repo_url out of package_json (TASK-0848) - ([e29e7ba](https://github.com/rsvalerio/ops/commit/e29e7baefee5473b15e0d6e404af6a50a5b070dd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform/plan**) mark public model types non_exhaustive (TASK-0832) - ([07b9af1](https://github.com/rsvalerio/ops/commit/07b9af11d3ef3b15a5cc62ce3e8f30e7e949afca)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.26.0](https://github.com/rsvalerio/ops/compare/d1b69bf537e8d05356d6afe272aea7fda8957162..v0.26.0) - 2026-05-02
 #### 🚀 Features
 - (**duckdb**) warn on ingest mutex poison recovery (TASK-0861) - ([bfda699](https://github.com/rsvalerio/ops/commit/bfda6991557f069c8935ebcc0931c89bd373b409)) - [@rsvalerio](https://github.com/rsvalerio)
