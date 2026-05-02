@@ -30,8 +30,8 @@ use super::{default_ops_toml, Config, ConfigOverlay};
 /// `OPS__OUTOUT__THEME` in CI should surface as a loud error rather than a
 /// silent misconfiguration that drops every other OPS__ variable.
 fn merge_env_vars(config: &mut Config) -> anyhow::Result<()> {
-    let ops_keys: Vec<String> = std::env::vars()
-        .map(|(k, _)| k)
+    let ops_keys: Vec<String> = std::env::vars_os()
+        .filter_map(|(k, _)| k.into_string().ok())
         .filter(|k| k.starts_with("OPS__"))
         .collect();
     if ops_keys.is_empty() {
