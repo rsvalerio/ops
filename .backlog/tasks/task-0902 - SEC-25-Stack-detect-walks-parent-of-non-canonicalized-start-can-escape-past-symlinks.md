@@ -3,9 +3,10 @@ id: TASK-0902
 title: >-
   SEC-25: Stack::detect walks parent() of non-canonicalized start, can escape
   past symlinks
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:09'
+updated_date: '2026-05-02 11:16'
 labels:
   - code-review-rust
   - security

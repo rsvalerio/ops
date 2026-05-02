@@ -154,7 +154,24 @@ impl Stack {
             Stack::JavaMaven,
         ];
 
-        let mut current = start.to_path_buf();
+        // SEC-25 / TASK-0902: canonicalize once so the `pop()` walk operates
+        // on the resolved chain. Reaching the cwd through a symlink would
+        // otherwise let lexical `..` traversal yield ancestors outside the
+        // canonical workspace, picking up a sibling project's manifests.
+        // If canonicalization fails (missing dir, EACCES on a parent), fall
+        // back to the lexical walk and leave a debug breadcrumb so an
+        // operator chasing odd detection can correlate.
+        let mut current = match std::fs::canonicalize(start) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::debug!(
+                    path = %start.display(),
+                    error = %e,
+                    "Stack::detect could not canonicalize start; falling back to lexical walk"
+                );
+                start.to_path_buf()
+            }
+        };
         for _ in 0..Self::MAX_DETECT_DEPTH {
             if let Some(&stack) = DETECT_ORDER
                 .iter()
@@ -486,6 +503,30 @@ mod tests {
         std::fs::create_dir_all(&subdir).expect("create_dir");
         std::fs::write(dir.path().join("Cargo.toml"), "").expect("write");
         assert_eq!(Stack::detect(&subdir), Some(Stack::Rust));
+    }
+
+    /// SEC-25 / TASK-0902: detection through a symlinked cwd must resolve
+    /// to the same Stack as the canonical path. Without canonicalization
+    /// the lexical `..` walk would yield ancestors outside the canonical
+    /// workspace and pick up an unrelated parent project's manifest.
+    #[cfg(unix)]
+    #[test]
+    fn detect_resolves_symlinked_cwd_to_same_stack() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Real workspace: <dir>/real/Cargo.toml + <dir>/real/src/
+        let real_root = dir.path().join("real");
+        std::fs::create_dir_all(real_root.join("src")).expect("mkdir real/src");
+        std::fs::write(real_root.join("Cargo.toml"), "").expect("write Cargo.toml");
+
+        // Symlink: <dir>/alias -> <dir>/real
+        let alias_root = dir.path().join("alias");
+        std::os::unix::fs::symlink(&real_root, &alias_root).expect("symlink");
+
+        // Detection through the alias must find the Rust workspace.
+        let canonical = Stack::detect(&real_root.join("src"));
+        let via_alias = Stack::detect(&alias_root.join("src"));
+        assert_eq!(canonical, Some(Stack::Rust));
+        assert_eq!(via_alias, canonical);
     }
 
     #[test]
