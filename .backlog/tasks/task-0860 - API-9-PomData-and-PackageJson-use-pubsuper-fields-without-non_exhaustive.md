@@ -1,9 +1,10 @@
 ---
 id: TASK-0860
 title: 'API-9: PomData and PackageJson use pub(super) fields without #[non_exhaustive]'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:19'
+updated_date: '2026-05-02 10:34'
 labels:
   - code-review-rust
   - api-design

@@ -5,6 +5,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub(crate) struct PackageJson {
     pub(crate) name: Option<String>,
     pub(crate) version: Option<String>,

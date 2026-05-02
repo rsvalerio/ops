@@ -26,6 +26,7 @@
 use std::path::Path;
 
 #[derive(Default)]
+#[non_exhaustive]
 pub(super) struct PomData {
     /// Maven `<artifactId>` — coordinate, last-write-wins on duplicates.
     pub(super) artifact_id: Option<String>,
