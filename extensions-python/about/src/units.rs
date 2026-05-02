@@ -88,13 +88,13 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
         .map(|(member, manifest)| {
             let manifest_path = cwd.join(&member).join("pyproject.toml");
             let meta = parse_package_metadata(&manifest_path, &manifest);
-            ProjectUnit {
-                name: meta.name.unwrap_or_else(|| format_unit_name(&member)),
-                path: member,
-                version: meta.version,
-                description: meta.description,
-                ..Default::default()
-            }
+            let mut unit = ProjectUnit::new(
+                meta.name.unwrap_or_else(|| format_unit_name(&member)),
+                member,
+            );
+            unit.version = meta.version;
+            unit.description = meta.description;
+            unit
         })
         .collect()
 }

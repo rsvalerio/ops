@@ -3,9 +3,10 @@ id: TASK-0858
 title: >-
   API-9: ProjectIdentity sibling structs (LanguageStat etc.) lack
   #[non_exhaustive]
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:19'
+updated_date: '2026-05-02 14:37'
 labels:
   - code-review-rust
   - api-design
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add non_exhaustive to each of the seven structs and a new(...) constructor for required fields
-- [ ] #2 Update internal call sites to use the constructor or struct-update syntax
-- [ ] #3 Note the change in any extension-author docs
+- [x] #1 Add non_exhaustive to each of the seven structs and a new(...) constructor for required fields
+- [x] #2 Update internal call sites to use the constructor or struct-update syntax
+- [x] #3 Note the change in any extension-author docs
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added #[non_exhaustive] to LanguageStat (already had ::new), ProjectUnit, CoverageStats, UnitCoverage, ProjectCoverage, UnitDeps, ProjectDependencies. Added ::new constructors for the six that lacked one. Updated all internal cross-crate call sites to use ::new (extensions-rust/coverage_provider/deps_provider/units, extensions-python/about/units, extensions-node/about/units, extensions-go/about/modules) and the test sites in extensions/about (cards, coverage, deps, units, lib). 85 tests in ops-about pass; ops verify clean.
+<!-- SECTION:NOTES:END -->

@@ -367,13 +367,9 @@ mod tests {
         identity.file_count = Some(10);
         identity.dependency_count = Some(5);
         identity.coverage_percent = Some(85.0);
-        identity.languages = vec![ops_core::project_identity::LanguageStat {
-            name: "Rust".to_string(),
-            loc: 100,
-            files: 10,
-            loc_pct: 100.0,
-            files_pct: 100.0,
-        }];
+        identity.languages = vec![ops_core::project_identity::LanguageStat::new(
+            "Rust", 100, 10, 100.0, 100.0,
+        )];
 
         let lang_count_before = identity.languages.len();
 

@@ -185,14 +185,10 @@ mod tests {
         let cwd = std::env::current_dir().expect("cwd");
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let ctx = Context::new(config, cwd);
-        let mut units = vec![ProjectUnit {
-            name: "demo".into(),
-            path: "demo".into(),
-            description: None,
-            loc: Some(42),
-            file_count: Some(7),
-            ..ProjectUnit::default()
-        }];
+        let mut u = ProjectUnit::new("demo", "demo");
+        u.loc = Some(42);
+        u.file_count = Some(7);
+        let mut units = vec![u];
         enrich_from_db(&ctx, &mut units);
         assert_eq!(units[0].loc, Some(42));
         assert_eq!(units[0].file_count, Some(7));

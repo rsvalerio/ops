@@ -233,11 +233,7 @@ mod tests {
     use super::*;
 
     fn unit(name: &str, path: &str) -> ProjectUnit {
-        ProjectUnit {
-            name: name.to_string(),
-            path: path.to_string(),
-            ..Default::default()
-        }
+        ProjectUnit::new(name, path)
     }
 
     #[test]

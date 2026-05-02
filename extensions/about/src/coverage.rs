@@ -187,22 +187,14 @@ mod tests {
 
     #[test]
     fn format_coverage_section_with_units() {
-        let cov = ProjectCoverage {
-            total: CoverageStats {
-                lines_percent: 85.0,
-                lines_covered: 850,
-                lines_count: 1000,
-            },
-            units: vec![UnitCoverage {
-                unit_name: "core".to_string(),
-                unit_path: "crates/core".to_string(),
-                stats: CoverageStats {
-                    lines_percent: 85.0,
-                    lines_covered: 850,
-                    lines_count: 1000,
-                },
-            }],
-        };
+        let cov = ProjectCoverage::new(
+            CoverageStats::new(85.0, 850, 1000),
+            vec![UnitCoverage::new(
+                "core",
+                "crates/core",
+                CoverageStats::new(85.0, 850, 1000),
+            )],
+        );
         let lines = format_coverage_section(&cov, false).expect("non-zero coverage returns Some");
         // Structural contract, not substring: one blank, N table lines, one blank, total.
         assert!(lines.len() >= 4, "got lines: {lines:?}");
@@ -237,29 +229,13 @@ mod tests {
 
     #[test]
     fn format_coverage_section_skips_zero_unit() {
-        let cov = ProjectCoverage {
-            total: CoverageStats {
-                lines_percent: 80.0,
-                lines_covered: 80,
-                lines_count: 100,
-            },
-            units: vec![
-                UnitCoverage {
-                    unit_name: "active".to_string(),
-                    unit_path: "crates/active".to_string(),
-                    stats: CoverageStats {
-                        lines_percent: 80.0,
-                        lines_covered: 80,
-                        lines_count: 100,
-                    },
-                },
-                UnitCoverage {
-                    unit_name: "empty".to_string(),
-                    unit_path: "crates/empty".to_string(),
-                    stats: CoverageStats::default(),
-                },
+        let cov = ProjectCoverage::new(
+            CoverageStats::new(80.0, 80, 100),
+            vec![
+                UnitCoverage::new("active", "crates/active", CoverageStats::new(80.0, 80, 100)),
+                UnitCoverage::new("empty", "crates/empty", CoverageStats::default()),
             ],
-        };
+        );
         let lines = format_coverage_section(&cov, false).expect("non-zero coverage returns Some");
         // Same structural contract as the units test: active unit appears
         // exactly once in the table block, empty unit is filtered out, and

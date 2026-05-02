@@ -101,21 +101,16 @@ mod tests {
 
     #[test]
     fn format_dependencies_section_renders_tree() {
-        let deps = ProjectDependencies {
-            units: vec![
-                UnitDeps {
-                    unit_name: "ops-core".to_string(),
-                    deps: vec![
-                        ("anyhow".to_string(), "^1.0".to_string()),
-                        ("serde".to_string(), "^1.0".to_string()),
-                    ],
-                },
-                UnitDeps {
-                    unit_name: "ops-cli".to_string(),
-                    deps: vec![("clap".to_string(), "^4.0".to_string())],
-                },
-            ],
-        };
+        let deps = ProjectDependencies::new(vec![
+            UnitDeps::new(
+                "ops-core",
+                vec![
+                    ("anyhow".to_string(), "^1.0".to_string()),
+                    ("serde".to_string(), "^1.0".to_string()),
+                ],
+            ),
+            UnitDeps::new("ops-cli", vec![("clap".to_string(), "^4.0".to_string())]),
+        ]);
         let out = format_dependencies_section(&deps, false).join("\n");
         assert!(out.contains("DEPENDENCIES"));
         assert!(out.contains("ops-cli"));
@@ -131,12 +126,10 @@ mod tests {
     /// process's stdout happens to be a real terminal at test time.
     #[test]
     fn format_dependencies_section_emits_no_ansi_when_is_tty_false() {
-        let deps = ProjectDependencies {
-            units: vec![UnitDeps {
-                unit_name: "core".to_string(),
-                deps: vec![("anyhow".to_string(), "^1.0".to_string())],
-            }],
-        };
+        let deps = ProjectDependencies::new(vec![UnitDeps::new(
+            "core",
+            vec![("anyhow".to_string(), "^1.0".to_string())],
+        )]);
         let out = format_dependencies_section(&deps, false).join("\n");
         assert!(
             !out.contains('\x1b'),
@@ -149,30 +142,17 @@ mod tests {
     /// must be safe for an empty slice on its own merits.
     #[test]
     fn format_dependencies_section_unit_with_empty_deps_does_not_panic() {
-        let deps = ProjectDependencies {
-            units: vec![UnitDeps {
-                unit_name: "lonely".to_string(),
-                deps: vec![],
-            }],
-        };
+        let deps = ProjectDependencies::new(vec![UnitDeps::new("lonely", vec![])]);
         let out = format_dependencies_section(&deps, false);
         assert!(out.is_empty(), "expected empty output, got: {out:?}");
     }
 
     #[test]
     fn format_dependencies_section_skips_empty_deps() {
-        let deps = ProjectDependencies {
-            units: vec![
-                UnitDeps {
-                    unit_name: "has-deps".to_string(),
-                    deps: vec![("x".to_string(), "1".to_string())],
-                },
-                UnitDeps {
-                    unit_name: "empty".to_string(),
-                    deps: vec![],
-                },
-            ],
-        };
+        let deps = ProjectDependencies::new(vec![
+            UnitDeps::new("has-deps", vec![("x".to_string(), "1".to_string())]),
+            UnitDeps::new("empty", vec![]),
+        ]);
         let out = format_dependencies_section(&deps, false).join("\n");
         assert!(out.contains("has-deps"));
         assert!(!out.contains("empty"));

@@ -34,14 +34,16 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
     }
     let (module, go_version) = read_mod_info(cwd);
     match module {
-        Some(m) => vec![ProjectUnit {
-            name: last_segment(Some(&m)).unwrap_or_else(|| m.clone()),
-            // Empty path matches every file in `tokei_files` via starts_with.
-            path: String::new(),
-            version: go_version,
-            description: Some(m),
-            ..Default::default()
-        }],
+        Some(m) => {
+            let mut unit = ProjectUnit::new(
+                last_segment(Some(&m)).unwrap_or_else(|| m.clone()),
+                // Empty path matches every file in `tokei_files` via starts_with.
+                String::new(),
+            );
+            unit.version = go_version;
+            unit.description = Some(m);
+            vec![unit]
+        }
         None => vec![],
     }
 }
@@ -76,13 +78,10 @@ fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
     } else {
         module
     };
-    ProjectUnit {
-        name,
-        path: normalized,
-        version: go_version,
-        description,
-        ..Default::default()
-    }
+    let mut unit = ProjectUnit::new(name, normalized);
+    unit.version = go_version;
+    unit.description = description;
+    unit
 }
 
 /// Normalize a `go.work` use-directive entry so it matches `tokei_files.file`

@@ -100,7 +100,12 @@ impl ProjectIdentity {
 }
 
 /// Per-language breakdown entry derived from tokei data.
+///
+/// API-9 / TASK-0858: `#[non_exhaustive]` mirrors `ProjectIdentity` so a
+/// future field (e.g. `comments`) is additive across the extension
+/// boundary. Construct via [`LanguageStat::new`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LanguageStat {
     /// Language name (e.g. "Rust", "TOML").
     pub name: String,
@@ -142,7 +147,11 @@ impl LanguageStat {
 /// Stack-specific extensions provide a `"project_units"` data provider returning
 /// `Vec<ProjectUnit>` as JSON. The generic `about units` subpage renders these
 /// as a grid of cards.
+/// API-9 / TASK-0858: `#[non_exhaustive]` for the same reason as
+/// [`ProjectIdentity`]. Construct via [`ProjectUnit::new`] (required
+/// `name` + `path`); set optional fields directly on the returned value.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ProjectUnit {
     /// Display name (typically capitalized or from package metadata).
     pub name: String,
@@ -165,16 +174,47 @@ pub struct ProjectUnit {
     pub dep_count: Option<i64>,
 }
 
+impl ProjectUnit {
+    /// API-9 / TASK-0858: required-only constructor. Optional fields stay
+    /// at their `Option::None` / numeric defaults; assign them on the
+    /// returned value (`u.version = Some(...)`) since field access is
+    /// not affected by `#[non_exhaustive]`.
+    #[must_use]
+    pub fn new(name: impl Into<String>, path: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            path: path.into(),
+            ..Self::default()
+        }
+    }
+}
+
 /// Lines-covered / total for a coverage report.
+///
+/// API-9 / TASK-0858: `#[non_exhaustive]` to keep future field additions
+/// (e.g. branch coverage) source-compatible across the extension boundary.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CoverageStats {
     pub lines_percent: f64,
     pub lines_covered: i64,
     pub lines_count: i64,
 }
 
+impl CoverageStats {
+    #[must_use]
+    pub fn new(lines_percent: f64, lines_covered: i64, lines_count: i64) -> Self {
+        Self {
+            lines_percent,
+            lines_covered,
+            lines_count,
+        }
+    }
+}
+
 /// Coverage breakdown for a single unit (crate/module/package).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct UnitCoverage {
     /// Display name for the unit (typically resolved from stack metadata).
     pub unit_name: String,
@@ -183,30 +223,72 @@ pub struct UnitCoverage {
     pub stats: CoverageStats,
 }
 
+impl UnitCoverage {
+    #[must_use]
+    pub fn new(
+        unit_name: impl Into<String>,
+        unit_path: impl Into<String>,
+        stats: CoverageStats,
+    ) -> Self {
+        Self {
+            unit_name: unit_name.into(),
+            unit_path: unit_path.into(),
+            stats,
+        }
+    }
+}
+
 /// Project-wide coverage, optionally broken down by unit.
 ///
 /// Returned by the `"project_coverage"` data provider.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ProjectCoverage {
     pub total: CoverageStats,
     #[serde(default)]
     pub units: Vec<UnitCoverage>,
 }
 
+impl ProjectCoverage {
+    #[must_use]
+    pub fn new(total: CoverageStats, units: Vec<UnitCoverage>) -> Self {
+        Self { total, units }
+    }
+}
+
 /// Direct dependencies of a single unit.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct UnitDeps {
     pub unit_name: String,
     /// (dependency name, version requirement) pairs.
     pub deps: Vec<(String, String)>,
 }
 
+impl UnitDeps {
+    #[must_use]
+    pub fn new(unit_name: impl Into<String>, deps: Vec<(String, String)>) -> Self {
+        Self {
+            unit_name: unit_name.into(),
+            deps,
+        }
+    }
+}
+
 /// Project-wide dependency tree, keyed by unit.
 ///
 /// Returned by the `"project_dependencies"` data provider.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ProjectDependencies {
     pub units: Vec<UnitDeps>,
+}
+
+impl ProjectDependencies {
+    #[must_use]
+    pub fn new(units: Vec<UnitDeps>) -> Self {
+        Self { units }
+    }
 }
 
 /// Metadata for a field that can appear on the about card.

@@ -31,10 +31,10 @@ impl DataProvider for RustDepsProvider {
         );
         let units: Vec<UnitDeps> = per_crate
             .into_iter()
-            .map(|(unit_name, deps)| UnitDeps { unit_name, deps })
+            .map(|(unit_name, deps)| UnitDeps::new(unit_name, deps))
             .collect();
 
-        let result = ProjectDependencies { units };
+        let result = ProjectDependencies::new(units);
         serde_json::to_value(&result).map_err(DataProviderError::from)
     }
 }

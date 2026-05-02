@@ -46,11 +46,7 @@ impl DataProvider for RustCoverageProvider {
         let Some(p) = project_total else {
             return Ok(serde_json::to_value(ProjectCoverage::default())?);
         };
-        let total = CoverageStats {
-            lines_percent: p.lines_percent,
-            lines_covered: p.lines_covered,
-            lines_count: p.lines_count,
-        };
+        let total = CoverageStats::new(p.lines_percent, p.lines_covered, p.lines_count);
 
         let units = if let Some(manifest) = manifest {
             let members: &[String] = manifest
@@ -87,15 +83,15 @@ impl DataProvider for RustCoverageProvider {
                     .filter_map(|member| {
                         let cov = per_crate.get(member)?;
                         let unit_name = display_names.remove(member.as_str())?;
-                        Some(UnitCoverage {
+                        Some(UnitCoverage::new(
                             unit_name,
-                            unit_path: member.clone(),
-                            stats: CoverageStats {
-                                lines_percent: cov.lines_percent,
-                                lines_covered: cov.lines_covered,
-                                lines_count: cov.lines_count,
-                            },
-                        })
+                            member.clone(),
+                            CoverageStats::new(
+                                cov.lines_percent,
+                                cov.lines_covered,
+                                cov.lines_count,
+                            ),
+                        ))
                     })
                     .collect()
             }
@@ -103,7 +99,7 @@ impl DataProvider for RustCoverageProvider {
             Vec::new()
         };
 
-        let coverage = ProjectCoverage { total, units };
+        let coverage = ProjectCoverage::new(total, units);
         serde_json::to_value(&coverage).map_err(DataProviderError::from)
     }
 }

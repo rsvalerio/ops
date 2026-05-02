@@ -87,15 +87,11 @@ impl DataProvider for RustUnitsProvider {
                 };
                 let name = format_unit_name(member);
 
-                ProjectUnit {
-                    name,
-                    path: member.to_string(),
-                    version,
-                    description,
-                    loc: None,
-                    file_count: None,
-                    dep_count,
-                }
+                let mut unit = ProjectUnit::new(name, member.to_string());
+                unit.version = version;
+                unit.description = description;
+                unit.dep_count = dep_count;
+                unit
             })
             .collect();
 
