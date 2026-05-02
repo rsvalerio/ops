@@ -147,11 +147,49 @@ const REQUIRED_VERSION_MAX_LEN: usize = 64;
 /// single-quoted value is rejected — surfacing it as the rendered version
 /// would mislead the operator about what the manifest actually says.
 fn extract_required_version(content: &str) -> Option<String> {
+    // ERR-2 / TASK-0919: only accept `required_version = "…"` when it
+    // appears at the top level of a `terraform { … }` block. Without
+    // this, a `module`, `provider`, or custom-locals block that
+    // happens to contain a `required_version` line yields a spurious
+    // match (HCL allows that key elsewhere) and the About card
+    // advertises a stack version that is not the project's terraform
+    // constraint. We track a tiny stack of block-type names — only
+    // depth 1 with `terraform` at the bottom counts.
+    let mut block_stack: Vec<String> = Vec::new();
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with('#') || trimmed.starts_with("//") {
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
             continue;
         }
+
+        // Lines that close a block. HCL allows multiple `}` on the same
+        // line in pathological inputs; pop one per `}` we see at the
+        // start. Closing-only lines (the common case) are handled here.
+        if trimmed.starts_with('}') {
+            block_stack.pop();
+            // A line like `} else {` is not valid HCL at the structure
+            // level we care about; if anything else follows the brace we
+            // treat it as a normal line afterwards. For simplicity skip.
+            continue;
+        }
+
+        // Lines that open a block: `<ident> {` (optionally with quoted
+        // labels in between like `provider "aws" {`). Record only the
+        // leading identifier — that's enough to distinguish `terraform`
+        // from `module` / `provider` / etc.
+        if let Some(opening_ident) = block_open_ident(trimmed) {
+            block_stack.push(opening_ident.to_string());
+            continue;
+        }
+
+        // Only accept `required_version` when we're at depth 1 inside
+        // a `terraform` block. Anywhere else (top level, nested deeper,
+        // or inside a different block) the key is HCL-valid but not
+        // the terraform stack constraint we want to render.
+        if block_stack.len() != 1 || block_stack[0] != "terraform" {
+            continue;
+        }
+
         let Some(rest) = trimmed.strip_prefix("required_version") else {
             continue;
         };
@@ -160,19 +198,12 @@ fn extract_required_version(content: &str) -> Option<String> {
             continue;
         };
         let rest = rest.trim();
-        // HCL: the value must be a double-quoted string. Reject anything
-        // else so a bare `>= 1.5` or single-quoted value surfaces as
-        // "no version" instead of as a misleading literal.
         let Some(after_open) = rest.strip_prefix('"') else {
             continue;
         };
         let Some(end) = after_open.find('"') else {
             continue;
         };
-        // Whatever follows the closing quote must be empty after stripping
-        // a trailing `#` or `//` comment — anything else (junk, a second
-        // value) is malformed HCL and we'd rather surface "no version"
-        // than a misleading prefix.
         let after_close = after_open[end + 1..].trim();
         let after_close_trimmed = strip_inline_comment(after_close).trim();
         if !after_close_trimmed.is_empty() {
@@ -183,7 +214,6 @@ fn extract_required_version(content: &str) -> Option<String> {
             continue;
         }
         if v.len() > REQUIRED_VERSION_MAX_LEN {
-            // SEC-11 / SEC-33: cap the rendered length and log.
             let truncated: String = v.chars().take(REQUIRED_VERSION_MAX_LEN).collect();
             tracing::warn!(
                 original_len = v.len(),
@@ -195,6 +225,43 @@ fn extract_required_version(content: &str) -> Option<String> {
         return Some(v.to_string());
     }
     None
+}
+
+/// ERR-2 / TASK-0919: extract the leading identifier of an HCL block
+/// opener `<ident> [labels...] {`. Returns `None` for lines that aren't
+/// a block opener (assignments, comments, body lines).
+fn block_open_ident(line: &str) -> Option<&str> {
+    if !line.ends_with('{') {
+        return None;
+    }
+    // Identifier = leading run of [A-Za-z_][A-Za-z0-9_-]*
+    let bytes = line.as_bytes();
+    let mut end = 0usize;
+    while end < bytes.len() {
+        let b = bytes[end];
+        let ok = if end == 0 {
+            b.is_ascii_alphabetic() || b == b'_'
+        } else {
+            b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
+        };
+        if !ok {
+            break;
+        }
+        end += 1;
+    }
+    if end == 0 {
+        return None;
+    }
+    let ident = &line[..end];
+    // Reject lines that look like an assignment (`required_version = …`)
+    // — they may end with `{` only inside a string, which we don't try
+    // to parse here. The simple guard: a `=` between the identifier and
+    // the trailing `{` means this is not a block opener.
+    let tail = &line[end..line.len() - 1]; // exclude trailing `{`
+    if tail.contains('=') {
+        return None;
+    }
+    Some(ident)
 }
 
 /// SEC-11 / TASK-0853: strip a trailing `# ...` or `// ...` HCL comment
@@ -455,9 +522,11 @@ mod tests {
 
     #[test]
     fn extract_required_version_skips_comments() {
-        let content = r#"# required_version = "skip"
+        let content = r#"terraform {
+# required_version = "skip"
 // required_version = "also skip"
 required_version = ">= 1.5"
+}
 "#;
         assert_eq!(
             extract_required_version(content),
@@ -473,13 +542,67 @@ required_version = ">= 1.5"
         );
     }
 
+    /// ERR-2 / TASK-0919: a `required_version` declared inside a non-
+    /// terraform block (e.g. a `module` or `provider`) must be ignored.
+    /// Pre-fix the parser would happily return that string and the
+    /// About card would advertise a stack version that wasn't actually
+    /// the project's terraform constraint.
+    #[test]
+    fn extract_required_version_ignores_non_terraform_blocks() {
+        let content = r#"
+module "spurious" {
+  required_version = ">= 99.0"
+  source = "./modules/x"
+}
+
+terraform {
+  required_version = "~> 1.5"
+}
+"#;
+        assert_eq!(
+            extract_required_version(content),
+            Some("~> 1.5".to_string())
+        );
+    }
+
+    /// ERR-2 / TASK-0919: when the only `required_version` lives in a
+    /// non-terraform block, we surface "no version" (None) — the About
+    /// card should fall back rather than report the wrong constraint.
+    #[test]
+    fn extract_required_version_returns_none_when_only_inside_non_terraform_block() {
+        let content = r#"
+provider "aws" {
+  required_version = ">= 1.0"
+}
+"#;
+        assert_eq!(extract_required_version(content), None);
+    }
+
+    /// ERR-2 / TASK-0919: required_version nested deeper than depth 1
+    /// inside terraform (e.g. inside required_providers { … }) is also
+    /// rejected — the top-level depth-1 declaration is the only valid
+    /// shape.
+    #[test]
+    fn extract_required_version_rejects_nested_inside_terraform() {
+        let content = r#"
+terraform {
+  required_providers {
+    required_version = "5.0"
+  }
+}
+"#;
+        assert_eq!(extract_required_version(content), None);
+    }
+
     /// SEC-11 / TASK-0853: a trailing `# ...` comment after the quoted
     /// value must be stripped before rendering — previously the entire
     /// remainder including the comment was returned verbatim.
     #[test]
     fn extract_required_version_strips_trailing_hash_comment() {
         assert_eq!(
-            extract_required_version("required_version = \">= 1.5\" # patch needed\n"),
+            extract_required_version(
+                "terraform {\nrequired_version = \">= 1.5\" # patch needed\n}\n"
+            ),
             Some(">= 1.5".to_string())
         );
     }
@@ -488,7 +611,7 @@ required_version = ">= 1.5"
     #[test]
     fn extract_required_version_strips_trailing_slash_comment() {
         assert_eq!(
-            extract_required_version("required_version = \">= 1.5\" // note\n"),
+            extract_required_version("terraform {\nrequired_version = \">= 1.5\" // note\n}\n"),
             Some(">= 1.5".to_string())
         );
     }
@@ -498,7 +621,7 @@ required_version = ">= 1.5"
     #[test]
     fn extract_required_version_keeps_hash_inside_quotes() {
         assert_eq!(
-            extract_required_version("required_version = \">= 1.5 # marker\"\n"),
+            extract_required_version("terraform {\nrequired_version = \">= 1.5 # marker\"\n}\n"),
             Some(">= 1.5 # marker".to_string())
         );
     }
@@ -510,7 +633,7 @@ required_version = ">= 1.5"
     #[test]
     fn extract_required_version_rejects_bare_value() {
         assert_eq!(
-            extract_required_version("required_version = >= 1.5 # comment\n"),
+            extract_required_version("terraform {\nrequired_version = >= 1.5 # comment\n}\n"),
             None
         );
     }
@@ -520,7 +643,7 @@ required_version = ">= 1.5"
     #[test]
     fn extract_required_version_rejects_single_quoted() {
         assert_eq!(
-            extract_required_version("required_version = '>= 1.5'\n"),
+            extract_required_version("terraform {\nrequired_version = '>= 1.5'\n}\n"),
             None
         );
     }
@@ -530,7 +653,7 @@ required_version = ">= 1.5"
     #[test]
     fn extract_required_version_caps_overlong_value() {
         let long = "v".repeat(200);
-        let content = format!("required_version = \"{long}\"\n");
+        let content = format!("terraform {{\nrequired_version = \"{long}\"\n}}\n");
         let v = extract_required_version(&content).expect("Some");
         assert_eq!(v.len(), REQUIRED_VERSION_MAX_LEN);
         assert!(v.chars().all(|c| c == 'v'));
