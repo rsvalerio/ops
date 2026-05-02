@@ -163,6 +163,21 @@ pub fn default_timeout(op_default: Duration) -> Duration {
 ///
 /// Returns [`RunError::Io`] if spawning or waiting on the child fails, and
 /// [`RunError::Timeout`] if the child outruns `timeout`.
+///
+/// ## Panic-handling guarantees (ERR-1 / TASK-0901)
+///
+/// - A panic inside a stdout/stderr drain thread is propagated as
+///   [`RunError::Io`] rather than silently substituting an empty
+///   `Vec<u8>`. The previous behaviour made a successful command appear
+///   to produce no output, indistinguishable from a clean empty stream
+///   — downstream cargo callers that drove decisions off `stdout`
+///   silently saw a wrong empty result.
+/// - A drain thread that fails its `read_to_end` mid-read still returns
+///   the bytes captured before the error, with a `tracing::warn!`
+///   breadcrumb (ERR-1 / TASK-0694).
+/// - `Output.stdout` / `Output.stderr` therefore mean exactly "what the
+///   child wrote and the kernel handed us"; an empty value here always
+///   means the child produced no output, never that we lost it.
 pub fn run_with_timeout(
     cmd: &mut Command,
     timeout: Duration,
@@ -213,8 +228,8 @@ pub fn run_with_timeout(
         }
     };
 
-    let stdout = collect_drain(stdout_handle, label, "stdout");
-    let stderr = collect_drain(stderr_handle, label, "stderr");
+    let stdout = collect_drain(stdout_handle, label, "stdout")?;
+    let stderr = collect_drain(stderr_handle, label, "stderr")?;
 
     Ok(Output {
         status,
@@ -225,19 +240,28 @@ pub fn run_with_timeout(
 
 /// Join a pipe-drain thread, log any `read_to_end` failure or join panic
 /// against `label`/`stream`, and return whatever bytes were successfully
-/// read. ERR-1 / TASK-0694: a truncated buffer used to be indistinguishable
-/// from a clean empty stream — this routine ensures every failure mode has
-/// a tracing breadcrumb.
+/// read.
+///
+/// ERR-1 / TASK-0694: a truncated buffer (the partial-read case) is still
+/// returned with a tracing breadcrumb so callers see what was captured
+/// before the read failure.
+///
+/// ERR-1 / TASK-0901: a *panicked* drain thread is now propagated as
+/// `RunError::Io` instead of an empty `Vec<u8>`. Returning Vec::new() on
+/// panic made a successful command appear to have produced no output —
+/// indistinguishable from a clean empty stream — and downstream cargo
+/// callers (cargo metadata / cargo update parsers) silently drove
+/// decisions off that empty buffer.
 fn collect_drain(
     handle: Option<thread::JoinHandle<(Vec<u8>, Option<io::Error>)>>,
     label: &str,
     stream: &'static str,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, RunError> {
     let Some(handle) = handle else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     match handle.join() {
-        Ok((buf, None)) => buf,
+        Ok((buf, None)) => Ok(buf),
         Ok((buf, Some(err))) => {
             tracing::warn!(
                 label,
@@ -246,15 +270,17 @@ fn collect_drain(
                 error = %err,
                 "subprocess pipe drain failed mid-read; captured output is truncated"
             );
-            buf
+            Ok(buf)
         }
         Err(_) => {
             tracing::warn!(
                 label,
                 stream,
-                "subprocess pipe drain thread panicked; captured output is missing"
+                "subprocess pipe drain thread panicked; surfacing as RunError::Io"
             );
-            Vec::new()
+            Err(RunError::Io(io::Error::other(format!(
+                "subprocess `{label}` {stream} drain thread panicked; captured output is unrecoverable"
+            ))))
         }
     }
 }
