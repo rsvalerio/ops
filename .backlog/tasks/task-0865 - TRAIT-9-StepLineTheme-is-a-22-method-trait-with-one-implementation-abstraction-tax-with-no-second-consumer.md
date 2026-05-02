@@ -3,9 +3,10 @@ id: TASK-0865
 title: >-
   TRAIT-9: StepLineTheme is a 22-method trait with one implementation;
   abstraction tax with no second consumer
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:21'
+updated_date: '2026-05-02 10:46'
 labels:
   - code-review-rust
   - traits

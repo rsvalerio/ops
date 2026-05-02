@@ -122,7 +122,7 @@ impl ProgressDisplay {
             ProgressDrawTarget::hidden()
         });
         let resolved_theme = theme::resolve_theme(&output.theme, custom_themes)?;
-        let running_style = build_running_style(resolved_theme.as_ref(), &output.theme)?;
+        let running_style = build_running_style(&resolved_theme, &output.theme)?;
         let tap = tap.map(TapWriter::new);
         // TASK-0762: verbose → unbounded; otherwise use the user's config value.
         let stderr_tail = if verbose {
@@ -585,7 +585,7 @@ impl ProgressDisplay {
                 )
             })
             .unwrap_or_default();
-        let renderer = ErrorDetailRenderer::new(self.render.theme.as_ref(), self.render.columns);
+        let renderer = ErrorDetailRenderer::new(&self.render.theme, self.render.columns);
         let detail_lines = renderer.render(message, &stderr_tail);
 
         if self.render.is_tty {

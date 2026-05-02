@@ -2,7 +2,7 @@
 
 use indexmap::IndexMap;
 use ops_core::config;
-use ops_theme::{self as theme, ThemeConfig};
+use ops_theme::{ConfigurableTheme, ThemeConfig};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -36,7 +36,7 @@ impl StderrTail {
 /// Render configuration extracted from `OutputConfig`.
 #[non_exhaustive]
 pub struct RenderConfig {
-    pub theme: Box<dyn theme::StepLineTheme>,
+    pub theme: ConfigurableTheme,
     pub columns: u16,
     pub is_tty: bool,
     pub show_error_detail: bool,
@@ -45,7 +45,7 @@ pub struct RenderConfig {
 
 impl RenderConfig {
     pub fn new(
-        theme: Box<dyn theme::StepLineTheme>,
+        theme: ConfigurableTheme,
         columns: u16,
         is_tty: bool,
         show_error_detail: bool,

@@ -16,7 +16,7 @@ pub fn pending_style() -> ProgressStyle {
 }
 
 pub fn build_running_style(
-    resolved_theme: &dyn theme::StepLineTheme,
+    resolved_theme: &theme::ConfigurableTheme,
     theme_name: &str,
 ) -> anyhow::Result<ProgressStyle> {
     let left_pad_str = " ".repeat(resolved_theme.left_pad());

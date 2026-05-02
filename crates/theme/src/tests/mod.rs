@@ -40,7 +40,7 @@ left_pad = 0
 "#;
 
 fn render_line(
-    theme: &dyn StepLineTheme,
+    theme: &ConfigurableTheme,
     status: StepStatus,
     label: &str,
     elapsed: Option<f64>,

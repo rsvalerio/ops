@@ -1,9 +1,8 @@
-//! Theme resolution: name → [`StepLineTheme`] lookup and listing.
+//! Theme resolution: name → [`ConfigurableTheme`] lookup and listing.
 
 use indexmap::IndexMap;
 
 use crate::configurable::ConfigurableTheme;
-use crate::step_line_theme::StepLineTheme;
 use crate::ThemeConfig;
 
 /// Error type for theme resolution failures.
@@ -18,16 +17,16 @@ pub enum ThemeError {
     NotFound(String),
 }
 
-/// Resolve a theme name to a concrete [`StepLineTheme`] implementation.
+/// Resolve a theme name to a concrete [`ConfigurableTheme`].
 ///
 /// Looks up the theme in the provided IndexMap (includes built-in themes from default config).
 pub fn resolve_theme(
     name: &str,
     themes: &IndexMap<String, ThemeConfig>,
-) -> Result<Box<dyn StepLineTheme>, ThemeError> {
+) -> Result<ConfigurableTheme, ThemeError> {
     themes
         .get(name)
-        .map(|tc| Box::new(ConfigurableTheme::new(tc.clone())) as Box<dyn StepLineTheme>)
+        .map(|tc| ConfigurableTheme::new(tc.clone()))
         .ok_or_else(|| ThemeError::NotFound(name.to_string()))
 }
 

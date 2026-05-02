@@ -4,16 +4,16 @@
 
 use crate::command::OutputLine;
 use ops_core::output::{tail_lines, ErrorDetail};
-use ops_theme as theme;
+use ops_theme::ConfigurableTheme;
 
 /// Renders error detail blocks for failed steps.
 pub struct ErrorDetailRenderer<'a> {
-    theme: &'a dyn theme::StepLineTheme,
+    theme: &'a ConfigurableTheme,
     columns: u16,
 }
 
 impl<'a> ErrorDetailRenderer<'a> {
-    pub fn new(theme: &'a dyn theme::StepLineTheme, columns: u16) -> Self {
+    pub fn new(theme: &'a ConfigurableTheme, columns: u16) -> Self {
         Self { theme, columns }
     }
 

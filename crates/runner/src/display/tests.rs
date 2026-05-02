@@ -8,12 +8,12 @@ use std::collections::HashMap;
 
 /// Renders step lines with status icons and elapsed time.
 pub struct StepRenderer<'a> {
-    theme: &'a dyn theme::StepLineTheme,
+    theme: &'a theme::ConfigurableTheme,
     columns: u16,
 }
 
 impl<'a> StepRenderer<'a> {
-    pub fn new(theme: &'a dyn theme::StepLineTheme, columns: u16) -> Self {
+    pub fn new(theme: &'a theme::ConfigurableTheme, columns: u16) -> Self {
         Self { theme, columns }
     }
 
@@ -137,7 +137,7 @@ fn progress_display_handles_failure_with_error_detail() {
 fn progress_display_render_step() {
     let display = test_display(&[]);
     let renderer = StepRenderer::new(
-        display.render_config().theme.as_ref(),
+        &display.render_config().theme,
         display.render_config().columns,
     );
     let line = renderer.render(StepStatus::Succeeded, "cargo build", Some(1.23));
