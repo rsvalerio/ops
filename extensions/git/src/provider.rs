@@ -61,7 +61,7 @@ impl GitInfo {
                 branch,
             },
             None => Self {
-                remote_url: Some(config::redact_userinfo(&raw)),
+                remote_url: Some(raw),
                 branch,
                 ..Self::default()
             },
@@ -191,6 +191,23 @@ mod tests {
         let url = info.remote_url.expect("remote_url");
         assert!(!url.contains("user:tok"), "url leaked credentials: {url}");
         assert!(!url.contains('@'), "url retained userinfo: {url}");
+    }
+
+    /// OWN-8 / TASK-0785 AC#2: pin that `read_origin_url_from` already returns
+    /// redacted values, so the provider's fallback branch can trust it without
+    /// re-redacting. If this test breaks, the provider must add redaction back.
+    #[test]
+    fn read_origin_url_from_already_redacts_credentials() {
+        let cfg = "[remote \"origin\"]\n\turl = https://user:secret@host.example/repo.git\n";
+        let url = config::read_origin_url_from(cfg).expect("url");
+        assert!(
+            !url.contains("secret"),
+            "read_origin_url_from must redact before returning, got: {url}"
+        );
+        assert!(
+            !url.contains("user@"),
+            "read_origin_url_from must strip userinfo, got: {url}"
+        );
     }
 
     #[test]
