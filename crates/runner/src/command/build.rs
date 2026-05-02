@@ -184,8 +184,20 @@ pub fn resolve_spec_cwd(
     let Some(p) = spec_cwd else {
         return Ok(workspace_cwd.to_path_buf());
     };
-    let lossy = p.to_string_lossy();
-    let expanded = vars.try_expand(&lossy).map_err(expand_err_to_io)?;
+    // READ-5 / TASK-0900: previously this called `p.to_string_lossy()`
+    // before variable expansion, silently replacing non-UTF-8 bytes with
+    // U+FFFD and then spawning the child in the wrong-but-similar
+    // directory. Reject non-UTF-8 cwd values loudly so the operator
+    // sees a real error instead of a quiet redirect.
+    let s = p.to_str().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "spec cwd contains non-UTF-8 bytes; refusing to lossy-expand and chdir into a wrong-but-similar path: {p:?}"
+            ),
+        )
+    })?;
+    let expanded = vars.try_expand(s).map_err(expand_err_to_io)?;
     let ep = std::path::PathBuf::from(expanded.as_ref());
     // SEC-23 / TASK-0500: an absolute spec_cwd must still be checked against
     // the workspace root. A malicious `cwd = "/etc"` would previously bypass
@@ -527,6 +539,33 @@ mod tests {
         let inside = std::path::Path::new("sub/dir");
         let out = resolve_spec_cwd(Some(inside), &ws, &vars, CwdEscapePolicy::Deny).unwrap();
         assert_eq!(out, ws.join("sub/dir"));
+    }
+
+    /// READ-5 / TASK-0900: a non-UTF-8 cwd must surface a loud
+    /// InvalidInput error instead of being lossy-expanded into a
+    /// wrong-but-similar path that would chdir the child into the
+    /// "wrong" directory.
+    #[cfg(unix)]
+    #[test]
+    fn resolve_spec_cwd_rejects_non_utf8_cwd_loudly() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+        let ws = std::path::PathBuf::from("/tmp/ws");
+        let bad: OsString = OsString::from_vec(vec![b's', b'u', b'b', 0xff]);
+        let bad_path: std::path::PathBuf = bad.into();
+        let vars = Variables::from_env(&ws);
+        let err = resolve_spec_cwd(
+            Some(bad_path.as_path()),
+            &ws,
+            &vars,
+            CwdEscapePolicy::WarnAndAllow,
+        )
+        .expect_err("non-UTF-8 cwd must surface as an error");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(
+            err.to_string().contains("non-UTF-8"),
+            "error message must mention the cause, got: {err}"
+        );
     }
 
     #[test]
