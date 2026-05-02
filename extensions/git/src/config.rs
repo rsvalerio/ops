@@ -55,26 +55,57 @@ impl std::fmt::Display for RedactedUrl {
     }
 }
 
+/// SEC-33 / TASK-0910: hard cap on `.git/config` read size. A real-world
+/// git config is well under 64 KiB; an adversarial repo (cloned for
+/// inspection) could otherwise OOM the CLI through a multi-GB file or a
+/// symlink to `/dev/zero`. Mirrors the
+/// `ops_about::manifest_io::MAX_MANIFEST_BYTES` posture for project
+/// manifests.
+pub const MAX_GIT_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
+
 /// Read the URL of the `origin` remote from `<git_dir>/config`.
 ///
 /// NotFound is silent (no remotes configured is normal). Other IO errors
 /// (PermissionDenied, IsADirectory, etc.) log at `tracing::warn!` before
 /// returning None, matching the policy of `try_read_manifest` (TASK-0548)
 /// and `resolve_member_globs` (TASK-0517).
+///
+/// SEC-33 / TASK-0910: the read is capped at [`MAX_GIT_CONFIG_BYTES`]
+/// via `File::open` + `Read::take`. An oversized config returns `None`
+/// with a `tracing::warn!` rather than slurping the whole file.
 pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
+    use std::io::Read;
     let path = git_dir.join("config");
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
+    let mut file = match std::fs::File::open(&path) {
+        Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
             tracing::warn!(
                 path = %path.display(),
                 error = %e,
-                "failed to read .git/config; treating as no remote"
+                "failed to open .git/config; treating as no remote"
             );
             return None;
         }
     };
+    let mut content = String::new();
+    let limit = MAX_GIT_CONFIG_BYTES.saturating_add(1);
+    if let Err(e) = (&mut file).take(limit).read_to_string(&mut content) {
+        tracing::warn!(
+            path = %path.display(),
+            error = %e,
+            "failed to read .git/config (within byte cap); treating as no remote"
+        );
+        return None;
+    }
+    if content.len() as u64 > MAX_GIT_CONFIG_BYTES {
+        tracing::warn!(
+            path = %path.display(),
+            cap = MAX_GIT_CONFIG_BYTES,
+            "SEC-33: .git/config exceeds byte cap; refusing to parse and treating as no remote"
+        );
+        return None;
+    }
     read_origin_url_from(&content)
 }
 
@@ -412,6 +443,33 @@ mod tests {
         assert_eq!(
             read_origin_url(&git_dir).map(RedactedUrl::into_string),
             Some("https://github.com/o/r.git".to_string())
+        );
+    }
+
+    /// SEC-33 / TASK-0910: a `.git/config` larger than MAX_GIT_CONFIG_BYTES
+    /// must NOT be parsed; the helper bails with a tracing::warn! and
+    /// returns None instead of slurping the whole file into memory.
+    #[test]
+    fn read_origin_url_bails_on_oversized_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        // Build a payload ≥ MAX_GIT_CONFIG_BYTES + 1. The extra trailing
+        // bytes are arbitrary `; comment` padding; the cap check fires
+        // before the parser ever sees them.
+        let header = "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n";
+        let pad_size = (MAX_GIT_CONFIG_BYTES as usize)
+            .saturating_sub(header.len())
+            .saturating_add(64);
+        let mut body = String::with_capacity(header.len() + pad_size);
+        body.push_str(header);
+        // Use a comment line so well-formed parsing would still match
+        // the URL above, *if* the cap weren't enforced.
+        body.push_str(&"# pad\n".repeat(pad_size / 6));
+        std::fs::write(git_dir.join("config"), body.as_bytes()).unwrap();
+        assert!(
+            read_origin_url(&git_dir).is_none(),
+            "oversized .git/config must not yield an origin URL"
         );
     }
 
