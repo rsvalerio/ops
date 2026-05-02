@@ -1,9 +1,10 @@
 ---
 id: TASK-0913
 title: 'ERR-1: run_cargo_upgrade_dry_run does not check exit status before parsing'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:11'
+updated_date: '2026-05-02 12:10'
 labels:
   - code-review-rust
   - error-handling

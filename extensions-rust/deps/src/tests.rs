@@ -156,6 +156,64 @@ fn categorize_upgrades_matches_incompatible_substring() {
     assert_eq!(cmp_names, vec!["d", "e"]);
 }
 
+// -- Upgrade exit-code interpretation (ERR-1 / TASK-0913) --
+
+/// ERR-1 / TASK-0913: `cargo upgrade --dry-run` exit 1 (lockfile contention,
+/// network error, etc.) must surface as an error rather than parsing an
+/// empty stdout into an empty UpgradeResult. Mirrors the cargo-deny exit-1
+/// fix in TASK-0612.
+#[test]
+fn interpret_upgrade_output_errs_on_exit_one() {
+    let stderr = b"error: failed to update registry: connection timed out\n";
+    let result = crate::parse::interpret_upgrade_output(Some(1), b"", stderr);
+    let err = result.expect_err("non-zero exit must surface");
+    let msg = err.to_string();
+    assert!(msg.contains("status 1"), "expected exit-1 in error: {msg}");
+    assert!(
+        msg.contains("connection timed out"),
+        "stderr tail must be preserved: {msg}"
+    );
+}
+
+/// `cargo upgrade --dry-run` exit 101 (cargo or subtool panic) must
+/// surface, not silently render as a clean upgrade report.
+#[test]
+fn interpret_upgrade_output_errs_on_exit_one_oh_one() {
+    let stderr = b"thread 'main' panicked at 'assertion failed: ...'\n";
+    let result = crate::parse::interpret_upgrade_output(Some(101), b"", stderr);
+    let err = result.expect_err("panic exit must surface");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("status 101"),
+        "expected exit-101 in error: {msg}"
+    );
+    assert!(
+        msg.contains("panicked"),
+        "stderr tail must be preserved: {msg}"
+    );
+}
+
+#[test]
+fn interpret_upgrade_output_errs_on_signal_kill() {
+    let result = crate::parse::interpret_upgrade_output(None, b"", b"");
+    let err = result.expect_err("None exit must surface");
+    assert!(
+        err.to_string().contains("signal"),
+        "error must name signal-kill case, got: {err}"
+    );
+}
+
+#[test]
+fn interpret_upgrade_output_parses_on_clean_exit() {
+    let stdout = b"name   old req compatible latest  new req note\n\
+                   ====   ======= ========== ======  ======= ====\n\
+                   serde  1.0.100 1.0.228    1.0.228 1.0.228\n";
+    let result = crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
+        .expect("clean exit must parse");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].name, "serde");
+}
+
 // -- Deny exit-code interpretation --
 
 #[test]

@@ -19,6 +19,14 @@ const CARGO_DENY_TIMEOUT: Duration = Duration::from_secs(240);
 // ── cargo upgrade parsing ───────────────────────────────────────────────────
 
 /// Run `cargo upgrade --dry-run` and parse the table output.
+///
+/// ERR-1 (TASK-0913): `cargo upgrade` exits non-zero on lockfile contention,
+/// network failures, or a malformed `Cargo.toml`. The previous code parsed
+/// stdout regardless of exit status and silently returned an empty
+/// `Vec<UpgradeEntry>`, masking the upstream failure as "no upgrades
+/// available". Surface non-zero exits as an error including the stderr
+/// tail so the deps gate fails loudly. Mirrors the cargo-update fix made
+/// in TASK-0502 and the cargo-deny exit-code handling below.
 pub fn run_cargo_upgrade_dry_run(working_dir: &Path) -> anyhow::Result<Vec<UpgradeEntry>> {
     let output = run_cargo(
         &["upgrade", "--dry-run"],
@@ -28,8 +36,37 @@ pub fn run_cargo_upgrade_dry_run(working_dir: &Path) -> anyhow::Result<Vec<Upgra
     )
     .map_err(|e| anyhow::anyhow!("failed to run cargo upgrade: {}", e))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(parse_upgrade_table(&stdout))
+    interpret_upgrade_output(output.status.code(), &output.stdout, &output.stderr)
+}
+
+/// Map a `cargo upgrade --dry-run` `(exit_code, stdout, stderr)` triple to
+/// either a parsed `Vec<UpgradeEntry>` or an error including the stderr
+/// tail. Split out so unit tests can pin the exit-code semantics without
+/// spawning the binary.
+pub fn interpret_upgrade_output(
+    exit_code: Option<i32>,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> anyhow::Result<Vec<UpgradeEntry>> {
+    match exit_code {
+        Some(0) => {
+            let stdout = String::from_utf8_lossy(stdout);
+            Ok(parse_upgrade_table(&stdout))
+        }
+        None => anyhow::bail!(
+            "cargo upgrade --dry-run terminated by signal (exit_code = None); \
+             refusing to treat partial output as authoritative"
+        ),
+        Some(other) => {
+            let stderr = String::from_utf8_lossy(stderr);
+            anyhow::bail!(
+                "cargo upgrade --dry-run exited with status {other}; \
+                 refusing to parse output as authoritative. \
+                 stderr (truncated): {}",
+                truncate_for_log(stderr.trim())
+            )
+        }
+    }
 }
 
 /// Parse the table output from `cargo upgrade --dry-run`.
