@@ -38,16 +38,16 @@ fn run_tools_list_to(config: &Config, w: &mut dyn Write) -> anyhow::Result<()> {
         .unwrap_or(0);
 
     for tool in &tools {
-        // TASK-0759: exhaustively match every ToolStatus variant;
-        // future variants render via Debug rather than silently
-        // collapsing to "?" / "(UNKNOWN)".
+        // READ-7 / TASK-0896: ToolStatus is `#[non_exhaustive]`, so the
+        // wildcard arm is mandatory. It renders via `Display` (a stable
+        // user contract) instead of leaking `Debug` shape through the UI.
         let (status_icon, status_text): (String, Cow<'static, str>) = match tool.status {
             ToolStatus::Installed => (green("✓"), Cow::Borrowed("")),
             ToolStatus::NotInstalled => (red("✗"), Cow::Borrowed(" (NOT INSTALLED)")),
             ToolStatus::Unknown => (dim("?"), Cow::Borrowed(" (UNKNOWN)")),
             other => (
-                dim(&format!("{other:?}")),
-                Cow::Owned(format!(" ({other:?})")),
+                dim("?"),
+                Cow::Owned(format!(" ({})", other.to_string().to_uppercase())),
             ),
         };
 

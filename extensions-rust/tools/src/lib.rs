@@ -45,6 +45,16 @@ ops_extension::impl_extension! {
     },
 }
 
+/// Status of an installable tool.
+///
+/// READ-7 / TASK-0896: variants render through [`std::fmt::Display`] so
+/// the user-facing string is a deliberate contract — not a `Debug` byproduct
+/// that mutates whenever a variant gains a field. CLI consumers fall back
+/// to `format!("{}", status)` for unknown variants instead of leaking the
+/// `Debug` representation.
+///
+/// **When adding a variant:** extend the `Display` impl below with an
+/// intentional, stable user-facing string before merging.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ToolStatus {
@@ -52,6 +62,17 @@ pub enum ToolStatus {
     NotInstalled,
     #[allow(dead_code)]
     Unknown,
+}
+
+impl std::fmt::Display for ToolStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            ToolStatus::Installed => "installed",
+            ToolStatus::NotInstalled => "not installed",
+            ToolStatus::Unknown => "unknown",
+        };
+        f.write_str(s)
+    }
 }
 
 #[derive(Debug, Clone)]

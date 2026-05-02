@@ -3,9 +3,10 @@ id: TASK-0896
 title: >-
   READ-7: tools list wildcard arm prints Debug representation of unknown
   ToolStatus variants to users
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:47'
+updated_date: '2026-05-02 11:13'
 labels:
   - code-review-rust
   - readability
