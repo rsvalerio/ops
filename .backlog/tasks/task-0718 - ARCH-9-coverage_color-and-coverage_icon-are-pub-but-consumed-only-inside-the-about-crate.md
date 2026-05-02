@@ -3,10 +3,10 @@ id: TASK-0718
 title: >-
   ARCH-9: coverage_color and coverage_icon are pub but consumed only inside the
   about crate
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-30 05:31'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-05-02 09:01'
 labels:
   - code-review-rust
   - architecture
@@ -26,7 +26,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Demote coverage_icon and coverage_color to pub(crate) (or pub(super)) so they stay internal
-- [ ] #2 Verify nothing outside extensions/about consumes them
-- [ ] #3 Keep CoverageTier private if it is also unused outside this module
+- [x] #1 Demote coverage_icon and coverage_color to pub(crate) (or pub(super)) so they stay internal
+- [x] #2 Verify nothing outside extensions/about consumes them
+- [x] #3 Keep CoverageTier private if it is also unused outside this module
 <!-- AC:END -->

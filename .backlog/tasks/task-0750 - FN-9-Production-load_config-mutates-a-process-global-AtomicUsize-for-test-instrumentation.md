@@ -3,11 +3,11 @@ id: TASK-0750
 title: >-
   FN-9: Production load_config mutates a process-global AtomicUsize for test
   instrumentation
-status: To Do
+status: Done
 assignee:
   - TASK-0829
 created_date: '2026-05-01 05:52'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-02 08:48'
 labels:
   - code-review-rust
   - structure
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Counter is gated behind #[cfg(any(test, feature = "test-support"))] or replaced with a tracing-event-counted assertion
-- [ ] #2 TASK-0427 regression test continues to pass under the new gate
-- [ ] #3 load_config_call_count/reset_load_config_call_count no longer appear in release-build symbols
+- [x] #1 Counter is gated behind #[cfg(any(test, feature = "test-support"))] or replaced with a tracing-event-counted assertion
+- [x] #2 TASK-0427 regression test continues to pass under the new gate
+- [x] #3 load_config_call_count/reset_load_config_call_count no longer appear in release-build symbols
 <!-- AC:END -->

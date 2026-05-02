@@ -1,10 +1,10 @@
 ---
 id: TASK-0695
 title: 'API-9: AboutCard public struct lacks #[non_exhaustive]'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-30 05:26'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-05-02 09:00'
 labels:
   - code-review-rust
   - API
@@ -24,7 +24,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Mark AboutCard with #[non_exhaustive]
-- [ ] #2 Provide a constructor (e.g. AboutCard::new) for downstream use
-- [ ] #3 Update any in-crate construction sites to go through the constructor or pub-field assignment
+- [x] #1 Mark AboutCard with #[non_exhaustive]
+- [x] #2 Provide a constructor (e.g. AboutCard::new) for downstream use
+- [x] #3 Update any in-crate construction sites to go through the constructor or pub-field assignment
 <!-- AC:END -->

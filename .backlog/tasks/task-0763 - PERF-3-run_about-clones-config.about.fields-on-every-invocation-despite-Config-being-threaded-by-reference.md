@@ -3,11 +3,11 @@ id: TASK-0763
 title: >-
   PERF-3: run_about clones config.about.fields on every invocation despite
   Config being threaded by reference
-status: To Do
+status: Done
 assignee:
   - TASK-0828
 created_date: '2026-05-01 05:54'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-02 08:14'
 labels:
   - code-review-rust
   - performance

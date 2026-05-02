@@ -3,11 +3,11 @@ id: TASK-0783
 title: >-
   ASYNC-6: OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS has no upper bound; an
   attacker-set value can hang the pre-commit hook
-status: To Do
+status: Done
 assignee:
   - TASK-0827
 created_date: '2026-05-01 05:58'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-02 07:27'
 labels:
   - code-review-rust
   - async

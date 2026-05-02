@@ -3,11 +3,11 @@ id: TASK-0758
 title: >-
   READ-2: run_tools_list_to pads tool names by byte length instead of display
   width
-status: To Do
+status: Done
 assignee:
   - TASK-0828
 created_date: '2026-05-01 05:54'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-02 07:56'
 labels:
   - code-review-rust
   - readability

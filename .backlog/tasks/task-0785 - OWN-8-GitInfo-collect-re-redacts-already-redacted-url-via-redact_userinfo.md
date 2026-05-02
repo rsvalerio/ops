@@ -1,11 +1,11 @@
 ---
 id: TASK-0785
 title: 'OWN-8: GitInfo::collect re-redacts already-redacted url via redact_userinfo'
-status: To Do
+status: Done
 assignee:
   - TASK-0827
 created_date: '2026-05-01 05:58'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-02 07:27'
 labels:
   - code-review-rust
   - ownership

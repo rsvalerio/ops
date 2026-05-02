@@ -1,10 +1,10 @@
 ---
 id: TASK-0677
 title: 'TRAIT-3: query_or_warn callers pass Default::default() with no explicit type'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-30 05:14'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-05-02 09:00'
 labels:
   - code-review-rust
   - traits
@@ -24,5 +24,5 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace Default::default() with the concrete empty value at each call site, or annotate the type explicitly
+- [x] #1 Replace Default::default() with the concrete empty value at each call site, or annotate the type explicitly
 <!-- AC:END -->

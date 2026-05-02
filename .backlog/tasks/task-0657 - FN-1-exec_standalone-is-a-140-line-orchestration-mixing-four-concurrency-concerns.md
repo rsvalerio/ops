@@ -3,10 +3,10 @@ id: TASK-0657
 title: >-
   FN-1: exec_standalone is a 140-line orchestration mixing four concurrency
   concerns
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-30 05:12'
-updated_date: '2026-04-30 06:07'
+updated_date: '2026-05-02 09:02'
 labels:
   - code-review-rust
   - structure
@@ -26,6 +26,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract spawn_event_forwarder(local_rx, outer_tx, abort) -> JoinSet so the forwarder spawn-and-drain is one call
-- [ ] #2 Extract forward_terminal_event_or_drop(tx, ev, abort) for the trailing tokio::select! block
+- [x] #1 Extract spawn_event_forwarder(local_rx, outer_tx, abort) -> JoinSet so the forwarder spawn-and-drain is one call
+- [x] #2 Extract forward_terminal_event_or_drop(tx, ev, abort) for the trailing tokio::select! block
 <!-- AC:END -->

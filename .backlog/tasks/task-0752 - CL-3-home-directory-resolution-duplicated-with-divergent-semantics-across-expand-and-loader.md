@@ -3,11 +3,11 @@ id: TASK-0752
 title: >-
   CL-3: home directory resolution duplicated with divergent semantics across
   expand and loader
-status: To Do
+status: Done
 assignee:
   - TASK-0829
 created_date: '2026-05-01 05:53'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-02 08:49'
 labels:
   - code-review-rust
   - structure
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract a single home-dir helper (e.g. crates/core/src/paths.rs::home_dir())
-- [ ] #2 Document resolution order and cfg!(windows) branching in one place
-- [ ] #3 Both call sites delegate to the new helper
+- [x] #1 Extract a single home-dir helper (e.g. crates/core/src/paths.rs::home_dir())
+- [x] #2 Document resolution order and cfg!(windows) branching in one place
+- [x] #3 Both call sites delegate to the new helper
 <!-- AC:END -->

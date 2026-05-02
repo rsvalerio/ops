@@ -3,11 +3,11 @@ id: TASK-0761
 title: >-
   READ-5: write_extension_table hardcodes set_max_width(5, 40) with no named
   constant
-status: To Do
+status: Done
 assignee:
   - TASK-0828
 created_date: '2026-05-01 05:54'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-02 08:02'
 labels:
   - code-review-rust
   - readability

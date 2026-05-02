@@ -1,11 +1,11 @@
 ---
 id: TASK-0749
 title: 'TRAIT-4: ToolSource derives Clone but not Copy despite being unit-variant enum'
-status: To Do
+status: Done
 assignee:
   - TASK-0829
 created_date: '2026-05-01 05:52'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-02 08:48'
 labels:
   - code-review-rust
   - traits
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ToolSource adds Copy to its derive list
-- [ ] #2 ToolSpec::source returns ToolSource directly without .clone()
-- [ ] #3 No call site needs a compensating clone
+- [x] #1 ToolSource adds Copy to its derive list
+- [x] #2 ToolSpec::source returns ToolSource directly without .clone()
+- [x] #3 No call site needs a compensating clone
 <!-- AC:END -->

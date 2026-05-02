@@ -3,11 +3,11 @@ id: TASK-0781
 title: >-
   ARCH-2: get_terminal_width probes real stdout TTY/size from rendering helpers,
   ignoring caller-supplied is_tty
-status: To Do
+status: Done
 assignee:
   - TASK-0828
 created_date: '2026-05-01 05:57'
-updated_date: '2026-05-01 06:18'
+updated_date: '2026-05-02 08:16'
 labels:
   - code-review-rust
   - architecture
