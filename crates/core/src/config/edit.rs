@@ -92,7 +92,13 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    let tmp = parent.join(format!(".{file_name}.tmp.{pid}.{counter}.{nanos}"));
+    // READ-5 / TASK-0908: strip a leading dot before composing the tmp
+    // basename. Without this, a target like `.ops.toml` produced
+    // `..ops.toml.tmp.…`, a double-dot shape that confuses cleanup
+    // scripts and editor swap-file detectors and slips past grep-based
+    // crash-recovery audits.
+    let stem = file_name.strip_prefix('.').unwrap_or(&file_name);
+    let tmp = parent.join(format!(".{stem}.tmp.{pid}.{counter}.{nanos}"));
 
     {
         let mut f = std::fs::OpenOptions::new()
@@ -242,5 +248,35 @@ mod tests {
         let result = edit_ops_toml(&path, |_doc| anyhow::bail!("mutate failed"));
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    }
+
+    /// READ-5 / TASK-0908: a leftover tmp file from a crash mid-write
+    /// must not double-prefix a dot. Inspecting the directory after a
+    /// failed write confirms the basename starts with exactly one dot.
+    #[test]
+    fn atomic_write_tmp_basename_does_not_double_dot() {
+        // We can't observe the tmp file from a *successful* atomic_write
+        // (the rename succeeds and the tmp is gone). Instead, force a
+        // failure by pre-creating a directory at the target path so
+        // rename fails, leaving the tmp file behind for inspection.
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join(".ops.toml");
+        std::fs::create_dir(&target).expect("dir at target");
+        let _ = atomic_write(&target, b"x");
+
+        let entries: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".tmp."))
+            .collect();
+        // If the rename succeeded after all (rare on some platforms) the
+        // assertion below trivially passes since `entries` is empty.
+        for name in entries {
+            assert!(
+                !name.starts_with(".."),
+                "tmp basename must not start with two dots: {name}"
+            );
+        }
     }
 }

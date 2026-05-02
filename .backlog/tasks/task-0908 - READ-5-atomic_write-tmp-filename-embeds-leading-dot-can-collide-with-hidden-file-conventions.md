@@ -3,9 +3,10 @@ id: TASK-0908
 title: >-
   READ-5: atomic_write tmp filename embeds leading dot, can collide with
   hidden-file conventions
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:10'
+updated_date: '2026-05-02 11:22'
 labels:
   - code-review-rust
   - readability
