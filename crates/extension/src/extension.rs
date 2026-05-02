@@ -155,6 +155,17 @@ impl CommandRegistry {
 // `duplicate_inserts` cannot be bypassed by routing mutations through
 // `IndexMap::insert` / `entry` / etc. The single mutating path is
 // `CommandRegistry::insert`.
+//
+// ARCH-9 / TASK-0874: `Deref<Target = IndexMap<…>>` is intentional public
+// API surface. Every read-only method on `IndexMap` (`get`, `iter`, `len`,
+// `keys`, `values`, `contains_key`, `is_empty`, …) is part of the
+// `CommandRegistry` contract and downstream extension authors are
+// expected to rely on them. The trade-off: swapping the inner storage to
+// a non-`IndexMap` map is a breaking change. We accept that — preserving
+// insertion order is itself part of the contract (registration order
+// drives `--list` ordering and the priority of late-registered overrides
+// against the duplicate audit trail), so the implementation type is not
+// expected to vary.
 impl std::ops::Deref for CommandRegistry {
     type Target = IndexMap<CommandId, CommandSpec>;
     fn deref(&self) -> &Self::Target {

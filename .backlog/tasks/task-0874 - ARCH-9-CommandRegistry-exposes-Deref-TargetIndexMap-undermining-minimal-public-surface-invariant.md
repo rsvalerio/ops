@@ -3,9 +3,10 @@ id: TASK-0874
 title: >-
   ARCH-9: CommandRegistry exposes Deref<Target=IndexMap>, undermining
   minimal-public-surface invariant
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:23'
+updated_date: '2026-05-02 10:56'
 labels:
   - code-review-rust
   - api-design
