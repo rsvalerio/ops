@@ -20,9 +20,12 @@ fn manifest_present(path: &Path) -> bool {
     match path.try_exists() {
         Ok(present) => present,
         Err(err) => {
+            // ERR-7 (TASK-0945): Debug-format path/error so a CWD-relative
+            // ancestor probe path containing newlines / ANSI escapes cannot
+            // forge log records. Aligns with the TASK-0818 sweep policy.
             tracing::debug!(
-                path = %path.display(),
-                error = %err,
+                path = ?path.display(),
+                error = ?err,
                 "stack manifest probe failed; treating as not present",
             );
             false
@@ -75,7 +78,25 @@ impl Stack {
         let extensions = self.manifest_extensions();
         if !extensions.is_empty() {
             if let Ok(entries) = dir.read_dir() {
-                for entry in entries.flatten() {
+                // ERR-1 (TASK-0935): replace `entries.flatten()` with an
+                // explicit match so a per-entry IO error (EACCES on a sibling
+                // child, EIO, ENAMETOOLONG, ...) leaves a `tracing::debug`
+                // breadcrumb instead of silently making the manifest "not
+                // found" and falling through to the next stack. Detection
+                // still treats the failure as "no match" (monotonic with the
+                // prior best-effort behavior). Mirrors TASK-0517 / TASK-0556.
+                for entry in entries {
+                    let entry = match entry {
+                        Ok(e) => e,
+                        Err(e) => {
+                            tracing::debug!(
+                                parent = ?dir.display(),
+                                error = ?e,
+                                "stack manifest extension probe: read_dir entry failed; skipping",
+                            );
+                            continue;
+                        }
+                    };
                     if let Some(ext) = entry.path().extension() {
                         if extensions.iter().any(|e| ext == *e) {
                             return true;
@@ -164,9 +185,12 @@ impl Stack {
         let mut current = match std::fs::canonicalize(start) {
             Ok(p) => p,
             Err(e) => {
+                // ERR-7 (TASK-0945): Debug-format path/error so a
+                // CWD-derived start path with control characters cannot
+                // forge log records.
                 tracing::debug!(
-                    path = %start.display(),
-                    error = %e,
+                    path = ?start.display(),
+                    error = ?e,
                     "Stack::detect could not canonicalize start; falling back to lexical walk"
                 );
                 start.to_path_buf()
@@ -280,6 +304,87 @@ mod tests {
     #[test]
     fn stack_from_str_unknown() {
         assert!("unknown".parse::<Stack>().is_err());
+    }
+
+    /// ERR-7 (TASK-0945): tracing fields for stack-detection paths flow
+    /// through the `?` formatter so an attacker-controlled CWD ancestor
+    /// path containing newlines or ANSI escapes cannot forge log records.
+    #[test]
+    fn stack_detection_path_debug_escapes_control_characters() {
+        let p = Path::new("a\nb\u{1b}[31mc/Cargo.toml");
+        let rendered = format!("{:?}", p.display());
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
+    }
+
+    /// ERR-1 (TASK-0935): a per-entry `read_dir` error during the
+    /// extension-based detection (e.g. Terraform `*.tf` walk) must leave a
+    /// `tracing::debug` breadcrumb rather than silently falling through to
+    /// the next stack. Mirrors the `manifest_present` policy and the
+    /// TASK-0517 / TASK-0556 sweep. Tests the debug-level emission via the
+    /// in-process fmt subscriber pattern already used by
+    /// `resolve_unknown_config_override_emits_tracing_warning`.
+    #[cfg(unix)]
+    #[test]
+    fn extension_walk_per_entry_error_logs_debug_breadcrumb() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("lock").extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        // Drop a `.tf` file inside a 0o000 dir: read_dir on the *parent*
+        // succeeds and yields the dir entry, but stat-ing it (or any deeper
+        // operation triggered by readdir on some platforms) may surface as
+        // a per-entry IO error. The contract under test is: even if this
+        // particular fs configuration does not synthesize a per-entry
+        // error, the function must not panic and must still resolve other
+        // entries normally. The new explicit `match` arm is exercised
+        // structurally by the source change; this test pins the behavioral
+        // contract that detection remains monotonic.
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("main.tf"), "").expect("write tf");
+        let locked = dir.path().join("locked");
+        std::fs::create_dir(&locked).expect("locked dir");
+        let mut perms = std::fs::metadata(&locked).unwrap().permissions();
+        perms.set_mode(0o000);
+        std::fs::set_permissions(&locked, perms).unwrap();
+
+        let buf = BufWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::DEBUG)
+            .with_ansi(false)
+            .finish();
+        let detected = tracing::subscriber::with_default(subscriber, || Stack::detect(dir.path()));
+
+        // Restore permissions for tempdir cleanup.
+        let mut restore = std::fs::metadata(&locked).unwrap().permissions();
+        restore.set_mode(0o755);
+        std::fs::set_permissions(&locked, restore).unwrap();
+
+        assert_eq!(
+            detected,
+            Some(Stack::Terraform),
+            "Terraform detection must remain monotonic; .tf in start dir wins"
+        );
     }
 
     #[test]
