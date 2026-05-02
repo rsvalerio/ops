@@ -104,17 +104,27 @@ fn find_required_version(root: &Path) -> Option<String> {
             return None;
         }
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().is_some_and(|e| e == "tf") {
-            let kind = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "<unnamed>.tf".to_string());
-            if let Some(content) = ops_about::manifest_io::read_optional_text(&path, &kind) {
-                if let Some(v) = extract_required_version(&content) {
-                    return Some(v);
-                }
+    // CL-3 / TASK-0852: read_dir ordering is platform-dependent (ext4
+    // hash order, APFS insertion-ish order, Windows alphabetical) so the
+    // first-match-wins fallback used to produce non-deterministic results
+    // across operators when multiple .tf files declared different
+    // `required_version` strings. Sort by filename so the chosen winner
+    // is the alphabetically-first .tf file containing a constraint —
+    // documented and reproducible.
+    let mut tf_paths: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "tf"))
+        .collect();
+    tf_paths.sort();
+    for path in tf_paths {
+        let kind = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "<unnamed>.tf".to_string());
+        if let Some(content) = ops_about::manifest_io::read_optional_text(&path, &kind) {
+            if let Some(v) = extract_required_version(&content) {
+                return Some(v);
             }
         }
     }
@@ -295,6 +305,33 @@ mod tests {
         let id: ProjectIdentity = serde_json::from_value(value).unwrap();
 
         assert_eq!(id.repository.as_deref(), Some("https://github.com/o/r"));
+    }
+
+    /// CL-3 / TASK-0852: when none of the well-known candidates matches
+    /// and the fallback walks every `*.tf` in the workspace root, the
+    /// chosen winner must be deterministic across platforms — we sort the
+    /// directory listing by filename so the alphabetically-first .tf
+    /// file that carries a `required_version` is always the one returned.
+    #[test]
+    fn find_required_version_fallback_is_deterministic() {
+        let dir = tempfile::tempdir().unwrap();
+        // Pick filenames that fall outside the named-candidate list
+        // (versions.tf, main.tf, terraform.tf, version.tf) so we exercise
+        // the read_dir fallback. The alphabetically-first should win.
+        write(
+            &dir.path().join("a-providers.tf"),
+            "terraform {\n  required_version = \"~> 1.5\"\n}\n",
+        );
+        write(
+            &dir.path().join("z-extras.tf"),
+            "terraform {\n  required_version = \">= 99.0\"\n}\n",
+        );
+        let v = find_required_version(dir.path());
+        assert_eq!(
+            v,
+            Some("~> 1.5".to_string()),
+            "alphabetically-first .tf file with a constraint must win"
+        );
     }
 
     /// ERR-1 / TASK-0851: a non-NotFound IO failure on `versions.tf`
