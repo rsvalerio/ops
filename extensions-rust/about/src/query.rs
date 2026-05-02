@@ -15,6 +15,33 @@ use ops_extension::{Context, DataProvider, DataProviderError};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::SystemTime;
+
+/// CONC-2 / TASK-0843: soft upper bound on the typed-manifest cache so a
+/// long-running daemon process that visits an unbounded set of workspaces
+/// (CI worker, language-server-style host) does not accumulate one entry
+/// per cwd indefinitely. When the cap is hit on insert we evict one
+/// arbitrary entry rather than clearing the whole cache so steady-state
+/// hits remain warm.
+const MAX_TYPED_MANIFEST_CACHE_ENTRIES: usize = 64;
+
+/// CONC-2 / TASK-0843: cache entry pairs the parsed manifest with the
+/// `Cargo.toml` mtime captured at parse time. On every cache lookup we
+/// re-stat the file; if the on-disk mtime differs (or the file disappeared
+/// or has become unreadable) the entry is treated as stale and the
+/// manifest is reparsed. `None` mtime means we couldn't stat the file at
+/// parse time — in that case we keep the legacy "always trust the cache
+/// until ctx.refresh" behaviour rather than thrashing on every call.
+struct TypedManifestEntry {
+    mtime: Option<SystemTime>,
+    manifest: Arc<CargoToml>,
+}
+
+fn cargo_toml_mtime(workspace_root: &Path) -> Option<SystemTime> {
+    std::fs::metadata(workspace_root.join("Cargo.toml"))
+        .and_then(|m| m.modified())
+        .ok()
+}
 
 /// Log a `load_workspace_manifest` failure differentiating "no manifest /
 /// not a Rust project" (silent debug) from a real read/parse error (warn),
@@ -60,8 +87,8 @@ fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
 // never across provider work, so contention is bounded; readers clone the
 // `Arc<CargoToml>` so the typed manifest is shared across threads with no
 // reparse. `ctx.refresh` evicts the entry to preserve `--refresh` semantics.
-fn typed_manifest_cache() -> &'static Mutex<HashMap<PathBuf, Arc<CargoToml>>> {
-    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<CargoToml>>>> = OnceLock::new();
+fn typed_manifest_cache() -> &'static Mutex<HashMap<PathBuf, TypedManifestEntry>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, TypedManifestEntry>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -76,13 +103,25 @@ pub(crate) fn load_workspace_manifest(
     let cwd: PathBuf = PathBuf::clone(&ctx.working_directory);
     let cache = typed_manifest_cache();
 
+    let current_mtime = cargo_toml_mtime(&cwd);
+
     if ctx.refresh {
         if let Ok(mut guard) = cache.lock() {
             guard.remove(&cwd);
         }
     } else if let Ok(guard) = cache.lock() {
-        if let Some(arc) = guard.get(&cwd) {
-            return Ok(Arc::clone(arc));
+        if let Some(entry) = guard.get(&cwd) {
+            // CONC-2 / TASK-0843: if both mtimes are known and they match,
+            // serve the cached Arc. If the on-disk mtime advanced, fall
+            // through to reparse. If we couldn't stat at all, fall back
+            // to the legacy "trust until refresh" behaviour.
+            let still_fresh = match (entry.mtime, current_mtime) {
+                (Some(cached), Some(now)) => cached == now,
+                _ => true,
+            };
+            if still_fresh {
+                return Ok(Arc::clone(&entry.manifest));
+            }
         }
     }
 
@@ -101,7 +140,21 @@ pub(crate) fn load_workspace_manifest(
 
     let arc = Arc::new(manifest);
     if let Ok(mut guard) = cache.lock() {
-        guard.insert(cwd, Arc::clone(&arc));
+        // CONC-2 / TASK-0843: bound the cache. When the soft cap is hit
+        // and the key is new, evict one arbitrary existing entry so we do
+        // not unbounded-grow under a daemon process visiting many cwds.
+        if !guard.contains_key(&cwd) && guard.len() >= MAX_TYPED_MANIFEST_CACHE_ENTRIES {
+            if let Some(victim) = guard.keys().next().cloned() {
+                guard.remove(&victim);
+            }
+        }
+        guard.insert(
+            cwd,
+            TypedManifestEntry {
+                mtime: current_mtime,
+                manifest: Arc::clone(&arc),
+            },
+        );
     }
     Ok(arc)
 }
@@ -298,6 +351,67 @@ mod tests {
         );
 
         evict_cache_for(&path);
+    }
+
+    /// CONC-2 / TASK-0843: a stale `Cargo.toml` mtime must invalidate the
+    /// cached entry without requiring `ctx.refresh = true`.
+    #[test]
+    fn typed_manifest_cache_invalidates_on_mtime_change() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let manifest_path = dir.path().join("Cargo.toml");
+        std::fs::write(&manifest_path, "[package]\nname=\"x\"\nversion=\"0.1.0\"\n").unwrap();
+        evict_cache_for(dir.path());
+
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
+        let first = load_workspace_manifest(&mut ctx).expect("load1");
+
+        // Bump the mtime by rewriting (with a sleep buffer so filesystems
+        // with second-resolution mtimes (HFS+, ext3) advance it).
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::fs::write(&manifest_path, "[package]\nname=\"y\"\nversion=\"0.2.0\"\n").unwrap();
+
+        let second = load_workspace_manifest(&mut ctx).expect("load2");
+        assert!(
+            !Arc::ptr_eq(&first, &second),
+            "mtime change must invalidate cache and reparse"
+        );
+
+        evict_cache_for(dir.path());
+    }
+
+    /// CONC-2 / TASK-0843: cache size is soft-capped so a long-running
+    /// process visiting many cwds never accumulates more than
+    /// MAX_TYPED_MANIFEST_CACHE_ENTRIES entries.
+    #[test]
+    fn typed_manifest_cache_is_bounded() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Insert MAX + extras directly to exercise the eviction branch.
+        // We bypass load_workspace_manifest for speed: the cap is enforced
+        // inside the same locked section so the contract holds for the
+        // observable behaviour as well.
+        let cache = typed_manifest_cache();
+        {
+            let mut guard = cache.lock().unwrap();
+            guard.clear();
+        }
+        for i in 0..(MAX_TYPED_MANIFEST_CACHE_ENTRIES + 10) {
+            let cwd = dir.path().join(format!("ws-{i}"));
+            std::fs::create_dir_all(&cwd).unwrap();
+            std::fs::write(
+                cwd.join("Cargo.toml"),
+                format!("[package]\nname=\"w{i}\"\nversion=\"0.1.0\"\n"),
+            )
+            .unwrap();
+            let mut ctx = Context::test_context(cwd);
+            let _ = load_workspace_manifest(&mut ctx).expect("load");
+        }
+        let len = cache.lock().unwrap().len();
+        assert!(
+            len <= MAX_TYPED_MANIFEST_CACHE_ENTRIES,
+            "cache size {len} must stay within MAX_TYPED_MANIFEST_CACHE_ENTRIES = {MAX_TYPED_MANIFEST_CACHE_ENTRIES}"
+        );
+        // Cleanup so we don't pollute later tests in the same process.
+        cache.lock().unwrap().clear();
     }
 
     fn manifest_with_members(members: &[&str]) -> CargoToml {

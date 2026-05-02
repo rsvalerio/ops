@@ -3,9 +3,10 @@ id: TASK-0843
 title: >-
   CONC-2: typed_manifest_cache in extensions-rust is unbounded and has no mtime
   invalidation
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:14'
+updated_date: '2026-05-02 14:03'
 labels:
   - code-review-rust
   - concurrency
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cache entries are bounded (LRU with cap, or evicted on file mtime change)
+- [x] #1 Cache entries are bounded (LRU with cap, or evicted on file mtime change)
 - [ ] #2 Or the cache is documented as request-scoped only, and is cleared at process boundary or after N inserts
-- [ ] #3 Test asserts the chosen invariant (size-cap or mtime invalidation)
+- [x] #3 Test asserts the chosen invariant (size-cap or mtime invalidation)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Cache value now stores (mtime, Arc<CargoToml>); lookup re-stats Cargo.toml and treats a changed mtime as a miss. A soft cap MAX_TYPED_MANIFEST_CACHE_ENTRIES = 64 evicts one arbitrary entry on insert overflow so a long-running daemon visiting many cwds stays bounded. Two regression tests pin both invariants (mtime invalidation, size cap).
+<!-- SECTION:NOTES:END -->
