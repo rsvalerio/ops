@@ -60,11 +60,23 @@ impl GitInfo {
                 remote_url: Some(url),
                 branch,
             },
-            None => Self {
-                remote_url: Some(raw),
-                branch,
-                ..Self::default()
-            },
+            None => {
+                // PATTERN-1 (TASK-0863): the parser intentionally rejects
+                // bracketed-IPv6 hosts and other shapes outside the reg-name
+                // allowlist. Without this breadcrumb the about card silently
+                // loses host/owner/repo with no operator clue why; debug-level
+                // keeps it out of the default log volume while remaining
+                // discoverable when someone goes looking.
+                tracing::debug!(
+                    raw_remote = %raw,
+                    "git remote URL did not match parse_remote_url shape; host/owner/repo will be omitted"
+                );
+                Self {
+                    remote_url: Some(raw),
+                    branch,
+                    ..Self::default()
+                }
+            }
         }
     }
 }

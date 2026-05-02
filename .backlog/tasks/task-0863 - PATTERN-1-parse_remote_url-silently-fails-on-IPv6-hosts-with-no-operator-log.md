@@ -1,9 +1,10 @@
 ---
 id: TASK-0863
 title: 'PATTERN-1: parse_remote_url silently fails on IPv6 hosts with no operator log'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:20'
+updated_date: '2026-05-02 10:38'
 labels:
   - code-review-rust
   - api-design
