@@ -3,9 +3,10 @@ id: TASK-0875
 title: >-
   ASYNC-7: run_with_runtime spins up fresh tokio multi-thread runtime per CLI
   invocation
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:23'
+updated_date: '2026-05-02 10:58'
 labels:
   - code-review-rust
   - async

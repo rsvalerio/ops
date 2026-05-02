@@ -87,9 +87,39 @@ fn run_with_runtime<F, T>(f: F) -> anyhow::Result<T>
 where
     F: std::future::Future<Output = anyhow::Result<T>>,
 {
+    // Conservative default: paths that have not analysed the plan keep the
+    // multi-thread runtime so a composite that fans out internally still has
+    // worker threads available. Callers that have proved the plan is purely
+    // sequential pass [`RuntimeKind::Sequential`] explicitly.
+    run_with_runtime_kind(RuntimeKind::MultiThread, f)
+}
+
+/// ASYNC-7 / TASK-0875: which runtime flavour the run path needs.
+///
+/// Sequential CLI invocations don't fan out to a worker pool, so paying
+/// to spin up `worker_thread × CPU` for a single short command is pure
+/// startup overhead. The parallel orchestrator does need real worker
+/// parallelism — `spawn_parallel_tasks` schedules each child on the
+/// runtime — so callers that take the parallel path must use
+/// [`RuntimeKind::MultiThread`].
+#[derive(Clone, Copy)]
+enum RuntimeKind {
+    Sequential,
+    MultiThread,
+}
+
+fn run_with_runtime_kind<F, T>(kind: RuntimeKind, f: F) -> anyhow::Result<T>
+where
+    F: std::future::Future<Output = anyhow::Result<T>>,
+{
     use anyhow::Context as _;
-    tokio::runtime::Runtime::new()
-        .context("failed to start tokio runtime for command execution")?
+    let rt = match kind {
+        RuntimeKind::Sequential => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build(),
+        RuntimeKind::MultiThread => tokio::runtime::Runtime::new(),
+    };
+    rt.context("failed to start tokio runtime for command execution")?
         .block_on(f)
 }
 
@@ -187,7 +217,12 @@ fn run_commands_with_display(
     ))?;
 
     let _echo_guard = EchoGuard::disable_echo();
-    let results: Vec<StepResult> = run_with_runtime(async {
+    let kind = if plan.any_parallel {
+        RuntimeKind::MultiThread
+    } else {
+        RuntimeKind::Sequential
+    };
+    let results: Vec<StepResult> = run_with_runtime_kind(kind, async {
         Ok(if plan.any_parallel {
             runner
                 .run_plan_parallel(plan.leaf_ids, plan.fail_fast, &mut |event| {
