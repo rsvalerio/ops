@@ -33,7 +33,23 @@ pub fn has_changes(classified: &[ClassifiedChange]) -> bool {
     classified.iter().any(|c| c.action.is_change())
 }
 
+/// FN-9 / TASK-0850: thin wrapper that locks `io::stdout()` and delegates
+/// to [`run_plan_pipeline_to`]. Preserves the previous public signature
+/// so the binary entry point and downstream callers stay unchanged.
 pub fn run_plan_pipeline(opts: PlanOptions) -> anyhow::Result<ExitCode> {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    run_plan_pipeline_to(opts, &mut handle)
+}
+
+/// FN-9 / TASK-0850: orchestration entry point that writes rendered
+/// summary / resource / outputs tables to `out` instead of global stdout.
+/// Library callers (LSP plugin, web UI, dry-run) and tests can supply
+/// their own `Vec<u8>` / file / pipe sink without spawning a subprocess.
+pub fn run_plan_pipeline_to(
+    opts: PlanOptions,
+    out: &mut dyn std::io::Write,
+) -> anyhow::Result<ExitCode> {
     let is_tty = !opts.no_color;
 
     let json_str = match opts.json_file.as_deref() {
@@ -49,19 +65,19 @@ pub fn run_plan_pipeline(opts: PlanOptions) -> anyhow::Result<ExitCode> {
     let (plan, classified) = parse_and_classify(&json_str)?;
 
     let summary = render_summary_table(&classified, is_tty);
-    print!("{summary}");
+    write!(out, "{summary}").context("write summary table")?;
 
     let changes_present = classified.iter().any(|c| c.action.is_change());
     if changes_present {
         let resources = render_resource_table(&classified, is_tty);
-        print!("{resources}");
+        write!(out, "{resources}").context("write resource table")?;
     }
 
     if opts.show_outputs {
         if let Some(ref outputs) = plan.output_changes {
             if !outputs.is_empty() {
                 let out_tbl = render_outputs_table(outputs, is_tty);
-                print!("{out_tbl}");
+                write!(out, "{out_tbl}").context("write outputs table")?;
             }
         }
     }
@@ -285,6 +301,44 @@ mod tests {
             mode: "managed".into(),
         }];
         assert!(has_changes(&changes));
+    }
+
+    /// FN-9 / TASK-0850: run_plan_pipeline_to writes its rendered tables
+    /// to the provided sink instead of global stdout, and the pipeline
+    /// returns ExitCode based on detailed_exitcode + changes_present.
+    #[test]
+    fn run_plan_pipeline_to_writes_to_supplied_buffer() {
+        // Stage the minimal fixture as a file and feed it via opts.json_file
+        // so we don't depend on a `terraform` binary on PATH.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plan.json");
+        std::fs::write(&path, include_str!("../tests/fixtures/minimal.json")).unwrap();
+
+        let opts = PlanOptions {
+            json_file: Some(path.to_string_lossy().into_owned()),
+            out: None,
+            json_out: None,
+            keep_plan: false,
+            no_color: true,
+            detailed_exitcode: false,
+            show_outputs: false,
+            passthrough: vec![],
+        };
+
+        let mut buf: Vec<u8> = Vec::new();
+        let _code = run_plan_pipeline_to(opts, &mut buf).expect("pipeline ok");
+
+        let out = String::from_utf8(buf).expect("utf-8");
+        // Summary table (always emitted) + resource table (changes
+        // present in fixture).
+        assert!(out.contains("Plan:"), "must contain summary line: {out}");
+        assert!(out.contains("create"), "must contain create row: {out}");
+        assert!(out.contains("delete"), "must contain delete row: {out}");
+        // No-op rows are filtered from the resource table.
+        assert!(
+            !out.contains("aws_s3_bucket"),
+            "no-op must be filtered: {out}"
+        );
     }
 
     #[test]
