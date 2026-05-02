@@ -132,8 +132,14 @@ pub fn default_data_dir(workspace_root: &Path) -> PathBuf {
 /// Callers that return `anyhow::Error` (collect_tokei, collect_coverage,
 /// check_metadata_output, etc.) should use this instead of the old `io_err`
 /// which misleadingly wrapped them as `DbError::Io`.
+///
+/// SEC-21 (TASK-0862): formats with the alternate `{e:#}` flag so
+/// `anyhow::Context` chains are preserved end-to-end. Plain `to_string()`
+/// would render only the leaf cause and silently drop wrapping context,
+/// turning operator triage into guesswork when an external collector fails
+/// deep in a workspace.
 pub fn external_err(e: impl std::fmt::Display) -> DbError {
-    DbError::External(e.to_string())
+    DbError::External(format!("{e:#}"))
 }
 
 /// Compute SHA-256 checksum of a file, returning hex string.
@@ -442,6 +448,24 @@ mod tests {
         let err = external_err("test error message");
         let msg = err.to_string();
         assert!(msg.contains("test error message"));
+    }
+
+    /// SEC-21 (TASK-0862): the alternate-format wrapper must preserve the
+    /// full anyhow context chain. Without `{e:#}` only the leaf "leaf cause"
+    /// would survive and "wrap two"/"wrap one" would silently disappear.
+    #[test]
+    fn external_err_preserves_anyhow_context_chain() {
+        use anyhow::Context;
+        let leaf = anyhow::Error::msg("leaf cause");
+        let chained: anyhow::Error = Err::<(), _>(leaf)
+            .context("wrap one")
+            .context("wrap two")
+            .unwrap_err();
+        let err = external_err(chained);
+        let msg = err.to_string();
+        assert!(msg.contains("wrap two"), "missing outer wrap: {msg}");
+        assert!(msg.contains("wrap one"), "missing middle wrap: {msg}");
+        assert!(msg.contains("leaf cause"), "missing leaf cause: {msg}");
     }
 
     #[test]

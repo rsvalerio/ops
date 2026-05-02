@@ -1,9 +1,10 @@
 ---
 id: TASK-0862
 title: 'SEC-21: external_err flattens diagnostic chain via to_string instead of {e:#}'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:20'
+updated_date: '2026-05-02 10:38'
 labels:
   - code-review-rust
   - error-handling
