@@ -1,9 +1,10 @@
 ---
 id: TASK-0920
 title: 'READ-5: render_resource_table magic widths 20 and 40 lack named constants'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:12'
+updated_date: '2026-05-02 11:25'
 labels:
   - code-review-rust
   - readability

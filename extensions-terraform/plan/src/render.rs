@@ -4,6 +4,18 @@ use ops_core::table::{Cell, OpsTable};
 
 use crate::model::{Action, ClassifiedChange};
 
+/// READ-5 / TASK-0920: minimum width for the wrapping `Module` column.
+/// Below this the table looks broken; we'd rather wrap module paths.
+const MODULE_COL_MIN_WIDTH: usize = 20;
+
+/// READ-5 / TASK-0920: columns the change table reserves for the three
+/// non-wrapping cells (`Action`, `Type`, `Name`) plus the four `│ … │`
+/// separators of `OpsTable`'s frame. The remaining terminal columns
+/// after subtracting this budget are handed to the `Module` column. If a
+/// future column is added or removed, update this constant alongside
+/// `set_header(...)` so the budget reflects the new shape.
+const NON_MODULE_COLS_RESERVED: usize = 40;
+
 const ACTION_DISPLAY_ORDER: [Action; 6] = [
     Action::Create,
     Action::Delete,
@@ -78,7 +90,10 @@ pub fn render_resource_table(changes: &[ClassifiedChange], is_tty: bool) -> Stri
     }
 
     if let Some(width) = term_width {
-        let capped = std::cmp::max(20, width.saturating_sub(40));
+        let capped = std::cmp::max(
+            MODULE_COL_MIN_WIDTH,
+            width.saturating_sub(NON_MODULE_COLS_RESERVED),
+        );
         table.set_max_width(3, capped as u16);
     }
 
