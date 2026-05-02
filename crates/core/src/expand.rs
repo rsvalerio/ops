@@ -19,7 +19,7 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 pub struct ExpandError {
     pub var_name: String,
-    pub cause: String,
+    pub cause: std::env::VarError,
 }
 
 impl fmt::Display for ExpandError {
@@ -32,7 +32,14 @@ impl fmt::Display for ExpandError {
     }
 }
 
-impl std::error::Error for ExpandError {}
+impl std::error::Error for ExpandError {
+    // ERR-7 / TASK-0835: expose the underlying VarError so callers and
+    // tracing formatters can walk the chain via `{:#}` / `Error::source`,
+    // instead of getting a flattened string snapshot.
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.cause)
+    }
+}
 
 /// Built-in variables available for expansion in command specs.
 ///
@@ -127,7 +134,7 @@ impl Variables {
 
         shellexpand::full_with_context(input, home_dir, lookup).map_err(|err| ExpandError {
             var_name: err.var_name,
-            cause: err.cause.to_string(),
+            cause: err.cause,
         })
     }
 }
@@ -290,9 +297,13 @@ mod tests {
         let err = outcome.expect_err("non-UTF-8 env var must fail strict expansion");
         assert_eq!(err.var_name, key);
         assert!(
-            !err.cause.is_empty(),
-            "ExpandError must carry the underlying cause"
+            matches!(err.cause, std::env::VarError::NotUnicode(_)),
+            "ExpandError must carry the typed VarError cause: {:?}",
+            err.cause
         );
+        // ERR-7 / TASK-0835: source() must walk back to the underlying VarError.
+        let src = std::error::Error::source(&err).expect("source chain present");
+        assert!(src.is::<std::env::VarError>(), "source should be VarError");
     }
 
     #[test]
