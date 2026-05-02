@@ -3,9 +3,10 @@ id: TASK-0872
 title: >-
   TRAIT-4: Config derives Default but Default is documented as
   'tests-and-extensions only'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:22'
+updated_date: '2026-05-02 10:54'
 labels:
   - code-review-rust
   - traits

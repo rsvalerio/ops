@@ -39,12 +39,15 @@ pub const MAX_COMPOSITE_DEPTH: usize = 100;
 
 /// Root configuration structure.
 ///
-/// `Config::default` is intended for tests and downstream extension wiring
-/// where a blank slate is wanted. Runtime code should call
-/// [`load_config`] so the user-visible defaults (theme = "classic", etc.)
-/// come from the single source of truth embedded in
-/// `.default.ops.toml`. See TRAIT-4 in the backlog for the rationale.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+/// TRAIT-4 / TASK-0872: `Default` is **gated to test/test-support builds**
+/// so a buggy production CLI path cannot silently fall back to a blank
+/// `Config` (no commands, no themes, etc.) instead of going through
+/// [`load_config_or_default`]. Production code that genuinely needs a
+/// blank-slate Config (the load-failure degradation, init-template
+/// scaffolding) calls [`Config::empty`] explicitly so the choice is visible
+/// at the call site. The user-visible defaults (theme = "classic", etc.)
+/// come from `.default.ops.toml` via the loader.
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
@@ -66,6 +69,24 @@ pub struct Config {
 }
 
 impl Config {
+    /// Construct a blank `Config` for the documented degradation paths
+    /// ([`load_config_or_default`] fallback, [`init_template`] scaffolding).
+    /// Production code that wants user-visible defaults should call
+    /// [`load_config`] / [`load_config_or_default`] instead.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            output: OutputConfig::default(),
+            commands: IndexMap::default(),
+            data: DataConfig::default(),
+            themes: IndexMap::default(),
+            extensions: ExtensionConfig::default(),
+            about: AboutConfig::default(),
+            stack: None,
+            tools: IndexMap::default(),
+        }
+    }
+
     /// Validate all command specs. Called after loading to fail fast on invalid config.
     ///
     /// Validates exec specs unconditionally. Composite specs are not checked
@@ -161,6 +182,17 @@ impl Config {
             }
         }
         None
+    }
+}
+
+/// TRAIT-4 / TASK-0872: `Default` is intentionally test-only. Production
+/// code uses [`Config::empty`] (explicit blank slate) or
+/// [`load_config_or_default`] (user-visible defaults). The serde defaults
+/// on individual fields do not require `Config: Default`.
+#[cfg(any(test, feature = "test-support"))]
+impl Default for Config {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
@@ -329,7 +361,7 @@ pub fn init_template(workspace_root: &Path, sections: &InitSections) -> anyhow::
     let full: Config =
         toml::from_str(default_ops_toml()).context("failed to parse internal default config")?;
 
-    let mut config = Config::default();
+    let mut config = Config::empty();
 
     if sections.output {
         config.output = full.output;

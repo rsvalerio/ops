@@ -115,7 +115,7 @@ pub fn load_config_or_default(context: &str) -> Config {
             crate::ui::warn(format!(
                 "failed to load config ({context}): {e:#}\n  using built-in defaults"
             ));
-            Config::default()
+            Config::empty()
         }
     }
 }
