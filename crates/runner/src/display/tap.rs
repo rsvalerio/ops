@@ -28,7 +28,10 @@ impl TapWriter {
         let file = match File::create(&path) {
             Ok(f) => Some(f),
             Err(e) => {
-                tracing::warn!(path = %path.display(), error = %e, "failed to open tap file");
+                // ERR-7 (TASK-0940): Debug-format path/error so a tap path
+                // configured in `.ops.toml` containing newlines or ANSI
+                // escapes cannot forge log records.
+                tracing::warn!(path = ?path.display(), error = ?e, "failed to open tap file");
                 None
             }
         };
@@ -86,10 +89,13 @@ impl TapWriter {
         match std::fs::OpenOptions::new().append(true).open(path) {
             Ok(mut f) => {
                 if let Err(e) = writeln!(f, "{line}") {
+                    // ERR-7 (TASK-0940): Debug-format path/error so a tap
+                    // path with embedded control characters cannot forge log
+                    // lines.
                     tracing::warn!(
                         target: "ops::tap",
-                        error = %e,
-                        path = %path.display(),
+                        error = ?e,
+                        path = ?path.display(),
                         "tap append-marker write failed",
                     );
                 }
@@ -97,11 +103,28 @@ impl TapWriter {
             Err(e) => {
                 tracing::warn!(
                     target: "ops::tap",
-                    error = %e,
-                    path = %path.display(),
+                    error = ?e,
+                    path = ?path.display(),
                     "tap append-marker open failed",
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    /// ERR-7 (TASK-0940): tracing fields for tap paths flow through the `?`
+    /// formatter so a config-supplied path containing newlines or ANSI
+    /// escapes cannot forge log records.
+    #[test]
+    fn tap_path_debug_escapes_control_characters() {
+        let p = Path::new("a\nb\u{1b}[31mc/tap.txt");
+        let rendered = format!("{:?}", p.display());
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
     }
 }
