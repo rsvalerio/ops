@@ -138,13 +138,43 @@ static OUTPUT_BYTE_CAP: OnceLock<usize> = OnceLock::new();
 /// stays silent and only operator-driven escalations trip the alarm.
 const PEAK_CAPTURE_WARN_BYTES: usize = 1024 * 1024 * 1024;
 
+/// ERR-2 / TASK-0840: pure parser for the OPS_OUTPUT_BYTE_CAP env value.
+/// Returns the resolved cap and, when the input was present-but-unusable,
+/// a human message describing the fallback so the caller can emit a
+/// `tracing::warn!` outside the unit-test path. Factored out so the
+/// fallback semantics are unit-testable without poking the
+/// process-global OnceLock.
+fn parse_output_byte_cap(raw: Option<&str>) -> (usize, Option<String>) {
+    match raw {
+        None => (DEFAULT_OUTPUT_BYTE_CAP, None),
+        Some(s) => match s.parse::<usize>() {
+            Ok(n) if n > 0 => (n, None),
+            Ok(_) => (
+                DEFAULT_OUTPUT_BYTE_CAP,
+                Some(format!(
+                    "{OUTPUT_CAP_ENV}={s:?} is not a positive integer; using default {DEFAULT_OUTPUT_BYTE_CAP}"
+                )),
+            ),
+            Err(e) => (
+                DEFAULT_OUTPUT_BYTE_CAP,
+                Some(format!(
+                    "{OUTPUT_CAP_ENV}={s:?} failed to parse as usize ({e}); using default {DEFAULT_OUTPUT_BYTE_CAP}"
+                )),
+            ),
+        },
+    }
+}
+
 pub(crate) fn output_byte_cap() -> usize {
     *OUTPUT_BYTE_CAP.get_or_init(|| {
-        let cap = std::env::var(OUTPUT_CAP_ENV)
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .filter(|&n| n > 0)
-            .unwrap_or(DEFAULT_OUTPUT_BYTE_CAP);
+        let raw = std::env::var(OUTPUT_CAP_ENV).ok();
+        let (cap, warn_msg) = parse_output_byte_cap(raw.as_deref());
+        if let Some(msg) = warn_msg {
+            // ERR-2 / TASK-0840: one-shot warn naturally because we are
+            // inside the OnceLock initialiser. Mirrors OPS_LOG_LEVEL's
+            // warn-on-fallback contract in cli/src/main.rs.
+            tracing::warn!(env_var = OUTPUT_CAP_ENV, "{msg}");
+        }
         // Best-effort: if the operator already overrode OPS_MAX_PARALLEL
         // upward, multiply through and warn when the worst-case in-flight
         // capture budget crosses 1 GiB. The check is informational; we do
@@ -354,6 +384,43 @@ mod tests {
         // Sanity-check from_streamed goes through the same memoized path.
         let _ = from_output(make_test_output(0, b"x", b"y"));
         assert_eq!(output_byte_cap(), first);
+    }
+
+    /// ERR-2 / TASK-0840: parser must surface a fallback warning for
+    /// non-positive integers, parse errors, and otherwise stay silent.
+    #[test]
+    fn parse_output_byte_cap_warns_on_invalid_inputs() {
+        // Unset → silent default.
+        let (cap, msg) = parse_output_byte_cap(None);
+        assert_eq!(cap, DEFAULT_OUTPUT_BYTE_CAP);
+        assert!(msg.is_none());
+
+        // Positive integer → silent override.
+        let (cap, msg) = parse_output_byte_cap(Some("12345"));
+        assert_eq!(cap, 12345);
+        assert!(msg.is_none());
+
+        // Zero → fallback + warning mentioning the value and default.
+        let (cap, msg) = parse_output_byte_cap(Some("0"));
+        assert_eq!(cap, DEFAULT_OUTPUT_BYTE_CAP);
+        let m = msg.expect("zero must produce a warn message");
+        assert!(m.contains("\"0\""), "msg must quote offending value: {m}");
+        assert!(
+            m.contains(&DEFAULT_OUTPUT_BYTE_CAP.to_string()),
+            "msg must name fallback bytes: {m}"
+        );
+
+        // Garbage → fallback + warning naming the parse error.
+        let (cap, msg) = parse_output_byte_cap(Some("foo"));
+        assert_eq!(cap, DEFAULT_OUTPUT_BYTE_CAP);
+        let m = msg.expect("garbage must produce a warn message");
+        assert!(m.contains("\"foo\""), "msg must quote offending value: {m}");
+        assert!(m.contains("parse"), "msg must mention parse failure: {m}");
+
+        // Negative → parse error path (usize::from_str rejects '-').
+        let (cap, msg) = parse_output_byte_cap(Some("-1"));
+        assert_eq!(cap, DEFAULT_OUTPUT_BYTE_CAP);
+        assert!(msg.is_some());
     }
 
     #[test]

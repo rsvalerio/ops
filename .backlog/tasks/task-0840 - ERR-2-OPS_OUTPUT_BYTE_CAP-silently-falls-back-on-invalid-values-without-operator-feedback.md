@@ -3,9 +3,10 @@ id: TASK-0840
 title: >-
   ERR-2: OPS_OUTPUT_BYTE_CAP silently falls back on invalid values without
   operator feedback
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:14'
+updated_date: '2026-05-02 12:32'
 labels:
   - code-review-rust
   - error-handling
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 On parse-failure or non-positive value, emit a single tracing::warn! (one-shot via OnceLock) naming the offending value and the fallback
-- [ ] #2 Continue to fall back to DEFAULT_OUTPUT_BYTE_CAP so production behaviour is unchanged
-- [ ] #3 Unit test that an invalid value produces the warn message and the default cap
+- [x] #1 On parse-failure or non-positive value, emit a single tracing::warn! (one-shot via OnceLock) naming the offending value and the fallback
+- [x] #2 Continue to fall back to DEFAULT_OUTPUT_BYTE_CAP so production behaviour is unchanged
+- [x] #3 Unit test that an invalid value produces the warn message and the default cap
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Factored the parse logic out into pure parse_output_byte_cap(Option<&str>) -> (usize, Option<String>) so the fallback semantics are unit-testable without poking the process-global OnceLock. output_byte_cap() emits the warning inside the OnceLock initialiser → naturally one-shot per process. Production fallback (DEFAULT_OUTPUT_BYTE_CAP) is unchanged. Test covers None, positive int, 0, garbage, and negative inputs.
+<!-- SECTION:NOTES:END -->
