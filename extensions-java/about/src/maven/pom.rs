@@ -366,15 +366,81 @@ fn strip_xml_comments(line: &str, in_comment: &mut bool) -> String {
 
 /// Extract value from `<tag>value</tag>` on a single line. Open/close
 /// markers are passed pre-built to avoid per-line allocation.
-fn extract_xml_value<'a>(line: &'a str, open: &str, close: &str) -> Option<&'a str> {
+///
+/// ERR-1 / TASK-0916: decodes the XML predefined entity references
+/// (`&amp;` `&lt;` `&gt;` `&quot;` `&apos;`) plus numeric `&#NNN;` /
+/// `&#xHH;` so `Foo &amp; Bar` no longer renders as the literal
+/// `Foo &amp; Bar` in the About card. Returns `Cow::Borrowed` (no
+/// allocation) for entity-free values, `Cow::Owned` only when a
+/// decoded substitution was needed.
+fn extract_xml_value<'a>(
+    line: &'a str,
+    open: &str,
+    close: &str,
+) -> Option<std::borrow::Cow<'a, str>> {
     let start = line.find(open)?;
     let end = line.find(close)?;
     let val_start = start + open.len();
     if val_start < end {
-        Some(line[val_start..end].trim())
+        Some(decode_xml_entities(line[val_start..end].trim()))
     } else {
         None
     }
+}
+
+/// ERR-1 / TASK-0916: minimal XML-1.0 predefined-entity + numeric-char-ref
+/// decoder. Borrows the input when no `&` is present (the common case).
+fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
+    if !s.contains('&') {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        let after_amp = &rest[amp + 1..];
+        let semi = match after_amp.find(';') {
+            Some(i) if i <= 8 => i,
+            _ => {
+                // Stray `&` or runaway entity: leave verbatim and continue.
+                out.push('&');
+                rest = after_amp;
+                continue;
+            }
+        };
+        let entity = &after_amp[..semi];
+        let decoded: Option<char> = match entity {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" => Some('\''),
+            other if other.starts_with("#x") || other.starts_with("#X") => {
+                u32::from_str_radix(&other[2..], 16)
+                    .ok()
+                    .and_then(char::from_u32)
+            }
+            other if other.starts_with('#') => {
+                other[1..].parse::<u32>().ok().and_then(char::from_u32)
+            }
+            _ => None,
+        };
+        match decoded {
+            Some(c) => {
+                out.push(c);
+                rest = &after_amp[semi + 1..];
+            }
+            None => {
+                // Unknown entity: keep verbatim (`&entity;`) and advance.
+                out.push('&');
+                out.push_str(entity);
+                out.push(';');
+                rest = &after_amp[semi + 1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    std::borrow::Cow::Owned(out)
 }
 
 #[cfg(test)]
@@ -388,7 +454,8 @@ mod tests {
                 "<artifactId>camel</artifactId>",
                 "<artifactId>",
                 "</artifactId>"
-            ),
+            )
+            .as_deref(),
             Some("camel")
         );
     }
@@ -396,8 +463,48 @@ mod tests {
     #[test]
     fn extract_xml_value_with_whitespace() {
         assert_eq!(
-            extract_xml_value("    <version>1.0</version>  ", "<version>", "</version>"),
+            extract_xml_value("    <version>1.0</version>  ", "<version>", "</version>").as_deref(),
             Some("1.0")
+        );
+    }
+
+    /// ERR-1 / TASK-0916: standard XML predefined entities + numeric
+    /// references must be decoded so the rendered About card shows the
+    /// human-readable text rather than the raw `&amp;` / `&#39;` source.
+    #[test]
+    fn extract_xml_value_decodes_predefined_entities() {
+        assert_eq!(
+            extract_xml_value(
+                "<description>Foo &amp; Bar &lt;v2&gt; &quot;ok&quot;</description>",
+                "<description>",
+                "</description>"
+            )
+            .as_deref(),
+            Some(r#"Foo & Bar <v2> "ok""#)
+        );
+        assert_eq!(
+            extract_xml_value(
+                "<description>It&apos;s &#39;a&#39; test &#x26;</description>",
+                "<description>",
+                "</description>"
+            )
+            .as_deref(),
+            Some("It's 'a' test &")
+        );
+    }
+
+    /// ERR-1 / TASK-0916: an unknown entity is left verbatim (so we
+    /// don't silently corrupt content the parser doesn't understand).
+    #[test]
+    fn extract_xml_value_passes_through_unknown_entities() {
+        assert_eq!(
+            extract_xml_value(
+                "<description>weird &custom; thing</description>",
+                "<description>",
+                "</description>"
+            )
+            .as_deref(),
+            Some("weird &custom; thing")
         );
     }
 
