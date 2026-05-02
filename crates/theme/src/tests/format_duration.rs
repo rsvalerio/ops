@@ -73,3 +73,32 @@ fn enormous_finite_input_does_not_panic() {
     assert!(out.ends_with('s'), "got: {out}");
     assert!(out.contains('h'), "got: {out}");
 }
+
+/// ERR-5 / TASK-0857: an enormous f64 (above the f64-representable u64
+/// range) must clamp to the u64::MAX-derived hours/minutes/seconds form
+/// without panicking under the new explicit clamp.
+#[test]
+fn enormous_finite_input_saturates_to_u64_max_form() {
+    // f64 can't exactly represent u64::MAX, but `u64::MAX as f64` rounds
+    // to 1.8446744073709552e19; passing that exact value must reach the
+    // hours branch.
+    let out = format_duration(u64::MAX as f64);
+    assert!(out.contains('h'), "expected hours form, got: {out}");
+}
+
+/// ERR-5 / TASK-0857: an exact-fit large value (one second past the
+/// 1-hour boundary, well within u64) round-trips through the same path.
+#[test]
+fn one_second_past_one_hour_is_one_hour() {
+    assert_eq!(format_duration(3601.0), "1h0m1s");
+}
+
+/// ERR-5 / TASK-0857: an f64 between u64::MAX and infinity must still
+/// clamp (no UB from out-of-range `as u64` cast).
+#[test]
+fn above_u64_max_finite_does_not_overflow() {
+    let above = (u64::MAX as f64) * 2.0;
+    assert!(above.is_finite(), "test premise");
+    let out = format_duration(above);
+    assert!(out.contains('h'), "expected hours form, got: {out}");
+}

@@ -1,9 +1,10 @@
 ---
 id: TASK-0857
 title: 'ERR-5: format_duration uses fragile ''as i128'' saturation idiom'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:18'
+updated_date: '2026-05-02 14:32'
 labels:
   - code-review-rust
   - error-handling
@@ -23,7 +24,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace with explicit clamp: let clamped = secs.trunc().clamp(0.0, u64::MAX as f64); let total_secs = clamped as u64;
-- [ ] #2 Add unit tests for f64::INFINITY-adjacent (1e30) and exact u64::MAX boundaries
-- [ ] #3 Drop the i128 indirection
+- [x] #1 Replace with explicit clamp: let clamped = secs.trunc().clamp(0.0, u64::MAX as f64); let total_secs = clamped as u64;
+- [x] #2 Add unit tests for f64::INFINITY-adjacent (1e30) and exact u64::MAX boundaries
+- [x] #3 Drop the i128 indirection
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Replaced u64::try_from(secs.trunc() as i128).unwrap_or(u64::MAX) with explicit clamp(0.0, u64::MAX as f64) followed by `as u64`. NaN was already rejected upstream, so the clamp range is safe. Added three regression tests: enormous_finite_input_saturates_to_u64_max_form, one_second_past_one_hour_is_one_hour, above_u64_max_finite_does_not_overflow.
+<!-- SECTION:NOTES:END -->

@@ -15,10 +15,13 @@ pub fn format_duration(secs: f64) -> String {
     if secs < 60.0 {
         return format!("{:.2}s", secs);
     }
-    // Truncate to whole seconds (matching the historical `as u64` floor) but
-    // route through i128 so an enormous f64 saturates to u64::MAX instead of
-    // silently wrapping or panicking.
-    let total_secs = u64::try_from(secs.trunc() as i128).unwrap_or(u64::MAX);
+    // ERR-5 / TASK-0857: explicit clamp into the f64-representable u64 range
+    // before the lossy `as u64` cast — replaces the prior `try_from(_ as i128)`
+    // indirection whose intent (saturate huge f64 to u64::MAX) was hidden in
+    // the cast chain. NaN was already rejected above; only finite, ≥ 0
+    // values reach here.
+    let clamped = secs.trunc().clamp(0.0, u64::MAX as f64);
+    let total_secs = clamped as u64;
     if total_secs < 3600 {
         let mins = total_secs / 60;
         let remaining = total_secs % 60;
