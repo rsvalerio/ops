@@ -3,9 +3,10 @@ id: TASK-0905
 title: >-
   PERF-3: OPS_OUTPUT_BYTE_CAP applies per-stream so peak RSS scales as 2 *
   MAX_PARALLEL * cap
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:09'
+updated_date: '2026-05-02 11:18'
 labels:
   - code-review-rust
   - performance

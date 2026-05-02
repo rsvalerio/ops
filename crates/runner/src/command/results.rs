@@ -109,6 +109,18 @@ pub struct CommandOutput {
 ///
 /// Override at runtime via `OPS_OUTPUT_BYTE_CAP` (parses as a u64; values
 /// `<=0` are ignored and fall back to the default).
+///
+/// **PERF-3 / TASK-0905 — peak-RSS budget for parallel plans.** This cap
+/// applies *per spawn × per stream*, so the worst-case in-flight capture
+/// budget is `OPS_MAX_PARALLEL × 2 × cap`. With the defaults
+/// (`OPS_MAX_PARALLEL=32`, `cap=4 MiB`) that's ≤ 256 MiB; raising
+/// `OPS_OUTPUT_BYTE_CAP` to `64M` on a 32-way plan reserves up to 4 GiB.
+/// Operators tuning the cap on tight CI runners should also dial down
+/// `OPS_MAX_PARALLEL` accordingly. There is intentionally no global
+/// semaphore on capture bytes — the per-stream guarantee is the contract,
+/// and a global cap would silently truncate output on parallel-plan
+/// pressure rather than the documented "first cap bytes are kept"
+/// behaviour callers depend on.
 pub const DEFAULT_OUTPUT_BYTE_CAP: usize = 4 * 1024 * 1024; // 4 MiB / stream
 
 const OUTPUT_CAP_ENV: &str = "OPS_OUTPUT_BYTE_CAP";
@@ -120,13 +132,40 @@ const OUTPUT_CAP_ENV: &str = "OPS_OUTPUT_BYTE_CAP";
 /// fallback semantics (parsed at first use) without re-reading.
 static OUTPUT_BYTE_CAP: OnceLock<usize> = OnceLock::new();
 
+/// PERF-3 / TASK-0905: warn if the per-stream cap × the configured
+/// parallel ceiling × 2 streams could reserve more than this many bytes
+/// for in-flight captures. Picked at 1 GiB so the default configuration
+/// stays silent and only operator-driven escalations trip the alarm.
+const PEAK_CAPTURE_WARN_BYTES: usize = 1024 * 1024 * 1024;
+
 pub(crate) fn output_byte_cap() -> usize {
     *OUTPUT_BYTE_CAP.get_or_init(|| {
-        std::env::var(OUTPUT_CAP_ENV)
+        let cap = std::env::var(OUTPUT_CAP_ENV)
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
             .filter(|&n| n > 0)
-            .unwrap_or(DEFAULT_OUTPUT_BYTE_CAP)
+            .unwrap_or(DEFAULT_OUTPUT_BYTE_CAP);
+        // Best-effort: if the operator already overrode OPS_MAX_PARALLEL
+        // upward, multiply through and warn when the worst-case in-flight
+        // capture budget crosses 1 GiB. The check is informational; we do
+        // not clamp `cap` because the per-stream guarantee is the
+        // documented contract.
+        let max_parallel: usize = std::env::var("OPS_MAX_PARALLEL")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(32);
+        let peak = cap.saturating_mul(2).saturating_mul(max_parallel);
+        if peak > PEAK_CAPTURE_WARN_BYTES {
+            tracing::warn!(
+                cap_bytes = cap,
+                max_parallel,
+                worst_case_bytes = peak,
+                threshold_bytes = PEAK_CAPTURE_WARN_BYTES,
+                "OPS_OUTPUT_BYTE_CAP × 2 streams × OPS_MAX_PARALLEL exceeds 1 GiB; consider lowering one knob"
+            );
+        }
+        cap
     })
 }
 
