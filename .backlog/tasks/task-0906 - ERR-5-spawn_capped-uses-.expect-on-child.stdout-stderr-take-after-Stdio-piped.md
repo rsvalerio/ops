@@ -3,9 +3,10 @@ id: TASK-0906
 title: >-
   ERR-5: spawn_capped uses .expect on child.stdout/stderr take after
   Stdio::piped
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:09'
+updated_date: '2026-05-02 11:18'
 labels:
   - code-review-rust
   - error-handling

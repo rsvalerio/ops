@@ -106,10 +106,25 @@ async fn spawn_capped(
 ) -> std::io::Result<CommandOutput> {
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn()?;
-    // Tokio guarantees the handles are populated when stdio was set to piped
-    // immediately before spawn — no untrusted input governs this.
-    let stdout = child.stdout.take().expect("stdout piped");
-    let stderr = child.stderr.take().expect("stderr piped");
+    // ERR-5 / TASK-0906: tokio guarantees the handles are populated when
+    // stdio is set to `piped` immediately above, but a future refactor
+    // moving the stdio setup upward (or feeding partially-configured
+    // commands in) would silently regress to a panic. Surface the
+    // invariant as a typed io::Error so the existing
+    // log_and_redact_spawn_error path catches it; debug_assert keeps the
+    // invariant visible during development.
+    debug_assert!(
+        child.stdout.is_some() && child.stderr.is_some(),
+        "stdio must be piped before spawn"
+    );
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("stdout pipe missing after spawn"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| std::io::Error::other("stderr pipe missing after spawn"))?;
     let stdout_task = tokio::spawn(read_capped(stdout, cap));
     let stderr_task = tokio::spawn(read_capped(stderr, cap));
     let status = child.wait().await?;
