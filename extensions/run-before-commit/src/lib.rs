@@ -620,4 +620,83 @@ mod tests {
             Some(Duration::from_secs(MAX_GIT_TIMEOUT_SECS))
         );
     }
+
+    /// TEST-1 / TASK-0897: capture the WARN emission so a future refactor
+    /// that drops the diagnostic while preserving the clamp does not pass
+    /// silently. Operators rely on this log to learn that their env var
+    /// was rejected.
+    mod clamp_log_emission {
+        use super::*;
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        fn capture<F: FnOnce()>(f: F) -> String {
+            let buf = BufWriter::default();
+            let captured = buf.0.clone();
+            let subscriber = tracing_subscriber::fmt()
+                .with_writer(buf)
+                .with_max_level(tracing::Level::WARN)
+                .with_ansi(false)
+                .finish();
+            tracing::subscriber::with_default(subscriber, f);
+            let bytes = captured.lock().unwrap().clone();
+            String::from_utf8(bytes).unwrap()
+        }
+
+        #[test]
+        #[serial_test::serial]
+        fn clamps_to_ceiling_emits_warn() {
+            let _guard = EnvGuard::set(TIMEOUT_ENV_VAR, "999999999");
+            let logs = capture(|| {
+                let _ = git_timeout_from_env();
+            });
+            assert!(logs.contains("WARN"), "expected WARN level, got: {logs}");
+            assert!(logs.contains(TIMEOUT_ENV_VAR), "missing env field: {logs}");
+            assert!(
+                logs.contains("requested_secs"),
+                "missing requested_secs field: {logs}"
+            );
+            assert!(
+                logs.contains("ceiling_secs"),
+                "missing ceiling_secs field: {logs}"
+            );
+            assert_eq!(
+                logs.matches("clamping to upper bound").count(),
+                1,
+                "expected exactly one clamp warn, got: {logs}"
+            );
+        }
+
+        #[test]
+        #[serial_test::serial]
+        fn at_ceiling_emits_no_warn() {
+            let value = MAX_GIT_TIMEOUT_SECS.to_string();
+            let _guard = EnvGuard::set(TIMEOUT_ENV_VAR, &value);
+            let logs = capture(|| {
+                let _ = git_timeout_from_env();
+            });
+            assert!(
+                !logs.contains("clamping to upper bound"),
+                "no clamp warn expected at the boundary, got: {logs}"
+            );
+        }
+    }
 }

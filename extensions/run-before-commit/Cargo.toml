@@ -18,3 +18,4 @@ wait-timeout = { workspace = true }
 ops-hook-common = { workspace = true, features = ["test-helpers"] }
 tempfile = { workspace = true }
 serial_test = { workspace = true }
+tracing-subscriber = { workspace = true }

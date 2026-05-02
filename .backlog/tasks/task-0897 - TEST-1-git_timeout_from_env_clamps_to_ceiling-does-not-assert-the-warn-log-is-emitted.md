@@ -3,9 +3,10 @@ id: TASK-0897
 title: >-
   TEST-1: git_timeout_from_env_clamps_to_ceiling does not assert the warn-log is
   emitted
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:47'
+updated_date: '2026-05-02 11:14'
 labels:
   - code-review-rust
   - test
