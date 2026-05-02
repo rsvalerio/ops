@@ -117,22 +117,32 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
 /// SEC-14: peak number of directories `path` ascends above its starting point
 /// while being walked component-by-component. `a/../../b` peaks at 1 above
 /// start, `../../etc` peaks at 2.
+///
+/// ERR-5 / TASK-0889: track `peak` as `usize` directly so the SEC-14
+/// traversal cap cannot be silently fooled by a future refactor that
+/// breaks the "peak is non-negative" invariant. The previous shape used
+/// `i64` plus `usize::try_from(...).unwrap_or(0)`, whose unreachable
+/// fallback would have reported "no escape" for an invariant breach —
+/// the worst possible failure mode for a security gate.
 fn max_parent_escape(path: &Path) -> usize {
     let mut depth: i64 = 0;
-    let mut peak: i64 = 0;
+    let mut peak: usize = 0;
     for c in path.components() {
         match c {
             Component::ParentDir => {
                 depth -= 1;
-                if -depth > peak {
-                    peak = -depth;
+                if depth < 0 {
+                    let escape = depth.unsigned_abs() as usize;
+                    if escape > peak {
+                        peak = escape;
+                    }
                 }
             }
             Component::Normal(_) => depth += 1,
             Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
         }
     }
-    usize::try_from(peak).unwrap_or(0)
+    peak
 }
 
 #[cfg(test)]

@@ -3,9 +3,10 @@ id: TASK-0889
 title: >-
   ERR-5: max_parent_escape uses usize::try_from(peak).unwrap_or(0) for an
   always-non-negative value
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:38'
+updated_date: '2026-05-02 11:07'
 labels:
   - code-review-rust
   - ERR
