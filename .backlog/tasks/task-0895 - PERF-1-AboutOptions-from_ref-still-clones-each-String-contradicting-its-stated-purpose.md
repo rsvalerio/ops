@@ -3,9 +3,10 @@ id: TASK-0895
 title: >-
   PERF-1: AboutOptions::from_ref still clones each String, contradicting its
   stated purpose
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:47'
+updated_date: '2026-05-02 11:12'
 labels:
   - code-review-rust
   - performance

@@ -44,9 +44,13 @@ pub(crate) fn run_about(
         Some(AboutAction::Coverage) => ops_about::run_about_coverage(&registry),
         Some(AboutAction::Dependencies) => ops_about::run_about_deps(&registry),
         None => {
-            let opts = ops_about::AboutOptions::from_ref(
+            // PERF-1 / TASK-0895: removed the misleading `from_ref` wrapper
+            // that pretended to avoid cloning while still calling `to_vec`.
+            // A direct `clone()` on the (typically small) config Vec is
+            // honest about the allocation cost.
+            let opts = ops_about::AboutOptions::new(
                 refresh,
-                config.about.fields.as_deref(),
+                config.about.fields.clone(),
                 crate::tty::is_stdout_tty(),
             );
             ops_about::run_about(&registry, &opts, &cwd, &mut std::io::stdout())
