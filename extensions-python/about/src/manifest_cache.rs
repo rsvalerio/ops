@@ -7,8 +7,17 @@
 //!
 //! The cache is keyed by the joined manifest path (the providers call us with
 //! the project root, which is constant within a single About run). Cache
-//! entries are `Arc<toml::Value>` so both providers can deserialize their
-//! private `Raw*` shapes from the shared parse without re-parsing the file.
+//! entries are `Arc<str>` (the raw file text, validated as UTF-8) so each
+//! consumer projects directly into its private `Raw*` shape via
+//! `toml::from_str`.
+//!
+//! PERF-3 / TASK-0854: the cache previously stored `Arc<toml::Value>` so the
+//! parse cost was paid once, but each consumer then `(*value).clone()`d the
+//! 2-10 KB Value tree before `try_into`-ing. That clone partially undid the
+//! deduplication. Storing the raw text and letting each consumer parse
+//! directly into its target shape is cheaper than parse-once-then-deep-clone:
+//! `toml::from_str::<RawX>` builds only the needed projection, which is far
+//! smaller than a generic `toml::Value` tree.
 //!
 //! Bounded leak: in a one-shot CLI process the cache holds at most one entry
 //! per project root probed; under `cargo test` parallelism every test creates
@@ -38,21 +47,24 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// single `ops` invocation, so the cap never trips on the CLI happy path.
 const CACHE_MAX_ENTRIES: usize = 1024;
 
-static CACHE: OnceLock<Mutex<HashMap<PathBuf, Option<Arc<toml::Value>>>>> = OnceLock::new();
+static CACHE: OnceLock<Mutex<HashMap<PathBuf, Option<Arc<str>>>>> = OnceLock::new();
 
-/// Read and parse `<root>/pyproject.toml` once per process, returning the
-/// shared `toml::Value`. Subsequent calls with the same `root` reuse the
-/// cached parse. Returns `None` when the file is missing or cannot be parsed
-/// (the parse error is logged at the first call site, matching the pre-cache
-/// behaviour).
-pub(crate) fn pyproject_value(root: &Path) -> Option<Arc<toml::Value>> {
+/// Read `<root>/pyproject.toml` once per process, returning the raw text
+/// as a shared `Arc<str>`. Subsequent calls with the same `root` reuse the
+/// cached file content. Returns `None` when the file is missing.
+///
+/// PERF-3 / TASK-0854: callers parse directly via
+/// `toml::from_str::<RawX>(&text)` which projects straight into the
+/// caller's typed shape — no `toml::Value` intermediate, no per-call deep
+/// clone of a generic value tree.
+pub(crate) fn pyproject_text(root: &Path) -> Option<Arc<str>> {
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let path = root.join("pyproject.toml");
     // ERR-5 / TASK-0878: recover from poisoning by inheriting the inner
-    // map. The cache value is a parse result, not authoritative state, so
-    // a panic in a previous holder cannot leave a torn invariant; treating
-    // poison as fatal would let one panic permanently brick the cache for
-    // every other provider in the process.
+    // map. The cache value is the raw file text, not authoritative state,
+    // so a panic in a previous holder cannot leave a torn invariant;
+    // treating poison as fatal would let one panic permanently brick the
+    // cache for every other provider in the process.
     if let Some(entry) = cache
         .lock()
         .unwrap_or_else(|e| {
@@ -63,41 +75,25 @@ pub(crate) fn pyproject_value(root: &Path) -> Option<Arc<toml::Value>> {
     {
         return entry.clone();
     }
-    let parsed = match ops_about::manifest_io::read_optional_text(&path, "pyproject.toml") {
-        Some(content) => match toml::from_str::<toml::Value>(&content) {
-            Ok(v) => Some(Arc::new(v)),
-            Err(e) => {
-                tracing::warn!(
-                    path = ?path.display(),
-                    error = %e,
-                    recovery = "default-identity",
-                    "failed to parse pyproject.toml"
-                );
-                None
-            }
-        },
-        None => None,
-    };
+    let text =
+        ops_about::manifest_io::read_optional_text(&path, "pyproject.toml").map(Arc::<str>::from);
     let mut guard = cache.lock().unwrap_or_else(|e| {
         tracing::warn!("pyproject cache mutex was poisoned by a prior panic; recovered");
         e.into_inner()
     });
     if guard.len() >= CACHE_MAX_ENTRIES {
-        // Bounded high-water mark: drop the whole table on overflow rather
-        // than maintaining LRU metadata for a parse-result cache. Next
-        // caller re-parses; correctness is unaffected.
         tracing::debug!(
             cap = CACHE_MAX_ENTRIES,
             "pyproject cache reached cap; clearing"
         );
         guard.clear();
     }
-    guard.insert(path, parsed.clone());
+    guard.insert(path, text.clone());
     debug_assert!(
         guard.len() <= CACHE_MAX_ENTRIES,
         "pyproject cache exceeded cap of {CACHE_MAX_ENTRIES}"
     );
-    parsed
+    text
 }
 
 #[cfg(test)]
@@ -112,15 +108,42 @@ mod tests {
             "[project]\nname = \"demo\"\n",
         )
         .unwrap();
-        let a = pyproject_value(dir.path()).unwrap();
-        let b = pyproject_value(dir.path()).unwrap();
+        let a = pyproject_text(dir.path()).unwrap();
+        let b = pyproject_text(dir.path()).unwrap();
         assert!(Arc::ptr_eq(&a, &b));
+    }
+
+    /// PERF-3 / TASK-0854: the second consumer of the cached text must
+    /// share the Arc allocation — proves the cache deduplicates the IO
+    /// without forcing a re-read or text clone per consumer.
+    #[test]
+    fn arc_is_shared_across_two_consumer_parses() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        // Two distinct consumers each ask for the cached text and parse
+        // their own typed projection. Both must observe the same Arc.
+        let a = pyproject_text(dir.path()).unwrap();
+        let _: toml::Value = toml::from_str(&a).expect("identity-shape parse from shared text");
+        let b = pyproject_text(dir.path()).unwrap();
+        let _: toml::Value = toml::from_str(&b).expect("workspace-shape parse from shared text");
+        assert!(
+            Arc::ptr_eq(&a, &b),
+            "both consumers must share the cached Arc<str>"
+        );
+        // strong_count = 1 in cache + 2 captured in test = 3; guard
+        // against future regressions where the cache stops sharing.
+        assert!(Arc::strong_count(&a) >= 3);
     }
 
     #[test]
     fn missing_file_returns_none() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(pyproject_value(dir.path()).is_none());
+        assert!(pyproject_text(dir.path()).is_none());
     }
 
     /// ERR-5 / TASK-0878: a panic while holding the cache lock must not
@@ -146,7 +169,7 @@ mod tests {
             "[project]\nname = \"recover\"\n",
         )
         .unwrap();
-        let parsed = pyproject_value(dir.path()).expect("parsed after poison recovery");
-        assert!(parsed.get("project").is_some());
+        let text = pyproject_text(dir.path()).expect("text after poison recovery");
+        assert!(text.contains("name = \"recover\""));
     }
 }

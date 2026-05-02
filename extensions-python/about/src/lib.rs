@@ -171,8 +171,12 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
     // DUP-3 / TASK-0816: read+parse pyproject.toml at most once per project
     // root for the lifetime of the process; the units provider deserialises
     // its own shape from the same shared `toml::Value`.
-    let value = manifest_cache::pyproject_value(project_root)?;
-    let raw: RawPyproject = match (*value).clone().try_into() {
+    // PERF-3 / TASK-0854: read directly from the cached raw text and let
+    // toml::from_str project straight into RawPyproject — avoids the prior
+    // `(*value).clone().try_into()` which materialised a fresh 2-10 KB
+    // toml::Value tree per provider call.
+    let text = manifest_cache::pyproject_text(project_root)?;
+    let raw: RawPyproject = match toml::from_str(&text) {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(

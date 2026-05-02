@@ -52,10 +52,12 @@ fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
     // DUP-3 / TASK-0816: share the parsed `toml::Value` with the identity
     // provider via the per-process cache rather than re-reading and
     // re-parsing the same `pyproject.toml`.
-    let Some(value) = crate::manifest_cache::pyproject_value(root) else {
+    // PERF-3 / TASK-0854: parse directly from the cached raw text into
+    // the workspace shape, skipping the toml::Value intermediate clone.
+    let Some(text) = crate::manifest_cache::pyproject_text(root) else {
         return Vec::new();
     };
-    let raw: RawRoot = match (*value).clone().try_into() {
+    let raw: RawRoot = match toml::from_str(&text) {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(
