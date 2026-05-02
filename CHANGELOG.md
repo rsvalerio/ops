@@ -2,6 +2,81 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.26.0](https://github.com/rsvalerio/ops/compare/d1b69bf537e8d05356d6afe272aea7fda8957162..v0.26.0) - 2026-05-02
+#### 🚀 Features
+- (**duckdb**) warn on ingest mutex poison recovery (TASK-0861) - ([bfda699](https://github.com/rsvalerio/ops/commit/bfda6991557f069c8935ebcc0931c89bd373b409)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git**) debug-log when remote URL fails parse (TASK-0863) - ([04cbef6](https://github.com/rsvalerio/ops/commit/04cbef670e99ddc9a1a8b90cbb8e016db95f00ce)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) env-overridable parallel and event-budget caps (TASK-0873) - ([bf19f8f](https://github.com/rsvalerio/ops/commit/bf19f8fd92260b007b6ca2c680498fc8daf0e7bf)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**cli/plan**) exhaustive display_cmd_for, child list for composites (TASK-0903) - ([8af7fbe](https://github.com/rsvalerio/ops/commit/8af7fbebec406da2f1e609ec8d0a44f382f8c9e4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli/tools**) render ToolStatus via Display, not Debug (TASK-0896) - ([78b3f1a](https://github.com/rsvalerio/ops/commit/78b3f1acd5d42bed00e14e036ca8e5920b441cf3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) strip leading dot from atomic_write tmp basename (TASK-0908) - ([9aaef52](https://github.com/rsvalerio/ops/commit/9aaef5257308e3d037c75db13d4304ef435d83c6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) warn on atomic_write parent fsync failure (TASK-0899) - ([8c95763](https://github.com/rsvalerio/ops/commit/8c95763c9da11664b6e57bbde73f16ea102e3945)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/config**) handle OsString in env var collection via vars_os() - ([5c13feb](https://github.com/rsvalerio/ops/commit/5c13feb235492df99aa1f5423c5c644d485f1dde)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/stack**) canonicalize start before parent walk (TASK-0902) - ([02c6706](https://github.com/rsvalerio/ops/commit/02c6706b571d63eee5697b8be1ca11ab519f7d34)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) preserve anyhow chain in external_err (TASK-0862) - ([b175792](https://github.com/rsvalerio/ops/commit/b175792818f202a64ff28fe44d762e19d96d39a4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git**) warn on non-NotFound IO errors reading HEAD (TASK-0887) - ([064d1c5](https://github.com/rsvalerio/ops/commit/064d1c50ac6218cf0efcd632b66b7edccec65bf5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) track peak traversal as usize directly (TASK-0889) - ([7729abd](https://github.com/rsvalerio/ops/commit/7729abddd738a786be50b4fb5d5d400929e37e90)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python/about**) recover from pyproject cache mutex poison (TASK-0878) - ([4cdb08c](https://github.com/rsvalerio/ops/commit/4cdb08c0742ca1291edf915e85e1924a590d47e5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python/about**) bound pyproject cache residency (TASK-0867) - ([fbf6184](https://github.com/rsvalerio/ops/commit/fbf61841ebd607ec6feb241eecd54053cf5fc5b2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) typed io error on missing stdio pipes (TASK-0906) - ([79a2124](https://github.com/rsvalerio/ops/commit/79a212415ebb59c118118cb84311a07f5655e57a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform/plan**) route cleanup failures through tracing::warn (TASK-0921) - ([8cbd916](https://github.com/rsvalerio/ops/commit/8cbd916a385a4b40d25530f0f1ffd0ebb8eb9e3c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**cli**) use current_thread tokio runtime for sequential plans (TASK-0875) - ([370db24](https://github.com/rsvalerio/ops/commit/370db24817ee550a44aee1afe8edf2b65b887121)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps/format**) drop intermediate AdvisoryRow Vec (TASK-0880) - ([c514fa7](https://github.com/rsvalerio/ops/commit/c514fa73a30173de3e9c6ea51cb868bf8ac94e8b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) zero-clone Context cwd via from_cwd_arc (TASK-0890) - ([af951b1](https://github.com/rsvalerio/ops/commit/af951b19e6269efe2054e39fcc91b4e88b1d0312)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension/data**) add provider_names_iter to skip Vec alloc (TASK-0877) - ([2bc4910](https://github.com/rsvalerio/ops/commit/2bc4910a2c55f240570ade94d5534801abf69564)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**metadata**) O(1) package_by_name/id via lazy index (TASK-0883) - ([cd71d81](https://github.com/rsvalerio/ops/commit/cd71d81ccdc38160c9c7979465ca52ebfb569041)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/about**) inline cwd lossy borrow on coverage hot path (TASK-0917) - ([4c37413](https://github.com/rsvalerio/ops/commit/4c374137c6a6931bf22707d145e30c88a60ad5c4)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**duckdb**) clarify LoadResult API surface, drop dead_code (TASK-0879) - ([15f7aac](https://github.com/rsvalerio/ops/commit/15f7aac4689a097502cc658b293b4c03720a3f2a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) document CommandRegistry Deref as intentional surface (TASK-0874) - ([d08a874](https://github.com/rsvalerio/ops/commit/d08a874b3b574ca05983832718bd2fa37c4ac9f2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) document ProgressDisplay !Send marker, add static check (TASK-0907) - ([a8e66e8](https://github.com/rsvalerio/ops/commit/a8e66e8baaf5535881b61aace167f99eb3b2e786)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) warn on excessive in-flight capture budget (TASK-0905) - ([6d5236b](https://github.com/rsvalerio/ops/commit/6d5236b63ecf261d2d7317d8eb76aef7605eeb92)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**run-before-commit**) assert clamp warn emission (TASK-0897) - ([442a8e5](https://github.com/rsvalerio/ops/commit/442a8e53db8a5ba9ba9a6b436dac92c5f2c874f6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/display**) enhance render configuration tests - ([26f2999](https://github.com/rsvalerio/ops/commit/26f29993ee99a7ca4706a0eacfa0e01debc452a2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) update rendering tests for improved configuration - ([f7f796c](https://github.com/rsvalerio/ops/commit/f7f796c819cb206ef224d6ffc464f20903089654)) - [@rsvalerio](https://github.com/rsvalerio)
+- fix display map expectation and working directory assertion - ([c6cc3c7](https://github.com/rsvalerio/ops/commit/c6cc3c7f547751c30b1fa197e1b513930996f8f7)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about**) use Config::empty() instead of Config::default() - ([55a80f9](https://github.com/rsvalerio/ops/commit/55a80f9e2c653d4f5a02e7099972515c5d19bb2e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) drop misleading from_ref wrapper (TASK-0895) - ([e620fb5](https://github.com/rsvalerio/ops/commit/e620fb5a118784fbbdc7ed80f83f388d9c189b2a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-toml**) typed FindWorkspaceRootError variants (TASK-0871) - ([e287b82](https://github.com/rsvalerio/ops/commit/e287b8230301aa64e8d32981a756fc2d3b59ee66)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-update**) derive Copy on UpdateAction, drop clones (TASK-0870) - ([fc2a6a8](https://github.com/rsvalerio/ops/commit/fc2a6a8c70338738db84134106b64c6cb676905e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) group plan args into PlanShape struct (TASK-0866) - ([5003f86](https://github.com/rsvalerio/ops/commit/5003f865d0e3a3c98a6c3aaef504f3419969b0c8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) improve extension and command execution interfaces - ([b541f9b](https://github.com/rsvalerio/ops/commit/b541f9ba203b3004930a8ddaa7cb063a72f22470)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli/registry**) unify Owner enum across command and data paths (TASK-0876) - ([d901f88](https://github.com/rsvalerio/ops/commit/d901f8889745de79f71dfcf9f01a8cc214b811f2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli/tools**) improve tools command rendering and configuration - ([c27f543](https://github.com/rsvalerio/ops/commit/c27f5432934bbf107c353a0251b79604b798d8d6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) improve loader and tool configuration handling - ([0555cf7](https://github.com/rsvalerio/ops/commit/0555cf74e5042c8d824daae2c0c90ec6b1ff58d4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) improve expansion and library exports - ([3f8e762](https://github.com/rsvalerio/ops/commit/3f8e762dd921bd034997678f39e47ff95579be83)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/config**) gate Config Default to test, add empty() (TASK-0872) - ([40c0940](https://github.com/rsvalerio/ops/commit/40c0940766e19f375a1751ed64b31d852605e7c8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/paths**) improve path handling and resolution - ([c6ac0f2](https://github.com/rsvalerio/ops/commit/c6ac0f2f68fb972953bae7fb1b1fa62d9ffd5b12)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) newtype SourceName/WorkspaceRoot for swap safety (TASK-0912) - ([01ffe3d](https://github.com/rsvalerio/ops/commit/01ffe3d90b37582f7780f82ddd5292f828301aa5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/about**) improve data providers and card generation - ([ce53e78](https://github.com/rsvalerio/ops/commit/ce53e7837fab1bd16c612a00f69954bae1deec53)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/git**) improve provider implementation - ([812dcfc](https://github.com/rsvalerio/ops/commit/812dcfc89dd861d5f669c0ee60244643319a17d2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/run-before-commit**) improve hook configuration and execution - ([ee60d69](https://github.com/rsvalerio/ops/commit/ee60d6914d5d28e8a893046fd2abbe7d2c765989)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**maven**) unify project opener classifier (TASK-0923) - ([7b0a5ac](https://github.com/rsvalerio/ops/commit/7b0a5ac4ced280e1fb689fc3f679c8bb8ce0ab8c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**maven**) extract try_set_once helper for first-write-wins (TASK-0869) - ([aa0a8da](https://github.com/rsvalerio/ops/commit/aa0a8dab38ff250f6b8d4325734c4ab51a07c06e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**project_identity**) improve card generation and display - ([4c2c91e](https://github.com/rsvalerio/ops/commit/4c2c91e59192b105d8524d01dd883b10384e4e5b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**run-before-commit**) name STDERR_DRAIN_GRACE const (TASK-0864) - ([f667da1](https://github.com/rsvalerio/ops/commit/f667da165cbaa524d58b772b427188748c298830)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/command**) improve execution and concurrency handling - ([7b68737](https://github.com/rsvalerio/ops/commit/7b687375ef4fefeb4192e903a5fe652814a94cc8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/display**) improve render configuration and output handling - ([99e0566](https://github.com/rsvalerio/ops/commit/99e0566410e7be452f19bdeba3ad3d585c76429a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform**) drop dead "." sentinel from version scan (TASK-0868) - ([6ee2a85](https://github.com/rsvalerio/ops/commit/6ee2a85c0cc250d47e3914bd6de1dea93133be37)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform/plan**) name table-width magic numbers (TASK-0920) - ([abd38ed](https://github.com/rsvalerio/ops/commit/abd38ed3ec8b75e4e3bc740b54f9ab665850e100)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) apply_with_prefix takes Option<&str> (TASK-0893) - ([8551a0d](https://github.com/rsvalerio/ops/commit/8551a0d26bc3be599e547dbb1770023194b6b743)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) fold StepLineTheme trait into ConfigurableTheme (TASK-0865) - ([4b68b21](https://github.com/rsvalerio/ops/commit/4b68b216682318c6a1af46dfeba6864a61cd36ec)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) improve configuration, resolution, and styling logic - ([76fddd2](https://github.com/rsvalerio/ops/commit/76fddd2e7eca07a4018e243c66c05c619e12ba8b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme/style**) split into sgr and strip submodules (TASK-0881) - ([06ed6f4](https://github.com/rsvalerio/ops/commit/06ed6f496e3edfa03ca72b278549e5dda67eab2e)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) update code review wave 69 findings and task statuses - ([472eacd](https://github.com/rsvalerio/ops/commit/472eacd80aa0f08fa9211e132ca5ba42bb96943f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions**) add #[non_exhaustive] to extension structs (TASK-0922) - ([363b071](https://github.com/rsvalerio/ops/commit/363b07113d1d318ea8d8c0b8f0d338c41a410339)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**metadata**) add #[non_exhaustive] to public wrappers (TASK-0884) - ([a0f4ba0](https://github.com/rsvalerio/ops/commit/a0f4ba0081a57b8d11338521c12f0e99157a0143)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tokei**) demote TOKEI_DEFAULT_EXCLUDED to pub(crate) (TASK-0888) - ([046771f](https://github.com/rsvalerio/ops/commit/046771ffc39a1cd7dfde91dd6b1ebd15377503bf)) - [@rsvalerio](https://github.com/rsvalerio)
+- add #[non_exhaustive] to PomData and PackageJson (TASK-0860) - ([b5acdd1](https://github.com/rsvalerio/ops/commit/b5acdd15eb2ffd4aba2d18e27b0be0a485372e9b)) - [@rsvalerio](https://github.com/rsvalerio)
+- change before push command to `qa` sub command - ([d1b69bf](https://github.com/rsvalerio/ops/commit/d1b69bf537e8d05356d6afe272aea7fda8957162)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.25.0](https://github.com/rsvalerio/ops/compare/cc7d4330ec8762ac772654237cc26a60f72c1aa2..v0.25.0) - 2026-05-01
 #### 🚀 Features
 - (**cli**) add terraform plans subcommand with options - ([47ade9a](https://github.com/rsvalerio/ops/commit/47ade9ab99ea8165b89681d11be5f793b938e6ad)) - [@rsvalerio](https://github.com/rsvalerio)
