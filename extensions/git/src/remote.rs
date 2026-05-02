@@ -164,6 +164,16 @@ fn is_valid_path_segment(segment: &str) -> bool {
     if rest.is_empty() {
         return false;
     }
+    // SEC-13 (TASK-0929): reject segments composed entirely of `.` (`.`,
+    // `..`, `...`, ...). Otherwise a hostile `.git/config` like
+    // `https://github.com/../etc.git` would round-trip through
+    // `git_info.remote_url`, and downstream tools that consume the JSON
+    // literally (audit logs, mirrors, tickets) would capture a
+    // path-traversal form. Aligns with the host-segment validator that
+    // already rejects empty / dot-only labels (TASK-0782).
+    if rest.iter().all(|b| *b == b'.') {
+        return false;
+    }
     rest.iter()
         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
 }
@@ -179,6 +189,34 @@ mod tests {
             repo: repo.into(),
             url: format!("https://{host}/{owner}/{repo}"),
         }
+    }
+
+    /// SEC-13 (TASK-0929): a `.`-only path segment (`.`, `..`, `...`) must
+    /// be rejected before the synthesized URL can capture a traversal form.
+    /// Browsers collapse `../` away, but downstream tools that consume the
+    /// JSON literally (audit logs, mirrors, tickets) capture the
+    /// traversal — silently misdirecting operators.
+    #[test]
+    fn dot_only_owner_segment_rejected() {
+        assert_eq!(parse_remote_url("https://github.com/../etc.git"), None);
+        assert_eq!(
+            parse_remote_url("https://gitlab.com/group/../repo.git"),
+            None
+        );
+        assert_eq!(parse_remote_url("https://github.com/owner/.."), None);
+        assert_eq!(parse_remote_url("https://github.com/./repo.git"), None);
+        assert_eq!(parse_remote_url("https://github.com/.../repo.git"), None);
+    }
+
+    /// SEC-13 (TASK-0929): legitimate `.`-containing names (e.g. `my.lib`,
+    /// `lib.rs`) must still parse — the rejection is *all*-`.` segments,
+    /// not any segment containing a `.`.
+    #[test]
+    fn dot_containing_names_still_accepted() {
+        assert_eq!(
+            parse_remote_url("https://github.com/my.lib/lib.rs.git"),
+            Some(info("github.com", "my.lib", "lib.rs")),
+        );
     }
 
     #[test]
