@@ -33,6 +33,14 @@ pub(crate) struct RunOptions {
     pub verbose: bool,
     pub tap: Option<PathBuf>,
     pub raw: bool,
+    /// SEC-14 / TASK-0886: cwd-escape policy applied to the runner this
+    /// invocation builds. Hook-triggered entry points
+    /// (`run-before-commit`, `run-before-push`) set
+    /// `CwdEscapePolicy::Deny` so a coworker-landed `.ops.toml` cannot
+    /// escape the workspace on the next commit. Default
+    /// (`CwdEscapePolicy::WarnAndAllow`) preserves the interactive trust
+    /// model for `ops <cmd>`.
+    pub cwd_escape_policy: ops_runner::command::CwdEscapePolicy,
 }
 
 pub(crate) fn run_external_command(
@@ -68,10 +76,12 @@ pub(crate) fn run_external_command(
 fn build_runner(
     config: &ops_core::config::Config,
     _verbose: bool,
+    cwd_escape_policy: ops_runner::command::CwdEscapePolicy,
 ) -> anyhow::Result<ops_runner::command::CommandRunner> {
     let config = config.clone();
     let cwd = crate::cwd()?;
     let mut runner = ops_runner::command::CommandRunner::new(config, cwd);
+    runner.set_cwd_escape_policy(cwd_escape_policy);
     setup_extensions(&mut runner)?;
     Ok(runner)
 }
@@ -133,8 +143,9 @@ fn run_commands(
         verbose,
         tap,
         raw,
+        cwd_escape_policy,
     } = opts;
-    let runner = build_runner(config, verbose)?;
+    let runner = build_runner(config, verbose, cwd_escape_policy)?;
 
     if dry_run {
         for name in names {
@@ -273,8 +284,9 @@ fn run_command(
         verbose,
         tap,
         raw,
+        cwd_escape_policy,
     } = opts;
-    let mut runner = build_runner(config, verbose)?;
+    let mut runner = build_runner(config, verbose, cwd_escape_policy)?;
 
     if dry_run {
         return run_command_dry_run(&runner, name);

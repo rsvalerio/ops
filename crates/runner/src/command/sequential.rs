@@ -79,7 +79,14 @@ impl CommandRunner {
                     continue;
                 }
             };
-            let result = exec_command_raw(id.as_str(), &spec, &self.cwd, &self.vars).await;
+            let result = exec_command_raw(
+                id.as_str(),
+                &spec,
+                &self.cwd,
+                &self.vars,
+                self.cwd_escape_policy,
+            )
+            .await;
             let should_stop = !result.success;
             results.push(result);
             if fail_fast && should_stop {

@@ -8,7 +8,14 @@ async fn exec_command_raw_returns_success_for_true() {
     let spec = true_cmd();
     let cwd = Arc::new(std::env::current_dir().unwrap());
     let vars = Arc::new(test_vars());
-    let result = exec_command_raw("true_cmd", &spec, &cwd, &vars).await;
+    let result = exec_command_raw(
+        "true_cmd",
+        &spec,
+        &cwd,
+        &vars,
+        crate::command::CwdEscapePolicy::WarnAndAllow,
+    )
+    .await;
     assert!(result.success);
     assert!(result.stdout.is_empty(), "raw mode must not capture stdout");
     assert!(result.stderr.is_empty(), "raw mode must not capture stderr");
@@ -20,7 +27,14 @@ async fn exec_command_raw_returns_failure_for_false() {
     let spec = false_cmd();
     let cwd = Arc::new(std::env::current_dir().unwrap());
     let vars = Arc::new(test_vars());
-    let result = exec_command_raw("false_cmd", &spec, &cwd, &vars).await;
+    let result = exec_command_raw(
+        "false_cmd",
+        &spec,
+        &cwd,
+        &vars,
+        crate::command::CwdEscapePolicy::WarnAndAllow,
+    )
+    .await;
     assert!(!result.success);
     assert!(result.stdout.is_empty());
     assert!(result.stderr.is_empty());

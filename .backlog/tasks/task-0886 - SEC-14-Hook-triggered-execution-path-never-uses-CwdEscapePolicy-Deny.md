@@ -1,9 +1,10 @@
 ---
 id: TASK-0886
 title: 'SEC-14: Hook-triggered execution path never uses CwdEscapePolicy::Deny'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:37'
+updated_date: '2026-05-02 12:09'
 labels:
   - code-review-rust
   - SEC

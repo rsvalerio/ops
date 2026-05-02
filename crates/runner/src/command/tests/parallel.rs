@@ -269,6 +269,7 @@ async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
             vars: Arc::new(test_vars()),
             tx,
             abort,
+            policy: crate::command::CwdEscapePolicy::WarnAndAllow,
         },
     ));
 
@@ -328,6 +329,7 @@ async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
             vars: Arc::new(test_vars()),
             tx,
             abort,
+            policy: crate::command::CwdEscapePolicy::WarnAndAllow,
         },
     ));
 
@@ -373,6 +375,7 @@ async fn exec_standalone_emits_step_output_dropped_under_burst() {
             vars: Arc::new(test_vars()),
             tx,
             abort: Arc::clone(&abort),
+            policy: crate::command::CwdEscapePolicy::WarnAndAllow,
         },
     ));
 
@@ -452,6 +455,7 @@ async fn exec_standalone_terminal_send_aborts_on_full_outer_channel() {
             vars: Arc::new(test_vars()),
             tx,
             abort: abort_clone,
+            policy: crate::command::CwdEscapePolicy::WarnAndAllow,
         },
     ));
 
@@ -486,6 +490,7 @@ async fn exec_standalone_skips_when_abort_set() {
             vars: Arc::new(test_vars()),
             tx,
             abort,
+            policy: crate::command::CwdEscapePolicy::WarnAndAllow,
         },
     )
     .await;

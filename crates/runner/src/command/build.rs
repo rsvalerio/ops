@@ -77,9 +77,10 @@ pub enum CwdEscapePolicy {
     WarnAndAllow,
     /// Refuse to spawn; return an error. Used by git-hook-triggered paths.
     ///
-    /// Kept in the public API so hook-triggered entry points can opt in
-    /// once they thread a policy through `CommandRunner`. Currently only
-    /// constructed in tests; the default interactive path stays
+    /// SEC-14 / TASK-0886: hook-triggered entry points (`run-before-commit`,
+    /// `run-before-push`) now construct a `CommandRunner` with this policy
+    /// so a `.ops.toml` landed by a coworker PR cannot escape the workspace
+    /// on the next commit. The default interactive path stays
     /// `WarnAndAllow` to avoid a behaviour change for existing users.
     ///
     /// SEC-25: residual TOCTOU window. The check happens in
@@ -95,7 +96,6 @@ pub enum CwdEscapePolicy {
     /// `openat`/`fchdir`-style fd handoff to the child, which neither
     /// `std::process::Command` nor `tokio::process::Command` exposes
     /// today.
-    #[allow(dead_code)]
     Deny,
 }
 
@@ -233,6 +233,7 @@ pub fn resolve_spec_cwd(
 // guarantee is now structural in the *return type*: build_command
 // returns `Result`, and every caller threads the error to a StepFailed
 // event. There is no remaining `.expect` to revisit.
+#[cfg(test)]
 pub fn build_command(
     spec: &ExecCommandSpec,
     cwd: &std::path::Path,
@@ -263,6 +264,7 @@ pub async fn build_command_async(
     spec: ExecCommandSpec,
     cwd: std::sync::Arc<std::path::PathBuf>,
     vars: std::sync::Arc<Variables>,
+    policy: CwdEscapePolicy,
 ) -> Result<Command, std::io::Error> {
     // API-2 / TASK-0659: pin the Arc-only invariant in debug builds. Production
     // call sites pass `Arc::clone(cwd_ref)` from a `&Arc<...>` held by the
@@ -297,8 +299,10 @@ pub async fn build_command_async(
     // Cancellation of the blocking task is treated identically — it can
     // only happen if the runtime is shutting down, in which case
     // returning Err is no worse than a hard panic.
-    match tokio::task::spawn_blocking(move || build_command(&spec, cwd.as_ref(), vars.as_ref()))
-        .await
+    match tokio::task::spawn_blocking(move || {
+        build_command_with(&spec, cwd.as_ref(), vars.as_ref(), policy)
+    })
+    .await
     {
         Ok(result) => result,
         Err(join_err) => {
@@ -397,6 +401,7 @@ mod tests {
                     spec,
                     std::sync::Arc::clone(&cwd_arc),
                     std::sync::Arc::clone(&vars_arc),
+                    CwdEscapePolicy::WarnAndAllow,
                 )
                 .await
                 .unwrap();
@@ -427,6 +432,7 @@ mod tests {
             spec,
             std::sync::Arc::clone(&cwd_arc),
             std::sync::Arc::clone(&vars_arc),
+            CwdEscapePolicy::WarnAndAllow,
         )
         .await
         .unwrap();

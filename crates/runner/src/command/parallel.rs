@@ -5,6 +5,7 @@
 //! file isn't carrying both sequential and parallel scheduling concerns.
 
 use super::abort::AbortSignal;
+use super::build::CwdEscapePolicy;
 use super::events::PlanLifecycle;
 use super::exec::{exec_standalone, resolution_failure, ExecTaskCtx};
 use super::{CommandRunner, RunnerEvent, StepResult};
@@ -161,6 +162,7 @@ impl CommandRunner {
         steps: Vec<(CommandId, ExecCommandSpec)>,
         cwd: Arc<PathBuf>,
         vars: Arc<Variables>,
+        policy: CwdEscapePolicy,
     ) -> (
         mpsc::Receiver<RunnerEvent>,
         Arc<AbortSignal>,
@@ -219,6 +221,7 @@ impl CommandRunner {
                         vars,
                         tx,
                         abort,
+                        policy,
                     },
                 )
                 .await
@@ -270,8 +273,12 @@ impl CommandRunner {
             }
         };
 
-        let (rx, abort, mut join_set, id_map) =
-            Self::spawn_parallel_tasks(steps, self.cwd.clone(), self.vars.clone());
+        let (rx, abort, mut join_set, id_map) = Self::spawn_parallel_tasks(
+            steps,
+            self.cwd.clone(),
+            self.vars.clone(),
+            self.cwd_escape_policy,
+        );
         // CONC-6 / TASK-0204: when fail_fast sees the first failure, set
         // the abort flag **and** actively `abort_all()` the JoinSet so
         // siblings stop rendering output. Previously the loop kept

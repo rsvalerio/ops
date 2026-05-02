@@ -13,6 +13,7 @@ async fn spawn_parallel_tasks_creates_correct_count() {
         steps,
         Arc::new(PathBuf::from(".")),
         Arc::new(test_vars()),
+        crate::command::CwdEscapePolicy::WarnAndAllow,
     );
     drop(rx);
     let results = CommandRunner::collect_join_results(join_set, &id_map).await;

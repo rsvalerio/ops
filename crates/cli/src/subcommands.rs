@@ -137,7 +137,18 @@ fn run_hook_dispatch(
         }
     }
     let args = vec![std::ffi::OsString::from(hook.hook_name)];
-    run_cmd::run_external_command(config, &args, run_cmd::RunOptions::default())
+    // SEC-14 / TASK-0886: a `.ops.toml` landed by a coworker PR is the
+    // documented threat model for the hook path. Refuse to spawn when the
+    // spec's cwd escapes the workspace, instead of the interactive
+    // `WarnAndAllow` default that only logs.
+    run_cmd::run_external_command(
+        config,
+        &args,
+        run_cmd::RunOptions {
+            cwd_escape_policy: ops_runner::command::CwdEscapePolicy::Deny,
+            ..Default::default()
+        },
+    )
 }
 
 pub(crate) fn run_before_commit(

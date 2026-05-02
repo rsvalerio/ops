@@ -237,6 +237,7 @@ fn dispatch(
                     verbose: cli.verbose,
                     tap: cli.tap,
                     raw: cli.raw,
+                    ..Default::default()
                 },
             )
         }

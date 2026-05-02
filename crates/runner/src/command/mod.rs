@@ -38,6 +38,7 @@ mod results;
 mod secret_patterns;
 mod sequential;
 
+pub use build::CwdEscapePolicy;
 pub use events::{OutputLine, RunnerEvent};
 pub use results::StepResult;
 pub use secret_patterns::is_sensitive_env_key;
@@ -119,6 +120,12 @@ pub struct CommandRunner {
     pub(super) data_registry: DataRegistry,
     pub(super) data_cache: std::collections::HashMap<String, Arc<serde_json::Value>>,
     pub(super) detected_stack: Option<Stack>,
+    /// SEC-14 / TASK-0886: cwd-escape policy applied to every spawn this
+    /// runner orchestrates. Hook-triggered entry points construct the
+    /// runner with `CwdEscapePolicy::Deny` so a coworker-landed `.ops.toml`
+    /// cannot escape the workspace on the next commit; the default
+    /// interactive path keeps `WarnAndAllow`.
+    pub(super) cwd_escape_policy: CwdEscapePolicy,
 }
 
 impl CommandRunner {
@@ -156,7 +163,17 @@ impl CommandRunner {
             data_registry: DataRegistry::new(),
             data_cache: std::collections::HashMap::new(),
             detected_stack,
+            cwd_escape_policy: CwdEscapePolicy::WarnAndAllow,
         }
+    }
+
+    /// SEC-14 / TASK-0886: opt this runner into the fail-closed cwd-escape
+    /// policy. Hook-triggered entry points (`run-before-commit`,
+    /// `run-before-push`) call this with `CwdEscapePolicy::Deny` so a
+    /// `.ops.toml` `cwd = "/etc"` or `cwd = "../../"` is refused at spawn
+    /// time instead of producing a tracing warning and proceeding.
+    pub fn set_cwd_escape_policy(&mut self, policy: CwdEscapePolicy) {
+        self.cwd_escape_policy = policy;
     }
 
     /// PERF-3 / TASK-0774: merge a single (id, spec) pair into the
@@ -276,7 +293,15 @@ impl CommandRunner {
         spec: &ExecCommandSpec,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> StepResult {
-        exec_command(id, spec, &self.cwd, &self.vars, on_event).await
+        exec_command(
+            id,
+            spec,
+            &self.cwd,
+            &self.vars,
+            self.cwd_escape_policy,
+            on_event,
+        )
+        .await
         // ↑ `&Arc<PathBuf>` / `&Arc<Variables>` — exec_command Arc::clones
         // once if the build needs to spawn_blocking, no deep clone.
     }
