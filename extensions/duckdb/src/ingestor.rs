@@ -7,19 +7,23 @@ use std::path::Path;
 
 /// Result of a load operation (record count, etc.).
 ///
-/// `#[must_use]`: the `record_count` is the observable outcome of a load; a
-/// caller that ignores the returned value almost certainly meant to log or
-/// assert on it. Silent discards previously compiled without a warning.
+/// API-9 / TASK-0879: fields are intentionally `pub` so downstream
+/// extensions parsing this struct (test assertions, ingestor wrappers,
+/// future `--ingest-stats` output) can read them directly without paying
+/// for accessor boilerplate. Construction stays funneled through
+/// [`LoadResult::success`] so adding a future field (e.g. `bytes_loaded`)
+/// remains a non-breaking change at the type level — combined with
+/// `#[non_exhaustive]`, downstream code can match `LoadResult { source_name,
+/// record_count, .. }` without regression. `#[must_use]` keeps a silent
+/// discard of `record_count` from compiling without warning.
 #[derive(Debug, Clone)]
 #[must_use = "LoadResult carries the ingested record_count — discarding it silently hides whether any rows landed in DuckDB"]
-#[allow(dead_code)]
 #[non_exhaustive]
 pub struct LoadResult {
     pub source_name: &'static str,
     pub record_count: u64,
 }
 
-#[allow(dead_code)]
 impl LoadResult {
     pub fn success(source_name: &'static str, record_count: u64) -> Self {
         Self {

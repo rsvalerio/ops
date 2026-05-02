@@ -3,9 +3,10 @@ id: TASK-0879
 title: >-
   API-9: LoadResult is pub and #[non_exhaustive] but its fields are public, with
   #[allow(dead_code)]
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:24'
+updated_date: '2026-05-02 11:02'
 labels:
   - code-review-rust
   - api-design
