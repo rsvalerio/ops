@@ -383,10 +383,65 @@ fn register_extension_data_providers_warns_on_cross_extension_collision() {
         logs.contains("ext_a") && logs.contains("ext_b") && logs.contains("shared"),
         "warning must name both extensions and the provider, got: {logs}"
     );
-    assert!(
-        registry.get("shared").is_some(),
-        "first-write-wins must keep the first registration"
+    let kept = registry
+        .get("shared")
+        .expect("first-write-wins must keep the first registration");
+    // CL-5 / TASK-0904: pin which extension's provider survived. ExtA
+    // registered StubProvider("a"); first-write-wins means that, not
+    // StubProvider("b"), is the one we get back.
+    assert_eq!(
+        kept.name(),
+        "a",
+        "first-write-wins must keep ExtA's provider, not ExtB's"
     );
+}
+
+/// CL-5 / TASK-0904: parallel pin for the *commands* path: register two
+/// colliding command ids and verify last-write-wins (the second extension
+/// replaces the first). The asymmetric policy is documented at the module
+/// level — this test ensures a future refactor can't quietly flip it.
+#[test]
+fn register_extension_commands_pins_last_write_wins() {
+    use ops_core::config::{CommandSpec, ExecCommandSpec};
+    use ops_extension::{CommandRegistry, Extension};
+
+    struct ExtA;
+    impl Extension for ExtA {
+        fn name(&self) -> &'static str {
+            "ext_a"
+        }
+        fn register_commands(&self, registry: &mut CommandRegistry) {
+            registry.insert(
+                "shared".into(),
+                CommandSpec::Exec(ExecCommandSpec::new("first", Vec::<String>::new())),
+            );
+        }
+    }
+    struct ExtB;
+    impl Extension for ExtB {
+        fn name(&self) -> &'static str {
+            "ext_b"
+        }
+        fn register_commands(&self, registry: &mut CommandRegistry) {
+            registry.insert(
+                "shared".into(),
+                CommandSpec::Exec(ExecCommandSpec::new("second", Vec::<String>::new())),
+            );
+        }
+    }
+
+    let a = ExtA;
+    let b = ExtB;
+    let exts: Vec<&dyn Extension> = vec![&a, &b];
+    let mut registry = CommandRegistry::new();
+    register_extension_commands(&exts, &mut registry);
+    match registry.get("shared") {
+        Some(CommandSpec::Exec(e)) => assert_eq!(
+            e.program, "second",
+            "last-write-wins must keep ExtB's command, not ExtA's"
+        ),
+        other => panic!("expected exec spec, got {other:?}"),
+    }
 }
 
 /// CL-5 / TASK-0756: a single extension that calls `register` twice for

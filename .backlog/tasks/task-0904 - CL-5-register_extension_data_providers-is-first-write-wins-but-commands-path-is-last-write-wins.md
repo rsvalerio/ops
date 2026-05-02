@@ -3,9 +3,10 @@ id: TASK-0904
 title: >-
   CL-5: register_extension_data_providers is first-write-wins but commands path
   is last-write-wins
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:09'
+updated_date: '2026-05-02 14:50'
 labels:
   - code-review-rust
   - structure
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Document the explicit rationale for asymmetric wins (or unify both to last-write-wins)
+- [x] #1 Document the explicit rationale for asymmetric wins (or unify both to last-write-wins)
 - [ ] #2 If kept asymmetric, encode the policy in shared helper names (e.g. register_first_wins / register_last_wins) so call sites declare intent
-- [ ] #3 Add a test pinning each registry's resolution policy under a colliding pair
+- [x] #3 Add a test pinning each registry's resolution policy under a colliding pair
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Documented the asymmetric collision-resolution policy at the module level (commands → last-write-wins, data providers → first-write-wins) with explicit rationale: commands mirror IndexMap::insert and the long-standing extensions.enabled override behaviour; data providers are first-write-wins as the security-trusted default for a "content source". Added the explicit policy phrase to each pub fn docstring header. Strengthened the existing data-providers test to assert StubProvider("a") survives (not "b") and added register_extension_commands_pins_last_write_wins as the dual. AC#2 (rename to register_first_wins/register_last_wins) deferred — the function names already encode the registry kind, and the docstring header announces the policy in the first line.
+<!-- SECTION:NOTES:END -->

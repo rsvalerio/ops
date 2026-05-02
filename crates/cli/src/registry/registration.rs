@@ -4,6 +4,29 @@
 //! the symmetric command / data-provider registration paths and their
 //! shared [`Owner`] machinery live in one place separately from the
 //! discovery/filtering surface in [`super::discovery`].
+//!
+//! # Collision-resolution policy is asymmetric (CL-5 / TASK-0904)
+//!
+//! The two registries deliberately resolve duplicates in opposite
+//! directions:
+//!
+//! - **Commands → last-write-wins** ([`register_extension_commands`]).
+//!   Mirrors `IndexMap::insert` semantics and the long-standing observed
+//!   behaviour of `extensions.enabled` ordering. Operators relying on a
+//!   later override (e.g. a stack-specific extension shadowing a generic
+//!   one) need this to not silently fail.
+//! - **Data providers → first-write-wins**
+//!   ([`register_extension_data_providers`]). The security-trusted
+//!   default: a data provider is a source of *content* fed back into
+//!   commands and rendered into operator-facing artefacts, so a later
+//!   extension cannot quietly take over a name that an earlier
+//!   extension already claimed.
+//!
+//! Both paths warn loudly via `tracing::warn!` on every collision class
+//! so the chosen winner is always observable. The names of the public
+//! functions encode the policy: callers reading `register_*_commands`
+//! and `register_*_data_providers` should also read the corresponding
+//! function rustdoc to pick the correct semantics.
 
 use super::discovery::{as_ext_refs, builtin_extensions};
 use ops_core::config::Config;
@@ -38,9 +61,11 @@ where
     owners
 }
 
-/// Collect all commands from registered extensions into a registry.
+/// Collect all commands from registered extensions into a registry —
+/// **last-write-wins** on duplicate command ids (CL-5 / TASK-0904).
 ///
-/// SEC-31 / TASK-0402 (symmetric with TASK-0350 for `DataRegistry`):
+/// SEC-31 / TASK-0402 (symmetric audit story with TASK-0350 for
+/// `DataRegistry` — but with opposite resolution policy, see module doc):
 /// extensions register into a shared `CommandRegistry` via `IndexMap::insert`.
 /// We snapshot the keys after each extension's contribution so a second
 /// extension introducing a colliding command id is logged at
@@ -94,9 +119,13 @@ pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut
     }
 }
 
-/// Collect all data providers from registered extensions.
+/// Collect all data providers from registered extensions —
+/// **first-write-wins** on duplicate provider names (CL-5 / TASK-0904,
+/// opposite to [`register_extension_commands`]; see module doc for the
+/// rationale).
 ///
-/// CL-5 / TASK-0756: symmetric with [`register_extension_commands`]. Each
+/// CL-5 / TASK-0756: symmetric *audit* (not policy) with
+/// [`register_extension_commands`]. Each
 /// extension registers into a per-extension scratch [`DataRegistry`] so the
 /// wiring layer can detect (a) in-extension duplicates via
 /// [`DataRegistry::take_duplicate_inserts`] and (b) cross-extension or
