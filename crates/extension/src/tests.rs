@@ -389,7 +389,7 @@ fn context_default_refresh_is_false() {
 #[test]
 fn context_working_directory() {
     let ctx = Context::test_context(PathBuf::from("/tmp/test"));
-    assert_eq!(ctx.working_directory, PathBuf::from("/tmp/test"));
+    assert_eq!(*ctx.working_directory, PathBuf::from("/tmp/test"));
 }
 
 // --- Extension trait defaults ---

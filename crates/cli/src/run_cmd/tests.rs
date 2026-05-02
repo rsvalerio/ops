@@ -232,7 +232,7 @@ mod build_display_map_tests {
         let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         let display_map = build_display_map(&runner, &["verify".into()]);
 
-        assert_eq!(display_map.get("verify"), Some(&"verify".to_string()));
+        assert_eq!(display_map.get("verify"), Some(&"build, test".to_string()));
     }
 
     #[test]
