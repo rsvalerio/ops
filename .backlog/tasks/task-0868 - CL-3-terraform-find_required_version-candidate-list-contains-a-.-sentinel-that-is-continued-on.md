@@ -3,9 +3,10 @@ id: TASK-0868
 title: >-
   CL-3: terraform find_required_version candidate list contains a '.' sentinel
   that is continued on
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:21'
+updated_date: '2026-05-02 10:47'
 labels:
   - code-review-rust
   - readability

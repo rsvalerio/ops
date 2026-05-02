@@ -66,13 +66,9 @@ impl DataProvider for TerraformIdentityProvider {
 /// Looks for patterns like `required_version = ">= 1.5"` or
 /// `required_version = "~> 1.0"`. Only the first match is used.
 fn find_required_version(root: &Path) -> Option<String> {
-    let candidates = [".", "versions.tf", "main.tf", "terraform.tf", "version.tf"];
+    let candidates = ["versions.tf", "main.tf", "terraform.tf", "version.tf"];
     for candidate in candidates {
-        let path = if candidate == "." {
-            continue;
-        } else {
-            root.join(candidate)
-        };
+        let path = root.join(candidate);
         if let Ok(content) = std::fs::read_to_string(&path) {
             if let Some(v) = extract_required_version(&content) {
                 return Some(v);
