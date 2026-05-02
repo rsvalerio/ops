@@ -166,6 +166,32 @@ fn parse_spec(spec: &str) -> Vec<&'static str> {
         .collect()
 }
 
+/// Precompute the SGR prefix for `spec` (e.g. `"\x1b[1;32m"` for `"bold green"`).
+/// Returns `None` when the spec contains no recognized tokens.
+/// TASK-0747: callers store this once at construction and reuse per render.
+#[must_use]
+pub fn precompute_sgr_prefix(spec: &str) -> Option<String> {
+    let codes = parse_spec(spec);
+    if codes.is_empty() {
+        None
+    } else {
+        Some(format!("\x1b[{}m", codes.join(";")))
+    }
+}
+
+/// Apply a precomputed SGR prefix to `text`. Returns `Cow::Borrowed` when
+/// `prefix` is `None` or color is disabled (non-TTY / `NO_COLOR`).
+/// TASK-0747: paired with [`precompute_sgr_prefix`].
+pub fn apply_with_prefix<'a>(text: &'a str, prefix: &Option<String>) -> Cow<'a, str> {
+    if !color_enabled() {
+        return Cow::Borrowed(text);
+    }
+    match prefix {
+        Some(pfx) => Cow::Owned(format!("{pfx}{text}\x1b[0m")),
+        None => Cow::Borrowed(text),
+    }
+}
+
 fn token_code(token: &str) -> Option<&'static str> {
     Some(match token {
         "bold" => "1",

@@ -27,7 +27,7 @@ pub fn resolve_theme(
 ) -> Result<Box<dyn StepLineTheme>, ThemeError> {
     themes
         .get(name)
-        .map(|tc| Box::new(ConfigurableTheme(tc.clone())) as Box<dyn StepLineTheme>)
+        .map(|tc| Box::new(ConfigurableTheme::new(tc.clone())) as Box<dyn StepLineTheme>)
         .ok_or_else(|| ThemeError::NotFound(name.to_string()))
 }
 

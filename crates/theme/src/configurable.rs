@@ -1,10 +1,10 @@
 //! TOML-configurable theme implementation.
 
-use ops_core::output::{display_width, ErrorDetail, StepStatus};
+use ops_core::output::{display_width, ErrorDetail, StepLine, StepStatus};
 
 use super::render::render_error_block;
 use super::step_line_theme::{format_duration, BoxSnapshot, StepLineTheme};
-use super::style::{apply_style, visible_width};
+use super::style::{apply_with_prefix, precompute_sgr_prefix, visible_width};
 use super::{PlanHeaderStyle, ThemeConfig};
 use ops_core::config::theme_types::LayoutKind;
 
@@ -25,78 +25,104 @@ const BOX_STEP_RESERVE: u16 = 7;
 const BOX_FRAME_BARS: usize = 2;
 
 /// A theme backed by a [`ThemeConfig`], implementing [`StepLineTheme`].
-pub struct ConfigurableTheme(pub ThemeConfig);
+///
+/// TASK-0747: SGR prefixes are precomputed at construction so the per-step
+/// render path avoids repeated spec parsing and allocation.
+/// TASK-0748: fields are private; construction goes through [`Self::new`].
+/// `#[non_exhaustive]` gates future field additions as non-breaking.
+#[non_exhaustive]
+pub struct ConfigurableTheme {
+    config: ThemeConfig,
+    header_prefix: Option<String>,
+    summary_prefix: Option<String>,
+    label_prefix: Option<String>,
+    separator_prefix: Option<String>,
+    duration_prefix: Option<String>,
+}
+
+impl ConfigurableTheme {
+    pub fn new(config: ThemeConfig) -> Self {
+        Self {
+            header_prefix: precompute_sgr_prefix(&config.header_color),
+            summary_prefix: precompute_sgr_prefix(&config.summary_color),
+            label_prefix: precompute_sgr_prefix(&config.label_color),
+            separator_prefix: precompute_sgr_prefix(&config.separator_color),
+            duration_prefix: precompute_sgr_prefix(&config.duration_color),
+            config,
+        }
+    }
+}
 
 impl StepLineTheme for ConfigurableTheme {
     fn left_pad(&self) -> usize {
-        self.0.left_pad
+        self.config.left_pad
     }
 
     fn status_icon(&self, status: StepStatus) -> &str {
-        self.0.status_icon(status)
+        self.config.status_icon(status)
     }
 
     fn separator_char(&self) -> char {
-        self.0.separator_char
+        self.config.separator_char
     }
 
     fn step_indent(&self) -> &str {
-        &self.0.step_indent
+        &self.config.step_indent
     }
 
     fn summary_prefix(&self) -> &str {
-        &self.0.summary_prefix
+        &self.config.summary_prefix
     }
 
     fn running_template(&self) -> &str {
-        &self.0.running_template
+        &self.config.running_template
     }
 
     fn tick_chars(&self) -> &str {
-        &self.0.tick_chars
+        &self.config.tick_chars
     }
 
     fn running_template_overhead(&self) -> usize {
-        self.0.running_template_overhead
+        self.config.running_template_overhead
     }
 
     fn header_color(&self) -> &str {
-        &self.0.header_color
+        &self.config.header_color
     }
 
     fn label_color(&self) -> &str {
-        &self.0.label_color
+        &self.config.label_color
     }
 
     fn separator_color(&self) -> &str {
-        &self.0.separator_color
+        &self.config.separator_color
     }
 
     fn duration_color(&self) -> &str {
-        &self.0.duration_color
+        &self.config.duration_color
     }
 
     fn summary_color(&self) -> &str {
-        &self.0.summary_color
+        &self.config.summary_color
     }
 
     fn plan_header_prefix(&self) -> &str {
-        &self.0.plan_header_prefix
+        &self.config.plan_header_prefix
     }
 
     fn render_plan_header(&self, command_ids: &[String]) -> Vec<String> {
         let pad = self.left_pad_str();
         let ids = command_ids.join(", ");
-        match self.0.plan_header_style {
+        match self.config.plan_header_style {
             PlanHeaderStyle::Plain => {
-                let body = format!("{}Running: {}", self.0.plan_header_prefix, ids);
-                let colored = apply_style(&body, &self.0.header_color);
+                let body = format!("{}Running: {}", self.config.plan_header_prefix, ids);
+                let colored = apply_with_prefix(&body, &self.header_prefix);
                 let header = format!("{}{}", pad, colored);
                 vec![String::new(), header, String::new()]
             }
             PlanHeaderStyle::Tree => {
                 let body = format!("┌ Running: {}", ids);
-                let colored = apply_style(&body, &self.0.header_color);
+                let colored = apply_with_prefix(&body, &self.header_prefix);
                 vec![
                     String::new(),
                     format!("{}{}", pad, colored),
@@ -107,10 +133,10 @@ impl StepLineTheme for ConfigurableTheme {
     }
 
     fn render_summary_separator(&self, _columns: u16) -> String {
-        if self.0.summary_separator.is_empty() {
+        if self.config.summary_separator.is_empty() {
             String::new()
         } else {
-            format!("{}{}", self.left_pad_str(), self.0.summary_separator)
+            format!("{}{}", self.left_pad_str(), self.config.summary_separator)
         }
     }
 
@@ -118,17 +144,17 @@ impl StepLineTheme for ConfigurableTheme {
         let lines = render_error_block(
             detail,
             self.icon_column_width(),
-            &self.0.error_block,
+            &self.config.error_block,
             self.left_pad(),
         );
-        if !matches!(self.0.layout_kind, LayoutKind::Boxed) {
+        if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
             return lines;
         }
         // Boxed: align the mid column under the step label column and close the
         // right frame border. The rail char already matches the frame's left
         // border; we just need extra indent after it so `top`/`mid`/`bottom`
         // land in the same column as the step icon.
-        let rail_width = display_width(&self.0.error_block.rail);
+        let rail_width = display_width(&self.config.error_block.rail);
         // Subtract the two frame bars (left/right `│`) from the box reserve
         // so `target_gutter` covers only the interior (cell + spacing + step
         // indent) that the error glyph must line up with.
@@ -137,7 +163,7 @@ impl StepLineTheme for ConfigurableTheme {
         let extra_indent = target_gutter.saturating_sub(rail_width + 3);
         let inject = " ".repeat(extra_indent);
         let pad = self.left_pad_str();
-        let prefix_with_rail = format!("{}{}", pad, self.0.error_block.rail);
+        let prefix_with_rail = format!("{}{}", pad, self.config.error_block.rail);
 
         let outer = columns as usize;
         let right_target = outer.saturating_sub(self.left_pad()).saturating_sub(2);
@@ -151,19 +177,19 @@ impl StepLineTheme for ConfigurableTheme {
     }
 
     fn step_column_reserve(&self) -> u16 {
-        match self.0.layout_kind {
+        match self.config.layout_kind {
             LayoutKind::Boxed => BOX_STEP_RESERVE,
             LayoutKind::Flat => 0,
         }
     }
 
     fn box_top_border(&self, snap: BoxSnapshot<'_>) -> Option<String> {
-        if !matches!(self.0.layout_kind, LayoutKind::Boxed) {
+        if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
             return None;
         }
         let title = format!(
             " {}Running: {} ",
-            self.0.plan_header_prefix,
+            self.config.plan_header_prefix,
             snap.command_ids.join(", ")
         );
         Some(build_horizontal_border(BorderArgs {
@@ -172,12 +198,12 @@ impl StepLineTheme for ConfigurableTheme {
             right_corner: "╮",
             columns: snap.columns,
             left_pad: self.left_pad(),
-            title_color: &self.0.header_color,
+            title_prefix: &self.header_prefix,
         }))
     }
 
     fn box_bottom_border(&self, snap: BoxSnapshot<'_>) -> Option<String> {
-        if !matches!(self.0.layout_kind, LayoutKind::Boxed) {
+        if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
             return None;
         }
         // CL-3 / TASK-0771: when a run did not fully succeed, surface the
@@ -202,12 +228,12 @@ impl StepLineTheme for ConfigurableTheme {
             right_corner: "╯",
             columns: snap.columns,
             left_pad: self.left_pad(),
-            title_color: &self.0.summary_color,
+            title_prefix: &self.summary_prefix,
         }))
     }
 
     fn wrap_step_line(&self, inner: &str, progress_cell: &str, columns: u16) -> String {
-        if !matches!(self.0.layout_kind, LayoutKind::Boxed) {
+        if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
             return inner.to_string();
         }
         let pad = " ".repeat(self.left_pad());
@@ -227,6 +253,56 @@ impl StepLineTheme for ConfigurableTheme {
             cell = progress_cell,
             inner = inner,
             spaces = spaces,
+        )
+    }
+
+    // TASK-0747: override the default render to use precomputed SGR prefixes
+    // instead of re-parsing the spec string on every step line.
+    fn render(&self, step: &StepLine, columns: u16) -> String {
+        let is_running = step.status == StepStatus::Running;
+        let plain_prefix = self.render_prefix(step, is_running);
+        let plain_duration = step
+            .elapsed
+            .map(|d| self.format_elapsed(d))
+            .unwrap_or_default();
+        let plain_separator =
+            self.render_separator(&plain_prefix, &plain_duration, columns as usize, is_running);
+        let pad = if is_running {
+            String::new()
+        } else {
+            self.left_pad_str()
+        };
+
+        let parts = self.step_prefix_parts(step.status, is_running);
+        let colored_label = apply_with_prefix(&step.label, &self.label_prefix);
+        let colored_prefix = format!(
+            "{}{}{} {}",
+            parts.indent, parts.icon, parts.pad, colored_label
+        );
+
+        let colored_separator = apply_with_prefix(&plain_separator, &self.separator_prefix);
+
+        if plain_duration.is_empty() {
+            format!("{}{}{}", pad, colored_prefix, colored_separator)
+        } else {
+            let colored_duration = apply_with_prefix(&plain_duration, &self.duration_prefix);
+            format!(
+                "{}{}{} {}",
+                pad, colored_prefix, colored_separator, colored_duration
+            )
+        }
+    }
+
+    // TASK-0747: override render_summary to use precomputed SGR prefix.
+    fn render_summary(&self, success: bool, elapsed_secs: f64) -> String {
+        let label = if success { "Done" } else { "Failed" };
+        let body = format!("{} in {}", label, format_duration(elapsed_secs));
+        let colored = apply_with_prefix(&body, &self.summary_prefix);
+        format!(
+            "{}{}{}",
+            self.left_pad_str(),
+            self.summary_prefix(),
+            colored
         )
     }
 }
@@ -261,14 +337,14 @@ struct BorderArgs<'a> {
     right_corner: &'a str,
     columns: u16,
     left_pad: usize,
-    title_color: &'a str,
+    title_prefix: &'a Option<String>,
 }
 
 /// Render a horizontal border like `╭─ title ────...───╮`.
 ///
 /// Pads the title with `─` fill to reach `columns`, honoring `left_pad` on the
-/// outer margin. `title_color` is applied only to the inline title text so the
-/// border itself stays dim/plain.
+/// outer margin. `title_prefix` is the precomputed SGR prefix applied only to
+/// the inline title text so the border itself stays dim/plain.
 fn build_horizontal_border(args: BorderArgs<'_>) -> String {
     let BorderArgs {
         title,
@@ -276,7 +352,7 @@ fn build_horizontal_border(args: BorderArgs<'_>) -> String {
         right_corner,
         columns,
         left_pad,
-        title_color,
+        title_prefix,
     } = args;
     let pad = " ".repeat(left_pad);
     let outer = columns as usize;
@@ -286,6 +362,6 @@ fn build_horizontal_border(args: BorderArgs<'_>) -> String {
     let title_w = display_width(title);
     let fill = inner.saturating_sub(corner_l_w + corner_r_w + title_w);
     let fill_str = "─".repeat(fill);
-    let colored_title = apply_style(title, title_color);
+    let colored_title = apply_with_prefix(title, title_prefix);
     format!("{pad}{left_corner}{colored_title}{fill_str}{right_corner}")
 }
