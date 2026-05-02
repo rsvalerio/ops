@@ -59,6 +59,21 @@ const TIMEOUT_ENV_VAR: &str = "OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS";
 /// for even the slowest FUSE-backed worktree while still bounding the hook.
 const MAX_GIT_TIMEOUT_SECS: u64 = 300;
 
+/// ASYNC-6 / TASK-0864: grace period to drain stderr after `git diff
+/// --cached` exits.
+///
+/// The drain thread copies stderr into a channel and finishes immediately
+/// after the child exits cleanly; this bounded wait only matters when a
+/// misbehaving wrapper kept the pipe open via an orphan grandchild. Tuning
+/// is intentionally **not** plumbed through `OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS`:
+/// that env var caps the *child wait*, which dominates total hook latency.
+/// This grace fires only after the child has already exited, so adding a
+/// second knob would just confuse the operator surface for sub-second savings.
+/// Bumped from the previous 200 ms so a slow CI host emitting a multi-line
+/// git warning right before exit (e.g. fsmonitor / lfs notices) still
+/// captures its diagnostic stderr in the `NonZeroExit` error message.
+const STDERR_DRAIN_GRACE: Duration = Duration::from_millis(500);
+
 /// Typed failure for `has_staged_files_with`. ASYNC-6 / TASK-0589.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -226,7 +241,7 @@ fn has_staged_files_with_timeout(
     // drain thread crashed (e.g. allocator failure on huge stderr) so a
     // postmortem breadcrumb is the only signal a future operator gets when
     // the user-visible error message is empty.
-    let stderr_bytes = read_stderr_bounded(&stderr_rx, Duration::from_millis(200), program);
+    let stderr_bytes = read_stderr_bounded(&stderr_rx, STDERR_DRAIN_GRACE, program);
 
     // `git diff --quiet`: exit 0 = no staged diff, exit 1 = staged diff
     // present (not an error), other codes = real failure (e.g. not a git
@@ -456,6 +471,47 @@ mod tests {
             elapsed < Duration::from_secs(5),
             "timeout should fire promptly, elapsed = {elapsed:?}"
         );
+    }
+
+    /// ASYNC-6 / TASK-0864: a fake git that prints a multi-line stderr
+    /// warning ~100 ms before exiting non-zero must still surface the
+    /// stderr in the `NonZeroExit` error. Pins the `STDERR_DRAIN_GRACE`
+    /// budget so a future shrink does not silently clip the diagnostic.
+    #[cfg(unix)]
+    #[test]
+    fn has_staged_files_captures_late_stderr_within_drain_grace() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let fake_git = dir.path().join("git-late-stderr");
+        std::fs::write(
+            &fake_git,
+            "#!/bin/sh\n\
+             sleep 0.1\n\
+             printf 'warning: refname HEAD is ambiguous\\nfatal: bad object HEAD\\n' >&2\n\
+             exit 128\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake_git, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let err = has_staged_files_with_timeout(
+            fake_git.to_str().unwrap(),
+            dir.path(),
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
+
+        match err {
+            HasStagedFilesError::NonZeroExit {
+                exit_code, stderr, ..
+            } => {
+                assert_eq!(exit_code, Some(128));
+                assert!(
+                    stderr.contains("fatal: bad object HEAD"),
+                    "expected late stderr captured within drain grace, got: {stderr:?}"
+                );
+            }
+            other => panic!("expected NonZeroExit, got {other:?}"),
+        }
     }
 
     /// CONC-3 / TASK-0650 AC#2: a fake git that emits well over the OS

@@ -3,9 +3,10 @@ id: TASK-0864
 title: >-
   ASYNC-6: 200ms read_stderr_bounded ceiling in has_staged_files_with_timeout is
   hardcoded magic number
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:20'
+updated_date: '2026-05-02 10:39'
 labels:
   - code-review-rust
   - async
