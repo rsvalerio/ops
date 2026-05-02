@@ -9,7 +9,7 @@
 //! that differ only by the filter predicate (enum variant or target kind string).
 
 use ops_extension::{Context, DataRegistry};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
 trait JsonValueExt {
@@ -105,6 +105,14 @@ pub struct Metadata {
     member_ids: OnceLock<HashSet<String>>,
     /// TASK-0477: cached `workspace_default_members` id set, lazily computed once.
     default_member_ids: OnceLock<HashSet<String>>,
+    /// PERF-1 / TASK-0883: lazy package indexes keyed by name and id, each
+    /// pointing at the offset in `inner["packages"][]`. Built on first
+    /// `package_by_name`/`package_by_id` call so a one-shot consumer pays
+    /// nothing and a multi-lookup consumer (about/units/coverage/deps in
+    /// the same `Metadata`) gets O(1) average-case lookups instead of an
+    /// O(n) array scan per call.
+    package_index_by_name: OnceLock<HashMap<String, usize>>,
+    package_index_by_id: OnceLock<HashMap<String, usize>>,
 }
 
 #[allow(dead_code)]
@@ -115,6 +123,8 @@ impl Metadata {
             inner: Arc::new(value),
             member_ids: OnceLock::new(),
             default_member_ids: OnceLock::new(),
+            package_index_by_name: OnceLock::new(),
+            package_index_by_id: OnceLock::new(),
         }
     }
 
@@ -126,7 +136,51 @@ impl Metadata {
             inner: value,
             member_ids: OnceLock::new(),
             default_member_ids: OnceLock::new(),
+            package_index_by_name: OnceLock::new(),
+            package_index_by_id: OnceLock::new(),
         })
+    }
+
+    fn package_index_by_name(&self) -> &HashMap<String, usize> {
+        self.package_index_by_name.get_or_init(|| {
+            self.inner["packages"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .filter_map(|(i, v)| {
+                    v.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|n| (n.to_string(), i))
+                })
+                .collect()
+        })
+    }
+
+    fn package_index_by_id(&self) -> &HashMap<String, usize> {
+        self.package_index_by_id.get_or_init(|| {
+            self.inner["packages"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .filter_map(|(i, v)| {
+                    v.get("id")
+                        .and_then(|n| n.as_str())
+                        .map(|n| (n.to_string(), i))
+                })
+                .collect()
+        })
+    }
+
+    fn package_at(&self, idx: usize) -> Option<Package<'_>> {
+        self.inner["packages"]
+            .as_array()
+            .and_then(|arr| arr.get(idx))
+            .map(|v| Package {
+                inner: v,
+                metadata: self,
+            })
     }
 
     fn member_ids(&self) -> &HashSet<String> {
@@ -179,14 +233,18 @@ impl Metadata {
             .filter(move |p| default_ids.contains(p.id()))
     }
 
-    /// Find a package by name.
+    /// Find a package by name. PERF-1 / TASK-0883: O(1) average-case after
+    /// first call via the lazy [`Self::package_index_by_name`] index.
     pub fn package_by_name(&self, name: &str) -> Option<Package<'_>> {
-        self.packages().find(|p| p.name() == name)
+        let idx = *self.package_index_by_name().get(name)?;
+        self.package_at(idx)
     }
 
-    /// Find a package by its package ID string.
+    /// Find a package by its package ID string. PERF-1 / TASK-0883: O(1)
+    /// average-case after first call via the lazy index.
     pub fn package_by_id(&self, id: &str) -> Option<Package<'_>> {
-        self.packages().find(|p| p.id() == id)
+        let idx = *self.package_index_by_id().get(id)?;
+        self.package_at(idx)
     }
 
     /// Find the root package (workspace root Cargo.toml), if present.

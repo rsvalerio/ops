@@ -3,9 +3,10 @@ id: TASK-0883
 title: >-
   PERF-1: Metadata::package_by_name and package_by_id linear-scan packages on
   every call
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:37'
+updated_date: '2026-05-02 11:05'
 labels:
   - code-review-rust
   - PERF
