@@ -111,7 +111,9 @@ impl DataProvider for RustUnitsProvider {
 /// extension does not maintain a second TOML parser for the same manifest
 /// shape.
 pub(crate) fn read_crate_metadata(crate_toml_path: &std::path::Path) -> CrateMetadata {
-    let content = match std::fs::read_to_string(crate_toml_path) {
+    // SEC-33 (TASK-0926): cap the per-crate manifest read; this fans out across
+    // every workspace member declared by the root Cargo.toml.
+    let content = match ops_core::text::read_capped_to_string(crate_toml_path) {
         Ok(c) => c,
         Err(e) => {
             if e.kind() != std::io::ErrorKind::NotFound {

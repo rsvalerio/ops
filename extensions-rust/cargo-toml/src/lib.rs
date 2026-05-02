@@ -69,6 +69,7 @@ pub use types::{
 };
 
 use anyhow::Context as _;
+use ops_core::text::read_capped_to_string;
 use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -218,7 +219,9 @@ impl DataProvider for CargoTomlProvider {
         let root = self.resolve_root(&ctx.working_directory)?;
         let cargo_toml = root.join("Cargo.toml");
 
-        let content = fs::read_to_string(&cargo_toml)
+        // SEC-33 (TASK-0926): byte-cap the manifest read so an adversarial
+        // workspace cannot OOM `ops` via an oversized or `/dev/zero` Cargo.toml.
+        let content = read_capped_to_string(&cargo_toml)
             .with_context(|| format!("reading {}", cargo_toml.display()))?;
 
         let mut manifest: CargoToml = toml::from_str(&content)
@@ -375,13 +378,19 @@ fn manifest_declares_workspace(path: &Path) -> bool {
     // ancestor walk) from other IO errors (permission denied, EIO, partial
     // write) so a flaky disk does not silently mis-root the entire
     // about/units/coverage stack.
-    let content = match fs::read_to_string(path) {
+    // SEC-33 (TASK-0926): the ancestor walk visits up to MAX_ANCESTOR_DEPTH
+    // candidate manifests; an oversized one anywhere on the chain would
+    // otherwise stall the walk with an unbounded read.
+    let content = match read_capped_to_string(path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
         Err(e) => {
+            // ERR-7 (TASK-0947): Debug-format path/error so an attacker-
+            // controlled CWD-derived ancestor path cannot inject newlines
+            // or ANSI escapes into operator-facing logs.
             tracing::debug!(
-                path = %path.display(),
-                error = %e,
+                path = ?path.display(),
+                error = ?e,
                 "Cargo.toml unreadable during workspace walk; skipping candidate"
             );
             return false;
@@ -392,9 +401,12 @@ fn manifest_declares_workspace(path: &Path) -> bool {
             .as_table()
             .is_some_and(|t| t.contains_key("workspace")),
         Err(e) => {
+            // ERR-7 (TASK-0947): Debug-format path/error so a candidate
+            // Cargo.toml path with embedded control characters cannot
+            // forge log records.
             tracing::warn!(
-                path = %path.display(),
-                error = %e,
+                path = ?path.display(),
+                error = ?e,
                 "Cargo.toml parse failed during workspace walk; skipping candidate"
             );
             false

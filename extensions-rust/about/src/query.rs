@@ -259,14 +259,34 @@ pub(crate) fn resolved_workspace_members(
                                 let path = entry.path();
                                 if path.is_dir() && path.join("Cargo.toml").exists() {
                                     if let Ok(rel) = path.strip_prefix(workspace_root) {
-                                        resolved.push(rel.to_string_lossy().to_string());
+                                        // READ-5 (TASK-0946): non-UTF-8
+                                        // member paths must not be lossily
+                                        // collapsed to U+FFFD (which would
+                                        // alias two distinct members into
+                                        // the same dedup key). Skip + warn
+                                        // matches the `resolve_spec_cwd`
+                                        // policy from TASK-0900.
+                                        match rel.to_str() {
+                                            Some(s) => resolved.push(s.to_string()),
+                                            None => {
+                                                tracing::warn!(
+                                                    parent = ?parent.display(),
+                                                    relpath = ?rel,
+                                                    "workspace glob member relpath is not valid UTF-8; skipping"
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
                             Err(e) => {
+                                // ERR-7 (TASK-0941): Debug-format path/error
+                                // so attacker-controlled member paths from a
+                                // cloned repo's Cargo.toml cannot forge log
+                                // records.
                                 tracing::warn!(
-                                    parent = %parent.display(),
-                                    error = %e,
+                                    parent = ?parent.display(),
+                                    error = ?e,
                                     "workspace glob entry unreadable; skipped"
                                 );
                             }
@@ -274,10 +294,14 @@ pub(crate) fn resolved_workspace_members(
                     }
                 }
                 Err(e) => {
+                    // ERR-7 (TASK-0941): Debug-format pattern / parent /
+                    // error so embedded newlines / ANSI escapes in
+                    // attacker-controlled `[workspace].members` entries
+                    // cannot forge log records.
                     tracing::warn!(
-                        pattern = %member,
-                        parent = %parent.display(),
-                        error = %e,
+                        pattern = ?member,
+                        parent = ?parent.display(),
+                        error = ?e,
                         "workspace glob prefix unreadable; member skipped"
                     );
                 }
@@ -317,6 +341,18 @@ fn contains_unsupported_glob_meta(member: &str) -> bool {
 mod tests {
     use super::*;
     use ops_extension::Context;
+
+    /// ERR-7 (TASK-0941): tracing fields for workspace glob walk paths flow
+    /// through the `?` formatter so embedded newlines / ANSI escapes in
+    /// attacker-controlled `[workspace].members` cannot forge log records.
+    #[test]
+    fn workspace_glob_path_debug_escapes_control_characters() {
+        let p = Path::new("a\nb\u{1b}[31mc/crates");
+        let rendered = format!("{:?}", p.display());
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
+    }
 
     /// PERF-1 / TASK-0558: load_workspace_manifest caches the typed
     /// CargoToml in a thread-local so identity / units / coverage do not

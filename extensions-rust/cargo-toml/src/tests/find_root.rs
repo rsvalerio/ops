@@ -1,5 +1,18 @@
 use super::*;
 use std::fs;
+use std::path::Path;
+
+/// ERR-7 (TASK-0947): tracing fields for ancestor-walk Cargo.toml paths
+/// flow through the `?` formatter so an attacker-controlled CWD path with
+/// embedded newlines / ANSI escapes cannot forge log records.
+#[test]
+fn manifest_declares_workspace_path_debug_escapes_control_characters() {
+    let p = Path::new("a\nb\u{1b}[31mc/Cargo.toml");
+    let rendered = format!("{:?}", p.display());
+    assert!(!rendered.contains('\n'));
+    assert!(!rendered.contains('\u{1b}'));
+    assert!(rendered.contains("\\n"));
+}
 
 #[test]
 fn find_root_in_current_dir() {

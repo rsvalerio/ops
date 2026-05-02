@@ -207,8 +207,14 @@ fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyh
 }
 
 fn provide_via_cargo_metadata(ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
+    use anyhow::Context as _;
     let output = run_cargo_metadata(&ctx.working_directory)?;
     check_metadata_output(&output)?;
-    let json: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    // ERR-4 (TASK-0938): attribute parse failures to the cargo-metadata
+    // pipeline so operators see "parsing cargo metadata stdout" in the
+    // chain, not a bare serde_json::Error. Sister pattern to
+    // `test-coverage::collect_coverage` (parsing llvm-cov JSON output).
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).context("parsing cargo metadata stdout")?;
     Ok(json)
 }

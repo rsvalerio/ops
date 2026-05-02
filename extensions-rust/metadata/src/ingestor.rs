@@ -28,7 +28,15 @@ impl DataIngestor for MetadataIngestor {
         })?;
         check_metadata_output(&output).map_err(external_err)?;
         let path = data_dir.join("metadata.json");
-        std::fs::write(&path, &output.stdout).map_err(DbError::Io)?;
+        // SEC-25 / TASK-0933: persist `cargo metadata` stdout via
+        // `ops_core::config::atomic_write` (sibling temp + fsync + rename),
+        // matching the TASK-0911 fix for `SidecarIngestorConfig::collect_sidecar`.
+        // A crash mid-write previously left a torn or zero-byte
+        // `metadata.json` that the subsequent `load` step would feed to
+        // DuckDB's `read_json_auto`, corrupting the database with truncated
+        // input. With `atomic_write` the destination either holds the previous
+        // payload or the full new payload — never a partial write.
+        ops_core::config::atomic_write(&path, &output.stdout).map_err(DbError::Io)?;
         Ok(())
     }
 
@@ -97,7 +105,7 @@ impl DataIngestor for MetadataIngestor {
             db,
             &ops_duckdb::DataSourceMetadata::new(
                 ops_duckdb::SourceName(self.name()),
-                ops_duckdb::WorkspaceRoot(&workspace_root),
+                ops_duckdb::WorkspaceRoot(std::ffi::OsStr::new(&workspace_root)),
                 &path,
                 record_count,
                 &checksum,
@@ -143,6 +151,34 @@ mod tests {
         let data_dir = tempfile::tempdir().unwrap();
         let result = ingestor.collect(&ctx, data_dir.path());
         assert!(result.is_err());
+    }
+
+    /// SEC-25 / TASK-0933: a successful `MetadataIngestor::collect` must
+    /// leave no `.tmp.*` leftover from the `atomic_write` sibling-temp
+    /// pattern. Pin the cargo-metadata stdout write on the same crash-safe
+    /// helper that `SidecarIngestorConfig::collect_sidecar` uses (TASK-0911),
+    /// so a crash mid-write leaves either no `metadata.json` or the previous
+    /// version — never a partial.
+    #[test]
+    fn metadata_collect_writes_atomically_no_tmp_leftover() {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let ctx = ops_extension::Context::test_context(manifest_dir);
+        let data_dir = tempfile::tempdir().expect("tempdir");
+        let ingestor = MetadataIngestor;
+        ingestor
+            .collect(&ctx, data_dir.path())
+            .expect("collect succeeds against this crate's manifest");
+        let json_path = data_dir.path().join("metadata.json");
+        assert!(json_path.exists(), "metadata.json was written");
+        let leftovers: Vec<_> = std::fs::read_dir(data_dir.path())
+            .expect("read_dir")
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "atomic_write left a tmp sibling: {leftovers:?}"
+        );
     }
 
     #[test]
