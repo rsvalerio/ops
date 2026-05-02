@@ -3,9 +3,10 @@ id: TASK-0867
 title: >-
   ARCH-1: extensions-python manifest_cache is unbounded process-global with no
   eviction
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:21'
+updated_date: '2026-05-02 10:47'
 labels:
   - code-review-rust
   - architecture
