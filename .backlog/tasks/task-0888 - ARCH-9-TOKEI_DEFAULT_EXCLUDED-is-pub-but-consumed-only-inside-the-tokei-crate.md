@@ -1,9 +1,10 @@
 ---
 id: TASK-0888
 title: 'ARCH-9: TOKEI_DEFAULT_EXCLUDED is pub but consumed only inside the tokei crate'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:38'
+updated_date: '2026-05-02 11:07'
 labels:
   - code-review-rust
   - ARCH

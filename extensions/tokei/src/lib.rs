@@ -97,7 +97,7 @@ fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyh
 /// Build artifacts and VCS directories produce nonsense LOC counts and slow
 /// the scan. Tokei's defaults already skip vendored deps, but it does not
 /// skip e.g. `target/` for Rust or `node_modules` for JS unless asked.
-pub const TOKEI_DEFAULT_EXCLUDED: &[&str] = &[
+pub(crate) const TOKEI_DEFAULT_EXCLUDED: &[&str] = &[
     "target",
     ".git",
     "node_modules",
