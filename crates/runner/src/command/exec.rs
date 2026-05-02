@@ -415,6 +415,59 @@ pub struct ExecTaskCtx {
     pub abort: Arc<AbortSignal>,
 }
 
+/// CONC-3 / CONC-6 / CONC-9: spawn the per-task event forwarder.
+///
+/// Drains `local_rx` into the outer `RunnerEvent` channel, racing each
+/// `outer.send(..)` against `abort.cancelled()` so a stuck display pump
+/// cannot keep the forwarder alive after fail_fast tripped. Returned in a
+/// `JoinSet` so its Drop aborts the forwarder if the parent task is
+/// cancelled mid-flight (a bare `tokio::spawn` JoinHandle would not).
+fn spawn_event_forwarder(
+    mut local_rx: mpsc::Receiver<RunnerEvent>,
+    outer: mpsc::Sender<RunnerEvent>,
+    abort: Arc<AbortSignal>,
+) -> tokio::task::JoinSet<()> {
+    let mut forwarders = tokio::task::JoinSet::new();
+    forwarders.spawn(async move {
+        while let Some(ev) = local_rx.recv().await {
+            tokio::select! {
+                biased;
+                send_result = outer.send(ev) => {
+                    if send_result.is_err() {
+                        break;
+                    }
+                }
+                () = abort.cancelled() => {
+                    break;
+                }
+            }
+        }
+    });
+    forwarders
+}
+
+/// CONC-9 / TASK-0459+0571: forward a terminal event (StepFinished /
+/// StepFailed / StepSkipped) on `tx`, dropping it if abort fires first so
+/// fail_fast can stop a sibling task without blocking on a full bounded
+/// channel.
+async fn forward_terminal_event_or_drop(
+    tx: &mpsc::Sender<RunnerEvent>,
+    ev: RunnerEvent,
+    abort: &AbortSignal,
+    id: &CommandId,
+) {
+    tokio::select! {
+        biased;
+        _ = tx.send(ev) => {}
+        () = abort.cancelled() => {
+            tracing::debug!(
+                id = %id,
+                "CONC-9: dropping terminal event under abort to avoid blocking on full outer channel"
+            );
+        }
+    }
+}
+
 /// Standalone exec used by parallel plan: runs one command, sends events via channel, respects abort flag.
 pub async fn exec_standalone(id: CommandId, spec: ExecCommandSpec, ctx: ExecTaskCtx) -> StepResult {
     let ExecTaskCtx {
@@ -450,39 +503,8 @@ pub async fn exec_standalone(id: CommandId, spec: ExecCommandSpec, ctx: ExecTask
     // memory use. On pathological channel-full bursts events are dropped
     // with a debug log instead of silently ballooning memory.
     const LOCAL_BUF: usize = 256;
-    let (local_tx, mut local_rx) = mpsc::channel::<RunnerEvent>(LOCAL_BUF);
-    let outer = tx.clone();
-    // CONC-6 / TASK-0335: hold the forwarder in a JoinSet rather than a bare
-    // JoinHandle so that if `exec_standalone` is aborted mid-flight (e.g.
-    // fail_fast `abort_all`), dropping the JoinSet aborts the forwarder
-    // explicitly. A bare `tokio::spawn` returns a JoinHandle whose Drop does
-    // **not** cancel the task — the forwarder would survive its parent and
-    // exit only because `local_tx` is also dropped (closing the channel).
-    // That implicit lifetime is brittle to refactoring; making cancellation
-    // explicit removes the trap.
-    let mut forwarders = tokio::task::JoinSet::new();
-    let forwarder_abort = Arc::clone(&abort);
-    forwarders.spawn(async move {
-        while let Some(ev) = local_rx.recv().await {
-            // CONC-9 / TASK-0459+0571: race the outer.send against the
-            // abort signal so a stuck display pump cannot keep the
-            // forwarder alive after fail_fast tripped. Replaces the prior
-            // `yield_now`-based busy-poll with `AbortSignal::cancelled`
-            // which parks on a `Notify` instead of waking the executor on
-            // every poll cycle.
-            tokio::select! {
-                biased;
-                send_result = outer.send(ev) => {
-                    if send_result.is_err() {
-                        break;
-                    }
-                }
-                () = forwarder_abort.cancelled() => {
-                    break;
-                }
-            }
-        }
-    });
+    let (local_tx, local_rx) = mpsc::channel::<RunnerEvent>(LOCAL_BUF);
+    let mut forwarders = spawn_event_forwarder(local_rx, tx.clone(), Arc::clone(&abort));
     // CONC-7: terminal events (StepFinished/StepFailed/StepSkipped) bypass the
     // bounded local buffer entirely. Noisy commands (e.g. `cargo test
     // --all-features` compiling hundreds of crates) emit a StepOutput per
@@ -534,24 +556,7 @@ pub async fn exec_standalone(id: CommandId, spec: ExecCommandSpec, ctx: ExecTask
             .await;
     }
     if let Some(ev) = terminal {
-        // CONC-9 / TASK-0459+0571: race the terminal-event send against
-        // the abort signal. If a sibling tripped fail_fast while we were
-        // waiting on the outer channel (display pump stalled),
-        // `AbortSignal::cancelled` resolves immediately and lets
-        // exec_standalone return without blocking on a full bounded
-        // channel. Without this, the task hangs in `tx.send` until the
-        // outer receiver is dropped, defeating fail_fast's promise to
-        // stop sibling output promptly.
-        tokio::select! {
-            biased;
-            _ = tx.send(ev) => {}
-            () = abort.cancelled() => {
-                tracing::debug!(
-                    id = %id,
-                    "CONC-9: dropping terminal event under abort to avoid blocking on full outer channel"
-                );
-            }
-        }
+        forward_terminal_event_or_drop(&tx, ev, &abort, &id).await;
     }
     result
 }
