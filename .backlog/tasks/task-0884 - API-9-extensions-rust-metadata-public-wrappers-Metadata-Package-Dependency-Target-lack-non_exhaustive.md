@@ -3,9 +3,10 @@ id: TASK-0884
 title: >-
   API-9: extensions-rust metadata public wrappers (Metadata, Package,
   Dependency, Target) lack #[non_exhaustive]
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:37'
+updated_date: '2026-05-02 11:05'
 labels:
   - code-review-rust
   - API

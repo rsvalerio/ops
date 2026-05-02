@@ -99,6 +99,7 @@ fn collect_member_ids_owned(metadata: &serde_json::Value, field: &str) -> HashSe
 /// the caches behind the `Arc` would shrink that further but requires
 /// interior-mutability gymnastics that the current call sites don't justify.
 #[allow(dead_code)]
+#[non_exhaustive]
 pub struct Metadata {
     pub(crate) inner: Arc<serde_json::Value>,
     /// TASK-0477: cached `workspace_members` id set, lazily computed once.
@@ -258,6 +259,7 @@ impl Metadata {
 
 /// A package from cargo metadata.
 #[allow(dead_code)]
+#[non_exhaustive]
 pub struct Package<'a> {
     pub(crate) inner: &'a serde_json::Value,
     pub(crate) metadata: &'a Metadata,
@@ -381,6 +383,7 @@ impl<'a> Package<'a> {
 /// Dependency kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
+#[non_exhaustive]
 pub enum DependencyKind {
     Normal,
     Dev,
@@ -389,6 +392,7 @@ pub enum DependencyKind {
 
 /// A dependency from a package.
 #[allow(dead_code)]
+#[non_exhaustive]
 pub struct Dependency<'a> {
     pub(crate) inner: &'a serde_json::Value,
 }
@@ -451,6 +455,7 @@ impl<'a> Dependency<'a> {
 
 /// A build target (lib, bin, test, example, bench).
 #[allow(dead_code)]
+#[non_exhaustive]
 pub struct Target<'a> {
     pub(crate) inner: &'a serde_json::Value,
 }
