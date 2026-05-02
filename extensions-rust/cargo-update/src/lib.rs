@@ -22,7 +22,7 @@ pub const SHORTNAME: &str = "update";
 pub const DATA_PROVIDER_NAME: &str = "cargo_update";
 
 /// The action type for a dependency update entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum UpdateAction {
@@ -210,7 +210,7 @@ fn starts_with_known_verb(line: &str) -> bool {
 /// - `Adding new-crate v0.1.0`
 /// - `Removing old-crate v0.2.0`
 fn parse_action_line(line: &str) -> Option<UpdateEntry> {
-    for (prefix, action, role) in ACTION_PREFIXES {
+    for &(prefix, action, role) in ACTION_PREFIXES {
         let Some(rest) = line.strip_prefix(prefix) else {
             continue;
         };
@@ -237,7 +237,7 @@ fn parse_action_line(line: &str) -> Option<UpdateEntry> {
                 tracing::warn!(line, "cargo-update `Updating` line has unexpected trailing tokens; annotation discarded");
             }
             return Some(UpdateEntry {
-                action: action.clone(),
+                action,
                 name: name.to_string(),
                 from: Some(strip_v_prefix(from).to_string()),
                 to: Some(strip_v_prefix(to).to_string()),
@@ -251,7 +251,7 @@ fn parse_action_line(line: &str) -> Option<UpdateEntry> {
             VersionRole::To => (None, version),
         };
         return Some(UpdateEntry {
-            action: action.clone(),
+            action,
             name: name.to_string(),
             from,
             to,

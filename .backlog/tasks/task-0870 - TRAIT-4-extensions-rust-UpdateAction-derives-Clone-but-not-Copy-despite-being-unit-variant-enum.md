@@ -3,9 +3,10 @@ id: TASK-0870
 title: >-
   TRAIT-4: extensions-rust UpdateAction derives Clone but not Copy despite being
   unit-variant enum
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:22'
+updated_date: '2026-05-02 10:49'
 labels:
   - code-review-rust
   - traits
