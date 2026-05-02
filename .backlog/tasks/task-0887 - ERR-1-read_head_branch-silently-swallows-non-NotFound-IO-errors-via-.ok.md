@@ -1,9 +1,10 @@
 ---
 id: TASK-0887
 title: 'ERR-1: read_head_branch silently swallows non-NotFound IO errors via .ok()?'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:38'
+updated_date: '2026-05-02 11:06'
 labels:
   - code-review-rust
   - ERR

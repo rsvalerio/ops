@@ -156,8 +156,26 @@ fn parse_section_header(line: &str) -> Option<(&str, Option<String>)> {
 }
 
 /// Read the current branch from `<git_dir>/HEAD`. Returns `None` on detached HEAD.
+///
+/// ERR-1 / TASK-0887: mirrors the policy already applied to
+/// [`read_origin_url`] — silent on `NotFound` (legitimately absent for some
+/// repository states), `tracing::warn!` on every other IO error so an
+/// operator chasing "branch keeps showing as detached" sees the underlying
+/// permission/EIO problem instead of a `None` that pretends HEAD is detached.
 pub fn read_head_branch(git_dir: &Path) -> Option<String> {
-    let content = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
+    let head_path = git_dir.join("HEAD");
+    let content = match std::fs::read_to_string(&head_path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!(
+                path = %head_path.display(),
+                error = %e,
+                "failed to read .git/HEAD; reporting branch as None"
+            );
+            return None;
+        }
+    };
     let trimmed = content.trim();
     let rest = trimmed.strip_prefix("ref:")?.trim();
     let branch = rest.strip_prefix("refs/heads/")?;
@@ -465,5 +483,32 @@ mod tests {
         let mut restore = std::fs::metadata(&config).unwrap().permissions();
         restore.set_mode(0o644);
         std::fs::set_permissions(&config, restore).unwrap();
+    }
+
+    /// ERR-1 / TASK-0887: an unreadable HEAD must return `None` (matching
+    /// detached-HEAD behaviour) rather than panicking. The warn-log emission
+    /// itself is verified by the `tracing::warn!` shape — covering it
+    /// requires a subscriber and is out of scope for this regression test;
+    /// pinning the `None` result is enough to catch a future ".ok()?" regression.
+    #[cfg(unix)]
+    #[test]
+    fn read_head_branch_returns_none_on_unreadable_head() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        let head = git_dir.join("HEAD");
+        std::fs::write(&head, "ref: refs/heads/main\n").unwrap();
+        let mut perms = std::fs::metadata(&head).unwrap().permissions();
+        perms.set_mode(0o000);
+        std::fs::set_permissions(&head, perms).unwrap();
+
+        let result = read_head_branch(&git_dir);
+        assert!(result.is_none(), "unreadable HEAD should return None");
+
+        // Restore so tempdir cleanup works.
+        let mut restore = std::fs::metadata(&head).unwrap().permissions();
+        restore.set_mode(0o644);
+        std::fs::set_permissions(&head, restore).unwrap();
     }
 }
