@@ -67,13 +67,10 @@ pub(crate) fn run_external_command(
 /// configs — well under the cost of re-parsing the manifest.
 fn build_runner(
     config: &ops_core::config::Config,
-    verbose: bool,
+    _verbose: bool,
 ) -> anyhow::Result<ops_runner::command::CommandRunner> {
-    let mut config = config.clone();
+    let config = config.clone();
     let cwd = crate::cwd()?;
-    if verbose {
-        config.output.stderr_tail_lines = usize::MAX;
-    }
     let mut runner = ops_runner::command::CommandRunner::new(config, cwd);
     setup_extensions(&mut runner)?;
     Ok(runner)
@@ -127,7 +124,14 @@ fn run_commands(
             tap.as_ref(),
         )?
     } else {
-        run_commands_with_display(&runner, &all_leaf_ids, any_parallel, fail_fast, tap)?
+        run_commands_with_display(
+            &runner,
+            &all_leaf_ids,
+            any_parallel,
+            fail_fast,
+            tap,
+            verbose,
+        )?
     };
     Ok(summarize(&results))
 }
@@ -166,12 +170,14 @@ fn emit_raw_warnings(any_parallel: bool, has_tap: bool) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_commands_with_display(
     runner: &ops_runner::command::CommandRunner,
     leaf_ids: &[ops_core::config::CommandId],
     any_parallel: bool,
     fail_fast: bool,
     tap: Option<PathBuf>,
+    verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
     let display_map = build_display_map(runner, leaf_ids);
     let mut display = ProgressDisplay::new(DisplayOptions::new(
@@ -179,6 +185,7 @@ fn run_commands_with_display(
         display_map,
         &runner.config().themes,
         tap,
+        verbose,
     ))?;
 
     let _echo_guard = EchoGuard::disable_echo();
@@ -243,7 +250,7 @@ fn run_command(
     let success = if raw {
         run_command_raw(&runner, name, tap.is_some())?
     } else {
-        run_command_cli(&mut runner, name, tap)?
+        run_command_cli(&mut runner, name, tap, verbose)?
     };
 
     Ok(if success {
@@ -318,6 +325,7 @@ fn run_command_cli(
     runner: &mut ops_runner::command::CommandRunner,
     name: &str,
     tap: Option<PathBuf>,
+    verbose: bool,
 ) -> anyhow::Result<bool> {
     // ERR-10: surface the specific expansion failure (unknown/cycle/
     // depth-exceeded) via the typed `ExpandError`, instead of rewriting
@@ -331,6 +339,7 @@ fn run_command_cli(
         display_map,
         &runner.config().themes,
         tap,
+        verbose,
     ))?;
 
     let _echo_guard = EchoGuard::disable_echo();

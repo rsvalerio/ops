@@ -66,25 +66,36 @@ fn run_extension_list_to(
     Ok(())
 }
 
+/// Maximum display width for the description column in extension/provider tables.
+const DESC_TRUNCATION_WIDTH: u16 = 40;
+/// Wider truncation budget for the narrower provider-field table.
+const PROVIDER_DESC_TRUNCATION_WIDTH: u16 = 50;
+
 fn write_extension_table(
     w: &mut dyn Write,
     exts: &[(&str, &dyn ops_extension::Extension)],
 ) -> anyhow::Result<()> {
-    let mut table = OpsTable::new();
-    table.set_header(vec![
+    let headers = [
         "Name",
         "Shortname",
         "Types",
         "Commands",
         "Data Provider",
         "Description",
-    ]);
+    ];
+    let desc_col = headers
+        .iter()
+        .position(|&h| h == "Description")
+        .expect("Description header must exist");
+
+    let mut table = OpsTable::new();
+    table.set_header(headers.to_vec());
 
     for (config_name, ext) in exts {
         table.add_row(build_extension_row(&table, config_name, *ext));
     }
 
-    table.set_max_width(5, 40);
+    table.set_max_width(desc_col, DESC_TRUNCATION_WIDTH);
 
     writeln!(w, "{table}")?;
     Ok(())
@@ -301,8 +312,14 @@ fn print_provider_info(
         return Ok(());
     }
 
+    let provider_headers = ["Field", "Type", "Description"];
+    let desc_col = provider_headers
+        .iter()
+        .position(|&h| h == "Description")
+        .expect("Description header must exist");
+
     let mut table = OpsTable::new();
-    table.set_header(vec!["Field", "Type", "Description"]);
+    table.set_header(provider_headers.to_vec());
 
     for field in &schema.fields {
         let row = vec![
@@ -313,7 +330,7 @@ fn print_provider_info(
         table.add_row(row);
     }
 
-    table.set_max_width(2, 50);
+    table.set_max_width(desc_col, PROVIDER_DESC_TRUNCATION_WIDTH);
 
     writeln!(w, "{table}")?;
     Ok(())

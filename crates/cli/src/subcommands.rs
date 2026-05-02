@@ -44,9 +44,9 @@ pub(crate) fn run_about(
         Some(AboutAction::Coverage) => ops_about::run_about_coverage(&registry),
         Some(AboutAction::Dependencies) => ops_about::run_about_deps(&registry),
         None => {
-            let opts = ops_about::AboutOptions::new(
+            let opts = ops_about::AboutOptions::from_ref(
                 refresh,
-                config.about.fields.clone(),
+                config.about.fields.as_deref(),
                 crate::tty::is_stdout_tty(),
             );
             ops_about::run_about(&registry, &opts, &cwd, &mut std::io::stdout())
