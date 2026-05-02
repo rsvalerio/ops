@@ -13,6 +13,7 @@
 //!
 //! See also ERR-5, SEC-25, SEC-32 in the backlog for the motivating findings.
 
+use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::Path;
 
@@ -89,26 +90,39 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no file name")
-        })?
-        .to_string_lossy()
-        .into_owned();
+    let file_name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no file name")
+    })?;
 
     let pid = std::process::id();
     let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
+
+    // SEC-25 / TASK-0837: build the tmp basename from raw OsStr bytes
+    // rather than via to_string_lossy, so that two distinct non-UTF-8
+    // siblings whose lossy-rendered names collide on `?`/U+FFFD do not
+    // race on the same tmp basename.
+    //
     // READ-5 / TASK-0908: strip a leading dot before composing the tmp
     // basename. Without this, a target like `.ops.toml` produced
     // `..ops.toml.tmp.…`, a double-dot shape that confuses cleanup
     // scripts and editor swap-file detectors and slips past grep-based
     // crash-recovery audits.
-    let stem = file_name.strip_prefix('.').unwrap_or(&file_name);
-    let tmp = parent.join(format!(".{stem}.tmp.{pid}.{counter}.{nanos}"));
+    let name_bytes = file_name.as_encoded_bytes();
+    let stem_bytes = name_bytes.strip_prefix(b".").unwrap_or(name_bytes);
+    // SAFETY: stem_bytes is the original OsStr-encoded byte slice with at
+    // most one leading ASCII '.' removed. OsStr::as_encoded_bytes documents
+    // that ASCII bytes can be removed from either end without producing
+    // an invalid OsStr encoding.
+    let stem = unsafe { OsStr::from_encoded_bytes_unchecked(stem_bytes) };
+
+    let mut tmp_name = OsString::with_capacity(name_bytes.len() + 48);
+    tmp_name.push(".");
+    tmp_name.push(stem);
+    tmp_name.push(format!(".tmp.{pid}.{counter}.{nanos}"));
+    let tmp = parent.join(tmp_name);
 
     {
         let mut f = std::fs::OpenOptions::new()
@@ -258,6 +272,50 @@ mod tests {
         let result = edit_ops_toml(&path, |_doc| anyhow::bail!("mutate failed"));
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    }
+
+    /// SEC-25 / TASK-0837: two siblings whose names differ only in invalid
+    /// UTF-8 bytes must produce distinct tmp basenames. Going through
+    /// `to_string_lossy` collapses both to the same `?`/U+FFFD-substituted
+    /// string, which lets concurrent atomic_writes race on the same tmp.
+    /// Verifying that each call writes its target byte-for-byte and that no
+    /// tmp leftovers linger pins the OsStr-based concatenation path.
+    // APFS (macOS) and many Windows filesystems reject non-UTF-8 file
+    // names with EILSEQ before the syscall reaches our code, so this
+    // regression can only be exercised on filesystems that pass raw bytes
+    // through (Linux ext4/xfs/tmpfs).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn atomic_write_handles_distinct_non_utf8_siblings() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let dir = tempfile::tempdir().unwrap();
+
+        let name_a: OsString = OsString::from_vec(vec![b'a', 0xff]);
+        let name_b: OsString = OsString::from_vec(vec![b'a', 0xfe]);
+        let path_a = dir.path().join(&name_a);
+        let path_b = dir.path().join(&name_b);
+
+        atomic_write(&path_a, b"alpha").unwrap();
+        atomic_write(&path_b, b"beta").unwrap();
+
+        assert_eq!(std::fs::read(&path_a).unwrap(), b"alpha");
+        assert_eq!(std::fs::read(&path_b).unwrap(), b"beta");
+
+        // No `.tmp.` leftovers: the rename for each call must have
+        // succeeded against its own unique tmp basename.
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.file_name()
+                    .as_encoded_bytes()
+                    .windows(5)
+                    .any(|w| w == b".tmp.")
+            })
+            .collect();
+        assert!(leftovers.is_empty(), "leaked tmp: {leftovers:?}");
     }
 
     /// READ-5 / TASK-0908: a leftover tmp file from a crash mid-write
