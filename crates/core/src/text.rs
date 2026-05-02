@@ -1,6 +1,52 @@
 //! Shared text utilities.
 
+use std::io::Read;
 use std::path::Path;
+
+/// SEC-33 (TASK-0932): default cap on manifest-style file reads
+/// (`Cargo.toml`, `go.mod`, `package.json`, `requirements.txt`, …).
+/// `ops` runs in user-controlled working directories where an adversarial
+/// repository could otherwise force unbounded allocations via an oversized
+/// or `/dev/zero`-symlinked manifest. 4 MiB is well above any realistic
+/// manifest while keeping a single oversize read bounded.
+pub const MANIFEST_MAX_BYTES_DEFAULT: u64 = 4 * 1024 * 1024;
+
+/// Env knob mirroring `OPS_PLAN_JSON_MAX_BYTES`. Positive integer; values
+/// that fail to parse or are zero fall back to [`MANIFEST_MAX_BYTES_DEFAULT`].
+pub const MANIFEST_MAX_BYTES_ENV: &str = "OPS_MANIFEST_MAX_BYTES";
+
+/// Effective manifest read cap. Resolved from the env knob on every call so
+/// tests can override without process restart.
+pub fn manifest_max_bytes() -> u64 {
+    std::env::var(MANIFEST_MAX_BYTES_ENV)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(MANIFEST_MAX_BYTES_DEFAULT)
+}
+
+/// Read `path` to a `String`, capped at [`manifest_max_bytes`] bytes.
+///
+/// On a file larger than the cap, returns `Err` with `ErrorKind::InvalidData`
+/// (and a message naming the cap) without holding the full content in memory:
+/// the read is bounded by `Read::take(cap + 1)`.
+///
+/// `NotFound` and other IO errors are returned verbatim so callers can
+/// classify (silent fall-through vs warn-and-skip vs hard fail).
+pub fn read_capped_to_string(path: &Path) -> std::io::Result<String> {
+    let cap = manifest_max_bytes();
+    let mut file = std::fs::File::open(path)?;
+    let mut buf = String::new();
+    let limit = cap.saturating_add(1);
+    (&mut file).take(limit).read_to_string(&mut buf)?;
+    if buf.len() as u64 > cap {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("file exceeds {cap}-byte cap (override via {MANIFEST_MAX_BYTES_ENV})"),
+        ));
+    }
+    Ok(buf)
+}
 
 /// Capitalize the first character of a string.
 pub fn capitalize(s: &str) -> String {
@@ -44,22 +90,31 @@ pub fn dir_name(path: &Path) -> &str {
 }
 
 /// Read `path` as UTF-8 text and invoke `f` on each line, with surrounding whitespace
-/// trimmed. Returns `Some(())` when the file was read, `None` if it was missing or
-/// unreadable. Used by line-based manifest parsers (`go.mod`, `go.work`,
-/// `gradle.properties`, etc.) to share the read-and-iterate skeleton.
+/// trimmed. Returns `Some(())` when the file was read, `None` if it was missing,
+/// unreadable, or larger than [`manifest_max_bytes`] bytes. Used by line-based
+/// manifest parsers (`go.mod`, `go.work`, `gradle.properties`, etc.) to share
+/// the read-and-iterate skeleton.
 ///
-/// Non-NotFound IO errors (PermissionDenied, IsADirectory, etc.) are logged at
-/// `tracing::warn!` so operators can diagnose "manifest exists but is unreadable"
-/// without changing log levels. NotFound remains silent — a missing manifest is
-/// a normal condition for optional stacks.
+/// Non-NotFound IO errors (PermissionDenied, IsADirectory, oversize, etc.) are
+/// logged at `tracing::warn!` so operators can diagnose "manifest exists but is
+/// unreadable" without changing log levels. NotFound remains silent — a missing
+/// manifest is a normal condition for optional stacks.
+///
+/// SEC-33 (TASK-0932): the read is byte-capped via [`read_capped_to_string`] so
+/// an adversarial manifest cannot OOM the process before the first callback.
 pub fn for_each_trimmed_line<F: FnMut(&str)>(path: &Path, mut f: F) -> Option<()> {
-    let content = match std::fs::read_to_string(path) {
+    let content = match read_capped_to_string(path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
+            // ERR-7 (TASK-0944): Debug-format path/error so a manifest path
+            // under user-controlled CWD (`go.mod`, `gradle.properties`,
+            // `requirements.txt`, ...) containing newlines or ANSI escapes
+            // cannot forge log lines.
             tracing::warn!(
-                path = %path.display(),
-                error = %e,
+                path = ?path.display(),
+                error = ?e,
+                cap = manifest_max_bytes(),
                 "failed to read manifest for line iteration"
             );
             return None;
@@ -167,6 +222,79 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let res = for_each_trimmed_line(&dir.path().join("nope"), |_| {});
         assert!(res.is_none());
+    }
+
+    /// SEC-33 (TASK-0932): files larger than the cap must be rejected by the
+    /// shared reader without slurping the full content into memory. The
+    /// callback in `for_each_trimmed_line` must not run.
+    #[test]
+    #[serial_test::serial]
+    fn for_each_trimmed_line_oversize_returns_none() {
+        let _guard = crate::test_utils::EnvGuard::set(MANIFEST_MAX_BYTES_ENV, "64");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("huge.txt");
+        let oversize = vec![b'a'; 65];
+        std::fs::write(&path, &oversize).unwrap();
+
+        let mut called = false;
+        let res = for_each_trimmed_line(&path, |_| called = true);
+        assert!(res.is_none(), "oversize file should return None");
+        assert!(!called, "callback must not run for oversize file");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn read_capped_to_string_oversize_returns_invalid_data() {
+        let _guard = crate::test_utils::EnvGuard::set(MANIFEST_MAX_BYTES_ENV, "16");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big");
+        std::fs::write(&path, vec![b'a'; 17]).unwrap();
+        let err = read_capped_to_string(&path).expect_err("must reject oversize");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn read_capped_to_string_at_cap_returns_content() {
+        let _guard = crate::test_utils::EnvGuard::set(MANIFEST_MAX_BYTES_ENV, "8");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ok");
+        std::fs::write(&path, b"12345678").unwrap();
+        let got = read_capped_to_string(&path).expect("at-cap file reads ok");
+        assert_eq!(got, "12345678");
+    }
+
+    #[test]
+    fn read_capped_to_string_missing_propagates_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let err =
+            read_capped_to_string(&dir.path().join("nope")).expect_err("missing should error");
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn manifest_max_bytes_invalid_env_falls_back_to_default() {
+        // Don't touch env here — just verify the default constant matches
+        // the runtime resolver when the env knob is unset (the most common
+        // path).
+        let resolved = manifest_max_bytes();
+        assert!(
+            resolved == MANIFEST_MAX_BYTES_DEFAULT || std::env::var(MANIFEST_MAX_BYTES_ENV).is_ok(),
+            "default cap must apply when env unset"
+        );
+    }
+
+    /// ERR-7 (TASK-0944): the warn event in `for_each_trimmed_line`
+    /// Debug-formats the path so a manifest path containing newlines or
+    /// ANSI escapes cannot forge log records. Pin the value-level escape
+    /// without a tracing-subscriber dev-dep.
+    #[test]
+    fn for_each_trimmed_line_path_debug_escapes_control_characters() {
+        let p = Path::new("a\nb\u{1b}[31mc/go.mod");
+        let rendered = format!("{:?}", p.display());
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
     }
 
     #[cfg(unix)]

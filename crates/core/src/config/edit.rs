@@ -22,15 +22,14 @@ use anyhow::Context;
 /// Read and parse `.ops.toml` at `path`, treating missing as an empty
 /// document. Used by callers that want to inspect the document without
 /// necessarily writing back.
+///
+/// SEC-33 / TASK-0943: routes through
+/// [`super::loader::read_capped_toml_file`] so an oversized `.ops.toml`
+/// fails fast with a typed bounded-read error rather than slurping the
+/// whole file. Cap is overridable via
+/// [`super::loader::OPS_TOML_MAX_BYTES_ENV`].
 pub fn read_ops_toml(path: &Path) -> anyhow::Result<toml_edit::DocumentMut> {
-    let content = match std::fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => {
-            return Err(e)
-                .with_context(|| format!("failed to read config file: {}", path.display()));
-        }
-    };
+    let content = super::loader::read_capped_toml_file(path)?.unwrap_or_default();
     content.parse::<toml_edit::DocumentMut>().with_context(|| {
         format!(
             "failed to parse {} as TOML; refusing to overwrite to avoid data loss",
@@ -185,6 +184,37 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SEC-33 / TASK-0943: `read_ops_toml` must surface a bounded-read
+    /// error when the on-disk file exceeds the configured byte cap,
+    /// rather than slurping the entire file into the toml_edit parser.
+    #[test]
+    #[serial_test::serial]
+    fn read_ops_toml_rejects_oversized_payload() {
+        use super::super::loader::OPS_TOML_MAX_BYTES_ENV;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".ops.toml");
+        std::fs::write(&path, "x".repeat(4096)).unwrap();
+
+        // SAFETY: serial-marked; restore prior value at end.
+        let saved = std::env::var(OPS_TOML_MAX_BYTES_ENV).ok();
+        unsafe { std::env::set_var(OPS_TOML_MAX_BYTES_ENV, "64") };
+        let result = read_ops_toml(&path);
+        unsafe {
+            match saved {
+                Some(v) => std::env::set_var(OPS_TOML_MAX_BYTES_ENV, v),
+                None => std::env::remove_var(OPS_TOML_MAX_BYTES_ENV),
+            }
+        }
+
+        let err = result.expect_err("oversized .ops.toml must error");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("exceeds 64 bytes"),
+            "error must name the cap, got: {msg}"
+        );
+    }
 
     #[test]
     fn edit_missing_file_treated_as_empty() {

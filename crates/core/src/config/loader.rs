@@ -10,6 +10,7 @@
 //! a test calls `std::env::set_var`, `std::env::remove_var`, or
 //! `std::env::set_current_dir`.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
@@ -18,6 +19,64 @@ use tracing::{debug, instrument};
 
 use super::merge::merge_config;
 use super::{default_ops_toml, Config, ConfigOverlay};
+
+/// SEC-33 / TASK-0943: default cap on `.ops.toml` (and `.ops.d/*.toml`,
+/// global config) reads. Real-world ops configs are well under 256 KiB,
+/// so this cap sits comfortably above any legitimate use while preventing
+/// a symlink to `/dev/zero` or an adversarially-large config from
+/// exhausting memory. Mirrors the
+/// `extensions_terraform_plan::OPS_PLAN_JSON_MAX_BYTES` posture
+/// (TASK-0915) and `extensions::git::config::MAX_GIT_CONFIG_BYTES`
+/// (TASK-0910). Operators expecting larger configs can raise the cap via
+/// [`OPS_TOML_MAX_BYTES_ENV`].
+pub const DEFAULT_OPS_TOML_MAX_BYTES: u64 = 256 * 1024;
+// Compile-time guard for the documented >=256 KiB floor.
+const _: () = assert!(DEFAULT_OPS_TOML_MAX_BYTES >= 256 * 1024);
+
+/// Environment variable that overrides [`DEFAULT_OPS_TOML_MAX_BYTES`].
+/// A value of `0` or an unparseable value falls back to the default.
+pub const OPS_TOML_MAX_BYTES_ENV: &str = "OPS_TOML_MAX_BYTES";
+
+/// Resolve the current `.ops.toml` byte cap, honouring the
+/// [`OPS_TOML_MAX_BYTES_ENV`] override.
+pub fn ops_toml_max_bytes() -> u64 {
+    std::env::var(OPS_TOML_MAX_BYTES_ENV)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_OPS_TOML_MAX_BYTES)
+}
+
+/// Read a `.ops.toml`-style file with a hard byte cap.
+///
+/// Returns `Ok(None)` if the file does not exist, `Ok(Some(content))`
+/// otherwise. Errors include both real IO failures and the bounded-read
+/// rejection — an oversized file fails with a typed message naming the
+/// cap and the override env var, rather than being slurped into memory.
+pub(crate) fn read_capped_toml_file(path: &Path) -> anyhow::Result<Option<String>> {
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(e)
+                .with_context(|| format!("failed to open config file: {}", path.display()));
+        }
+    };
+    let cap = ops_toml_max_bytes();
+    let limit = cap.saturating_add(1);
+    let mut content = String::new();
+    (&mut file)
+        .take(limit)
+        .read_to_string(&mut content)
+        .with_context(|| format!("failed to read config file: {}", path.display()))?;
+    if content.len() as u64 > cap {
+        anyhow::bail!(
+            "config file at {} exceeds {cap} bytes (override via {OPS_TOML_MAX_BYTES_ENV})",
+            path.display()
+        );
+    }
+    Ok(Some(content))
+}
 
 /// Merge environment variables with OPS prefix into config.
 ///
@@ -121,13 +180,10 @@ pub fn load_config_or_default(context: &str) -> Config {
 }
 
 pub fn read_config_file(path: &Path) -> anyhow::Result<Option<ConfigOverlay>> {
-    let s = match std::fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => {
-            return Err(e)
-                .with_context(|| format!("failed to read config file: {}", path.display()));
-        }
+    // SEC-33 / TASK-0943: route through the byte-capped reader so a
+    // multi-GB or symlink-to-/dev/zero `.ops.toml` cannot OOM the CLI.
+    let Some(s) = read_capped_toml_file(path)? else {
+        return Ok(None);
     };
     let overlay = toml::from_str(&s)
         .with_context(|| format!("failed to parse config file: {}", path.display()))?;
@@ -317,6 +373,41 @@ args = ["hello"]
 
         let err = result.expect_err("parse failure should surface");
         assert!(format!("{err:#}").contains("broken.toml"));
+    }
+
+    /// SEC-33 / TASK-0943: a `.ops.toml` larger than the configured cap
+    /// must be rejected with a bounded-read error rather than silently
+    /// slurped into memory. Override the cap to 64 bytes via
+    /// `OPS_TOML_MAX_BYTES` so the test stays fast.
+    #[test]
+    #[serial_test::serial]
+    fn read_config_file_rejects_oversized_payload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".ops.toml");
+        // Payload well over the 64-byte cap below.
+        fs::write(&path, "x".repeat(4096)).unwrap();
+
+        // SAFETY: serial-marked; restore prior value at end.
+        let saved = std::env::var(OPS_TOML_MAX_BYTES_ENV).ok();
+        unsafe { std::env::set_var(OPS_TOML_MAX_BYTES_ENV, "64") };
+        let result = read_config_file(&path);
+        unsafe {
+            match saved {
+                Some(v) => std::env::set_var(OPS_TOML_MAX_BYTES_ENV, v),
+                None => std::env::remove_var(OPS_TOML_MAX_BYTES_ENV),
+            }
+        }
+
+        let err = result.expect_err("oversized .ops.toml must error");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("exceeds 64 bytes"),
+            "error must name the cap, got: {msg}"
+        );
+        assert!(
+            msg.contains(OPS_TOML_MAX_BYTES_ENV),
+            "error must name the override env var, got: {msg}"
+        );
     }
 
     #[test]
