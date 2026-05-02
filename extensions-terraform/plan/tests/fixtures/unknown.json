@@ -1,0 +1,32 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "aws_instance.gone",
+      "mode": "managed",
+      "type": "aws_instance",
+      "name": "gone",
+      "change": {
+        "actions": ["forget"]
+      }
+    },
+    {
+      "address": "aws_instance.imported",
+      "mode": "managed",
+      "type": "aws_instance",
+      "name": "imported",
+      "change": {
+        "actions": ["import", "update"]
+      }
+    },
+    {
+      "address": "aws_instance.kept",
+      "mode": "managed",
+      "type": "aws_instance",
+      "name": "kept",
+      "change": {
+        "actions": ["no-op"]
+      }
+    }
+  ]
+}

@@ -34,11 +34,21 @@ pub enum Action {
     Replace,
     Read,
     NoOp,
+    /// SEC-31 (TASK-0833): a Terraform plan action this build does not
+    /// recognize (e.g., `forget`, `import`, or a future variant). The
+    /// renderer surfaces these with a distinct color and a warning banner
+    /// so operators do not miss audit-relevant changes the tool cannot name.
+    Unknown,
 }
 
 impl Action {
+    /// Returns `None` for an empty action list (no actions reported by
+    /// Terraform). For non-empty lists that do not match a known shape,
+    /// returns `Some(Action::Unknown)` and emits a `tracing::warn!` with
+    /// the raw action strings — fail-loud, not fail-open (SEC-31).
     pub fn classify(actions: &[String]) -> Option<Self> {
         match actions {
+            [] => None,
             [s] if s == "no-op" => Some(Action::NoOp),
             [s] if s == "create" => Some(Action::Create),
             [s] if s == "read" => Some(Action::Read),
@@ -47,7 +57,13 @@ impl Action {
             [a, b] if (a == "delete" && b == "create") || (a == "create" && b == "delete") => {
                 Some(Action::Replace)
             }
-            _ => None,
+            other => {
+                tracing::warn!(
+                    actions = ?other,
+                    "unrecognized terraform plan action sequence; surfacing as Unknown"
+                );
+                Some(Action::Unknown)
+            }
         }
     }
 
@@ -59,6 +75,7 @@ impl Action {
             Action::Replace => comfy_table::Color::Magenta,
             Action::Read => comfy_table::Color::Cyan,
             Action::NoOp => comfy_table::Color::DarkGrey,
+            Action::Unknown => comfy_table::Color::DarkRed,
         }
     }
 
@@ -74,18 +91,22 @@ impl Action {
             Action::Replace => "replace",
             Action::Read => "read",
             Action::NoOp => "no-op",
+            Action::Unknown => "unknown",
         }
     }
 
     /// Sort priority for resource table ordering. Lower = listed first.
+    /// `Unknown` sorts first so audit-relevant unrecognized changes are
+    /// the first thing the operator sees (SEC-31).
     pub fn sort_priority(self) -> u8 {
         match self {
-            Action::Delete => 0,
-            Action::Replace => 1,
-            Action::Create => 2,
-            Action::Update => 3,
-            Action::Read => 4,
-            Action::NoOp => 5,
+            Action::Unknown => 0,
+            Action::Delete => 1,
+            Action::Replace => 2,
+            Action::Create => 3,
+            Action::Update => 4,
+            Action::Read => 5,
+            Action::NoOp => 6,
         }
     }
 }
@@ -151,8 +172,21 @@ mod tests {
     }
 
     #[test]
-    fn classify_unknown() {
-        assert_eq!(Action::classify(&["unknown".into()]), None);
+    fn classify_unknown_single_surfaces_as_unknown() {
+        // SEC-31 (TASK-0833): an unrecognized single action is surfaced
+        // as `Action::Unknown`, not silently dropped.
+        assert_eq!(Action::classify(&["forget".into()]), Some(Action::Unknown));
+    }
+
+    #[test]
+    fn classify_unknown_combination_surfaces_as_unknown() {
+        // SEC-31 (TASK-0833): a combined-action sequence we do not
+        // enumerate (e.g., ["create", "delete", "create"] or
+        // ["import", "update"]) must surface, not vanish.
+        assert_eq!(
+            Action::classify(&["import".into(), "update".into()]),
+            Some(Action::Unknown)
+        );
     }
 
     #[test]

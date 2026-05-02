@@ -3,9 +3,10 @@ id: TASK-0833
 title: >-
   SEC-31: Action::classify silently drops unknown terraform actions instead of
   surfacing them
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:11'
+updated_date: '2026-05-02 12:00'
 labels:
   - code-review-rust
   - security

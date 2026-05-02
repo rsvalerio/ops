@@ -253,6 +253,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_unknown_fixture_surfaces_unknown_action() {
+        // SEC-31 (TASK-0833): unrecognized actions (`forget`,
+        // `["import", "update"]`) must surface as `Action::Unknown`,
+        // not be silently filtered out of the resource table.
+        let json = include_str!("../tests/fixtures/unknown.json");
+        let (_plan, changes) = parse_and_classify(json).expect("parse should succeed");
+        let actions: Vec<Action> = changes.iter().map(|c| c.action).collect();
+        assert_eq!(
+            actions.iter().filter(|a| **a == Action::Unknown).count(),
+            2,
+            "both forget and import+update should surface as Unknown: {actions:?}"
+        );
+    }
+
+    #[test]
     fn parse_empty_fixture() {
         let json = include_str!("../tests/fixtures/empty.json");
         let (_plan, changes) = parse_and_classify(json).expect("parse should succeed");

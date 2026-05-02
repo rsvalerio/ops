@@ -16,7 +16,8 @@ const MODULE_COL_MIN_WIDTH: usize = 20;
 /// `set_header(...)` so the budget reflects the new shape.
 const NON_MODULE_COLS_RESERVED: usize = 40;
 
-const ACTION_DISPLAY_ORDER: [Action; 6] = [
+const ACTION_DISPLAY_ORDER: [Action; 7] = [
+    Action::Unknown,
     Action::Create,
     Action::Delete,
     Action::Update,
@@ -65,6 +66,23 @@ pub fn render_resource_table(changes: &[ClassifiedChange], is_tty: bool) -> Stri
         return String::new();
     }
 
+    // SEC-31 (TASK-0833): if any change carries an unrecognized action,
+    // prepend a banner so an operator does not miss audit-relevant rows
+    // they cannot name. The rows themselves render with `Action::Unknown`
+    // styling and sort to the top of the table.
+    let unknown_count = filtered
+        .iter()
+        .filter(|c| matches!(c.action, Action::Unknown))
+        .count();
+    let banner = if unknown_count > 0 {
+        format!(
+            "WARNING: {unknown_count} resource change(s) use an action this build does not recognize. \
+Inspect the rows marked `unknown` before applying.\n"
+        )
+    } else {
+        String::new()
+    };
+
     filtered.sort_by(|a, b| {
         a.action
             .sort_priority()
@@ -97,7 +115,7 @@ pub fn render_resource_table(changes: &[ClassifiedChange], is_tty: bool) -> Stri
         table.set_max_width(3, capped as u16);
     }
 
-    format!("{table}\n")
+    format!("{banner}{table}\n")
 }
 
 pub fn render_outputs_table(
