@@ -392,6 +392,30 @@ fn parse_deny_unknown_code_does_not_appear_in_result() {
     assert!(result.sources.is_empty());
 }
 
+/// ERR-2 / TASK-0845: a diagnostic that lacks a `severity` field used to
+/// be silently substituted with the literal "error" sentinel — making it
+/// indistinguishable from a real cargo-deny error and silently inverting
+/// the fail-closed schema-drift contract for informational diagnostics.
+/// The new behaviour preserves the missing severity as the
+/// `<missing-severity>` sentinel, which routes through has_issues's
+/// fail-closed `_other` branch (still fails the gate) but is observable
+/// in the parsed entry and via tracing.
+#[test]
+fn parse_deny_missing_severity_uses_distinct_sentinel() {
+    use crate::parse::MISSING_SEVERITY_SENTINEL;
+    let stderr = r#"{"type":"diagnostic","fields":{"message":"unmaintained","code":"unmaintained","advisory":{"id":"RUSTSEC-2024-0001","package":"foo","title":"foo is old"},"labels":[],"graphs":[],"notes":[]}}"#;
+    let result = parse_deny_output(stderr);
+    assert_eq!(result.advisories.len(), 1);
+    assert_eq!(
+        result.advisories[0].severity, MISSING_SEVERITY_SENTINEL,
+        "missing severity must surface as a distinct sentinel, not 'error'"
+    );
+    assert_ne!(
+        result.advisories[0].severity, "error",
+        "must not collide with the legitimate 'error' severity value"
+    );
+}
+
 // -- Upgrade table parser edge cases --
 
 #[test]
@@ -447,12 +471,20 @@ fn parse_deny_no_code_field_skipped() {
     assert!(result.sources.is_empty());
 }
 
+/// ERR-2 / TASK-0845: a diagnostic with no severity must NOT be silently
+/// rebadged as `"error"` — that collides with cargo-deny's legitimate
+/// "error" value and prevents callers (and operators reading logs) from
+/// distinguishing "real error" from "schema drift, severity field gone".
+/// The new contract uses `<missing-severity>` as a distinct sentinel that
+/// has_issues routes through the fail-closed `_other` branch.
 #[test]
-fn parse_deny_no_severity_defaults_to_error() {
+fn parse_deny_no_severity_uses_missing_sentinel_not_error() {
+    use crate::parse::MISSING_SEVERITY_SENTINEL;
     let stderr = r#"{"type":"diagnostic","fields":{"message":"license rejected","code":"rejected","labels":[],"graphs":[{"Krate":{"name":"some-crate","version":"1.0.0"}}],"notes":[]}}"#;
     let result = parse_deny_output(stderr);
     assert_eq!(result.licenses.len(), 1);
-    assert_eq!(result.licenses[0].severity, "error");
+    assert_eq!(result.licenses[0].severity, MISSING_SEVERITY_SENTINEL);
+    assert_ne!(result.licenses[0].severity, "error");
 }
 
 #[test]

@@ -3,9 +3,10 @@ id: TASK-0845
 title: >-
   ERR-2: parse_deny_output defaults missing severity to 'error', conflicting
   with fail-closed has_issues
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:15'
+updated_date: '2026-05-02 14:09'
 labels:
   - code-review-rust
   - error-handling
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Missing severity is preserved as a distinct sentinel (e.g. severity: <missing>) and routed through the same warn-and-fail-closed path as unknown severities
+- [x] #1 Missing severity is preserved as a distinct sentinel (e.g. severity: <missing>) and routed through the same warn-and-fail-closed path as unknown severities
 - [ ] #2 Or the default is documented and validated as the intended behaviour with an integration test
-- [ ] #3 tracing::warn! fires once per missing-severity diagnostic so drift is observable
+- [x] #3 tracing::warn! fires once per missing-severity diagnostic so drift is observable
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+decode_diagnostic now substitutes MISSING_SEVERITY_SENTINEL ('<missing-severity>') instead of the literal 'error' when severity is absent, and emits a tracing::warn! per missing-severity diagnostic. has_issues already fails closed for any unknown severity (TASK-0601), so the sentinel routes through the fail-closed-with-warn branch — schema drift now (a) fails the gate, (b) is observable in logs, and (c) is distinguishable from a real cargo-deny error in the parsed entry. Updated parse_deny_no_severity_defaults_to_error to pin the new contract.
+<!-- SECTION:NOTES:END -->

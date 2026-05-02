@@ -458,14 +458,42 @@ fn decode_diagnostic(trimmed: &str) -> Option<DecodedDiagnostic> {
         }
     };
     let code = fields.code?;
+    // ERR-2 / TASK-0845: previously a missing severity was substituted with
+    // the literal "error" sentinel. That collides with the legitimate
+    // cargo-deny severity "error" — has_issues fails closed on unknown
+    // severities, but had no way to distinguish "explicit error" from
+    // "schema drift / cargo-deny stopped emitting severity". Use a
+    // distinct sentinel so has_issues routes missing-severity through the
+    // explicit fail-closed-and-warn branch and operators see the drift
+    // signal in logs instead of silently rating informational diagnostics
+    // as actionable errors.
+    let severity = match fields.severity {
+        Some(s) => s,
+        None => {
+            tracing::warn!(
+                code = %code,
+                message = %truncate_for_log(fields.message.as_deref().unwrap_or("")),
+                "TASK-0845: cargo-deny diagnostic missing severity; substituting `<missing-severity>` sentinel \
+                 (treated as actionable / fail-closed by has_issues)"
+            );
+            MISSING_SEVERITY_SENTINEL.to_string()
+        }
+    };
     Some(DecodedDiagnostic {
         code,
-        severity: fields.severity.unwrap_or_else(|| "error".to_string()),
+        severity,
         message: fields.message.unwrap_or_default(),
         advisory: fields.advisory,
         graphs: fields.graphs,
     })
 }
+
+/// ERR-2 / TASK-0845: shared sentinel used by [`decode_diagnostic`] when a
+/// cargo-deny diagnostic line lacks a `severity` field. Routed through
+/// `has_issues`'s fail-closed `_other` branch so the unknown-severity warn
+/// fires and the gate still fails — preserving the safety property of
+/// "schema drift surfaces, doesn't silently mute the gate".
+pub(crate) const MISSING_SEVERITY_SENTINEL: &str = "<missing-severity>";
 
 /// Resolve the package name for a diagnostic, falling back to the
 /// `<no package>` sentinel with a tracing breadcrumb when neither source
