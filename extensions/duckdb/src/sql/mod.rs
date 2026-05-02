@@ -20,14 +20,32 @@ pub mod ingest;
 pub mod query;
 pub mod validation;
 
-/// Run `query_fn` and return its `Ok` value, or log the error at `warn` and
-/// return `fallback`.
+/// Run `query_fn` and return its `Ok` value, or log the error and return
+/// `fallback`.
 ///
 /// DUP-1 (TASK-0475): consolidates the seven near-identical
 /// `match query_X(db) { Ok(v) => v, Err(e) => { tracing::warn!(...); fallback } }`
 /// blocks scattered across `extensions-rust/about`. Callers pass the query
 /// label and a brief description of the degraded outcome so the log line
 /// stays diagnostic.
+///
+/// ERR-7 / TASK-0855 — severity routing:
+/// - [`DbError::MutexPoisoned`] and [`DbError::Timeout`] log at `error!`
+///   level. A poisoned DuckDB connection reflects partially-applied state
+///   the connection module explicitly chose not to trust (see
+///   `connection.rs`'s rationale); a query timeout signals a real
+///   concurrency / liveness problem rather than a transient miss. Both
+///   would otherwise be indistinguishable from a benign cache-miss-style
+///   `DbError::Io` in the operator's logs.
+/// - All other errors stay at `warn!` level (the historical default) so
+///   the noisy provider-fallback path doesn't drown out the real signal.
+///
+/// The function still returns `fallback` in every error case — escalating
+/// to error-log severity is about visibility, not propagation. A future
+/// refactor could surface MutexPoisoned to the caller via `Result`.
+///
+/// [`DbError::MutexPoisoned`]: crate::error::DbError::MutexPoisoned
+/// [`DbError::Timeout`]: crate::error::DbError::Timeout
 pub fn query_or_warn<T, F>(label: &'static str, degraded: &str, fallback: T, query_fn: F) -> T
 where
     F: FnOnce() -> anyhow::Result<T>,
@@ -35,10 +53,33 @@ where
     match query_fn() {
         Ok(v) => v,
         Err(e) => {
-            tracing::warn!(query = label, "duckdb query failed; {degraded}: {e:#}");
+            if is_hard_failure(&e) {
+                tracing::error!(
+                    query = label,
+                    "duckdb query failed (hard); {degraded}: {e:#}"
+                );
+            } else {
+                tracing::warn!(query = label, "duckdb query failed; {degraded}: {e:#}");
+            }
             fallback
         }
     }
+}
+
+/// ERR-7 / TASK-0855: walk the anyhow error chain looking for a
+/// [`DbError`] variant that signals trust-broken state (MutexPoisoned)
+/// or a liveness failure (Timeout). Returns true → log at `error!` rather
+/// than `warn!`.
+fn is_hard_failure(err: &anyhow::Error) -> bool {
+    use crate::error::DbError;
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err.as_ref());
+    while let Some(e) = current {
+        if let Some(db) = e.downcast_ref::<DbError>() {
+            return matches!(db, DbError::MutexPoisoned(_) | DbError::Timeout { .. });
+        }
+        current = e.source();
+    }
+    false
 }
 
 pub use ingest::{
@@ -51,6 +92,61 @@ pub use query::{
     query_crate_loc, query_dependency_count, query_project_coverage, query_project_file_count,
     query_project_languages, query_project_loc, CrateCoverage,
 };
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::DbError;
+
+    #[test]
+    fn is_hard_failure_classifies_mutex_poisoned() {
+        let err: anyhow::Error = DbError::MutexPoisoned("panic".into()).into();
+        assert!(is_hard_failure(&err));
+    }
+
+    #[test]
+    fn is_hard_failure_classifies_timeout() {
+        let err: anyhow::Error = DbError::Timeout {
+            label: "load".into(),
+            timeout_secs: 5,
+        }
+        .into();
+        assert!(is_hard_failure(&err));
+    }
+
+    #[test]
+    fn is_hard_failure_does_not_classify_io_or_query_failed() {
+        let io: anyhow::Error = DbError::Io(std::io::Error::other("disk full")).into();
+        assert!(!is_hard_failure(&io));
+        let qf: anyhow::Error =
+            DbError::query_failed("ctx", duckdb::Error::InvalidParameterName("x".into())).into();
+        assert!(!is_hard_failure(&qf));
+    }
+
+    /// ERR-7 / TASK-0855: detection must walk through anyhow context
+    /// layers — a caller that wrapped DbError::MutexPoisoned with
+    /// `.context("...")` still triggers the hard-failure path.
+    #[test]
+    fn is_hard_failure_walks_anyhow_context_chain() {
+        use anyhow::Context as _;
+        let err = anyhow::Result::<()>::Err(DbError::MutexPoisoned("p".into()).into())
+            .context("loading coverage")
+            .unwrap_err();
+        assert!(is_hard_failure(&err));
+    }
+
+    /// ERR-7 / TASK-0855: query_or_warn still falls back on hard
+    /// failures — the elevation is about log severity, not propagation.
+    /// (Verifying the actual log level emitted requires a tracing
+    /// subscriber and is covered indirectly via is_hard_failure above.)
+    #[test]
+    fn query_or_warn_returns_fallback_on_mutex_poisoned() {
+        let v = query_or_warn("test", "fallback used", 42i32, || {
+            Err(DbError::MutexPoisoned("p".into()).into())
+        });
+        assert_eq!(v, 42);
+    }
+}
+
 // `SqlError` and `quoted_ident` cross the crate boundary; the rest of the
 // granular validation helpers stay module-internal (ARCH-9). `quoted_ident` is
 // the SEC-12 defense-in-depth wrapper and is needed at every site that
