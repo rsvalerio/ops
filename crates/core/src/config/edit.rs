@@ -124,11 +124,27 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     tmp_name.push(format!(".tmp.{pid}.{counter}.{nanos}"));
     let tmp = parent.join(tmp_name);
 
+    // SEC-25 / TASK-0898: preserve restrictive permissions across
+    // atomic-replace. Without this, the tmp file inherits the process
+    // umask (typically yielding 0644) and the rename silently widens any
+    // 0600/0640 ACL the user had on the destination. On Unix we stat the
+    // destination and apply the same mode bits to the temp file; if the
+    // destination doesn't exist we default to 0o600 rather than letting
+    // umask leak. On non-Unix platforms we keep the previous behaviour
+    // (no per-file mode set; relies on filesystem ACL inheritance).
     {
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)?;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            let mode = std::fs::metadata(path)
+                .ok()
+                .map(|m| std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o7777)
+                .unwrap_or(0o600);
+            opts.mode(mode);
+        }
+        let mut f = opts.open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
     }
@@ -272,6 +288,45 @@ mod tests {
         let result = edit_ops_toml(&path, |_doc| anyhow::bail!("mutate failed"));
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    }
+
+    /// SEC-25 / TASK-0898: a destination that the user previously
+    /// chmod'd to 0o600 must keep its mode after atomic_write replaces
+    /// the file. Pre-fix, the temp file inherited the process umask
+    /// (commonly yielding 0o644) and the rename silently widened the
+    /// ACL.
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_preserves_restrictive_destination_perms() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ops.toml");
+        std::fs::write(&path, b"first").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+        atomic_write(&path, b"second").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(
+            mode, 0o600,
+            "expected 0o600 preserved across atomic_write, got {mode:o}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"second");
+    }
+
+    /// SEC-25 / TASK-0898: when the destination doesn't exist, default
+    /// the new file's mode to 0o600 rather than the process umask.
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_defaults_new_file_to_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fresh.toml");
+        atomic_write(&path, b"hello").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(
+            mode, 0o600,
+            "expected 0o600 default for new file, got {mode:o}"
+        );
     }
 
     /// SEC-25 / TASK-0837: two siblings whose names differ only in invalid

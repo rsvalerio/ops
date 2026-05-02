@@ -3,9 +3,10 @@ id: TASK-0898
 title: >-
   SEC-25: atomic_write loses restrictive perms on existing files via default
   umask
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:08'
+updated_date: '2026-05-02 14:46'
 labels:
   - code-review-rust
   - security
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 atomic_write stat()s the destination (when it exists) and applies the same mode bits to the temp file via OpenOptions::mode on Unix
-- [ ] #2 When destination is absent, default to 0o600 to avoid leaking through umask
-- [ ] #3 Add a unit test that pre-creates a file at 0o600, calls atomic_write, and asserts mode is preserved
+- [x] #1 atomic_write stat()s the destination (when it exists) and applies the same mode bits to the temp file via OpenOptions::mode on Unix
+- [x] #2 When destination is absent, default to 0o600 to avoid leaking through umask
+- [x] #3 Add a unit test that pre-creates a file at 0o600, calls atomic_write, and asserts mode is preserved
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+On Unix, atomic_write now stat()s the destination and applies its mode bits to the temp file via OpenOptionsExt::mode; defaults to 0o600 when the destination is absent so umask cannot leak. Two regression tests pin both branches: atomic_write_preserves_restrictive_destination_perms (existing 0o600 survives a replace) and atomic_write_defaults_new_file_to_0600 (no-destination case).
+<!-- SECTION:NOTES:END -->
