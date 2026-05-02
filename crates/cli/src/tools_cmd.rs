@@ -1,10 +1,12 @@
 //! CLI handler for `cargo ops tools` subcommands.
 
 use indexmap::IndexMap;
+use std::borrow::Cow;
 use std::io::Write;
 use std::process::ExitCode;
 
 use ops_core::config::Config;
+use ops_core::output::display_width;
 use ops_core::style::{cyan, dim, green, red};
 use ops_tools::{collect_tools, install_tool, ToolInfo, ToolSource, ToolSpec, ToolStatus};
 
@@ -26,31 +28,42 @@ fn run_tools_list_to(config: &Config, w: &mut dyn Write) -> anyhow::Result<()> {
 
     writeln!(w, "Tools configured: {}\n", tools.len())?;
 
-    let max_name_len = tools.iter().map(|t| t.name.len()).max().unwrap_or(0);
+    // TASK-0758: display-width measurement + manual space-pad mirrors
+    // help.rs render_grouped_sections — `String::len` undercounts CJK/wide
+    // chars and mis-aligns the description column.
+    let max_name_width = tools
+        .iter()
+        .map(|t| display_width(&t.name))
+        .max()
+        .unwrap_or(0);
 
     for tool in &tools {
-        let status_icon = match tool.status {
-            ToolStatus::Installed => green("✓"),
-            ToolStatus::NotInstalled => red("✗"),
-            ToolStatus::Unknown => dim("?"),
-            _ => dim("?"),
+        // TASK-0759: exhaustively match every ToolStatus variant;
+        // future variants render via Debug rather than silently
+        // collapsing to "?" / "(UNKNOWN)".
+        let (status_icon, status_text): (String, Cow<'static, str>) = match tool.status {
+            ToolStatus::Installed => (green("✓"), Cow::Borrowed("")),
+            ToolStatus::NotInstalled => (red("✗"), Cow::Borrowed(" (NOT INSTALLED)")),
+            ToolStatus::Unknown => (dim("?"), Cow::Borrowed(" (UNKNOWN)")),
+            other => (
+                dim(&format!("{other:?}")),
+                Cow::Owned(format!(" ({other:?})")),
+            ),
         };
 
-        let status_text = match tool.status {
-            ToolStatus::Installed => "",
-            ToolStatus::NotInstalled => " (NOT INSTALLED)",
-            ToolStatus::Unknown => " (UNKNOWN)",
-            _ => " (UNKNOWN)",
-        };
-
-        let padded_name = format!("{:width$}", tool.name, width = max_name_len);
+        let name_width = display_width(&tool.name);
+        let pad = max_name_width.saturating_sub(name_width);
+        let mut padded_name = tool.name.clone();
+        for _ in 0..pad {
+            padded_name.push(' ');
+        }
         writeln!(
             w,
             "  {} {}  {}{}",
             status_icon,
             cyan(&padded_name),
             dim(&tool.description),
-            dim(status_text)
+            dim(&status_text)
         )?;
     }
 
@@ -506,6 +519,40 @@ cargo-fmt = "Format code"
         assert!(
             output.contains("All tools already installed"),
             "expected already installed, got: {output}"
+        );
+    }
+
+    /// TASK-0758: non-ASCII tool names must be aligned by display width, not
+    /// byte length. A width-2 character plus an ASCII name should still produce
+    /// a properly aligned description column.
+    #[test]
+    fn tools_list_aligns_wide_char_names_by_display_width() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config(
+            r#"
+[tools]
+"ビルド" = "Build tool"
+"cargo-fmt" = "Format code"
+"#,
+        );
+        let mut buf = Vec::new();
+        run_tools_list_to(&ops_core::config::load_config_or_default("test"), &mut buf)
+            .expect("run_tools_list_to");
+        let output = String::from_utf8(buf).unwrap();
+        let lines: Vec<&str> = output.lines().collect();
+        let build_line = lines
+            .iter()
+            .find(|l| l.contains("ビルド"))
+            .unwrap_or_else(|| panic!("line with ビルド not found in output:\n{output}"));
+        let fmt_line = lines
+            .iter()
+            .find(|l| l.contains("cargo-fmt"))
+            .unwrap_or_else(|| panic!("line with cargo-fmt not found in output:\n{output}"));
+        // Both descriptions must start at the same *display column*.
+        let build_desc_col = display_width(&build_line[..build_line.find("Build tool").unwrap()]);
+        let fmt_desc_col = display_width(&fmt_line[..fmt_line.find("Format code").unwrap()]);
+        assert_eq!(
+            build_desc_col, fmt_desc_col,
+            "description columns should be aligned by display width: ビルド at col {build_desc_col}, cargo-fmt at col {fmt_desc_col}"
         );
     }
 }
