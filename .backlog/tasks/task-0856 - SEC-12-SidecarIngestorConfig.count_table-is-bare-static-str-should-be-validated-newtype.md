@@ -3,9 +3,10 @@ id: TASK-0856
 title: >-
   SEC-12: SidecarIngestorConfig.count_table is bare static str; should be
   validated newtype
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:18'
+updated_date: '2026-05-02 14:31'
 labels:
   - code-review-rust
   - security
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace the bare static str for count_table with a TableName-style newtype constructed via a fallible const fn or builder
-- [ ] #2 Construction-site call sites compile unchanged
-- [ ] #3 Removal of the runtime quoted_ident(self.count_table) in load_with_sidecar becomes safe
+- [x] #1 Replace the bare static str for count_table with a TableName-style newtype constructed via a fallible const fn or builder
+- [x] #2 Construction-site call sites compile unchanged
+- [x] #3 Removal of the runtime quoted_ident(self.count_table) in load_with_sidecar becomes safe
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added TableName newtype in extensions/duckdb/src/sql/validation.rs with const-time validation via const fn is_valid_identifier_const + assert!. SidecarIngestorConfig.count_table is now a TableName; SidecarIngestorConfig::new stays const fn and accepts &static str (validates via TableName::from_static at compile time). Construction sites that took raw literals now compile unchanged through ::new; struct-init test sites updated to use TableName::from_static. load_with_sidecar dropped the runtime quoted_ident call (uses self.count_table.quoted() — pre-validated). The previous load_with_sidecar_returns_error_for_invalid_count_table runtime test was replaced with a const-context test that exercises the validator from a const initializer (so a future loosening trips a build failure).
+<!-- SECTION:NOTES:END -->

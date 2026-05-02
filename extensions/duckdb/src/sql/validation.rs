@@ -67,6 +67,64 @@ pub fn validate_identifier(name: &str) -> Result<(), SqlError> {
     Ok(())
 }
 
+/// SEC-12 / TASK-0856: const-validated wrapper for SQL identifiers.
+///
+/// Construct with [`TableName::from_static`] (compile-time validation via
+/// `const fn` + `assert!`) so an invalid literal is a build error, not a
+/// runtime `quoted_ident` failure. Carries the validated `&'static str`
+/// for diagnostics; the quoted form is built on demand and is safe to
+/// interpolate into SQL without re-validation.
+#[derive(Debug, Clone, Copy)]
+pub struct TableName(&'static str);
+
+impl TableName {
+    /// Const-validating constructor: panics at compile time if `s` is not
+    /// a valid SQL identifier (`[A-Za-z_][A-Za-z0-9_]*`). Designed to be
+    /// called from `const fn` constructors so the static-table-name
+    /// invariant is enforced at build time.
+    #[must_use]
+    pub const fn from_static(s: &'static str) -> Self {
+        assert!(
+            is_valid_identifier_const(s),
+            "TableName::from_static requires a valid SQL identifier ([A-Za-z_][A-Za-z0-9_]*)"
+        );
+        Self(s)
+    }
+
+    /// Recover the validated identifier text (e.g. for diagnostics).
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        self.0
+    }
+
+    /// Render the double-quoted SQL form. Safe to interpolate directly
+    /// because the identifier was validated at construction.
+    #[must_use]
+    pub fn quoted(&self) -> String {
+        format!("\"{}\"", self.0)
+    }
+}
+
+const fn is_valid_identifier_const(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+    let first = bytes[0];
+    if !(first.is_ascii_alphabetic() || first == b'_') {
+        return false;
+    }
+    let mut i = 1;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if !(b.is_ascii_alphanumeric() || b == b'_') {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
 /// Validate `name` and return a double-quoted SQL identifier in one step.
 ///
 /// Use this helper at every site that interpolates a table or column name into
