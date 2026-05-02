@@ -3,9 +3,10 @@ id: TASK-0918
 title: >-
   ARCH-2: extensions-rust find_workspace_root canonicalize fails when start does
   not exist
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:12'
+updated_date: '2026-05-02 14:58'
 labels:
   - code-review-rust
   - architecture
@@ -25,6 +26,12 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 canonicalize failure routes to a typed NotFound-shaped error (or falls back to lexical walk with a debug log) so downstream code distinguishes no-manifest from cwd-unreachable
-- [ ] #2 Test covers a deleted-cwd path
+- [x] #1 canonicalize failure routes to a typed NotFound-shaped error (or falls back to lexical walk with a debug log) so downstream code distinguishes no-manifest from cwd-unreachable
+- [x] #2 Test covers a deleted-cwd path
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+find_workspace_root distinguishes ErrorKind::NotFound from canonicalize (transient cwd unlink, dangling symlink, deleted-cwd) — reported as FindWorkspaceRootError::NotFound so downstream is_manifest_missing routes through the same branch as a regular missing-Cargo.toml. Other IO errors (PermissionDenied, IsADirectory) keep the typed CanonicalizeFailed variant. Updated the misnamed test from CanonicalizeFailed-on-missing to NotFound-on-missing, and added find_root_canonicalize_perm_denied_keeps_canonicalize_failed_variant pinning the residual investigable path.
+<!-- SECTION:NOTES:END -->

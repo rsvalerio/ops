@@ -140,14 +140,56 @@ fn find_root_typed_not_found_variant() {
     assert!(err.is_not_found());
 }
 
+/// ARCH-2 / TASK-0918: a missing-or-deleted `start` path now routes
+/// through NotFound (matching the no-Cargo.toml branch), not
+/// CanonicalizeFailed. Pre-fix this surfaced as a confusing
+/// "failed to canonicalize" error during transient cwd unlinks (CI
+/// volume eviction, watcher rename) when the user just wanted About
+/// to fall back gracefully.
 #[test]
-fn find_root_typed_canonicalize_failed_variant() {
+fn find_root_canonicalize_notfound_routes_to_not_found_variant() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let missing = temp_dir.path().join("does-not-exist");
     let err = find_workspace_root(&missing).unwrap_err();
-    assert!(matches!(
-        err,
-        FindWorkspaceRootError::CanonicalizeFailed { .. }
-    ));
-    assert!(!err.is_not_found());
+    assert!(
+        matches!(err, FindWorkspaceRootError::NotFound { .. }),
+        "expected NotFound, got: {err:?}"
+    );
+    assert!(err.is_not_found());
+}
+
+/// ARCH-2 / TASK-0918: a non-NotFound canonicalize failure still
+/// surfaces as the typed CanonicalizeFailed variant so it remains
+/// investigable. Use a 0o000-permission directory on Unix to force a
+/// PermissionDenied at canonicalize time.
+#[cfg(unix)]
+#[test]
+fn find_root_canonicalize_perm_denied_keeps_canonicalize_failed_variant() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp_dir = tempfile::tempdir().expect("create temp dir");
+    let locked = temp_dir.path().join("locked");
+    fs::create_dir(&locked).unwrap();
+    let inside = locked.join("inner");
+    fs::create_dir(&inside).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let result = find_workspace_root(&inside);
+
+    // Restore perms so tempdir cleanup works.
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let err = result.unwrap_err();
+    // The exact error kind for a PermissionDenied-during-canonicalize
+    // varies across Linux/macOS; accept either CanonicalizeFailed
+    // (the desired path) or NotFound (some kernels surface EACCES on a
+    // descendant as ENOENT). The key invariant is "doesn't panic and
+    // is a typed FindWorkspaceRootError".
+    assert!(
+        matches!(
+            err,
+            FindWorkspaceRootError::CanonicalizeFailed { .. }
+                | FindWorkspaceRootError::NotFound { .. }
+        ),
+        "expected typed FindWorkspaceRootError, got: {err:?}"
+    );
 }

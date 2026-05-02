@@ -314,11 +314,33 @@ const MAX_ANCESTOR_DEPTH: usize = 64;
 /// The depth cap bounds the damage; treat the result as "best-effort
 /// symlink-safe" rather than absolute.
 pub fn find_workspace_root(start: &Path) -> Result<PathBuf, FindWorkspaceRootError> {
-    let start_canonical =
-        fs::canonicalize(start).map_err(|source| FindWorkspaceRootError::CanonicalizeFailed {
-            path: start.to_path_buf(),
-            source,
-        })?;
+    // ARCH-2 / TASK-0918: a missing or dangling-symlink `start`
+    // (transient cwd unlink — CI volume eviction, watcher rename, etc.)
+    // used to surface as a confusing "failed to canonicalize" error.
+    // Treat NotFound on the canonicalize as "no manifest reachable from
+    // here" so downstream consumers route through the same NotFound
+    // branch as a regular missing-Cargo.toml. Other IO errors
+    // (PermissionDenied, IsADirectory, …) keep their typed CanonicalizeFailed
+    // variant so they remain investigable.
+    let start_canonical = match fs::canonicalize(start) {
+        Ok(p) => p,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
+            tracing::debug!(
+                start = ?start.display(),
+                "find_workspace_root: start path is unreachable (canonicalize NotFound); reporting NotFound"
+            );
+            return Err(FindWorkspaceRootError::NotFound {
+                start: start.to_path_buf(),
+                depth: MAX_ANCESTOR_DEPTH,
+            });
+        }
+        Err(source) => {
+            return Err(FindWorkspaceRootError::CanonicalizeFailed {
+                path: start.to_path_buf(),
+                source,
+            });
+        }
+    };
     let mut current = start_canonical.as_path();
     let mut first_cargo_toml: Option<PathBuf> = None;
     for _ in 0..MAX_ANCESTOR_DEPTH {
