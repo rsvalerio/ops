@@ -3,9 +3,10 @@ id: TASK-0861
 title: >-
   ARCH-9: ingest mutex poison recovery in DuckDB extension is silent (no warn
   log)
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:19'
+updated_date: '2026-05-02 10:37'
 labels:
   - code-review-rust
   - architecture

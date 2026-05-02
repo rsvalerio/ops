@@ -115,11 +115,16 @@ impl DuckDb {
     /// reflects partially applied state we cannot trust to keep using; a
     /// poisoned per-table coordination mutex only guards a `()`, so
     /// recovering is safe and avoids the documented denial-of-service.
+    ///
+    /// Operator signal: when a prior panic poisons the per-table mutex,
+    /// `provide_via_ingestor` emits `tracing::warn!` on recovery, so a
+    /// transient ingest panic leaves an audit breadcrumb in production
+    /// logs rather than recovering silently.
     pub(crate) fn ingest_mutex_for(&self, table_name: &str) -> Arc<Mutex<()>> {
-        let mut map = self
-            .ingest_locks
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut map = self.ingest_locks.lock().unwrap_or_else(|poisoned| {
+            tracing::warn!("ingest_locks registry mutex was poisoned by a prior panic; recovered");
+            poisoned.into_inner()
+        });
         Arc::clone(map.entry(table_name.to_owned()).or_default())
     }
 

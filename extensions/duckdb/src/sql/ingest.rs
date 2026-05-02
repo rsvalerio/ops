@@ -280,9 +280,13 @@ where
     // DuckDB transaction can leave half-applied schema state we should
     // not silently reuse. The asymmetry is intentional.
     let ingest_mutex = db.ingest_mutex_for(table_name);
-    let _ingest_guard = ingest_mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _ingest_guard = ingest_mutex.lock().unwrap_or_else(|poisoned| {
+        tracing::warn!(
+            table = %table_name,
+            "per-table ingest mutex was poisoned by a prior panic; recovered"
+        );
+        poisoned.into_inner()
+    });
 
     if !table_has_data(db, table_name)? {
         let data_dir = data_dir_for_db(db.path());
@@ -941,5 +945,111 @@ mod tests {
             Ok(serde_json::Value::Null)
         })
         .expect("recovery ingest must not panic");
+    }
+
+    /// TASK-0861: poison recovery in `provide_via_ingestor` must emit a
+    /// `tracing::warn!` so operators can distinguish "never panicked" from
+    /// "panicked once and recovered" in production logs.
+    #[test]
+    fn poison_recovery_emits_warn_log() {
+        use crate::DataIngestor;
+        use std::io::Write;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Mutex as StdMutex;
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<StdMutex<Vec<u8>>>);
+        impl Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        struct PanickyIngestor {
+            should_panic: AtomicBool,
+        }
+        impl DataIngestor for PanickyIngestor {
+            fn name(&self) -> &'static str {
+                "panicky_warn"
+            }
+            fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
+                if self.should_panic.swap(false, Ordering::SeqCst) {
+                    panic!("simulated transient ingest panic");
+                }
+                let path = data_dir.join("panicky_warn.json");
+                std::fs::write(&path, "[{\"id\":1}]").map_err(DbError::Io)?;
+                Ok(())
+            }
+            fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<crate::LoadResult> {
+                let json_path = data_dir.join("panicky_warn.json");
+                let create_sql =
+                    create_table_from_json_sql("panicky_warn_table", &json_path, None)?;
+                let conn = db.lock()?;
+                conn.execute(&create_sql, [])
+                    .map_err(|e| DbError::query_failed("panicky create", e))?;
+                drop(conn);
+                Ok(crate::LoadResult::success("panicky_warn", 1))
+            }
+        }
+
+        let db_dir = tempfile::tempdir().expect("tempdir");
+        let db_path = db_dir.path().join("panicky_warn.duckdb");
+        let db = Arc::new(DuckDb::open(&db_path).expect("db"));
+        init_schema(&db).expect("init_schema");
+        let ingestor = Arc::new(PanickyIngestor {
+            should_panic: AtomicBool::new(true),
+        });
+
+        let db1 = Arc::clone(&db);
+        let ing1 = Arc::clone(&ingestor);
+        let h = std::thread::spawn(move || {
+            let ctx = ops_extension::Context::new(
+                Arc::new(ops_core::config::Config::default()),
+                PathBuf::from("/tmp"),
+            );
+            provide_via_ingestor(&db1, &ctx, "panicky_warn_table", &*ing1, |_| {
+                Ok(serde_json::Value::Null)
+            })
+        });
+        assert!(h.join().is_err(), "first call must have panicked");
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            let ctx = ops_extension::Context::new(
+                Arc::new(ops_core::config::Config::default()),
+                PathBuf::from("/tmp"),
+            );
+            provide_via_ingestor(&db, &ctx, "panicky_warn_table", &*ingestor, |_| {
+                Ok(serde_json::Value::Null)
+            })
+            .expect("recovery ingest must not panic");
+        });
+
+        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        assert!(
+            logs.contains("per-table ingest mutex was poisoned"),
+            "expected poison-recovery warn, got: {logs}"
+        );
+        assert!(
+            logs.contains("panicky_warn_table"),
+            "expected table name in warn, got: {logs}"
+        );
     }
 }
