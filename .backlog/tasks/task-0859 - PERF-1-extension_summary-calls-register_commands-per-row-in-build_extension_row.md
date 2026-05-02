@@ -3,9 +3,10 @@ id: TASK-0859
 title: >-
   PERF-1: extension_summary calls register_commands per-row in
   build_extension_row
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:19'
+updated_date: '2026-05-02 14:38'
 labels:
   - code-review-rust
   - performance
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Hoist the extension_summary calls out of the per-row loop into a single map computed before write_extension_table iterates
-- [ ] #2 Verify the duplicate-insert warning is still emitted exactly once per offending extension regardless of how many table rows render it
-- [ ] #3 No observable change to rendered table content under the existing run_extension_list_outputs_extensions test
+- [x] #1 Hoist the extension_summary calls out of the per-row loop into a single map computed before write_extension_table iterates
+- [x] #2 Verify the duplicate-insert warning is still emitted exactly once per offending extension regardless of how many table rows render it
+- [x] #3 No observable change to rendered table content under the existing run_extension_list_outputs_extensions test
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Hoisted extension_summary out of the per-row loop in write_extension_table: a single Vec<(types, commands)> is computed once per render pass, then build_extension_row receives the precomputed summary. The duplicate-insert warning still fires inside extension_summary which is invoked exactly once per extension. run_extension_list_outputs_extensions and extension_summary_warns_on_self_shadow both pass; ops verify clean.
+<!-- SECTION:NOTES:END -->

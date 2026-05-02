@@ -91,8 +91,18 @@ fn write_extension_table(
     let mut table = OpsTable::new();
     table.set_header(headers.to_vec());
 
-    for (config_name, ext) in exts {
-        table.add_row(build_extension_row(&table, config_name, *ext));
+    // PERF-1 / TASK-0859: hoist `extension_summary` out of the per-row loop.
+    // It can perform I/O (legacy extensions without static `command_names`
+    // run `register_commands`) and was previously called once per render
+    // pass — N rows ⇒ N register_commands invocations. Compute once per
+    // extension up front and feed the precomputed summary into each row.
+    let summaries: Vec<(Vec<String>, Vec<String>)> = exts
+        .iter()
+        .map(|(_, ext)| extension_summary(*ext))
+        .collect();
+
+    for ((config_name, ext), summary) in exts.iter().zip(summaries.iter()) {
+        table.add_row(build_extension_row(&table, config_name, *ext, summary));
     }
 
     table.set_max_width(desc_col, DESC_TRUNCATION_WIDTH);
@@ -146,13 +156,18 @@ fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<St
 }
 
 /// Build a table row for a single extension.
+///
+/// PERF-1 / TASK-0859: takes a precomputed `summary` (types + command
+/// names) so the caller hoists the potentially-I/O `extension_summary`
+/// call out of a per-row loop.
 fn build_extension_row(
     table: &OpsTable,
     config_name: &str,
     ext: &dyn ops_extension::Extension,
+    summary: &(Vec<String>, Vec<String>),
 ) -> Vec<Cell> {
     let info = ext.info();
-    let (types, commands) = extension_summary(ext);
+    let (types, commands) = summary;
 
     let data_provider = info
         .data_provider_name
@@ -168,8 +183,8 @@ fn build_extension_row(
     vec![
         table.cell(config_name, Color::Cyan),
         Cell::new(info.shortname),
-        Cell::new(format_list(&types)),
-        Cell::new(format_list(&commands)),
+        Cell::new(format_list(types)),
+        Cell::new(format_list(commands)),
         data_cell,
         table.cell(info.description, Color::DarkGrey),
     ]
