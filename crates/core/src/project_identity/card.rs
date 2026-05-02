@@ -11,6 +11,7 @@ use crate::text::format_number;
 ///
 /// Everything that used to live in a title/badge header (name, version, stack,
 /// license) is now rendered as ordinary fields.
+#[non_exhaustive]
 pub struct AboutCard {
     pub description: Option<String>,
     /// Key-value fields: [("name", "ops v0.10.0"), ("stack", "Rust · Edition 2021"), ("project", "/path"), ...]
@@ -92,6 +93,15 @@ fn push_special_fields(
 }
 
 impl AboutCard {
+    /// Constructor for downstream code that needs to build an `AboutCard`
+    /// without depending on its (non-exhaustive) field set.
+    pub fn new(description: Option<String>, fields: Vec<(String, String)>) -> Self {
+        Self {
+            description,
+            fields,
+        }
+    }
+
     pub fn from_identity(id: &ProjectIdentity) -> Self {
         Self::from_identity_filtered(id, None)
     }
@@ -112,10 +122,7 @@ impl AboutCard {
 
         push_special_fields(&mut fields, id, show, visible_fields.is_some());
 
-        Self {
-            description: id.description.clone(),
-            fields,
-        }
+        Self::new(id.description.clone(), fields)
     }
 
     /// Render the about card as styled text lines.
