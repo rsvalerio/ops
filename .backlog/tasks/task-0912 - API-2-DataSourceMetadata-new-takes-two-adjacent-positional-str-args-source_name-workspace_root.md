@@ -3,9 +3,10 @@ id: TASK-0912
 title: >-
   API-2: DataSourceMetadata::new takes two adjacent positional &str args
   (source_name, workspace_root)
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:11'
+updated_date: '2026-05-02 11:24'
 labels:
   - code-review-rust
   - api

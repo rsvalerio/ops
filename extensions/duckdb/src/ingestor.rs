@@ -202,8 +202,8 @@ impl SidecarIngestorConfig {
         crate::schema::upsert_data_source(
             db,
             &crate::schema::DataSourceMetadata::new(
-                self.name,
-                workspace_root,
+                crate::schema::SourceName(self.name),
+                crate::schema::WorkspaceRoot(workspace_root),
                 json_path,
                 record_count,
                 &checksum,

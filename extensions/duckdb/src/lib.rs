@@ -16,7 +16,7 @@ pub use error::{DbError, DbResult};
 #[allow(unused_imports)]
 pub use ingestor::{DataIngestor, LoadResult, SidecarIngestorConfig};
 #[allow(unused_imports)]
-pub use schema::{init_schema, upsert_data_source, DataSourceMetadata};
+pub use schema::{init_schema, upsert_data_source, DataSourceMetadata, SourceName, WorkspaceRoot};
 
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use std::path::PathBuf;
@@ -141,8 +141,8 @@ mod tests {
         upsert_data_source(
             &db,
             &DataSourceMetadata::new(
-                "test_source",
-                "/test/workspace",
+                SourceName("test_source"),
+                WorkspaceRoot("/test/workspace"),
                 std::path::Path::new("/test/data.json"),
                 42,
                 "abc123",

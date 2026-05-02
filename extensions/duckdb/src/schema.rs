@@ -46,6 +46,18 @@ pub fn get_source_checksum(
     }
 }
 
+/// API-2 / TASK-0912: distinct newtypes for the two adjacent `&str`
+/// parameters of [`DataSourceMetadata::new`]. Both halves of the
+/// `(source_name, workspace_root)` primary key were silently swappable
+/// before; a swap silently wrote rows under the wrong key, producing
+/// duplicate ingest records and divergent checksums no future run could
+/// reconcile. Swap is now a compile error.
+#[derive(Debug, Clone, Copy)]
+pub struct SourceName<'a>(pub &'a str);
+
+#[derive(Debug, Clone, Copy)]
+pub struct WorkspaceRoot<'a>(pub &'a str);
+
 /// Metadata describing a loaded data source row.
 #[non_exhaustive]
 pub struct DataSourceMetadata<'a> {
@@ -58,15 +70,15 @@ pub struct DataSourceMetadata<'a> {
 
 impl<'a> DataSourceMetadata<'a> {
     pub fn new(
-        source_name: &'a str,
-        workspace_root: &'a str,
+        source_name: SourceName<'a>,
+        workspace_root: WorkspaceRoot<'a>,
         source_path: &'a Path,
         record_count: u64,
         checksum: &'a str,
     ) -> Self {
         Self {
-            source_name,
-            workspace_root,
+            source_name: source_name.0,
+            workspace_root: workspace_root.0,
             source_path,
             record_count,
             checksum,
@@ -143,7 +155,13 @@ mod tests {
         let bad_path = std::path::Path::new(OsStr::from_bytes(bytes));
         let result = upsert_data_source(
             &db,
-            &DataSourceMetadata::new("metadata", "/ws", bad_path, 1, "abc"),
+            &DataSourceMetadata::new(
+                SourceName("metadata"),
+                WorkspaceRoot("/ws"),
+                bad_path,
+                1,
+                "abc",
+            ),
         );
         assert!(matches!(result, Err(DbError::NonUtf8Path(_))));
     }
@@ -155,8 +173,8 @@ mod tests {
         upsert_data_source(
             &db,
             &DataSourceMetadata::new(
-                "metadata",
-                "/ws",
+                SourceName("metadata"),
+                WorkspaceRoot("/ws"),
                 Path::new("/ws/target/ops/metadata.json"),
                 1,
                 "abc123",

@@ -96,8 +96,8 @@ impl DataIngestor for MetadataIngestor {
         upsert_data_source(
             db,
             &ops_duckdb::DataSourceMetadata::new(
-                self.name(),
-                &workspace_root,
+                ops_duckdb::SourceName(self.name()),
+                ops_duckdb::WorkspaceRoot(&workspace_root),
                 &path,
                 record_count,
                 &checksum,
