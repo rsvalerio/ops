@@ -16,7 +16,7 @@ mod tap;
 mod tests;
 
 pub use error_detail::ErrorDetailRenderer;
-pub use render_config::{DisplayOptions, RenderConfig};
+pub use render_config::{DisplayOptions, RenderConfig, StderrTail};
 
 use crate::command::RunnerEvent;
 use ops_core::config::CommandId;
@@ -113,6 +113,7 @@ impl ProgressDisplay {
             display_map,
             custom_themes,
             tap,
+            verbose,
         } = opts;
         let is_tty = is_tty_fn();
         let multi = MultiProgress::with_draw_target(if is_tty {
@@ -123,6 +124,12 @@ impl ProgressDisplay {
         let resolved_theme = theme::resolve_theme(&output.theme, custom_themes)?;
         let running_style = build_running_style(resolved_theme.as_ref(), &output.theme)?;
         let tap = tap.map(TapWriter::new);
+        // TASK-0762: verbose → unbounded; otherwise use the user's config value.
+        let stderr_tail = if verbose {
+            StderrTail::Unbounded
+        } else {
+            StderrTail::Limited(output.stderr_tail_lines)
+        };
 
         Ok(Self {
             render: RenderConfig {
@@ -130,7 +137,7 @@ impl ProgressDisplay {
                 columns: output.columns,
                 is_tty,
                 show_error_detail: output.show_error_detail,
-                stderr_tail_lines: output.stderr_tail_lines,
+                stderr_tail,
             },
             multi,
             state: ProgressState::new(display_map),
@@ -486,7 +493,7 @@ impl ProgressDisplay {
     fn on_step_output(&mut self, id: &str, line: crate::command::OutputLine, stderr: bool) {
         if stderr {
             self.state
-                .record_stderr(id, line.clone(), self.render.stderr_tail_lines);
+                .record_stderr(id, line.clone(), self.render.stderr_tail.cap());
         }
         self.tap_line_for(line.as_str(), Some(id));
     }
@@ -574,7 +581,7 @@ impl ProgressDisplay {
             .map(|buf| {
                 ErrorDetailRenderer::extract_stderr_tail(
                     buf.make_contiguous(),
-                    self.render.stderr_tail_lines,
+                    self.render.stderr_tail.max_lines(),
                 )
             })
             .unwrap_or_default();
