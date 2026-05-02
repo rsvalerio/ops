@@ -114,12 +114,12 @@ fn prompt_hook_install(config: &Config, hook_name: &str) -> anyhow::Result<ExitC
 /// path uses, so adding a new hook means editing one constant table in
 /// `pre_hook_cmd` rather than two parallel ones.
 fn run_hook_dispatch(
-    config: &Config,
+    config: std::sync::Arc<Config>,
     hook: &crate::hook_shared::HookOps,
     run_preflight: bool,
 ) -> anyhow::Result<ExitCode> {
     if !config.commands.contains_key(hook.hook_name) {
-        return prompt_hook_install(config, hook.hook_name);
+        return prompt_hook_install(&config, hook.hook_name);
     }
     if (hook.should_skip)() {
         ops_core::ui::note(format!(
@@ -152,13 +152,13 @@ fn run_hook_dispatch(
 }
 
 pub(crate) fn run_before_commit(
-    config: &Config,
+    config: std::sync::Arc<Config>,
     action: Option<RunBeforeCommitAction>,
     changed_only: bool,
 ) -> anyhow::Result<ExitCode> {
     match action {
         Some(RunBeforeCommitAction::Install) => {
-            pre_hook_cmd::run_before_commit_install(config)?;
+            pre_hook_cmd::run_before_commit_install(&config)?;
             Ok(ExitCode::SUCCESS)
         }
         None => run_hook_dispatch(config, &pre_hook_cmd::COMMIT_OPS, changed_only),
@@ -166,13 +166,13 @@ pub(crate) fn run_before_commit(
 }
 
 pub(crate) fn run_before_push(
-    config: &Config,
+    config: std::sync::Arc<Config>,
     action: Option<RunBeforePushAction>,
     _changed_only: bool,
 ) -> anyhow::Result<ExitCode> {
     match action {
         Some(RunBeforePushAction::Install) => {
-            pre_hook_cmd::run_before_push_install(config)?;
+            pre_hook_cmd::run_before_push_install(&config)?;
             Ok(ExitCode::SUCCESS)
         }
         None => run_hook_dispatch(config, &pre_hook_cmd::PUSH_OPS, false),
@@ -240,7 +240,11 @@ args = ["hi"]
         // does not block on `inquire::Confirm`.
         // #[serial] guards this from clobbering other tests.
         std::env::set_var("OPS_NONINTERACTIVE", "1");
-        let _ = run_hook_dispatch(&config, &pre_hook_cmd::COMMIT_OPS, false);
+        let _ = run_hook_dispatch(
+            std::sync::Arc::new(config),
+            &pre_hook_cmd::COMMIT_OPS,
+            false,
+        );
         std::env::remove_var("OPS_NONINTERACTIVE");
         assert_eq!(
             ops_core::config::load_config_call_count(),

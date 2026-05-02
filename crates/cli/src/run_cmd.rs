@@ -44,7 +44,7 @@ pub(crate) struct RunOptions {
 }
 
 pub(crate) fn run_external_command(
-    config: &ops_core::config::Config,
+    config: std::sync::Arc<ops_core::config::Config>,
     args: &[OsString],
     opts: RunOptions,
 ) -> anyhow::Result<ExitCode> {
@@ -69,18 +69,17 @@ pub(crate) fn run_external_command(
     run_commands(config, &names, opts)
 }
 
-/// TASK-0427: the runner takes ownership of the Config, so we clone the
-/// pre-resolved Config threaded from `run()` rather than re-loading
-/// `.ops.toml`. The clone is bounded by command-spec maps and theme
-/// configs — well under the cost of re-parsing the manifest.
+/// OWN-2 / TASK-0841: take an `Arc<Config>` shared with `main`/`dispatch`
+/// rather than deep-cloning the Config per invocation. The runner shares
+/// the same allocation as the early-loaded config — every nested
+/// `IndexMap`, `String`, theme block is allocated exactly once per CLI run.
 fn build_runner(
-    config: &ops_core::config::Config,
+    config: std::sync::Arc<ops_core::config::Config>,
     _verbose: bool,
     cwd_escape_policy: ops_runner::command::CwdEscapePolicy,
 ) -> anyhow::Result<ops_runner::command::CommandRunner> {
-    let config = config.clone();
     let cwd = crate::cwd()?;
-    let mut runner = ops_runner::command::CommandRunner::new(config, cwd);
+    let mut runner = ops_runner::command::CommandRunner::from_arc_config(config, cwd);
     runner.set_cwd_escape_policy(cwd_escape_policy);
     setup_extensions(&mut runner)?;
     Ok(runner)
@@ -134,7 +133,7 @@ where
 }
 
 fn run_commands(
-    config: &ops_core::config::Config,
+    config: std::sync::Arc<ops_core::config::Config>,
     names: &[&str],
     opts: RunOptions,
 ) -> anyhow::Result<ExitCode> {
@@ -275,7 +274,7 @@ fn setup_extensions(runner: &mut ops_runner::command::CommandRunner) -> anyhow::
 
 #[tracing::instrument(skip_all, fields(command = %name))]
 fn run_command(
-    config: &ops_core::config::Config,
+    config: std::sync::Arc<ops_core::config::Config>,
     name: &str,
     opts: RunOptions,
 ) -> anyhow::Result<ExitCode> {

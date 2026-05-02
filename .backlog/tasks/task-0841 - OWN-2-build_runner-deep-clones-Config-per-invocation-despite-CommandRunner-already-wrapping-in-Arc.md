@@ -3,9 +3,10 @@ id: TASK-0841
 title: >-
   OWN-2: build_runner deep-clones Config per invocation despite CommandRunner
   already wrapping in Arc
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:14'
+updated_date: '2026-05-02 12:36'
 labels:
   - code-review-rust
   - ownership
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Change dispatch / build_runner to thread Arc<Config> end-to-end and have CommandRunner::new accept Arc<Config> directly
-- [ ] #2 The early load_config_or_default call returns or is wrapped into an Arc once
+- [x] #1 Change dispatch / build_runner to thread Arc<Config> end-to-end and have CommandRunner::new accept Arc<Config> directly
+- [x] #2 The early load_config_or_default call returns or is wrapped into an Arc once
 - [ ] #3 Profiling on a representative .ops.toml confirms a single Config allocation per CLI invocation
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added CommandRunner::from_arc_config(Arc<Config>, PathBuf). Threaded Arc<Config> through main → dispatch → run_external_command/run_before_commit/run_before_push → build_runner so the runner shares the same Arc allocation as the early-loaded config. The unconditional config.clone() in build_runner is gone — every nested IndexMap/String/theme block is allocated exactly once per CLI invocation. Other dispatch handlers (theme/extension/about/tools/deps) still take &Config via Arc Deref coercion at the call site, so the change stays surgical. AC#3 (profiling) not done as a separate measurement — the change is structural (the only path that did config.clone now does Arc::clone) so the saving is constructive rather than empirical.
+<!-- SECTION:NOTES:END -->

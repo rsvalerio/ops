@@ -130,6 +130,16 @@ pub struct CommandRunner {
 
 impl CommandRunner {
     pub fn new(config: Config, cwd: PathBuf) -> Self {
+        Self::from_arc_config(Arc::new(config), cwd)
+    }
+
+    /// OWN-2 / TASK-0841: construct a runner directly from an already-shared
+    /// `Arc<Config>`. Callers that already hold the loaded config behind an
+    /// `Arc` (the CLI threads `early_config` from `main` through `dispatch`
+    /// into here) avoid the deep clone of the inner `Config` — every nested
+    /// `IndexMap`, `String`, and theme block is shared rather than duplicated
+    /// per CLI invocation.
+    pub fn from_arc_config(config: Arc<Config>, cwd: PathBuf) -> Self {
         let detected_stack = Stack::resolve(config.stack.as_deref(), &cwd);
 
         let stack_commands: IndexMap<CommandId, CommandSpec> = if let Some(stack) = detected_stack {
@@ -154,7 +164,7 @@ impl CommandRunner {
         );
 
         Self {
-            config: Arc::new(config),
+            config,
             cwd: Arc::new(cwd),
             vars: Arc::new(vars),
             stack_commands,

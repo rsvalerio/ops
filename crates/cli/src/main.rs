@@ -128,7 +128,12 @@ fn run() -> anyhow::Result<ExitCode> {
     // "unknown command" errors. The shared helper logs to `tracing::warn!`
     // *and* surfaces a user-visible note so `ops --help` / `ops init` still
     // work without hiding the parse diagnostic. (DUP-3 / TASK-0345)
-    let early_config = ops_core::config::load_config_or_default("early");
+    // OWN-2 / TASK-0841: wrap the loaded config in an Arc once at the
+    // top-level entry so `dispatch` and the run-path (build_runner →
+    // CommandRunner::from_arc_config) can share one allocation. Eliminates
+    // the per-invocation deep clone in build_runner.
+    let early_config: std::sync::Arc<ops_core::config::Config> =
+        std::sync::Arc::new(ops_core::config::load_config_or_default("early"));
     let detected_stack = {
         let cwd = match std::env::current_dir() {
             Ok(d) => d,
@@ -160,7 +165,7 @@ fn run() -> anyhow::Result<ExitCode> {
 
 fn dispatch(
     cli: Cli,
-    early_config: &ops_core::config::Config,
+    early_config: &std::sync::Arc<ops_core::config::Config>,
     detected_stack: Option<ops_core::stack::Stack>,
 ) -> anyhow::Result<ExitCode> {
     // ERR-1 (TASK-0427): the same Config loaded once in `run()` is threaded
@@ -185,11 +190,11 @@ fn dispatch(
         Some(CoreSubcommand::RunBeforeCommit {
             changed_only,
             action,
-        }) => return run_before_commit(early_config, action, changed_only),
+        }) => return run_before_commit(std::sync::Arc::clone(early_config), action, changed_only),
         Some(CoreSubcommand::RunBeforePush {
             changed_only,
             action,
-        }) => return run_before_push(early_config, action, changed_only),
+        }) => return run_before_push(std::sync::Arc::clone(early_config), action, changed_only),
         Some(CoreSubcommand::About { refresh, action }) => {
             run_about(early_config, refresh, action)?
         }
@@ -230,7 +235,7 @@ fn dispatch(
         }
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(
-                early_config,
+                std::sync::Arc::clone(early_config),
                 &args,
                 run_cmd::RunOptions {
                     dry_run: cli.dry_run,
