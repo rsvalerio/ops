@@ -76,8 +76,12 @@ struct Engines {
 }
 
 pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
+    // DUP-3 (TASK-0931): route the read through the shared cache so the
+    // sister `workspace_member_globs` site does not pay for a second IO +
+    // re-parse on the same `package.json`. Mirrors the Python
+    // manifest_cache pattern (TASK-0816).
     let path = project_root.join("package.json");
-    let content = ops_about::manifest_io::read_optional_text(&path, "package.json")?;
+    let content = crate::manifest_cache::package_json_text(project_root)?;
     let raw: RawPackage = match serde_json::from_str(&content) {
         Ok(r) => r,
         Err(e) => {

@@ -8,6 +8,7 @@
 //! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
 //! manifest does not silently look like a missing one (TASK-0394).
 
+mod manifest_cache;
 mod package_json;
 mod package_manager;
 mod repo_url;

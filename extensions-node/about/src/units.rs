@@ -77,7 +77,11 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
     let mut excludes: Vec<String> = Vec::new();
 
     let pkg_path = root.join("package.json");
-    if let Some(content) = ops_about::manifest_io::read_optional_text(&pkg_path, "package.json") {
+    // DUP-3 (TASK-0931): share the file read with the identity provider via
+    // the per-process manifest cache. Each consumer still parses its own
+    // typed projection (`RawRoot` here, `RawPackage` for identity) — only
+    // the IO + UTF-8 validation is deduplicated, no Value tree clone.
+    if let Some(content) = crate::manifest_cache::package_json_text(root) {
         match serde_json::from_str::<RawRoot>(&content) {
             Ok(raw) => {
                 if let Some(ws) = raw.workspaces {
@@ -89,9 +93,13 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
                 }
             }
             Err(e) => {
+                // ERR-7 (TASK-0930): Debug-format the path so embedded
+                // newlines/ANSI escapes in attacker-controlled checkout
+                // paths cannot forge log lines. Mirrors the sister site in
+                // `package_json.rs` (TASK-0818).
                 tracing::warn!(
-                    path = %pkg_path.display(),
-                    error = %e,
+                    path = ?pkg_path.display(),
+                    error = ?e,
                     "failed to parse package.json"
                 );
             }
@@ -239,6 +247,19 @@ mod tests {
             std::fs::create_dir_all(parent).unwrap();
         }
         std::fs::write(path, content).unwrap();
+    }
+
+    /// ERR-7 (TASK-0930): the `workspace_member_globs` warn event
+    /// Debug-formats the path so a checkout containing newlines or ANSI
+    /// escapes cannot forge log records. Mirrors
+    /// `package_json::package_json_path_debug_escapes_control_characters`.
+    #[test]
+    fn workspace_member_globs_path_debug_escapes_control_characters() {
+        let p = Path::new("a\nb\u{1b}[31mc/package.json");
+        let rendered = format!("{:?}", p.display());
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
     }
 
     #[test]
