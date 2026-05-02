@@ -1,9 +1,10 @@
 ---
 id: TASK-0921
 title: 'ERR-7: terraform cleanup_artifacts logs through ui::note instead of tracing'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:12'
+updated_date: '2026-05-02 11:26'
 labels:
   - code-review-rust
   - error-handling

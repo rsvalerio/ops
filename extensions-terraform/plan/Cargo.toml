@@ -13,6 +13,7 @@ anyhow = { workspace = true }
 comfy-table = "7"
 terminal_size = "0.4"
 shellexpand = "3.1.2"
+tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

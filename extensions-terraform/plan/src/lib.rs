@@ -207,7 +207,15 @@ fn cleanup_artifacts(opts: &PlanOptions) {
         let path = expand_path(path_str);
         if path.exists() {
             if let Err(e) = std::fs::remove_file(&path) {
-                ops_core::ui::note(format!("could not remove {}: {e}", path.display()));
+                // ERR-7 / TASK-0921: route best-effort cleanup failures through
+                // `tracing::warn!` (mirroring `MetadataIngestor::load`) instead
+                // of the user-facing `ui::note`. Cleanup is not actionable for
+                // the user; the operator wants this in their log capture.
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "could not remove terraform plan artifact"
+                );
             }
         }
     }
