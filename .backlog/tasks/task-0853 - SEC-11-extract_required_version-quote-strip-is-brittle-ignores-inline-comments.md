@@ -3,9 +3,10 @@ id: TASK-0853
 title: >-
   SEC-11: extract_required_version quote-strip is brittle; ignores inline #///
   comments
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:17'
+updated_date: '2026-05-02 14:23'
 labels:
   - code-review-rust
   - security
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Strip trailing # and // line comments before quote-stripping (mirroring go_mod::strip_line_comment)
-- [ ] #2 Reject the value if not double-quoted (HCL standard); add a unit test for required_version = >= 1.5 # comment
-- [ ] #3 Cap the rendered length (e.g., 64 chars) and log truncation, per SEC-11/SEC-33
+- [x] #1 Strip trailing # and // line comments before quote-stripping (mirroring go_mod::strip_line_comment)
+- [x] #2 Reject the value if not double-quoted (HCL standard); add a unit test for required_version = >= 1.5 # comment
+- [x] #3 Cap the rendered length (e.g., 64 chars) and log truncation, per SEC-11/SEC-33
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+extract_required_version now: (1) requires the HCL-standard double-quoted form (rejects bare and single-quoted values); (2) extracts the value as the substring between the first two double-quotes so a `#` inside the value is preserved; (3) strips trailing `#` / `//` comments from the post-closing-quote tail (only valid if the tail is comment-only); (4) caps rendered length at REQUIRED_VERSION_MAX_LEN = 64 chars and warns on truncation. Six new regression tests pin all four behaviours.
+<!-- SECTION:NOTES:END -->

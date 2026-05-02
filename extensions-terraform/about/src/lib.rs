@@ -131,27 +131,85 @@ fn find_required_version(root: &Path) -> Option<String> {
     None
 }
 
+/// SEC-11 / TASK-0853: cap on the rendered `required_version` string.
+/// HCL constraints in real configs are short (`~> 1.5`, `>= 1.0, < 2.0`,
+/// etc.) — well under 64 chars. An adversarial `.tf` could otherwise
+/// embed a long string that ends up rendered into the About card; we
+/// truncate at this cap and log so the truncation is observable.
+const REQUIRED_VERSION_MAX_LEN: usize = 64;
+
 /// Extract `required_version` value from a single `.tf` file's content.
+///
+/// SEC-11 / TASK-0853: HCL standardises the value as a double-quoted
+/// string. We strip a trailing `# ...` or `// ...` comment from the
+/// remainder *before* the quote check (mirroring `go_mod::strip_line_comment`)
+/// and require the value to be wrapped in matching `"`. A bare or
+/// single-quoted value is rejected — surfacing it as the rendered version
+/// would mislead the operator about what the manifest actually says.
 fn extract_required_version(content: &str) -> Option<String> {
-    // Look for: required_version = "..."
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('#') || trimmed.starts_with("//") {
             continue;
         }
-        if let Some(rest) = trimmed.strip_prefix("required_version") {
-            let rest = rest.trim();
-            if let Some(rest) = rest.strip_prefix('=') {
-                let rest = rest.trim();
-                // Strip quotes
-                let v = rest.trim_matches('"').trim();
-                if !v.is_empty() {
-                    return Some(v.to_string());
-                }
-            }
+        let Some(rest) = trimmed.strip_prefix("required_version") else {
+            continue;
+        };
+        let rest = rest.trim();
+        let Some(rest) = rest.strip_prefix('=') else {
+            continue;
+        };
+        let rest = rest.trim();
+        // HCL: the value must be a double-quoted string. Reject anything
+        // else so a bare `>= 1.5` or single-quoted value surfaces as
+        // "no version" instead of as a misleading literal.
+        let Some(after_open) = rest.strip_prefix('"') else {
+            continue;
+        };
+        let Some(end) = after_open.find('"') else {
+            continue;
+        };
+        // Whatever follows the closing quote must be empty after stripping
+        // a trailing `#` or `//` comment — anything else (junk, a second
+        // value) is malformed HCL and we'd rather surface "no version"
+        // than a misleading prefix.
+        let after_close = after_open[end + 1..].trim();
+        let after_close_trimmed = strip_inline_comment(after_close).trim();
+        if !after_close_trimmed.is_empty() {
+            continue;
         }
+        let v = after_open[..end].trim();
+        if v.is_empty() {
+            continue;
+        }
+        if v.len() > REQUIRED_VERSION_MAX_LEN {
+            // SEC-11 / SEC-33: cap the rendered length and log.
+            let truncated: String = v.chars().take(REQUIRED_VERSION_MAX_LEN).collect();
+            tracing::warn!(
+                original_len = v.len(),
+                cap = REQUIRED_VERSION_MAX_LEN,
+                "required_version value exceeds cap; truncating before rendering"
+            );
+            return Some(truncated);
+        }
+        return Some(v.to_string());
     }
     None
+}
+
+/// SEC-11 / TASK-0853: strip a trailing `# ...` or `// ...` HCL comment
+/// from a line fragment that is *already known* not to contain a quoted
+/// value (i.e. the post-closing-quote tail). Mirrors the equivalent
+/// helper in `extensions-go::go_mod::strip_line_comment`.
+fn strip_inline_comment(s: &str) -> &str {
+    let mut end = s.len();
+    if let Some(i) = s.find('#') {
+        end = end.min(i);
+    }
+    if let Some(i) = s.find("//") {
+        end = end.min(i);
+    }
+    &s[..end]
 }
 
 /// Count local modules under `modules/*/main.tf`.
@@ -413,5 +471,68 @@ required_version = ">= 1.5"
             extract_required_version("resource \"test\" \"x\" {}\n"),
             None
         );
+    }
+
+    /// SEC-11 / TASK-0853: a trailing `# ...` comment after the quoted
+    /// value must be stripped before rendering — previously the entire
+    /// remainder including the comment was returned verbatim.
+    #[test]
+    fn extract_required_version_strips_trailing_hash_comment() {
+        assert_eq!(
+            extract_required_version("required_version = \">= 1.5\" # patch needed\n"),
+            Some(">= 1.5".to_string())
+        );
+    }
+
+    /// SEC-11 / TASK-0853: same for `// …`.
+    #[test]
+    fn extract_required_version_strips_trailing_slash_comment() {
+        assert_eq!(
+            extract_required_version("required_version = \">= 1.5\" // note\n"),
+            Some(">= 1.5".to_string())
+        );
+    }
+
+    /// SEC-11 / TASK-0853: a `#` inside the quoted value is part of the
+    /// value, not a comment introducer.
+    #[test]
+    fn extract_required_version_keeps_hash_inside_quotes() {
+        assert_eq!(
+            extract_required_version("required_version = \">= 1.5 # marker\"\n"),
+            Some(">= 1.5 # marker".to_string())
+        );
+    }
+
+    /// SEC-11 / TASK-0853: HCL standardises double-quoted; a bare value
+    /// (`required_version = >= 1.5 # comment`) must NOT be returned —
+    /// surfacing it would mislead the operator about what the manifest
+    /// actually says.
+    #[test]
+    fn extract_required_version_rejects_bare_value() {
+        assert_eq!(
+            extract_required_version("required_version = >= 1.5 # comment\n"),
+            None
+        );
+    }
+
+    /// SEC-11 / TASK-0853: single-quoted values are not standard HCL and
+    /// are rejected.
+    #[test]
+    fn extract_required_version_rejects_single_quoted() {
+        assert_eq!(
+            extract_required_version("required_version = '>= 1.5'\n"),
+            None
+        );
+    }
+
+    /// SEC-11 / TASK-0853: an excessively long value is truncated to
+    /// REQUIRED_VERSION_MAX_LEN before being rendered into the About card.
+    #[test]
+    fn extract_required_version_caps_overlong_value() {
+        let long = "v".repeat(200);
+        let content = format!("required_version = \"{long}\"\n");
+        let v = extract_required_version(&content).expect("Some");
+        assert_eq!(v.len(), REQUIRED_VERSION_MAX_LEN);
+        assert!(v.chars().all(|c| c == 'v'));
     }
 }
