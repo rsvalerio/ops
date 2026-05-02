@@ -37,7 +37,25 @@ pub fn resolve_member_globs(
             // best-effort behavior that lets the rest of the globs resolve.
             match std::fs::read_dir(&parent) {
                 Ok(entries) => {
-                    for entry in entries.flatten() {
+                    // ERR-1 (TASK-0942): replace `entries.flatten()` with an
+                    // explicit match so a per-entry IO error (EACCES on a
+                    // sibling member, EIO, ...) is visible at warn level
+                    // rather than silently disappearing into "no project
+                    // units found". Mirrors the policy the surrounding
+                    // `read_dir` arm already adopted in TASK-0517.
+                    for entry in entries {
+                        let entry = match entry {
+                            Ok(e) => e,
+                            Err(e) => {
+                                tracing::warn!(
+                                    member,
+                                    parent = ?parent.display(),
+                                    error = ?e,
+                                    "workspace glob entry unreadable; skipping"
+                                );
+                                continue;
+                            }
+                        };
                         let path = entry.path();
                         if !path.is_dir() {
                             continue;
