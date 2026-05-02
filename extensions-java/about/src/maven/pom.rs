@@ -128,29 +128,42 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
     Some(data)
 }
 
+/// DUP-1 / TASK-0923: classify a `<project…` line as either an opener
+/// or the *start* of a multi-line opener. Returns `(matched, closed)`:
+/// - `(true, true)`  — full opener on this line (bare `<project>` or
+///   single-line `<project xmlns=...>`).
+/// - `(true, false)` — multi-line opener (`<project` + whitespace, no
+///   `>` yet on this line).
+/// - `(false, _)`    — not a `<project>` opener at all (e.g. `<projectInfo>`).
+///
+/// Both [`is_project_open`] and [`is_project_open_start`] derive from
+/// this so a future Maven shape (e.g. `<project/>`) only has to be
+/// taught to one place.
+fn classify_project_opener(line: &str) -> (bool, bool) {
+    if line == "<project>" {
+        return (true, true);
+    }
+    let Some(rest) = line.strip_prefix("<project") else {
+        return (false, false);
+    };
+    if !rest.starts_with(char::is_whitespace) {
+        return (false, false);
+    }
+    (true, rest.contains('>'))
+}
+
 /// Match the `<project>` opener exactly: the bare tag or one carrying
 /// attributes (whitespace after `<project`). Rejects unrelated tags whose
 /// name merely starts with `project` (e.g. `<projectInfo>`).
 fn is_project_open(line: &str) -> bool {
-    if line == "<project>" {
-        return true;
-    }
-    if let Some(rest) = line.strip_prefix("<project") {
-        // Must be `<project ...>` — next char is whitespace (attributes follow)
-        // and somewhere on the line the tag closes with `>`.
-        return rest.starts_with(char::is_whitespace) && rest.contains('>');
-    }
-    false
+    matches!(classify_project_opener(line), (true, true))
 }
 
 /// Match the start of a multi-line `<project ...` opener: `<project` followed
 /// by whitespace (attributes) but no closing `>` on this line. Rejects
 /// `<projectInfo>` for the same reason as [`is_project_open`].
 fn is_project_open_start(line: &str) -> bool {
-    let Some(rest) = line.strip_prefix("<project") else {
-        return false;
-    };
-    rest.starts_with(char::is_whitespace) && !rest.contains('>')
+    matches!(classify_project_opener(line), (true, false))
 }
 
 /// Dispatch a line to the active section's handler. Returns `true` when the

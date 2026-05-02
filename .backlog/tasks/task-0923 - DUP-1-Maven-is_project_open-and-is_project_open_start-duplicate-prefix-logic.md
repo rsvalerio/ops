@@ -1,9 +1,10 @@
 ---
 id: TASK-0923
 title: 'DUP-1: Maven is_project_open and is_project_open_start duplicate prefix logic'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:12'
+updated_date: '2026-05-02 11:27'
 labels:
   - code-review-rust
   - duplication
