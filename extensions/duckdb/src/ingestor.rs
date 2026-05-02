@@ -168,7 +168,7 @@ impl SidecarIngestorConfig {
         };
 
         let json_path = data_dir.join(self.json_filename);
-        self.persist_record(db, &workspace_root, &json_path, record_count)?;
+        self.persist_record(db, workspace_root.as_os_str(), &json_path, record_count)?;
         self.cleanup_artifacts(data_dir, &json_path);
 
         Ok(LoadResult::success(self.name, record_count))
@@ -218,7 +218,7 @@ impl SidecarIngestorConfig {
     fn persist_record(
         &self,
         db: &DuckDb,
-        workspace_root: &str,
+        workspace_root: &std::ffi::OsStr,
         json_path: &Path,
         record_count: u64,
     ) -> DbResult<()> {

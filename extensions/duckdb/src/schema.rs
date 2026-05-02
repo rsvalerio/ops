@@ -56,13 +56,13 @@ pub fn get_source_checksum(
 pub struct SourceName<'a>(pub &'a str);
 
 #[derive(Debug, Clone, Copy)]
-pub struct WorkspaceRoot<'a>(pub &'a str);
+pub struct WorkspaceRoot<'a>(pub &'a std::ffi::OsStr);
 
 /// Metadata describing a loaded data source row.
 #[non_exhaustive]
 pub struct DataSourceMetadata<'a> {
     pub source_name: &'a str,
-    pub workspace_root: &'a str,
+    pub workspace_root: &'a std::ffi::OsStr,
     pub source_path: &'a Path,
     pub record_count: u64,
     pub checksum: &'a str,
@@ -96,6 +96,15 @@ pub fn upsert_data_source(db: &DuckDb, meta: &DataSourceMetadata<'_>) -> DbResul
         .source_path
         .to_str()
         .ok_or_else(|| DbError::NonUtf8Path(meta.source_path.as_os_str().to_os_string()))?;
+    // ERR-4 / TASK-0928: now that `read_workspace_sidecar` preserves raw
+    // OS bytes verbatim (matching the writer's `as_encoded_bytes`), reject
+    // a non-UTF-8 workspace_root with the same typed error used for
+    // `source_path` rather than letting a lossy `to_string_lossy` ship a
+    // garbled key into the `(source_name, workspace_root)` PK.
+    let workspace_root_str = meta
+        .workspace_root
+        .to_str()
+        .ok_or_else(|| DbError::NonUtf8Path(meta.workspace_root.to_os_string()))?;
     let record_count_i64 = i64::try_from(meta.record_count)
         .map_err(|_| DbError::RecordCountOverflow(meta.record_count))?;
     let conn = db.lock()?;
@@ -111,7 +120,7 @@ pub fn upsert_data_source(db: &DuckDb, meta: &DataSourceMetadata<'_>) -> DbResul
         "#,
         duckdb::params![
             meta.source_name,
-            meta.workspace_root,
+            workspace_root_str,
             path_str,
             record_count_i64,
             meta.checksum
@@ -157,7 +166,7 @@ mod tests {
             &db,
             &DataSourceMetadata::new(
                 SourceName("metadata"),
-                WorkspaceRoot("/ws"),
+                WorkspaceRoot(std::ffi::OsStr::new("/ws")),
                 bad_path,
                 1,
                 "abc",
@@ -178,7 +187,7 @@ mod tests {
             &db,
             &DataSourceMetadata::new(
                 SourceName("big"),
-                WorkspaceRoot("/ws"),
+                WorkspaceRoot(std::ffi::OsStr::new("/ws")),
                 Path::new("/ws/target/ops/big.json"),
                 big,
                 "abc",
@@ -204,7 +213,7 @@ mod tests {
             &db,
             &DataSourceMetadata::new(
                 SourceName("metadata"),
-                WorkspaceRoot("/ws"),
+                WorkspaceRoot(std::ffi::OsStr::new("/ws")),
                 Path::new("/ws/target/ops/metadata.json"),
                 1,
                 "abc123",

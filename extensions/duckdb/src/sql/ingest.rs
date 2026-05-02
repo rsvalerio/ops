@@ -201,9 +201,32 @@ pub fn write_workspace_sidecar(
 }
 
 /// Read a workspace root sidecar file written during collect.
-pub fn read_workspace_sidecar(data_dir: &Path, name: &str) -> DbResult<String> {
+///
+/// Returns the raw OS bytes as an [`OsString`] so that non-UTF-8
+/// `working_directory` paths round-trip identically with the matching
+/// [`write_workspace_sidecar`]. The previous `fs::read_to_string` would
+/// fail with `ErrorKind::InvalidData` on non-UTF-8 bytes that the writer
+/// happily persists via `as_encoded_bytes`, breaking symmetry with the
+/// write side (ERR-4 / TASK-0928). UTF-8 validation now happens at the
+/// persistence boundary in [`crate::schema::upsert_data_source`], where
+/// it returns the same typed [`DbError::NonUtf8Path`] used for
+/// `source_path`.
+pub fn read_workspace_sidecar(data_dir: &Path, name: &str) -> DbResult<std::ffi::OsString> {
     let workspace_path = sidecar_path(data_dir, name);
-    std::fs::read_to_string(&workspace_path).map_err(DbError::Io)
+    let bytes = std::fs::read(&workspace_path).map_err(DbError::Io)?;
+    // SAFETY: `write_workspace_sidecar` persists the path via
+    // `working_directory.as_os_str().as_encoded_bytes()` and routes
+    // through `atomic_write`, which writes the buffer verbatim. The
+    // standard library documents `OsStr::from_encoded_bytes_unchecked`
+    // as the exact round-trip pair for `as_encoded_bytes`, valid so long
+    // as the bytes came from a prior `as_encoded_bytes` call on the same
+    // platform — which is precisely the case here. Any other producer
+    // (a tampered or hand-edited sidecar) is a corrupted-input issue,
+    // not a soundness concern: callers treat the result as an opaque OS
+    // string and the persistence-time UTF-8 check in
+    // `upsert_data_source` would still reject invalid bytes downstream.
+    let os_str = unsafe { std::ffi::OsStr::from_encoded_bytes_unchecked(&bytes) };
+    Ok(os_str.to_os_string())
 }
 
 /// Remove a workspace root sidecar file. Best-effort: a missing file is
@@ -665,6 +688,32 @@ mod tests {
 
         let raw = std::fs::read(dir.path().join("tokei_workspace.txt")).expect("read raw");
         assert_eq!(raw, bytes, "non-UTF-8 bytes preserved verbatim");
+    }
+
+    /// ERR-4 / TASK-0928: `read_workspace_sidecar` must round-trip the
+    /// same non-UTF-8 OS bytes that `write_workspace_sidecar` persists.
+    /// Before this fix the read side called `fs::read_to_string`, which
+    /// returned `ErrorKind::InvalidData` on the very inputs the writer
+    /// happily stored — `load_with_sidecar` then failed on every
+    /// non-UTF-8 `working_directory`. The assertion compares the helper's
+    /// return value (not the raw file bytes) so a future regression that
+    /// swaps the read back to a lossy UTF-8 reader fails here.
+    #[test]
+    #[cfg(unix)]
+    fn read_workspace_sidecar_round_trips_non_utf8_via_helper() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let bytes = b"/ws/\xff\xfe/proj";
+        let working = PathBuf::from(OsStr::from_bytes(bytes));
+        write_workspace_sidecar(dir.path(), "tokei", &working).expect("write");
+
+        let read = read_workspace_sidecar(dir.path(), "tokei").expect("read sidecar");
+        assert_eq!(
+            read.into_vec(),
+            bytes.to_vec(),
+            "non-UTF-8 bytes survive write→read round-trip via helper"
+        );
     }
 
     /// SEC-25 (TASK-0663): a successful `write_workspace_sidecar` must

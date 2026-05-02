@@ -142,7 +142,7 @@ mod tests {
             &db,
             &DataSourceMetadata::new(
                 SourceName("test_source"),
-                WorkspaceRoot("/test/workspace"),
+                WorkspaceRoot(std::ffi::OsStr::new("/test/workspace")),
                 std::path::Path::new("/test/data.json"),
                 42,
                 "abc123",
