@@ -4,13 +4,64 @@ use std::path::Path;
 
 pub use ops_hook_common::find_git_dir;
 
+/// ARCH-2 / SEC-13 / TASK-0894: type-system-enforced "this URL has been
+/// scrubbed of `user[:password]@` userinfo". The only ways to construct
+/// one are [`RedactedUrl::redact`] (runs `redact_userinfo`) and the
+/// `From<&str>` impl that delegates to it. Carrying a `RedactedUrl`
+/// through the call chain means a future refactor cannot accidentally
+/// route a raw URL into [`crate::GitInfo::remote_url`] / about cards /
+/// JSON output without a visible `RedactedUrl::redact` call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RedactedUrl(String);
+
+impl RedactedUrl {
+    /// Construct from a raw URL by stripping `user[:password]@` userinfo.
+    /// `redact_userinfo` is idempotent so calling this on an already-clean
+    /// value is a no-op.
+    ///
+    /// ```
+    /// use ops_git::config::RedactedUrl;
+    /// let r = RedactedUrl::redact("https://alice:secret@github.com/o/r.git");
+    /// assert_eq!(r.as_str(), "https://github.com/o/r.git");
+    /// // Idempotent: re-redacting an already-clean value is a no-op.
+    /// let r2 = RedactedUrl::redact(r.as_str());
+    /// assert_eq!(r2.as_str(), r.as_str());
+    /// ```
+    #[must_use]
+    pub fn redact(raw: &str) -> Self {
+        Self(redact_userinfo(raw))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl From<&str> for RedactedUrl {
+    fn from(raw: &str) -> Self {
+        Self::redact(raw)
+    }
+}
+
+impl std::fmt::Display for RedactedUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// Read the URL of the `origin` remote from `<git_dir>/config`.
 ///
 /// NotFound is silent (no remotes configured is normal). Other IO errors
 /// (PermissionDenied, IsADirectory, etc.) log at `tracing::warn!` before
 /// returning None, matching the policy of `try_read_manifest` (TASK-0548)
 /// and `resolve_member_globs` (TASK-0517).
-pub fn read_origin_url(git_dir: &Path) -> Option<String> {
+pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
     let path = git_dir.join("config");
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
@@ -46,9 +97,18 @@ pub fn read_origin_url(git_dir: &Path) -> Option<String> {
 /// READ-2 (TASK-0726): inline trailing comments (`url = … ; old`) are
 /// stripped from unquoted values, matching `git config --get`. Quoted
 /// values are not yet honoured by this minimal scanner.
-pub fn read_origin_url_from(content: &str) -> Option<String> {
+///
+/// # Userinfo redaction (SEC-13 / TASK-0894)
+///
+/// Returns a [`RedactedUrl`] — the type system enforces that any
+/// `user[:password]@` userinfo is stripped before the value reaches a
+/// caller. Callers cannot route the inner string into about-cards / JSON
+/// without an explicit `into_string()` / `as_str()` call, which makes a
+/// future credential-leak refactor visible at the call site instead of
+/// silent.
+pub fn read_origin_url_from(content: &str) -> Option<RedactedUrl> {
     let mut in_origin = false;
-    let mut last: Option<String> = None;
+    let mut last: Option<RedactedUrl> = None;
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
@@ -60,7 +120,7 @@ pub fn read_origin_url_from(content: &str) -> Option<String> {
         }
         if in_origin {
             if let Some(value) = strip_url_key(trimmed) {
-                last = Some(redact_userinfo(value));
+                last = Some(RedactedUrl::redact(value));
             }
         }
     }
@@ -226,7 +286,7 @@ mod tests {
 \tfetch = +refs/heads/*:refs/remotes/origin/*
 ";
         assert_eq!(
-            read_origin_url_from(cfg),
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
             Some("https://github.com/openbao/openbao.git".to_string())
         );
     }
@@ -242,7 +302,7 @@ mod tests {
         // userinfo for redaction purposes; downstream `parse_remote_url`
         // accepts the trimmed scp form.
         assert_eq!(
-            read_origin_url_from(cfg),
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
             Some("github.com:openbao/openbao.git".to_string())
         );
     }
@@ -253,7 +313,9 @@ mod tests {
     #[test]
     fn scp_style_credentials_are_redacted() {
         let cfg = "[remote \"origin\"]\n\turl = user:tok@host:weird/garbage\n";
-        let url = read_origin_url_from(cfg).expect("origin url");
+        let url = read_origin_url_from(cfg)
+            .map(RedactedUrl::into_string)
+            .expect("origin url");
         assert!(!url.contains("user:tok"), "leaked credentials: {url}");
         assert!(!url.contains('@'), "retained userinfo: {url}");
         assert_eq!(url, "host:weird/garbage");
@@ -268,7 +330,7 @@ mod tests {
 \turl = https://github.com/real/repo.git
 ";
         assert_eq!(
-            read_origin_url_from(cfg),
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
             Some("https://github.com/real/repo.git".to_string())
         );
     }
@@ -283,7 +345,7 @@ mod tests {
 \turl = https://github.com/upper/repo.git
 ";
         assert_eq!(
-            read_origin_url_from(cfg),
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
             Some("https://github.com/upper/repo.git".to_string())
         );
 
@@ -292,7 +354,7 @@ mod tests {
 \turl = https://github.com/mixed/repo.git
 ";
         assert_eq!(
-            read_origin_url_from(cfg_mixed),
+            read_origin_url_from(cfg_mixed).map(RedactedUrl::into_string),
             Some("https://github.com/mixed/repo.git".to_string())
         );
     }
@@ -302,14 +364,18 @@ mod tests {
         // `[remote origin]` (no quotes) is malformed per git-config(1) and git
         // itself ignores it; we must not silently honour what git would not.
         let cfg = "[remote origin]\n\turl = https://github.com/bare/repo.git\n";
-        assert!(read_origin_url_from(cfg).is_none());
+        assert!(read_origin_url_from(cfg)
+            .map(RedactedUrl::into_string)
+            .is_none());
     }
 
     #[test]
     fn escaped_subsection_is_not_treated_as_origin() {
         // `[remote "or\"igin"]` decodes to subsection `or"igin`, not `origin`.
         let cfg = "[remote \"or\\\"igin\"]\n\turl = https://github.com/escaped/repo.git\n";
-        assert!(read_origin_url_from(cfg).is_none());
+        assert!(read_origin_url_from(cfg)
+            .map(RedactedUrl::into_string)
+            .is_none());
     }
 
     #[test]
@@ -317,7 +383,9 @@ mod tests {
         // Subsection names are case-sensitive and exact; `" origin "` is not
         // the same subsection as `"origin"`.
         let cfg = "[remote \" origin \"]\n\turl = https://github.com/spaced/repo.git\n";
-        assert!(read_origin_url_from(cfg).is_none());
+        assert!(read_origin_url_from(cfg)
+            .map(RedactedUrl::into_string)
+            .is_none());
     }
 
     #[test]
@@ -326,7 +394,9 @@ mod tests {
 [remote \"upstream\"]
 \turl = https://example.com/other/repo.git
 ";
-        assert!(read_origin_url_from(cfg).is_none());
+        assert!(read_origin_url_from(cfg)
+            .map(RedactedUrl::into_string)
+            .is_none());
     }
 
     #[test]
@@ -340,7 +410,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            read_origin_url(&git_dir),
+            read_origin_url(&git_dir).map(RedactedUrl::into_string),
             Some("https://github.com/o/r.git".to_string())
         );
     }
@@ -348,7 +418,9 @@ mod tests {
     #[test]
     fn embedded_credentials_are_redacted() {
         let cfg = "[remote \"origin\"]\n\turl = https://user:token@github.com/o/r.git\n";
-        let url = read_origin_url_from(cfg).expect("origin url");
+        let url = read_origin_url_from(cfg)
+            .map(RedactedUrl::into_string)
+            .expect("origin url");
         assert!(!url.contains("user:token"), "leaked credentials: {url}");
         assert!(!url.contains('@'), "retained userinfo: {url}");
         assert_eq!(url, "https://github.com/o/r.git");
@@ -358,7 +430,7 @@ mod tests {
     fn url_key_is_case_insensitive() {
         let cfg = "[remote \"origin\"]\n\tURL = https://github.com/o/r.git\n";
         assert_eq!(
-            read_origin_url_from(cfg),
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
             Some("https://github.com/o/r.git".to_string())
         );
     }
@@ -375,7 +447,7 @@ mod tests {
 \turl = https://github.com/new/repo.git
 ";
         assert_eq!(
-            read_origin_url_from(cfg),
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
             Some("https://github.com/new/repo.git".to_string())
         );
     }
@@ -394,7 +466,7 @@ mod tests {
 \turl = https://github.com/second/repo.git
 ";
         assert_eq!(
-            read_origin_url_from(cfg),
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
             Some("https://github.com/second/repo.git".to_string())
         );
     }
@@ -406,13 +478,13 @@ mod tests {
     fn inline_trailing_comment_is_stripped() {
         let cfg = "[remote \"origin\"]\n\turl = https://x.example/r.git ; comment\n";
         assert_eq!(
-            read_origin_url_from(cfg),
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
             Some("https://x.example/r.git".to_string())
         );
 
         let hash_cfg = "[remote \"origin\"]\n\turl = https://x.example/r.git # other comment\n";
         assert_eq!(
-            read_origin_url_from(hash_cfg),
+            read_origin_url_from(hash_cfg).map(RedactedUrl::into_string),
             Some("https://x.example/r.git".to_string())
         );
     }
@@ -421,7 +493,7 @@ mod tests {
     fn comment_lines_are_skipped() {
         let cfg = "[remote \"origin\"]\n# url = https://commented.example/x.git\n\turl = https://real.example/y.git\n";
         assert_eq!(
-            read_origin_url_from(cfg),
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
             Some("https://real.example/y.git".to_string())
         );
     }
@@ -476,7 +548,7 @@ mod tests {
         perms.set_mode(0o000);
         std::fs::set_permissions(&config, perms).unwrap();
 
-        let result = read_origin_url(&git_dir);
+        let result = read_origin_url(&git_dir).map(RedactedUrl::into_string);
         assert!(result.is_none(), "unreadable config should return None");
 
         // Restore so tempdir cleanup works.

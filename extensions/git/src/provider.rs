@@ -47,7 +47,10 @@ impl GitInfo {
                 ..Self::default()
             };
         };
-        match parse_remote_url(&raw) {
+        // ARCH-2 / TASK-0894: `raw` is a `RedactedUrl` so the type
+        // system already guarantees userinfo has been stripped. Pull
+        // the inner str only at the parse boundary.
+        match parse_remote_url(raw.as_str()) {
             Some(RemoteInfo {
                 host,
                 owner,
@@ -68,11 +71,11 @@ impl GitInfo {
                 // keeps it out of the default log volume while remaining
                 // discoverable when someone goes looking.
                 tracing::debug!(
-                    raw_remote = %raw,
+                    raw_remote = %raw.as_str(),
                     "git remote URL did not match parse_remote_url shape; host/owner/repo will be omitted"
                 );
                 Self {
-                    remote_url: Some(raw),
+                    remote_url: Some(raw.into_string()),
                     branch,
                     ..Self::default()
                 }
@@ -212,13 +215,14 @@ mod tests {
     fn read_origin_url_from_already_redacts_credentials() {
         let cfg = "[remote \"origin\"]\n\turl = https://user:secret@host.example/repo.git\n";
         let url = config::read_origin_url_from(cfg).expect("url");
+        let s = url.as_str();
         assert!(
-            !url.contains("secret"),
-            "read_origin_url_from must redact before returning, got: {url}"
+            !s.contains("secret"),
+            "read_origin_url_from must redact before returning, got: {s}"
         );
         assert!(
-            !url.contains("user@"),
-            "read_origin_url_from must strip userinfo, got: {url}"
+            !s.contains("user@"),
+            "read_origin_url_from must strip userinfo, got: {s}"
         );
     }
 
