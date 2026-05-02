@@ -1,9 +1,10 @@
 ---
 id: TASK-0914
 title: 'ASYNC-6: Rust tools probe spawns cargo/rustup without timeout'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:11'
+updated_date: '2026-05-02 12:12'
 labels:
   - code-review-rust
   - concurrency

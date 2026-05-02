@@ -1,19 +1,69 @@
 //! Detect whether tools/components are installed on the active toolchain.
 
 use ops_core::config::tools::{ToolSource, ToolSpec};
-use ops_core::subprocess::{resolve_cargo_bin, resolve_rustup_bin};
+use ops_core::subprocess::{
+    default_timeout, resolve_cargo_bin, resolve_rustup_bin, run_with_timeout, RunError,
+};
 use std::process::Command;
+use std::time::Duration;
 
 use crate::ToolStatus;
+
+/// ASYNC-6 / TASK-0914: default deadline for tool/listing probes
+/// (`rustup show active-toolchain`, `cargo --list`, `rustup component list
+/// --installed`). The whole `ops about` / `ops tools list` UX hangs on
+/// these probes, so cap them well under the user's "is this CLI broken?"
+/// threshold while still giving rustup time to refresh metadata on a slow
+/// network. Override globally via `OPS_SUBPROCESS_TIMEOUT_SECS` — handled
+/// by [`default_timeout`].
+const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Run a probe Command under [`run_with_timeout`], logging timeout / IO
+/// errors at `tracing::warn` and returning `None` so the caller can map
+/// the failure to `ToolStatus::Unknown` / "not installed" without
+/// duplicating the logging pattern at every call site.
+fn run_probe_with_timeout(cmd: &mut Command, label: &'static str) -> Option<std::process::Output> {
+    match run_with_timeout(cmd, default_timeout(PROBE_TIMEOUT), label) {
+        Ok(out) => Some(out),
+        Err(RunError::Timeout(e)) => {
+            tracing::warn!(
+                label,
+                timeout_secs = e.timeout.as_secs(),
+                "ASYNC-6 / TASK-0914: probe timed out; reporting unknown/not-installed"
+            );
+            None
+        }
+        Err(RunError::Io(e)) => {
+            tracing::warn!(
+                label,
+                error = %e,
+                "probe spawn failed; reporting unknown/not-installed"
+            );
+            None
+        }
+        Err(other) => {
+            tracing::warn!(
+                label,
+                error = %other,
+                "probe failed with unrecognized error variant; reporting unknown/not-installed"
+            );
+            None
+        }
+    }
+}
 
 pub fn get_active_toolchain() -> Option<String> {
     // `--quiet` is rustup's global flag, not a subcommand option, so it
     // appears before `show`. It silences "info: ..." progress lines so the
     // first line of stdout is reliably the toolchain name on every rustup.
-    let output = Command::new(resolve_rustup_bin())
-        .args(["--quiet", "show", "active-toolchain"])
-        .output()
-        .ok()?;
+    //
+    // ASYNC-6 / TASK-0914: a wedged rustup proxy (broken sccache shim,
+    // stuck registry probe) used to hang `ops about` indefinitely. Cap
+    // the spawn at `PROBE_TIMEOUT` (overridable via
+    // `OPS_SUBPROCESS_TIMEOUT_SECS`).
+    let mut cmd = Command::new(resolve_rustup_bin());
+    cmd.args(["--quiet", "show", "active-toolchain"]);
+    let output = run_probe_with_timeout(&mut cmd, "rustup show active-toolchain")?;
 
     if !output.status.success() {
         return None;
@@ -50,16 +100,11 @@ pub(crate) fn parse_active_toolchain(stdout: &str) -> Option<String> {
 }
 
 pub fn check_cargo_tool_installed(name: &str) -> bool {
-    let output = match Command::new(resolve_cargo_bin()).args(["--list"]).output() {
-        Ok(o) => o,
-        Err(e) => {
-            tracing::warn!(
-                tool = name,
-                error = %e,
-                "cargo --list spawn failed; reporting tool as not installed"
-            );
-            return false;
-        }
+    let mut cmd = Command::new(resolve_cargo_bin());
+    cmd.args(["--list"]);
+    let output = match run_probe_with_timeout(&mut cmd, "cargo --list") {
+        Some(o) => o,
+        None => return false,
     };
 
     if !output.status.success() {
@@ -204,19 +249,11 @@ fn check_executable(path: &std::path::Path) -> ExecCheck {
 }
 
 pub fn check_rustup_component_installed(component: &str) -> bool {
-    let output = match Command::new(resolve_rustup_bin())
-        .args(["component", "list", "--installed"])
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
-            tracing::warn!(
-                component = component,
-                error = %e,
-                "rustup component list spawn failed; reporting component as not installed"
-            );
-            return false;
-        }
+    let mut cmd = Command::new(resolve_rustup_bin());
+    cmd.args(["component", "list", "--installed"]);
+    let output = match run_probe_with_timeout(&mut cmd, "rustup component list --installed") {
+        Some(o) => o,
+        None => return false,
     };
 
     if !output.status.success() {
@@ -340,10 +377,9 @@ pub fn check_tool_status_with(
 /// Capture the raw stdout of `cargo --list` once. Returns `None` if the spawn or
 /// non-zero exit prevents reuse; callers fall back to per-tool spawns.
 pub fn capture_cargo_list() -> Option<String> {
-    let output = Command::new(resolve_cargo_bin())
-        .args(["--list"])
-        .output()
-        .ok()?;
+    let mut cmd = Command::new(resolve_cargo_bin());
+    cmd.args(["--list"]);
+    let output = run_probe_with_timeout(&mut cmd, "cargo --list")?;
     if !output.status.success() {
         return None;
     }
@@ -352,12 +388,46 @@ pub fn capture_cargo_list() -> Option<String> {
 
 /// Capture the raw stdout of `rustup component list --installed` once.
 pub fn capture_rustup_components() -> Option<String> {
-    let output = Command::new(resolve_rustup_bin())
-        .args(["component", "list", "--installed"])
-        .output()
-        .ok()?;
+    let mut cmd = Command::new(resolve_rustup_bin());
+    cmd.args(["component", "list", "--installed"]);
+    let output = run_probe_with_timeout(&mut cmd, "rustup component list --installed")?;
     if !output.status.success() {
         return None;
     }
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+#[cfg(all(test, unix))]
+mod probe_timeout_tests {
+    use super::*;
+
+    /// ASYNC-6 / TASK-0914: prove that `run_probe_with_timeout` actually
+    /// honours the deadline rather than blocking on the child. Spawn a
+    /// `sh -c "sleep 30"` under a 1s deadline and assert the helper
+    /// returns `None` well under the wall-clock limit. A regression that
+    /// drops the timeout (e.g. reverts a probe to `cmd.output()`) hangs
+    /// this test until the surrounding `cargo test` timer fires, which
+    /// is exactly the wedge this fix prevents in production.
+    #[test]
+    fn timeout_returns_none_quickly() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "sleep 30"]);
+        let start = std::time::Instant::now();
+        let prev = std::env::var_os(ops_core::subprocess::TIMEOUT_ENV);
+        // SAFETY: tests run concurrently — narrow the window by restoring
+        // the previous value immediately after the call.
+        // SAFETY: Rust 2024 marks set_var/remove_var as unsafe due to other-thread races.
+        unsafe { std::env::set_var(ops_core::subprocess::TIMEOUT_ENV, "1") };
+        let result = run_probe_with_timeout(&mut cmd, "sleep test");
+        match prev {
+            Some(v) => unsafe { std::env::set_var(ops_core::subprocess::TIMEOUT_ENV, v) },
+            None => unsafe { std::env::remove_var(ops_core::subprocess::TIMEOUT_ENV) },
+        }
+        assert!(result.is_none(), "timeout must surface as None");
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "must not hang past the deadline; elapsed = {:?}",
+            start.elapsed()
+        );
+    }
 }
