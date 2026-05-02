@@ -34,7 +34,7 @@ impl ToolSpec {
     pub fn source(&self) -> ToolSource {
         match self {
             ToolSpec::Simple(_) => ToolSource::Cargo,
-            ToolSpec::Extended(ext) => ext.source.clone(),
+            ToolSpec::Extended(ext) => ext.source,
         }
     }
 }
@@ -51,7 +51,7 @@ pub struct ExtendedToolSpec {
     pub source: ToolSource,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolSource {
     #[default]

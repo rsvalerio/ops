@@ -50,25 +50,27 @@ fn merge_env_vars(config: &mut Config) -> anyhow::Result<()> {
 
 /// Counter for `load_config` invocations. Used by the CLI regression test
 /// (TASK-0427) to assert that a typical `ops <cmd>` flow only loads
-/// `.ops.toml` once. The atomic increment is a sub-nanosecond cost on a
-/// single-core machine and load_config itself parses TOML, so the overhead
-/// is unmeasurable in practice.
+/// `.ops.toml` once. Gated behind `cfg(any(test, feature = "test-support"))`
+/// so production CLI binaries do not carry the AtomicUsize or its symbols.
+#[cfg(any(test, feature = "test-support"))]
 static LOAD_CONFIG_CALL_COUNT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
-/// Snapshot the current `load_config` invocation count. Public so external
-/// crates (e.g. `cli/main.rs` integration tests) can assert it.
+/// Snapshot the current `load_config` invocation count.
+#[cfg(any(test, feature = "test-support"))]
 pub fn load_config_call_count() -> usize {
     LOAD_CONFIG_CALL_COUNT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Reset the `load_config` invocation count to zero. Intended for tests.
+/// Reset the `load_config` invocation count to zero.
+#[cfg(any(test, feature = "test-support"))]
 pub fn reset_load_config_call_count() {
     LOAD_CONFIG_CALL_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[instrument(skip_all)]
 pub fn load_config() -> anyhow::Result<Config> {
+    #[cfg(any(test, feature = "test-support"))]
     LOAD_CONFIG_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut config: Config =
         toml::from_str(default_ops_toml()).context("failed to parse internal default config")?;
@@ -211,14 +213,14 @@ pub(crate) fn global_config_path() -> Option<PathBuf> {
     let config_dir = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         PathBuf::from(xdg)
     } else if cfg!(windows) {
-        let appdata = std::env::var_os("APPDATA").or_else(|| {
-            std::env::var_os("USERPROFILE")
-                .map(|up| PathBuf::from(up).join("AppData/Roaming").into_os_string())
-        })?;
-        PathBuf::from(appdata)
+        // CL-3: fall back through the shared `paths::home_dir` helper so
+        // Windows-native paths use the same HOME → USERPROFILE order as the
+        // rest of the crate.
+        std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .or_else(|| crate::paths::home_dir().map(|h| h.join("AppData/Roaming")))?
     } else {
-        let home = std::env::var_os("HOME")?;
-        PathBuf::from(home).join(".config")
+        crate::paths::home_dir()?.join(".config")
     };
     let path = config_dir.join("ops/config");
     debug!(path = ?path.display(), "resolved global config base path");
