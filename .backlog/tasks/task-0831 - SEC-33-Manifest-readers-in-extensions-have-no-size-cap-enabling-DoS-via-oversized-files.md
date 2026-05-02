@@ -3,9 +3,10 @@ id: TASK-0831
 title: >-
   SEC-33: Manifest readers in extensions-* have no size cap, enabling DoS via
   oversized files
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:11'
+updated_date: '2026-05-02 11:58'
 labels:
   - code-review-rust
   - security

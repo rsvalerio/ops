@@ -11,7 +11,15 @@
 //! the sibling `try_read_manifest` / `resolve_member_globs` policy so that
 //! operators at default log levels see unreadable-manifest diagnostics.
 
+use std::io::Read;
 use std::path::Path;
+
+/// SEC-33 (TASK-0831): hard cap on manifest size. `ops about` runs in
+/// user-controlled working directories where an adversarial repository
+/// (or a `/dev/zero` symlink) could otherwise force an unbounded
+/// allocation. 4 MiB is well above any real `package.json` / `pom.xml`
+/// / `pnpm-workspace.yaml` while keeping a single oversize read bounded.
+pub const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Read a manifest's text content if the file exists.
 ///
@@ -30,21 +38,47 @@ use std::path::Path;
 /// `kind` is included in the log event so operators can grep by manifest
 /// type ("package.json" vs "go.mod") without scraping paths.
 pub fn read_optional_text(path: &Path, kind: &str) -> Option<String> {
-    match std::fs::read_to_string(path) {
-        Ok(content) => Some(content),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
-            // ERR-7 (TASK-0665): Debug-format the path so embedded newlines /
-            // ANSI escapes cannot forge log lines or smuggle formatting.
             tracing::warn!(
                 path = ?path.display(),
                 error = %e,
                 kind = kind,
                 "failed to read manifest"
             );
-            None
+            return None;
+        }
+    };
+
+    // Read up to MAX_MANIFEST_BYTES + 1 so we can detect oversize files.
+    let mut buf = String::new();
+    let limit = MAX_MANIFEST_BYTES.saturating_add(1);
+    match (&mut file).take(limit).read_to_string(&mut buf) {
+        Ok(_) => {}
+        Err(e) => {
+            tracing::warn!(
+                path = ?path.display(),
+                error = %e,
+                kind = kind,
+                "failed to read manifest"
+            );
+            return None;
         }
     }
+
+    if buf.len() as u64 > MAX_MANIFEST_BYTES {
+        tracing::warn!(
+            path = ?path.display(),
+            kind = kind,
+            cap = MAX_MANIFEST_BYTES,
+            "manifest exceeds size cap; skipping"
+        );
+        return None;
+    }
+
+    Some(buf)
 }
 
 #[cfg(test)]
@@ -73,6 +107,29 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let result = read_optional_text(dir.path(), "test");
         assert!(result.is_none());
+    }
+
+    /// SEC-33 (TASK-0831): files larger than MAX_MANIFEST_BYTES must not be
+    /// slurped into memory. Use a sentinel-byte content larger than the cap
+    /// and assert the helper bails to None.
+    #[test]
+    fn oversize_file_returns_none() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let p = dir.path().join("huge.toml");
+        let oversize = (MAX_MANIFEST_BYTES + 1) as usize;
+        let content = vec![b'a'; oversize];
+        std::fs::write(&p, &content).expect("write");
+        assert!(read_optional_text(&p, "test").is_none());
+    }
+
+    #[test]
+    fn at_cap_file_returns_content() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let p = dir.path().join("at_cap.toml");
+        let content = vec![b'a'; MAX_MANIFEST_BYTES as usize];
+        std::fs::write(&p, &content).expect("write");
+        let got = read_optional_text(&p, "test").expect("Some");
+        assert_eq!(got.len(), MAX_MANIFEST_BYTES as usize);
     }
 
     /// ERR-7 (TASK-0665): paths must be Debug-formatted in log fields so
