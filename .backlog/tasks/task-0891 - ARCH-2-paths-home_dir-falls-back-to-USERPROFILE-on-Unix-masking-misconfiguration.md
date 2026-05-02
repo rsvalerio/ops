@@ -3,9 +3,10 @@ id: TASK-0891
 title: >-
   ARCH-2: paths::home_dir falls back to USERPROFILE on Unix, masking
   misconfiguration
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:46'
+updated_date: '2026-05-02 14:41'
 labels:
   - code-review-rust
   - architecture
@@ -27,7 +28,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Gate USERPROFILE fallback behind cfg(windows) so Unix only consults HOME
-- [ ] #2 Add a unit test asserting that on non-Windows targets USERPROFILE is ignored when HOME is unset
-- [ ] #3 Update the rustdoc to reflect the platform-gated semantics
+- [x] #1 Gate USERPROFILE fallback behind cfg(windows) so Unix only consults HOME
+- [x] #2 Add a unit test asserting that on non-Windows targets USERPROFILE is ignored when HOME is unset
+- [x] #3 Update the rustdoc to reflect the platform-gated semantics
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+home_dir is now platform-gated: cfg(unix) consults HOME only, non-Unix keeps the HOME->USERPROFILE chain. Module + fn rustdoc updated to reflect platform-specific semantics. Added home_dir_ignores_userprofile_on_unix (#[cfg(unix)] + serial) that asserts USERPROFILE is ignored when HOME is unset.
+<!-- SECTION:NOTES:END -->
