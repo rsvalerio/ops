@@ -3,9 +3,10 @@ id: TASK-0885
 title: >-
   ERR-1: data_sources.record_count is INTEGER (32-bit) but stores i64 record
   counts
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:37'
+updated_date: '2026-05-02 12:01'
 labels:
   - code-review-rust
   - ERR

@@ -14,7 +14,7 @@ pub fn init_schema(db: &DuckDb) -> DbResult<()> {
             workspace_root VARCHAR NOT NULL,
             loaded_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             source_path    VARCHAR NOT NULL,
-            record_count   INTEGER NOT NULL DEFAULT 0,
+            record_count   BIGINT NOT NULL DEFAULT 0,
             checksum       VARCHAR(64) NOT NULL,
             metadata       JSON,
             PRIMARY KEY (source_name, workspace_root)
@@ -164,6 +164,36 @@ mod tests {
             ),
         );
         assert!(matches!(result, Err(DbError::NonUtf8Path(_))));
+    }
+
+    /// ERR-1 (TASK-0885): the column was widened from INTEGER (i32) to
+    /// BIGINT (i64) so counts exceeding `i32::MAX` round-trip without
+    /// truncation or driver-level bind error.
+    #[test]
+    fn record_count_over_i32_max_round_trips() {
+        let db = DuckDb::open_in_memory().unwrap();
+        init_schema(&db).unwrap();
+        let big = (i32::MAX as u64) + 7;
+        upsert_data_source(
+            &db,
+            &DataSourceMetadata::new(
+                SourceName("big"),
+                WorkspaceRoot("/ws"),
+                Path::new("/ws/target/ops/big.json"),
+                big,
+                "abc",
+            ),
+        )
+        .unwrap();
+        let conn = db.lock().unwrap();
+        let stored: i64 = conn
+            .query_row(
+                "SELECT record_count FROM data_sources WHERE source_name = ? AND workspace_root = ?",
+                duckdb::params!["big", "/ws"],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored as u64, big);
     }
 
     #[test]
