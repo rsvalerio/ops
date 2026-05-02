@@ -117,9 +117,21 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     // Persist the new directory entry so a crash after rename still finds the
     // updated file. macOS does not require this for crash safety in practice,
     // but Linux ext4 does, and it is cheap.
+    //
+    // ERR-1 / TASK-0899: a failing directory fsync (ENOSPC, EIO, full
+    // disk) is treated as non-fatal — the rename has already returned
+    // success and the calling write path has no recovery action — but it
+    // is the only signal that crash-safety is currently broken, so we
+    // surface it at `warn` level rather than swallowing it silently.
     #[cfg(unix)]
     if let Ok(dir) = std::fs::File::open(parent) {
-        let _ = dir.sync_all();
+        if let Err(e) = dir.sync_all() {
+            tracing::warn!(
+                parent = %parent.display(),
+                error = %e,
+                "directory fsync after atomic rename failed; rename may not survive a power loss"
+            );
+        }
     }
     Ok(())
 }

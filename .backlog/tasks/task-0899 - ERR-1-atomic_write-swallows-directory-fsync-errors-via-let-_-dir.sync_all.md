@@ -1,9 +1,10 @@
 ---
 id: TASK-0899
 title: 'ERR-1: atomic_write swallows directory fsync errors via let _ = dir.sync_all()'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:08'
+updated_date: '2026-05-02 11:15'
 labels:
   - code-review-rust
   - error-handling
