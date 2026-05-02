@@ -3,9 +3,10 @@ id: TASK-0876
 title: >-
   API-9: CommandOwner and DataProviderOwner are duplicated local enums in
   registry.rs
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:23'
+updated_date: '2026-05-02 11:00'
 labels:
   - code-review-rust
   - duplication

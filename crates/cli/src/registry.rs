@@ -114,6 +114,33 @@ pub fn builtin_extensions(
     Ok(exts)
 }
 
+/// DUP-1 / TASK-0876: shared owner-tracking type used by the symmetric
+/// command and data-provider registration paths. Keeping the enum in one
+/// place removes the asymmetry channel that originally produced
+/// TASK-0756 (data providers had no audit, commands did) and makes any
+/// future change to the audit policy a one-touch edit.
+#[derive(Clone)]
+enum Owner {
+    PreExisting,
+    Extension(&'static str),
+}
+
+/// Seed an owner map from the keys already present in the target registry
+/// so the first extension's contributions still see existing keys as
+/// foreign-owned rather than producing false-positive collisions across
+/// re-entries.
+fn seed_owners<I, K>(keys: I) -> std::collections::HashMap<K, Owner>
+where
+    I: IntoIterator<Item = K>,
+    K: std::hash::Hash + Eq,
+{
+    let mut owners = std::collections::HashMap::new();
+    for k in keys {
+        owners.entry(k).or_insert(Owner::PreExisting);
+    }
+    owners
+}
+
 /// Collect all commands from registered extensions into a registry.
 ///
 /// SEC-31 / TASK-0402 (symmetric with TASK-0350 for `DataRegistry`):
@@ -124,29 +151,9 @@ pub fn builtin_extensions(
 /// Insertion order is preserved (the late entry wins, matching the prior
 /// observable behaviour) but the collision is now visible.
 pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut CommandRegistry) {
-    // READ-5 / TASK-0716: use a typed enum so the WARN field never surfaces
-    // an internal sentinel string at the user-facing boundary. Pre-existing
-    // entries (e.g. config-defined commands the wiring layer seeded before
-    // this call) still need to be tracked so a later extension cannot
-    // silently shadow them, but the warning rendering picks the right shape
-    // for each case instead of leaking `<pre-existing>` as the owner.
-    #[derive(Clone)]
-    enum CommandOwner {
-        PreExisting,
-        Extension(&'static str),
-    }
-
-    let mut owners: std::collections::HashMap<ops_core::config::CommandId, CommandOwner> =
-        std::collections::HashMap::new();
-
-    // Seed `owners` with whatever was already in `registry` so the first
-    // extension's contributions still see existing keys as foreign-owned
-    // and we don't false-positive collisions across re-entries.
-    for id in registry.keys() {
-        owners
-            .entry(id.clone())
-            .or_insert(CommandOwner::PreExisting);
-    }
+    // READ-5 / TASK-0716: typed [`Owner`] keeps the warn fields free of
+    // internal sentinel strings (`<pre-existing>` no longer leaks).
+    let mut owners = seed_owners(registry.keys().cloned());
 
     for ext in extensions {
         debug!(extension = ext.name(), action = "commands", "registering");
@@ -166,13 +173,9 @@ pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut
             );
         }
         for (id, spec) in local {
-            // PATTERN-3: hash the key once via owners.insert (which returns
-            // the previous owner) instead of get-then-insert. Still one clone
-            // — id needs to live in both registry and owners — but we no
-            // longer probe owners twice.
-            let prev_owner = owners.insert(id.clone(), CommandOwner::Extension(ext.name()));
+            let prev_owner = owners.insert(id.clone(), Owner::Extension(ext.name()));
             match prev_owner {
-                Some(CommandOwner::Extension(prev)) if prev != ext.name() => {
+                Some(Owner::Extension(prev)) if prev != ext.name() => {
                     tracing::warn!(
                         command = %id,
                         first = %prev,
@@ -180,12 +183,7 @@ pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut
                         "duplicate command registration; the later extension shadows the earlier one"
                     );
                 }
-                Some(CommandOwner::PreExisting) => {
-                    // READ-5 / TASK-0716: omit the `first` field rather than
-                    // emit `<pre-existing>`; the operator only needs to know
-                    // that an extension is shadowing a key the registry was
-                    // already seeded with (typically a config-defined
-                    // command), not the internal sentinel.
+                Some(Owner::PreExisting) => {
                     tracing::warn!(
                         command = %id,
                         second = %ext.name(),
@@ -214,22 +212,7 @@ pub fn register_extension_data_providers(
     extensions: &[&dyn Extension],
     registry: &mut DataRegistry,
 ) {
-    enum DataProviderOwner {
-        PreExisting,
-        Extension(&'static str),
-    }
-
-    let mut owners: std::collections::HashMap<String, DataProviderOwner> =
-        std::collections::HashMap::new();
-
-    // Seed `owners` with anything already in the registry so the first
-    // extension's contributions still see the existing names as foreign-owned
-    // (and thus collide loudly rather than silently).
-    for name in registry.provider_names() {
-        owners
-            .entry(name.to_string())
-            .or_insert(DataProviderOwner::PreExisting);
-    }
+    let mut owners = seed_owners(registry.provider_names().into_iter().map(str::to_string));
 
     for ext in extensions {
         debug!(
@@ -254,7 +237,7 @@ pub fn register_extension_data_providers(
             use std::collections::hash_map::Entry;
             match owners.entry(name.clone()) {
                 Entry::Occupied(occ) => match occ.get() {
-                    DataProviderOwner::Extension(prev) if *prev != ext.name() => {
+                    Owner::Extension(prev) if *prev != ext.name() => {
                         tracing::warn!(
                             provider = %name,
                             first = %prev,
@@ -262,19 +245,19 @@ pub fn register_extension_data_providers(
                             "duplicate data provider registration; first-write-wins keeps the earlier extension's provider and the later one is dropped"
                         );
                     }
-                    DataProviderOwner::PreExisting => {
+                    Owner::PreExisting => {
                         tracing::warn!(
                             provider = %name,
                             second = %ext.name(),
                             "extension data provider would shadow an entry already present in the registry; first-write-wins keeps the existing one"
                         );
                     }
-                    DataProviderOwner::Extension(_) => {
+                    Owner::Extension(_) => {
                         // Same extension — already surfaced via take_duplicate_inserts above.
                     }
                 },
                 Entry::Vacant(vac) => {
-                    vac.insert(DataProviderOwner::Extension(ext.name()));
+                    vac.insert(Owner::Extension(ext.name()));
                     registry.register(name, provider);
                 }
             }
