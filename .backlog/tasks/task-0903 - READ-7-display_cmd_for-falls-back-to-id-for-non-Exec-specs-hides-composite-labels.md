@@ -3,9 +3,10 @@ id: TASK-0903
 title: >-
   READ-7: display_cmd_for falls back to id for non-Exec specs, hides composite
   labels
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:09'
+updated_date: '2026-05-02 11:17'
 labels:
   - code-review-rust
   - readability

@@ -22,13 +22,16 @@ fn display_cmd_for_unknown_returns_id() {
     assert_eq!(display_cmd_for(&runner, "missing"), "missing");
 }
 
+/// READ-7 / TASK-0903: composites now render as their child list rather
+/// than the bare id, so plan rows surface a useful label instead of an
+/// internal identifier.
 #[test]
-fn display_cmd_for_composite_returns_id() {
+fn display_cmd_for_composite_returns_child_list() {
     let config = TestConfigBuilder::new()
         .composite("verify", &["build", "test"])
         .build();
     let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
-    assert_eq!(display_cmd_for(&runner, "verify"), "verify");
+    assert_eq!(display_cmd_for(&runner, "verify"), "build, test");
 }
 
 /// TQ-007: Full lifecycle integration test.

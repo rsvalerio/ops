@@ -32,9 +32,15 @@ pub(crate) fn merge_plan(
 }
 
 pub(crate) fn display_cmd_for(runner: &ops_runner::command::CommandRunner, id: &str) -> String {
+    // READ-7 / TASK-0903: match every CommandSpec variant explicitly so a
+    // future variant fails to compile here rather than silently falling
+    // back to the bare id in plan rows. Composites surface a comma-joined
+    // child list (mirrors `display_cmd_fallback`) which is what plan
+    // display rows want — the bare id told the user nothing.
     match runner.resolve(id) {
         Some(CommandSpec::Exec(e)) => e.display_cmd().into_owned(),
-        _ => id.to_string(),
+        Some(CommandSpec::Composite(c)) => c.commands.join(", "),
+        None => id.to_string(),
     }
 }
 
