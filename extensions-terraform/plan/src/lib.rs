@@ -115,11 +115,30 @@ fn classify_plan(plan: &Plan) -> Vec<ClassifiedChange> {
 }
 
 fn read_stdin() -> anyhow::Result<String> {
+    read_stdin_capped(&mut std::io::stdin().lock())
+}
+
+/// SEC-33 (TASK-0924): byte-cap stdin reads at the same `plan_json_max_bytes`
+/// limit as `read_json_file`. The threat model of TASK-0915 (a process
+/// piping unbounded bytes — e.g. `cat /dev/zero | ops terraform plan
+/// --json-file=-`) applies equally to the stdin branch; both feed the same
+/// `parse_and_classify` pipeline so the cap should be uniform. Extracted as
+/// a `Read`-generic helper so the cap can be exercised by unit tests
+/// without a real stdin handle.
+fn read_stdin_capped<R: std::io::Read>(reader: &mut R) -> anyhow::Result<String> {
     use std::io::Read;
+    let cap = plan_json_max_bytes();
+    let limit = cap.saturating_add(1);
     let mut buf = String::new();
-    std::io::stdin()
+    reader
+        .take(limit)
         .read_to_string(&mut buf)
         .context("failed to read from stdin")?;
+    if buf.len() as u64 > cap {
+        anyhow::bail!(
+            "plan JSON on stdin exceeds {cap} bytes (override via {PLAN_JSON_MAX_BYTES_ENV})"
+        );
+    }
     Ok(buf)
 }
 
@@ -339,6 +358,7 @@ mod tests {
     /// rejected without being slurped into memory. Override the cap to
     /// 64 bytes via OPS_PLAN_JSON_MAX_BYTES so the test stays fast.
     #[test]
+    #[serial_test::serial(plan_json_max_bytes_env)]
     fn read_json_file_rejects_oversized_payload() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("big.json");
@@ -363,10 +383,58 @@ mod tests {
         );
     }
 
+    /// SEC-33 (TASK-0924): the stdin branch must apply the same cap as
+    /// the file branch. Without this the `--json-file=-` path
+    /// (`cat /dev/zero | ops terraform plan --json-file=-`) would OOM the
+    /// renderer despite the file branch being capped in TASK-0915.
+    #[test]
+    #[serial_test::serial(plan_json_max_bytes_env)]
+    fn read_stdin_rejects_oversized_payload() {
+        let saved = std::env::var(PLAN_JSON_MAX_BYTES_ENV).ok();
+        unsafe { std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, "64") };
+        let mut reader = std::io::Cursor::new(vec![b'x'; 1024]);
+        let result = read_stdin_capped(&mut reader);
+        unsafe {
+            match saved {
+                Some(v) => std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, v),
+                None => std::env::remove_var(PLAN_JSON_MAX_BYTES_ENV),
+            }
+        }
+        let err = result.expect_err("oversized stdin plan JSON must error");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("exceeds 64 bytes"),
+            "error must name the cap, got: {msg}"
+        );
+        assert!(
+            msg.contains(PLAN_JSON_MAX_BYTES_ENV),
+            "error must name the override env var, got: {msg}"
+        );
+    }
+
+    /// SEC-33 (TASK-0924): a stdin payload at or below the cap must read
+    /// through unchanged.
+    #[test]
+    #[serial_test::serial(plan_json_max_bytes_env)]
+    fn read_stdin_at_cap_returns_payload() {
+        let saved = std::env::var(PLAN_JSON_MAX_BYTES_ENV).ok();
+        unsafe { std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, "8") };
+        let mut reader = std::io::Cursor::new(b"12345678".to_vec());
+        let result = read_stdin_capped(&mut reader);
+        unsafe {
+            match saved {
+                Some(v) => std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, v),
+                None => std::env::remove_var(PLAN_JSON_MAX_BYTES_ENV),
+            }
+        }
+        assert_eq!(result.expect("at-cap stdin payload reads ok"), "12345678");
+    }
+
     /// FN-9 / TASK-0850: run_plan_pipeline_to writes its rendered tables
     /// to the provided sink instead of global stdout, and the pipeline
     /// returns ExitCode based on detailed_exitcode + changes_present.
     #[test]
+    #[serial_test::serial(plan_json_max_bytes_env)]
     fn run_plan_pipeline_to_writes_to_supplied_buffer() {
         // Stage the minimal fixture as a file and feed it via opts.json_file
         // so we don't depend on a `terraform` binary on PATH.
