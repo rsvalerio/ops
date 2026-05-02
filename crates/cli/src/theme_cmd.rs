@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use ops_core::config;
+use ops_core::output::display_width;
 use ops_core::style;
 
 fn parse_default_config() -> Result<ops_core::config::Config, anyhow::Error> {
@@ -63,28 +64,35 @@ fn run_theme_list_to(config: &config::Config, w: &mut dyn Write) -> anyhow::Resu
 
     let options = collect_theme_options(config);
 
-    let max_name_len = options.iter().map(|o| o.name.len()).max().unwrap_or(0);
+    // READ-2 (TASK-0936): theme names are user-supplied via `[themes.<name>]`
+    // and may contain CJK / emoji / combining marks. Mirror the
+    // tools_cmd / help.rs alignment pattern (TASK-0758 / TASK-0734): measure
+    // by `display_width` and emit padding via a manual space-pad loop instead
+    // of the `{:width$}` format spec (which counts chars, not display cells).
+    let max_name_width = options
+        .iter()
+        .map(|o| display_width(&o.name))
+        .max()
+        .unwrap_or(0);
 
     for option in options {
         let marker = if option.is_custom { " (custom)" } else { "" };
+        let name_width = display_width(&option.name);
+        let pad = max_name_width.saturating_sub(name_width);
+        let mut padded_name = option.name.clone();
+        for _ in 0..pad {
+            padded_name.push(' ');
+        }
         if is_tty {
             writeln!(
                 w,
-                "  {:width$}   {}{}",
-                style::cyan(&option.name),
+                "  {}   {}{}",
+                style::cyan(&padded_name),
                 style::dim(&option.description),
                 style::dim(marker),
-                width = max_name_len
             )?;
         } else {
-            writeln!(
-                w,
-                "{:width$}   {}{}",
-                option.name,
-                option.description,
-                marker,
-                width = max_name_len
-            )?;
+            writeln!(w, "{}   {}{}", padded_name, option.description, marker)?;
         }
     }
 
@@ -349,6 +357,54 @@ theme = "compact"
             let output = String::from_utf8(buf).unwrap();
             assert!(output.contains("classic"), "should list classic: {output}");
             assert!(output.contains("compact"), "should list compact: {output}");
+        }
+
+        /// READ-2 (TASK-0936): theme name padding is measured by display
+        /// width (not byte length / char count) so wide-character names
+        /// (CJK / emoji / combining marks) align the description column at
+        /// the same visual column as ASCII names. Mirrors the
+        /// `tools_list_aligns_wide_char_names_by_display_width` test in
+        /// tools_cmd.rs (TASK-0758).
+        #[test]
+        fn run_theme_list_aligns_wide_char_names_by_display_width() {
+            // Build the config in-process: ThemeConfig has many required
+            // fields that the TOML round-trip would otherwise duplicate
+            // verbatim. Description differentiates the two rows so we can
+            // locate them in the rendered output.
+            let mut config = ops_core::config::Config::default();
+            config.themes.insert(
+                "ビルド".to_string(),
+                ops_core::config::theme_types::ThemeConfig {
+                    description: Some("Wide name".to_string()),
+                    ..ops_core::config::theme_types::ThemeConfig::classic()
+                },
+            );
+            config.themes.insert(
+                "plain".to_string(),
+                ops_core::config::theme_types::ThemeConfig {
+                    description: Some("ASCII name".to_string()),
+                    ..ops_core::config::theme_types::ThemeConfig::classic()
+                },
+            );
+
+            let mut buf = Vec::new();
+            run_theme_list_to(&config, &mut buf).expect("run_theme_list_to");
+            let output = String::from_utf8(buf).unwrap();
+            let lines: Vec<&str> = output.lines().collect();
+            let wide = lines
+                .iter()
+                .find(|l| l.contains("ビルド") && l.contains("Wide name"))
+                .unwrap_or_else(|| panic!("wide-name line not found in:\n{output}"));
+            let ascii = lines
+                .iter()
+                .find(|l| l.contains("plain") && l.contains("ASCII name"))
+                .unwrap_or_else(|| panic!("ascii line not found in:\n{output}"));
+            let wide_col = display_width(&wide[..wide.find("Wide name").unwrap()]);
+            let ascii_col = display_width(&ascii[..ascii.find("ASCII name").unwrap()]);
+            assert_eq!(
+                wide_col, ascii_col,
+                "description columns should align by display width: ビルド at {wide_col}, plain at {ascii_col}"
+            );
         }
 
         #[test]
