@@ -1,6 +1,7 @@
 pub mod config;
 pub mod expand;
 pub mod output;
+pub mod paths;
 pub mod project_identity;
 pub mod serde_defaults;
 pub mod stack;

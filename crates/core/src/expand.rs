@@ -102,10 +102,13 @@ impl Variables {
     /// literal input. Use this on any path that turns the result into an
     /// argv element, cwd, or env value — see ERR-1 / TASK-0450.
     pub fn try_expand<'a>(&'a self, input: &'a str) -> Result<Cow<'a, str>, ExpandError> {
+        // CL-3: delegate to the shared helper so `~` expansion stays in sync
+        // with platform path conventions used by the config loader.
         let home_dir = || -> Option<String> {
-            std::env::var("HOME")
-                .or_else(|_| std::env::var("USERPROFILE"))
-                .ok()
+            crate::paths::home_dir()
+                .as_deref()
+                .and_then(std::path::Path::to_str)
+                .map(String::from)
         };
 
         // OWN-8: builtins are borrowed from `self`; `Cow::Borrowed` avoids
