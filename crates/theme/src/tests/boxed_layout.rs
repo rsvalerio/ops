@@ -25,7 +25,7 @@ fn snap(
 }
 
 fn boxed_theme() -> ConfigurableTheme {
-    ConfigurableTheme(ThemeConfig {
+    ConfigurableTheme::new(ThemeConfig {
         layout_kind: LayoutKind::Boxed,
         left_pad: 0,
         ..ThemeConfig::compact()
@@ -34,7 +34,7 @@ fn boxed_theme() -> ConfigurableTheme {
 
 #[test]
 fn flat_theme_returns_no_borders() {
-    let theme = ConfigurableTheme(ThemeConfig::compact());
+    let theme = ConfigurableTheme::new(ThemeConfig::compact());
     assert!(theme.box_top_border(snap(0, 5, 0.0, true, 80)).is_none());
     assert!(theme.box_bottom_border(snap(5, 5, 1.0, true, 80)).is_none());
     assert_eq!(theme.step_column_reserve(), 0);
@@ -159,7 +159,7 @@ fn boxed_error_detail_aligns_mid_with_label_column() {
     // Studio-like theme: rail mirrors the frame's left border, and the
     // top/mid/bottom glyphs must land under the step-label column
     // (box prefix `│ █  ` + step_indent).
-    let theme = ConfigurableTheme(ThemeConfig {
+    let theme = ConfigurableTheme::new(ThemeConfig {
         layout_kind: LayoutKind::Boxed,
         left_pad: 0,
         error_block: ops_core::config::theme_types::ErrorBlockChars {

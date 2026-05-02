@@ -13,7 +13,7 @@ fn render_prefix_width_matches_helper_components_for_multi_char_icon() {
     use ops_core::output::display_width;
     let mut cfg = ThemeConfig::compact();
     cfg.icon_succeeded = "OK".into();
-    let theme = ConfigurableTheme(cfg);
+    let theme = ConfigurableTheme::new(cfg);
     let step = StepLine::new(StepStatus::Succeeded, "cargo build".to_string(), None);
 
     let plain_prefix = theme.render_prefix(&step, false);
@@ -37,7 +37,7 @@ fn render_prefix_width_matches_helper_components_for_multi_char_icon() {
 
 #[test]
 fn classic_theme_success_with_duration() {
-    let theme = ConfigurableTheme(ThemeConfig::classic());
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let line = render_line(
         &theme,
         StepStatus::Succeeded,
@@ -52,7 +52,7 @@ fn classic_theme_success_with_duration() {
 
 #[test]
 fn compact_theme_success_icon() {
-    let theme = ConfigurableTheme(ThemeConfig::compact());
+    let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let line = render_line(&theme, StepStatus::Succeeded, "cargo test", Some(1.50));
     assert!(line.starts_with(" " /* left_pad */));
     assert!(line.contains("✓ cargo test"));
@@ -62,7 +62,7 @@ fn compact_theme_success_icon() {
 
 #[test]
 fn classic_theme_failed() {
-    let theme = ConfigurableTheme(ThemeConfig::classic());
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let line = render_line(&theme, StepStatus::Failed, "cargo clippy", Some(0.10));
     assert!(line.starts_with(" ├── ✖ cargo clippy"));
     assert!(line.contains("0.10s"));
@@ -70,7 +70,7 @@ fn classic_theme_failed() {
 
 #[test]
 fn classic_theme_pending_no_duration() {
-    let theme = ConfigurableTheme(ThemeConfig::classic());
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let line = render_line(&theme, StepStatus::Pending, "cargo build", None);
     assert!(line.starts_with(" ├── ◇ cargo build"));
     assert!(!line.contains("s"));
@@ -78,7 +78,7 @@ fn classic_theme_pending_no_duration() {
 
 #[test]
 fn classic_theme_running_status() {
-    let theme = ConfigurableTheme(ThemeConfig::classic());
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let line = render_line(&theme, StepStatus::Running, "cargo test", Some(0.5));
     assert!(line.starts_with("◆ cargo test") || line.contains("cargo test"));
     assert!(line.contains("0.50s"));
@@ -86,7 +86,7 @@ fn classic_theme_running_status() {
 
 #[test]
 fn compact_theme_running_status() {
-    let theme = ConfigurableTheme(ThemeConfig::compact());
+    let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let line = render_line(&theme, StepStatus::Running, "cargo build", Some(1.0));
     assert!(line.contains("cargo build"));
     assert!(line.contains("1.00s"));
@@ -94,7 +94,7 @@ fn compact_theme_running_status() {
 
 #[test]
 fn classic_plan_header_tree() {
-    let theme = ConfigurableTheme(ThemeConfig::classic());
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let ids = vec!["build".into(), "clippy".into(), "test".into()];
     let lines = theme.render_plan_header(&ids);
     assert_eq!(lines.len(), 3);
@@ -107,7 +107,7 @@ fn classic_plan_header_tree() {
 fn plain_header_with_prefix_emits_prefix() {
     let mut cfg = ThemeConfig::compact();
     cfg.plan_header_prefix = "🚀 ".into();
-    let theme = ConfigurableTheme(cfg);
+    let theme = ConfigurableTheme::new(cfg);
     let lines = theme.render_plan_header(&["build".into(), "test".into()]);
     assert_eq!(lines[1], " 🚀 Running: build, test");
 }
@@ -120,7 +120,7 @@ fn label_color_does_not_affect_non_tty_output() {
     let _g = EnvGuard::set("NO_COLOR", "1");
     let mut cfg = ThemeConfig::compact();
     cfg.label_color = "cyan".into();
-    let theme = ConfigurableTheme(cfg);
+    let theme = ConfigurableTheme::new(cfg);
     let line = render_line(&theme, StepStatus::Succeeded, "cargo build", Some(0.5));
     assert!(
         !line.contains('\x1b'),
@@ -135,7 +135,7 @@ fn summary_color_does_not_affect_non_tty_output() {
     let _g = EnvGuard::set("NO_COLOR", "1");
     let mut cfg = ThemeConfig::compact();
     cfg.summary_color = "bold green".into();
-    let theme = ConfigurableTheme(cfg);
+    let theme = ConfigurableTheme::new(cfg);
     let s = theme.render_summary(true, 1.0);
     assert!(!s.contains('\x1b'));
     assert!(s.contains("Done"));
@@ -143,7 +143,7 @@ fn summary_color_does_not_affect_non_tty_output() {
 
 #[test]
 fn compact_plan_header_plain() {
-    let theme = ConfigurableTheme(ThemeConfig::compact());
+    let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let ids = vec!["build".into(), "test".into()];
     let lines = theme.render_plan_header(&ids);
     assert_eq!(lines.len(), 3);
@@ -154,7 +154,7 @@ fn compact_plan_header_plain() {
 
 #[test]
 fn classic_error_detail_with_stderr() {
-    let theme = ConfigurableTheme(ThemeConfig::classic());
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let detail = ErrorDetail::new(
         "exit status: 101".to_string(),
         vec![
@@ -174,7 +174,7 @@ fn classic_error_detail_with_stderr() {
 
 #[test]
 fn compact_error_detail_gutter_width() {
-    let theme = ConfigurableTheme(ThemeConfig::compact());
+    let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let detail = ErrorDetail::new("exit status: 1".to_string(), vec![]);
     let lines = theme.render_error_detail(&detail, 80);
     assert_eq!(lines[0], "     ╭─");
@@ -185,21 +185,21 @@ fn compact_error_detail_gutter_width() {
 
 #[test]
 fn classic_summary_separator_is_rail() {
-    let theme = ConfigurableTheme(ThemeConfig::classic());
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let sep = theme.render_summary_separator(80);
     assert_eq!(sep, " │");
 }
 
 #[test]
 fn compact_summary_separator_is_empty() {
-    let theme = ConfigurableTheme(ThemeConfig::compact());
+    let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let sep = theme.render_summary_separator(80);
     assert!(sep.is_empty());
 }
 
 #[test]
 fn error_detail_empty_returns_nothing() {
-    let theme = ConfigurableTheme(ThemeConfig::classic());
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let detail = ErrorDetail::new(String::new(), vec![]);
     let lines = theme.render_error_detail(&detail, 80);
     assert!(lines.is_empty());
@@ -207,7 +207,7 @@ fn error_detail_empty_returns_nothing() {
 
 #[test]
 fn classic_theme_very_small_columns() {
-    let theme = ConfigurableTheme(ThemeConfig::classic());
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let step = StepLine::new(StepStatus::Succeeded, "cmd".to_string(), Some(0.5));
     let line = theme.render(&step, 10);
     assert!(line.contains("cmd"));
@@ -215,7 +215,7 @@ fn classic_theme_very_small_columns() {
 
 #[test]
 fn compact_theme_very_small_columns() {
-    let theme = ConfigurableTheme(ThemeConfig::compact());
+    let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let step = StepLine::new(StepStatus::Succeeded, "x".to_string(), Some(0.5));
     let line = theme.render(&step, 5);
     assert!(line.contains('x'));

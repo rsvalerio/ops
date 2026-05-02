@@ -3,7 +3,7 @@
 use super::*;
 
 fn theme_with_pad(pad: usize) -> ConfigurableTheme {
-    ConfigurableTheme(ThemeConfig {
+    ConfigurableTheme::new(ThemeConfig {
         left_pad: pad,
         ..ThemeConfig::compact()
     })

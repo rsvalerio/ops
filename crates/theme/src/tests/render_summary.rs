@@ -5,7 +5,7 @@ use super::*;
 
 #[test]
 fn classic_render_summary_success() {
-    let theme = ConfigurableTheme(ThemeConfig::classic());
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let summary = theme.render_summary(true, 1.5);
     assert!(summary.contains("Done"));
     assert!(summary.contains("1.50s"));
@@ -14,7 +14,7 @@ fn classic_render_summary_success() {
 
 #[test]
 fn classic_render_summary_failure() {
-    let theme = ConfigurableTheme(ThemeConfig::classic());
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let summary = theme.render_summary(false, 0.75);
     assert!(summary.contains("Failed"));
     assert!(summary.contains("0.75s"));
@@ -23,7 +23,7 @@ fn classic_render_summary_failure() {
 
 #[test]
 fn classic_render_summary_minutes() {
-    let theme = ConfigurableTheme(ThemeConfig::classic());
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let summary = theme.render_summary(true, 278.04);
     assert!(summary.contains("Done"));
     assert!(summary.contains("4m38s"));
@@ -31,7 +31,7 @@ fn classic_render_summary_minutes() {
 
 #[test]
 fn compact_render_summary_success() {
-    let theme = ConfigurableTheme(ThemeConfig::compact());
+    let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let summary = theme.render_summary(true, 2.0);
     assert!(summary.contains("Done"));
     assert!(summary.contains("2.00s"));
@@ -40,7 +40,7 @@ fn compact_render_summary_success() {
 
 #[test]
 fn compact_render_summary_failure() {
-    let theme = ConfigurableTheme(ThemeConfig::compact());
+    let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let summary = theme.render_summary(false, 0.5);
     assert!(summary.contains("Failed"));
     assert!(summary.contains("0.50s"));
@@ -50,7 +50,7 @@ fn compact_render_summary_failure() {
 fn plan_header_style_tree_renders_correctly() {
     let mut theme = ThemeConfig::compact();
     theme.plan_header_style = PlanHeaderStyle::Tree;
-    let configurable = ConfigurableTheme(theme);
+    let configurable = ConfigurableTheme::new(theme);
     let lines = configurable.render_plan_header(&["a".into(), "b".into()]);
     assert_eq!(lines[1], " ┌ Running: a, b");
     assert_eq!(lines[2], " │");
