@@ -130,13 +130,13 @@ impl ConfigurableTheme {
         match self.config.plan_header_style {
             PlanHeaderStyle::Plain => {
                 let body = format!("{}Running: {}", self.config.plan_header_prefix, ids);
-                let colored = apply_with_prefix(&body, &self.header_prefix);
+                let colored = apply_with_prefix(&body, self.header_prefix.as_deref());
                 let header = format!("{}{}", pad, colored);
                 vec![String::new(), header, String::new()]
             }
             PlanHeaderStyle::Tree => {
                 let body = format!("┌ Running: {}", ids);
-                let colored = apply_with_prefix(&body, &self.header_prefix);
+                let colored = apply_with_prefix(&body, self.header_prefix.as_deref());
                 vec![
                     String::new(),
                     format!("{}{}", pad, colored),
@@ -212,7 +212,7 @@ impl ConfigurableTheme {
             right_corner: "╮",
             columns: snap.columns,
             left_pad: self.left_pad(),
-            title_prefix: &self.header_prefix,
+            title_prefix: self.header_prefix.as_deref(),
         }))
     }
 
@@ -242,7 +242,7 @@ impl ConfigurableTheme {
             right_corner: "╯",
             columns: snap.columns,
             left_pad: self.left_pad(),
-            title_prefix: &self.summary_prefix,
+            title_prefix: self.summary_prefix.as_deref(),
         }))
     }
 
@@ -358,18 +358,20 @@ impl ConfigurableTheme {
         };
 
         let parts = self.step_prefix_parts(step.status, is_running);
-        let colored_label = apply_with_prefix(&step.label, &self.label_prefix);
+        let colored_label = apply_with_prefix(&step.label, self.label_prefix.as_deref());
         let colored_prefix = format!(
             "{}{}{} {}",
             parts.indent, parts.icon, parts.pad, colored_label
         );
 
-        let colored_separator = apply_with_prefix(&plain_separator, &self.separator_prefix);
+        let colored_separator =
+            apply_with_prefix(&plain_separator, self.separator_prefix.as_deref());
 
         if plain_duration.is_empty() {
             format!("{}{}{}", pad, colored_prefix, colored_separator)
         } else {
-            let colored_duration = apply_with_prefix(&plain_duration, &self.duration_prefix);
+            let colored_duration =
+                apply_with_prefix(&plain_duration, self.duration_prefix.as_deref());
             format!(
                 "{}{}{} {}",
                 pad, colored_prefix, colored_separator, colored_duration
@@ -381,7 +383,7 @@ impl ConfigurableTheme {
     pub fn render_summary(&self, success: bool, elapsed_secs: f64) -> String {
         let label = if success { "Done" } else { "Failed" };
         let body = format!("{} in {}", label, format_duration(elapsed_secs));
-        let colored = apply_with_prefix(&body, &self.summary_prefix);
+        let colored = apply_with_prefix(&body, self.summary_prefix.as_deref());
         format!(
             "{}{}{}",
             self.left_pad_str(),
@@ -421,7 +423,7 @@ struct BorderArgs<'a> {
     right_corner: &'a str,
     columns: u16,
     left_pad: usize,
-    title_prefix: &'a Option<String>,
+    title_prefix: Option<&'a str>,
 }
 
 /// Render a horizontal border like `╭─ title ────...───╮`.

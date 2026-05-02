@@ -73,7 +73,11 @@ pub fn precompute_sgr_prefix(spec: &str) -> Option<String> {
 /// Apply a precomputed SGR prefix to `text`. Returns `Cow::Borrowed` when
 /// `prefix` is `None` or color is disabled (non-TTY / `NO_COLOR`).
 /// TASK-0747: paired with [`precompute_sgr_prefix`].
-pub fn apply_with_prefix<'a>(text: &'a str, prefix: &Option<String>) -> Cow<'a, str> {
+///
+/// API-2 / TASK-0893: takes `Option<&str>` rather than `&Option<String>`
+/// so callers aren't locked into `String` storage and can pass borrowed
+/// slices, `Cow`s, or accessor returns via `.as_deref()`.
+pub fn apply_with_prefix<'a>(text: &'a str, prefix: Option<&str>) -> Cow<'a, str> {
     if !color_enabled() {
         return Cow::Borrowed(text);
     }

@@ -1,9 +1,10 @@
 ---
 id: TASK-0893
 title: 'API-2: apply_with_prefix takes &Option<String> instead of Option<&str>'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:47'
+updated_date: '2026-05-02 11:11'
 labels:
   - code-review-rust
   - api
