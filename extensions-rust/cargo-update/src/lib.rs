@@ -153,25 +153,30 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
 /// byte is in `0x40..=0x7E` (covers SGR `m`, erase-line `K`, cursor-move `H`,
 /// etc.). This is broader than the previous implementation which only consumed
 /// up to `m` and left stray bytes from other CSI shapes.
+///
+/// ERR-1 / TASK-0882: iterate over `chars()` rather than raw bytes so a
+/// non-ASCII UTF-8 sequence (localized cargo/rustc messages, crate
+/// metadata with non-ASCII characters, tracing diagnostic lines) round-
+/// trips identically. The previous `bytes[i] as char` cast interpreted
+/// each continuation byte as a Latin-1 code point and silently corrupted
+/// every multi-byte character.
 fn strip_ansi(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'\x1b' && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
-            // Skip ESC [ then consume parameter/intermediate bytes (0x20..=0x3F)
-            // and the final byte (0x40..=0x7E).
-            i += 2;
-            while i < bytes.len() && !(bytes[i] >= 0x40 && bytes[i] <= 0x7E) {
-                i += 1;
-            }
-            // Consume the final byte itself.
-            if i < bytes.len() {
-                i += 1;
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' && chars.peek() == Some(&'[') {
+            // Consume the `[` then parameter/intermediate bytes (0x20..=0x3F)
+            // and the final byte (0x40..=0x7E). All CSI bytes are ASCII so
+            // matching against u32 code points is safe.
+            chars.next();
+            for next in chars.by_ref() {
+                let cp = next as u32;
+                if (0x40..=0x7E).contains(&cp) {
+                    break;
+                }
             }
         } else {
-            result.push(bytes[i] as char);
-            i += 1;
+            result.push(c);
         }
     }
     result

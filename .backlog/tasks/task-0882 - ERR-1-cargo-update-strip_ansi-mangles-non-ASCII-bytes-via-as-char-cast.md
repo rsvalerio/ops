@@ -1,9 +1,10 @@
 ---
 id: TASK-0882
 title: 'ERR-1: cargo-update strip_ansi mangles non-ASCII bytes via ''as char'' cast'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:36'
+updated_date: '2026-05-02 14:40'
 labels:
   - code-review-rust
   - ERR
@@ -23,6 +24,12 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 strip_ansi preserves non-ASCII UTF-8 input identically (round-trips through the function)
-- [ ] #2 an existing project ANSI stripper is reused or this implementation iterates chars() rather than bytes
+- [x] #1 strip_ansi preserves non-ASCII UTF-8 input identically (round-trips through the function)
+- [x] #2 an existing project ANSI stripper is reused or this implementation iterates chars() rather than bytes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Rewrote strip_ansi to iterate `chars()` instead of bytes — non-ASCII UTF-8 input now round-trips. Did not pull in ops_core::style as a dep just for this single use; the inline state machine stays narrow. Added 3 regression tests pinning round-trip on cafe-style strings, CSI removal around Unicode, and CSI termination safety with a non-ASCII follow-on byte.
+<!-- SECTION:NOTES:END -->

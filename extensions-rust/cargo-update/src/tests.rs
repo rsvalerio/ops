@@ -401,3 +401,32 @@ fn parse_ignores_unknown_lines() {
     assert_eq!(result.entries.len(), 1);
     assert_eq!(result.entries[0].name, "serde");
 }
+
+/// ERR-1 / TASK-0882: strip_ansi must round-trip non-ASCII UTF-8 input
+/// identically. The previous `bytes[i] as char` cast corrupted every
+/// continuation byte into a Latin-1 code point.
+#[test]
+fn strip_ansi_round_trips_non_ascii() {
+    let input = "café — naïve résumé 日本語";
+    assert_eq!(strip_ansi(input), input);
+}
+
+/// ERR-1 / TASK-0882: ANSI sequences are still removed even when
+/// surrounded by non-ASCII text.
+#[test]
+fn strip_ansi_removes_csi_around_unicode() {
+    let input = "\x1b[31mcafé\x1b[0m";
+    assert_eq!(strip_ansi(input), "café");
+}
+
+/// ERR-1 / TASK-0882: a non-ASCII char that happens to land where a CSI
+/// final byte would be (0x40..=0x7E) does not break the parser — we only
+/// match the final-byte range against single ASCII codepoints, and
+/// `chars()` decoding ensures we don't see a stray continuation byte
+/// in that range.
+#[test]
+fn strip_ansi_csi_termination_is_byte_safe() {
+    // ESC [ 1 ; 31 m  followed by a non-ASCII char.
+    let input = "\x1b[1;31m日本語";
+    assert_eq!(strip_ansi(input), "日本語");
+}
