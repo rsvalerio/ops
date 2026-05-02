@@ -51,6 +51,14 @@ ops_hook_common::impl_hook_wrappers! {
 const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_secs(5);
 const TIMEOUT_ENV_VAR: &str = "OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS";
 
+/// ASYNC-6 / TASK-0783: upper bound on `OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS`.
+///
+/// Matches the policy from TASK-0304: the bounded-wait contract is the
+/// whole point of the pre-commit hook; an env-driven effective disable
+/// (e.g. `u64::MAX`) reverts the fix from TASK-0589. 300 s is generous
+/// for even the slowest FUSE-backed worktree while still bounding the hook.
+const MAX_GIT_TIMEOUT_SECS: u64 = 300;
+
 /// Typed failure for `has_staged_files_with`. ASYNC-6 / TASK-0589.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -99,7 +107,18 @@ fn git_timeout_from_env() -> Option<Duration> {
             );
             None
         }
-        Ok(n) => Some(Duration::from_secs(n)),
+        Ok(n) => {
+            let clamped = n.min(MAX_GIT_TIMEOUT_SECS);
+            if clamped < n {
+                tracing::warn!(
+                    env = TIMEOUT_ENV_VAR,
+                    requested_secs = n,
+                    ceiling_secs = MAX_GIT_TIMEOUT_SECS,
+                    "clamping to upper bound; bounded execution is the hook's contract"
+                );
+            }
+            Some(Duration::from_secs(clamped))
+        }
     }
 }
 
@@ -533,5 +552,16 @@ mod tests {
     fn git_timeout_from_env_unset_returns_none() {
         let _guard = EnvGuard::remove(TIMEOUT_ENV_VAR);
         assert_eq!(git_timeout_from_env(), None);
+    }
+
+    /// ASYNC-6 / TASK-0783 AC#2: an overlarge value is clamped, not honoured.
+    #[test]
+    #[serial_test::serial]
+    fn git_timeout_from_env_clamps_to_ceiling() {
+        let _guard = EnvGuard::set(TIMEOUT_ENV_VAR, "999999999");
+        assert_eq!(
+            git_timeout_from_env(),
+            Some(Duration::from_secs(MAX_GIT_TIMEOUT_SECS))
+        );
     }
 }
