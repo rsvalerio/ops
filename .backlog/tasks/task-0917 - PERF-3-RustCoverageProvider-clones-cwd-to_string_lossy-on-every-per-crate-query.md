@@ -3,9 +3,10 @@ id: TASK-0917
 title: >-
   PERF-3: RustCoverageProvider clones cwd to_string_lossy on every per-crate
   query
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:12'
+updated_date: '2026-05-02 11:24'
 labels:
   - code-review-rust
   - performance

@@ -60,13 +60,16 @@ impl DataProvider for RustCoverageProvider {
             if members.is_empty() {
                 Vec::new()
             } else {
-                let workspace_root = cwd.to_string_lossy();
+                // PERF-3 / TASK-0917: borrow the cwd inline. `to_string_lossy`
+                // returns a `Cow::Borrowed` for UTF-8 paths (no allocation),
+                // and the temporary lives for the duration of the closure
+                // body — no need for an explicit let-bind on the hot path.
                 let member_strs: Vec<&str> = members.iter().map(String::as_str).collect();
                 let per_crate = query_or_warn(
                     "query_crate_coverage",
                     "per-crate coverage will be blank",
                     std::collections::HashMap::<String, ops_duckdb::sql::CrateCoverage>::new(),
-                    || query_crate_coverage(db, &member_strs, &workspace_root),
+                    || query_crate_coverage(db, &member_strs, &cwd.to_string_lossy()),
                 );
                 // PERF-1 (TASK-0798): resolve display names up front in one
                 // pass over members with coverage rows, so each member's
