@@ -49,6 +49,7 @@ fn test_display_with_config(
         display_map,
         custom_themes: &custom_themes,
         tap: None,
+        verbose: false,
     })
     .expect("test display construct")
 }
@@ -157,6 +158,7 @@ fn emit_line_non_tty_writes_to_stderr() {
             display_map: HashMap::new(),
             custom_themes: &custom_themes,
             tap: None,
+            verbose: false,
         },
         || false,
     )
@@ -183,6 +185,7 @@ fn tap_file_captures_raw_output() {
         display_map,
         custom_themes: &custom_themes,
         tap: Some(tap_path.clone()),
+        verbose: false,
     })
     .expect("should construct with tap");
 
@@ -269,7 +272,35 @@ fn render_config_uses_output_settings() {
     );
     assert_eq!(display.render.columns, 100);
     assert!(!display.render.show_error_detail);
-    assert_eq!(display.render.stderr_tail_lines, 10);
+    assert_eq!(display.render.stderr_tail, StderrTail::Limited(10));
+}
+
+/// TASK-0762: user's `stderr_tail_lines` config value is preserved when verbose
+/// is true — verbose overrides at the display layer via `StderrTail::Unbounded`
+/// without mutating the underlying config.
+#[test]
+fn verbose_overrides_to_unbounded_without_mutating_config() {
+    let output = config::OutputConfig {
+        columns: 80,
+        show_error_detail: true,
+        theme: "compact".into(),
+        stderr_tail_lines: 1000,
+        category_order: Vec::new(),
+    };
+    let display_map = HashMap::new();
+    let custom_themes = test_themes();
+    let display = ProgressDisplay::new(DisplayOptions {
+        output: &output,
+        display_map,
+        custom_themes: &custom_themes,
+        tap: None,
+        verbose: true,
+    })
+    .expect("test display construct");
+    // Verbose → Unbounded, not Limited(usize::MAX)
+    assert_eq!(display.render.stderr_tail, StderrTail::Unbounded);
+    // The original config is unchanged (not mutated)
+    assert_eq!(output.stderr_tail_lines, 1000);
 }
 
 #[test]
@@ -481,6 +512,7 @@ mod error_path_tests {
             display_map: HashMap::new(),
             custom_themes: &custom_themes,
             tap: None,
+            verbose: false,
         });
 
         match result {
