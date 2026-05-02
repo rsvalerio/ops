@@ -18,20 +18,80 @@ use tokio::sync::mpsc;
 use tokio::task::Id as TaskId;
 use tracing::instrument;
 
+/// Default cap on concurrent parallel exec tasks.
+///
+/// CONC-3 / TASK-0873: overridable via `OPS_MAX_PARALLEL`. The default
+/// (32) is generous for developer machines; CI runners with tight FD or
+/// process limits can dial it down without recompiling.
+const DEFAULT_MAX_PARALLEL: usize = 32;
+
+/// Per-parallel-task event budget used to size the bounded event channel.
+///
+/// Budget = StepStarted + N×StepOutput + (StepFinished | StepFailed |
+/// StepSkipped). Real commands rarely hit N=256 between display pumps;
+/// when a burst does fill the channel the producer task awaits on
+/// `send`, which naturally back-pressures chatty children instead of
+/// letting the process drift toward OOM.
+///
+/// CONC-3 / TASK-0873: overridable via `OPS_PARALLEL_EVENT_BUDGET`.
+const DEFAULT_PARALLEL_EVENT_BUDGET_PER_TASK: usize = 256;
+
+/// Hard ceiling on the env-overridable parallel cap. Rejects pathological
+/// values (e.g. `OPS_MAX_PARALLEL=1000000`) that would defeat the
+/// resource-pressure contract this knob exists to enforce.
+const MAX_PARALLEL_CEILING: usize = 1024;
+
+/// Hard ceiling on the env-overridable per-task event budget. Same
+/// rationale as [`MAX_PARALLEL_CEILING`].
+const MAX_EVENT_BUDGET_CEILING: usize = 65_536;
+
+/// Resolve [`DEFAULT_MAX_PARALLEL`] honoring `OPS_MAX_PARALLEL`. Invalid,
+/// zero, or above-ceiling values fall back to the default with a
+/// `tracing::warn!` so misconfiguration is visible.
+fn resolve_max_parallel() -> usize {
+    resolve_env_usize(
+        "OPS_MAX_PARALLEL",
+        DEFAULT_MAX_PARALLEL,
+        MAX_PARALLEL_CEILING,
+    )
+}
+
+fn resolve_event_budget() -> usize {
+    resolve_env_usize(
+        "OPS_PARALLEL_EVENT_BUDGET",
+        DEFAULT_PARALLEL_EVENT_BUDGET_PER_TASK,
+        MAX_EVENT_BUDGET_CEILING,
+    )
+}
+
+fn resolve_env_usize(var: &'static str, default: usize, ceiling: usize) -> usize {
+    let Ok(raw) = std::env::var(var) else {
+        return default;
+    };
+    match raw.parse::<usize>() {
+        Ok(0) | Err(_) => {
+            tracing::warn!(
+                env = var,
+                value = %raw,
+                default,
+                "unparseable or zero value; falling back to default"
+            );
+            default
+        }
+        Ok(n) if n > ceiling => {
+            tracing::warn!(
+                env = var,
+                requested = n,
+                ceiling,
+                "clamping to ceiling; the bounded contract is the knob's purpose"
+            );
+            ceiling
+        }
+        Ok(n) => n,
+    }
+}
+
 impl CommandRunner {
-    /// Maximum concurrent parallel tasks. Caps resource usage (file descriptors,
-    /// processes) for configs with many parallel commands.
-    const MAX_PARALLEL: usize = 32;
-
-    /// Per-parallel-task event budget used to size the bounded event channel.
-    ///
-    /// Budget = StepStarted + N×StepOutput + (StepFinished | StepFailed |
-    /// StepSkipped). Real commands rarely hit N=256 between display pumps;
-    /// when a burst does fill the channel the producer task awaits on
-    /// `send`, which naturally back-pressures chatty children instead of
-    /// letting the process drift toward OOM.
-    const PARALLEL_EVENT_BUDGET_PER_TASK: usize = 256;
-
     /// Collect results from a JoinSet, handling panics gracefully.
     ///
     /// # Panic Safety
@@ -114,10 +174,12 @@ impl CommandRunner {
         // of events never blocks; only pathological bursts of >N lines
         // per tick will pause a producer — which is exactly the
         // throttling we want.
-        let capacity = Self::MAX_PARALLEL.saturating_mul(Self::PARALLEL_EVENT_BUDGET_PER_TASK);
+        let max_parallel = resolve_max_parallel();
+        let event_budget = resolve_event_budget();
+        let capacity = max_parallel.saturating_mul(event_budget);
         let (tx, rx) = mpsc::channel(capacity);
         let abort = Arc::new(AbortSignal::new());
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(Self::MAX_PARALLEL));
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(max_parallel));
         let mut join_set = tokio::task::JoinSet::new();
         let mut id_map: HashMap<TaskId, CommandId> = HashMap::new();
         for (id, spec) in steps {
@@ -192,7 +254,7 @@ impl CommandRunner {
         // sequential `run_plan` path: identical observable semantics
         // (PlanStarted → step events → RunFinished), no orchestration
         // overhead, no fresh `Arc`/channel allocations on the hot path.
-        // Threshold is documented next to `MAX_PARALLEL` above.
+        // Threshold is documented next to `DEFAULT_MAX_PARALLEL` above.
         if command_ids.len() <= 1 {
             return self.run_plan(command_ids, fail_fast, on_event).await;
         }

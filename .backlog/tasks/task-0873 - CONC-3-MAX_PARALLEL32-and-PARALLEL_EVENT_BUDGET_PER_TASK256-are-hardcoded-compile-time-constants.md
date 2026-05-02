@@ -3,9 +3,10 @@ id: TASK-0873
 title: >-
   CONC-3: MAX_PARALLEL=32 and PARALLEL_EVENT_BUDGET_PER_TASK=256 are hardcoded
   compile-time constants
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:23'
+updated_date: '2026-05-02 10:55'
 labels:
   - code-review-rust
   - concurrency
