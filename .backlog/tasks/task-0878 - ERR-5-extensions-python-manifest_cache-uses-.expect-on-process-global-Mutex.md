@@ -1,9 +1,10 @@
 ---
 id: TASK-0878
 title: 'ERR-5: extensions-python manifest_cache uses .expect on process-global Mutex'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:24'
+updated_date: '2026-05-02 11:01'
 labels:
   - code-review-rust
   - error-handling

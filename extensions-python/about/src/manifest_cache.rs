@@ -48,7 +48,19 @@ static CACHE: OnceLock<Mutex<HashMap<PathBuf, Option<Arc<toml::Value>>>>> = Once
 pub(crate) fn pyproject_value(root: &Path) -> Option<Arc<toml::Value>> {
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let path = root.join("pyproject.toml");
-    if let Some(entry) = cache.lock().expect("pyproject cache poisoned").get(&path) {
+    // ERR-5 / TASK-0878: recover from poisoning by inheriting the inner
+    // map. The cache value is a parse result, not authoritative state, so
+    // a panic in a previous holder cannot leave a torn invariant; treating
+    // poison as fatal would let one panic permanently brick the cache for
+    // every other provider in the process.
+    if let Some(entry) = cache
+        .lock()
+        .unwrap_or_else(|e| {
+            tracing::warn!("pyproject cache mutex was poisoned by a prior panic; recovered");
+            e.into_inner()
+        })
+        .get(&path)
+    {
         return entry.clone();
     }
     let parsed = match ops_about::manifest_io::read_optional_text(&path, "pyproject.toml") {
@@ -66,7 +78,10 @@ pub(crate) fn pyproject_value(root: &Path) -> Option<Arc<toml::Value>> {
         },
         None => None,
     };
-    let mut guard = cache.lock().expect("pyproject cache poisoned");
+    let mut guard = cache.lock().unwrap_or_else(|e| {
+        tracing::warn!("pyproject cache mutex was poisoned by a prior panic; recovered");
+        e.into_inner()
+    });
     if guard.len() >= CACHE_MAX_ENTRIES {
         // Bounded high-water mark: drop the whole table on overflow rather
         // than maintaining LRU metadata for a parse-result cache. Next
@@ -106,5 +121,32 @@ mod tests {
     fn missing_file_returns_none() {
         let dir = tempfile::tempdir().unwrap();
         assert!(pyproject_value(dir.path()).is_none());
+    }
+
+    /// ERR-5 / TASK-0878: a panic while holding the cache lock must not
+    /// permanently brick the cache for every other provider in the
+    /// process. Catching the panic across a thread boundary simulates the
+    /// production scenario without aborting the test runner.
+    #[test]
+    fn poison_recovery_keeps_cache_usable() {
+        let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+
+        let h = std::thread::spawn(|| {
+            let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+            let _g = cache.lock().expect("uncontended");
+            panic!("simulated provider panic while holding the cache lock");
+        });
+        assert!(h.join().is_err(), "spawned thread should have panicked");
+        assert!(cache.is_poisoned(), "lock must now be poisoned");
+
+        // Subsequent caller must still succeed despite the poisoned mutex.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"recover\"\n",
+        )
+        .unwrap();
+        let parsed = pyproject_value(dir.path()).expect("parsed after poison recovery");
+        assert!(parsed.get("project").is_some());
     }
 }
