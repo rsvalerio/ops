@@ -6,8 +6,10 @@
 //! standard, prettily-formatted Maven POM shape and intentionally avoids the
 //! complexity (and dependency cost) of `quick-xml`. Specifically:
 //!
-//! - **No XML comment handling.** Tags inside `<!-- ... -->` are matched as
-//!   regular content if they appear on a non-commented line shape.
+//! - **XML comments are stripped** (CL-3 / TASK-0846). Both single-line
+//!   `<!-- … -->` blocks and multi-line `<!-- …\n…\n -->` blocks are
+//!   removed before tag matching, so a commented-out `<artifactId>fake</artifactId>`
+//!   does not get captured as the project artifact id.
 //! - **No CDATA handling.** `<![CDATA[ ... ]]>` blocks are not unwrapped.
 //! - **One element per line for top-level scalars.** Open and close tags must
 //!   be on the same line for fields like `<artifactId>` (multi-line element
@@ -84,9 +86,17 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
     let mut started = false;
     let mut opener_pending = false;
     let mut section = PomSection::TopLevel;
+    // CL-3 / TASK-0846: track whether we're inside a multi-line `<!-- … -->`
+    // block. Lines (or partial lines) inside the block are stripped before
+    // any tag matching so a commented-out `<artifactId>` cannot be captured.
+    let mut in_comment = false;
 
-    for line in content.lines() {
-        let line = line.trim();
+    for raw_line in content.lines() {
+        let cleaned = strip_xml_comments(raw_line, &mut in_comment);
+        let line = cleaned.trim();
+        if line.is_empty() {
+            continue;
+        }
 
         if !started {
             // TASK-0626: support multi-line `<project ... >` openers, which
@@ -307,6 +317,51 @@ fn parse_top_level(line: &str, data: &mut PomData) {
     );
     try_set_once(&mut data.name, line, "<name>", "</name>");
     try_set_once(&mut data.scm_url, line, "<url>", "</url>");
+}
+
+/// CL-3 / TASK-0846: strip XML comments from `line`, multi-line aware.
+///
+/// `in_comment` carries the open-comment state across lines. The returned
+/// String is `line` with every `<!-- … -->` region removed (replaced by a
+/// single space so adjacent tokens don't get glued together). Per-line
+/// processing handles all four cases:
+///
+/// - already-inside, no `-->` here       → discard the whole line
+/// - already-inside, `-->` on this line  → discard up to and including
+///   `-->`, then continue scanning the rest for further comments
+/// - not inside, `<!--` opens but no `-->` on this line → keep prefix,
+///   set `in_comment = true`, discard suffix from `<!--`
+/// - not inside, complete `<!-- … -->`   → splice the comment out
+fn strip_xml_comments(line: &str, in_comment: &mut bool) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    loop {
+        if *in_comment {
+            match rest.find("-->") {
+                Some(end) => {
+                    rest = &rest[end + 3..];
+                    *in_comment = false;
+                }
+                None => return out,
+            }
+        }
+        match rest.find("<!--") {
+            Some(start) => {
+                out.push_str(&rest[..start]);
+                // Insert a separator so e.g. `foo<!--x-->bar` doesn't
+                // collapse to `foobar` if a future caller relies on
+                // word-boundary parsing. Tag matching uses literal
+                // `<tag>` patterns so a stray space is harmless.
+                out.push(' ');
+                rest = &rest[start + 4..];
+                *in_comment = true;
+            }
+            None => {
+                out.push_str(rest);
+                return out;
+            }
+        }
+    }
 }
 
 /// Extract value from `<tag>value</tag>` on a single line. Open/close
@@ -625,6 +680,73 @@ mod tests {
 
         let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.artifact_id, Some("multiline".to_string()));
+    }
+
+    /// CL-3 / TASK-0846: a `<artifactId>` inside an XML comment must NOT
+    /// be captured. The release/SNAPSHOT swap pattern is common in real
+    /// repos.
+    #[test]
+    fn parse_pom_commented_artifact_id_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            r#"<project>
+    <!-- <artifactId>fake-snapshot</artifactId> -->
+    <artifactId>real-release</artifactId>
+</project>"#,
+        )
+        .unwrap();
+
+        let pom = parse_pom_xml(dir.path()).unwrap();
+        assert_eq!(pom.artifact_id, Some("real-release".to_string()));
+    }
+
+    /// CL-3 / TASK-0846: multi-line comment block hides every captured
+    /// element it contains, including `<scm><url>` blocks.
+    #[test]
+    fn parse_pom_multiline_comment_hides_inner_tags() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            r#"<project>
+    <!--
+    <artifactId>commented-out</artifactId>
+    <scm>
+        <url>https://example.com/old</url>
+    </scm>
+    -->
+    <artifactId>kept</artifactId>
+    <scm>
+        <url>https://example.com/new</url>
+    </scm>
+</project>"#,
+        )
+        .unwrap();
+
+        let pom = parse_pom_xml(dir.path()).unwrap();
+        assert_eq!(pom.artifact_id, Some("kept".to_string()));
+        assert_eq!(pom.scm_url, Some("https://example.com/new".to_string()));
+    }
+
+    /// CL-3 / TASK-0846: helper-level edge cases.
+    #[test]
+    fn strip_xml_comments_handles_inline_and_multiline() {
+        let mut state = false;
+        // Single-line comment is spliced out (one separator space inserted).
+        assert_eq!(strip_xml_comments("a<!--c-->b", &mut state), "a b");
+        assert!(!state);
+
+        // Multi-line: opener leaves state=true and discards trailing.
+        let mut state = false;
+        let prefix = strip_xml_comments("keep <!-- start", &mut state);
+        assert_eq!(prefix.trim(), "keep");
+        assert!(state);
+        let middle = strip_xml_comments("inside comment", &mut state);
+        assert_eq!(middle, "");
+        assert!(state);
+        let close = strip_xml_comments("more --> tail", &mut state);
+        assert_eq!(close.trim(), "tail");
+        assert!(!state);
     }
 
     #[test]

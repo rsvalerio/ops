@@ -3,9 +3,10 @@ id: TASK-0846
 title: >-
   CL-3: Maven POM line scanner silently captures values inside XML comments and
   CDATA
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 09:15'
+updated_date: '2026-05-02 14:11'
 labels:
   - code-review-rust
   - complexity
@@ -25,7 +26,13 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A skip-state for <!-- ... --> (multi-line aware) is added; commented <artifactId> is not captured
-- [ ] #2 Test pinning: a POM whose first <artifactId> is inside <!-- ... --> resolves to the second, real one
-- [ ] #3 Module doc updated to remove the no-comment-handling disclaimer once the skip is in place
+- [x] #1 A skip-state for <!-- ... --> (multi-line aware) is added; commented <artifactId> is not captured
+- [x] #2 Test pinning: a POM whose first <artifactId> is inside <!-- ... --> resolves to the second, real one
+- [x] #3 Module doc updated to remove the no-comment-handling disclaimer once the skip is in place
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+parse_pom_xml now strips XML comments via strip_xml_comments(line, &mut in_comment) before tag matching. Multi-line aware (open on one line, close on another). Two regression tests pin the contract: parse_pom_commented_artifact_id_is_skipped (release/SNAPSHOT swap pattern) and parse_pom_multiline_comment_hides_inner_tags. Module doc updated to remove the no-comment-handling disclaimer; CDATA disclaimer kept (out of scope here).
+<!-- SECTION:NOTES:END -->
