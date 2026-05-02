@@ -4,9 +4,10 @@ title: >-
   API-9: extensions-rust
   DepsExtension/CoverageExtension/CargoUpdateExtension/MetadataExtension lack
   #[non_exhaustive]
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:12'
+updated_date: '2026-05-02 11:27'
 labels:
   - code-review-rust
   - api-design

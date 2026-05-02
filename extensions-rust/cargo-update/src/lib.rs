@@ -260,6 +260,8 @@ fn parse_action_line(line: &str) -> Option<UpdateEntry> {
     None
 }
 
+/// API-9 / TASK-0922: construct via the registered extension factory only.
+#[non_exhaustive]
 pub struct CargoUpdateExtension;
 
 ops_extension::impl_extension! {

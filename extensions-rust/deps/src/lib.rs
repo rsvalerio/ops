@@ -288,6 +288,11 @@ fn has_issues(report: &DepsReport) -> bool {
 
 // ── Extension + DataProvider ────────────────────────────────────────────────
 
+/// API-9 / TASK-0922: construct via the registered extension factory only.
+/// `#[non_exhaustive]` keeps a future state field additive at the type
+/// level; downstream code that needs a value must go through the
+/// `ExtensionFactory` registration path.
+#[non_exhaustive]
 pub struct DepsExtension;
 
 ops_extension::impl_extension! {

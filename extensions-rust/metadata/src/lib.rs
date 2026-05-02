@@ -44,6 +44,8 @@ pub(crate) fn check_metadata_output(output: &Output) -> Result<(), anyhow::Error
     Ok(())
 }
 
+/// API-9 / TASK-0922: construct via the registered extension factory only.
+#[non_exhaustive]
 pub struct MetadataExtension;
 
 ops_extension::impl_extension! {

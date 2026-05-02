@@ -25,6 +25,8 @@ pub const DESCRIPTION: &str =
 pub const SHORTNAME: &str = "cov";
 pub const DATA_PROVIDER_NAME: &str = "coverage";
 
+/// API-9 / TASK-0922: construct via the registered extension factory only.
+#[non_exhaustive]
 pub struct CoverageExtension;
 
 ops_extension::impl_extension! {
