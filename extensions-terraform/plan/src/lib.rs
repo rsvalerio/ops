@@ -123,10 +123,42 @@ fn read_stdin() -> anyhow::Result<String> {
     Ok(buf)
 }
 
+/// SEC-33 / TASK-0915: default cap on `--json-file` reads. Real-world
+/// terraform plans for large stacks routinely exceed 100 MB, so the
+/// default sits well above that. Operators expecting larger plans can
+/// raise the cap via `OPS_PLAN_JSON_MAX_BYTES`.
+const DEFAULT_PLAN_JSON_MAX_BYTES: u64 = 256 * 1024 * 1024;
+const PLAN_JSON_MAX_BYTES_ENV: &str = "OPS_PLAN_JSON_MAX_BYTES";
+
+fn plan_json_max_bytes() -> u64 {
+    std::env::var(PLAN_JSON_MAX_BYTES_ENV)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_PLAN_JSON_MAX_BYTES)
+}
+
 fn read_json_file(path: &str) -> anyhow::Result<String> {
+    use std::io::Read;
     let expanded = shellexpand::full(path).with_context(|| format!("invalid path: {path}"))?;
-    std::fs::read_to_string(expanded.as_ref())
-        .with_context(|| format!("failed to read plan JSON from {path}"))
+    let mut file = std::fs::File::open(expanded.as_ref())
+        .with_context(|| format!("failed to open plan JSON {path}"))?;
+    // SEC-33 / TASK-0915: cap the read so a symlink to /dev/zero or an
+    // adversarially-large JSON cannot exhaust memory. Read up to cap+1
+    // so we can detect overage and bail with a clear error.
+    let cap = plan_json_max_bytes();
+    let limit = cap.saturating_add(1);
+    let mut content = String::new();
+    (&mut file)
+        .take(limit)
+        .read_to_string(&mut content)
+        .with_context(|| format!("failed to read plan JSON from {path}"))?;
+    if content.len() as u64 > cap {
+        anyhow::bail!(
+            "plan JSON at {path} exceeds {cap} bytes (override via {PLAN_JSON_MAX_BYTES_ENV})"
+        );
+    }
+    Ok(content)
 }
 
 fn run_terraform_pipeline(opts: &PlanOptions) -> anyhow::Result<String> {
@@ -301,6 +333,34 @@ mod tests {
             mode: "managed".into(),
         }];
         assert!(has_changes(&changes));
+    }
+
+    /// SEC-33 / TASK-0915: a plan JSON larger than the cap must be
+    /// rejected without being slurped into memory. Override the cap to
+    /// 64 bytes via OPS_PLAN_JSON_MAX_BYTES so the test stays fast.
+    #[test]
+    fn read_json_file_rejects_oversized_payload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.json");
+        // Payload well over the 64-byte cap below.
+        std::fs::write(&path, "x".repeat(1024)).unwrap();
+
+        // SAFETY: serial-style local override; restored at end.
+        let saved = std::env::var(PLAN_JSON_MAX_BYTES_ENV).ok();
+        unsafe { std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, "64") };
+        let result = read_json_file(path.to_string_lossy().as_ref());
+        unsafe {
+            match saved {
+                Some(v) => std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, v),
+                None => std::env::remove_var(PLAN_JSON_MAX_BYTES_ENV),
+            }
+        }
+        let err = result.expect_err("oversized plan JSON must error");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("exceeds 64 bytes"),
+            "error must name the cap, got: {msg}"
+        );
     }
 
     /// FN-9 / TASK-0850: run_plan_pipeline_to writes its rendered tables

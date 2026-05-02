@@ -3,9 +3,10 @@ id: TASK-0915
 title: >-
   SEC-33: terraform plan read_json_file reads user-supplied path with no size
   cap
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-02 10:11'
+updated_date: '2026-05-02 14:55'
 labels:
   - code-review-rust
   - security
@@ -25,6 +26,12 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_json_file enforces a configurable size cap (env-overridable) and bails with a clear error when exceeded
-- [ ] #2 Test covers oversized file rejection
+- [x] #1 read_json_file enforces a configurable size cap (env-overridable) and bails with a clear error when exceeded
+- [x] #2 Test covers oversized file rejection
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+read_json_file now uses File::open + Read::take to bound the read at DEFAULT_PLAN_JSON_MAX_BYTES (256 MiB by default), with operator override via OPS_PLAN_JSON_MAX_BYTES. Oversized payloads bail with a clear error naming the cap and the env override. Added read_json_file_rejects_oversized_payload test that lowers the cap to 64 bytes and asserts the error message.
+<!-- SECTION:NOTES:END -->
