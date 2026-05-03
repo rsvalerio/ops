@@ -7,6 +7,10 @@ Instructions for AI coding agents working on this project.
 
 ## Core Workflow
 
+- Don’t assume. Don’t hide confusion. Surface tradeoffs.
+- Minimum code that solves the problem. Nothing speculative.
+- Touch only what you must. Clean up only your own mess.
+- Define success criteria. Loop until verified.
 - Prefer existing project patterns over new abstractions.
 - Keep root guidance short; add scoped `AGENTS.md` files near code that needs local rules.
 - Put tests next to the code they cover with `#[cfg(test)] mod tests` when practical.
