@@ -2,6 +2,29 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.27.1](https://github.com/rsvalerio/ops/compare/0fbc6fa0c9ad080a7362f1242668d2bf705845a5..v0.27.1) - 2026-05-03
+#### 🐛 Bug Fixes
+- (**cli/theme**) use Debug for path/error logging to prevent log injection (ERR-7 TASK-0944) - ([aa3ae16](https://github.com/rsvalerio/ops/commit/aa3ae16da230ee481d02ea56b2a88d0b7aaf363f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/manifest**) add byte-cap for reads via read_capped_to_string and OPS_MANIFEST_MAX_BYTES (SEC-33 TASK-0932) - ([0fbc6fa](https://github.com/rsvalerio/ops/commit/0fbc6fa0c9ad080a7362f1242668d2bf705845a5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/stack**) use Debug for path/error logging and improve error handling (ERR-7 TASK-0945) - ([6c0a79c](https://github.com/rsvalerio/ops/commit/6c0a79c20c9a39db0218c7a3a7baa6a2aadb5654)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/subprocess**) add SpawnError struct to preserve label context in spawn failures (ERR-4 TASK-0925) - ([e651028](https://github.com/rsvalerio/ops/commit/e6510285f407f9b88fee79a50a080ac1ac4003eb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) use byte-capped manifest readers for config/schema files (SEC-33 TASK-0932) - ([be7daa8](https://github.com/rsvalerio/ops/commit/be7daa805633625ba681b91624c1ef14144bbaf7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions/about**) use byte-capped manifest readers for workspace detection (SEC-33 TASK-0932) - ([30114ba](https://github.com/rsvalerio/ops/commit/30114bafbbd7dba2cb164fb629390bf4ff0e6055)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git/config**) reject dot-only path segments in remote URLs (SEC-13 TASK-0929) - ([7eda08d](https://github.com/rsvalerio/ops/commit/7eda08d952e0de86d2037fd85fcf4c7841d9fb0b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common/git**) use Debug for path/error logging to prevent log injection (ERR-7 TASK-0937) - ([69ff9f7](https://github.com/rsvalerio/ops/commit/69ff9f750602410e9631d794180c5ee731b3d282)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/tap**) use Debug for path/error logging to prevent log injection (ERR-7 TASK-0940) - ([612f0a7](https://github.com/rsvalerio/ops/commit/612f0a7649693a990408c77cfc349f676348d215)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/extensions**) use byte-capped manifest readers (SEC-33 TASK-0932) - ([f3badf5](https://github.com/rsvalerio/ops/commit/f3badf55d03f9a183cdd2c02ff8149634e7e2fee)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**terraform/plan**) byte-cap stdin reads at OPS_PLAN_JSON_MAX_BYTES (SEC-33 TASK-0924) - ([79e8b91](https://github.com/rsvalerio/ops/commit/79e8b91f5cd00752bcdf914ed1faee8d467a5ce3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme/sgr**) improve error handling in color formatting - ([ce1bc93](https://github.com/rsvalerio/ops/commit/ce1bc931265d35cdf2bcbcacc8494f5c1713f117)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**node/about**) add process-local cache for package.json to avoid duplicate reads (DUP-3 TASK-0931) - ([dccd975](https://github.com/rsvalerio/ops/commit/dccd9756c98dfb2eb7d981cea477000a31e6a702)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**deps**) update lockfile - ([a744f21](https://github.com/rsvalerio/ops/commit/a744f2123ef33f11ef4e0d1b94dc0eaf3bc487ec)) - [@rsvalerio](https://github.com/rsvalerio)
+- add some more guidance to code agents - ([250f0f0](https://github.com/rsvalerio/ops/commit/250f0f02a0fcecb1075c9bbb437f508e06cc5b50)) - [@rsvalerio](https://github.com/rsvalerio)
+- add code review tasks files - ([fe9bba3](https://github.com/rsvalerio/ops/commit/fe9bba3f70a2de4b490bf56439a9dcfd29912cec)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.27.0](https://github.com/rsvalerio/ops/compare/1181347cbdb14488ebf17e1e2573da7f8861f5ee..v0.27.0) - 2026-05-02
 #### 🚀 Features
 - (**core/project_identity**) add #[non_exhaustive] + new() to public sibling structs (TASK-0858) - ([5c111e2](https://github.com/rsvalerio/ops/commit/5c111e2a66f1e9d0b33e78c2e3458869a92591a2)) - [@rsvalerio](https://github.com/rsvalerio)
