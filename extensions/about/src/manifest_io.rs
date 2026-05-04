@@ -52,8 +52,17 @@ pub fn read_optional_text(path: &Path, kind: &str) -> Option<String> {
         }
     };
 
-    // Read up to MAX_MANIFEST_BYTES + 1 so we can detect oversize files.
-    let mut buf = String::new();
+    // PERF-1 / TASK-0971: pre-size the read buffer from file metadata
+    // (clamped to MAX_MANIFEST_BYTES) so a single allocation covers the
+    // whole manifest instead of paying the doubling-resize cost on every
+    // read. The metadata-unknown branch falls back to `String::new()` so
+    // the SEC-33 cap and oversize-bail policy stay identical.
+    let preallocate = file
+        .metadata()
+        .ok()
+        .map(|m| m.len().min(MAX_MANIFEST_BYTES))
+        .unwrap_or(0);
+    let mut buf = String::with_capacity(preallocate as usize);
     let limit = MAX_MANIFEST_BYTES.saturating_add(1);
     match (&mut file).take(limit).read_to_string(&mut buf) {
         Ok(_) => {}

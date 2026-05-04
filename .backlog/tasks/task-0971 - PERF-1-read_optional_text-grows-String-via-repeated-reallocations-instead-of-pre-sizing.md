@@ -3,9 +3,10 @@ id: TASK-0971
 title: >-
   PERF-1: read_optional_text grows String via repeated reallocations instead of
   pre-sizing
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:48'
+updated_date: '2026-05-04 23:01'
 labels:
   - code-review-rust
   - performance
