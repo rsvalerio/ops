@@ -3,9 +3,10 @@ id: TASK-0964
 title: >-
   ERR-2: pyproject pick_url returns whitespace-only URL as Some("  ") instead of
   dropping
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:47'
+updated_date: '2026-05-04 22:54'
 labels:
   - code-review-rust
   - error-handling

@@ -284,6 +284,10 @@ fn pick_url(urls: &std::collections::BTreeMap<String, String>, keys: &[&str]) ->
                 .find(|(k, _)| *k == target_norm)
                 .map(|(_, v)| (*v).clone())
         })
+        // TASK-0964: align with the workspace-wide ERR-2 / TASK-0704 trim+drop
+        // policy so a whitespace-only URL renders as "no homepage" instead of
+        // an empty About bullet.
+        .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
 }
 
@@ -595,6 +599,35 @@ Repository = "https://github.com/x/demo"
 
         assert_eq!(id.homepage.as_deref(), Some("https://demo.dev"));
         assert_eq!(id.repository.as_deref(), Some("https://github.com/x/demo"));
+    }
+
+    /// TASK-0964: a whitespace-only URL must drop to None instead of rendering
+    /// as an empty About bullet, matching the trim+drop policy already applied
+    /// to name/license/requires-python/authors.
+    #[test]
+    fn whitespace_only_url_resolves_to_none() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\n\
+             name = \"demo\"\n\
+             version = \"1.0.0\"\n\
+             \n\
+             [project.urls]\n\
+             Homepage = \"   \"\n",
+        )
+        .unwrap();
+
+        let provider = PythonIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let id: ProjectIdentity =
+            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert!(
+            id.homepage.is_none(),
+            "whitespace-only Homepage must drop, got: {:?}",
+            id.homepage
+        );
     }
 
     #[test]
