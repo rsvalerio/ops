@@ -249,6 +249,31 @@ fn parse_malformed_removing_line_missing_version() {
 }
 
 #[test]
+fn parse_adding_line_with_trailing_annotation_does_not_glue_into_version() {
+    // TASK-0949: a future cargo annotation must not be silently absorbed into
+    // version_raw. The line is parsed (warn-and-keep) but the resulting `to`
+    // version is just the version token, not "0.1.0 (locked)".
+    let stderr = b"      Adding new-crate v0.1.0 (locked)\n";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 1);
+    let entry = &result.entries[0];
+    assert_eq!(entry.name, "new-crate");
+    assert_eq!(entry.to.as_deref(), Some("0.1.0"));
+    assert!(entry.from.is_none());
+}
+
+#[test]
+fn parse_removing_line_with_trailing_annotation_does_not_glue_into_version() {
+    let stderr = b"    Removing old-crate v0.1.0 (yanked)\n";
+    let result = parse_update_output(stderr);
+    assert_eq!(result.entries.len(), 1);
+    let entry = &result.entries[0];
+    assert_eq!(entry.name, "old-crate");
+    assert_eq!(entry.from.as_deref(), Some("0.1.0"));
+    assert!(entry.to.is_none());
+}
+
+#[test]
 fn parse_multiple_updates_same_crate() {
     let stderr = b"\
     Updating serde v1.0.0 -> v1.0.1

@@ -3,9 +3,10 @@ id: TASK-0949
 title: >-
   ERR-1: cargo-update parse_action_line Adding/Removing arms silently absorb
   trailing annotations into version
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:33'
+updated_date: '2026-05-04 22:48'
 labels:
   - code-review-rust
   - error-handling

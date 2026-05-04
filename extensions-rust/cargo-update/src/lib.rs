@@ -249,7 +249,18 @@ fn parse_action_line(line: &str) -> Option<UpdateEntry> {
             });
         }
 
-        let (name, version_raw) = rest.split_once(' ')?;
+        // TASK-0949: mirror the `Updating` arm — reject `<name> <version>
+        // <extra…>` so a future cargo annotation like `Adding new-crate v0.1.0
+        // (locked)` does not silently get glued onto the parsed version.
+        let mut it = rest.split_whitespace();
+        let name = it.next()?;
+        let version_raw = it.next()?;
+        if it.next().is_some() {
+            tracing::warn!(
+                line,
+                "cargo-update `Adding`/`Removing` line has unexpected trailing tokens; annotation discarded"
+            );
+        }
         let version = Some(strip_v_prefix(version_raw).to_string());
         let (from, to) = match role {
             VersionRole::From => (version, None),
