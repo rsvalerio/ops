@@ -99,9 +99,17 @@ pub(crate) fn resolve_string_field(field: &mut InheritableString, ws_value: &Opt
 /// Like [`resolve_string_field`] but for `Vec<String>` fields. Substitutes the
 /// workspace value verbatim (cloning) when the local field is in the
 /// `Inherited { workspace: true }` state.
+///
+/// TASK-0961: `WorkspacePackage::keywords`/`categories` are plain `Vec<String>`
+/// (serde defaults to empty), so an absent workspace `keywords` table is
+/// indistinguishable from `keywords = []`. Treat an empty workspace value as
+/// "not declared" and leave the member field as `Inherited`, so member intent
+/// is not silently overwritten with a forced empty Vec.
 pub(crate) fn resolve_vec_field(field: &mut InheritableVec, ws_value: &[String]) {
     if let InheritableField::Inherited { workspace: true } = field {
-        *field = InheritableField::Value(ws_value.to_vec());
+        if !ws_value.is_empty() {
+            *field = InheritableField::Value(ws_value.to_vec());
+        }
     }
 }
 
@@ -254,6 +262,29 @@ mod tests {
         match field {
             InheritableField::Inherited { workspace } => assert!(!workspace),
             InheritableField::Value(_) => panic!("workspace=false should not pull in a value"),
+        }
+    }
+
+    /// TASK-0961: when the workspace did not declare `keywords` (parsed as an
+    /// empty Vec), an inheriting member must remain `Inherited`, not be
+    /// overwritten with an empty `Value`.
+    #[test]
+    fn resolve_vec_field_empty_ws_leaves_inherited_unchanged() {
+        let mut field: InheritableVec = InheritableField::Inherited { workspace: true };
+        resolve_vec_field(&mut field, &[]);
+        match field {
+            InheritableField::Inherited { workspace } => assert!(workspace),
+            InheritableField::Value(v) => panic!("empty ws should not substitute, got {v:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_vec_field_non_empty_ws_substitutes() {
+        let mut field: InheritableVec = InheritableField::Inherited { workspace: true };
+        resolve_vec_field(&mut field, &["cli".to_string(), "tool".to_string()]);
+        match field {
+            InheritableField::Value(v) => assert_eq!(v, vec!["cli", "tool"]),
+            InheritableField::Inherited { .. } => panic!("non-empty ws should substitute"),
         }
     }
 

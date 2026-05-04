@@ -3,9 +3,10 @@ id: TASK-0961
 title: >-
   PATTERN-1: cargo-toml inheritance overwrites member keywords/categories with
   workspace empty Vec
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:47'
+updated_date: '2026-05-04 22:50'
 labels:
   - code-review-rust
   - correctness
