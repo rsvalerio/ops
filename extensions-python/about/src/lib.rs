@@ -260,9 +260,17 @@ fn format_authors(authors: Vec<RawAuthor>) -> Vec<String> {
 fn extract_urls(
     urls: &std::collections::BTreeMap<String, String>,
 ) -> (Option<String>, Option<String>) {
-    let homepage = pick_url(urls, &["homepage", "home", "home-page", "documentation"]);
+    // PERF-3 / TASK-0991: normalise each URL key exactly once per About
+    // call. Previously `pick_url` built a fresh `Vec<(String, &String)>`
+    // and re-ran `normalize_url_key` over every key on each invocation;
+    // `extract_urls` calls `pick_url` twice, so the work was duplicated.
+    let normalized = normalize_urls(urls);
+    let homepage = pick_url(
+        &normalized,
+        &["homepage", "home", "home-page", "documentation"],
+    );
     let repository = pick_url(
-        urls,
+        &normalized,
         &[
             "repository",
             "source",
@@ -281,18 +289,24 @@ fn extract_urls(
 /// kebab-case variant as equivalent to the space-separated form. Callers should
 /// pass the canonical kebab/space form for each variant — "home-page" and
 /// "home page" normalise identically, so passing both is dead weight.
-fn pick_url(urls: &std::collections::BTreeMap<String, String>, keys: &[&str]) -> Option<String> {
-    let normalized: Vec<(String, &String)> = urls
-        .iter()
+/// PERF-3 / TASK-0991: shared normalisation pass — once per About call,
+/// rather than once per pick_url candidate-set.
+fn normalize_urls(
+    urls: &std::collections::BTreeMap<String, String>,
+) -> std::collections::HashMap<String, &String> {
+    urls.iter()
         .map(|(k, v)| (normalize_url_key(k), v))
-        .collect();
+        .collect()
+}
+
+fn pick_url(
+    normalized: &std::collections::HashMap<String, &String>,
+    keys: &[&str],
+) -> Option<String> {
     keys.iter()
         .find_map(|target| {
             let target_norm = normalize_url_key(target);
-            normalized
-                .iter()
-                .find(|(k, _)| *k == target_norm)
-                .map(|(_, v)| (*v).clone())
+            normalized.get(&target_norm).map(|v| (*v).clone())
         })
         // TASK-0964: align with the workspace-wide ERR-2 / TASK-0704 trim+drop
         // policy so a whitespace-only URL renders as "no homepage" instead of
@@ -419,7 +433,7 @@ authors = [{ name = "  ", email = "  " }]
         );
 
         let picked = pick_url(
-            &urls,
+            &normalize_urls(&urls),
             &[
                 "repository",
                 "source",
@@ -433,7 +447,7 @@ authors = [{ name = "  ", email = "  " }]
 
         urls.remove("Repository");
         let picked = pick_url(
-            &urls,
+            &normalize_urls(&urls),
             &[
                 "repository",
                 "source",
@@ -447,7 +461,7 @@ authors = [{ name = "  ", email = "  " }]
 
         urls.remove("source");
         let picked = pick_url(
-            &urls,
+            &normalize_urls(&urls),
             &[
                 "repository",
                 "source",

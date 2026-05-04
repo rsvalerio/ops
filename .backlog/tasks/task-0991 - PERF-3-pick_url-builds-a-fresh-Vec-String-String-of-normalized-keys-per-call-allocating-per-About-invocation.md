@@ -3,9 +3,10 @@ id: TASK-0991
 title: >-
   PERF-3: pick_url builds a fresh Vec<(String, &String)> of normalized keys per
   call, allocating per About invocation
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:59'
+updated_date: '2026-05-04 23:18'
 labels:
   - code-review-rust
   - PERF
