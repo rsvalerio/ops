@@ -292,7 +292,12 @@ impl DataProvider for CargoTomlProvider {
 /// Maximum ancestor depth walked when searching for `Cargo.toml`. Defensive
 /// bound that prevents a symlink loop (or pathologically deep mount layout)
 /// from spinning the discovery loop forever.
-const MAX_ANCESTOR_DEPTH: usize = 64;
+///
+/// TASK-0963: exposed as `pub` so callers and tests can reference the same
+/// default the high-level [`find_workspace_root`] uses, and so a future
+/// caller with a legitimately deeper layout can opt into a larger bound via
+/// [`find_workspace_root_with_depth`] instead of patching the crate.
+pub const MAX_ANCESTOR_DEPTH: usize = 64;
 
 /// Find the workspace root by walking up from `start` looking for Cargo.toml.
 ///
@@ -317,6 +322,17 @@ const MAX_ANCESTOR_DEPTH: usize = 64;
 /// The depth cap bounds the damage; treat the result as "best-effort
 /// symlink-safe" rather than absolute.
 pub fn find_workspace_root(start: &Path) -> Result<PathBuf, FindWorkspaceRootError> {
+    find_workspace_root_with_depth(start, MAX_ANCESTOR_DEPTH)
+}
+
+/// Variant of [`find_workspace_root`] that takes the ancestor-depth bound as
+/// a parameter. TASK-0963: lets tests verify the bound without crafting a
+/// 64-deep directory hierarchy, and gives callers an escape hatch if their
+/// layout legitimately needs a deeper walk.
+pub fn find_workspace_root_with_depth(
+    start: &Path,
+    max_depth: usize,
+) -> Result<PathBuf, FindWorkspaceRootError> {
     // ARCH-2 / TASK-0918: a missing or dangling-symlink `start`
     // (transient cwd unlink — CI volume eviction, watcher rename, etc.)
     // used to surface as a confusing "failed to canonicalize" error.
@@ -334,7 +350,7 @@ pub fn find_workspace_root(start: &Path) -> Result<PathBuf, FindWorkspaceRootErr
             );
             return Err(FindWorkspaceRootError::NotFound {
                 start: start.to_path_buf(),
-                depth: MAX_ANCESTOR_DEPTH,
+                depth: max_depth,
             });
         }
         Err(source) => {
@@ -346,7 +362,7 @@ pub fn find_workspace_root(start: &Path) -> Result<PathBuf, FindWorkspaceRootErr
     };
     let mut current = start_canonical.as_path();
     let mut first_cargo_toml: Option<PathBuf> = None;
-    for _ in 0..MAX_ANCESTOR_DEPTH {
+    for _ in 0..max_depth {
         let cargo_toml = current.join("Cargo.toml");
         if cargo_toml.exists() {
             if manifest_declares_workspace(&cargo_toml) {
@@ -366,7 +382,7 @@ pub fn find_workspace_root(start: &Path) -> Result<PathBuf, FindWorkspaceRootErr
     }
     Err(FindWorkspaceRootError::NotFound {
         start: start.to_path_buf(),
-        depth: MAX_ANCESTOR_DEPTH,
+        depth: max_depth,
     })
 }
 

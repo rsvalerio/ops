@@ -3,9 +3,10 @@ id: TASK-0963
 title: >-
   ARCH-2: cargo-toml MAX_ANCESTOR_DEPTH hard-coded private const, not testable
   or operable
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:47'
+updated_date: '2026-05-04 22:53'
 labels:
   - code-review-rust
   - architecture

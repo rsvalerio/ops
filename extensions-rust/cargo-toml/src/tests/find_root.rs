@@ -130,6 +130,32 @@ fn find_root_resolves_symlinked_parent_in_start_path() {
     assert_eq!(found, fs::canonicalize(&real_root).unwrap());
 }
 
+/// TASK-0963: the ancestor-depth bound must be honored. Verified via the
+/// injectable [`find_workspace_root_with_depth`] entry point so the test
+/// does not have to materialise a 64-deep directory hierarchy. With
+/// `max_depth = 1`, a Cargo.toml in the start dir's *grandparent* is
+/// unreachable; with `max_depth = 3` it is found.
+#[test]
+fn find_root_respects_injected_depth_bound() {
+    let temp_dir = tempfile::tempdir().expect("create temp dir");
+    let root = temp_dir.path();
+    let leaf = root.join("a").join("b");
+    fs::create_dir_all(&leaf).unwrap();
+    fs::write(root.join("Cargo.toml"), "[package]\nname = \"top\"\n").unwrap();
+
+    let bounded = find_workspace_root_with_depth(&leaf, 1);
+    assert!(
+        matches!(
+            bounded,
+            Err(FindWorkspaceRootError::NotFound { depth: 1, .. })
+        ),
+        "depth=1 must NotFound before reaching grandparent, got: {bounded:?}"
+    );
+
+    let unbounded = find_workspace_root_with_depth(&leaf, 4).expect("depth=4 reaches root");
+    assert_eq!(unbounded, fs::canonicalize(root).unwrap());
+}
+
 #[test]
 fn find_root_not_found() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
