@@ -3,9 +3,10 @@ id: TASK-0962
 title: >-
   ARCH-2: typed_manifest_cache one-shot poison-warn loses signal on subsequent
   re-poisons
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:47'
+updated_date: '2026-05-04 22:51'
 labels:
   - code-review-rust
   - observability

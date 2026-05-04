@@ -14,6 +14,7 @@ use ops_cargo_toml::{CargoToml, CargoTomlProvider, FindWorkspaceRootError};
 use ops_extension::{Context, DataProvider, DataProviderError};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
@@ -108,27 +109,34 @@ fn typed_manifest_cache() -> &'static Mutex<HashMap<PathBuf, TypedManifestEntry>
 ///
 /// The cache value type is plain data (`SystemTime` + `Arc<CargoToml>`); a
 /// panic in a sibling provider cannot leave it in a torn state, so
-/// `into_inner()` recovery is safe. We log at warn the first time we
-/// observe poisoning per process so operators see the signal without
-/// flooding logs once the lock keeps poisoning every subsequent call.
+/// `into_inner()` recovery is safe.
+///
+/// TASK-0962: every observed poisoning emits a warn carrying a monotonic
+/// `recovery_count`. The previous OnceLock-gated log fired only once per
+/// process, so a second panic in a different provider was invisible —
+/// defeating the "schema drift surfaces" intent. After clearing the sticky
+/// poison flag, `clear_poison()` makes subsequent callers see a healthy
+/// mutex; only an *actual* re-poisoning by a fresh panic increments the
+/// counter.
 fn lock_typed_manifest_cache(
     cache: &'static Mutex<HashMap<PathBuf, TypedManifestEntry>>,
 ) -> std::sync::MutexGuard<'static, HashMap<PathBuf, TypedManifestEntry>> {
-    static POISON_LOGGED: OnceLock<()> = OnceLock::new();
+    static POISON_RECOVERY_COUNT: AtomicU64 = AtomicU64::new(0);
     match cache.lock() {
         Ok(g) => g,
         Err(poison) => {
-            POISON_LOGGED.get_or_init(|| {
-                tracing::warn!(
-                    "typed_manifest_cache mutex was poisoned by a panic in another provider; \
-                     recovering via PoisonError::into_inner — cached entries are plain data \
-                     and not torn by the panic"
-                );
-            });
+            let recovery_count = POISON_RECOVERY_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            tracing::warn!(
+                recovery_count,
+                "typed_manifest_cache mutex was poisoned by a panic in another provider; \
+                 recovering via PoisonError::into_inner — cached entries are plain data \
+                 and not torn by the panic"
+            );
             let guard = poison.into_inner();
             // Clear the sticky poison flag so subsequent callers don't
-            // re-enter the recovery path (and re-trigger the OnceLock
-            // log path) on every call after a single panic.
+            // re-enter the recovery path on every call after a single
+            // panic. A fresh panic in another provider re-poisons the
+            // mutex and increments `recovery_count` again.
             cache.clear_poison();
             guard
         }
@@ -446,10 +454,9 @@ mod tests {
         use std::sync::{Arc as StdArc, Mutex as StdMutex};
         use tracing_subscriber::fmt::MakeWriter;
 
-        // Drain any warning emitted by an earlier test in this binary so
-        // OnceLock-gated logging is observable here. (Best-effort: if a
-        // previous test already poisoned and logged, the OnceLock has
-        // fired. We still verify recovery succeeds.)
+        // TASK-0962: poison-recovery now logs every cycle (with a monotonic
+        // recovery_count) instead of one-shot via OnceLock, so the warn is
+        // always observable here regardless of sibling-test ordering.
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("Cargo.toml"),
@@ -501,23 +508,98 @@ mod tests {
             tracing::subscriber::with_default(subscriber, || load_workspace_manifest(&mut ctx));
         assert!(result.is_ok(), "poisoned cache must recover, not propagate");
 
-        // The OnceLock guard means the warn fires at most once per
-        // process. If a sibling test happened to have poisoned first the
-        // log buffer here will be empty — accept either, but make sure we
-        // recovered at minimum.
+        // TASK-0962: every recovery emits a warn carrying recovery_count, so
+        // the buffer is always populated regardless of which other test
+        // already poisoned this static.
         let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
-        if !logs.is_empty() {
-            assert!(
-                logs.contains("poisoned"),
-                "poison warn must mention poisoning, got: {logs}"
-            );
-        }
+        assert!(
+            logs.contains("poisoned"),
+            "poison warn must mention poisoning, got: {logs}"
+        );
+        assert!(
+            logs.contains("recovery_count"),
+            "poison warn must include monotonic recovery_count, got: {logs}"
+        );
 
         // After recovery the cache itself is no longer poisoned-blocking
         // (we used into_inner, so the poison flag is cleared).
         assert!(
             cache.lock().is_ok(),
             "cache must be unpoisoned after into_inner recovery"
+        );
+
+        evict_cache_for(dir.path());
+    }
+
+    /// TASK-0962: a *second* poison cycle (panic in a different provider
+    /// after the first recovery) must still produce an observable signal.
+    /// The previous OnceLock-gated warn fired only on the first poisoning,
+    /// silently swallowing every subsequent one.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn typed_manifest_cache_second_poison_still_logs() {
+        use std::sync::{Arc as StdArc, Mutex as StdMutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname=\"poisoned-twice\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+        evict_cache_for(dir.path());
+
+        // First poison + recovery: triggered via load_workspace_manifest so
+        // the OnceLock-or-counter path runs at least once before our
+        // observation window opens.
+        let _ = std::thread::spawn(|| {
+            let _g = typed_manifest_cache().lock().unwrap();
+            panic!("first poison");
+        })
+        .join();
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
+        let _ = load_workspace_manifest(&mut ctx).expect("first recovery");
+
+        // Re-poison and capture the SECOND warn.
+        let _ = std::thread::spawn(|| {
+            let _g = typed_manifest_cache().lock().unwrap();
+            panic!("second poison");
+        })
+        .join();
+
+        #[derive(Clone, Default)]
+        struct BufWriter(StdArc<StdMutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let result =
+            tracing::subscriber::with_default(subscriber, || load_workspace_manifest(&mut ctx));
+        assert!(result.is_ok(), "second poison must also recover");
+
+        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        assert!(
+            logs.contains("poisoned") && logs.contains("recovery_count"),
+            "second poison cycle must still emit a warn with recovery_count, got: {logs}"
         );
 
         evict_cache_for(dir.path());
