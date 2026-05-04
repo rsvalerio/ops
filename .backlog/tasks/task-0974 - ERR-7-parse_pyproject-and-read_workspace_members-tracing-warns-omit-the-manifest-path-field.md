@@ -3,9 +3,10 @@ id: TASK-0974
 title: >-
   ERR-7: parse_pyproject and read_workspace_members tracing warns omit the
   manifest path field
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:57'
+updated_date: '2026-05-04 23:03'
 labels:
   - code-review-rust
   - ERR

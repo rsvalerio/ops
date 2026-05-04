@@ -179,7 +179,12 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
     let raw: RawPyproject = match toml::from_str(&text) {
         Ok(r) => r,
         Err(e) => {
+            // ERR-7 / TASK-0974: include the manifest path so multi-root
+            // `ops about` runs can attribute the parse failure. Debug-format
+            // the path so embedded newlines / ANSI in attacker-controlled
+            // checkout paths cannot forge log lines.
             tracing::warn!(
+                path = ?project_root.join("pyproject.toml").display(),
                 error = %e,
                 recovery = "default-identity",
                 "failed to project pyproject.toml into identity shape"

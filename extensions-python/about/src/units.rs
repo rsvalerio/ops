@@ -60,7 +60,11 @@ fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
     let raw: RawRoot = match toml::from_str(&text) {
         Ok(r) => r,
         Err(e) => {
+            // ERR-7 / TASK-0974: include the manifest path so multi-root
+            // `ops about` runs can attribute the parse failure. Debug-format
+            // so embedded newlines / ANSI cannot forge log records.
             tracing::warn!(
+                path = ?root.join("pyproject.toml").display(),
                 error = %e,
                 "failed to project pyproject.toml into workspace shape"
             );
@@ -134,6 +138,18 @@ mod tests {
             std::fs::create_dir_all(parent).unwrap();
         }
         std::fs::write(path, content).unwrap();
+    }
+
+    /// ERR-7 / TASK-0974: workspace-shape parse warn now includes the
+    /// manifest path. Pin the formatter so embedded newlines / ANSI in an
+    /// attacker-controlled checkout path cannot forge log records.
+    #[test]
+    fn workspace_pyproject_path_debug_escapes_control_characters() {
+        let p = Path::new("a\nb\u{1b}[31mc/pyproject.toml");
+        let rendered = format!("{:?}", p.display());
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
     }
 
     #[test]
