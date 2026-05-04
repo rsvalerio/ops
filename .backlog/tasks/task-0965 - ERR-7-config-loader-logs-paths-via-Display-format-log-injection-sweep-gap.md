@@ -1,9 +1,10 @@
 ---
 id: TASK-0965
 title: 'ERR-7: config loader logs paths via Display format (log-injection sweep gap)'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:47'
+updated_date: '2026-05-04 22:55'
 labels:
   - code-review-rust
   - error-handling

@@ -140,7 +140,7 @@ pub fn load_config() -> anyhow::Result<Config> {
     let local_path = PathBuf::from(".ops.toml");
     match read_config_file(&local_path) {
         Ok(Some(overlay)) => {
-            debug!(path = %local_path.display(), "merging local config");
+            debug!(path = ?local_path.display(), "merging local config");
             merge_config(&mut config, overlay);
         }
         Ok(None) => {}
@@ -237,7 +237,7 @@ fn merge_conf_d(config: &mut Config) -> anyhow::Result<()> {
     for path in files {
         match read_config_file(&path) {
             Ok(Some(overlay)) => {
-                debug!(path = %path.display(), "merging conf.d config");
+                debug!(path = ?path.display(), "merging conf.d config");
                 merge_config(config, overlay);
             }
             Ok(None) => {}
@@ -296,7 +296,7 @@ fn load_global_config(config: &mut Config) -> anyhow::Result<()> {
     for path in &to_try {
         match read_config_file(path) {
             Ok(Some(overlay)) => {
-                debug!(path = %path.display(), "merging global config");
+                debug!(path = ?path.display(), "merging global config");
                 merge_config(config, overlay);
                 return Ok(());
             }
@@ -323,6 +323,29 @@ mod tests {
         assert_eq!(files.len(), 2);
         assert!(files[0].ends_with("a.toml"));
         assert!(files[1].ends_with("b.toml"));
+    }
+
+    /// ERR-7 / TASK-0965: tracing fields for `.ops.d/*.toml` overlay paths
+    /// flow through the `?` formatter so an attacker-controlled filename with
+    /// embedded newlines / ANSI escapes cannot forge a log record. Mirrors the
+    /// regression guard pattern used by the `manifest_declares_workspace` /
+    /// hook-common ERR-7 sweep tests.
+    #[test]
+    fn conf_d_path_debug_escapes_control_characters() {
+        let p = PathBuf::from("malicious\n[fake] info: pwned\u{1b}[31m.toml");
+        let rendered = format!("{:?}", p.display());
+        assert!(
+            !rendered.contains('\n'),
+            "raw newline must be escaped, got: {rendered}"
+        );
+        assert!(
+            !rendered.contains('\u{1b}'),
+            "ANSI escape must be escaped, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("\\n"),
+            "newline must render as escape sequence, got: {rendered}"
+        );
     }
 
     #[test]
