@@ -3,9 +3,10 @@ id: TASK-0980
 title: >-
   ERR-2: python format_authors emits bare email without angle brackets,
   diverging from node format_person
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:58'
+updated_date: '2026-05-04 23:05'
 labels:
   - code-review-rust
   - ERR

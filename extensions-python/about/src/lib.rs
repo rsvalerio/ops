@@ -245,7 +245,12 @@ fn format_authors(authors: Vec<RawAuthor>) -> Vec<String> {
             match (name, email) {
                 (Some(n), Some(e)) => Some(format!("{n} <{e}>")),
                 (Some(n), None) => Some(n),
-                (None, Some(e)) => Some(e),
+                // ERR-2 / TASK-0980: render the email-only case as
+                // `<email>` to match `extensions-node/about::format_person`
+                // — both providers feed the same About card schema and a
+                // bare email next to "Name <email>" entries renders
+                // inconsistently in a multi-author list.
+                (None, Some(e)) => Some(format!("<{e}>")),
                 (None, None) => None,
             }
         })
@@ -646,6 +651,34 @@ Repository = "https://github.com/x/demo"
         assert_eq!(id.stack_label, "Python");
         assert!(id.version.is_none());
         assert!(id.stack_detail.is_none());
+    }
+
+    /// ERR-2 / TASK-0980: an email-only author renders as `<email>` so
+    /// the python provider matches `extensions-node` `format_person`.
+    /// Without the brackets, a bare email next to "Name <email>" entries
+    /// renders ambiguously in a multi-author card.
+    #[test]
+    fn email_only_author_renders_with_angle_brackets() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "demo"
+version = "0.1.0"
+authors = [
+    { email = "a@example.com" },
+]
+"#,
+        )
+        .unwrap();
+
+        let provider = PythonIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let id: ProjectIdentity =
+            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert_eq!(id.authors, vec!["<a@example.com>".to_string()]);
     }
 
     #[test]
