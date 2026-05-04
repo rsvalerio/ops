@@ -90,7 +90,11 @@ impl ProgressState {
         if cap == 0 {
             return;
         }
-        let buf = self.step_stderr.entry(id.to_string()).or_default();
+        let buf = if let Some(buf) = self.step_stderr.get_mut(id) {
+            buf
+        } else {
+            self.step_stderr.entry(id.to_string()).or_default()
+        };
         if buf.len() == cap {
             buf.pop_front();
         }
