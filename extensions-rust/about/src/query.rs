@@ -374,6 +374,74 @@ mod tests {
         }
     }
 
+    /// PERF-3 / TASK-0969: the resolved-members list (post glob expansion)
+    /// must survive across `load_workspace_manifest` calls without
+    /// re-walking the filesystem. `load_workspace_manifest` rewrites
+    /// `manifest.workspace.members` with the resolved list before caching
+    /// the `Arc<CargoToml>`, so subsequent providers grab the resolved
+    /// members directly from the cached Arc — verified here by mutating a
+    /// member directory between two cached loads and asserting the cached
+    /// view does NOT pick up the change (proving no re-walk).
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn resolved_workspace_members_are_amortised_via_typed_manifest_cache() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .unwrap();
+        let crates = root.join("crates");
+        std::fs::create_dir(&crates).unwrap();
+        let foo = crates.join("foo");
+        std::fs::create_dir(&foo).unwrap();
+        std::fs::write(
+            foo.join("Cargo.toml"),
+            "[package]\nname=\"foo\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+        evict_cache_for(root);
+
+        let mut ctx = Context::test_context(root.to_path_buf());
+        let first = load_workspace_manifest(&mut ctx).expect("first load");
+        let resolved_first = first
+            .workspace
+            .as_ref()
+            .map(|w| w.members.clone())
+            .unwrap_or_default();
+        assert_eq!(resolved_first, vec!["crates/foo".to_string()]);
+
+        // Add a sibling crate AFTER the first cache fill. If the second call
+        // re-walked the filesystem the resolved list would now include
+        // `crates/bar`; the cache must amortise this and keep returning the
+        // same Arc with the same resolved members.
+        let bar = crates.join("bar");
+        std::fs::create_dir(&bar).unwrap();
+        std::fs::write(
+            bar.join("Cargo.toml"),
+            "[package]\nname=\"bar\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let second = load_workspace_manifest(&mut ctx).expect("second load");
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "second call must serve the cached Arc, proving no re-walk"
+        );
+        let resolved_second = second
+            .workspace
+            .as_ref()
+            .map(|w| w.members.clone())
+            .unwrap_or_default();
+        assert_eq!(
+            resolved_second, resolved_first,
+            "resolved members must be the cached snapshot, not re-walked"
+        );
+
+        evict_cache_for(root);
+    }
+
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn typed_manifest_cache_returns_same_arc_then_invalidates_on_refresh() {

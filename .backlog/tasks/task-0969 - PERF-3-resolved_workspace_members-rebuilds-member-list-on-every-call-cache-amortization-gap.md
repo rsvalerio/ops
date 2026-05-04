@@ -3,9 +3,10 @@ id: TASK-0969
 title: >-
   PERF-3: resolved_workspace_members rebuilds member list on every call (cache
   amortization gap)
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:48'
+updated_date: '2026-05-04 23:00'
 labels:
   - code-review-rust
   - performance
