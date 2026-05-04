@@ -40,7 +40,19 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
         .into_iter()
         .map(|(member, manifest)| {
             let manifest_path = cwd.join(&member).join("package.json");
-            let meta = parse_package_metadata(&manifest_path, &manifest);
+            // DUP-3 / TASK-0987: call the shared `parse_package_metadata`
+            // directly so the per-stack `PackageProbe` lives next to the
+            // deserialiser, not behind a parallel shim function.
+            let meta =
+                ops_about::workspace::parse_package_metadata(&manifest_path, &manifest, |c| {
+                    serde_json::from_str::<PackageProbe>(c).map(|p| {
+                        ops_about::workspace::PackageMetadata {
+                            name: p.name,
+                            version: p.version,
+                            description: p.description,
+                        }
+                    })
+                });
             let mut unit = ProjectUnit::new(
                 meta.name.unwrap_or_else(|| format_unit_name(&member)),
                 member,
@@ -226,16 +238,6 @@ struct PackageProbe {
     name: Option<String>,
     version: Option<String>,
     description: Option<String>,
-}
-
-fn parse_package_metadata(path: &Path, content: &str) -> ops_about::workspace::PackageMetadata {
-    ops_about::workspace::parse_package_metadata(path, content, |c| {
-        serde_json::from_str::<PackageProbe>(c).map(|p| ops_about::workspace::PackageMetadata {
-            name: p.name,
-            version: p.version,
-            description: p.description,
-        })
-    })
 }
 
 #[cfg(test)]

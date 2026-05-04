@@ -3,9 +3,10 @@ id: TASK-0987
 title: >-
   DUP-3: parse_package_metadata wrapper duplicated between node and python units
   providers
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:59'
+updated_date: '2026-05-04 23:14'
 labels:
   - code-review-rust
   - DUP
