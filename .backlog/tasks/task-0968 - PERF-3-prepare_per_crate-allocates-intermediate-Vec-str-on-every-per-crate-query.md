@@ -3,9 +3,10 @@ id: TASK-0968
 title: >-
   PERF-3: prepare_per_crate allocates intermediate Vec<&str> on every per-crate
   query
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:48'
+updated_date: '2026-05-04 22:58'
 labels:
   - code-review-rust
   - performance

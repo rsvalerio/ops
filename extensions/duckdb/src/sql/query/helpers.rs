@@ -188,11 +188,18 @@ pub(super) fn prepare_per_crate<'a>(
         return Ok(PerCrateSetup::NoTable);
     }
 
-    let placeholders = member_paths
-        .iter()
-        .map(|_| "(?)")
-        .collect::<Vec<_>>()
-        .join(", ");
+    // PERF-3 / TASK-0968: build the placeholder string in place. The previous
+    // `iter().map(...).collect::<Vec<_>>().join(", ")` allocated an
+    // intermediate `Vec<&'static str>` per call, which is hit once per
+    // per-crate query and multiple times per about-units render.
+    let n = member_paths.len();
+    let mut placeholders = String::with_capacity(n * 5); // "(?), " is 5 bytes
+    for i in 0..n {
+        if i > 0 {
+            placeholders.push_str(", ");
+        }
+        placeholders.push_str("(?)");
+    }
 
     Ok(PerCrateSetup::Ready(conn, placeholders))
 }
