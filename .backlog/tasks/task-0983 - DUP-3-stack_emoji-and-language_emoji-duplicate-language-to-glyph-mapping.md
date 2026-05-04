@@ -1,9 +1,10 @@
 ---
 id: TASK-0983
 title: 'DUP-3: stack_emoji and language_emoji duplicate language-to-glyph mapping'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:58'
+updated_date: '2026-05-04 23:08'
 labels:
   - code-review-rust
   - duplication

@@ -26,17 +26,30 @@ pub(super) fn field_emoji(key: &str, value: &str) -> &'static str {
 
 /// Language-specific emoji derived from the stack label (first token of the
 /// `stack` field value, e.g. `"Rust · Edition 2021"` → `"Rust"` → 🦀).
+///
+/// DUP-3 / TASK-0983: delegates to [`language_emoji`] for the shared
+/// language-to-glyph mapping. Two cases are deliberately divergent:
+///
+/// 1. **Node / JavaScript**: the stack field renders the Node ecosystem
+///    glyph (⬢) — a runtime / package-manager identity, since the stack
+///    line describes *which platform built this*. The codebase breakdown
+///    renders the language glyph (🟨) for JavaScript files. These are two
+///    different rendering intents on purpose.
+/// 2. **Generic fallback**: 📚 ("multi-language project") on the stack
+///    line vs 📄 ("plain document") in the codebase breakdown.
 fn stack_emoji(value: &str) -> &'static str {
     let label = value.split_whitespace().next().unwrap_or("");
     match label {
-        "Rust" => "\u{1f980}",               // 🦀
-        "Go" => "\u{1f439}",                 // 🐹
-        "Node" | "JavaScript" => "\u{2b22}", // ⬢
-        "Python" => "\u{1f40d}",             // 🐍
-        "Java" => "\u{2615}",                // ☕
-        "Terraform" => "\u{1f4a0}",          // 💠
-        "Ansible" => "\u{1f170}\u{fe0f}",    // 🅰️
-        _ => "\u{1f4da}",                    // 📚 generic
+        "Node" | "JavaScript" => "\u{2b22}", // ⬢ runtime/platform glyph
+        // Defer to the canonical language table so adding a new language
+        // is a one-line edit on language_emoji rather than a two-table
+        // change. The fallback below handles the stack-specific generic.
+        other => match language_emoji(other) {
+            // language_emoji's generic fallback is 📄; the stack line
+            // wants 📚 for "multi-language project" — translate it here.
+            "\u{1f4c4}" => "\u{1f4da}",
+            glyph => glyph,
+        },
     }
 }
 
@@ -210,5 +223,40 @@ pub(super) fn compose_codebase_value(id: &ProjectIdentity) -> Option<String> {
         None
     } else {
         Some(parts.join("\n"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// DUP-3 / TASK-0983: shared language entries must agree across
+    /// `stack_emoji` and `language_emoji`. The Node/JavaScript case and
+    /// the generic fallback are deliberately divergent and asserted
+    /// explicitly below.
+    #[test]
+    fn shared_languages_agree_across_stack_and_codebase() {
+        for lang in ["Rust", "Go", "Python", "Java", "Terraform", "Ansible"] {
+            assert_eq!(
+                stack_emoji(lang),
+                language_emoji(lang),
+                "stack_emoji and language_emoji must agree on `{lang}`"
+            );
+        }
+    }
+
+    #[test]
+    fn node_renders_runtime_glyph_in_stack_and_language_glyph_in_codebase() {
+        assert_eq!(stack_emoji("Node"), "\u{2b22}"); // ⬢ runtime
+        assert_eq!(stack_emoji("JavaScript"), "\u{2b22}");
+        assert_eq!(language_emoji("JavaScript"), "\u{1f7e8}"); // 🟨 language
+    }
+
+    #[test]
+    fn fallback_glyphs_diverge_intentionally() {
+        // Generic stack: 📚 (multi-language project)
+        assert_eq!(stack_emoji("Brainfuck"), "\u{1f4da}");
+        // Generic codebase: 📄 (plain document)
+        assert_eq!(language_emoji("Brainfuck"), "\u{1f4c4}");
     }
 }
