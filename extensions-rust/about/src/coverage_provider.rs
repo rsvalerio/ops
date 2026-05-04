@@ -56,16 +56,27 @@ impl DataProvider for RustCoverageProvider {
             if members.is_empty() {
                 Vec::new()
             } else {
-                // PERF-3 / TASK-0917: borrow the cwd inline. `to_string_lossy`
-                // returns a `Cow::Borrowed` for UTF-8 paths (no allocation),
-                // and the temporary lives for the duration of the closure
-                // body — no need for an explicit let-bind on the hot path.
+                // READ-5 / TASK-0986: short-circuit when the workspace cwd is
+                // not valid UTF-8 instead of piping a U+FFFD-replaced string
+                // into the SQL key. The lossy collapse would silently match
+                // an unrelated workspace's coverage rows. Sister policy to
+                // TASK-0946 (workspace member relpaths in query.rs).
+                let Some(cwd_str) = cwd.to_str() else {
+                    tracing::warn!(
+                        cwd = ?cwd.display(),
+                        "non-UTF-8 cwd; skipping per-crate coverage to avoid lossy SQL key collapse"
+                    );
+                    return Ok(serde_json::to_value(ProjectCoverage::new(
+                        total,
+                        Vec::new(),
+                    ))?);
+                };
                 let member_strs: Vec<&str> = members.iter().map(String::as_str).collect();
                 let per_crate = query_or_warn(
                     "query_crate_coverage",
                     "per-crate coverage will be blank",
                     std::collections::HashMap::<String, ops_duckdb::sql::CrateCoverage>::new(),
-                    || query_crate_coverage(db, &member_strs, &cwd.to_string_lossy()),
+                    || query_crate_coverage(db, &member_strs, cwd_str),
                 );
                 // PERF-1 (TASK-0798): resolve display names up front in one
                 // pass over members with coverage rows, so each member's
@@ -101,5 +112,37 @@ impl DataProvider for RustCoverageProvider {
 
         let coverage = ProjectCoverage::new(total, units);
         serde_json::to_value(&coverage).map_err(DataProviderError::from)
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::Path;
+
+    /// READ-5 / TASK-0986: a non-UTF-8 cwd must NOT collapse to a
+    /// U+FFFD-replaced SQL key. The provider's short-circuit relies on
+    /// `Path::to_str()` returning `None` for non-UTF-8 input — pin that
+    /// invariant so a future refactor that swaps in `to_string_lossy`
+    /// can't silently re-introduce the lossy-collapse.
+    #[test]
+    fn non_utf8_cwd_path_to_str_returns_none() {
+        // Construct a non-UTF-8 path: 0x80 is a continuation byte with no
+        // leading byte, so it's invalid UTF-8.
+        let bytes = b"/tmp/non\xC3\x28-utf8";
+        let p = Path::new(OsStr::from_bytes(bytes));
+        assert!(
+            p.to_str().is_none(),
+            "non-UTF-8 path must not pass `to_str()`; got: {:?}",
+            p.to_str()
+        );
+        // Confirm that `to_string_lossy` would have produced a U+FFFD
+        // replacement key — the very behaviour the short-circuit avoids.
+        let lossy = p.to_string_lossy();
+        assert!(
+            lossy.contains('\u{FFFD}'),
+            "expected lossy conversion to produce U+FFFD: {lossy}"
+        );
     }
 }

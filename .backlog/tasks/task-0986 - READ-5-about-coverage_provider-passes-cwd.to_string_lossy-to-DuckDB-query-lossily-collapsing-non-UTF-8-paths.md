@@ -3,9 +3,10 @@ id: TASK-0986
 title: >-
   READ-5: about::coverage_provider passes cwd.to_string_lossy() to DuckDB query,
   lossily collapsing non-UTF-8 paths
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:59'
+updated_date: '2026-05-04 23:13'
 labels:
   - code-review-rust
   - readability
