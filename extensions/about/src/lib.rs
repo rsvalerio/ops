@@ -10,6 +10,8 @@ pub mod deps;
 pub mod identity;
 pub mod manifest_io;
 pub mod providers;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 pub mod text_util;
 pub mod units;
 pub mod workspace;

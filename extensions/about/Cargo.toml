@@ -8,6 +8,10 @@ license.workspace = true
 [features]
 default = []
 duckdb = ["dep:ops-duckdb", "ops-extension/duckdb"]
+# DUP-3 / TASK-0985: shared `assert_debug_escapes_control_chars` helper for
+# the ERR-7 sweep regression tests in the about extensions. Enabled only by
+# dev-dependencies; production code never sees it.
+test-support = []
 
 [dependencies]
 ops-core = { workspace = true }

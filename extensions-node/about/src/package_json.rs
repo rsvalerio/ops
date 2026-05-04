@@ -185,15 +185,14 @@ mod tests {
 
     /// ERR-7 (TASK-0818): manifest paths flow through `tracing::warn!` via
     /// the `?` formatter so embedded newlines or ANSI escapes cannot forge
-    /// multi-line log records. Pin the value-level escape without requiring
-    /// a tracing-subscriber dev-dep.
+    /// multi-line log records. DUP-3 / TASK-0985: defer the assertion to
+    /// the shared `ops_about::test_support::assert_debug_escapes_control_chars`
+    /// helper so removing one provider's per-site test still leaves the
+    /// property pinned somewhere.
     #[test]
     fn package_json_path_debug_escapes_control_characters() {
         let p = Path::new("a\nb\u{1b}[31mc/package.json");
-        let rendered = format!("{:?}", p.display());
-        assert!(!rendered.contains('\n'));
-        assert!(!rendered.contains('\u{1b}'));
-        assert!(rendered.contains("\\n"));
+        ops_about::test_support::assert_debug_escapes_control_chars(p.display());
     }
 
     #[test]

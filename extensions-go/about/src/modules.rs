@@ -216,25 +216,12 @@ mod tests {
 
     /// ERR-7 (TASK-0809): the `use` directive flows through `tracing::warn!`
     /// via the `?` formatter so embedded newlines or ANSI escapes cannot
-    /// forge multi-line log records. Pin the value-level escape without
-    /// requiring a tracing-subscriber dev-dep, matching the pattern in
-    /// `extensions/about/src/manifest_io.rs`.
+    /// forge multi-line log records. DUP-3 / TASK-0985: shared helper —
+    /// see `ops_about::test_support`.
     #[test]
     fn directive_debug_escapes_control_characters() {
         let dir = "../shared\nINJECTED line\u{1b}[31m";
-        let rendered = format!("{dir:?}");
-        assert!(
-            !rendered.contains('\n'),
-            "raw newline leaked into log value: {rendered}"
-        );
-        assert!(
-            !rendered.contains('\u{1b}'),
-            "raw ANSI ESC leaked into log value: {rendered}"
-        );
-        assert!(
-            rendered.contains("\\n"),
-            "expected escaped newline in {rendered}"
-        );
+        ops_about::test_support::assert_debug_escapes_control_chars(dir);
     }
 
     #[test]

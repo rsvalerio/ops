@@ -3,9 +3,10 @@ id: TASK-0985
 title: >-
   DUP-3: four near-identical *_path_debug_escapes_control_characters tests
   across about extensions
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:58'
+updated_date: '2026-05-04 23:11'
 labels:
   - code-review-rust
   - DUP

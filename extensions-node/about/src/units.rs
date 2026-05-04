@@ -251,15 +251,12 @@ mod tests {
 
     /// ERR-7 (TASK-0930): the `workspace_member_globs` warn event
     /// Debug-formats the path so a checkout containing newlines or ANSI
-    /// escapes cannot forge log records. Mirrors
-    /// `package_json::package_json_path_debug_escapes_control_characters`.
+    /// escapes cannot forge log records. DUP-3 / TASK-0985: shared
+    /// helper — see `ops_about::test_support`.
     #[test]
     fn workspace_member_globs_path_debug_escapes_control_characters() {
         let p = Path::new("a\nb\u{1b}[31mc/package.json");
-        let rendered = format!("{:?}", p.display());
-        assert!(!rendered.contains('\n'));
-        assert!(!rendered.contains('\u{1b}'));
-        assert!(rendered.contains("\\n"));
+        ops_about::test_support::assert_debug_escapes_control_chars(p.display());
     }
 
     #[test]
