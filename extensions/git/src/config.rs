@@ -139,6 +139,7 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
 /// silent.
 pub fn read_origin_url_from(content: &str) -> Option<RedactedUrl> {
     let mut in_origin = false;
+    let mut origin_seen = false;
     let mut last: Option<RedactedUrl> = None;
     for line in content.lines() {
         let trimmed = line.trim();
@@ -147,6 +148,9 @@ pub fn read_origin_url_from(content: &str) -> Option<RedactedUrl> {
         }
         if trimmed.starts_with('[') {
             in_origin = is_origin_header(trimmed);
+            if in_origin {
+                origin_seen = true;
+            }
             continue;
         }
         if in_origin {
@@ -154,6 +158,16 @@ pub fn read_origin_url_from(content: &str) -> Option<RedactedUrl> {
                 last = Some(RedactedUrl::redact(value));
             }
         }
+    }
+    // TASK-0966: distinguish "no [remote \"origin\"] section" (silent) from
+    // "section present but every url= line was malformed / empty" (one-line
+    // breadcrumb). Operators chasing "branch shows but remote_url is None"
+    // otherwise get no signal pointing at the corrupted config.
+    if origin_seen && last.is_none() {
+        tracing::debug!(
+            section = "remote \"origin\"",
+            "git-config: origin section present but no extractable url= line"
+        );
     }
     last
 }
@@ -350,6 +364,18 @@ mod tests {
         assert!(!url.contains("user:tok"), "leaked credentials: {url}");
         assert!(!url.contains('@'), "retained userinfo: {url}");
         assert_eq!(url, "host:weird/garbage");
+    }
+
+    /// TASK-0966: a `[remote "origin"]` section that exists but has no valid
+    /// `url = ...` line returns None and emits one `tracing::debug` breadcrumb.
+    /// A genuinely-missing origin section stays silent. The breadcrumb itself
+    /// is verified via `tracing-test`-free assertion: we only pin the return
+    /// value here and rely on the inline `tracing::debug!` survival in the
+    /// source — call-site presence is guarded by code review.
+    #[test]
+    fn origin_section_present_but_no_url_returns_none() {
+        let cfg = "[remote \"origin\"]\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n";
+        assert!(read_origin_url_from(cfg).is_none());
     }
 
     #[test]

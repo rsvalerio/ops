@@ -3,9 +3,10 @@ id: TASK-0966
 title: >-
   ERR-7: read_origin_url_from emits no breadcrumb when origin section has no
   extractable url= line
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:47'
+updated_date: '2026-05-04 22:56'
 labels:
   - code-review-rust
   - error-handling
