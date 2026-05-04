@@ -113,7 +113,7 @@ pub fn check_cargo_tool_installed(name: &str) -> bool {
         tracing::warn!(
             tool = name,
             code = ?output.status.code(),
-            stderr = %stderr_snippet,
+            stderr = ?stderr_snippet,
             "cargo --list exited non-zero; reporting tool as not installed"
         );
         return false;
@@ -262,7 +262,7 @@ pub fn check_rustup_component_installed(component: &str) -> bool {
         tracing::warn!(
             component = component,
             code = ?output.status.code(),
-            stderr = %stderr_snippet,
+            stderr = ?stderr_snippet,
             "rustup component list exited non-zero; reporting component as not installed"
         );
         return false;
@@ -395,6 +395,32 @@ pub fn capture_rustup_components() -> Option<String> {
         return None;
     }
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+#[cfg(test)]
+mod probe_log_format_tests {
+    /// ERR-7 / TASK-0979: subprocess stderr snippets flow through the `?`
+    /// formatter so cargo/rustup ANSI escapes or registry-served diagnostics
+    /// containing newlines cannot forge log records or repaint the operator
+    /// terminal. Pin the value-level escape without requiring a tracing-
+    /// subscriber dev-dep.
+    #[test]
+    fn stderr_snippet_debug_escapes_control_characters() {
+        let snippet = "warn\nerror: \u{1b}[31mhi\u{1b}[0m";
+        let rendered = format!("{snippet:?}");
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
+    }
+
+    /// ERR-7 / TASK-0979 AC#2: the snippet stays bounded at 200 chars so a
+    /// pathological stderr payload cannot blow up log volume.
+    #[test]
+    fn stderr_snippet_take_200_caps_length() {
+        let stderr = "x".repeat(10_000);
+        let snippet = stderr.chars().take(200).collect::<String>();
+        assert_eq!(snippet.len(), 200);
+    }
 }
 
 #[cfg(all(test, unix))]

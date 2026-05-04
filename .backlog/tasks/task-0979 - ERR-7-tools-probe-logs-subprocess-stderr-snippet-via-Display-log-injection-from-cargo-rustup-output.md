@@ -3,9 +3,10 @@ id: TASK-0979
 title: >-
   ERR-7: tools::probe logs subprocess stderr snippet via Display, log injection
   from cargo/rustup output
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:58'
+updated_date: '2026-05-04 23:05'
 labels:
   - code-review-rust
   - error-handling
