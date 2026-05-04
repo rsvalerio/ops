@@ -3,9 +3,10 @@ id: TASK-0976
 title: >-
   PATTERN-1: looks_like_module_version accepts non-semver tokens, may suppress
   legal local replace targets
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:58'
+updated_date: '2026-05-04 23:04'
 labels:
   - code-review-rust
   - PATTERN

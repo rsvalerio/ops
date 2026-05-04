@@ -94,19 +94,35 @@ fn parse_replace_directive(rest: &str) -> Option<String> {
 }
 
 /// Match cmd/go's module version token shape: a leading `v` followed by an
-/// `X.Y.Z` triple, optionally with pre-release / build / pseudo-version
-/// suffixes. We accept anything starting with `v<digit>` with at least one
-/// `.` — the parser doesn't need a strict semver matcher; it just needs to
-/// distinguish a remote replacement from a path token.
+/// `X.Y(.Z)?` numeric prefix. PATTERN-1 / TASK-0976: the previous
+/// `v<digit> + contains('.')` heuristic accepted any non-numeric trailing
+/// junk (`v1.foo.com/path`, `v9.local`, `v0.x`), so a local replace target
+/// whose second whitespace token happened to begin with `v<digit>.` was
+/// silently misclassified as a remote replace and dropped from
+/// `local_replaces`.
+///
+/// Now require `v<MAJOR>.<MINOR>` with all-digit components (and an optional
+/// `.<PATCH>` plus arbitrary pseudo-version / pre-release suffix after the
+/// numeric prefix). This is still loose enough to accept everything cmd/go
+/// emits while rejecting "looks vaguely like vX.Y" path tokens.
 fn looks_like_module_version(s: &str) -> bool {
-    let mut chars = s.chars();
-    if chars.next() != Some('v') {
+    let Some(rest) = s.strip_prefix('v') else {
+        return false;
+    };
+    // Require at least MAJOR.MINOR with both components all-digit.
+    let mut parts = rest.splitn(3, '.');
+    let major = parts.next().unwrap_or("");
+    let minor = parts.next().unwrap_or("");
+    if major.is_empty() || !major.bytes().all(|b| b.is_ascii_digit()) {
         return false;
     }
-    match chars.next() {
-        Some(c) if c.is_ascii_digit() => s.contains('.'),
-        _ => false,
+    if minor.is_empty() || !minor.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
     }
+    // PATCH (and anything after) is optional and free-form: cmd/go pseudo-
+    // versions like `v0.0.0-20240101000000-abcdef` need the pre-release tail
+    // to flow through. We only require the numeric MAJOR.MINOR prefix.
+    true
 }
 
 fn is_windows_absolute(s: &str) -> bool {
@@ -246,6 +262,39 @@ mod tests {
         .unwrap();
         let m = parse(dir.path()).unwrap();
         assert_eq!(m.local_replaces, vec!["./has space/sub"]);
+    }
+
+    /// PATTERN-1 / TASK-0976: a local target whose second whitespace token
+    /// happens to start `v<digit>.` but is not a valid semver must NOT be
+    /// dropped from `local_replaces`. The previous lax heuristic treated
+    /// `./root v1.snapshot` as a remote replace and silently lost the
+    /// member from the workspace size in the About card.
+    #[test]
+    fn keeps_local_replace_with_pseudo_version_token() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace ex.com/m => ./root v1.snapshot\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.local_replaces, vec!["./root v1.snapshot"]);
+    }
+
+    /// PATTERN-1 / TASK-0976: the strict matcher unit-level — only the
+    /// `vMAJOR.MINOR(.PATCH)?` numeric prefix qualifies. Non-numeric trailing
+    /// junk (`v1.foo`, `v9.local`, `v0.x`) no longer false-matches.
+    #[test]
+    fn looks_like_module_version_requires_numeric_minor() {
+        assert!(looks_like_module_version("v1.2.3"));
+        assert!(looks_like_module_version("v1.2"));
+        assert!(looks_like_module_version("v0.0.0-20240101000000-abcdef"));
+        assert!(!looks_like_module_version("v1.foo"));
+        assert!(!looks_like_module_version("v9.local"));
+        assert!(!looks_like_module_version("v0.x"));
+        assert!(!looks_like_module_version("v.1.2"));
+        assert!(!looks_like_module_version("v1"));
+        assert!(!looks_like_module_version("v"));
     }
 
     #[test]
