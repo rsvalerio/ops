@@ -3,9 +3,10 @@ id: TASK-0967
 title: >-
   PERF-3: Variables::from_env clones cached TMPDIR string and rebuilds builtins
   HashMap on every call
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:47'
+updated_date: '2026-05-04 22:57'
 labels:
   - code-review-rust
   - performance

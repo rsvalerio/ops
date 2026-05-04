@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
+use std::sync::Arc;
 
 /// ERR-1 / TASK-0450: a non-recoverable variable expansion failure.
 ///
@@ -60,7 +61,7 @@ impl std::error::Error for ExpandError {
 /// bugs are visible instead of silently passing through unchanged.
 #[derive(Debug, Clone)]
 pub struct Variables {
-    builtins: HashMap<&'static str, String>,
+    builtins: HashMap<&'static str, Arc<str>>,
 }
 
 /// Cached `std::env::temp_dir()` rendering. Computed once per process: the
@@ -68,15 +69,21 @@ pub struct Variables {
 /// and `temp_dir()` itself performs a syscall on Unix. Reused across every
 /// `Variables::from_env` call so command-spec expansion avoids the syscall +
 /// allocation on every invocation.
-static TMPDIR_DISPLAY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+///
+/// PERF-3 / TASK-0967: stored as `Arc<str>` so `from_env` can hand out a
+/// reference-counted clone in O(1) instead of allocating a fresh `String`
+/// on every call. CLI entry / hooks / RunBeforeCommit invoke `from_env`
+/// outside the parallel-runtime Arc-cloning boundary, so amortised
+/// per-call allocation matters here.
+static TMPDIR_DISPLAY: std::sync::OnceLock<Arc<str>> = std::sync::OnceLock::new();
 
 impl Variables {
     /// Build from environment and workspace root.
     pub fn from_env(ops_root: &Path) -> Self {
-        let mut builtins: HashMap<&'static str, String> = HashMap::with_capacity(2);
-        builtins.insert("OPS_ROOT", ops_root.display().to_string());
+        let mut builtins: HashMap<&'static str, Arc<str>> = HashMap::with_capacity(2);
+        builtins.insert("OPS_ROOT", Arc::<str>::from(ops_root.display().to_string()));
         let tmpdir = TMPDIR_DISPLAY
-            .get_or_init(|| std::env::temp_dir().display().to_string())
+            .get_or_init(|| Arc::<str>::from(std::env::temp_dir().display().to_string()))
             .clone();
         builtins.insert("TMPDIR", tmpdir);
         Self { builtins }
@@ -123,7 +130,7 @@ impl Variables {
         // owned (std::env::var returns String) so they stay `Cow::Owned`.
         let lookup = |var: &str| -> Result<Option<Cow<'_, str>>, std::env::VarError> {
             if let Some(val) = self.builtins.get(var) {
-                return Ok(Some(Cow::Borrowed(val.as_str())));
+                return Ok(Some(Cow::Borrowed(val.as_ref())));
             }
             match std::env::var(var) {
                 Ok(val) => Ok(Some(Cow::Owned(val))),
@@ -178,6 +185,23 @@ mod tests {
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap();
         assert_eq!(result, format!("{}/.config", home));
+    }
+
+    /// PERF-3 / TASK-0967: every `Variables::from_env` call must reuse the
+    /// same `Arc<str>` for the cached `TMPDIR` rather than allocating a
+    /// fresh `String`. Verified via `Arc::ptr_eq` on the values stored in
+    /// the builtins map; the API surface (`expand` / `try_expand`) is
+    /// unchanged and the existing `expands_tmpdir` test pins behaviour.
+    #[test]
+    fn from_env_reuses_cached_tmpdir_arc() {
+        let v1 = test_vars();
+        let v2 = test_vars();
+        let a = v1.builtins.get("TMPDIR").expect("TMPDIR populated");
+        let b = v2.builtins.get("TMPDIR").expect("TMPDIR populated");
+        assert!(
+            Arc::ptr_eq(a, b),
+            "TMPDIR must be the same Arc across from_env calls"
+        );
     }
 
     #[test]
