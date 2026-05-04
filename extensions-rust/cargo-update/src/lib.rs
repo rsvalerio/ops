@@ -94,9 +94,12 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
     for line in text.lines() {
         let trimmed = line.trim();
 
-        // Strip ANSI escape codes for robust parsing
-        let clean = strip_ansi(trimmed);
-        let clean = clean.trim();
+        // PERF-3 / TASK-0970: skip the strip_ansi allocation when no escape
+        // is present (the common case — terminals without color, redirected
+        // CI output). The Cow path keeps the typed-result branches identical
+        // for downstream parsing.
+        let clean_cow = strip_ansi(trimmed);
+        let clean = clean_cow.trim();
 
         // Skip noise lines
         if clean.is_empty()
@@ -160,7 +163,13 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
 /// trips identically. The previous `bytes[i] as char` cast interpreted
 /// each continuation byte as a Latin-1 code point and silently corrupted
 /// every multi-byte character.
-fn strip_ansi(s: &str) -> String {
+fn strip_ansi(s: &str) -> std::borrow::Cow<'_, str> {
+    // PERF-3 / TASK-0970: hot path on the data-source pipeline used by CI.
+    // Fast-path the typical case (no `\x1b` in the line) by returning a
+    // borrow — only allocate when we actually have to rewrite the string.
+    if !s.contains('\x1b') {
+        return std::borrow::Cow::Borrowed(s);
+    }
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
@@ -179,7 +188,7 @@ fn strip_ansi(s: &str) -> String {
             result.push(c);
         }
     }
-    result
+    std::borrow::Cow::Owned(result)
 }
 
 /// Whether the version after `name` represents the source (from) or target (to) version.

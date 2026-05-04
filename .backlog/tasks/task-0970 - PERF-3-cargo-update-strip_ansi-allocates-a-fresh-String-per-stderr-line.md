@@ -1,9 +1,10 @@
 ---
 id: TASK-0970
 title: 'PERF-3: cargo-update strip_ansi allocates a fresh String per stderr line'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:48'
+updated_date: '2026-05-04 23:01'
 labels:
   - code-review-rust
   - performance

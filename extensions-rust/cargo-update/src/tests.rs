@@ -203,6 +203,34 @@ fn strip_v_prefix_without_v() {
     assert_eq!(strip_v_prefix("1.0.0"), "1.0.0");
 }
 
+/// PERF-3 / TASK-0970: the no-escape fast path must avoid the heap
+/// allocation entirely. Verified by asserting the Cow is Borrowed —
+/// every cargo-update stderr line in CI (no terminal colors) flows
+/// through this branch.
+#[test]
+fn strip_ansi_borrows_when_no_escape() {
+    use std::borrow::Cow;
+    let input = "    Updating serde v1.0.0 -> v1.0.1";
+    let out = strip_ansi(input);
+    assert!(
+        matches!(out, Cow::Borrowed(_)),
+        "expected borrow on no-escape input"
+    );
+    assert_eq!(out, input);
+}
+
+#[test]
+fn strip_ansi_owns_when_escape_present() {
+    use std::borrow::Cow;
+    let input = "\x1b[32mhi\x1b[0m";
+    let out = strip_ansi(input);
+    assert!(
+        matches!(out, Cow::Owned(_)),
+        "expected owned rewrite when ANSI present"
+    );
+    assert_eq!(out, "hi");
+}
+
 #[test]
 fn strip_ansi_removes_escape_codes() {
     let input = "\x1b[1m\x1b[32mUpdating\x1b[0m serde v1.0.0 -> v1.0.1";
