@@ -53,6 +53,13 @@ ops_extension::impl_extension! {
 /// to `format!("{}", status)` for unknown variants instead of leaking the
 /// `Debug` representation.
 ///
+/// READ-7 / TASK-0992: a previous `Unknown` variant was declared but never
+/// constructed — every probe-failure branch in `probe.rs` already maps to
+/// `NotInstalled`. The dead variant misled downstream consumers into
+/// writing defensive `Unknown` arms that could never fire. The variant
+/// stays removed; `#[non_exhaustive]` keeps the API additive if a
+/// distinct probe-failed signal is wired up later.
+///
 /// **When adding a variant:** extend the `Display` impl below with an
 /// intentional, stable user-facing string before merging.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,8 +67,6 @@ ops_extension::impl_extension! {
 pub enum ToolStatus {
     Installed,
     NotInstalled,
-    #[allow(dead_code)]
-    Unknown,
 }
 
 impl std::fmt::Display for ToolStatus {
@@ -69,7 +74,6 @@ impl std::fmt::Display for ToolStatus {
         let s = match self {
             ToolStatus::Installed => "installed",
             ToolStatus::NotInstalled => "not installed",
-            ToolStatus::Unknown => "unknown",
         };
         f.write_str(s)
     }

@@ -44,7 +44,10 @@ fn run_tools_list_to(config: &Config, w: &mut dyn Write) -> anyhow::Result<()> {
         let (status_icon, status_text): (String, Cow<'static, str>) = match tool.status {
             ToolStatus::Installed => (green("✓"), Cow::Borrowed("")),
             ToolStatus::NotInstalled => (red("✗"), Cow::Borrowed(" (NOT INSTALLED)")),
-            ToolStatus::Unknown => (dim("?"), Cow::Borrowed(" (UNKNOWN)")),
+            // TASK-0992: ToolStatus::Unknown was removed — it was declared
+            // but never constructed. The wildcard below keeps the match
+            // exhaustive over `#[non_exhaustive]` if a distinct
+            // probe-failed signal is added later.
             other => (
                 dim("?"),
                 Cow::Owned(format!(" ({})", other.to_string().to_uppercase())),

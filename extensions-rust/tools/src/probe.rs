@@ -20,8 +20,15 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Run a probe Command under [`run_with_timeout`], logging timeout / IO
 /// errors at `tracing::warn` and returning `None` so the caller can map
-/// the failure to `ToolStatus::Unknown` / "not installed" without
-/// duplicating the logging pattern at every call site.
+/// the failure to `ToolStatus::NotInstalled` without duplicating the
+/// logging pattern at every call site.
+///
+/// READ-7 / TASK-0992: prior comments referenced a `ToolStatus::Unknown`
+/// variant; that variant was declared but never constructed and has been
+/// removed. Probe failures (timeout / spawn error) currently flow into
+/// `NotInstalled`. If a future change wants to distinguish "probe failed"
+/// from "tool genuinely missing", reintroduce the variant and wire it
+/// through here at the same time.
 fn run_probe_with_timeout(cmd: &mut Command, label: &'static str) -> Option<std::process::Output> {
     match run_with_timeout(cmd, default_timeout(PROBE_TIMEOUT), label) {
         Ok(out) => Some(out),
@@ -29,7 +36,7 @@ fn run_probe_with_timeout(cmd: &mut Command, label: &'static str) -> Option<std:
             tracing::warn!(
                 label,
                 timeout_secs = e.timeout.as_secs(),
-                "ASYNC-6 / TASK-0914: probe timed out; reporting unknown/not-installed"
+                "ASYNC-6 / TASK-0914: probe timed out; reporting tool as not installed"
             );
             None
         }
@@ -37,7 +44,7 @@ fn run_probe_with_timeout(cmd: &mut Command, label: &'static str) -> Option<std:
             tracing::warn!(
                 label,
                 error = %e,
-                "probe spawn failed; reporting unknown/not-installed"
+                "probe spawn failed; reporting tool as not installed"
             );
             None
         }
@@ -45,7 +52,7 @@ fn run_probe_with_timeout(cmd: &mut Command, label: &'static str) -> Option<std:
             tracing::warn!(
                 label,
                 error = %other,
-                "probe failed with unrecognized error variant; reporting unknown/not-installed"
+                "probe failed with unrecognized error variant; reporting tool as not installed"
             );
             None
         }

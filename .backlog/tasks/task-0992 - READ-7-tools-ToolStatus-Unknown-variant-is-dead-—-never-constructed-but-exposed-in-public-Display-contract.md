@@ -3,9 +3,10 @@ id: TASK-0992
 title: >-
   READ-7: tools::ToolStatus::Unknown variant is dead — never constructed but
   exposed in public Display contract
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:59'
+updated_date: '2026-05-04 23:51'
 labels:
   - code-review-rust
   - readability
