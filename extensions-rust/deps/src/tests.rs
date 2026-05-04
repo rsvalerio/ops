@@ -695,6 +695,50 @@ fn format_report_duplicate_crates_shows_totals_only() {
 
 // -- has_issues tests --
 
+/// DUP-3 / TASK-0989: a `warning` severity must be actionable on the
+/// strict gate (advisories / licenses / sources) and non-actionable on
+/// the relaxed gate (bans). Both branches now route through the same
+/// `is_actionable(severity, relax_warning)` helper instead of two
+/// near-identical match arms, so this test pins the contract by
+/// exercising both modes via the same DepsReport shape.
+#[test]
+fn has_issues_warning_is_actionable_only_on_strict_gate() {
+    // Strict gate (advisories): warning => actionable.
+    let strict = DepsReport {
+        deny: DenyResult {
+            advisories: vec![AdvisoryEntry {
+                id: "X".into(),
+                package: "a".into(),
+                severity: "warning".into(),
+                title: "t".into(),
+            }],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert!(
+        has_issues(&strict),
+        "strict gate: warning must be actionable"
+    );
+
+    // Relaxed gate (bans): warning => not actionable.
+    let relaxed = DepsReport {
+        deny: DenyResult {
+            bans: vec![BanEntry {
+                package: "a".into(),
+                message: "duplicate".into(),
+                severity: "warning".into(),
+            }],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert!(
+        !has_issues(&relaxed),
+        "relaxed gate (bans): warning must be informational"
+    );
+}
+
 #[test]
 fn has_issues_clean_report() {
     let report = DepsReport::default();

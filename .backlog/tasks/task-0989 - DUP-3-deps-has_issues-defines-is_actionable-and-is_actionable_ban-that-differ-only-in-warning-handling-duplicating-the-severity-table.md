@@ -3,9 +3,10 @@ id: TASK-0989
 title: >-
   DUP-3: deps has_issues defines is_actionable and is_actionable_ban that differ
   only in 'warning' handling, duplicating the severity table
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:59'
+updated_date: '2026-05-04 23:15'
 labels:
   - code-review-rust
   - duplication

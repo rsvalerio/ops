@@ -228,9 +228,17 @@ pub fn run_deps(
 /// unknown severities fire a one-off `tracing::warn!` so schema drift
 /// surfaces in logs without skipping the gate.
 fn has_issues(report: &DepsReport) -> bool {
-    let is_actionable = |severity: &str| -> bool {
+    // DUP-3 / TASK-0989: single severity-classifier shared by both gates;
+    // `relax_warning = true` is the bans-only relaxation (cargo-deny emits
+    // duplicate-crate diagnostics at `warning` and project policy treats
+    // those as informational — "transitive, usually harmless"). Advisories
+    // / licenses / sources keep the strict gate. A future cargo-deny
+    // severity (`critical`, `notice`, …) is now a one-line edit on this
+    // helper instead of two parallel match arms.
+    fn is_actionable(severity: &str, relax_warning: bool) -> bool {
         match severity {
-            "error" | "warning" => true,
+            "error" => true,
+            "warning" => !relax_warning,
             // Known-benign in cargo-deny output: informational diagnostics
             // that should not fail CI.
             "note" | "help" | "info" => false,
@@ -242,48 +250,28 @@ fn has_issues(report: &DepsReport) -> bool {
                 true
             }
         }
-    };
-
-    // Bans use a relaxed predicate: cargo-deny emits duplicate-crate
-    // diagnostics at severity `warning`, and the project policy treats
-    // those as informational ("transitive, usually harmless" in the
-    // report). Only `error` (and unknown severities, fail-closed) fail
-    // the gate for bans. Advisories / licenses / sources continue to
-    // treat `warning` as actionable.
-    let is_actionable_ban = |severity: &str| -> bool {
-        match severity {
-            "warning" | "note" | "help" | "info" => false,
-            "error" => true,
-            other => {
-                tracing::warn!(
-                    severity = %other,
-                    "TASK-0601: unknown cargo-deny severity treated as actionable (fail-closed); update has_issues if this is benign"
-                );
-                true
-            }
-        }
-    };
+    }
 
     report
         .deny
         .advisories
         .iter()
-        .any(|e| is_actionable(&e.severity))
+        .any(|e| is_actionable(&e.severity, false))
         || report
             .deny
             .licenses
             .iter()
-            .any(|e| is_actionable(&e.severity))
+            .any(|e| is_actionable(&e.severity, false))
         || report
             .deny
             .bans
             .iter()
-            .any(|e| is_actionable_ban(&e.severity))
+            .any(|e| is_actionable(&e.severity, true))
         || report
             .deny
             .sources
             .iter()
-            .any(|e| is_actionable(&e.severity))
+            .any(|e| is_actionable(&e.severity, false))
 }
 
 // ── Extension + DataProvider ────────────────────────────────────────────────
