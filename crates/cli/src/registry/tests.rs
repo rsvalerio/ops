@@ -21,6 +21,50 @@ fn builtin_extensions_rejects_unknown_extension() {
     assert!(err.contains("not compiled in"));
 }
 
+/// PATTERN-1 / TASK-0990: the "available extensions" list in the
+/// "not compiled in" error message must be sorted alphabetically and
+/// deterministic across consecutive invocations. HashMap iteration order
+/// is randomised per process, so an unsorted message would shuffle on
+/// every call and break snapshot tests / bug-report skim-ability.
+#[test]
+fn builtin_extensions_unknown_lists_available_in_sorted_order() {
+    let config = Config {
+        extensions: ExtensionConfig {
+            enabled: Some(vec!["nonexistent-extension".to_string()]),
+        },
+        ..Default::default()
+    };
+
+    // Two consecutive invocations must yield identical messages — pinning
+    // determinism, not the exact name set (which depends on which
+    // extension crates are compiled into this build).
+    let err1 = builtin_extensions(&config, std::path::Path::new("."))
+        .err()
+        .unwrap()
+        .to_string();
+    let err2 = builtin_extensions(&config, std::path::Path::new("."))
+        .err()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        err1, err2,
+        "available list must be deterministic across calls"
+    );
+
+    // The "available: " segment must be sorted ascending.
+    let available_segment = err1
+        .split("available: ")
+        .nth(1)
+        .expect("error contains `available:` segment");
+    let names: Vec<&str> = available_segment.split(", ").collect();
+    let mut sorted = names.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        names, sorted,
+        "available list must be sorted alphabetically"
+    );
+}
+
 #[test]
 fn builtin_extensions_empty_enabled_list() {
     let config = Config {

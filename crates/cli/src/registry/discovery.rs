@@ -104,10 +104,16 @@ pub fn builtin_extensions(
 
     for name in enabled {
         if !available.contains_key(name.as_str()) {
+            // PATTERN-1 / TASK-0990: HashMap iteration order is randomised
+            // per process; render a sorted list so the message is
+            // deterministic, snapshot-friendly, and skim-able by operators
+            // copy-pasting into bug reports.
+            let mut available_names: Vec<&'static str> = available.keys().copied().collect();
+            available_names.sort_unstable();
             anyhow::bail!(
                 "extension '{}' enabled in config but not compiled in; available: {}",
                 name,
-                available.keys().cloned().collect::<Vec<_>>().join(", ")
+                available_names.join(", ")
             );
         }
     }

@@ -3,9 +3,10 @@ id: TASK-0990
 title: >-
   PATTERN-1: builtin_extensions error message lists HashMap keys in
   nondeterministic order
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:59'
+updated_date: '2026-05-04 23:17'
 labels:
   - code-review-rust
   - structure
