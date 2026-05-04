@@ -1,9 +1,10 @@
 ---
 id: TASK-0972
 title: 'DUP-3: severity_icon and colorize_severity duplicate the severity-class table'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:48'
+updated_date: '2026-05-04 23:02'
 labels:
   - code-review-rust
   - duplication

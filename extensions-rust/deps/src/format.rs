@@ -21,38 +21,67 @@ fn format_empty_section(out: &mut String, title: &str) {
     let _ = writeln!(out, "{P}{} {}\n", title, green("\u{2714} None"));
 }
 
-/// ERR-2 (TASK-0602): the previous `_ => info-icon` fallback collapsed any
-/// unknown severity (cargo-deny schema drift, e.g. a new `critical` level)
-/// onto the lowest-emphasis style — exactly inverting what the icon set
-/// is meant to communicate. Render unknown severities with a clearly
-/// distinct fallback (red `?` icon) so a misclassified critical never
-/// looks like info.
-fn severity_icon(severity: &str) -> &'static str {
-    match severity {
-        "error" => "\u{2718}",                  // ✘
-        "warning" => "\u{26a0}",                // ⚠
-        "note" | "help" | "info" => "\u{2139}", // ℹ
-        _ => "?",
+/// DUP-3 / TASK-0972: single source of truth for the severity → (icon,
+/// style) mapping. The previous `severity_icon` and `colorize_severity`
+/// each maintained an independent match arm over the same severity strings,
+/// inviting a subtle inversion where the icon and color disagree on
+/// classification.
+///
+/// ERR-2 / TASK-0602: any cargo-deny severity outside the known set
+/// classifies into [`SeverityClass::Unknown`], rendering with a red `?`
+/// icon (clearly distinct from the dim-info style) plus a one-shot
+/// `tracing::warn!` so schema drift is observable instead of hiding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SeverityClass {
+    Error,
+    Warning,
+    Info,
+    Unknown,
+}
+
+impl SeverityClass {
+    fn classify(severity: &str) -> Self {
+        match severity {
+            "error" => Self::Error,
+            "warning" => Self::Warning,
+            "note" | "help" | "info" => Self::Info,
+            _ => Self::Unknown,
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            Self::Error => "\u{2718}",   // ✘
+            Self::Warning => "\u{26a0}", // ⚠
+            Self::Info => "\u{2139}",    // ℹ
+            Self::Unknown => "?",
+        }
+    }
+
+    fn style(self, text: &str) -> String {
+        match self {
+            Self::Error | Self::Unknown => red(text),
+            Self::Warning => yellow(text),
+            Self::Info => dim(text),
+        }
     }
 }
 
+fn severity_icon(severity: &str) -> &'static str {
+    SeverityClass::classify(severity).icon()
+}
+
 fn colorize_severity(text: &str, severity: &str) -> String {
-    match severity {
-        "error" => red(text),
-        "warning" => yellow(text),
-        "note" | "help" | "info" => dim(text),
-        // ERR-2 (TASK-0602): unknown severity prints in red so it stands
-        // out from the dim-info fallback that previously hid schema drift.
-        // tracing::warn fires once per render so the operator log carries
-        // the offending value alongside the visible icon change.
-        other => {
-            tracing::warn!(
-                severity = %other,
-                "TASK-0602: unknown cargo-deny severity rendered with fallback style"
-            );
-            red(text)
-        }
+    let class = SeverityClass::classify(severity);
+    if class == SeverityClass::Unknown {
+        // ERR-2 / TASK-0602: a single warn per render so the operator log
+        // carries the offending value alongside the visible red `?` icon.
+        tracing::warn!(
+            severity = %severity,
+            "TASK-0602: unknown cargo-deny severity rendered with fallback style"
+        );
     }
+    class.style(text)
 }
 
 pub fn format_report(report: &DepsReport) -> String {
@@ -320,6 +349,43 @@ mod helper_tests {
         assert!(out.contains("RUSTSEC-2024-0001"));
         assert!(out.contains("openssl"));
         assert!(out.contains("buffer overflow"));
+    }
+
+    /// DUP-3 / TASK-0972: every known severity must round-trip identically
+    /// through `severity_icon` and `colorize_severity` (same `SeverityClass`).
+    /// Adding a new severity (e.g. `critical`) is now a one-line edit on the
+    /// enum and this test guards the icon/style pair from drifting.
+    #[test]
+    fn known_severities_round_trip_through_classifier() {
+        for sev in ["error", "warning", "note", "help", "info"] {
+            let class_from_icon = match severity_icon(sev) {
+                "\u{2718}" => SeverityClass::Error,
+                "\u{26a0}" => SeverityClass::Warning,
+                "\u{2139}" => SeverityClass::Info,
+                other => panic!("unexpected icon `{other}` for severity `{sev}`"),
+            };
+            let class_direct = SeverityClass::classify(sev);
+            assert_eq!(
+                class_direct, class_from_icon,
+                "icon and classifier disagree for severity `{sev}`"
+            );
+            // colorize_severity must use the same class — the styled string
+            // contains the SGR prefix that matches the chosen colour.
+            let styled = colorize_severity("x", sev);
+            let expected = class_direct.style("x");
+            assert_eq!(
+                styled, expected,
+                "colorize_severity diverged from SeverityClass::style for `{sev}`"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_severity_classifies_to_red_question_mark() {
+        let class = SeverityClass::classify("critical");
+        assert_eq!(class, SeverityClass::Unknown);
+        assert_eq!(severity_icon("critical"), "?");
+        assert_eq!(colorize_severity("x", "critical"), red("x"));
     }
 
     #[test]
