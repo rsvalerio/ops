@@ -3,9 +3,10 @@ id: TASK-0959
 title: >-
   ERR-1: query_per_crate_i64 silently surfaces negative i64 from corrupted
   DuckDB views
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 21:46'
+updated_date: '2026-05-04 22:49'
 labels:
   - code-review-rust
   - error-handling

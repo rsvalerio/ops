@@ -317,8 +317,29 @@ pub(super) fn query_per_crate_i64(
     );
 
     collect_per_crate_map(&conn, &sql, label, q.member_paths.iter().copied(), |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        let path = row.get::<_, String>(0)?;
+        let value = clamp_non_negative_i64(row.get::<_, i64>(1)?, label, &path);
+        Ok((path, value))
     })
+}
+
+/// TASK-0959: SUM(...)/COUNT(*) over a per-crate LEFT JOIN cannot legitimately
+/// go negative; if it does, the underlying view has been corrupted or its
+/// shape has drifted. Mirror `coerce_count_to_usize` (TASK-0506) on the
+/// per-crate path: warn loudly and clamp to 0 so a schema bug surfaces as
+/// "no data + log entry" rather than as `-123 lines of code`.
+pub(super) fn clamp_non_negative_i64(value: i64, label: &str, path: &str) -> i64 {
+    if value < 0 {
+        tracing::warn!(
+            label,
+            path,
+            value,
+            "per-crate i64 query returned negative value; coercing to 0"
+        );
+        0
+    } else {
+        value
+    }
 }
 
 #[cfg(test)]
@@ -375,6 +396,41 @@ mod tests {
         );
         // The insert-overwrite contract is preserved: the second row wins.
         assert_eq!(res.get("a").copied(), Some(2));
+    }
+
+    #[test]
+    fn clamp_non_negative_i64_clamps_negatives_to_zero() {
+        assert_eq!(clamp_non_negative_i64(-1, "label", "path"), 0);
+        assert_eq!(clamp_non_negative_i64(i64::MIN, "label", "path"), 0);
+        assert_eq!(clamp_non_negative_i64(0, "label", "path"), 0);
+        assert_eq!(clamp_non_negative_i64(42, "label", "path"), 42);
+    }
+
+    /// TASK-0959: a synthetic negative row from a corrupted view is folded
+    /// into the result map as 0, not as a negative value reaching downstream
+    /// rendering (e.g. `unit.loc = Some(-123)` in extensions/about).
+    #[test]
+    fn collect_per_crate_map_clamps_negative_value_to_zero() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE t (path VARCHAR, val INT);
+             INSERT INTO t VALUES ('a', -123), ('b', 5);",
+        )
+        .unwrap();
+        let res = collect_per_crate_map::<i64, _, _>(
+            &conn,
+            "SELECT path, val FROM t",
+            "neg-test",
+            std::iter::empty::<&str>(),
+            |row| {
+                let path = row.get::<_, String>(0)?;
+                let value = clamp_non_negative_i64(row.get::<_, i64>(1)?, "neg-test", &path);
+                Ok((path, value))
+            },
+        )
+        .unwrap();
+        assert_eq!(res.get("a").copied(), Some(0));
+        assert_eq!(res.get("b").copied(), Some(5));
     }
 
     #[test]
