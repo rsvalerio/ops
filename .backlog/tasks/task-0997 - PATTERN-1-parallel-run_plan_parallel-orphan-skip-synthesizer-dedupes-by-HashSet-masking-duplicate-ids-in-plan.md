@@ -3,9 +3,10 @@ id: TASK-0997
 title: >-
   PATTERN-1: parallel run_plan_parallel orphan-skip synthesizer dedupes by
   HashSet, masking duplicate ids in plan
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 22:01'
+updated_date: '2026-05-05 00:25'
 labels:
   - code-review-rust
   - idioms

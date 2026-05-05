@@ -167,6 +167,55 @@ async fn run_plan_parallel_fail_fast_emits_terminal_for_every_started_step() {
     }
 }
 
+/// PATTERN-1 / TASK-0997: a parallel plan that names the same leaf id
+/// twice (legal — `expand_to_leaves` only guards cycles) must still
+/// pair every `StepStarted` with a terminal event when fail-fast aborts
+/// both occurrences. The previous `HashSet`-based synthesizer collapsed
+/// the second visit and emitted only one synthetic `StepSkipped`,
+/// leaving a `StepStarted` orphaned in JSON event consumers and the
+/// display.
+#[tokio::test(flavor = "multi_thread")]
+async fn run_plan_parallel_duplicate_id_pairs_every_started_with_terminal_under_fail_fast() {
+    let mut commands = HashMap::new();
+    commands.insert("fast_fail".to_string(), CommandSpec::Exec(false_cmd()));
+    commands.insert(
+        "slow_dup".to_string(),
+        CommandSpec::Exec(exec_spec("sh", &["-c", "sleep 5"])),
+    );
+    let runner = test_runner(commands);
+    let mut events = Vec::new();
+    // Plan: fast_fail trips fail_fast; the duplicate `slow_dup` slots
+    // both get aborted. Both must surface a terminal event.
+    let _ = runner
+        .run_plan_parallel(
+            &["fast_fail".into(), "slow_dup".into(), "slow_dup".into()],
+            true,
+            &mut |e| events.push(e),
+        )
+        .await;
+
+    let started_count = events
+        .iter()
+        .filter(|e| matches!(e, RunnerEvent::StepStarted { .. }))
+        .count();
+    let terminal_count = events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                RunnerEvent::StepFinished { .. }
+                    | RunnerEvent::StepFailed { .. }
+                    | RunnerEvent::StepSkipped { .. }
+            )
+        })
+        .count();
+    assert!(
+        terminal_count >= started_count,
+        "every StepStarted must have a paired terminal event; \
+         started={started_count}, terminal={terminal_count}, events={events:#?}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn run_plan_parallel_fail_fast_emits_failure() {
     let mut commands = HashMap::new();

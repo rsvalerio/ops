@@ -335,14 +335,18 @@ impl CommandRunner {
         // emitting events long after the 100ms failure that triggered
         // fail_fast. Pass a JoinSet handle to `handle_parallel_events` so
         // it can cancel in-flight work.
-        // ERR-1 / TASK-0768: track which plan command ids produced a
-        // terminal event (Finished/Failed/Skipped) so we can synthesize a
-        // `StepSkipped` for any orphan whose task was aborted before its
-        // terminal event reached the channel. JSON event consumers can then
-        // pair every `StepStarted` with a terminal event, matching the
-        // display's `finalize_orphan_bars` behaviour.
-        let mut terminal_ids: std::collections::HashSet<CommandId> =
-            std::collections::HashSet::new();
+        // ERR-1 / TASK-0768: track terminal-event counts per plan command
+        // id so we can synthesize a `StepSkipped` for any orphan whose
+        // task was aborted before its terminal event reached the channel.
+        //
+        // PATTERN-1 / TASK-0997: count occurrences instead of using a
+        // `HashSet`. A composite that fans the same leaf id twice (legal
+        // — `expand_to_leaves` only guards cycles, not duplicates) and
+        // aborts both before either terminal event arrived would
+        // otherwise emit just one `StepSkipped`, leaving the second
+        // `StepStarted` unpaired in JSON event consumers and the display.
+        let mut terminal_counts: std::collections::HashMap<CommandId, usize> =
+            std::collections::HashMap::new();
         {
             let on_event_inner: &mut dyn FnMut(RunnerEvent) = on_event;
             let mut wrapped = |ev: RunnerEvent| {
@@ -350,7 +354,7 @@ impl CommandRunner {
                     RunnerEvent::StepFinished { id, .. }
                     | RunnerEvent::StepFailed { id, .. }
                     | RunnerEvent::StepSkipped { id, .. } => {
-                        terminal_ids.insert(id.clone());
+                        *terminal_counts.entry(id.clone()).or_insert(0) += 1;
                     }
                     _ => {}
                 }
@@ -365,8 +369,16 @@ impl CommandRunner {
             )
             .await;
         }
+        // Walk the plan once, decrementing the per-id seen count: each
+        // visited slot either consumes one observed terminal event or
+        // emits a synthetic `StepSkipped` for that occurrence. This keeps
+        // total terminal-event count equal to `command_ids.len()` even
+        // when ids repeat.
         for id in command_ids {
-            if !terminal_ids.contains(id) {
+            let entry = terminal_counts.entry(id.clone()).or_insert(0);
+            if *entry > 0 {
+                *entry -= 1;
+            } else {
                 on_event(RunnerEvent::StepSkipped {
                     id: id.clone(),
                     display_cmd: None,
