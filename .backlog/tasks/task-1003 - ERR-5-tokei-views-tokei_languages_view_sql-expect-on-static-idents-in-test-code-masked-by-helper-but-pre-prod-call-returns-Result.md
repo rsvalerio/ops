@@ -3,9 +3,10 @@ id: TASK-1003
 title: >-
   ERR-5: tokei views::tokei_languages_view_sql() expect on static idents in test
   code masked by helper, but pre-prod call returns Result
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 22:03'
+updated_date: '2026-05-05 00:51'
 labels:
   - code-review-rust
   - API
