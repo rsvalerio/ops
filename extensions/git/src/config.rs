@@ -220,44 +220,86 @@ fn strip_url_key(line: &str) -> Option<&str> {
 }
 
 fn is_origin_header(line: &str) -> bool {
-    let Some((section, subsection)) = parse_section_header(line) else {
-        return false;
-    };
-    // Section names in git-config(1) are case-insensitive: `[Remote "origin"]`
-    // and `[REMOTE "origin"]` are valid and accepted by git itself, so the
-    // matcher must not require lowercase. Subsection names *are*
-    // case-sensitive per git, so leave that comparison exact. The bare-word
-    // form `[remote origin]` is malformed and rejected by git itself, so this
-    // helper requires the canonical quoted form.
-    section.eq_ignore_ascii_case("remote") && subsection.as_deref() == Some("origin")
+    match parse_section_header(line) {
+        Ok((section, subsection)) => {
+            // Section names in git-config(1) are case-insensitive:
+            // `[Remote "origin"]` and `[REMOTE "origin"]` are valid and
+            // accepted by git itself, so the matcher must not require
+            // lowercase. Subsection names *are* case-sensitive per git, so
+            // leave that comparison exact. The bare-word form
+            // `[remote origin]` is malformed and rejected by git itself, so
+            // this helper requires the canonical quoted form.
+            section.eq_ignore_ascii_case("remote") && subsection.as_deref() == Some("origin")
+        }
+        Err(reason) => {
+            // READ-5 / TASK-1006: a malformed header for a section we
+            // would otherwise care about (e.g. an attacker-shaped
+            // subsection escape, an unbalanced quote) used to drop the
+            // entire section silently — operators saw "remote URL not
+            // detected" and no log entry. Surface the specific failure
+            // category at debug so a `RUST_LOG=ops_git=debug` rerun
+            // explains the absence.
+            if line
+                .trim_start_matches('[')
+                .starts_with(|c: char| c.eq_ignore_ascii_case(&'r'))
+            {
+                tracing::debug!(
+                    line,
+                    reason = ?reason,
+                    "git-config: rejected section header that looks like remote.*"
+                );
+            }
+            false
+        }
+    }
+}
+
+/// READ-5 / TASK-1006: typed reason for a [`parse_section_header`] reject so
+/// callers can surface the specific failure category in their logs instead
+/// of collapsing every malformed header into a silent `None`.
+#[derive(Debug)]
+enum SectionHeaderError {
+    NotASectionHeader,
+    UnbalancedQuotes,
+    UnknownEscape,
+    UnterminatedEscape,
 }
 
 /// Parse a git-config section header `[section "subsection"]` into its parts.
 ///
-/// Returns `None` for malformed headers. Decodes the two escapes git
-/// recognises inside subsection names (`\\` → `\`, `\"` → `"`) and rejects
-/// the bare-word form `[section subsection]` that git itself does not honour.
-fn parse_section_header(line: &str) -> Option<(&str, Option<String>)> {
-    let inner = line.strip_prefix('[')?.strip_suffix(']')?.trim();
+/// Decodes the two escapes git recognises inside subsection names (`\\` → `\`,
+/// `\"` → `"`) and rejects the bare-word form `[section subsection]` that
+/// git itself does not honour. Returns a typed [`SectionHeaderError`] so
+/// callers can log the specific failure category.
+fn parse_section_header(line: &str) -> Result<(&str, Option<String>), SectionHeaderError> {
+    let inner = line
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .ok_or(SectionHeaderError::NotASectionHeader)?
+        .trim();
     let (section, rest) = match inner.split_once(char::is_whitespace) {
         Some((s, r)) => (s, r.trim()),
-        None => return Some((inner, None)),
+        None => return Ok((inner, None)),
     };
-    let body = rest.strip_prefix('"').and_then(|r| r.strip_suffix('"'))?;
+    let body = rest
+        .strip_prefix('"')
+        .and_then(|r| r.strip_suffix('"'))
+        .ok_or(SectionHeaderError::UnbalancedQuotes)?;
     let mut decoded = String::with_capacity(body.len());
     let mut chars = body.chars();
     while let Some(c) = chars.next() {
         if c == '\\' {
-            match chars.next()? {
-                '\\' => decoded.push('\\'),
-                '"' => decoded.push('"'),
-                _ => return None,
+            match chars.next() {
+                Some('\\') => decoded.push('\\'),
+                Some('"') => decoded.push('"'),
+                Some(_) => return Err(SectionHeaderError::UnknownEscape),
+                None => return Err(SectionHeaderError::UnterminatedEscape),
             }
         } else {
             decoded.push(c);
         }
     }
-    Some((section, Some(decoded)))
+    Ok((section, Some(decoded)))
 }
 
 /// Read the current branch from `<git_dir>/HEAD`. Returns `None` on detached HEAD.
@@ -373,6 +415,38 @@ mod tests {
     /// value here and rely on the inline `tracing::debug!` survival in the
     /// source — call-site presence is guarded by code review.
     #[test]
+    /// READ-5 / TASK-1006: a malformed escape in a `[remote "…"]` header
+    /// returns a typed `SectionHeaderError` rather than collapsing the
+    /// whole section silently. The behaviour-pinning assertion is that
+    /// `parse_section_header` reports a typed error so `is_origin_header`
+    /// can log a debug breadcrumb naming the failure category.
+    #[test]
+    fn parse_section_header_unknown_escape_returns_typed_error() {
+        let line = r#"[remote "ori\nin"]"#;
+        let err = parse_section_header(line).unwrap_err();
+        assert!(
+            matches!(err, SectionHeaderError::UnknownEscape),
+            "expected UnknownEscape, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_section_header_unbalanced_quotes_returns_typed_error() {
+        let line = r#"[remote "origin]"#;
+        let err = parse_section_header(line).unwrap_err();
+        assert!(
+            matches!(err, SectionHeaderError::UnbalancedQuotes),
+            "expected UnbalancedQuotes, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_section_header_well_formed_round_trips() {
+        let (section, sub) = parse_section_header(r#"[remote "origin"]"#).unwrap();
+        assert_eq!(section, "remote");
+        assert_eq!(sub.as_deref(), Some("origin"));
+    }
+
     fn origin_section_present_but_no_url_returns_none() {
         let cfg = "[remote \"origin\"]\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n";
         assert!(read_origin_url_from(cfg).is_none());

@@ -3,9 +3,10 @@ id: TASK-1006
 title: >-
   READ-5: parse_section_header decodes only two backslash escapes, silently
   rejects valid git-config subsections containing other escape sequences
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 22:04'
+updated_date: '2026-05-05 01:02'
 labels:
   - code-review-rust
   - READ
