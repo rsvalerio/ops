@@ -34,7 +34,13 @@ pub struct DuckDb {
     /// every entry when the instance is dropped, instead of leaking
     /// `(db_path, table)` tuples in a process-global `OnceLock` for the
     /// lifetime of the binary.
-    ingest_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// PERF-3 / TASK-1007: keyed by `&'static str` so `ingest_mutex_for`
+    /// looks up an existing entry without paying the per-call
+    /// `String::to_owned` allocation that `HashMap<String, _>::entry`
+    /// charges on every probe. All call sites already pass static
+    /// literals; the signature change makes a future dynamic key a build
+    /// error rather than a silent regression.
+    ingest_locks: Mutex<HashMap<&'static str, Arc<Mutex<()>>>>,
 }
 
 #[allow(dead_code)]
@@ -120,12 +126,16 @@ impl DuckDb {
     /// `provide_via_ingestor` emits `tracing::warn!` on recovery, so a
     /// transient ingest panic leaves an audit breadcrumb in production
     /// logs rather than recovering silently.
-    pub(crate) fn ingest_mutex_for(&self, table_name: &str) -> Arc<Mutex<()>> {
+    pub(crate) fn ingest_mutex_for(&self, table_name: &'static str) -> Arc<Mutex<()>> {
         let mut map = self.ingest_locks.lock().unwrap_or_else(|poisoned| {
             tracing::warn!("ingest_locks registry mutex was poisoned by a prior panic; recovered");
             poisoned.into_inner()
         });
-        Arc::clone(map.entry(table_name.to_owned()).or_default())
+        // PERF-3 / TASK-1007: with the `&'static str` key, `entry` consumes
+        // a `Copy` &'static reference instead of allocating a fresh
+        // `String` on every probe. The hot path (entry already present)
+        // is now alloc-free.
+        Arc::clone(map.entry(table_name).or_default())
     }
 
     #[cfg(test)]

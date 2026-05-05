@@ -3,9 +3,10 @@ id: TASK-1007
 title: >-
   PERF-3: ingest_mutex_for allocates a fresh String per call to look up the
   per-table coordination mutex
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 22:04'
+updated_date: '2026-05-05 01:04'
 labels:
   - code-review-rust
   - PERF

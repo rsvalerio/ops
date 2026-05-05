@@ -286,7 +286,7 @@ where
 pub fn provide_via_ingestor<I, Q>(
     db: &DuckDb,
     ctx: &ops_extension::Context,
-    table_name: &str,
+    table_name: &'static str,
     ingestor: &I,
     query_fn: Q,
 ) -> Result<serde_json::Value, anyhow::Error>
