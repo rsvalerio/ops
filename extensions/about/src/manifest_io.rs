@@ -44,7 +44,7 @@ pub fn read_optional_text(path: &Path, kind: &str) -> Option<String> {
         Err(e) => {
             tracing::warn!(
                 path = ?path.display(),
-                error = %e,
+                error = ?e,
                 kind = kind,
                 "failed to read manifest"
             );
@@ -69,7 +69,7 @@ pub fn read_optional_text(path: &Path, kind: &str) -> Option<String> {
         Err(e) => {
             tracing::warn!(
                 path = ?path.display(),
-                error = %e,
+                error = ?e,
                 kind = kind,
                 "failed to read manifest"
             );
@@ -146,6 +146,28 @@ mod tests {
     /// pins the formatting choice without requiring a tracing-subscriber
     /// dependency: the same `?` formatter used in the `tracing::warn!` call
     /// site escapes control characters at the value layer.
+    /// ERR-7 / TASK-0999: `io::Error` messages flowing through the Debug
+    /// formatter must escape control characters so a hostile filename or
+    /// symlink-target whose error message contains `\n` or `\u{1b}[31m`
+    /// cannot forge log lines.
+    #[test]
+    fn io_error_debug_escapes_control_characters() {
+        let e = std::io::Error::other("rogue\nINJECTED line\u{1b}[31m");
+        let rendered = format!("{e:?}");
+        assert!(
+            !rendered.contains('\n'),
+            "raw newline leaked into Debug rendering: {rendered}"
+        );
+        assert!(
+            !rendered.contains('\u{1b}'),
+            "raw ANSI ESC leaked into Debug rendering: {rendered}"
+        );
+        assert!(
+            rendered.contains("\\n"),
+            "expected escaped newline in Debug rendering: {rendered}"
+        );
+    }
+
     #[test]
     fn path_display_debug_escapes_control_characters() {
         let p = Path::new("a\nb\u{1b}[31mc");

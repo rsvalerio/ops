@@ -3,9 +3,10 @@ id: TASK-0999
 title: >-
   ERR-7: extensions/about manifest_io and workspace use Display for tracing
   error fields, log injection vector
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 22:01'
+updated_date: '2026-05-05 00:28'
 labels:
   - code-review-rust
   - ERR

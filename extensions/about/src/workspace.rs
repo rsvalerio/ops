@@ -80,7 +80,7 @@ pub fn resolve_member_globs(
                     tracing::warn!(
                         member,
                         parent = ?parent.display(),
-                        error = %e,
+                        error = ?e,
                         "workspace glob prefix unreadable; member skipped"
                     );
                 }
@@ -154,7 +154,7 @@ pub struct PackageMetadata {
 /// filtered out.
 pub fn parse_package_metadata<E, F>(path: &Path, content: &str, parse: F) -> PackageMetadata
 where
-    E: std::fmt::Display,
+    E: std::fmt::Display + std::fmt::Debug,
     F: FnOnce(&str) -> Result<PackageMetadata, E>,
 {
     match parse(content) {
@@ -169,7 +169,7 @@ where
         Err(e) => {
             tracing::warn!(
                 path = ?path.display(),
-                error = %e,
+                error = ?e,
                 "failed to parse package manifest",
             );
             PackageMetadata::default()
