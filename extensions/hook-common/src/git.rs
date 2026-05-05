@@ -104,8 +104,34 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
         .ancestors()
         .nth(MAX_GITDIR_PARENT_TRAVERSAL)
         .unwrap_or(parent);
-    let anchor = std::fs::canonicalize(anchor_raw).ok()?;
-    let canonical_target = std::fs::canonicalize(&joined).ok()?;
+    // ERR-1 / TASK-1004: emit a per-site breadcrumb on canonicalize failure
+    // so operators chasing "ops did nothing in this repo" can distinguish
+    // (a) no `.git` upstream, (b) SEC-14 escape rejection, and (c) a real
+    // canonicalize syscall error. Without this the three failure modes
+    // collapsed to the same silent `None`. Debug-format paths/errors per
+    // the ERR-7 (TASK-0937) sweep.
+    let anchor = match std::fs::canonicalize(anchor_raw) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::debug!(
+                anchor_raw = ?anchor_raw.display(),
+                error = ?e,
+                "gitdir pointer: failed to canonicalize SEC-14 anchor; treating as no gitdir"
+            );
+            return None;
+        }
+    };
+    let canonical_target = match std::fs::canonicalize(&joined) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::debug!(
+                target = ?joined.display(),
+                error = ?e,
+                "gitdir pointer: failed to canonicalize gitdir target; treating as no gitdir"
+            );
+            return None;
+        }
+    };
     if !canonical_target.starts_with(&anchor) {
         // ERR-7 (TASK-0937): Debug-format paths to neutralize control
         // characters and ANSI escapes in worktree-root rejection logs.

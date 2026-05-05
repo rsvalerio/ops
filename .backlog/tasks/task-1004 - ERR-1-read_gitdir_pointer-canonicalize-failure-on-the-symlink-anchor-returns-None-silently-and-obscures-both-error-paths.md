@@ -3,9 +3,10 @@ id: TASK-1004
 title: >-
   ERR-1: read_gitdir_pointer canonicalize failure on the symlink-anchor returns
   None silently and obscures both error paths
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 22:03'
+updated_date: '2026-05-05 00:58'
 labels:
   - code-review-rust
   - ERR
