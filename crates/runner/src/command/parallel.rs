@@ -40,7 +40,7 @@ const DEFAULT_PARALLEL_EVENT_BUDGET_PER_TASK: usize = 256;
 /// Hard ceiling on the env-overridable parallel cap. Rejects pathological
 /// values (e.g. `OPS_MAX_PARALLEL=1000000`) that would defeat the
 /// resource-pressure contract this knob exists to enforce.
-const MAX_PARALLEL_CEILING: usize = 1024;
+pub(crate) const MAX_PARALLEL_CEILING: usize = 1024;
 
 /// Hard ceiling on the env-overridable per-task event budget. Same
 /// rationale as [`MAX_PARALLEL_CEILING`].
@@ -49,7 +49,12 @@ const MAX_EVENT_BUDGET_CEILING: usize = 65_536;
 /// Resolve [`DEFAULT_MAX_PARALLEL`] honoring `OPS_MAX_PARALLEL`. Invalid,
 /// zero, or above-ceiling values fall back to the default with a
 /// `tracing::warn!` so misconfiguration is visible.
-fn resolve_max_parallel() -> usize {
+///
+/// PERF-3 / TASK-0995: exposed to `command::results` so the
+/// `output_byte_cap` peak-RSS warning is computed against the same
+/// (clamped, validated) value the orchestrator actually uses, instead of
+/// silently re-parsing the raw env var with different fallback rules.
+pub(crate) fn resolve_max_parallel() -> usize {
     resolve_env_usize(
         "OPS_MAX_PARALLEL",
         DEFAULT_MAX_PARALLEL,
@@ -63,6 +68,50 @@ fn resolve_event_budget() -> usize {
         DEFAULT_PARALLEL_EVENT_BUDGET_PER_TASK,
         MAX_EVENT_BUDGET_CEILING,
     )
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    /// PERF-3 / TASK-0995: an out-of-range `OPS_MAX_PARALLEL` must clamp
+    /// to [`MAX_PARALLEL_CEILING`] so the `output_byte_cap` peak-RSS
+    /// warning (which now reuses this resolver) is computed against the
+    /// same clamped value the orchestrator actually uses, not against the
+    /// raw env var.
+    #[serial_test::serial(env_max_parallel)]
+    #[test]
+    fn resolve_max_parallel_clamps_above_ceiling() {
+        let prev = std::env::var_os("OPS_MAX_PARALLEL");
+        // SAFETY: tests serialised via `serial_test` so other threads
+        // cannot read the env mid-mutation.
+        unsafe { std::env::set_var("OPS_MAX_PARALLEL", "5000") };
+        let resolved = resolve_max_parallel();
+        match prev {
+            Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
+            None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },
+        }
+        assert_eq!(
+            resolved, MAX_PARALLEL_CEILING,
+            "OPS_MAX_PARALLEL=5000 must clamp to {MAX_PARALLEL_CEILING}, not pass through; the peak-RSS warning depends on this"
+        );
+    }
+
+    #[serial_test::serial(env_max_parallel)]
+    #[test]
+    fn resolve_max_parallel_falls_back_on_zero_or_unparseable() {
+        let prev = std::env::var_os("OPS_MAX_PARALLEL");
+        unsafe { std::env::set_var("OPS_MAX_PARALLEL", "junk") };
+        let resolved_junk = resolve_max_parallel();
+        unsafe { std::env::set_var("OPS_MAX_PARALLEL", "0") };
+        let resolved_zero = resolve_max_parallel();
+        match prev {
+            Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
+            None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },
+        }
+        assert_eq!(resolved_junk, DEFAULT_MAX_PARALLEL);
+        assert_eq!(resolved_zero, DEFAULT_MAX_PARALLEL);
+    }
 }
 
 fn resolve_env_usize(var: &'static str, default: usize, ceiling: usize) -> usize {

@@ -175,16 +175,14 @@ pub(crate) fn output_byte_cap() -> usize {
             // warn-on-fallback contract in cli/src/main.rs.
             tracing::warn!(env_var = OUTPUT_CAP_ENV, "{msg}");
         }
-        // Best-effort: if the operator already overrode OPS_MAX_PARALLEL
-        // upward, multiply through and warn when the worst-case in-flight
-        // capture budget crosses 1 GiB. The check is informational; we do
-        // not clamp `cap` because the per-stream guarantee is the
-        // documented contract.
-        let max_parallel: usize = std::env::var("OPS_MAX_PARALLEL")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .filter(|&n| n > 0)
-            .unwrap_or(32);
+        // PERF-3 / TASK-0995: reuse the parallel orchestrator's resolver
+        // so the peak-RSS warning is computed against the same clamped,
+        // validated `OPS_MAX_PARALLEL` the runner actually uses. The
+        // previous inline parser silently accepted out-of-range values
+        // (computing fictitious worst-cases ~5× higher than reality) and
+        // hid the same misconfiguration that `parallel.rs` already warns
+        // loudly about.
+        let max_parallel = super::parallel::resolve_max_parallel();
         let peak = cap.saturating_mul(2).saturating_mul(max_parallel);
         if peak > PEAK_CAPTURE_WARN_BYTES {
             tracing::warn!(

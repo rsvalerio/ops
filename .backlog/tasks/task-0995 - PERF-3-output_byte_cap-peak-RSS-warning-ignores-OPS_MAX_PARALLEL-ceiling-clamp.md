@@ -3,9 +3,10 @@ id: TASK-0995
 title: >-
   PERF-3: output_byte_cap peak-RSS warning ignores OPS_MAX_PARALLEL ceiling
   clamp
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 22:00'
+updated_date: '2026-05-05 00:15'
 labels:
   - code-review-rust
   - duplication
