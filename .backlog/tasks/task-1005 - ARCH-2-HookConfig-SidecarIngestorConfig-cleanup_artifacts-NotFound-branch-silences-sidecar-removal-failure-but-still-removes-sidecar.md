@@ -3,9 +3,10 @@ id: TASK-1005
 title: >-
   ARCH-2: HookConfig::SidecarIngestorConfig::cleanup_artifacts NotFound branch
   silences sidecar-removal failure but still removes sidecar
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 22:03'
+updated_date: '2026-05-05 01:00'
 labels:
   - code-review-rust
   - ARCH

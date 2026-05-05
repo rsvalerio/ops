@@ -250,14 +250,27 @@ impl SidecarIngestorConfig {
     fn cleanup_artifacts(&self, data_dir: &Path, json_path: &Path) {
         match std::fs::remove_file(json_path) {
             Ok(()) => crate::sql::remove_workspace_sidecar(data_dir, self.name),
+            // ARCH-2 / TASK-1005: NotFound is the operationally-rare case
+            // (external scrubber, manual `rm`, mid-pipeline interruption).
+            // The ERR-1 / TASK-0466 contract treats "sidecar removed only
+            // after JSON gone" as the post-condition; an absent JSON means
+            // the post-condition is already satisfied, so the sidecar may
+            // be removed too. Emit a debug breadcrumb so the unexpected
+            // absence is at least visible to operators chasing
+            // half-state symptoms.
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                tracing::debug!(
+                    source = self.name,
+                    path = ?json_path.display(),
+                    "cleanup_artifacts: JSON staging file already absent before removal; removing sidecar anyway"
+                );
                 crate::sql::remove_workspace_sidecar(data_dir, self.name);
             }
             Err(err) => {
                 tracing::warn!(
                     source = self.name,
-                    path = %json_path.display(),
-                    error = %err,
+                    path = ?json_path.display(),
+                    error = ?err,
                     "failed to remove staged JSON after ingest; \
                      leaving sidecar to drive recovery on next run"
                 );
