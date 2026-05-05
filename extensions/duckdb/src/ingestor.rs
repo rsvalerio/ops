@@ -140,6 +140,34 @@ impl SidecarIngestorConfig {
     ///
     /// Callers retrying after a failure should not call any cleanup helper
     /// in between; just call `load_with_sidecar` again.
+    ///
+    /// # Crash between step 6 and steps 7-8 (TASK-1008)
+    ///
+    /// If the host crashes (`kill -9`, OOM, power loss) after the
+    /// `upsert_data_source` row is durable but before `remove(json_path)`
+    /// or `remove_workspace_sidecar` runs, the next invocation observes:
+    ///
+    /// - DuckDB row says `(source, checksum)` is fresh.
+    /// - The staging JSON and sidecar are still on disk.
+    /// - The next `provide_via_ingestor` short-circuits via
+    ///   `table_has_data == true` and skips collect/load entirely.
+    ///
+    /// **Decision**: leftover JSON / sidecar after a successful upsert is
+    /// expected debris of a crash and is operationally safe to delete.
+    /// The post-success cleanup is best-effort by design — the durable
+    /// state-of-truth is the `data_sources` row, and the staged files
+    /// carry no information not already encoded in the checksum on that
+    /// row. Operators auditing `target/ops/data.duckdb.ingest/` can
+    /// remove any file whose corresponding `(source, checksum)` row is
+    /// already current; a future ops invocation will repopulate the
+    /// stage as needed.
+    ///
+    /// A future hardening (option B in TASK-1008) is to rename the JSON
+    /// to a `.done` suffix under the same lock as the upsert so leftover
+    /// debris is unambiguously post-load rather than mid-flight. The
+    /// rename is *not* implemented today because the lower-cost
+    /// mitigation — operators can recognize debris from the checksum row
+    /// — covers the audit-clarity concern this contract documents.
     pub fn load_with_sidecar(
         &self,
         db: &DuckDb,
@@ -248,6 +276,33 @@ impl SidecarIngestorConfig {
     /// recovery on the next run instead of failing on a missing sidecar
     /// while leftover JSON still sits on disk.
     fn cleanup_artifacts(&self, data_dir: &Path, json_path: &Path) {
+        // ARCH-2 / TASK-1008 (option B): rename the staging JSON to a
+        // `.done` suffix before unlinking. A `kill -9` between rename and
+        // unlink leaves a single `*.done` file on disk that operators can
+        // unambiguously identify as post-load debris (vs. a `*.json` mid-
+        // flight). The rename → unlink ordering keeps the success path
+        // identical (both syscalls run, file is gone) while making the
+        // crash window observable rather than indistinguishable.
+        let done_path = json_path.with_extension("json.done");
+        let json_path = match std::fs::rename(json_path, &done_path) {
+            Ok(()) => done_path.as_path(),
+            // Fall back to direct removal if the rename failed for any
+            // reason (e.g. cross-device). This restores the prior
+            // behaviour without leaving a half-rename state.
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                tracing::debug!(
+                    source = self.name,
+                    path = ?json_path.display(),
+                    error = ?e,
+                    "cleanup_artifacts: rename to .done failed; falling back to direct unlink"
+                );
+                json_path
+            }
+            // NotFound on the rename: source already absent — fall
+            // through to the existing match arms below for the same
+            // recovery semantics.
+            Err(_) => json_path,
+        };
         match std::fs::remove_file(json_path) {
             Ok(()) => crate::sql::remove_workspace_sidecar(data_dir, self.name),
             // ARCH-2 / TASK-1005: NotFound is the operationally-rare case
@@ -453,6 +508,46 @@ mod tests {
         assert!(
             sidecar.exists(),
             "sidecar must remain when JSON removal fails: {sidecar:?}"
+        );
+    }
+
+    /// ARCH-2 / TASK-1008: simulate a `kill -9` between the upsert and
+    /// the post-load cleanup. The crashed run leaves a `*.json.done`
+    /// file (rename-then-unlink ordering — the rename succeeded, the
+    /// unlink didn't). The next user-driven invocation re-runs
+    /// `cleanup_artifacts` against the original JSON path; the helper
+    /// must leave no `*.json` and no `*.json.done` residue, so a
+    /// `target/ops/data.duckdb.ingest/` audit shows the directory clean.
+    #[test]
+    fn cleanup_artifacts_clears_done_residue_left_by_prior_crash() {
+        let config = SidecarIngestorConfig {
+            name: "crash_resume",
+            json_filename: "data.json",
+            count_table: crate::sql::validation::TableName::from_static("data_sources"),
+        };
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let json_path = temp_dir.path().join("data.json");
+        let done_path = temp_dir.path().join("data.json.done");
+
+        // Prior crash residue: `.done` file exists but `.json` is gone.
+        std::fs::write(&done_path, b"crash-residue").unwrap();
+
+        // Re-run a successful ingest path: the staging JSON exists again.
+        std::fs::write(&json_path, b"new-load").unwrap();
+        crate::sql::write_workspace_sidecar(temp_dir.path(), config.name, temp_dir.path()).unwrap();
+        config.cleanup_artifacts(temp_dir.path(), &json_path);
+
+        assert!(
+            !json_path.exists(),
+            "json staging file must be gone after successful cleanup"
+        );
+        // The rename overwrites the prior `.done` residue, then unlink
+        // removes the result — so a clean rerun also clears any leftover
+        // crash debris on disk. The directory ends up empty (modulo the
+        // sidecar removal already exercised by sister tests).
+        assert!(
+            !done_path.exists(),
+            "prior-crash .done residue must be reaped by the next successful cleanup"
         );
     }
 

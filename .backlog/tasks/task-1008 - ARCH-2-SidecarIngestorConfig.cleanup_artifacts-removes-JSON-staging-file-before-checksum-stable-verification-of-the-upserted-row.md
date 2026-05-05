@@ -3,9 +3,10 @@ id: TASK-1008
 title: >-
   ARCH-2: SidecarIngestorConfig.cleanup_artifacts removes JSON staging file
   before checksum-stable verification of the upserted row
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 22:05'
+updated_date: '2026-05-05 01:14'
 labels:
   - code-review-rust
   - ARCH
