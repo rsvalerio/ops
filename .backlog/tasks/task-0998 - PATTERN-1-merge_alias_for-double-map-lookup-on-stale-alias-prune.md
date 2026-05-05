@@ -1,9 +1,10 @@
 ---
 id: TASK-0998
 title: 'PATTERN-1: merge_alias_for double map lookup on stale-alias prune'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 22:01'
+updated_date: '2026-05-05 00:26'
 labels:
   - code-review-rust
   - idioms

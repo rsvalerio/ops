@@ -196,28 +196,40 @@ impl CommandRunner {
     /// same id are pruned first so a re-registration that drops an alias
     /// does not leave the map pointing at a now-invalid spec.
     fn merge_alias_for(&mut self, id: &CommandId, new_spec: &CommandSpec) {
+        // PATTERN-1 / TASK-0998: route both branches through the `Entry`
+        // API so each alias is looked up exactly once. The previous
+        // `get` → `remove` and `get` → `insert` pairs probed the map
+        // twice and invited drift between the two lookups.
+        use std::collections::hash_map::Entry;
         if let Some(old_spec) = self.extension_commands.get(id) {
             for old_alias in old_spec.aliases() {
-                if let Some(owner) = self.non_config_alias_map.get(old_alias.as_str()) {
-                    if owner == id.as_str() {
-                        self.non_config_alias_map.remove(old_alias.as_str());
+                if let Entry::Occupied(occ) = self
+                    .non_config_alias_map
+                    .entry(old_alias.as_str().to_string())
+                {
+                    if occ.get() == id.as_str() {
+                        occ.remove();
                     }
                 }
             }
         }
         for alias in new_spec.aliases() {
-            if let Some(existing) = self.non_config_alias_map.get(alias.as_str()) {
-                if existing != id.as_str() {
-                    tracing::warn!(
-                        alias = %alias,
-                        existing = %existing,
-                        new = %id,
-                        "alias collision: later store overrides earlier"
-                    );
+            match self.non_config_alias_map.entry(alias.clone()) {
+                Entry::Occupied(mut occ) => {
+                    if occ.get() != id.as_str() {
+                        tracing::warn!(
+                            alias = %alias,
+                            existing = %occ.get(),
+                            new = %id,
+                            "alias collision: later store overrides earlier"
+                        );
+                    }
+                    occ.insert(id.to_string());
+                }
+                Entry::Vacant(vac) => {
+                    vac.insert(id.to_string());
                 }
             }
-            self.non_config_alias_map
-                .insert(alias.clone(), id.to_string());
         }
     }
 
