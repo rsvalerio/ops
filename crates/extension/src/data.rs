@@ -189,23 +189,19 @@ impl DataRegistry {
         self.providers.get(name).map(|b| b.as_ref())
     }
 
-    /// Returns sorted list of registered provider names.
+    /// Returns the registered provider names in sorted order.
     ///
-    /// Use [`Self::provider_names_iter`] when you only need to iterate; the
-    /// `Vec` form is kept for callers that need indexing or ownership.
+    /// API-3 / TASK-0996: previously paired with a `provider_names_iter`
+    /// method whose name promised zero-allocation streaming but whose body
+    /// collected into an intermediate `Vec` to perform the sort. The two
+    /// shapes paid the same cost while misleading callers about the
+    /// allocation profile. Collapsed to a single `Vec`-returning accessor
+    /// — sorting registered provider names *requires* materialising them,
+    /// so the type signature now matches the cost.
     pub fn provider_names(&self) -> Vec<&str> {
-        self.provider_names_iter().collect()
-    }
-
-    /// API-3 / TASK-0877: zero-allocation iteration over registered provider
-    /// names in sorted order. The intermediate `BTreeMap`-style sort is
-    /// performed once via a stack-local `Vec` of `&str` (length bounded by
-    /// the registry size, far smaller than allocating a `Vec` *per call site*
-    /// that only iterates).
-    pub fn provider_names_iter(&self) -> impl Iterator<Item = &str> {
         let mut names: Vec<&str> = self.providers.keys().map(String::as_str).collect();
         names.sort_unstable();
-        names.into_iter()
+        names
     }
 
     /// Returns schemas for all providers that have non-empty descriptions.

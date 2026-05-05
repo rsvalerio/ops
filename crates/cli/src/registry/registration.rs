@@ -138,6 +138,9 @@ pub fn register_extension_data_providers(
     extensions: &[&dyn Extension],
     registry: &mut DataRegistry,
 ) {
+    // API-3 / TASK-0996: `provider_names` returns a sorted Vec — collapsed
+    // from the previous misleading `_iter` sibling. The seed is consumed
+    // once here, so the single Vec round-trip is intentional.
     let mut owners = seed_owners(registry.provider_names().into_iter().map(str::to_string));
 
     for ext in extensions {

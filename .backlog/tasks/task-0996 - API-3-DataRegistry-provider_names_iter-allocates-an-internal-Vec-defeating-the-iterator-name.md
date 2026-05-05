@@ -3,9 +3,10 @@ id: TASK-0996
 title: >-
   API-3: DataRegistry::provider_names_iter allocates an internal Vec, defeating
   the iterator name
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 22:00'
+updated_date: '2026-05-05 00:23'
 labels:
   - code-review-rust
   - structure
