@@ -3,9 +3,10 @@ id: TASK-1001
 title: >-
   PERF-3: pad_to_width_plain re-implements width sum per char instead of
   delegating to display_width
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-04 22:02'
+updated_date: '2026-05-05 00:49'
 labels:
   - code-review-rust
   - PATTERN

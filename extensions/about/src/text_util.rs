@@ -31,7 +31,12 @@ pub fn char_display_width(c: char) -> usize {
 }
 
 pub fn pad_to_width_plain(s: &str, width: usize) -> String {
-    let current_width = s.chars().map(char_display_width).sum::<usize>();
+    // PATTERN-1 / TASK-1001: delegate to `display_width` so emoji ZWJ
+    // sequences (`👨‍👩‍👧`), regional-indicator flag pairs, and variation
+    // selectors are accounted for at the cluster level. Char-summing
+    // over-counted joiners / VS-16 glyphs and produced misaligned About
+    // cards for unit names containing emoji.
+    let current_width = display_width(s);
     if current_width >= width {
         s.to_string()
     } else {
@@ -234,6 +239,24 @@ mod tests {
     #[test]
     fn pad_to_width_adds_padding() {
         assert_eq!(pad_to_width_plain("hi", 5).len(), 5);
+    }
+
+    /// PATTERN-1 / TASK-1001: a string with an emoji ZWJ sequence
+    /// (`👨‍👩‍👧`) must be padded based on `display_width` (cluster-aware),
+    /// matching how the rest of the about/text_util module measures text.
+    /// Char-summing over-counted the joiner / VS-16 glyphs and produced
+    /// off-by-one cards under TTY rendering.
+    #[test]
+    fn pad_to_width_uses_display_width_for_zwj_sequence() {
+        let s = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"; // 👨‍👩‍👧
+        let target = display_width(s) + 4;
+        let padded = pad_to_width_plain(s, target);
+        assert_eq!(
+            display_width(&padded),
+            target,
+            "padded display_width must equal target; got padded={padded:?}"
+        );
+        assert!(padded.starts_with(s));
     }
 
     #[test]
