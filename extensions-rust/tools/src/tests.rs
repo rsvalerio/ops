@@ -88,10 +88,7 @@ fn tool_spec_extended_system_source() {
 fn tool_status_equality() {
     assert_eq!(ToolStatus::Installed, ToolStatus::Installed);
     assert_eq!(ToolStatus::NotInstalled, ToolStatus::NotInstalled);
-    assert_eq!(ToolStatus::Unknown, ToolStatus::Unknown);
     assert_ne!(ToolStatus::Installed, ToolStatus::NotInstalled);
-    assert_ne!(ToolStatus::Installed, ToolStatus::Unknown);
-    assert_ne!(ToolStatus::NotInstalled, ToolStatus::Unknown);
 }
 
 #[test]
