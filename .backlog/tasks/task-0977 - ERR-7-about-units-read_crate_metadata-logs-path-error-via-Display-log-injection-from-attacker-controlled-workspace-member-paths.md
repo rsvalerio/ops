@@ -3,9 +3,11 @@ id: TASK-0977
 title: >-
   ERR-7: about::units::read_crate_metadata logs path/error via Display, log
   injection from attacker-controlled workspace member paths
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1010
 created_date: '2026-05-04 21:58'
+updated_date: '2026-05-06 06:53'
 labels:
   - code-review-rust
   - error-handling

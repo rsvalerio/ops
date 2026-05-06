@@ -3,9 +3,11 @@ id: TASK-0954
 title: >-
   TEST-11: integration error-path tests assert only .failure() without verifying
   error message
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1009
 created_date: '2026-05-04 21:45'
+updated_date: '2026-05-06 06:47'
 labels:
   - code-review-rust
   - test-quality

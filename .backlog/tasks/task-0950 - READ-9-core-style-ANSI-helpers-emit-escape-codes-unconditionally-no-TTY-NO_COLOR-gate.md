@@ -3,9 +3,11 @@ id: TASK-0950
 title: >-
   READ-9: core::style ANSI helpers emit escape codes unconditionally (no
   TTY/NO_COLOR gate)
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1011
 created_date: '2026-05-04 21:45'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - readability

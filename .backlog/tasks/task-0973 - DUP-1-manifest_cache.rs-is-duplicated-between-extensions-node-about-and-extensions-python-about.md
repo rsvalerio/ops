@@ -3,9 +3,11 @@ id: TASK-0973
 title: >-
   DUP-1: manifest_cache.rs is duplicated between extensions-node/about and
   extensions-python/about
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1012
 created_date: '2026-05-04 21:57'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - DUP

@@ -3,9 +3,11 @@ id: TASK-0988
 title: >-
   ERR-1: cargo-toml find_workspace_root uses .exists() which silently treats
   EACCES as 'no manifest', skipping reachable Cargo.toml
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1013
 created_date: '2026-05-04 21:59'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - error-handling

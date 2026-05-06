@@ -3,9 +3,11 @@ id: TASK-0994
 title: >-
   PATTERN-1: is_block_opener rejects valid 'use ( // comment' opener with
   trailing inline comment
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1014
 created_date: '2026-05-04 21:59'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - PATTERN

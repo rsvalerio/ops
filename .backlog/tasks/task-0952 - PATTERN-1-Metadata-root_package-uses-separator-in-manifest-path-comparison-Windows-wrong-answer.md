@@ -3,9 +3,11 @@ id: TASK-0952
 title: >-
   PATTERN-1: Metadata::root_package uses '/' separator in manifest path
   comparison (Windows wrong-answer)
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1014
 created_date: '2026-05-04 21:45'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - correctness

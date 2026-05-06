@@ -1,9 +1,11 @@
 ---
 id: TASK-0960
 title: 'ERR-1: separator_columns byte-index slicing panics on non-ASCII row'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1013
 created_date: '2026-05-04 21:46'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - correctness

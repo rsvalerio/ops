@@ -3,9 +3,11 @@ id: TASK-0953
 title: >-
   TEST-15: cli_run_command_with_timeout uses real 3s sleep with 1s timeout
   (flake risk)
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1009
 created_date: '2026-05-04 21:45'
+updated_date: '2026-05-06 06:47'
 labels:
   - code-review-rust
   - test-quality

@@ -3,9 +3,11 @@ id: TASK-1002
 title: >-
   READ-5: validate_path_chars uses Unicode is_alphanumeric, allowing scripts
   that defeat the SQL-safety allowlist
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1015
 created_date: '2026-05-04 22:03'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - SEC

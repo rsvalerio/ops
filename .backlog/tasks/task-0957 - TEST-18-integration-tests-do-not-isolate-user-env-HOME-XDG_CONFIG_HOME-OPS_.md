@@ -3,9 +3,11 @@ id: TASK-0957
 title: >-
   TEST-18: integration tests do not isolate user env
   (HOME/XDG_CONFIG_HOME/OPS_*)
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1009
 created_date: '2026-05-04 21:46'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - test-quality

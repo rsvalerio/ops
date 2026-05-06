@@ -3,9 +3,11 @@ id: TASK-1000
 title: >-
   SEC-25: create_ingest_dir DirBuilder with mode 0o700 stamps every intermediate
   parent restrictively
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1015
 created_date: '2026-05-04 22:02'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - SEC

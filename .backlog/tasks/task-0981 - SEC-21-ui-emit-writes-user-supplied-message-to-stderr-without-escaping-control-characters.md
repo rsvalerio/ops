@@ -3,9 +3,11 @@ id: TASK-0981
 title: >-
   SEC-21: ui::emit writes user-supplied message to stderr without escaping
   control characters
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1010
 created_date: '2026-05-04 21:58'
+updated_date: '2026-05-06 06:54'
 labels:
   - code-review-rust
   - security

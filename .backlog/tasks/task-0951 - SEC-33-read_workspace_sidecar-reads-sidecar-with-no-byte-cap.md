@@ -1,9 +1,11 @@
 ---
 id: TASK-0951
 title: 'SEC-33: read_workspace_sidecar reads sidecar with no byte cap'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1015
 created_date: '2026-05-04 21:45'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - security

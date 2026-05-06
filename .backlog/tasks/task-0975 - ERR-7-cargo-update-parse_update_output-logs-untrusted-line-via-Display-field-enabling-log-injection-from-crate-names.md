@@ -3,9 +3,11 @@ id: TASK-0975
 title: >-
   ERR-7: cargo-update parse_update_output logs untrusted line via Display field,
   enabling log injection from crate names
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1010
 created_date: '2026-05-04 21:58'
+updated_date: '2026-05-06 06:53'
 labels:
   - code-review-rust
   - error-handling

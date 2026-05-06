@@ -3,9 +3,10 @@ id: TASK-0993
 title: >-
   ARCH-9: CommandRunner.data_cache and Context.data_cache duplicate the
   provider-result cache
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-05-04 21:59'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - structure

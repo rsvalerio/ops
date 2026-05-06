@@ -3,9 +3,11 @@ id: TASK-0978
 title: >-
   DUP-1: theme strip_ansi and visible_width duplicate the entire ANSI grammar
   parser
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1011
 created_date: '2026-05-04 21:58'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - duplication

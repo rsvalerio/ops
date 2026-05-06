@@ -3,9 +3,11 @@ id: TASK-0984
 title: >-
   ERR-1: test-coverage flatten_coverage_json silently coerces missing filename
   to empty string, polluting coverage_files with an unkeyed row
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1013
 created_date: '2026-05-04 21:58'
+updated_date: '2026-05-06 06:48'
 labels:
   - code-review-rust
   - error-handling
