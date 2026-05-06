@@ -123,7 +123,7 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
             // Promote to warn so the count regression is observable at the
             // default log level — debug would silently disappear.
             tracing::warn!(
-                line = %clean,
+                line = ?clean,
                 "skipping cargo-update line that begins with a known verb but did not parse — possible format drift"
             );
         }
@@ -248,7 +248,7 @@ fn parse_action_line(line: &str) -> Option<UpdateEntry> {
             // version. Warn loudly so format drift is visible instead of
             // producing wrong-but-plausible output.
             if it.next().is_some() {
-                tracing::warn!(line, "cargo-update `Updating` line has unexpected trailing tokens; annotation discarded");
+                tracing::warn!(line = ?line, "cargo-update `Updating` line has unexpected trailing tokens; annotation discarded");
             }
             return Some(UpdateEntry {
                 action,
@@ -266,7 +266,7 @@ fn parse_action_line(line: &str) -> Option<UpdateEntry> {
         let version_raw = it.next()?;
         if it.next().is_some() {
             tracing::warn!(
-                line,
+                line = ?line,
                 "cargo-update `Adding`/`Removing` line has unexpected trailing tokens; annotation discarded"
             );
         }

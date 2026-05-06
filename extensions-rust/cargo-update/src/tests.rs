@@ -14,6 +14,19 @@ mod extension_tests {
     );
 }
 
+/// ERR-7 (TASK-0975): tracing breadcrumbs for cargo-update format-drift
+/// lines flow through the `?` formatter so an attacker-controlled crate name
+/// with embedded newlines / ANSI escapes cannot forge log records.
+#[test]
+fn warn_breadcrumb_debug_escapes_control_characters() {
+    let line = "Updating evil\n[FAKE-LOG] forged\u{1b}[31m v1 -> v2";
+    let rendered = format!("{line:?}");
+    assert!(!rendered.contains('\n'));
+    assert!(!rendered.contains('\u{1b}'));
+    assert!(rendered.contains("\\n"));
+    assert!(rendered.contains("\\u{1b}"));
+}
+
 // -- Parser tests --
 
 #[test]

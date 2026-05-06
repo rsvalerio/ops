@@ -117,9 +117,12 @@ pub(crate) fn read_crate_metadata(crate_toml_path: &std::path::Path) -> CrateMet
         Ok(c) => c,
         Err(e) => {
             if e.kind() != std::io::ErrorKind::NotFound {
+                // ERR-7 (TASK-0977): Debug-format path/error so an
+                // attacker-controlled workspace member name with embedded
+                // newlines / ANSI escapes cannot forge log records.
                 tracing::debug!(
-                    path = %crate_toml_path.display(),
-                    error = %e,
+                    path = ?crate_toml_path.display(),
+                    error = ?e,
                     "failed to read crate manifest"
                 );
             }
@@ -130,9 +133,12 @@ pub(crate) fn read_crate_metadata(crate_toml_path: &std::path::Path) -> CrateMet
     let parsed = match CargoToml::parse(&content) {
         Ok(p) => p,
         Err(e) => {
+            // ERR-7 (TASK-0977): Debug-format path/error so an
+            // attacker-controlled workspace member name with embedded
+            // newlines / ANSI escapes cannot forge log records.
             tracing::warn!(
-                path = %crate_toml_path.display(),
-                error = %e,
+                path = ?crate_toml_path.display(),
+                error = ?e,
                 "failed to parse crate manifest as TOML"
             );
             return CrateMetadata::default();
@@ -166,6 +172,18 @@ pub(crate) fn resolve_crate_display_name(member: &str, workspace_root: &std::pat
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ERR-7 (TASK-0977): tracing fields for crate-manifest paths flow
+    /// through the `?` formatter so an attacker-controlled workspace member
+    /// path with embedded newlines / ANSI escapes cannot forge log records.
+    #[test]
+    fn crate_metadata_breadcrumb_debug_escapes_control_characters() {
+        let p = std::path::Path::new("a\nb\u{1b}[31mc/Cargo.toml");
+        let rendered = format!("{:?}", p.display());
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
+    }
 
     #[test]
     fn read_crate_metadata_basic() {
