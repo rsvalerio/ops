@@ -18,6 +18,15 @@ Instructions for AI coding agents working on this project.
 
 - Rust edition is 2021. - Treat clippy warnings as errors. - After changing any `*.rs` file, run `ops verify` and `ops qa`,. - If those commands report errors or warnings, fix them and rerun the same gate.
 
+## Rust implementation guardrails
+
+For any non-trivial Rust change, read the `code-review-rust` skill *before*
+editing and follow its rules as acceptance criteria. Do not file backlog tasks
+during implementation — that mode is for formal reviews only.
+
+Run `cargo fmt`, `cargo clippy --all-targets --workspace -- -D warnings`, and
+`cargo test --workspace` before declaring the change done.
+
 ## Common Commands
 
 - Build: `cargo build --all-targets`
