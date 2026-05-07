@@ -114,7 +114,15 @@ fn find_required_version(root: &Path) -> Option<String> {
     let mut tf_paths: Vec<std::path::PathBuf> = entries
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "tf"))
+        // PATTERN-1 / TASK-1025: compare extension ASCII-case-insensitively
+        // so a `Custom.TF` / `Versions.Tf` file (preserved-case on macOS APFS,
+        // Windows NTFS) is found by the fallback walk, matching the targeted
+        // candidate list which already resolves case-insensitively via the FS.
+        .filter(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|s| s.eq_ignore_ascii_case("tf"))
+        })
         .collect();
     tf_paths.sort();
     for path in tf_paths {
@@ -552,6 +560,27 @@ mod tests {
             v,
             Some("~> 1.5".to_string()),
             "alphabetically-first .tf file with a constraint must win"
+        );
+    }
+
+    /// PATTERN-1 / TASK-1025: a `.tf` file with a mixed-case extension
+    /// (e.g. `Custom.TF`) carrying a `required_version` must be picked up
+    /// by the fallback walk. Pre-fix the OsStr comparison was case-sensitive
+    /// and silently skipped these files on case-preserving filesystems.
+    #[test]
+    fn find_required_version_fallback_matches_uppercase_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        // Use a name outside the targeted candidate list so we exercise
+        // the read_dir fallback specifically.
+        write(
+            &dir.path().join("Custom.TF"),
+            "terraform {\n  required_version = \"~> 1.7\"\n}\n",
+        );
+        let v = find_required_version(dir.path());
+        assert_eq!(
+            v,
+            Some("~> 1.7".to_string()),
+            "uppercase .TF extension must be matched case-insensitively"
         );
     }
 
