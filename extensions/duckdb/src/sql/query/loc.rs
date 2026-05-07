@@ -76,8 +76,8 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>>
              SELECT language, \
                     SUM(code) AS loc, \
                     COUNT(*) AS files, \
-                    ROUND(SUM(code) * 100.0 / NULLIF(totals.total_loc, 0), 1) AS loc_pct, \
-                    ROUND(COUNT(*) * 100.0 / NULLIF(totals.total_files, 0), 1) AS files_pct \
+                    COALESCE(ROUND(SUM(code) * 100.0 / NULLIF(totals.total_loc, 0), 1), 0) AS loc_pct, \
+                    COALESCE(ROUND(COUNT(*) * 100.0 / NULLIF(totals.total_files, 0), 1), 0) AS files_pct \
              FROM tokei_files, totals \
              GROUP BY language, totals.total_loc, totals.total_files \
              ORDER BY SUM(code) DESC",

@@ -414,6 +414,36 @@ fn query_project_languages_returns_empty_when_all_below_threshold() {
 }
 
 #[test]
+fn query_project_languages_returns_empty_when_total_loc_is_zero() {
+    // ERR-1 / TASK-1116: when tokei_files exists but every code value is 0,
+    // total_loc is 0 and the SQL division returns NULL via NULLIF. The row
+    // mapper used to error on row.get::<_, f64>(3)? for the NULL loc_pct,
+    // surfacing as a misleading "language stats failed" log. The fix wraps
+    // loc_pct in COALESCE(..., 0) so the >= 0.1 filter naturally drops the
+    // row and the documented empty-result signal is preserved.
+    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    init_schema(&db).expect("init_schema");
+
+    let conn = db.lock().expect("lock");
+    conn.execute_batch(
+        "CREATE TABLE tokei_files (language VARCHAR, file VARCHAR, code BIGINT, \
+         comments BIGINT, blanks BIGINT, lines BIGINT);
+         INSERT INTO tokei_files VALUES ('Markdown', 'README.md', 0, 0, 10, 10);
+         INSERT INTO tokei_files VALUES ('Markdown', 'CHANGELOG.md', 0, 5, 0, 5);
+         INSERT INTO tokei_files VALUES ('Plain Text', 'NOTES.txt', 0, 0, 3, 3);",
+    )
+    .expect("insert test data");
+    drop(conn);
+
+    let langs = query_project_languages(&db).expect("query must not error on zero total_loc");
+    assert!(
+        langs.is_empty(),
+        "all-zero-code input must return empty (got {} entries)",
+        langs.len()
+    );
+}
+
+#[test]
 fn query_crate_coverage_with_absolute_paths() {
     let db = DuckDb::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
