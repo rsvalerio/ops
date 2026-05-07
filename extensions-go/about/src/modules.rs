@@ -37,8 +37,20 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
         Some(m) => {
             let mut unit = ProjectUnit::new(
                 last_segment(Some(&m)).unwrap_or_else(|| m.clone()),
-                // Empty path matches every file in `tokei_files` via starts_with.
-                String::new(),
+                // PATTERN-1 (TASK-1085): a non-workspace `go.mod` lives at the
+                // project root, so the unit subpath is `"."` — the same value
+                // that `normalize_module_path("."" )` represents for a
+                // `use .` workspace directive. Both `""` and `"."` are
+                // recognised by `extensions/about/src/units.rs` enrichment as
+                // a "root module": LOC and file-count are taken from the
+                // project-wide totals rather than the per-crate
+                // `starts_with(file, path || '/')` join. Cross-stack invariant
+                // (PATTERN-1, AC #3): like Node and Python, the single-mod
+                // card is *project-wide* by design — non-Go content in cwd
+                // (vendored JS, generated artefacts) contributes to the
+                // count, matching how `package.json` / `pyproject.toml`
+                // single-package projects render.
+                ".".to_string(),
             );
             unit.version = go_version;
             unit.description = Some(m);
@@ -186,9 +198,56 @@ mod tests {
         .unwrap();
         let units = collect_units(dir.path());
         assert_eq!(units.len(), 1);
-        // Empty path signals project-root module; enrichment uses project-wide stats.
-        assert_eq!(units[0].path, "");
+        // `.` signals project-root module; enrichment uses project-wide stats.
+        // `extensions/about/src/units.rs::enrich_from_db` treats both `""` and
+        // `"."` as the root-module sentinel.
+        assert_eq!(units[0].path, ".");
         assert_eq!(units[0].name, "app");
+    }
+
+    /// PATTERN-1 (TASK-1085): a non-workspace `go.mod` at cwd produces a unit
+    /// whose `path` is the project-root sentinel (`"."`). Enrichment in
+    /// `extensions/about/src/units.rs` recognises this and uses
+    /// project-wide LOC/file totals — matching Node (`package.json`) and
+    /// Python (`pyproject.toml`) single-package behaviour. The unit `path`
+    /// must NOT be the empty string (which previously documented itself
+    /// as "matches every file via starts_with" — a no-op filter that
+    /// happened to yield the same project-wide count, but obscured the
+    /// invariant).
+    #[test]
+    fn collect_units_single_mod_with_non_go_files_uses_root_sentinel() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module github.com/user/app\n\ngo 1.23\n",
+        )
+        .unwrap();
+        // Sprinkle non-Go and Go files at the module root to mimic a real
+        // project: vendored JS, generated artefacts, and the actual Go
+        // source. The path filter on the resulting unit decides which of
+        // these contribute to the single-mod LOC card.
+        std::fs::write(dir.path().join("main.go"), "package main\nfunc main(){}\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("vendor/js")).unwrap();
+        std::fs::write(
+            dir.path().join("vendor/js/bundle.js"),
+            "console.log('vendored');\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("README.md"), "# app\n").unwrap();
+
+        let units = collect_units(dir.path());
+        assert_eq!(units.len(), 1);
+        // Root-module sentinel: enrichment recognises `""` *or* `"."`. We
+        // emit `"."` because it is self-documenting (the relative directory
+        // containing `go.mod`) and matches the `use .` workspace path after
+        // `normalize_module_path` round-trips through enrichment.
+        assert!(
+            units[0].path == "." || units[0].path.is_empty(),
+            "expected root-module sentinel, got {:?}",
+            units[0].path
+        );
+        assert_eq!(units[0].name, "app");
+        assert_eq!(units[0].description.as_deref(), Some("github.com/user/app"));
     }
 
     #[test]
