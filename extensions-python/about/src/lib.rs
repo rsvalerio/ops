@@ -265,10 +265,14 @@ fn extract_urls(
     // and re-ran `normalize_url_key` over every key on each invocation;
     // `extract_urls` calls `pick_url` twice, so the work was duplicated.
     let normalized = normalize_urls(urls);
-    let homepage = pick_url(
-        &normalized,
-        &["homepage", "home", "home-page", "documentation"],
-    );
+    // PATTERN-1 / TASK-1062: PEP 621 distinguishes `Homepage` from
+    // `Documentation` as separate, semantically distinct labels. Folding
+    // `documentation` into the homepage slot misrepresents a docs-only
+    // pyproject as having its docs URL as the homepage, and silently
+    // discards Documentation when both are present. Drop it from the
+    // homepage candidate list so its absence falls through to None. If the
+    // About card grows a Documentation field, surface it as its own bullet.
+    let homepage = pick_url(&normalized, &["homepage", "home", "home-page"]);
     let repository = pick_url(
         &normalized,
         &[
@@ -647,6 +651,38 @@ Repository = "https://github.com/x/demo"
         assert!(
             id.homepage.is_none(),
             "whitespace-only Homepage must drop, got: {:?}",
+            id.homepage
+        );
+    }
+
+    /// PATTERN-1 / TASK-1062: PEP 621 distinguishes `Homepage` from
+    /// `Documentation`. A pyproject with only a `Documentation` URL must NOT
+    /// have its docs URL surfaced as the project homepage — the homepage
+    /// field should fall through to None.
+    #[test]
+    fn documentation_only_url_does_not_become_homepage() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "demo"
+version = "1.0.0"
+
+[project.urls]
+Documentation = "https://docs.x"
+"#,
+        )
+        .unwrap();
+
+        let provider = PythonIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let id: ProjectIdentity =
+            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert!(
+            id.homepage.is_none(),
+            "Documentation must not be folded into homepage, got: {:?}",
             id.homepage
         );
     }
