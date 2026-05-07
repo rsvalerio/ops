@@ -27,7 +27,7 @@ fn std_field_specs(id: &ProjectIdentity) -> Vec<(&'static str, String, Option<St
         (
             "license",
             "license".into(),
-            id.license.clone().filter(|s| !s.is_empty()),
+            id.license.as_ref().filter(|s| !s.is_empty()).cloned(),
         ),
         (
             "modules",
@@ -53,12 +53,12 @@ fn std_field_specs(id: &ProjectIdentity) -> Vec<(&'static str, String, Option<St
         (
             "repository",
             "repository".into(),
-            id.repository.clone().filter(|s| !s.is_empty()),
+            id.repository.as_ref().filter(|s| !s.is_empty()).cloned(),
         ),
         (
             "homepage",
             "homepage".into(),
-            id.homepage.clone().filter(|s| !s.is_empty()),
+            id.homepage.as_ref().filter(|s| !s.is_empty()).cloned(),
         ),
     ]
 }
