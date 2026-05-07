@@ -38,16 +38,21 @@ pub struct ConfigurableTheme {
     label_prefix: Option<String>,
     separator_prefix: Option<String>,
     duration_prefix: Option<String>,
+    /// TASK-1035: precomputed `" ".repeat(config.left_pad)` so the per-step
+    /// render path doesn't allocate a fresh padding string on every call.
+    left_pad_str: String,
 }
 
 impl ConfigurableTheme {
     pub fn new(config: ThemeConfig) -> Self {
+        let left_pad_str = " ".repeat(config.left_pad);
         Self {
             header_prefix: precompute_sgr_prefix(&config.header_color),
             summary_prefix: precompute_sgr_prefix(&config.summary_color),
             label_prefix: precompute_sgr_prefix(&config.label_color),
             separator_prefix: precompute_sgr_prefix(&config.separator_color),
             duration_prefix: precompute_sgr_prefix(&config.duration_color),
+            left_pad_str,
             config,
         }
     }
@@ -56,8 +61,8 @@ impl ConfigurableTheme {
         self.config.left_pad
     }
 
-    pub fn left_pad_str(&self) -> String {
-        " ".repeat(self.left_pad())
+    pub fn left_pad_str(&self) -> &str {
+        &self.left_pad_str
     }
 
     pub fn status_icon(&self, status: StepStatus) -> &str {
@@ -250,7 +255,7 @@ impl ConfigurableTheme {
         if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
             return inner.to_string();
         }
-        let pad = " ".repeat(self.left_pad());
+        let pad = self.left_pad_str();
         // Inner visual budget: columns - 2*left_pad - BOX_STEP_RESERVE.
         let outer = columns as usize;
         // Frame overhead = outer margin on both sides + the boxed step reserve.
@@ -351,11 +356,7 @@ impl ConfigurableTheme {
             .unwrap_or_default();
         let plain_separator =
             self.render_separator(&plain_prefix, &plain_duration, columns as usize, is_running);
-        let pad = if is_running {
-            String::new()
-        } else {
-            self.left_pad_str()
-        };
+        let pad = if is_running { "" } else { self.left_pad_str() };
 
         let parts = self.step_prefix_parts(step.status, is_running);
         let colored_label = apply_with_prefix(&step.label, self.label_prefix.as_deref());
