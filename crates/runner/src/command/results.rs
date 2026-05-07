@@ -107,8 +107,12 @@ pub struct CommandOutput {
 /// in the truncation marker without keeping the bytes resident. Peak memory
 /// per stream is bounded near `cap` regardless of how much the child writes.
 ///
-/// Override at runtime via `OPS_OUTPUT_BYTE_CAP` (parses as a u64; values
-/// `<=0` are ignored and fall back to the default).
+/// Override at runtime via `OPS_OUTPUT_BYTE_CAP` (parses as a `usize`;
+/// values `<=0` are ignored and fall back to the default). On 32-bit
+/// targets `usize == u32`, so values above `usize::MAX` (≈4 GiB) cannot
+/// be represented and will fall back to the default with a warn — there
+/// is no point allocating beyond `usize::MAX` bytes regardless. READ-4 /
+/// TASK-1058 aligned this doc with the parser's actual type.
 ///
 /// **PERF-3 / TASK-0905 — peak-RSS budget for parallel plans.** This cap
 /// applies *per spawn × per stream*, so the worst-case in-flight capture
@@ -158,7 +162,8 @@ fn parse_output_byte_cap(raw: Option<&str>) -> (usize, Option<String>) {
             Err(e) => (
                 DEFAULT_OUTPUT_BYTE_CAP,
                 Some(format!(
-                    "{OUTPUT_CAP_ENV}={s:?} failed to parse as usize ({e}); using default {DEFAULT_OUTPUT_BYTE_CAP}"
+                    "{OUTPUT_CAP_ENV}={s:?} failed to parse as usize (max {max} on this platform: {e}); using default {DEFAULT_OUTPUT_BYTE_CAP}",
+                    max = usize::MAX
                 )),
             ),
         },
@@ -419,6 +424,20 @@ mod tests {
         let (cap, msg) = parse_output_byte_cap(Some("-1"));
         assert_eq!(cap, DEFAULT_OUTPUT_BYTE_CAP);
         assert!(msg.is_some());
+
+        // READ-4 / TASK-1058: a value larger than the platform's
+        // `usize::MAX` must surface a parse-error warn that names the
+        // platform ceiling so 32-bit operators reading the doc see why
+        // their u64-shaped value fell back. Pick `usize::MAX + 1` as a
+        // u128 to stay portable across 32/64-bit targets.
+        let too_big = (usize::MAX as u128 + 1).to_string();
+        let (cap, msg) = parse_output_byte_cap(Some(&too_big));
+        assert_eq!(cap, DEFAULT_OUTPUT_BYTE_CAP);
+        let m = msg.expect("oversized value must produce a warn message");
+        assert!(
+            m.contains(&usize::MAX.to_string()),
+            "warn must name platform ceiling usize::MAX: {m}"
+        );
     }
 
     #[test]
