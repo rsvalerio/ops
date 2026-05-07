@@ -18,8 +18,13 @@ use crate::manifest_io::read_optional_text;
 
 /// Resolve workspace member globs against `root`, looking for `marker`
 /// (e.g. `"package.json"`, `"pyproject.toml"`) inside each candidate
-/// directory. Excludes are matched with the same prefix-only glob shape and
-/// applied after expansion.
+/// directory. Excludes are matched with the same single-`*`-per-pattern glob
+/// shape and applied after expansion.
+///
+/// PATTERN-1 (TASK-1052): an exclude pattern with more than one `*` is
+/// unsupported and fails **closed** — the candidate is dropped (treated as
+/// matching) and a `tracing::warn` is emitted, rather than the previous
+/// fail-open behaviour that silently let the unit through.
 pub fn resolve_member_globs(
     members: &[String],
     excludes: &[String],
@@ -106,8 +111,14 @@ fn try_read_manifest(dir: &Path, marker: &str) -> Option<String> {
 /// in the final path segment — `prefix*`, `*suffix`, `prefix*suffix`, and
 /// bare `*`. The `*` matches any non-empty run of characters that does not
 /// cross a `/`, mirroring Cargo / yarn / npm single-segment glob semantics.
-/// Multi-`*` patterns are not supported and surface a `tracing::warn` so a
-/// silently-failed-closed exclude becomes visible.
+///
+/// PATTERN-1 (TASK-1052): multi-`*` patterns are unsupported and now fail
+/// **closed** — the candidate is treated as matching (i.e. excluded) so a
+/// typo like `packages/*-internal-*` does not silently leak the unit into
+/// published output. A `tracing::warn` is still emitted so operators can
+/// see and fix the pattern; the fail-closed default is the safer wrong
+/// answer (over-restrictive) versus the previous fail-open behaviour
+/// (under-restrictive) that shipped private modules until someone noticed.
 fn matches_exclude(pattern: &str, candidate: &str) -> bool {
     let star_count = pattern.bytes().filter(|b| *b == b'*').count();
     if star_count == 0 {
@@ -116,9 +127,9 @@ fn matches_exclude(pattern: &str, candidate: &str) -> bool {
     if star_count > 1 {
         tracing::warn!(
             pattern,
-            "workspace exclude pattern has more than one `*`; not supported, ignoring"
+            "workspace exclude pattern has more than one `*`; not supported, treating as match (fail-closed)"
         );
-        return false;
+        return true;
     }
     let idx = pattern
         .find('*')
@@ -338,11 +349,44 @@ mod tests {
         assert!(!matches_exclude("*", ""));
     }
 
-    /// PATTERN-1 (TASK-0503): multi-`*` patterns are explicitly unsupported
-    /// and must not silently drop the exclude.
+    /// PATTERN-1 (TASK-1052): multi-`*` patterns are explicitly unsupported
+    /// and now fail **closed** — `matches_exclude` returns true so the
+    /// candidate is dropped rather than silently leaked. The accompanying
+    /// `tracing::warn` is exercised but not asserted here to avoid pulling
+    /// in a tracing-subscriber dev-dep just for this case.
     #[test]
-    fn multi_star_exclude_is_ignored() {
-        assert!(!matches_exclude("a/*/b/*", "a/x/b/y"));
+    fn multi_star_exclude_fails_closed() {
+        assert!(matches_exclude("a/*/b/*", "a/x/b/y"));
+        assert!(matches_exclude("packages/*-internal-*", "packages/foo"));
+    }
+
+    /// PATTERN-1 (TASK-1052): end-to-end — a multi-`*` exclude pattern must
+    /// drop the matching candidate from `resolve_member_globs` rather than
+    /// fail open and ship it. Mirrors the typo case `packages/*-internal-*`
+    /// from the task description.
+    #[test]
+    fn multi_star_exclude_drops_candidate_in_resolve() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["keep", "x-internal-y"] {
+            write(
+                &dir.path().join(format!("packages/{name}/package.json")),
+                r#"{"name":"x"}"#,
+            );
+        }
+
+        let resolved = resolve_member_globs(
+            &["packages/*".to_string()],
+            &["packages/*-internal-*".to_string()],
+            dir.path(),
+            "package.json",
+        );
+        let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
+        // Fail-closed: the multi-`*` pattern matches everything, so even
+        // `keep` is dropped — the typo is loud rather than silent.
+        assert!(
+            names.is_empty(),
+            "multi-`*` exclude must fail closed (drop candidates), got {names:?}"
+        );
     }
 
     /// Suffix-after-`*` (e.g. `prefix/*/suffix`) is documented but unsupported
