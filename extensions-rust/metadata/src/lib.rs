@@ -27,6 +27,31 @@ const DATA_PROVIDER_NAME: &str = "metadata";
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`.
 pub(crate) const CARGO_METADATA_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// ERR-1 / TASK-1034: byte cap on the JSON payload read from
+/// `metadata_raw`. `query_metadata_raw` materialises the row as a
+/// `String` (via `to_json(m)::VARCHAR`) and then parses it into a
+/// `serde_json::Value`, which keeps two full copies live during the
+/// round-trip in addition to the DuckDB columnar buffer. A pathologically
+/// large workspace (10+ MiB cargo-metadata output is possible) could OOM
+/// the `ops about` process at this step. Cap the payload at 64 MiB by
+/// default — well above realistic workspace sizes — and fail with a
+/// clear error when exceeded so operators learn before the OS kills
+/// the process. Override via `OPS_METADATA_MAX_BYTES`.
+pub const METADATA_MAX_BYTES_DEFAULT: u64 = 64 * 1024 * 1024;
+
+/// Environment variable that overrides [`METADATA_MAX_BYTES_DEFAULT`].
+pub const METADATA_MAX_BYTES_ENV: &str = "OPS_METADATA_MAX_BYTES";
+
+/// Resolved metadata payload byte cap. Non-numeric or zero values fall
+/// back to [`METADATA_MAX_BYTES_DEFAULT`].
+fn metadata_max_bytes() -> u64 {
+    std::env::var(METADATA_MAX_BYTES_ENV)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(METADATA_MAX_BYTES_DEFAULT)
+}
+
 pub(crate) fn run_cargo_metadata(working_dir: &Path) -> Result<Output, RunError> {
     run_cargo(
         &["metadata", "--format-version", "1"],
@@ -165,6 +190,10 @@ impl DataProvider for MetadataProvider {
 }
 
 fn query_metadata_raw(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
+    query_metadata_raw_with_cap(db, metadata_max_bytes())
+}
+
+fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Value, anyhow::Error> {
     use anyhow::Context as AnyhowContext;
     let conn = db.lock().context("acquiring db lock for metadata query")?;
     // ERR-1 / TASK-0599: `metadata_raw` is a singleton table — the prior
@@ -191,6 +220,23 @@ fn query_metadata_raw(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
         )
         .context("reading from metadata_raw table")?;
     drop(conn);
+    // ERR-1 / TASK-1034: bound the size of the JSON payload before the
+    // `serde_json::from_str` call doubles allocation by materialising a
+    // `serde_json::Value` tree. Above the cap, fail loudly with the
+    // override hint rather than risk an OOM kill in `ops about`.
+    let len = json_text.len() as u64;
+    if len > cap {
+        tracing::warn!(
+            bytes = len,
+            cap,
+            env = METADATA_MAX_BYTES_ENV,
+            "metadata_raw payload exceeds byte cap; aborting parse"
+        );
+        anyhow::bail!(
+            "metadata_raw payload is {len} bytes, exceeds {cap}-byte cap \
+             (override via {METADATA_MAX_BYTES_ENV})"
+        );
+    }
     let json: serde_json::Value =
         serde_json::from_str(&json_text).context("parsing metadata JSON")?;
     Ok(json)

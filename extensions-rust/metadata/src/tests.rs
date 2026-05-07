@@ -899,6 +899,49 @@ mod metadata_edge_case_tests {
         assert_eq!(v["workspace_root"], "/a");
     }
 
+    /// ERR-1 / TASK-1034: oversized payloads must fail fast with a
+    /// clear error rather than risking an OOM in `ops about`. The cap
+    /// is configurable via `OPS_METADATA_MAX_BYTES`; this test drives
+    /// the cap directly to avoid mutating process-global env.
+    #[test]
+    fn query_metadata_raw_errors_when_payload_exceeds_cap() {
+        let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory");
+        {
+            let conn = db.lock().expect("lock");
+            // A row whose to_json serialisation comfortably exceeds 32 bytes.
+            conn.execute_batch(
+                "CREATE TABLE metadata_raw (workspace_root VARCHAR, payload VARCHAR);
+                 INSERT INTO metadata_raw VALUES \
+                 ('/workspace', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');",
+            )
+            .expect("seed");
+        }
+        let err = super::query_metadata_raw_with_cap(&db, 32).expect_err("oversized must fail");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("exceeds") && msg.contains("byte cap"),
+            "got: {msg}"
+        );
+        assert!(msg.contains(super::METADATA_MAX_BYTES_ENV), "got: {msg}");
+    }
+
+    /// ERR-1 / TASK-1034: payloads at or under the cap parse normally.
+    #[test]
+    fn query_metadata_raw_succeeds_when_payload_within_cap() {
+        let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory");
+        {
+            let conn = db.lock().expect("lock");
+            conn.execute_batch(
+                "CREATE TABLE metadata_raw (workspace_root VARCHAR, payload INTEGER);
+                 INSERT INTO metadata_raw VALUES ('/workspace', 1);",
+            )
+            .expect("seed");
+        }
+        let v = super::query_metadata_raw_with_cap(&db, super::METADATA_MAX_BYTES_DEFAULT)
+            .expect("under-cap payload should parse");
+        assert_eq!(v["workspace_root"], "/workspace");
+    }
+
     #[test]
     fn metadata_missing_packages_key() {
         let m = Metadata::from_value(serde_json::json!({
