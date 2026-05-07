@@ -356,24 +356,47 @@ fn flatten_coverage_json_data_not_array() {
     assert!(result.unwrap_err().to_string().contains("data"));
 }
 
+/// ERR-1 / TASK-0984: a missing or non-string `filename` used to coerce to ""
+/// and still get pushed into `coverage_files` — the empty-key row matched no
+/// member but still inflated project-total `lines_count`/`lines_covered`. The
+/// fix skips such records (with a `tracing::warn` breadcrumb mirroring how
+/// sister fields handle schema drift) so the project total stays clean.
 #[test]
-fn flatten_coverage_json_missing_filename_defaults_to_empty() {
+fn flatten_coverage_json_missing_filename_skips_record() {
     let raw = serde_json::json!({
         "data": [{
-            "files": [{
-                "summary": {
-                    "lines": { "count": 10, "covered": 5, "percent": 50.0 },
-                    "functions": { "count": 2, "covered": 1, "percent": 50.0 },
-                    "regions": { "count": 4, "covered": 2, "notcovered": 2, "percent": 50.0 },
-                    "branches": { "count": 0, "covered": 0, "notcovered": 0, "percent": 0.0 }
+            "files": [
+                {
+                    "filename": "src/main.rs",
+                    "summary": {
+                        "lines": { "count": 100, "covered": 80, "percent": 80.0 }
+                    }
+                },
+                {
+                    "summary": {
+                        "lines": { "count": 999, "covered": 999, "percent": 100.0 }
+                    }
+                },
+                {
+                    "filename": 42,
+                    "summary": {
+                        "lines": { "count": 42, "covered": 42, "percent": 100.0 }
+                    }
                 }
-            }]
+            ]
         }]
     });
-    let result = flatten_coverage_json(&raw).expect("should handle missing filename");
+    let result = flatten_coverage_json(&raw).expect("must not error on missing filename");
     let arr = result.as_array().unwrap();
-    assert_eq!(arr[0]["filename"], "");
-    assert_eq!(arr[0]["lines_count"], 10);
+    // Only the well-formed record survives; the no-filename and non-string
+    // filename rows are dropped so they cannot pollute aggregates.
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["filename"], "src/main.rs");
+    let total_lines: i64 = arr.iter().map(|r| r["lines_count"].as_i64().unwrap()).sum();
+    assert_eq!(
+        total_lines, 100,
+        "aggregate must exclude records without a filename"
+    );
 }
 
 #[test]

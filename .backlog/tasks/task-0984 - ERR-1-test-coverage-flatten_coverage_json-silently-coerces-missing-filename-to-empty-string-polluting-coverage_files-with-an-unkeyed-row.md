@@ -3,11 +3,11 @@ id: TASK-0984
 title: >-
   ERR-1: test-coverage flatten_coverage_json silently coerces missing filename
   to empty string, polluting coverage_files with an unkeyed row
-status: To Do
+status: Done
 assignee:
   - TASK-1013
 created_date: '2026-05-04 21:58'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:13'
 labels:
   - code-review-rust
   - error-handling
@@ -31,6 +31,6 @@ A missing or non-string `filename` collapses to an empty string with no breadcru
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Missing or non-string filename either skips the file with a tracing::warn breadcrumb or surfaces the per-file shape error via the same read_field-style helper
-- [ ] #2 Regression test feeds llvm-cov-shaped JSON with one file lacking filename and asserts the warn fires AND the aggregate project total excludes that record
+- [x] #1 Missing or non-string filename either skips the file with a tracing::warn breadcrumb or surfaces the per-file shape error via the same read_field-style helper
+- [x] #2 Regression test feeds llvm-cov-shaped JSON with one file lacking filename and asserts the warn fires AND the aggregate project total excludes that record
 <!-- AC:END -->

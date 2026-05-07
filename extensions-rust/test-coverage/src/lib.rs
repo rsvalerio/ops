@@ -215,7 +215,24 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
     let total: usize = file_arrays.iter().map(|f| f.len()).sum();
     let mut records = Vec::with_capacity(total);
     for file in file_arrays.into_iter().flat_map(|f| f.iter()) {
-        let filename = file.get("filename").and_then(|f| f.as_str()).unwrap_or("");
+        // ERR-1 / TASK-0984: an absent or non-string `filename` used to coerce
+        // to "" and still get pushed into `coverage_files` — the empty-key row
+        // matched no member but inflated project-total `lines_count` /
+        // `lines_covered`. Sister fields warn at `read_field` on schema drift;
+        // make `filename` follow the same convention by emitting a tracing
+        // breadcrumb and skipping the record so the project total stays clean.
+        let filename = match file.get("filename").and_then(|f| f.as_str()) {
+            Some(s) if !s.is_empty() => s,
+            other => {
+                tracing::warn!(
+                    field = "filename",
+                    value = %other.map_or(serde_json::Value::Null, |s| serde_json::Value::String(s.to_string())),
+                    raw = %file.get("filename").unwrap_or(&serde_json::Value::Null),
+                    "TASK-0984: coverage file record has missing or non-string filename; skipping (llvm-cov schema drift?)"
+                );
+                continue;
+            }
+        };
         let summary = file.get("summary").unwrap_or(&empty);
 
         let lines = extract_section(summary, "lines");
