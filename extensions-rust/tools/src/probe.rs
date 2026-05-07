@@ -1,6 +1,7 @@
 //! Detect whether tools/components are installed on the active toolchain.
 
 use ops_core::config::tools::{ToolSource, ToolSpec};
+use ops_core::output::format_error_tail;
 use ops_core::subprocess::{
     default_timeout, resolve_cargo_bin, resolve_rustup_bin, run_with_timeout, RunError,
 };
@@ -115,8 +116,12 @@ pub fn check_cargo_tool_installed(name: &str) -> bool {
     };
 
     if !output.status.success() {
-        let stderr_tail = String::from_utf8_lossy(&output.stderr);
-        let stderr_snippet = stderr_tail.chars().take(200).collect::<String>();
+        // ERR-1 / TASK-1032: route through `format_error_tail` so the snippet
+        // is byte-bounded (last N lines, decoded via `from_utf8_lossy`) instead
+        // of `chars().take(200)` which counts Unicode scalar values, can blow
+        // up to 600+ bytes on CJK/RTL output, and risks leaving a malformed
+        // grapheme fragment in logs.
+        let stderr_snippet = format_error_tail(&output.stderr, 10);
         tracing::warn!(
             tool = name,
             code = ?output.status.code(),
@@ -264,8 +269,9 @@ pub fn check_rustup_component_installed(component: &str) -> bool {
     };
 
     if !output.status.success() {
-        let stderr_tail = String::from_utf8_lossy(&output.stderr);
-        let stderr_snippet = stderr_tail.chars().take(200).collect::<String>();
+        // ERR-1 / TASK-1032: see `check_cargo_tool_installed` — `format_error_tail`
+        // is byte-bounded and char-boundary safe, unlike `chars().take(200)`.
+        let stderr_snippet = format_error_tail(&output.stderr, 10);
         tracing::warn!(
             component = component,
             code = ?output.status.code(),
@@ -406,6 +412,8 @@ pub fn capture_rustup_components() -> Option<String> {
 
 #[cfg(test)]
 mod probe_log_format_tests {
+    use ops_core::output::format_error_tail;
+
     /// ERR-7 / TASK-0979: subprocess stderr snippets flow through the `?`
     /// formatter so cargo/rustup ANSI escapes or registry-served diagnostics
     /// containing newlines cannot forge log records or repaint the operator
@@ -420,13 +428,38 @@ mod probe_log_format_tests {
         assert!(rendered.contains("\\n"));
     }
 
-    /// ERR-7 / TASK-0979 AC#2: the snippet stays bounded at 200 chars so a
-    /// pathological stderr payload cannot blow up log volume.
+    /// ERR-1 / TASK-1032: the byte-bounded helper bounds the snippet by line
+    /// count rather than Unicode scalar values and always returns well-formed
+    /// UTF-8 even for stderr containing CJK/RTL characters or invalid byte
+    /// sequences. Regression guard for the `chars().take(200)` pattern that
+    /// could cut mid-grapheme and bloat logs in non-en_US locales.
     #[test]
-    fn stderr_snippet_take_200_caps_length() {
-        let stderr = "x".repeat(10_000);
-        let snippet = stderr.chars().take(200).collect::<String>();
-        assert_eq!(snippet.len(), 200);
+    fn stderr_snippet_handles_non_ascii_without_mid_grapheme_cut() {
+        // CJK characters: 3 bytes each in UTF-8. 10 lines of 5 chars.
+        let mut stderr = Vec::new();
+        for i in 0..50 {
+            stderr.extend_from_slice(format!("行{i}は失敗\n").as_bytes());
+        }
+        let snippet = format_error_tail(&stderr, 10);
+        // Must be valid UTF-8 (String guarantees this; assert no replacement
+        // characters were introduced by from_utf8_lossy).
+        assert!(!snippet.contains('\u{FFFD}'), "no replacement chars");
+        // Bounded at 10 lines — last line is "行49は失敗".
+        assert_eq!(snippet.lines().count(), 10);
+        assert!(snippet.ends_with("行49は失敗"));
+        // The previous `chars().take(200)` cap could leave a malformed
+        // grapheme; assert the snippet ends on a complete CJK character.
+        assert!(snippet.is_char_boundary(snippet.len()));
+    }
+
+    /// ERR-1 / TASK-1032 AC#2: the snippet stays bounded for pathological
+    /// stderr payloads. Replaces the prior 200-char cap test; line-bounded
+    /// truncation prevents log-volume blowups regardless of locale.
+    #[test]
+    fn stderr_snippet_caps_line_count() {
+        let stderr = "x\n".repeat(10_000);
+        let snippet = format_error_tail(stderr.as_bytes(), 10);
+        assert_eq!(snippet.lines().count(), 10);
     }
 }
 
