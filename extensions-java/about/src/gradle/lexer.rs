@@ -7,6 +7,14 @@
 //! the same shape for Maven.
 
 /// Extract a quoted string value: `"foo"` or `'foo'`.
+///
+/// PATTERN-1 (TASK-1047): the closing-quote scan is backslash-aware so that
+/// Groovy / Kotlin string literals containing escaped quotes (e.g.
+/// `"see \"v2\" docs"`, `'O\'Brien'`) round-trip without silent truncation.
+/// `\\` is treated as a literal backslash run (so a trailing `\\` does not
+/// escape the closing quote). Inner escape sequences are preserved verbatim
+/// in the returned slice — callers downstream of this lexer treat the value
+/// as opaque text, so unescaping is intentionally left out.
 pub(super) fn extract_quoted(s: &str) -> Option<&str> {
     let s = s.trim();
     let (open, rest) = if let Some(r) = s.strip_prefix('"') {
@@ -16,8 +24,23 @@ pub(super) fn extract_quoted(s: &str) -> Option<&str> {
     } else {
         return None;
     };
-    let end = rest.find(open)?;
+    let end = find_unescaped(rest, open)?;
     Some(&rest[..end])
+}
+
+/// Find the first byte offset of `quote` in `s` that is not preceded by an
+/// odd number of backslashes. Returns `None` if no unescaped `quote` exists.
+fn find_unescaped(s: &str, quote: char) -> Option<usize> {
+    let mut prev_was_backslash = false;
+    for (i, c) in s.char_indices() {
+        if c == quote && !prev_was_backslash {
+            return Some(i);
+        }
+        // Toggle so that `\\` resets to "not escaping" — a literal backslash
+        // followed by a quote is then correctly recognised as a terminator.
+        prev_was_backslash = c == '\\' && !prev_was_backslash;
+    }
+    None
 }
 
 /// Extract every quoted token from a comma-separated list of values:
@@ -40,7 +63,7 @@ pub(super) fn extract_quoted_list(s: &str, out: &mut Vec<String>) {
             return;
         };
         let after = &rest[1..];
-        let Some(end) = after.find(quote) else {
+        let Some(end) = find_unescaped(after, quote) else {
             tracing::debug!(
                 line = original,
                 remainder = rest,

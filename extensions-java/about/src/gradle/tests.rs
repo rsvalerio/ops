@@ -19,6 +19,38 @@ fn extract_quoted_list_bails_on_unbalanced_quote() {
     assert_eq!(out, vec!["core".to_string()]);
 }
 
+/// PATTERN-1 / TASK-1047: backslash-escaped quotes inside a double-quoted
+/// Groovy string must not terminate the value early.
+#[test]
+fn extract_quoted_honors_escaped_double_quotes() {
+    assert_eq!(
+        extract_quoted(r#""see \"v2\" docs""#),
+        Some(r#"see \"v2\" docs"#)
+    );
+}
+
+/// PATTERN-1 / TASK-1047: same shape for single-quoted Groovy strings.
+#[test]
+fn extract_quoted_honors_escaped_single_quotes() {
+    assert_eq!(extract_quoted(r"'O\'Brien'"), Some(r"O\'Brien"));
+}
+
+/// PATTERN-1 / TASK-1047: a literal `\\` must not eat the closing quote
+/// (the second backslash terminates the escape, so the next quote closes).
+#[test]
+fn extract_quoted_double_backslash_does_not_escape_close() {
+    assert_eq!(extract_quoted(r#""path\\"rest"#), Some(r"path\\"));
+}
+
+/// PATTERN-1 / TASK-1047: escaped quotes inside a list element must not
+/// truncate the element nor drop subsequent tokens.
+#[test]
+fn extract_quoted_list_honors_escaped_quotes() {
+    let mut out = Vec::new();
+    extract_quoted_list(r"'a\'b', 'c'", &mut out);
+    assert_eq!(out, vec![r"a\'b".to_string(), "c".to_string()]);
+}
+
 #[test]
 fn extract_assignment_double_quoted() {
     assert_eq!(
