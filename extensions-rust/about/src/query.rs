@@ -21,10 +21,19 @@ use std::time::SystemTime;
 /// CONC-2 / TASK-0843: soft upper bound on the typed-manifest cache so a
 /// long-running daemon process that visits an unbounded set of workspaces
 /// (CI worker, language-server-style host) does not accumulate one entry
-/// per cwd indefinitely. When the cap is hit on insert we evict one
-/// arbitrary entry rather than clearing the whole cache so steady-state
-/// hits remain warm.
+/// per cwd indefinitely. When the cap is hit on insert we evict the
+/// least-recently-used entry (LRU) so steady-state hits remain warm.
 const MAX_TYPED_MANIFEST_CACHE_ENTRIES: usize = 64;
+
+/// CONC-2 / TASK-1023: monotonic tick stamped on every cache hit / insert.
+/// The lowest tick is the least-recently-used entry and is evicted when
+/// the cap is hit. Using `AtomicU64::Relaxed` is sufficient: ordering
+/// across threads is irrelevant for victim selection — we only need each
+/// access to receive a strictly increasing stamp under the cache lock.
+fn next_lru_tick() -> u64 {
+    static LRU_TICK: AtomicU64 = AtomicU64::new(0);
+    LRU_TICK.fetch_add(1, Ordering::Relaxed)
+}
 
 /// CONC-2 / TASK-0843: cache entry pairs the parsed manifest with the
 /// `Cargo.toml` mtime captured at parse time. On every cache lookup we
@@ -33,9 +42,14 @@ const MAX_TYPED_MANIFEST_CACHE_ENTRIES: usize = 64;
 /// manifest is reparsed. `None` mtime means we couldn't stat the file at
 /// parse time — in that case we keep the legacy "always trust the cache
 /// until ctx.refresh" behaviour rather than thrashing on every call.
+///
+/// CONC-2 / TASK-1023: `last_accessed` is the LRU tick stamped at insert
+/// and refreshed on every cache hit. Eviction picks the entry with the
+/// smallest tick (least-recently-used).
 struct TypedManifestEntry {
     mtime: Option<SystemTime>,
     manifest: Arc<CargoToml>,
+    last_accessed: u64,
 }
 
 fn cargo_toml_mtime(workspace_root: &Path) -> Option<SystemTime> {
@@ -160,8 +174,8 @@ pub(crate) fn load_workspace_manifest(
         let mut guard = lock_typed_manifest_cache(cache);
         guard.remove(&cwd);
     } else {
-        let guard = lock_typed_manifest_cache(cache);
-        if let Some(entry) = guard.get(&cwd) {
+        let mut guard = lock_typed_manifest_cache(cache);
+        if let Some(entry) = guard.get_mut(&cwd) {
             // CONC-2 / TASK-0843: if both mtimes are known and they match,
             // serve the cached Arc. If the on-disk mtime advanced, fall
             // through to reparse. If we couldn't stat at all, fall back
@@ -171,6 +185,10 @@ pub(crate) fn load_workspace_manifest(
                 _ => true,
             };
             if still_fresh {
+                // CONC-2 / TASK-1023: bump LRU tick on hit so frequently
+                // accessed entries survive eviction in a daemon visiting
+                // many cwds.
+                entry.last_accessed = next_lru_tick();
                 return Ok(Arc::clone(&entry.manifest));
             }
         }
@@ -192,11 +210,18 @@ pub(crate) fn load_workspace_manifest(
     let arc = Arc::new(manifest);
     {
         let mut guard = lock_typed_manifest_cache(cache);
-        // CONC-2 / TASK-0843: bound the cache. When the soft cap is hit
-        // and the key is new, evict one arbitrary existing entry so we do
-        // not unbounded-grow under a daemon process visiting many cwds.
+        // CONC-2 / TASK-0843 + TASK-1023: bound the cache with LRU
+        // eviction. When the soft cap is hit and the key is new, evict
+        // the entry with the smallest `last_accessed` tick so the hot
+        // working-set survives a daemon visiting many cwds. The previous
+        // `keys().next()` policy picked an arbitrary HashMap bucket and
+        // could evict the daemon's own workspace.
         if !guard.contains_key(&cwd) && guard.len() >= MAX_TYPED_MANIFEST_CACHE_ENTRIES {
-            if let Some(victim) = guard.keys().next().cloned() {
+            if let Some(victim) = guard
+                .iter()
+                .min_by_key(|(_, e)| e.last_accessed)
+                .map(|(k, _)| k.clone())
+            {
                 guard.remove(&victim);
             }
         }
@@ -205,6 +230,7 @@ pub(crate) fn load_workspace_manifest(
             TypedManifestEntry {
                 mtime: current_mtime,
                 manifest: Arc::clone(&arc),
+                last_accessed: next_lru_tick(),
             },
         );
     }
@@ -733,6 +759,84 @@ mod tests {
             "cache size {len} must stay within MAX_TYPED_MANIFEST_CACHE_ENTRIES = {MAX_TYPED_MANIFEST_CACHE_ENTRIES}"
         );
         // Cleanup so we don't pollute later tests in the same process.
+        cache.lock().unwrap().clear();
+    }
+
+    /// CONC-2 / TASK-1023: eviction must pick the least-recently-used entry,
+    /// not an arbitrary HashMap bucket. Insert MAX entries, touch the very
+    /// first one to make it "hot", then insert one more to force eviction
+    /// and assert (a) the hot key is still present, and (b) the victim is
+    /// the actual coldest key — not the hot one and not the new one.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn typed_manifest_cache_evicts_lru_not_hot_key() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = typed_manifest_cache();
+        {
+            let mut guard = cache.lock().unwrap();
+            guard.clear();
+        }
+
+        // Fill the cache to MAX with a deterministic insertion order.
+        let mut keys = Vec::with_capacity(MAX_TYPED_MANIFEST_CACHE_ENTRIES);
+        for i in 0..MAX_TYPED_MANIFEST_CACHE_ENTRIES {
+            let cwd = dir.path().join(format!("ws-{i:03}"));
+            std::fs::create_dir_all(&cwd).unwrap();
+            std::fs::write(
+                cwd.join("Cargo.toml"),
+                format!("[package]\nname=\"w{i}\"\nversion=\"0.1.0\"\n"),
+            )
+            .unwrap();
+            let mut ctx = Context::test_context(cwd.clone());
+            let _ = load_workspace_manifest(&mut ctx).expect("load");
+            keys.push(cwd);
+        }
+        assert_eq!(
+            cache.lock().unwrap().len(),
+            MAX_TYPED_MANIFEST_CACHE_ENTRIES
+        );
+
+        // Touch the FIRST inserted key to mark it "hot" (highest LRU tick).
+        // Under the buggy `HashMap::keys().next()` policy this hot key was
+        // a plausible eviction victim because hash-bucket order has no
+        // recency signal; under LRU it is now the most-recent.
+        let hot = keys[0].clone();
+        let mut hot_ctx = Context::test_context(hot.clone());
+        let _ = load_workspace_manifest(&mut hot_ctx).expect("hot reload");
+
+        // The coldest key is now keys[1] — it was inserted second-earliest
+        // and never touched again.
+        let coldest = keys[1].clone();
+
+        // Force eviction by inserting one fresh key.
+        let fresh = dir.path().join("ws-fresh");
+        std::fs::create_dir_all(&fresh).unwrap();
+        std::fs::write(
+            fresh.join("Cargo.toml"),
+            "[package]\nname=\"fresh\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+        let mut fresh_ctx = Context::test_context(fresh.clone());
+        let _ = load_workspace_manifest(&mut fresh_ctx).expect("fresh load");
+
+        let guard = cache.lock().unwrap();
+        assert_eq!(
+            guard.len(),
+            MAX_TYPED_MANIFEST_CACHE_ENTRIES,
+            "cap must hold after eviction"
+        );
+        assert!(
+            guard.contains_key(&hot),
+            "hot key must survive LRU eviction"
+        );
+        assert!(guard.contains_key(&fresh), "newly inserted key must remain");
+        assert!(
+            !guard.contains_key(&coldest),
+            "victim must be the coldest key (LRU), got cache keys: {:?}",
+            guard.keys().collect::<Vec<_>>()
+        );
+        drop(guard);
+
         cache.lock().unwrap().clear();
     }
 
