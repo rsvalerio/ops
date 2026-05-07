@@ -75,10 +75,27 @@ pub struct Variables {
 /// on every call. CLI entry / hooks / RunBeforeCommit invoke `from_env`
 /// outside the parallel-runtime Arc-cloning boundary, so amortised
 /// per-call allocation matters here.
+///
+/// READ-5 / TASK-1068: **process-lifetime contract.** This `OnceLock` is
+/// populated on the first `Variables::from_env` call and never refreshed.
+/// Any later `std::env::set_var("TMPDIR", ...)` is **invisible** to
+/// subsequent `Variables::from_env` callers — they will keep observing the
+/// value captured at first init. Tests (or any code) that need to swap
+/// `TMPDIR` and have `Variables` see the new value MUST do so *before* the
+/// first `from_env` call in the process; otherwise the swap is silently
+/// shadowed. The cache is intentional (see `from_env_reuses_cached_tmpdir_arc`
+/// and the `tmpdir_swap_after_from_env_is_not_observed` regression test).
 static TMPDIR_DISPLAY: std::sync::OnceLock<Arc<str>> = std::sync::OnceLock::new();
 
 impl Variables {
     /// Build from environment and workspace root.
+    ///
+    /// READ-5 / TASK-1068: `TMPDIR` is read from the process environment at
+    /// most once per process and cached in [`TMPDIR_DISPLAY`]. Setting
+    /// `TMPDIR` via `std::env::set_var` *after* the first call here will
+    /// **not** be observed by later callers. If a test needs a specific
+    /// `TMPDIR`, set it before any `Variables::from_env` runs in that
+    /// process.
     pub fn from_env(ops_root: &Path) -> Self {
         let mut builtins: HashMap<&'static str, Arc<str>> = HashMap::with_capacity(2);
         builtins.insert("OPS_ROOT", Arc::<str>::from(ops_root.display().to_string()));
@@ -201,6 +218,49 @@ mod tests {
         assert!(
             Arc::ptr_eq(a, b),
             "TMPDIR must be the same Arc across from_env calls"
+        );
+    }
+
+    /// READ-5 / TASK-1068: lock in the documented process-lifetime contract
+    /// of [`TMPDIR_DISPLAY`]. Once `Variables::from_env` has been called in
+    /// the process, swapping `TMPDIR` via `set_var` is invisible — the cache
+    /// is deliberate (PERF-3 / TASK-0967) and tests that need a different
+    /// `TMPDIR` must set it before any `from_env` call. This test asserts
+    /// that the post-init swap is *not* observed.
+    #[test]
+    #[serial_test::serial]
+    fn tmpdir_swap_after_from_env_is_not_observed() {
+        // Force the cache to populate (idempotent if already initialised in
+        // this process — that is exactly the contract under test).
+        let v_before = test_vars();
+        let cached = v_before
+            .builtins
+            .get("TMPDIR")
+            .expect("TMPDIR populated")
+            .clone();
+
+        // Swap TMPDIR to a value the cache could not possibly have captured.
+        let prev = std::env::var_os("TMPDIR");
+        // SAFETY: test-only guard via #[serial] attribute.
+        unsafe {
+            std::env::set_var("TMPDIR", "/definitely/not/the/cached/tmpdir/READ-5");
+        }
+
+        let v_after = test_vars();
+        let observed = v_after.builtins.get("TMPDIR").expect("TMPDIR populated");
+
+        // Restore TMPDIR before asserting so a panic does not leak state.
+        // SAFETY: test-only guard via #[serial] attribute.
+        unsafe {
+            match prev {
+                Some(val) => std::env::set_var("TMPDIR", val),
+                None => std::env::remove_var("TMPDIR"),
+            }
+        }
+
+        assert!(
+            Arc::ptr_eq(&cached, observed),
+            "post-init TMPDIR swap must not be observed: cache contract is process-lifetime"
         );
     }
 
