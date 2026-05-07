@@ -126,7 +126,16 @@ pub fn tty_style(text: &str, styler: fn(&str) -> String, is_tty: bool) -> String
 pub fn pad_header(left: &str, right: &str, target_content_width: usize) -> String {
     let left_display = display_width(left);
     let right_display = display_width(right);
-    let padding = target_content_width.saturating_sub(left_display + right_display + 1);
+    // PATTERN-1 / TASK-1115: when `left + right + 1` exceeds the target content
+    // width, `saturating_sub` pins padding at 0 and the formatted result loses
+    // its whitespace separator entirely (`<left><right> `), making two
+    // adjacent identifiers look like a single concatenated token. Floor the
+    // separator at one space so the contract — "right-aligned right string,
+    // one trailing space" — at minimum keeps the halves visually distinct
+    // even when the card is narrower than the header content.
+    let padding = target_content_width
+        .saturating_sub(left_display + right_display + 1)
+        .max(1);
     format!("{}{}{} ", left, " ".repeat(padding), right)
 }
 
@@ -329,5 +338,26 @@ mod tests {
         let result = pad_header(&left, &right, 100);
         assert!(result.contains(&left));
         assert!(result.contains(&right));
+    }
+
+    /// PATTERN-1 / TASK-1115: when `left + right + 1` overflows
+    /// `target_content_width`, `pad_header` previously returned
+    /// `<left><right> ` with no whitespace between the two halves, making
+    /// two adjacent identifiers look concatenated. Guarantee at least one
+    /// space separator regardless of width.
+    #[test]
+    fn pad_header_preserves_separator_on_overflow() {
+        let left = "Foo";
+        let right = "BarValue";
+        // target_content_width is far smaller than left+right+1, forcing the
+        // overflow / saturating-sub branch.
+        let result = pad_header(left, right, 4);
+        let between = &result[left.len()..result.len() - right.len() - 1];
+        assert!(
+            between.contains(' '),
+            "expected at least one space between left and right halves; got {result:?}"
+        );
+        assert!(result.starts_with(left));
+        assert!(result.ends_with("BarValue "));
     }
 }
