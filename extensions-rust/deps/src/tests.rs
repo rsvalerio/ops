@@ -65,6 +65,27 @@ tokio  1.35.0  1.38.0     1.38.0  1.38.0
     assert_eq!(entries[1].name, "tokio");
 }
 
+/// ERR-1 / TASK-0960: a data row containing multi-byte UTF-8 (localised note
+/// text, non-ASCII metadata) used to panic when separator-row byte offsets
+/// landed mid-codepoint inside `&line[start..end]`. The clamp makes slicing
+/// fall back to the nearest char boundary instead — so the row either parses
+/// cleanly or is dropped, but never panics.
+#[test]
+fn parse_upgrade_table_non_ascii_row_does_not_panic() {
+    // The note column contains a 4-byte char ("📦") that crosses the
+    // separator's note-column boundary; previously this panicked.
+    let stdout = "\
+name   old req compatible latest  new req note
+====   ======= ========== ======  ======= ====
+serde  1.0.100 1.0.228    1.0.228 1.0.228 📦📦📦📦📦
+";
+    let entries = parse_upgrade_table(stdout);
+    // Must not panic; the basic 5 fields stay aligned (ASCII columns) and
+    // the note clamps to the nearest char boundary.
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].name, "serde");
+}
+
 #[test]
 fn parse_upgrade_table_with_notes() {
     let stdout = "\
@@ -255,6 +276,22 @@ fn interpret_deny_result_errs_on_exit_1_with_whitespace_stderr() {
     assert!(
         result.is_err(),
         "whitespace-only stderr at exit 1 must surface"
+    );
+}
+
+/// ERR-1 / TASK-0958: exit 1 with non-empty but non-JSON stderr (e.g. text-mode
+/// banners "error[A001]: …" if the user-format flag drifts) must fail closed.
+/// Previously every line decoded as malformed JSON, dropped to debug, and the
+/// gate scored green on a non-diagnostic stream.
+#[test]
+fn interpret_deny_result_errs_on_exit_1_with_non_json_stderr() {
+    let stderr = "error[A001]: failed to parse manifest\nerror: aborting due to previous error\n";
+    let result = interpret_deny_result(Some(1), stderr);
+    let err = result.expect_err("non-JSON stderr at exit 1 must surface");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("status 1") && msg.contains("zero diagnostics"),
+        "error must cite the zero-diagnostic case, got: {msg}"
     );
 }
 

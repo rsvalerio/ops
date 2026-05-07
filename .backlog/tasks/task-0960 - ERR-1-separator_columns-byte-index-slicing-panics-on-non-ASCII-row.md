@@ -1,11 +1,11 @@
 ---
 id: TASK-0960
 title: 'ERR-1: separator_columns byte-index slicing panics on non-ASCII row'
-status: To Do
+status: Done
 assignee:
   - TASK-1013
 created_date: '2026-05-04 21:46'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:12'
 labels:
   - code-review-rust
   - correctness
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Slice via line.is_char_boundary clamp or char_indices; fall back to None+warn rather than panic when boundary checks fail
-- [ ] #2 Test row containing a non-ASCII character that crosses a column edge does not panic
+- [x] #1 Slice via line.is_char_boundary clamp or char_indices; fall back to None+warn rather than panic when boundary checks fail
+- [x] #2 Test row containing a non-ASCII character that crosses a column edge does not panic
 <!-- AC:END -->

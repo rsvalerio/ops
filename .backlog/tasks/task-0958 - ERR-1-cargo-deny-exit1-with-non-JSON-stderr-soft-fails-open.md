@@ -1,11 +1,11 @@
 ---
 id: TASK-0958
 title: 'ERR-1: cargo deny exit==1 with non-JSON stderr soft-fails-open'
-status: To Do
+status: Done
 assignee:
   - TASK-1013
 created_date: '2026-05-04 21:46'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:11'
 labels:
   - code-review-rust
   - error-handling
@@ -25,6 +25,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After parse_deny_output, if exit==1 and zero diagnostics decoded, surface a hard error citing 'cargo deny exit 1 with non-JSON stderr'
-- [ ] #2 Test covers a stderr blob with no JSON lines at exit 1 and asserts the gate fails closed
+- [x] #1 After parse_deny_output, if exit==1 and zero diagnostics decoded, surface a hard error citing 'cargo deny exit 1 with non-JSON stderr'
+- [x] #2 Test covers a stderr blob with no JSON lines at exit 1 and asserts the gate fails closed
 <!-- AC:END -->

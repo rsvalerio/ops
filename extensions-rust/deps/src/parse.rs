@@ -133,12 +133,13 @@ fn parse_upgrade_row(line: &str, cols: &[(usize, usize)]) -> Option<UpgradeEntry
     // READ-2 (TASK-0609): closure renamed from `take` (shadowed
     // `Iterator::take`) to `slice_col`; both row fields and note now
     // index `cols` via `.get(...)` for consistency.
+    // ERR-1 / TASK-0960: clamp byte offsets to UTF-8 char boundaries before
+    // slicing so a data row containing multi-byte characters (e.g. localised
+    // note text) cannot panic when start/end land mid-codepoint.
     let slice_col = |idx: usize| -> Option<String> {
         let &(start, end) = cols.get(idx)?;
-        if start >= line.len() {
-            return None;
-        }
-        let slice = &line[start..end.min(line.len())];
+        let (start, end) = clamp_to_char_boundaries(line, start, end)?;
+        let slice = &line[start..end];
         let trimmed = slice.trim();
         if trimmed.is_empty() {
             None
@@ -167,10 +168,10 @@ fn parse_upgrade_row(line: &str, cols: &[(usize, usize)]) -> Option<UpgradeEntry
     // the five fixed fields stay correctly aligned. When the separator
     // row has no note column at all, there is simply no note.
     let note = cols.get(5).and_then(|(start, _)| {
-        if *start >= line.len() {
-            return None;
-        }
-        let slice = line[*start..].trim();
+        // ERR-1 / TASK-0960: clamp `start` to a UTF-8 char boundary so a row
+        // with multi-byte characters cannot panic when slicing.
+        let (start, end) = clamp_to_char_boundaries(line, *start, line.len())?;
+        let slice = line[start..end].trim();
         if slice.is_empty() {
             None
         } else {
@@ -186,6 +187,48 @@ fn parse_upgrade_row(line: &str, cols: &[(usize, usize)]) -> Option<UpgradeEntry
         new_req,
         note,
     })
+}
+
+/// Clamp a `[start, end)` byte range derived from the (ASCII) separator row
+/// to UTF-8 char boundaries on a (possibly multi-byte) data row.
+///
+/// ERR-1 / TASK-0960: `cargo upgrade --dry-run` prints a separator row of
+/// `=` characters that defines column boundaries by byte offset. Data rows
+/// can contain multi-byte UTF-8 (localised notes, non-ASCII metadata) so the
+/// raw separator offsets can land mid-codepoint and cause `&line[start..end]`
+/// to panic. Clamp inward to the nearest char boundary so the slice is
+/// always valid UTF-8 — emit a `tracing::warn` breadcrumb when clamping
+/// actually had to move an offset so schema-shape drift is observable.
+/// Returns `None` when the clamp collapses the range to empty (start past
+/// end-of-line, or no boundary at-or-below `start`).
+fn clamp_to_char_boundaries(line: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    let len = line.len();
+    if start >= len {
+        return None;
+    }
+    let clamped_end = end.min(len);
+    let mut s = start;
+    while s < clamped_end && !line.is_char_boundary(s) {
+        s += 1;
+    }
+    let mut e = clamped_end;
+    while e > s && !line.is_char_boundary(e) {
+        e -= 1;
+    }
+    if s >= e {
+        return None;
+    }
+    if s != start || e != clamped_end {
+        tracing::warn!(
+            requested_start = start,
+            requested_end = clamped_end,
+            adjusted_start = s,
+            adjusted_end = e,
+            line = %line,
+            "TASK-0960: cargo-upgrade row slice clamped to UTF-8 char boundaries (multi-byte content crossed a column edge)"
+        );
+    }
+    Some((s, e))
 }
 
 /// Return `(start, end)` byte offsets for each `====` block in the separator
@@ -354,7 +397,28 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
                      treating as pipeline failure (binary may have crashed before emitting JSON)"
                 );
             }
-            Ok(parse_deny_output(stderr))
+            let parsed = parse_deny_output(stderr);
+            // ERR-1 / TASK-0958: cargo-deny's contract for exit 1 is "stderr
+            // has at least one JSON diagnostic line". If the parse decoded
+            // zero diagnostics from a non-empty stderr, the stream is text-mode
+            // (forgotten `--format json`, future cargo-deny default change, or
+            // a wrapper that swallowed JSON) — every line was logged at debug
+            // by `decode_diagnostic` and the gate would otherwise score green.
+            // Fail closed so schema drift surfaces instead of silently muting
+            // the supply-chain gate.
+            if parsed.advisories.is_empty()
+                && parsed.licenses.is_empty()
+                && parsed.bans.is_empty()
+                && parsed.sources.is_empty()
+            {
+                anyhow::bail!(
+                    "cargo deny exited with status 1 but stderr decoded zero diagnostics; \
+                     refusing to score as clean — likely non-JSON (text-mode) output. \
+                     stderr (truncated): {}",
+                    stderr.chars().take(200).collect::<String>()
+                );
+            }
+            Ok(parsed)
         }
         Some(2) => anyhow::bail!(
             "cargo deny exited with status 2 (configuration error): {}",
