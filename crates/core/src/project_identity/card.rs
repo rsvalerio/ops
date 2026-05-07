@@ -4,7 +4,7 @@ use super::format::{
     compose_codebase_value, compose_project_value, compose_stack_value, field_emoji,
 };
 use super::ProjectIdentity;
-use crate::style::dim;
+use crate::style::dim_gated;
 use crate::text::format_number;
 
 /// Rendering-ready about card, derived from [`ProjectIdentity`].
@@ -203,7 +203,7 @@ fn render_field(
     cont_indent: &str,
     is_tty: bool,
 ) -> Vec<String> {
-    let styled = |s: &str| if is_tty { dim(s) } else { s.to_string() };
+    let styled = |s: &str| dim_gated(s, is_tty);
     let emoji = field_emoji(key, value);
     let mut value_lines = value.split('\n');
     let first = value_lines.next().unwrap_or("");

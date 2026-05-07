@@ -281,14 +281,22 @@ mod tests {
 
     #[test]
     fn tty_style_applies_when_tty() {
-        let styled = tty_style("hello", ops_core::style::cyan, true);
-        assert!(styled.contains("hello"));
-        assert!(styled.contains("\x1b["));
+        // READ-9/TASK-0950: ops_core::style helpers self-gate on
+        // stdout TTY + NO_COLOR, so tests that need to observe the
+        // styled-branch behaviour of tty_style use a local styler.
+        fn force_styler(s: &str) -> String {
+            format!("[{s}]")
+        }
+        let styled = tty_style("hello", force_styler, true);
+        assert_eq!(styled, "[hello]");
     }
 
     #[test]
     fn tty_style_passthrough_when_not_tty() {
-        assert_eq!(tty_style("hello", ops_core::style::cyan, false), "hello");
+        fn force_styler(s: &str) -> String {
+            format!("[{s}]")
+        }
+        assert_eq!(tty_style("hello", force_styler, false), "hello");
     }
 
     #[test]

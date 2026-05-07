@@ -3,11 +3,11 @@ id: TASK-0950
 title: >-
   READ-9: core::style ANSI helpers emit escape codes unconditionally (no
   TTY/NO_COLOR gate)
-status: To Do
+status: Done
 assignee:
   - TASK-1011
 created_date: '2026-05-04 21:45'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 18:37'
 labels:
   - code-review-rust
   - readability
@@ -27,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 core::style helpers consult an is_terminal() && !NO_COLOR predicate before emitting SGR codes (mirror theme::style::sgr::color_enabled)
-- [ ] #2 When stdout/stderr is not a terminal or NO_COLOR is set, helpers like cyan("x") return "x" verbatim with no escapes
-- [ ] #3 Existing call sites in tools_cmd.rs etc. emit plain text in non-TTY tests
+- [x] #1 core::style helpers consult an is_terminal() && !NO_COLOR predicate before emitting SGR codes (mirror theme::style::sgr::color_enabled)
+- [x] #2 When stdout/stderr is not a terminal or NO_COLOR is set, helpers like cyan("x") return "x" verbatim with no escapes
+- [x] #3 Existing call sites in tools_cmd.rs etc. emit plain text in non-TTY tests
 <!-- AC:END -->
