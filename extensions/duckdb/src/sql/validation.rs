@@ -191,6 +191,17 @@ pub fn sanitize_path_for_sql(path: &str) -> String {
     path.replace('\0', "")
 }
 
+/// READ-5 / TASK-1002: ASCII-only allowlist. Non-ASCII identifiers are
+/// rejected because the SQL-safety contract is over the byte representation
+/// of the path, not over Unicode general categories. Letting `is_alphanumeric`
+/// (which spans ~140k codepoints across L*/Nd) widen the gate admitted
+/// homoglyphs (Cyrillic `а` U+0430), bidi tricks at the rendering layer, and
+/// ligatures (`ﬀ` U+FB00) — none of which the downstream `escape_sql_string`
+/// neutralises (it only handles `'` and `\\0`). Cross-references SEC-12 /
+/// TASK-0729 for the broader interpolated-path threat model. If non-ASCII
+/// path support is ever a real requirement, document the allowed scripts
+/// explicitly and reject mixed-script identifiers; the current set
+/// (`extensions/*`, project / language / file names) is ASCII by policy.
 pub fn validate_path_chars(path: &str) -> Result<(), SqlError> {
     // READ-5 (TASK-0528): reject empty paths up front. The character-by-
     // character loop below trivially returns Ok for "", which let
@@ -201,7 +212,7 @@ pub fn validate_path_chars(path: &str) -> Result<(), SqlError> {
         return Err(SqlError::EmptyPath);
     }
     for ch in path.chars() {
-        let is_safe = ch.is_alphanumeric()
+        let is_safe = ch.is_ascii_alphanumeric()
             || ch == '-'
             || ch == '_'
             || ch == '/'
@@ -555,10 +566,20 @@ mod tests {
         assert!(validate_identifier("\u{0430}table").is_err());
     }
 
+    /// READ-5 / TASK-1002: non-ASCII alphabetics (CJK, ligatures, homoglyphs)
+    /// must be rejected. The previous `is_alphanumeric()` allowlist admitted
+    /// the entire Unicode L*/Nd categories, letting Cyrillic `а` (U+0430)
+    /// flow through as a different codepoint from ASCII `a`, and ligatures
+    /// like `ﬀ` (U+FB00) survive validation despite escaping that the
+    /// downstream literal escaper does not handle.
     #[test]
-    fn validate_path_chars_accepts_cjk() {
-        // CJK characters are alphanumeric per Unicode — accepted by path validation
-        assert!(validate_path_chars("/home/用户/file").is_ok());
+    fn validate_path_chars_rejects_non_ascii_alphabetics() {
+        // CJK
+        assert!(validate_path_chars("/home/用户/file").is_err());
+        // Cyrillic 'а' (U+0430) homoglyph for ASCII 'a'
+        assert!(validate_path_chars("/home/\u{0430}/file").is_err());
+        // Latin small ligature ff (U+FB00)
+        assert!(validate_path_chars("/home/\u{FB00}/file").is_err());
     }
 
     /// READ-5 (TASK-0528): empty paths are now rejected up front, both at

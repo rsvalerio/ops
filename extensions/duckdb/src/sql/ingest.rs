@@ -99,14 +99,33 @@ pub fn data_dir_for_db(db_path: &Path) -> PathBuf {
 /// a more permissive default umask) so a co-tenant on a multi-user system
 /// cannot tamper with staged data between collect and load. On non-Unix
 /// platforms `create_dir_all` keeps the existing semantics.
+///
+/// SEC-25 / TASK-1000: only the **leaf** ingest dir is hardened to 0o700.
+/// `DirBuilder::recursive(true).mode(0o700)` would also stamp every
+/// intermediate parent created during the call (e.g. `target/`,
+/// `target/ops/`) with 0o700, breaking cargo / build-system convention
+/// (target/ is canonically 0o755) and producing an asymmetry between
+/// fresh workspaces and ones where `target/` already exists. Create the
+/// parents first at the platform-default umask, then build the leaf
+/// alone with the restrictive mode.
 fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
+    if let Some(parent) = data_dir.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-        std::fs::DirBuilder::new()
-            .recursive(true)
+        match std::fs::DirBuilder::new()
+            .recursive(false)
             .mode(0o700)
-            .create(data_dir)?;
+            .create(data_dir)
+        {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
         std::fs::set_permissions(data_dir, std::fs::Permissions::from_mode(0o700))?;
         Ok(())
     }
@@ -200,6 +219,13 @@ pub fn write_workspace_sidecar(
     .map_err(DbError::Io)
 }
 
+/// SEC-33 / TASK-0951: hard cap on workspace sidecar read size. A real
+/// sidecar holds a single filesystem path (kilobytes at most); an
+/// adversarial or `/dev/zero`-symlinked sidecar could otherwise OOM the
+/// CLI before the unsafe `from_encoded_bytes_unchecked` boundary. Mirrors
+/// `MAX_GIT_CONFIG_BYTES` and `MAX_MANIFEST_BYTES` (4 MiB).
+pub const MAX_SIDECAR_BYTES: u64 = 4 * 1024 * 1024;
+
 /// Read a workspace root sidecar file written during collect.
 ///
 /// Returns the raw OS bytes as an [`OsString`] so that non-UTF-8
@@ -211,9 +237,27 @@ pub fn write_workspace_sidecar(
 /// persistence boundary in [`crate::schema::upsert_data_source`], where
 /// it returns the same typed [`DbError::NonUtf8Path`] used for
 /// `source_path`.
+///
+/// SEC-33 / TASK-0951: read is bounded by [`MAX_SIDECAR_BYTES`] via
+/// `File::open` + `Read::take(cap+1)`. Oversize input errors out instead
+/// of allocating, defense-in-depth against a tampered or symlinked
+/// sidecar even though the ingest dir is 0o700 (TASK-0787).
 pub fn read_workspace_sidecar(data_dir: &Path, name: &str) -> DbResult<std::ffi::OsString> {
+    use std::io::Read;
     let workspace_path = sidecar_path(data_dir, name);
-    let bytes = std::fs::read(&workspace_path).map_err(DbError::Io)?;
+    let mut file = std::fs::File::open(&workspace_path).map_err(DbError::Io)?;
+    let limit = MAX_SIDECAR_BYTES.saturating_add(1);
+    let mut bytes = Vec::new();
+    (&mut file)
+        .take(limit)
+        .read_to_end(&mut bytes)
+        .map_err(DbError::Io)?;
+    if bytes.len() as u64 > MAX_SIDECAR_BYTES {
+        return Err(DbError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("workspace sidecar exceeds {MAX_SIDECAR_BYTES} byte cap; refusing to load"),
+        )));
+    }
     // SAFETY: `write_workspace_sidecar` persists the path via
     // `working_directory.as_os_str().as_encoded_bytes()` and routes
     // through `atomic_write`, which writes the buffer verbatim. The
@@ -454,6 +498,40 @@ mod tests {
             "pre-existing ingest dir must be re-stamped to 0o700; got {:o}",
             mode & 0o777,
         );
+    }
+
+    /// SEC-25 / TASK-1000: only the leaf ingest dir is 0o700. Intermediate
+    /// parents created by the helper inherit the default umask (typically
+    /// 022 → 0o755) so cargo / build-system convention for `target/` is
+    /// preserved.
+    #[cfg(unix)]
+    #[test]
+    fn create_ingest_dir_does_not_lock_down_intermediate_parents() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let leaf = tmp.path().join("a/b/data.duckdb.ingest");
+        create_ingest_dir(&leaf).expect("create");
+
+        let leaf_mode = std::fs::metadata(&leaf)
+            .expect("leaf meta")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(leaf_mode, 0o700, "leaf must be 0o700; got {leaf_mode:o}");
+
+        for parent in [tmp.path().join("a"), tmp.path().join("a/b")] {
+            let mode = std::fs::metadata(&parent)
+                .expect("parent meta")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_ne!(
+                mode,
+                0o700,
+                "intermediate parent {} was stamped 0o700; expected umask default",
+                parent.display()
+            );
+        }
     }
 
     #[test]
@@ -739,6 +817,30 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .find(|name| name.starts_with(".tokei_workspace.txt.tmp."));
         assert!(leftover.is_none(), "atomic_write left a temp: {leftover:?}");
+    }
+
+    /// SEC-33 / TASK-0951: an oversized sidecar must error out instead of
+    /// being slurped into memory. Plants a file just over the byte cap and
+    /// asserts the read errors with `InvalidData`.
+    #[test]
+    fn read_workspace_sidecar_rejects_oversize_input() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = sidecar_path(dir.path(), "huge");
+        // One byte over the cap is enough; the read must not allocate the
+        // whole file before the size check.
+        let oversize = (MAX_SIDECAR_BYTES + 1) as usize;
+        std::fs::write(&path, vec![b'a'; oversize]).expect("plant oversize sidecar");
+
+        let err =
+            read_workspace_sidecar(dir.path(), "huge").expect_err("oversize sidecar must error");
+        match err {
+            DbError::Io(e) => assert_eq!(
+                e.kind(),
+                std::io::ErrorKind::InvalidData,
+                "expected InvalidData, got {e:?}"
+            ),
+            other => panic!("expected DbError::Io, got {other:?}"),
+        }
     }
 
     #[test]

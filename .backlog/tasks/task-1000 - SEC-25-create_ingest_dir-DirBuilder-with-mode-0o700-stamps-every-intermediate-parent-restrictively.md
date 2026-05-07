@@ -3,11 +3,11 @@ id: TASK-1000
 title: >-
   SEC-25: create_ingest_dir DirBuilder with mode 0o700 stamps every intermediate
   parent restrictively
-status: To Do
+status: Done
 assignee:
   - TASK-1015
 created_date: '2026-05-04 22:02'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:37'
 labels:
   - code-review-rust
   - SEC
@@ -32,7 +32,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 create_ingest_dir creates intermediate parents with the platform-default umask and only the final ingest-dir leaf with mode 0o700.
-- [ ] #2 Test asserts that an intermediate parent (e.g., target/ops) is NOT 0o700 after a fresh create when umask defaults to 022.
-- [ ] #3 Existing TASK-0787 invariant on the ingest leaf still holds (fresh + pre-existing leaf both end at 0o700).
+- [x] #1 create_ingest_dir creates intermediate parents with the platform-default umask and only the final ingest-dir leaf with mode 0o700.
+- [x] #2 Test asserts that an intermediate parent (e.g., target/ops) is NOT 0o700 after a fresh create when umask defaults to 022.
+- [x] #3 Existing TASK-0787 invariant on the ingest leaf still holds (fresh + pre-existing leaf both end at 0o700).
 <!-- AC:END -->

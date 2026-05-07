@@ -3,11 +3,11 @@ id: TASK-1002
 title: >-
   READ-5: validate_path_chars uses Unicode is_alphanumeric, allowing scripts
   that defeat the SQL-safety allowlist
-status: To Do
+status: Done
 assignee:
   - TASK-1015
 created_date: '2026-05-04 22:03'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:37'
 labels:
   - code-review-rust
   - SEC
@@ -34,7 +34,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 validate_path_chars rejects non-ASCII alphabetic codepoints (e.g., Cyrillic 'а' U+0430, Latin ligature 'ﬀ' U+FB00).
-- [ ] #2 Existing accepted-path tests (slash, dot, dash, underscore, space) still pass.
-- [ ] #3 Decision documented in the rustdoc whether non-ASCII identifiers are admissible at all (with rationale linked to SEC-12).
+- [x] #1 validate_path_chars rejects non-ASCII alphabetic codepoints (e.g., Cyrillic 'а' U+0430, Latin ligature 'ﬀ' U+FB00).
+- [x] #2 Existing accepted-path tests (slash, dot, dash, underscore, space) still pass.
+- [x] #3 Decision documented in the rustdoc whether non-ASCII identifiers are admissible at all (with rationale linked to SEC-12).
 <!-- AC:END -->
