@@ -33,7 +33,14 @@ fn sanitise_line(line: &str, out: &mut String) {
 }
 
 fn emit(level: &str, message: &str) {
-    let mut err = std::io::stderr().lock();
+    emit_to(level, message, &mut std::io::stderr().lock());
+}
+
+/// Writer-generic core of [`emit`]: renders `message` through the SEC-21 line-
+/// split + sanitise pipeline into `w`. Production callers pass a locked stderr
+/// handle; tests pass a `Vec<u8>` so they can assert on the exact bytes the
+/// production pipeline produces (DUP-1 TASK-1031).
+fn emit_to<W: Write>(level: &str, message: &str, w: &mut W) {
     // SEC-21 (TASK-0981): split on `\n` so a multi-line anyhow chain renders
     // as continuation lines indented under the prefix, and an attacker-
     // injected `\n` cannot forge a top-level `ops: <level>:` line. Each
@@ -44,7 +51,7 @@ fn emit(level: &str, message: &str) {
         buf.clear();
         sanitise_line(line, &mut buf);
         let prefix = if first { "" } else { "  " };
-        let _ = writeln!(err, "ops: {level}: {prefix}{buf}");
+        let _ = writeln!(w, "ops: {level}: {prefix}{buf}");
         first = false;
     }
 }
@@ -69,19 +76,13 @@ mod tests {
     use super::*;
 
     /// Render a message through the same pipeline `emit` uses, but into a
-    /// `String` so we can assert on the exact output without touching stderr.
+    /// `Vec<u8>` so we can assert on the exact output without touching stderr.
+    /// Routes through production `emit_to` (DUP-1 TASK-1031) so SEC-21
+    /// regressions catch drift in the real pipeline, not a parallel copy.
     fn render(level: &str, message: &str) -> String {
-        let mut out = String::new();
-        let mut buf = String::new();
-        let mut first = true;
-        for line in message.split('\n') {
-            buf.clear();
-            sanitise_line(line, &mut buf);
-            let prefix = if first { "" } else { "  " };
-            let _ = writeln!(out, "ops: {level}: {prefix}{buf}");
-            first = false;
-        }
-        out
+        let mut out: Vec<u8> = Vec::new();
+        emit_to(level, message, &mut out);
+        String::from_utf8(out).expect("emit_to writes UTF-8")
     }
 
     #[test]
