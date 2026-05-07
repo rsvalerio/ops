@@ -9,6 +9,11 @@
 use ops_duckdb::sql::SqlError;
 use std::path::Path;
 
+// TASK-0982: include path/intra-workspace deps. Cargo metadata sets
+// `dep.source` to NULL for path dependencies, so a `WHERE dep.source IS NOT
+// NULL` filter would silently drop workspace-internal coupling — the
+// dependency count would underreport reality for workspaces (such as this
+// repo) that use path deps as the primary modularity tool.
 pub fn crate_dependencies_view_sql() -> String {
     "CREATE OR REPLACE VIEW crate_dependencies AS \
      WITH pkgs AS (SELECT unnest(packages) AS pkg FROM metadata_raw), \
@@ -21,7 +26,6 @@ pub fn crate_dependencies_view_sql() -> String {
             COALESCE(dep.kind, 'normal') AS dependency_kind, \
             COALESCE(dep.optional, false) AS is_optional \
      FROM member_deps \
-     WHERE dep.source IS NOT NULL \
      ORDER BY crate_name, dependency_kind, dependency_name"
         .to_string()
 }
@@ -44,7 +48,8 @@ mod tests {
         assert!(sql.contains("CREATE OR REPLACE VIEW crate_dependencies"));
         assert!(sql.contains("unnest(packages)"));
         assert!(sql.contains("workspace_members"));
-        assert!(sql.contains("dep.source IS NOT NULL"));
+        // TASK-0982: path/intra-workspace deps must not be filtered out.
+        assert!(!sql.contains("dep.source IS NOT NULL"));
         assert!(sql.contains("dependency_kind"));
     }
 

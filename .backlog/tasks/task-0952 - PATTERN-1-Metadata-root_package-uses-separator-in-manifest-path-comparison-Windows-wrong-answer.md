@@ -3,11 +3,11 @@ id: TASK-0952
 title: >-
   PATTERN-1: Metadata::root_package uses '/' separator in manifest path
   comparison (Windows wrong-answer)
-status: To Do
+status: Done
 assignee:
   - TASK-1014
 created_date: '2026-05-04 21:45'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:22'
 labels:
   - code-review-rust
   - correctness
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Compare via PathBuf join (Path::new(p.manifest_path()) == Path::new(&ws_root).join("Cargo.toml")) so platform separators line up
-- [ ] #2 Regression test exercises comparison via paths with backslash separator, or uses Path-based equivalence assertion
+- [x] #1 Compare via PathBuf join (Path::new(p.manifest_path()) == Path::new(&ws_root).join("Cargo.toml")) so platform separators line up
+- [x] #2 Regression test exercises comparison via paths with backslash separator, or uses Path-based equivalence assertion
 <!-- AC:END -->

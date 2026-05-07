@@ -268,6 +268,101 @@ mod tests {
         assert!(!json_path.exists());
     }
 
+    /// TASK-0982: regression — path dependencies (source = null) must not be
+    /// silently dropped from the `crate_dependencies` view alongside registry
+    /// deps.
+    #[test]
+    fn crate_dependencies_view_includes_path_deps() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let metadata_json = serde_json::json!({
+            "packages": [{
+                "name": "test-crate",
+                "version": "0.1.0",
+                "id": "test-crate 0.1.0 (path+file:///test)",
+                "source": "",
+                "dependencies": [
+                    {
+                        "name": "serde",
+                        "source": "registry+https://github.com/rust-lang/crates.io-index",
+                        "req": "^1.0",
+                        "kind": "normal",
+                        "optional": false,
+                        "uses_default_features": true,
+                        "features": [],
+                        "target": "",
+                        "rename": "",
+                        "registry": ""
+                    },
+                    {
+                        "name": "ws-sibling",
+                        "source": null,
+                        "req": "*",
+                        "kind": "normal",
+                        "optional": false,
+                        "uses_default_features": true,
+                        "features": [],
+                        "target": "",
+                        "rename": "",
+                        "registry": ""
+                    }
+                ],
+                "targets": [],
+                "features": {},
+                "manifest_path": "/test/Cargo.toml",
+                "metadata": {},
+                "publish": [],
+                "authors": [],
+                "categories": [],
+                "keywords": [],
+                "readme": "",
+                "repository": "",
+                "homepage": "",
+                "documentation": "",
+                "edition": "2021",
+                "links": "",
+                "default_run": "",
+                "rust_version": "",
+                "license": "",
+                "license_file": "",
+                "description": ""
+            }],
+            "workspace_members": ["test-crate 0.1.0 (path+file:///test)"],
+            "workspace_default_members": ["test-crate 0.1.0 (path+file:///test)"],
+            "resolve": {"nodes": [], "root": ""},
+            "target_directory": "/test/target",
+            "version": 1,
+            "workspace_root": "/test",
+            "metadata": {}
+        });
+        let json_path = data_dir.path().join("metadata.json");
+        std::fs::write(
+            &json_path,
+            serde_json::to_vec_pretty(&metadata_json).unwrap(),
+        )
+        .unwrap();
+
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let ingestor = MetadataIngestor;
+        let _ = ingestor.load(data_dir.path(), &db).unwrap();
+
+        let conn = db.lock().unwrap();
+        let total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM crate_dependencies", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(total, 2, "both registry and path deps should be present");
+
+        let path_dep_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM crate_dependencies WHERE dependency_name = 'ws-sibling'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(path_dep_count, 1, "path dep (source=null) must be retained");
+    }
+
     #[test]
     fn negative_record_count_surfaces_as_invalid_record_count_error() {
         let raw_count: i64 = -1;

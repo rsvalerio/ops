@@ -10,6 +10,7 @@
 
 use ops_extension::{Context, DataRegistry};
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 trait JsonValueExt {
@@ -251,9 +252,9 @@ impl Metadata {
     /// Find the root package (workspace root Cargo.toml), if present.
     /// Returns None for virtual workspaces (no root package).
     pub fn root_package(&self) -> Option<Package<'_>> {
-        let ws_root = self.workspace_root();
-        let expected = format!("{}/Cargo.toml", ws_root);
-        self.packages().find(|p| p.manifest_path() == expected)
+        let expected = Path::new(self.workspace_root()).join("Cargo.toml");
+        self.packages()
+            .find(|p| Path::new(p.manifest_path()) == expected)
     }
 }
 

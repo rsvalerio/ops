@@ -3,11 +3,11 @@ id: TASK-0982
 title: >-
   PATTERN-1: metadata crate_dependencies view drops path/intra-workspace deps
   via WHERE dep.source IS NOT NULL with no breadcrumb
-status: To Do
+status: Done
 assignee:
   - TASK-1014
 created_date: '2026-05-04 21:58'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:23'
 labels:
   - code-review-rust
   - patterns
@@ -29,6 +29,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Either the WHERE filter is removed (and downstream consumers reviewed for the count change) or the view is renamed to reflect that it lists external-source deps only, with a comment explaining the trade-off
-- [ ] #2 Either path: a regression test asserts the chosen behaviour against a fixture workspace that includes one path dep and one registry dep
+- [x] #1 Either the WHERE filter is removed (and downstream consumers reviewed for the count change) or the view is renamed to reflect that it lists external-source deps only, with a comment explaining the trade-off
+- [x] #2 Either path: a regression test asserts the chosen behaviour against a fixture workspace that includes one path dep and one registry dep
 <!-- AC:END -->

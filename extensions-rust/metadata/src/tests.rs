@@ -204,6 +204,57 @@ fn metadata_root_package_finds_match() {
     assert_eq!(root.manifest_path(), "/workspace/Cargo.toml");
 }
 
+#[cfg(windows)]
+#[test]
+fn metadata_root_package_finds_match_with_backslash_separator() {
+    // TASK-0952: on Windows, cargo emits backslash-separated manifest_path
+    // values. The comparison must use Path-based equivalence so platform
+    // separators line up.
+    let m = Metadata::from_value(serde_json::json!({
+        "workspace_root": "C:\\workspace",
+        "target_directory": "C:\\workspace\\target",
+        "workspace_members": ["root-pkg 0.1.0 (path+file:///C:/workspace)"],
+        "packages": [
+            {
+                "name": "root-pkg",
+                "version": "0.1.0",
+                "id": "root-pkg 0.1.0 (path+file:///C:/workspace)",
+                "edition": "2021",
+                "manifest_path": "C:\\workspace\\Cargo.toml",
+                "dependencies": [],
+                "targets": []
+            }
+        ]
+    }));
+    let root = m.root_package().expect("should find root package");
+    assert_eq!(root.name(), "root-pkg");
+}
+
+#[test]
+fn metadata_root_package_uses_path_equivalence() {
+    // TASK-0952: trailing slash on workspace_root should not break the join.
+    let m = Metadata::from_value(serde_json::json!({
+        "workspace_root": "/workspace/",
+        "target_directory": "/workspace/target",
+        "workspace_members": ["root-pkg 0.1.0 (path+file:///workspace)"],
+        "packages": [
+            {
+                "name": "root-pkg",
+                "version": "0.1.0",
+                "id": "root-pkg 0.1.0 (path+file:///workspace)",
+                "edition": "2021",
+                "manifest_path": "/workspace/Cargo.toml",
+                "dependencies": [],
+                "targets": []
+            }
+        ]
+    }));
+    let root = m
+        .root_package()
+        .expect("should find root package via Path equivalence");
+    assert_eq!(root.name(), "root-pkg");
+}
+
 #[test]
 fn metadata_root_package_none_when_not_at_workspace_root() {
     let m = Metadata::from_value(sample_metadata());
