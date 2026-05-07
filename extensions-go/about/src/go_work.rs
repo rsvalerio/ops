@@ -53,7 +53,10 @@ pub(crate) fn is_block_opener(line: &str, keyword: &str) -> bool {
     let Some(rest) = line.strip_prefix(keyword) else {
         return false;
     };
-    let rest = rest.trim_start();
+    // TASK-0994: cmd/go accepts a trailing line comment on the block opener
+    // itself (e.g. `use ( // members`). Strip it before the equality check so
+    // we don't silently treat the entire block as if the opener were absent.
+    let rest = crate::go_mod::strip_line_comment(rest).trim();
     rest == "("
 }
 
@@ -67,6 +70,21 @@ mod tests {
         std::fs::write(
             dir.path().join("go.work"),
             "go 1.21\n\nuse (\n\t./api // legacy\n\t./cmd\n)\n",
+        )
+        .unwrap();
+        let dirs = parse_use_dirs(dir.path()).unwrap();
+        assert_eq!(dirs, vec!["./api", "./cmd"]);
+    }
+
+    /// TASK-0994: cmd/go accepts a trailing line comment on a `use (`
+    /// block opener; the parser must too — otherwise the entire workspace
+    /// reports as a single-mod project.
+    #[test]
+    fn block_opener_accepts_trailing_comment_on_use() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.work"),
+            "go 1.21\n\nuse ( // ws-members\n\t./api\n\t./cmd\n)\n",
         )
         .unwrap();
         let dirs = parse_use_dirs(dir.path()).unwrap();

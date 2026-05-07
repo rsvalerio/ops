@@ -3,11 +3,11 @@ id: TASK-0994
 title: >-
   PATTERN-1: is_block_opener rejects valid 'use ( // comment' opener with
   trailing inline comment
-status: To Do
+status: Done
 assignee:
   - TASK-1014
 created_date: '2026-05-04 21:59'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:24'
 labels:
   - code-review-rust
   - PATTERN
@@ -36,6 +36,6 @@ pub(crate) fn is_block_opener(line: &str, keyword: &str) -> bool {
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 is_block_opener strips a trailing // comment before the equality check
-- [ ] #2 Tests cover use ( // comment and replace ( // comment both being recognised as block openers
+- [x] #1 is_block_opener strips a trailing // comment before the equality check
+- [x] #2 Tests cover use ( // comment and replace ( // comment both being recognised as block openers
 <!-- AC:END -->

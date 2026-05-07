@@ -199,6 +199,20 @@ mod tests {
         assert_eq!(m.local_replaces, vec!["./api"]);
     }
 
+    /// TASK-0994: a trailing comment on a `replace (` block opener must not
+    /// suppress the block.
+    #[test]
+    fn replace_block_opener_accepts_trailing_comment() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace ( // local fork pins\n\texample.com/m/api => ./api\n\texample.com/m/sdk => ./sdk\n)\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.local_replaces, vec!["./api", "./sdk"]);
+    }
+
     #[test]
     fn replace_block_opener_accepts_no_space_before_paren() {
         let dir = tempfile::tempdir().unwrap();
