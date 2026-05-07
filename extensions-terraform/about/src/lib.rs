@@ -280,13 +280,39 @@ fn strip_inline_comment(s: &str) -> &str {
 }
 
 /// Count local modules under `modules/*/main.tf`.
+///
+/// ERR-1 / TASK-1018: distinguish a missing `modules/` directory (the
+/// expected "no local modules" case) from a real IO failure (permission
+/// denied, EIO, "is not a directory") so operators see a `tracing::warn!`
+/// instead of silently rendering "no modules". Mirrors `find_required_version`.
+/// Per-entry `read_dir` failures are similarly logged rather than silently
+/// dropped via `flatten()`.
 fn count_local_modules(root: &Path) -> Option<usize> {
     let modules_dir = root.join("modules");
-    let Ok(entries) = std::fs::read_dir(&modules_dir) else {
-        return None;
+    let entries = match std::fs::read_dir(&modules_dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!(
+                modules_dir = ?modules_dir.display(),
+                error = %e,
+                "failed to enumerate modules directory"
+            );
+            return None;
+        }
     };
     let count = entries
-        .flatten()
+        .filter_map(|res| match res {
+            Ok(entry) => Some(entry),
+            Err(e) => {
+                tracing::warn!(
+                    modules_dir = ?modules_dir.display(),
+                    error = %e,
+                    "failed to read directory entry under modules/"
+                );
+                None
+            }
+        })
         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .filter(|e| e.path().join("main.tf").exists())
         .count();
@@ -657,5 +683,25 @@ terraform {
         let v = extract_required_version(&content).expect("Some");
         assert_eq!(v.len(), REQUIRED_VERSION_MAX_LEN);
         assert!(v.chars().all(|c| c == 'v'));
+    }
+
+    /// ERR-1 / TASK-1018: a missing `modules/` dir is the expected "no
+    /// local modules" case and returns None silently.
+    #[test]
+    fn count_local_modules_missing_dir_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(count_local_modules(dir.path()), None);
+    }
+
+    /// ERR-1 / TASK-1018: counts only subdirectories that contain a
+    /// `main.tf`. Empty dirs and stray files are ignored.
+    #[test]
+    fn count_local_modules_counts_module_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join("modules").join("a").join("main.tf"), "");
+        write(&dir.path().join("modules").join("b").join("main.tf"), "");
+        std::fs::create_dir_all(dir.path().join("modules").join("empty")).unwrap();
+        write(&dir.path().join("modules").join("stray.txt"), "x");
+        assert_eq!(count_local_modules(dir.path()), Some(2));
     }
 }
