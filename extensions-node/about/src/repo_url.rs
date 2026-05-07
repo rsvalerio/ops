@@ -34,7 +34,14 @@ pub(crate) fn normalize_repo_url(raw: &str) -> String {
         return ssh_to_https(rest);
     }
     if let Some(rest) = s.strip_prefix("git+") {
-        return rest.trim_end_matches(".git").to_string();
+        let trimmed = rest.trim_end_matches(".git");
+        // PATTERN-1 / TASK-1049: a `git+git://` URL must be rewritten to
+        // `https://` like the bare `git://` branch below — otherwise the
+        // About card renders an unclickable `git://` link.
+        if let Some(after) = trimmed.strip_prefix("git://") {
+            return format!("https://{after}");
+        }
+        return trimmed.to_string();
     }
     if let Some(rest) = s.strip_prefix("git://") {
         return format!("https://{}", rest.trim_end_matches(".git"));
@@ -182,6 +189,16 @@ mod tests {
         let url = append_tree_directory("https://github.com/o/r", "../../../../etc/passwd");
         assert!(!url.contains(".."), "url still contains ..: {url}");
         assert_eq!(url, "https://github.com/o/r/tree/HEAD/etc/passwd");
+    }
+
+    /// PATTERN-1 / TASK-1049: `git+git://` must be rewritten to `https://`
+    /// — otherwise the About card renders an unclickable `git://` URL.
+    #[test]
+    fn normalize_git_plus_git_scheme_to_https() {
+        assert_eq!(
+            normalize_repo_url("git+git://github.com/o/r.git"),
+            "https://github.com/o/r"
+        );
     }
 
     #[test]
