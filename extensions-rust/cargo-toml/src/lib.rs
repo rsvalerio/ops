@@ -313,14 +313,33 @@ pub const MAX_ANCESTOR_DEPTH: usize = 64;
 /// resolved once up front, and the walk is capped at [`MAX_ANCESTOR_DEPTH`]
 /// so a symlink-induced loop cannot hang the process.
 ///
-/// SEC-25 (TASK-0604): canonicalisation is *not* re-applied on each ancestor.
-/// Because `start_canonical` is already a resolved path, walking it with
-/// `.parent()` returns a prefix that is itself canonical — for the typical
-/// case this is sufficient. The remaining gap is a TOCTOU window: if a
-/// parent directory is replaced with a symlink between canonicalisation and
-/// `manifest_declares_workspace`, the walk reads through the new symlink.
-/// The depth cap bounds the damage; treat the result as "best-effort
-/// symlink-safe" rather than absolute.
+/// # Symlink threat model (SEC-25 / TASK-0604 / TASK-1036)
+///
+/// The walk starts from a single canonicalized path; intermediate ancestors
+/// are reached via [`Path::parent`] and are **not** re-canonicalized at each
+/// step. Because the starting path is already resolved, its lexical parents
+/// are themselves canonical *for the typical, stable filesystem case*.
+///
+/// The implication callers must understand:
+///
+/// - A symlinked ancestor that exists (or is swapped in) at walk time can
+///   cause the discovered `Cargo.toml` to live outside the user's intended
+///   logical path. This covers both the TOCTOU window between the initial
+///   `canonicalize` and the per-ancestor `manifest_declares_workspace` read,
+///   and the pre-existing case where an ancestor is itself a symlink to a
+///   different filesystem location at the moment the walk runs. A malicious
+///   workspace that plants a fake `Cargo.toml` 1-2 ancestors above can have
+///   it picked up as the workspace root.
+/// - The depth cap ([`MAX_ANCESTOR_DEPTH`]) bounds the blast radius — a
+///   hostile symlink chain cannot drive an unbounded walk — but it does not
+///   prevent the wrong manifest from being selected within that bound.
+/// - Callers that need stronger guarantees should canonicalize each
+///   candidate `Cargo.toml` themselves (e.g. via [`std::fs::canonicalize`])
+///   and verify the result still lies under their expected logical root
+///   before trusting it as the workspace root.
+///
+/// Treat the returned path as "best-effort symlink-safe" rather than
+/// absolute.
 pub fn find_workspace_root(start: &Path) -> Result<PathBuf, FindWorkspaceRootError> {
     find_workspace_root_with_depth(start, MAX_ANCESTOR_DEPTH)
 }
@@ -329,6 +348,15 @@ pub fn find_workspace_root(start: &Path) -> Result<PathBuf, FindWorkspaceRootErr
 /// a parameter. TASK-0963: lets tests verify the bound without crafting a
 /// 64-deep directory hierarchy, and gives callers an escape hatch if their
 /// layout legitimately needs a deeper walk.
+///
+/// The same symlink threat model documented on [`find_workspace_root`]
+/// applies here: the start path is canonicalized once and ancestors are
+/// reached via [`Path::parent`] without re-canonicalization, so a symlinked
+/// ancestor at walk time can cause the discovered `Cargo.toml` to live
+/// outside the caller's intended logical path. The `max_depth` parameter
+/// bounds the blast radius but does not prevent mis-selection within that
+/// bound; callers wanting stronger guarantees should canonicalize each
+/// candidate `Cargo.toml` themselves.
 pub fn find_workspace_root_with_depth(
     start: &Path,
     max_depth: usize,
