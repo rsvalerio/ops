@@ -42,12 +42,30 @@
 use std::io::{self, Read};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
 use wait_timeout::ChildExt;
 
 /// Environment variable used to override the per-operation default timeout.
 pub const TIMEOUT_ENV: &str = "OPS_SUBPROCESS_TIMEOUT_SECS";
+
+/// SEC-33 / TASK-1050: environment variable used to override the per-stream
+/// byte cap applied by [`run_with_timeout`]'s drain threads. Mirrors the
+/// runner's `command::exec::read_capped` shape (PERF-1 / TASK-0764) so a
+/// runaway cargo subprocess cannot grow the in-memory capture buffer
+/// without bound. Reuses the same env var name the runner already
+/// documents — `ops` users only have one knob to tune.
+pub const OUTPUT_CAP_ENV: &str = "OPS_OUTPUT_BYTE_CAP";
+
+/// Default per-stream byte cap applied to captured stdout/stderr in
+/// [`run_with_timeout`]. Matches the runner's
+/// `DEFAULT_OUTPUT_BYTE_CAP` (4 MiB) so the cap is consistent across the
+/// project's two subprocess paths. Once the cap is reached the drain
+/// thread keeps reading from the pipe (so the child does not block on a
+/// full pipe and risk a timeout) but discards the bytes and increments a
+/// `dropped` counter that surfaces via `tracing::warn!`.
+pub const DEFAULT_OUTPUT_BYTE_CAP: usize = 4 * 1024 * 1024;
 
 /// Fallback timeout applied when a caller has no operation-specific default
 /// and `OPS_SUBPROCESS_TIMEOUT_SECS` is unset or unparseable.
@@ -154,6 +172,69 @@ impl From<io::Error> for RunError {
     }
 }
 
+/// SEC-33 / TASK-1050: resolve the per-stream byte cap once per process.
+/// `OPS_OUTPUT_BYTE_CAP` overrides [`DEFAULT_OUTPUT_BYTE_CAP`] when present
+/// and parses to a positive `usize`; any other value falls back to the
+/// default with a one-shot `tracing::warn!`. Cached behind a `OnceLock` so
+/// repeated subprocess invocations do not re-read the env on every call.
+fn output_byte_cap() -> usize {
+    static CAP: OnceLock<usize> = OnceLock::new();
+    *CAP.get_or_init(|| match std::env::var(OUTPUT_CAP_ENV) {
+        Err(_) => DEFAULT_OUTPUT_BYTE_CAP,
+        Ok(s) => match s.parse::<usize>() {
+            Ok(n) if n > 0 => n,
+            _ => {
+                tracing::warn!(
+                    env_var = OUTPUT_CAP_ENV,
+                    raw = %s,
+                    default = DEFAULT_OUTPUT_BYTE_CAP,
+                    "OPS_OUTPUT_BYTE_CAP is not a positive integer; using default"
+                );
+                DEFAULT_OUTPUT_BYTE_CAP
+            }
+        },
+    })
+}
+
+/// SEC-33 / TASK-1050: result type returned by drain threads. `(captured,
+/// dropped, error_during_read)` where `captured.len() <= cap` and
+/// `dropped` counts bytes read past the cap.
+type DrainResult = (Vec<u8>, u64, Option<io::Error>);
+
+/// SEC-33 / TASK-1050: drain `reader` into `buf` up to `cap` bytes, then
+/// keep reading and discarding the remainder so the child does not block
+/// on a full pipe. Returns the number of bytes that were dropped past the
+/// cap (`0` when the stream fit within the cap) plus any IO error
+/// encountered mid-read.
+///
+/// Mirrors the runner's `command::exec::read_capped` (PERF-1 / TASK-0764)
+/// shape adapted to the synchronous `std::io::Read` world used here.
+fn read_capped<R: Read>(mut reader: R, buf: &mut Vec<u8>, cap: usize) -> (u64, Option<io::Error>) {
+    // 8 KiB matches `std::io::DEFAULT_BUF_SIZE` and is the granularity
+    // `read_to_end` uses internally; large enough that the syscall overhead
+    // is amortised, small enough that the sink path stays cheap.
+    let mut chunk = [0u8; 8 * 1024];
+    let mut dropped: u64 = 0;
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => return (dropped, None),
+            Ok(n) => {
+                let remaining = cap.saturating_sub(buf.len());
+                if remaining == 0 {
+                    dropped = dropped.saturating_add(n as u64);
+                } else if n <= remaining {
+                    buf.extend_from_slice(&chunk[..n]);
+                } else {
+                    buf.extend_from_slice(&chunk[..remaining]);
+                    dropped = dropped.saturating_add((n - remaining) as u64);
+                }
+            }
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return (dropped, Some(e)),
+        }
+    }
+}
+
 /// Resolve an effective timeout: `OPS_SUBPROCESS_TIMEOUT_SECS` overrides the
 /// caller-provided default if present and parses to a non-zero u64; otherwise
 /// the operation-specific default is returned unchanged.
@@ -219,6 +300,15 @@ pub fn run_with_timeout(
     timeout: Duration,
     label: &str,
 ) -> Result<Output, RunError> {
+    run_with_timeout_inner(cmd, timeout, label, output_byte_cap())
+}
+
+fn run_with_timeout_inner(
+    cmd: &mut Command,
+    timeout: Duration,
+    label: &str,
+    cap: usize,
+) -> Result<Output, RunError> {
     let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -241,18 +331,24 @@ pub fn run_with_timeout(
     // `tracing::warn!` so callers parsing the captured output have a
     // breadcrumb when a buffer is truncated, instead of seeing a silently
     // empty stream that round-trips as "the command produced no output".
+    //
+    // SEC-33 / TASK-1050: drain via `read_capped` so each buffer is bounded
+    // near `cap` regardless of how much the child writes. Bytes past the
+    // cap are still read off the pipe (so the child does not block on a
+    // full pipe and we don't false-positive into a timeout) but discarded;
+    // the count is reported by `collect_drain` via `tracing::warn!`.
     let stdout_handle = child.stdout.take().map(|mut s| {
-        thread::spawn(move || -> (Vec<u8>, Option<io::Error>) {
+        thread::spawn(move || -> DrainResult {
             let mut buf = Vec::new();
-            let err = s.read_to_end(&mut buf).err();
-            (buf, err)
+            let (dropped, err) = read_capped(&mut s, &mut buf, cap);
+            (buf, dropped, err)
         })
     });
     let stderr_handle = child.stderr.take().map(|mut s| {
-        thread::spawn(move || -> (Vec<u8>, Option<io::Error>) {
+        thread::spawn(move || -> DrainResult {
             let mut buf = Vec::new();
-            let err = s.read_to_end(&mut buf).err();
-            (buf, err)
+            let (dropped, err) = read_capped(&mut s, &mut buf, cap);
+            (buf, dropped, err)
         })
     });
 
@@ -300,7 +396,7 @@ pub fn run_with_timeout(
 /// callers (cargo metadata / cargo update parsers) silently drove
 /// decisions off that empty buffer.
 fn collect_drain(
-    handle: Option<thread::JoinHandle<(Vec<u8>, Option<io::Error>)>>,
+    handle: Option<thread::JoinHandle<DrainResult>>,
     label: &str,
     stream: &'static str,
 ) -> Result<Vec<u8>, RunError> {
@@ -308,12 +404,29 @@ fn collect_drain(
         return Ok(Vec::new());
     };
     match handle.join() {
-        Ok((buf, None)) => Ok(buf),
-        Ok((buf, Some(err))) => {
+        Ok((buf, dropped, None)) => {
+            // SEC-33 / TASK-1050: warn-once-per-stream when the capture was
+            // bounded so callers parsing the output see a breadcrumb that
+            // explains a truncated stdout/stderr instead of treating
+            // "missing trailing JSON" as a parser bug.
+            if dropped > 0 {
+                tracing::warn!(
+                    label,
+                    stream,
+                    bytes_kept = buf.len(),
+                    bytes_dropped = dropped,
+                    env_var = OUTPUT_CAP_ENV,
+                    "subprocess output exceeded cap; trailing bytes were discarded"
+                );
+            }
+            Ok(buf)
+        }
+        Ok((buf, dropped, Some(err))) => {
             tracing::warn!(
                 label,
                 stream,
                 bytes_read = buf.len(),
+                bytes_dropped = dropped,
                 error = %err,
                 "subprocess pipe drain failed mid-read; captured output is truncated"
             );
@@ -547,6 +660,75 @@ mod tests {
             }
             other => panic!("expected RunError::Spawn, got {other:?}"),
         }
+    }
+
+    /// SEC-33 / TASK-1050: a child that emits `> cap` bytes must be
+    /// truncated to `<= cap` so a runaway cargo subprocess cannot grow the
+    /// in-memory capture buffer without bound. The pre-fix behaviour
+    /// called `read_to_end` and would have buffered the full output.
+    #[test]
+    fn truncates_output_past_cap() {
+        // 64 KiB cap, child writes 256 KiB. Stays small enough that the
+        // test runs in milliseconds even on a cold sandbox.
+        const CAP: usize = 64 * 1024;
+        const TOTAL: usize = 256 * 1024;
+        // Use `head -c` to write exactly TOTAL bytes of /dev/zero. POSIX
+        // shells on macOS / Linux both support this.
+        let script = format!("head -c {TOTAL} /dev/zero");
+        let out = run_with_timeout_inner(
+            Command::new("sh").args(["-c", &script]),
+            Duration::from_secs(10),
+            "sec-33 cap test",
+            CAP,
+        )
+        .expect("child should complete within timeout");
+        assert!(out.status.success(), "child exited non-zero: {:?}", out);
+        assert!(
+            out.stdout.len() <= CAP,
+            "captured stdout {} exceeded cap {}",
+            out.stdout.len(),
+            CAP
+        );
+        assert_eq!(
+            out.stdout.len(),
+            CAP,
+            "expected the buffer to fill exactly to the cap when child output > cap"
+        );
+    }
+
+    /// SEC-33 / TASK-1050: `read_capped` is the workhorse that bounds the
+    /// drain-thread allocation. Tested in isolation with an in-memory
+    /// `Cursor` so the invariant ("kept + dropped == input length, kept <=
+    /// cap") doesn't depend on an OS pipe.
+    #[test]
+    fn read_capped_bounds_buffer_and_counts_overflow() {
+        let input: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
+        let cap = 1024;
+        let mut buf = Vec::new();
+        let (dropped, err) = read_capped(std::io::Cursor::new(&input), &mut buf, cap);
+        assert!(err.is_none(), "in-memory cursor must not error");
+        assert_eq!(buf.len(), cap, "buffer must be capped exactly to {cap}");
+        assert_eq!(
+            buf.len() as u64 + dropped,
+            input.len() as u64,
+            "kept + dropped must equal input length"
+        );
+        // Spot-check the head bytes match the source so we kept the *first*
+        // cap bytes, not the tail.
+        assert_eq!(&buf[..16], &input[..16]);
+    }
+
+    /// SEC-33 / TASK-1050: when the child's output fits inside the cap,
+    /// `read_capped` must report zero dropped bytes and behave identically
+    /// to the previous `read_to_end` path.
+    #[test]
+    fn read_capped_under_cap_is_lossless() {
+        let input = b"short payload";
+        let mut buf = Vec::new();
+        let (dropped, err) = read_capped(&input[..], &mut buf, 4096);
+        assert!(err.is_none());
+        assert_eq!(dropped, 0);
+        assert_eq!(buf, input);
     }
 
     #[test]
