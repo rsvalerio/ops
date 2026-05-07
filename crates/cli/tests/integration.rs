@@ -21,7 +21,8 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use tempfile::TempDir;
 
 fn with_ops_toml(content: &str, f: impl FnOnce(&Path)) {
@@ -42,9 +43,44 @@ fn read_ops_toml(dir: &Path) -> String {
     std::fs::read_to_string(dir.join(".ops.toml")).expect("read .ops.toml")
 }
 
+// TEST-18 (TASK-0957): pin HOME / XDG_CONFIG_HOME to a process-wide empty
+// tempdir so a developer's `~/.ops.toml` or `~/.config/ops/...` cannot leak
+// into integration runs. The directory is held in a `OnceLock` so it lives
+// for the whole test binary; tests that depend on user-config absence rely
+// on this precondition (see TEST-18 AC#3 documentation note below).
+fn isolated_home() -> &'static Path {
+    static HOME: OnceLock<PathBuf> = OnceLock::new();
+    HOME.get_or_init(|| {
+        let dir = tempfile::Builder::new()
+            .prefix("ops-isolated-home-")
+            .tempdir()
+            .expect("isolated home tempdir");
+        // Intentionally leak the TempDir handle: directory lifetime equals
+        // the test binary's lifetime, and OS tmp cleanup reclaims it.
+        dir.keep()
+    })
+}
+
+// TEST-18 (TASK-0957): every test that spawns `ops` must go through this
+// helper. Tests assuming "no user config" inherit isolation from `HOME` /
+// `XDG_CONFIG_HOME` being pinned to an empty dir and from `OPS_*` env vars
+// being cleared, so behaviour matches CI regardless of the developer's
+// machine state.
 #[allow(deprecated)]
 fn ops() -> Command {
-    Command::cargo_bin("ops").expect("ops binary")
+    let mut cmd = Command::cargo_bin("ops").expect("ops binary");
+    let home = isolated_home();
+    // AC#1: redirect user-config search roots to a known empty dir.
+    cmd.env("HOME", home);
+    cmd.env("XDG_CONFIG_HOME", home);
+    // AC#2: drop ambient OPS_* configuration so the outer shell cannot
+    // alter test behaviour.
+    for (key, _) in std::env::vars_os() {
+        if key.to_string_lossy().starts_with("OPS_") {
+            cmd.env_remove(key);
+        }
+    }
+    cmd
 }
 
 #[test]
@@ -178,6 +214,9 @@ fn cli_init_with_themes_flag_includes_themes() {
 
 #[test]
 fn cli_run_unknown_command_fails() {
+    // TEST-11 (TASK-0954): assert the specific failure mode (unknown
+    // command) so a regression that fails for an unrelated reason — e.g.
+    // missing .ops.toml or a panic — does not silently pass this test.
     with_ops_toml(
         r#"
 [commands.echo_test]
@@ -189,7 +228,10 @@ args = ["hello"]
                 .arg("nonexistent_command")
                 .current_dir(path)
                 .assert()
-                .failure();
+                .failure()
+                .stderr(predicate::str::contains(
+                    "unknown command: nonexistent_command",
+                ));
         },
     );
 }
@@ -283,45 +325,111 @@ commands = ["echo_a", "echo_b"]
 
 // -- TQ-017: Parallel composite commands --
 
+// TEST-25 (TASK-0955): verify parallel scheduling via a side-channel
+// rendezvous. The previous version asserted only `success()` + " in " —
+// identical to the sequential composite test — so a regression that
+// silently turned `parallel = true` into sequential execution still
+// passed. Each child writes its own marker file and then waits for the
+// other child's marker. Under sequential scheduling the first child
+// blocks waiting for a marker the second child has not yet had a chance
+// to create, the wait loop times out non-zero, and the composite fails.
+// Under parallel scheduling both markers appear quickly and both
+// children exit cleanly. Unix-only because the helper relies on `sh`.
+#[cfg(unix)]
 #[test]
-fn cli_run_parallel_composite_command() {
-    with_ops_toml(
-        r#"
+fn cli_run_parallel_composite_command_runs_concurrently() {
+    let dir = temp_dir();
+    let marker_dir = dir.path().join("markers");
+    std::fs::create_dir_all(&marker_dir).expect("create marker dir");
+    let a = marker_dir.join("a");
+    let b = marker_dir.join("b");
+
+    // ~5s upper bound on the wait loop (100 * 50ms). Sequential runs hit
+    // this bound and fail; parallel runs typically resolve in <100ms.
+    let waiter = |self_marker: &Path, peer_marker: &Path| {
+        format!(
+            "touch {self_q} && for _ in $(seq 1 100); do \
+             [ -f {peer_q} ] && exit 0; sleep 0.05; done; \
+             echo 'parallel rendezvous timed out' >&2; exit 1",
+            self_q = shell_quote(self_marker),
+            peer_q = shell_quote(peer_marker),
+        )
+    };
+
+    write_ops_toml(
+        dir.path(),
+        &format!(
+            r#"
 [commands.echo_a]
-program = "echo"
-args = ["a"]
+program = "sh"
+args = ["-c", {script_a}]
 
 [commands.echo_b]
-program = "echo"
-args = ["b"]
+program = "sh"
+args = ["-c", {script_b}]
 
 [commands.par]
 commands = ["echo_a", "echo_b"]
 parallel = true
 "#,
-        |path| {
-            ops()
-                .arg("par")
-                .current_dir(path)
-                .assert()
-                .success()
-                .stderr(predicate::str::contains(" in "));
-        },
+            script_a = toml_string(&waiter(&a, &b)),
+            script_b = toml_string(&waiter(&b, &a)),
+        ),
     );
+
+    ops()
+        .arg("par")
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(" in "));
+
+    assert!(a.exists(), "marker a not written");
+    assert!(b.exists(), "marker b not written");
+}
+
+#[cfg(unix)]
+fn shell_quote(p: &Path) -> String {
+    // Single-quote-wrap, escaping embedded single quotes as '\''.
+    let s = p.to_string_lossy().replace('\'', r"'\''");
+    format!("'{s}'")
+}
+
+#[cfg(unix)]
+fn toml_string(s: &str) -> String {
+    // Minimal basic-string escaper sufficient for the shell snippets
+    // above (no control chars, no unicode escapes needed).
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 // -- TQ-003/TQ-018: Timeout handling at CLI level --
-// Uses 3s sleep with 1s timeout for reliable timing under CI load (2x safety margin)
+// TEST-15 (TASK-0953): use a process that never terminates on its own so
+// timeout firing is the only way the child can exit. The previous version
+// raced a 3s sleep against a 1s timeout — small ratio, sleep-based, prone
+// to flake on slow CI. `tail -f /dev/null` blocks indefinitely without
+// depending on stdin or the host scheduler. Windows still uses `ping`
+// with a large count (>>timeout): the ratio is so wide that timeout is
+// the only feasible termination cause.
 
 #[test]
 fn cli_run_command_with_timeout() {
     let dir = temp_dir();
-    let sleep_cmd = if cfg!(windows) {
+    let blocker = if cfg!(windows) {
         r#"program = "ping"
-args = ["-n", "4", "127.0.0.1"]"#
+args = ["-n", "999", "127.0.0.1"]"#
     } else {
-        r#"program = "sleep"
-args = ["3"]"#
+        r#"program = "tail"
+args = ["-f", "/dev/null"]"#
     };
     write_ops_toml(
         dir.path(),
@@ -331,7 +439,7 @@ args = ["3"]"#
 {}
 timeout_secs = 1
 "#,
-            sleep_cmd
+            blocker
         ),
     );
 
@@ -347,13 +455,23 @@ timeout_secs = 1
 
 #[test]
 fn cli_run_with_malformed_toml() {
+    // TEST-11 (TASK-0954): assert the failure cites the .ops.toml parse
+    // error, not just any non-zero exit, so a regression that fails for
+    // an unrelated reason cannot pass this test.
     with_ops_toml(
         r#"
 [commands.broken
 program = "echo"
 "#,
         |path| {
-            ops().arg("broken").current_dir(path).assert().failure();
+            ops()
+                .arg("broken")
+                .current_dir(path)
+                .assert()
+                .failure()
+                .stderr(predicate::str::contains(
+                    "failed to parse config file: .ops.toml",
+                ));
         },
     );
 }
@@ -536,9 +654,14 @@ theme = "classic"
     std::fs::create_dir_all(&ops_d).expect("create .ops.d");
     std::fs::write(ops_d.join("invalid.toml"), "not valid toml [[[[").expect("write invalid");
 
+    // TEST-11 (TASK-0954): assert the failure cites the offending
+    // .ops.d/invalid.toml file, not just any non-zero exit.
     ops()
         .arg("build")
         .current_dir(dir.path())
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(
+            "failed to parse config file: .ops.d/invalid.toml",
+        ));
 }

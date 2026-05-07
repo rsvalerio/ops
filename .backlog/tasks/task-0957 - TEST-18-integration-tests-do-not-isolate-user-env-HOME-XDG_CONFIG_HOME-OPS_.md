@@ -3,11 +3,11 @@ id: TASK-0957
 title: >-
   TEST-18: integration tests do not isolate user env
   (HOME/XDG_CONFIG_HOME/OPS_*)
-status: To Do
+status: Done
 assignee:
   - TASK-1009
 created_date: '2026-05-04 21:46'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-06 10:39'
 labels:
   - code-review-rust
   - test-quality
@@ -27,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ops() helper clears or pins HOME/XDG_CONFIG_HOME to a known empty tempdir
-- [ ] #2 ops() clears OPS_* env vars before each invocation
-- [ ] #3 Tests that depend on user-config absence document the env precondition they rely on
+- [x] #1 ops() helper clears or pins HOME/XDG_CONFIG_HOME to a known empty tempdir
+- [x] #2 ops() clears OPS_* env vars before each invocation
+- [x] #3 Tests that depend on user-config absence document the env precondition they rely on
 <!-- AC:END -->

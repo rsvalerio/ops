@@ -1,11 +1,11 @@
 ---
 id: TASK-0955
 title: 'TEST-25: cli_run_parallel_composite_command verifies nothing parallel-specific'
-status: To Do
+status: Done
 assignee:
   - TASK-1009
 created_date: '2026-05-04 21:45'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-06 10:39'
 labels:
   - code-review-rust
   - test-quality
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Test verifies an observable parallel-only property (e.g. combined wall-time < sum of sleeps, interleaved output, or both children write a side-channel file before either exits)
-- [ ] #2 Or move parallel-scheduling coverage to a unit test asserting the scheduler invokes both before either finishes
+- [x] #1 Test verifies an observable parallel-only property (e.g. combined wall-time < sum of sleeps, interleaved output, or both children write a side-channel file before either exits)
+- [x] #2 Or move parallel-scheduling coverage to a unit test asserting the scheduler invokes both before either finishes
 <!-- AC:END -->

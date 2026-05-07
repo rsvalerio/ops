@@ -3,11 +3,11 @@ id: TASK-0953
 title: >-
   TEST-15: cli_run_command_with_timeout uses real 3s sleep with 1s timeout
   (flake risk)
-status: To Do
+status: Done
 assignee:
   - TASK-1009
 created_date: '2026-05-04 21:45'
-updated_date: '2026-05-06 06:47'
+updated_date: '2026-05-06 10:39'
 labels:
   - code-review-rust
   - test-quality
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace real sleep with a deterministic blocking mechanism (e.g. a stdin-blocked cat or fifo-read) so timeout is the only termination cause
-- [ ] #2 Or move timeout-path coverage to a unit test using injected time, leaving the integration test to verify CLI plumbing only
+- [x] #1 Replace real sleep with a deterministic blocking mechanism (e.g. a stdin-blocked cat or fifo-read) so timeout is the only termination cause
+- [x] #2 Or move timeout-path coverage to a unit test using injected time, leaving the integration test to verify CLI plumbing only
 <!-- AC:END -->

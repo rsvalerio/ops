@@ -3,11 +3,11 @@ id: TASK-0954
 title: >-
   TEST-11: integration error-path tests assert only .failure() without verifying
   error message
-status: To Do
+status: Done
 assignee:
   - TASK-1009
 created_date: '2026-05-04 21:45'
-updated_date: '2026-05-06 06:47'
+updated_date: '2026-05-06 10:39'
 labels:
   - code-review-rust
   - test-quality
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each test asserts a stderr substring identifying its specific failure mode
-- [ ] #2 Substring assertions are specific enough that swapping any of the three scenarios fails the others
+- [x] #1 Each test asserts a stderr substring identifying its specific failure mode
+- [x] #2 Substring assertions are specific enough that swapping any of the three scenarios fails the others
 <!-- AC:END -->
