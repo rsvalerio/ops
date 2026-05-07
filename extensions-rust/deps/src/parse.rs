@@ -415,7 +415,7 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
                     "cargo deny exited with status 1 but stderr decoded zero diagnostics; \
                      refusing to score as clean — likely non-JSON (text-mode) output. \
                      stderr (truncated): {}",
-                    stderr.chars().take(200).collect::<String>()
+                    truncate_for_log(stderr)
                 );
             }
             Ok(parsed)
@@ -439,7 +439,7 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
             "cargo deny exited with unexpected status code {other}; \
              refusing to treat partial diagnostics as authoritative. \
              stderr (truncated): {}",
-            stderr.chars().take(200).collect::<String>()
+            truncate_for_log(stderr)
         ),
     }
 }
