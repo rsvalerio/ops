@@ -104,9 +104,21 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
             // split across lines). Track an "opener pending" state until the
             // closing `>` arrives.
             if opener_pending {
-                if line.contains('>') {
+                // PATTERN-1 / TASK-1022: when `>` lands on this line, the
+                // opener is closed but the *same* line may carry a real
+                // element after it (e.g. `...">`<artifactId>x</artifactId>`).
+                // Re-feed the post-`>` remainder through the started-line
+                // dispatch so the trailing tag is not silently dropped.
+                if let Some(after_gt) = line.find('>') {
                     opener_pending = false;
                     started = true;
+                    let remainder = line[after_gt + 1..].trim();
+                    if remainder.is_empty() {
+                        continue;
+                    }
+                    if dispatch_started_line(remainder, &mut section, &mut data) {
+                        break;
+                    }
                 }
                 continue;
             }
@@ -117,21 +129,8 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
             }
             continue;
         }
-        if line == "</project>" {
+        if dispatch_started_line(line, &mut section, &mut data) {
             break;
-        }
-
-        if matches!(section, PomSection::TopLevel) {
-            if let Some(new_section) = match_section_open(line, &mut data) {
-                section = new_section;
-            } else {
-                parse_top_level(line, &mut data);
-            }
-            continue;
-        }
-
-        if handle_section_line(&mut section, line, &mut data) {
-            section = PomSection::TopLevel;
         }
     }
 
@@ -174,6 +173,28 @@ fn is_project_open(line: &str) -> bool {
 /// `<projectInfo>` for the same reason as [`is_project_open`].
 fn is_project_open_start(line: &str) -> bool {
     matches!(classify_project_opener(line), (true, false))
+}
+
+/// PATTERN-1 / TASK-1022: process a single trimmed line in "started" state
+/// (i.e. inside `<project>`). Returns `true` when `</project>` was seen and
+/// the outer loop should break. Extracted so the multi-line opener path can
+/// re-feed any post-`>` remainder through the same dispatch.
+fn dispatch_started_line(line: &str, section: &mut PomSection, data: &mut PomData) -> bool {
+    if line == "</project>" {
+        return true;
+    }
+    if matches!(section, PomSection::TopLevel) {
+        if let Some(new_section) = match_section_open(line, data) {
+            *section = new_section;
+        } else {
+            parse_top_level(line, data);
+        }
+        return false;
+    }
+    if handle_section_line(section, line, data) {
+        *section = PomSection::TopLevel;
+    }
+    false
 }
 
 /// Dispatch a line to the active section's handler. Returns `true` when the
@@ -787,6 +808,24 @@ mod tests {
 
         let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.artifact_id, Some("multiline".to_string()));
+    }
+
+    /// PATTERN-1 / TASK-1022: a multi-line `<project ...>` opener whose
+    /// closing `>` is followed *on the same line* by a real element must
+    /// not drop that trailing element. Real-world Maven formatters emit
+    /// this shape when the xmlns block is wrapped but the next tag is
+    /// glued to the closing `>`.
+    #[test]
+    fn parse_pom_multiline_project_opener_trailing_element_on_same_line() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n         xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\"><artifactId>x</artifactId>\n</project>",
+        )
+        .unwrap();
+
+        let pom = parse_pom_xml(dir.path()).unwrap();
+        assert_eq!(pom.artifact_id, Some("x".to_string()));
     }
 
     /// CL-3 / TASK-0846: a `<artifactId>` inside an XML comment must NOT
