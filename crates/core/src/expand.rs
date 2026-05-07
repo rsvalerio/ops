@@ -364,11 +364,23 @@ mod tests {
         let root = PathBuf::from("/bench/root");
         // Warm the OnceLock once.
         let warm = Variables::from_env(&root);
-        let warm_tmpdir = warm.builtins.get("TMPDIR").cloned();
-        // Subsequent calls must observe the same cached value.
+        let warm_tmpdir = warm
+            .builtins
+            .get("TMPDIR")
+            .expect("TMPDIR populated")
+            .clone();
+        // Subsequent calls must observe the *same* cached `Arc<str>` — not just
+        // an equal string. TEST-11 / TASK-1037: a value-equality assertion here
+        // would still pass even if `from_env` re-rendered the TMPDIR path on
+        // every call, defeating the OnceLock optimisation this test exists to
+        // pin. `Arc::ptr_eq` is the only check that breaks on regression.
         for _ in 0..1000 {
             let v = Variables::from_env(&root);
-            assert_eq!(v.builtins.get("TMPDIR").cloned(), warm_tmpdir);
+            let got = v.builtins.get("TMPDIR").expect("TMPDIR populated");
+            assert!(
+                Arc::ptr_eq(got, &warm_tmpdir),
+                "TMPDIR Arc must be reused across from_env calls (OnceLock cache)"
+            );
         }
     }
 }
