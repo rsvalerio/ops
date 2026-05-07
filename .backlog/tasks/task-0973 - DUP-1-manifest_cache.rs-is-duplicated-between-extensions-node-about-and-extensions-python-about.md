@@ -3,11 +3,11 @@ id: TASK-0973
 title: >-
   DUP-1: manifest_cache.rs is duplicated between extensions-node/about and
   extensions-python/about
-status: To Do
+status: Done
 assignee:
   - TASK-1012
 created_date: '2026-05-04 21:57'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:08'
 labels:
   - code-review-rust
   - DUP
@@ -31,7 +31,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Shared manifest-text cache lives in a single ops_about module
-- [ ] #2 Node and Python providers call into the shared cache with a filename argument
-- [ ] #3 Existing tests (Arc identity, poison recovery, cap clear) cover the shared implementation, not per-crate copies
+- [x] #1 Shared manifest-text cache lives in a single ops_about module
+- [x] #2 Node and Python providers call into the shared cache with a filename argument
+- [x] #3 Existing tests (Arc identity, poison recovery, cap clear) cover the shared implementation, not per-crate copies
 <!-- AC:END -->

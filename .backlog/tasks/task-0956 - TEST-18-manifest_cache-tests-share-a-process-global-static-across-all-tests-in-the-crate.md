@@ -3,11 +3,11 @@ id: TASK-0956
 title: >-
   TEST-18: manifest_cache tests share a process-global static across all tests
   in the crate
-status: To Do
+status: Done
 assignee:
   - TASK-1012
 created_date: '2026-05-04 21:46'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:08'
 labels:
   - code-review-rust
   - test-quality
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Refactor cache to be injectable (carry through Context) so tests can use a fresh instance, OR add a #[cfg(test)] cache-clear helper invoked at the start of each cache test
-- [ ] #2 poison_recovery_* tests are isolated (dedicated test binary or serial_test) so they cannot bleed into other tests
+- [x] #1 Refactor cache to be injectable (carry through Context) so tests can use a fresh instance, OR add a #[cfg(test)] cache-clear helper invoked at the start of each cache test
+- [x] #2 poison_recovery_* tests are isolated (dedicated test binary or serial_test) so they cannot bleed into other tests
 <!-- AC:END -->

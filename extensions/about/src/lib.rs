@@ -8,6 +8,7 @@ pub mod cards;
 pub mod coverage;
 pub mod deps;
 pub mod identity;
+pub mod manifest_cache;
 pub mod manifest_io;
 pub mod providers;
 #[cfg(any(test, feature = "test-support"))]
