@@ -3,11 +3,11 @@ id: TASK-0988
 title: >-
   ERR-1: cargo-toml find_workspace_root uses .exists() which silently treats
   EACCES as 'no manifest', skipping reachable Cargo.toml
-status: To Do
+status: Done
 assignee:
   - TASK-1013
 created_date: '2026-05-04 21:59'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:13'
 labels:
   - code-review-rust
   - error-handling
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace cargo_toml.exists() with try_exists() (or std::fs::metadata) so non-NotFound stat errors are distinguished from genuine absence
-- [ ] #2 Non-NotFound stat errors emit a tracing::warn breadcrumb (path Debug-formatted per the TASK-0947 policy) and the walk's behaviour for the affected ancestor is documented (skip-and-continue vs hard-fail)
+- [x] #1 Replace cargo_toml.exists() with try_exists() (or std::fs::metadata) so non-NotFound stat errors are distinguished from genuine absence
+- [x] #2 Non-NotFound stat errors emit a tracing::warn breadcrumb (path Debug-formatted per the TASK-0947 policy) and the walk's behaviour for the affected ancestor is documented (skip-and-continue vs hard-fail)
 <!-- AC:END -->

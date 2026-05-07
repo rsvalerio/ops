@@ -364,7 +364,27 @@ pub fn find_workspace_root_with_depth(
     let mut first_cargo_toml: Option<PathBuf> = None;
     for _ in 0..max_depth {
         let cargo_toml = current.join("Cargo.toml");
-        if cargo_toml.exists() {
+        // ERR-1 / TASK-0988: Path::exists() collapses every IO error
+        // (PermissionDenied, EIO, EBUSY, …) to `false`, silently treating a
+        // stat-error ancestor as "no manifest" and letting the walk continue
+        // upward to a member-only Cargo.toml — misrooting the workspace with
+        // zero log evidence. Use try_exists() instead so non-NotFound errors
+        // surface as a tracing breadcrumb. Behaviour for an unreadable
+        // ancestor is documented as skip-and-continue (mirrors
+        // manifest_declares_workspace's read error handling) so a single
+        // permission glitch does not hard-fail an otherwise-resolvable walk.
+        let exists = match cargo_toml.try_exists() {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(
+                    path = ?cargo_toml.display(),
+                    error = ?e,
+                    "TASK-0988: Cargo.toml stat failed (non-NotFound IO error); skipping this ancestor and continuing"
+                );
+                false
+            }
+        };
+        if exists {
             if manifest_declares_workspace(&cargo_toml) {
                 return Ok(current.to_path_buf());
             }
