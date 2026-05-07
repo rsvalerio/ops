@@ -45,11 +45,19 @@ pub(super) enum Owner {
     Extension(&'static str),
 }
 
-/// Seed an owner map from the keys already present in the target registry
-/// so the first extension's contributions still see existing keys as
-/// foreign-owned rather than producing false-positive collisions across
-/// re-entries.
-pub(super) fn seed_owners<I, K>(keys: I) -> std::collections::HashMap<K, Owner>
+/// Snapshot the keys already present in the target registry into an owner
+/// map so the first extension's contributions classify existing keys as
+/// `PreExisting` rather than producing false-positive collisions.
+///
+/// **This snapshot is taken once at register-time and is not re-checked.**
+/// Subsequent extensions classify their contributions purely via the
+/// in-loop `owners.insert` (or `Entry`) collision check inside
+/// [`register_extension_commands`] / [`register_extension_data_providers`]:
+/// extension N+1 sees N's contributions through that map (because each
+/// `Owner::Extension(...)` entry is inserted as it is registered), *not*
+/// through this seed. The seed only carries the registry's pre-existing
+/// keys (e.g. config-defined commands) into the same classification path.
+pub(super) fn snapshot_initial_owners<I, K>(keys: I) -> std::collections::HashMap<K, Owner>
 where
     I: IntoIterator<Item = K>,
     K: std::hash::Hash + Eq,
@@ -75,7 +83,11 @@ where
 pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut CommandRegistry) {
     // READ-5 / TASK-0716: typed [`Owner`] keeps the warn fields free of
     // internal sentinel strings (`<pre-existing>` no longer leaks).
-    let mut owners = seed_owners(registry.keys().cloned());
+    // PATTERN-1 / TASK-1097: snapshots the registry's *current* keys once.
+    // Cross-extension collisions are detected via the `owners.insert` check
+    // below (extension N+1 sees N's `Owner::Extension(...)` entry), not via
+    // a re-snapshot of the registry on each iteration.
+    let mut owners = snapshot_initial_owners(registry.keys().cloned());
 
     for ext in extensions {
         debug!(extension = ext.name(), action = "commands", "registering");
@@ -141,7 +153,13 @@ pub fn register_extension_data_providers(
     // API-3 / TASK-0996: `provider_names` returns a sorted Vec — collapsed
     // from the previous misleading `_iter` sibling. The seed is consumed
     // once here, so the single Vec round-trip is intentional.
-    let mut owners = seed_owners(registry.provider_names().into_iter().map(str::to_string));
+    //
+    // PATTERN-1 / TASK-1097: same shape as `register_extension_commands` —
+    // this captures the registry's *initial* provider names once.
+    // Cross-extension collisions surface via the `owners.entry(...)`
+    // classification below, not via re-snapshotting the registry per loop.
+    let mut owners =
+        snapshot_initial_owners(registry.provider_names().into_iter().map(str::to_string));
 
     for ext in extensions {
         debug!(
