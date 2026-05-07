@@ -214,21 +214,44 @@ mod tests {
         }
     }
 
-    /// SEC-16: scanning a multi-megabyte value must complete promptly.
-    /// On any reasonable host the bounded prefix keeps this in microseconds;
-    /// the 1 s budget is a generous safety net against future regressions
-    /// (CI noise, sanitisers) — a truly unbounded scan would still trip it.
+    /// SEC-16/TEST-15 (TASK-1098): scanning a multi-megabyte value must not
+    /// look beyond `SECRET_SCAN_LIMIT`. Previous wall-clock `< 1s` assertion
+    /// was flaky on shared/sanitised CI runners. Replaced with a behavioural
+    /// proxy: build a value whose first `SECRET_SCAN_LIMIT` bytes are a
+    /// uniform lowercase run (no digits/uppercase, so `has_high_entropy` is
+    /// false) and whose tail is high-entropy enough that, if scanned, would
+    /// flip the prefix-friendly detectors to `true`. The length-pinned
+    /// detectors (`looks_like_aws_key`, `looks_like_uuid`) reject the value
+    /// outright on length grounds, so the result is fully determined by
+    /// whether the scan honoured the cap. Identical-to-truncated behaviour
+    /// proves no byte past the cap was consulted.
     #[test]
-    fn looks_like_secret_value_is_bounded_for_huge_values() {
-        let huge = "a".repeat(2 * 1024 * 1024);
-        let start = std::time::Instant::now();
-        let flagged = looks_like_secret_value(&huge);
-        let elapsed = start.elapsed();
-        assert!(!flagged, "uniform 'a' run should not look like a secret");
+    fn looks_like_secret_value_does_not_scan_past_cap() {
+        let prefix = "a".repeat(SECRET_SCAN_LIMIT);
+        // High-entropy tail: enough digits, lowercase, uppercase to easily
+        // satisfy `has_high_entropy` if the scan looked at it. Sized to push
+        // total length well past 2 MiB.
+        let tail_unit = "Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Ii9Jj0";
+        let tail = tail_unit.repeat((2 * 1024 * 1024) / tail_unit.len() + 1);
+        let huge = format!("{prefix}{tail}");
+        assert!(huge.len() > 2 * 1024 * 1024);
+
+        // Sanity: the high-entropy tail in isolation would flag.
         assert!(
-            elapsed < std::time::Duration::from_secs(1),
-            "scan took {elapsed:?} on a {}-byte value; SECRET_SCAN_LIMIT bound likely broken",
-            huge.len()
+            looks_like_secret_value(&tail),
+            "test fixture is wrong: tail must trip has_high_entropy"
+        );
+
+        // The capped scan must agree with what it sees on the truncated
+        // prefix alone — proving bytes past SECRET_SCAN_LIMIT were not read.
+        assert_eq!(
+            looks_like_secret_value(&huge),
+            looks_like_secret_value(&prefix),
+            "scan consulted bytes past SECRET_SCAN_LIMIT ({SECRET_SCAN_LIMIT})"
+        );
+        assert!(
+            !looks_like_secret_value(&huge),
+            "uniform-prefix value within cap should not look like a secret"
         );
     }
 
