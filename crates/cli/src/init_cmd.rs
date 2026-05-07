@@ -81,8 +81,29 @@ fn write_init(path: &Path, bytes: &[u8], force: bool) -> std::io::Result<()> {
             } else {
                 parent
             };
-            if let Ok(dir) = std::fs::File::open(parent) {
-                let _ = dir.sync_all();
+            // ERR-1 / TASK-1096: mirror edit::atomic_write's TASK-0899 fix —
+            // a failing parent fsync (ENOSPC, EIO) is non-fatal because the
+            // file write has already returned success, but it is the only
+            // signal that crash-safety is currently broken. Warn rather than
+            // swallow. The parent open failure is also surfaced for the same
+            // reason: silently skipping the fsync hides the regression.
+            match std::fs::File::open(parent) {
+                Ok(dir) => {
+                    if let Err(e) = dir.sync_all() {
+                        tracing::warn!(
+                            parent = %parent.display(),
+                            error = %e,
+                            "directory fsync after .ops.toml create failed; new file may not survive a power loss"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        parent = %parent.display(),
+                        error = %e,
+                        "could not open parent directory to fsync after .ops.toml create; new file may not survive a power loss"
+                    );
+                }
             }
         }
         return Ok(());
