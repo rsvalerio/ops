@@ -1,11 +1,11 @@
 ---
 id: TASK-0951
 title: 'SEC-33: read_workspace_sidecar reads sidecar with no byte cap'
-status: To Do
+status: Done
 assignee:
   - TASK-1015
 created_date: '2026-05-04 21:45'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:37'
 labels:
   - code-review-rust
   - security
@@ -25,7 +25,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_workspace_sidecar uses File::open + Read::take(cap+1) and bails on oversize input
-- [ ] #2 Cap aligned with MAX_GIT_CONFIG_BYTES / MAX_MANIFEST_BYTES (~4 MiB)
-- [ ] #3 Regression test plants an oversized sidecar and asserts the read errors instead of allocating
+- [x] #1 read_workspace_sidecar uses File::open + Read::take(cap+1) and bails on oversize input
+- [x] #2 Cap aligned with MAX_GIT_CONFIG_BYTES / MAX_MANIFEST_BYTES (~4 MiB)
+- [x] #3 Regression test plants an oversized sidecar and asserts the read errors instead of allocating
 <!-- AC:END -->
