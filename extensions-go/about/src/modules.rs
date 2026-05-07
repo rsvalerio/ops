@@ -54,7 +54,15 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
 /// `(outside project root)` members.
 fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
     let normalized = normalize_module_path(dir);
-    let out_of_tree = normalized.starts_with("..");
+    // PATTERN-1 (TASK-1027): test the *first path component* rather than the
+    // raw string. `starts_with("..")` would also flag legal directories like
+    // `..staging/api` or `..backup-2025` whose first component merely begins
+    // with two dots. Split on both `/` and `\\` so go.work entries authored on
+    // Windows are handled too.
+    let out_of_tree = normalized
+        .split(['/', '\\'])
+        .next()
+        .is_some_and(|first| first == "..");
     if out_of_tree {
         // Out-of-tree workspace members (e.g. `use ../shared`) match no
         // `tokei_files.file` entry under cwd, so the unit would render with
@@ -222,6 +230,68 @@ mod tests {
     fn directive_debug_escapes_control_characters() {
         let dir = "../shared\nINJECTED line\u{1b}[31m";
         ops_about::test_support::assert_debug_escapes_control_chars(dir);
+    }
+
+    /// PATTERN-1 (TASK-1027): a `use ..staging/api` directive points at a
+    /// legal directory whose first component merely *begins* with `..`. It
+    /// must be treated as in-tree: no `(outside project root)` suffix and no
+    /// `tracing::warn!` emitted. The previous `starts_with("..")` check
+    /// misclassified this as out-of-tree.
+    /// Minimal `tracing::Subscriber` that records the `Level` of every event.
+    /// Lets us assert that no `WARN` was emitted without pulling in
+    /// `tracing-subscriber` as a dev-dependency.
+    struct WarnCounter(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+    impl tracing::Subscriber for WarnCounter {
+        fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            if *event.metadata().level() == tracing::Level::WARN {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        fn enter(&self, _span: &tracing::span::Id) {}
+        fn exit(&self, _span: &tracing::span::Id) {}
+    }
+
+    #[test]
+    fn collect_units_dotdot_prefixed_dir_is_in_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.work"),
+            "go 1.21\n\nuse (\n\t./..staging/api\n)\n",
+        )
+        .unwrap();
+        let staging_api = dir.path().join("..staging").join("api");
+        std::fs::create_dir_all(&staging_api).unwrap();
+        std::fs::write(
+            staging_api.join("go.mod"),
+            "module example.com/staging/api\n\ngo 1.21\n",
+        )
+        .unwrap();
+
+        let warn_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let subscriber = WarnCounter(warn_count.clone());
+        let units = tracing::subscriber::with_default(subscriber, || collect_units(dir.path()));
+
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].path, "..staging/api");
+        // In-tree: description is the bare module name, no suffix.
+        assert_eq!(
+            units[0].description.as_deref(),
+            Some("example.com/staging/api")
+        );
+        assert!(!units[0]
+            .description
+            .as_deref()
+            .unwrap_or("")
+            .contains("(outside project root)"));
+        assert_eq!(warn_count.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
     #[test]
