@@ -95,13 +95,21 @@ pub fn get_active_toolchain() -> Option<String> {
 ///
 /// Rejects diagnostic lines that rustup prints when there is no active
 /// toolchain (e.g. "error: ...", "info: ...") so they don't get used as a
-/// toolchain identifier. A valid toolchain token must not contain `:`.
+/// toolchain identifier.
+///
+/// PATTERN-1 / TASK-1078: only the rustup diagnostic prefixes
+/// (`error:`, `warning:`, `info:`, `note:`) cause rejection. A blanket
+/// "contains ':'" check would reject legitimate identifiers — custom
+/// toolchains registered via `rustup toolchain link` may contain `:` in
+/// their names, and on Windows `rustup show active-toolchain` can surface
+/// `C:\path\...` shaped tokens. Match the prefix on the full first
+/// whitespace-bounded segment, not as a substring.
 pub(crate) fn parse_active_toolchain(stdout: &str) -> Option<String> {
+    const RUSTUP_DIAGNOSTIC_PREFIXES: &[&str] = &["error:", "warning:", "info:", "note:"];
+
     let line = stdout.lines().map(str::trim).find(|l| !l.is_empty())?;
     let token = line.split_whitespace().next()?;
-    // Reject rustup diagnostic prefixes and any token containing `:` (e.g.
-    // "error:", "info:", "no active toolchain configured").
-    if token.contains(':') {
+    if RUSTUP_DIAGNOSTIC_PREFIXES.contains(&token) {
         return None;
     }
     Some(token.to_string())

@@ -230,6 +230,36 @@ fn parse_active_toolchain_rejects_no_active_toolchain_message() {
     );
 }
 
+/// PATTERN-1 / TASK-1078: a blanket "contains ':'" reject would also drop
+/// legitimate identifiers — custom toolchains registered via `rustup
+/// toolchain link` may carry a `:`-bearing name, and on Windows the
+/// active-toolchain output can include `C:\path\...` shaped tokens. Only
+/// the rustup diagnostic prefixes (full segment match) should reject.
+#[test]
+fn parse_active_toolchain_accepts_colon_in_token() {
+    // Windows-style path token.
+    assert_eq!(
+        parse_active_toolchain("C:\\path\\to\\toolchain\n"),
+        Some("C:\\path\\to\\toolchain".to_string())
+    );
+    // Linked-toolchain name containing a colon.
+    assert_eq!(
+        parse_active_toolchain("linked:custom-toolchain\n"),
+        Some("linked:custom-toolchain".to_string())
+    );
+    // Diagnostic prefix is still rejected — full-segment match, not substring.
+    assert_eq!(parse_active_toolchain("error: no active toolchain\n"), None);
+    // A token whose first segment is `warning:` / `note:` is still rejected.
+    assert_eq!(parse_active_toolchain("warning: stale cache\n"), None);
+    assert_eq!(parse_active_toolchain("note: details follow\n"), None);
+    // But a toolchain whose name merely *contains* "error:" as a substring
+    // (highly unusual but legal in a linked name) is not blanket-rejected.
+    assert_eq!(
+        parse_active_toolchain("custom-error:variant\n"),
+        Some("custom-error:variant".to_string())
+    );
+}
+
 // --- is_in_cargo_list ---
 
 #[test]
