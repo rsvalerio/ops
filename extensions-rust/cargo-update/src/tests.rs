@@ -496,3 +496,39 @@ fn strip_ansi_csi_termination_is_byte_safe() {
     let input = "\x1b[1;31m日本語";
     assert_eq!(strip_ansi(input), "日本語");
 }
+
+/// PATTERN-1 / TASK-1028: an input ending mid-CSI (no final byte before
+/// EOF) must not silently swallow the leading visible text. Pinned
+/// behaviour: `foo` is preserved (it precedes the orphan `\x1b[3`), and
+/// the truncated CSI bytes are themselves preserved in the output rather
+/// than dropping everything to EOF. The previous implementation kept
+/// `foo` (since it was already in `result`) but would silently consume
+/// arbitrary trailing characters in inputs like `"\x1b[3foo"`.
+#[test]
+fn strip_ansi_truncated_csi_preserves_leading_text() {
+    let input = "foo\x1b[3";
+    let out = strip_ansi(input);
+    assert!(
+        out.contains("foo"),
+        "strip_ansi must not silently swallow `foo` on truncated CSI; got {out:?}"
+    );
+    // Pin the chosen behaviour: preserve consumed-but-unterminated bytes.
+    assert_eq!(out, "foo\x1b[3");
+}
+
+/// PATTERN-1 / TASK-1028: trailing visible text after an orphan `\x1b[`
+/// (the case the bug report flags as "drains chars to EOF") must not be
+/// silently swallowed. The cap of 64 bytes bounds the scan so anything
+/// past it is emitted normally.
+#[test]
+fn strip_ansi_truncated_csi_does_not_swallow_trailing_text() {
+    // `\x1b[` with parameter bytes only (no final 0x40..=0x7E), then EOF.
+    let input = "\x1b[123";
+    let out = strip_ansi(input);
+    // `123` are all in the 0x30..=0x39 range — valid CSI parameter bytes,
+    // so without the cap they would be consumed silently to EOF.
+    assert!(
+        out.contains('1') && out.contains('2') && out.contains('3'),
+        "strip_ansi must not silently drop CSI-parameter-shaped trailing bytes on EOF; got {out:?}"
+    );
+}

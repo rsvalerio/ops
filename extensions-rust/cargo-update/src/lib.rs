@@ -172,17 +172,44 @@ fn strip_ansi(s: &str) -> std::borrow::Cow<'_, str> {
     }
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
+    // PATTERN-1 / TASK-1028: bound the CSI scan so a truncated input
+    // (`...\x1b[3` with no final byte before EOF) does not drain `chars`
+    // to end-of-string and silently swallow trailing visible text.
+    // Real CSI sequences are short (~10 bytes); 64 is generous.
+    const CSI_SCAN_CAP: usize = 64;
     while let Some(c) = chars.next() {
         if c == '\x1b' && chars.peek() == Some(&'[') {
             // Consume the `[` then parameter/intermediate bytes (0x20..=0x3F)
             // and the final byte (0x40..=0x7E). All CSI bytes are ASCII so
             // matching against u32 code points is safe.
             chars.next();
-            for next in chars.by_ref() {
-                let cp = next as u32;
-                if (0x40..=0x7E).contains(&cp) {
-                    break;
+            let mut buffered = String::new();
+            let mut terminated = false;
+            for _ in 0..CSI_SCAN_CAP {
+                match chars.next() {
+                    Some(next) => {
+                        let cp = next as u32;
+                        buffered.push(next);
+                        if (0x40..=0x7E).contains(&cp) {
+                            terminated = true;
+                            break;
+                        }
+                    }
+                    None => break,
                 }
+            }
+            if !terminated {
+                // Truncated or runaway CSI: emit a debug breadcrumb and
+                // preserve the consumed-but-unterminated bytes (including the
+                // `\x1b[` lead-in) so trailing visible text is not silently
+                // dropped to EOF. Noisy by design — better than missing data.
+                tracing::debug!(
+                    buffered = ?buffered,
+                    "strip_ansi: truncated or runaway CSI sequence; preserving buffered bytes"
+                );
+                result.push('\x1b');
+                result.push('[');
+                result.push_str(&buffered);
             }
         } else {
             result.push(c);
