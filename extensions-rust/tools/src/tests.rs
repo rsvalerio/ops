@@ -581,6 +581,47 @@ fn install_tool_system_no_rustup_errors() {
     );
 }
 
+// ERR-2 (TASK-1038): policy pin — when a ToolSpec sets *both* a Cargo source
+// AND a rustup_component, the rustup-component install path is preferred and
+// `cargo install` is skipped. Without this, install_tool would run both and
+// silently produce two installations where the operator wanted one.
+#[test]
+fn install_tool_prefers_rustup_when_both_set() {
+    use crate::install::should_run_cargo_install;
+
+    let spec = ToolSpec::Extended(ExtendedToolSpec {
+        description: "tool with both paths set".to_string(),
+        rustup_component: Some("llvm-tools-preview".to_string()),
+        package: Some("cargo-llvm-cov".to_string()),
+        source: ToolSource::Cargo,
+    });
+    assert!(
+        !should_run_cargo_install(&spec),
+        "cargo install must be skipped when rustup_component is also set"
+    );
+}
+
+#[test]
+fn install_tool_runs_cargo_when_only_cargo_source_set() {
+    use crate::install::should_run_cargo_install;
+
+    let spec = ToolSpec::Extended(ExtendedToolSpec {
+        description: "cargo-only tool".to_string(),
+        rustup_component: None,
+        package: Some("cargo-nextest".to_string()),
+        source: ToolSource::Cargo,
+    });
+    assert!(should_run_cargo_install(&spec));
+}
+
+#[test]
+fn install_tool_simple_spec_runs_cargo() {
+    use crate::install::should_run_cargo_install;
+
+    let spec = ToolSpec::Simple("a description".to_string());
+    assert!(should_run_cargo_install(&spec));
+}
+
 // --- Extension metadata ---
 
 #[test]

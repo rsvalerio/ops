@@ -116,6 +116,8 @@ pub(crate) fn install_rustup_component_with_timeout(
 }
 
 pub fn install_tool(name: &str, spec: &ToolSpec) -> anyhow::Result<()> {
+    let has_rustup_component = spec.rustup_component().is_some();
+
     if let Some(component) = spec.rustup_component() {
         let toolchain = get_active_toolchain()
             .ok_or_else(|| anyhow::anyhow!("could not determine active toolchain"))?;
@@ -124,14 +126,41 @@ pub fn install_tool(name: &str, spec: &ToolSpec) -> anyhow::Result<()> {
 
     match spec.source() {
         ToolSource::Cargo => {
-            install_cargo_tool(name, spec.package())?;
+            if should_run_cargo_install(spec) {
+                install_cargo_tool(name, spec.package())?;
+            } else {
+                // ERR-2 (TASK-1038): if a tool spec lists *both* a Cargo source
+                // and a rustup_component, the rustup component install above
+                // already ran; also running `cargo install` would silently
+                // produce two installations where the operator's intent was
+                // probably one or the other. Prefer the rustup-component path
+                // (warn-and-skip) so the chosen behaviour is explicit and
+                // observable.
+                tracing::info!(
+                    tool = name,
+                    "preferred rustup component over cargo install for {}",
+                    name
+                );
+            }
         }
         ToolSource::System => {
-            if spec.rustup_component().is_none() {
+            if !has_rustup_component {
                 anyhow::bail!("system tools cannot be auto-installed: {}", name);
             }
         }
     }
 
     Ok(())
+}
+
+/// ERR-2 (TASK-1038): pure dispatch helper for `install_tool`. Returns `false`
+/// when a `ToolSpec` has both a `rustup_component` set and `ToolSource::Cargo`,
+/// signalling the caller to skip `cargo install` and rely on the rustup
+/// component path that already ran. Extracted so the both-set policy can be
+/// pinned by a unit test without spawning subprocesses.
+pub(crate) fn should_run_cargo_install(spec: &ToolSpec) -> bool {
+    !matches!(
+        (spec.source(), spec.rustup_component()),
+        (ToolSource::Cargo, Some(_))
+    )
 }
