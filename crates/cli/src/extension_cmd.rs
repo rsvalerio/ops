@@ -71,6 +71,15 @@ const DESC_TRUNCATION_WIDTH: u16 = 40;
 /// Wider truncation budget for the narrower provider-field table.
 const PROVIDER_DESC_TRUNCATION_WIDTH: u16 = 50;
 
+/// DUP-3 / TASK-1118: shared helper for the "Description" column lookup used
+/// by both `write_extension_table` and `print_provider_info`.
+fn description_col(headers: &[&str]) -> usize {
+    headers
+        .iter()
+        .position(|&h| h == "Description")
+        .expect("Description header must exist")
+}
+
 fn write_extension_table(
     w: &mut dyn Write,
     exts: &[(&str, &dyn ops_extension::Extension)],
@@ -83,10 +92,7 @@ fn write_extension_table(
         "Data Provider",
         "Description",
     ];
-    let desc_col = headers
-        .iter()
-        .position(|&h| h == "Description")
-        .expect("Description header must exist");
+    let desc_col = description_col(&headers);
 
     let mut table = OpsTable::new();
     table.set_header(headers.to_vec());
@@ -328,10 +334,7 @@ fn print_provider_info(
     }
 
     let provider_headers = ["Field", "Type", "Description"];
-    let desc_col = provider_headers
-        .iter()
-        .position(|&h| h == "Description")
-        .expect("Description header must exist");
+    let desc_col = description_col(&provider_headers);
 
     let mut table = OpsTable::new();
     table.set_header(provider_headers.to_vec());
