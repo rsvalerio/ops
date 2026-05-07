@@ -2,6 +2,71 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.28.0](https://github.com/rsvalerio/ops/compare/94f03bc5538e87e2f006594c9c49110805ef70f8..v0.28.0) - 2026-05-07
+#### 🚀 Features
+- (**git/config**) add breadcrumb when origin section has no extractable url (ERR-7 TASK-0966) - ([f876c69](https://github.com/rsvalerio/ops/commit/f876c692c62c05a35358ab9a2f930b2ce0b41cb6)) - [@rsvalerio](https://github.com/rsvalerio)
+- expose find_workspace_root_with_depth + MAX_ANCESTOR_DEPTH (ARCH-2 TASK-0963) - ([5068db6](https://github.com/rsvalerio/ops/commit/5068db6bfd624979328f0b9cde0b0580dd3c323d)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**about**) use Debug for io::Error tracing fields to prevent log injection (ERR-7 TASK-0999) - ([1617adc](https://github.com/rsvalerio/ops/commit/1617adcffd52e855fa4495d38a225c80c30bbbf1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about/text_util**) pad_to_width_plain delegates to display_width (PERF-3 TASK-1001) - ([cd0f906](https://github.com/rsvalerio/ops/commit/cd0f90600226356e1867b4d6606e337c45b46dfb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) sort available-extensions list in unknown-extension error (PATTERN-1 TASK-0990) - ([4a34d07](https://github.com/rsvalerio/ops/commit/4a34d074b6ea8f1f0a64dc32c31778c95f496d15)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config/loader**) use Debug for path tracing fields to prevent log injection (ERR-7 TASK-0965) - ([a846694](https://github.com/rsvalerio/ops/commit/a8466949f584bb86febb49301c12f0f0deaa983f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core/style**) gate ANSI helpers on TTY and NO_COLOR (READ-9 TASK-0950) - ([ab99e9e](https://github.com/rsvalerio/ops/commit/ab99e9e21fc119d1cd891a908233c4016dc1fa9d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) scope create_ingest_dir 0o700 to leaf; restrict validate_path_chars to ASCII (SEC-25 TASK-1000, READ-5 TASK-1002) - ([447513c](https://github.com/rsvalerio/ops/commit/447513c365ae1da5e4cf2a5de8f39c64f20804b6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb/ingestor**) rename JSON to .done before unlink for crash-safe cleanup (ARCH-2 TASK-1008) - ([6a0ef98](https://github.com/rsvalerio/ops/commit/6a0ef986c2a592463f618b7acf6205ddc6dac906)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb/ingestor**) log debug on NotFound JSON during cleanup_artifacts (ARCH-2 TASK-1005) - ([345ead7](https://github.com/rsvalerio/ops/commit/345ead74e58ecaa90badec8dc007eb953889732a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git/config**) typed SectionHeaderError so malformed remote sections log a reason (READ-5 TASK-1006) - ([a639d89](https://github.com/rsvalerio/ops/commit/a639d896a674bb5b6da5fe1f9ee3ecb23b14fa95)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**go**) tighten looks_like_module_version to numeric MAJOR.MINOR (PATTERN-1 TASK-0976) - ([db2ba43](https://github.com/rsvalerio/ops/commit/db2ba43216637ba80ae3e0574825cd402e9703bf)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**go/about**) is_block_opener accepts trailing inline comment (PATTERN-1 TASK-0994) - ([6ceafb9](https://github.com/rsvalerio/ops/commit/6ceafb98e86f072866beb0cfba5ad2c94160f614)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common/git**) emit breadcrumbs on canonicalize failure in gitdir resolution (ERR-1 TASK-1004) - ([f818d0a](https://github.com/rsvalerio/ops/commit/f818d0a6a1eaeb822d16c4e821e809e433279510)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python**) wrap email-only authors in angle brackets to match node format_person (ERR-2 TASK-0980) - ([5dc92c7](https://github.com/rsvalerio/ops/commit/5dc92c753736b91d7dbe6c206e4d5da7a39d65a6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python**) include manifest path in pyproject parse warns (ERR-7 TASK-0974) - ([cd2228b](https://github.com/rsvalerio/ops/commit/cd2228bd76075aeeafc68ed85ca896463a8e998d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) output_byte_cap peak warning reuses clamped OPS_MAX_PARALLEL (PERF-3 TASK-0995) - ([768e7d4](https://github.com/rsvalerio/ops/commit/768e7d47f5e89093666cd8a6311ba0c488a63c1b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner/parallel**) count terminal events per id so duplicates pair correctly (PATTERN-1 TASK-0997) - ([052eb7e](https://github.com/rsvalerio/ops/commit/052eb7ee9185974482636ce978ab2e1517bb1501)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/about**) short-circuit non-UTF-8 cwd in coverage provider (READ-5 TASK-0986) - ([76a4922](https://github.com/rsvalerio/ops/commit/76a492209987d8cf5eb2726ca0cd1fc47d3312a7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/cargo-toml**) find_workspace_root surfaces EACCES instead of treating as missing (ERR-1 TASK-0988) - ([0045d75](https://github.com/rsvalerio/ops/commit/0045d7513a5a94b622d2c3c21f8b7c7054126309)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/deps**) clamp separator slices to char boundaries; surface non-JSON deny stderr (ERR-1 TASK-0960, TASK-0958) - ([11a7dbd](https://github.com/rsvalerio/ops/commit/11a7dbd515d81d3315278681713c1e45c8ae708a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/metadata**) compare manifest paths by component; retain path intra-workspace deps (PATTERN-1 TASK-0952, TASK-0982) - ([873e6c7](https://github.com/rsvalerio/ops/commit/873e6c7eca4cd54d131eb84503f100b0cb3570a0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/test-coverage**) flatten_coverage_json drops rows with missing filename (ERR-1 TASK-0984) - ([76954b9](https://github.com/rsvalerio/ops/commit/76954b971cf0f79b461832d34c6a85fb0a0c3636)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tools/probe**) use Debug for subprocess stderr fields to prevent log injection (ERR-7 TASK-0979) - ([432d7b8](https://github.com/rsvalerio/ops/commit/432d7b82f9d63239c85080a9d0e480450a3bac59)) - [@rsvalerio](https://github.com/rsvalerio)
+- sanitise untrusted strings in tracing breadcrumbs and ui::emit (wave 70) - ([187fefc](https://github.com/rsvalerio/ops/commit/187fefccfdde568d7789ec059b130eb5b81bed15)) - [@rsvalerio](https://github.com/rsvalerio)
+- drop whitespace-only URLs in pyproject pick_url (ERR-2 TASK-0964) - ([83841ca](https://github.com/rsvalerio/ops/commit/83841ca2f084dfc4de3a0bf5ec83f96aee3ca8ee)) - [@rsvalerio](https://github.com/rsvalerio)
+- emit warn on every typed_manifest_cache poison recovery (ARCH-2 TASK-0962) - ([30fc6c3](https://github.com/rsvalerio/ops/commit/30fc6c378d1b519e38080639fb843de11bc2e00c)) - [@rsvalerio](https://github.com/rsvalerio)
+- keep keywords/categories Inherited when workspace declares no value (PATTERN-1 TASK-0961) - ([bc36f70](https://github.com/rsvalerio/ops/commit/bc36f707f4d5d1f2c44a74e2a95fac0cea3bc7f8)) - [@rsvalerio](https://github.com/rsvalerio)
+- clamp negative per-crate i64 values to 0 with warn (ERR-1 TASK-0959) - ([1990de6](https://github.com/rsvalerio/ops/commit/1990de6cd67963ac63dc84978a4af629b90c629a)) - [@rsvalerio](https://github.com/rsvalerio)
+- reject trailing tokens in cargo-update Adding/Removing lines (ERR-1 TASK-0949) - ([1ce6a17](https://github.com/rsvalerio/ops/commit/1ce6a17046746e0db9dfa02c3a4869fe40adf1d4)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**duckdb**) ingest_mutex_for keyed by &'static str to eliminate per-call alloc (PERF-3 TASK-1007) - ([15b8f91](https://github.com/rsvalerio/ops/commit/15b8f91057608667422cb74447bc6226fd9133d9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python/about**) normalise URL keys once per extract_urls (PERF-3 TASK-0991) - ([429e37f](https://github.com/rsvalerio/ops/commit/429e37f9b0f6e1138b95a15e1d1877ca79f20ce3)) - [@rsvalerio](https://github.com/rsvalerio)
+- pre-size read_optional_text buffer from file metadata (PERF-1 TASK-0971) - ([4a04566](https://github.com/rsvalerio/ops/commit/4a04566cefac6681d0bd93c8d490208eb76848aa)) - [@rsvalerio](https://github.com/rsvalerio)
+- return Cow from cargo-update strip_ansi to skip alloc on common path (PERF-3 TASK-0970) - ([e654b2c](https://github.com/rsvalerio/ops/commit/e654b2c214587f8adc91a4476cb44ffe48df76a3)) - [@rsvalerio](https://github.com/rsvalerio)
+- build per-crate placeholders without intermediate Vec (PERF-3 TASK-0968) - ([72bf4a0](https://github.com/rsvalerio/ops/commit/72bf4a08d6d0272cceaf675c1f6a6cbf299f0626)) - [@rsvalerio](https://github.com/rsvalerio)
+- cache TMPDIR as Arc<str> in Variables::from_env (PERF-3 TASK-0967) - ([95aca2f](https://github.com/rsvalerio/ops/commit/95aca2fa59c96a8e52c9a3c4e9f97ae7d68267ca)) - [@rsvalerio](https://github.com/rsvalerio)
+- avoid per-line String alloc in ProgressState::record_stderr (PERF-3 TASK-0948) - ([94f03bc](https://github.com/rsvalerio/ops/commit/94f03bc5538e87e2f006594c9c49110805ef70f8)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**agents**) document Rust implementation guardrails - ([2b1c0a8](https://github.com/rsvalerio/ops/commit/2b1c0a81cda56fc77523b95064ca24aaed6ce85a)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**cli**) isolate user env, assert error messages, kill flaky sleep (TEST-11/15/18/25 TASKS-0953/0954/0955/0957) - ([31cfaf9](https://github.com/rsvalerio/ops/commit/31cfaf9aac309d69e5345b611baf7f45efe45bef)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tools**) drop assertions for removed ToolStatus::Unknown variant - ([30bdeb3](https://github.com/rsvalerio/ops/commit/30bdeb34af136186f62dde284299eced0e0f9544)) - [@rsvalerio](https://github.com/rsvalerio)
+- pin resolved-members amortisation via typed_manifest_cache (PERF-3 TASK-0969) - ([027c17d](https://github.com/rsvalerio/ops/commit/027c17dd3264356687c1fc887b574b334d6561f0)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about**) extract shared manifest_cache from node/python (DUP-1 TASK-0973, TEST-18 TASK-0956) - ([9112219](https://github.com/rsvalerio/ops/commit/911221989c30f33151cc0237166ac3c1a42f4506)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) inline parse_package_metadata shims at call sites (DUP-3 TASK-0987) - ([6923215](https://github.com/rsvalerio/ops/commit/6923215aef9857402c34e025d8610ec74e24c80f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) share Debug-escape assertion via ops_about::test_support (DUP-3 TASK-0985) - ([0324c3e](https://github.com/rsvalerio/ops/commit/0324c3eaf71c27bfd8c7ea5ed05ea45873f11353)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) unify is_actionable predicates behind a relax_warning param (DUP-3 TASK-0989) - ([ad8648b](https://github.com/rsvalerio/ops/commit/ad8648b4ff9df6c2f5a5634cdaa8294eb811f084)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) collapse severity_icon/colorize_severity onto SeverityClass enum (DUP-3 TASK-0972) - ([0a97460](https://github.com/rsvalerio/ops/commit/0a9746060d7ff5dcb15e025c15bc8ade8690d682)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension/data**) collapse provider_names_iter into provider_names (API-3 TASK-0996) - ([eefdca8](https://github.com/rsvalerio/ops/commit/eefdca8b956518168a5a685ec5cdf4cd9b001ae0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**project_identity**) make stack_emoji defer to language_emoji canonical table (DUP-3 TASK-0983) - ([1bb9c51](https://github.com/rsvalerio/ops/commit/1bb9c514f30927ef074fece737c7f13eb75c8419)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) merge_alias_for routes through Entry API (PATTERN-1 TASK-0998) - ([1278620](https://github.com/rsvalerio/ops/commit/127862049c726668dccb07dfa0418f4c0f714e6a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) unify strip_ansi and visible_width behind one ANSI parser (DUP-1 TASK-0978) - ([f0f962b](https://github.com/rsvalerio/ops/commit/f0f962bb5e6c41f3e7a15c0fc4a88feb488fcf81)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tokei**) tokei_languages_view_sql returns String via TableName::from_static (ERR-5 TASK-1003) - ([42f1d64](https://github.com/rsvalerio/ops/commit/42f1d6486f166cdeb937e4a162e605359d509713)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tools**) remove dead ToolStatus::Unknown variant (READ-7 TASK-0992) - ([f8462cb](https://github.com/rsvalerio/ops/commit/f8462cb0077ac6d27ac1a73d42e1e83c94afea1c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close wave 69/71-75 tasks and TASK-0951 - ([5040f34](https://github.com/rsvalerio/ops/commit/5040f34521517b0826845ee5bec5f152ddbcffc3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) triage 22 findings into waves 69-75; close wave 70 - ([9c796d3](https://github.com/rsvalerio/ops/commit/9c796d33e1794caf40a86eb87da6cb2e5923466f)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.27.1](https://github.com/rsvalerio/ops/compare/0fbc6fa0c9ad080a7362f1242668d2bf705845a5..v0.27.1) - 2026-05-03
 #### 🐛 Bug Fixes
 - (**cli/theme**) use Debug for path/error logging to prevent log injection (ERR-7 TASK-0944) - ([aa3ae16](https://github.com/rsvalerio/ops/commit/aa3ae16da230ee481d02ea56b2a88d0b7aaf363f)) - [@rsvalerio](https://github.com/rsvalerio)
