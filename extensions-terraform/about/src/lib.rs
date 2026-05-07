@@ -147,6 +147,16 @@ const REQUIRED_VERSION_MAX_LEN: usize = 64;
 /// single-quoted value is rejected — surfacing it as the rendered version
 /// would mislead the operator about what the manifest actually says.
 fn extract_required_version(content: &str) -> Option<String> {
+    // PATTERN-1 / TASK-1020: HCL supports `/* … */` block comments in
+    // addition to `#` and `//`. The block-stack tracking below treats
+    // every brace and identifier literally, so a commented-out
+    // `required_version = "…"` inside `/* … */` would otherwise be
+    // extracted, and a block comment that spans body lines confuses
+    // the depth tracking. Strip block comments up front — newlines
+    // inside the comment are preserved as plain newlines so line
+    // numbers (and trailing braces on the same line as `*/`) still
+    // line up. Mirrors `strip_xml_comments` in maven/pom.rs.
+    let stripped = strip_block_comments(content);
     // ERR-2 / TASK-0919: only accept `required_version = "…"` when it
     // appears at the top level of a `terraform { … }` block. Without
     // this, a `module`, `provider`, or custom-locals block that
@@ -156,7 +166,7 @@ fn extract_required_version(content: &str) -> Option<String> {
     // constraint. We track a tiny stack of block-type names — only
     // depth 1 with `terraform` at the bottom counts.
     let mut block_stack: Vec<String> = Vec::new();
-    for line in content.lines() {
+    for line in stripped.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
             continue;
@@ -262,6 +272,66 @@ fn block_open_ident(line: &str) -> Option<&str> {
         return None;
     }
     Some(ident)
+}
+
+/// PATTERN-1 / TASK-1020: replace every `/* … */` block-comment span with
+/// spaces (newlines preserved) so the downstream line-by-line scanner
+/// sees a structurally-equivalent file with the comment bodies blanked
+/// out. We deliberately do not honour `/*` introducers that appear
+/// inside a double-quoted HCL string — `required_version = "/* ignore"`
+/// must keep the literal slash-star. Unterminated `/*` runs to EOF, the
+/// same behaviour as terraform's own parser.
+fn strip_block_comments(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut chars = content.chars().peekable();
+    let mut in_string = false;
+    while let Some(c) = chars.next() {
+        if in_string {
+            out.push(c);
+            if c == '\\' {
+                if let Some(&next) = chars.peek() {
+                    // Preserve `\"` and other escapes verbatim — we only
+                    // care about not exiting the string on an escaped quote.
+                    out.push(next);
+                    chars.next();
+                }
+                continue;
+            }
+            if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if c == '"' {
+            in_string = true;
+            out.push('"');
+            continue;
+        }
+        if c == '/' && chars.peek() == Some(&'*') {
+            // Consume the `*` we just peeked, then scan to the matching
+            // `*/`. Replace every char with a space — newlines kept
+            // verbatim so subsequent line-based logic stays aligned.
+            chars.next();
+            out.push(' ');
+            out.push(' ');
+            while let Some(inner) = chars.next() {
+                if inner == '*' && chars.peek() == Some(&'/') {
+                    chars.next();
+                    out.push(' ');
+                    out.push(' ');
+                    break;
+                }
+                if inner == '\n' {
+                    out.push('\n');
+                } else {
+                    out.push(' ');
+                }
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// SEC-11 / TASK-0853: strip a trailing `# ...` or `// ...` HCL comment
@@ -683,6 +753,46 @@ terraform {
         let v = extract_required_version(&content).expect("Some");
         assert_eq!(v.len(), REQUIRED_VERSION_MAX_LEN);
         assert!(v.chars().all(|c| c == 'v'));
+    }
+
+    /// PATTERN-1 / TASK-1020: a `required_version` declaration that lives
+    /// entirely inside an HCL `/* … */` block comment must NOT be
+    /// extracted — block-commented declarations are by definition not
+    /// the active terraform constraint. Pre-fix the parser ignored
+    /// only `#` and `//` line comments and would surface ">= 99.0".
+    #[test]
+    fn extract_required_version_skips_block_comment() {
+        let content = r#"terraform {
+  /* required_version = ">= 99.0" */
+}
+"#;
+        assert_eq!(extract_required_version(content), None);
+    }
+
+    /// PATTERN-1 / TASK-1020: when a block comment wraps a stale
+    /// declaration but a live `required_version` follows on the same
+    /// (or a subsequent) line, the live value must win. The block
+    /// comment also must not corrupt block-depth tracking — the
+    /// trailing `}` still has to close the `terraform` block.
+    #[test]
+    fn extract_required_version_uses_live_value_after_block_comment() {
+        let content = "terraform {\n  /* TODO bump\n     required_version = \">= 99\" */ required_version = \"~> 1.5\"\n}\n";
+        assert_eq!(
+            extract_required_version(content),
+            Some("~> 1.5".to_string())
+        );
+    }
+
+    /// PATTERN-1 / TASK-1020: a `/*` that appears inside a quoted HCL
+    /// string is part of the value, not a comment introducer — strip
+    /// must not eat it.
+    #[test]
+    fn extract_required_version_keeps_block_comment_marker_inside_quotes() {
+        let content = "terraform {\nrequired_version = \"~> 1.5 /* not a comment */\"\n}\n";
+        assert_eq!(
+            extract_required_version(content),
+            Some("~> 1.5 /* not a comment */".to_string())
+        );
     }
 
     /// ERR-1 / TASK-1018: a missing `modules/` dir is the expected "no
