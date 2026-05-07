@@ -3,11 +3,11 @@ id: TASK-0978
 title: >-
   DUP-1: theme strip_ansi and visible_width duplicate the entire ANSI grammar
   parser
-status: To Do
+status: Done
 assignee:
   - TASK-1011
 created_date: '2026-05-04 21:58'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-07 19:01'
 labels:
   - code-review-rust
   - duplication
@@ -27,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Single ANSI grammar parser in theme::style::strip used by both visible_width and strip_ansi
-- [ ] #2 Existing visible_width_matches_display_width_of_stripped contract test still passes
-- [ ] #3 No behaviour change: corpus + new fuzz/proptest covering CSI/OSC/two-byte-escape edge cases agree
+- [x] #1 Single ANSI grammar parser in theme::style::strip used by both visible_width and strip_ansi
+- [x] #2 Existing visible_width_matches_display_width_of_stripped contract test still passes
+- [x] #3 No behaviour change: corpus + new fuzz/proptest covering CSI/OSC/two-byte-escape edge cases agree
 <!-- AC:END -->

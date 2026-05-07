@@ -13,6 +13,7 @@ unicode-width = { workspace = true }
 
 [dev-dependencies]
 ops-core = { workspace = true, features = ["test-support"] }
+proptest = { workspace = true }
 serial_test = { workspace = true }
 tempfile = { workspace = true }
 toml = { workspace = true }

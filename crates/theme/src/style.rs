@@ -53,6 +53,54 @@ mod tests {
     /// `display_width(&strip_ansi(s))` across the strip_ansi corpus — that is
     /// the contract that lets every hot-path call site swap the allocating
     /// pair for the inline scan without a behaviour change.
+    /// DUP-1 / TASK-0978: with the ANSI grammar parser deduplicated, a
+    /// proptest over a CSI/OSC/two-byte-escape corpus locks in that
+    /// `visible_width` and `display_width(&strip_ansi(_))` agree on
+    /// inputs that mix escapes with arbitrary visible text.
+    #[test]
+    fn visible_width_matches_display_width_proptest() {
+        use ops_core::output::display_width;
+        use proptest::prelude::*;
+
+        // Escape-sequence atoms that exercise each grammar arm.
+        let escapes = prop_oneof![
+            // CSI with various finals.
+            Just("\x1b[m".to_string()),
+            Just("\x1b[1;31m".to_string()),
+            Just("\x1b[2J".to_string()),
+            Just("\x1b[1;2H".to_string()),
+            // OSC terminated by BEL or ST.
+            Just("\x1b]0;title\x07".to_string()),
+            Just("\x1b]8;;https://example.com\x1b\\".to_string()),
+            Just("\x1b]8;;\x1b\\".to_string()),
+            // DCS / SOS / PM / APC.
+            Just("\x1bPpayload\x1b\\".to_string()),
+            Just("\x1bX\x07".to_string()),
+            // Two-byte escapes (single shift, charset selectors).
+            Just("\x1bN".to_string()),
+            Just("\x1b(B".to_string()),
+            Just("\x1b)0".to_string()),
+            Just("\x1b#8".to_string()),
+        ];
+        // Visible text excludes raw control bytes; UnicodeWidthStr and
+        // UnicodeWidthChar disagree on those (a pre-existing wart that is
+        // out of scope for the dedup), so the contract holds for any
+        // input that mixes well-formed escapes with normal printable text.
+        let visible = "[a-zA-Z0-9 résumé café 🚀ビルド]{0,8}";
+        let chunk = prop_oneof![escapes, visible.prop_map(String::from)];
+        let strategy = proptest::collection::vec(chunk, 0..12).prop_map(|v| v.concat());
+
+        proptest!(|(s in strategy)| {
+            prop_assert_eq!(
+                visible_width(&s),
+                display_width(&strip_ansi(&s)),
+                "visible_width disagrees with display_width(&strip_ansi(_)) for {:?}",
+                s
+            );
+            prop_assert!(!strip_ansi(&s).contains('\x1b'));
+        });
+    }
+
     #[test]
     fn visible_width_matches_display_width_of_stripped() {
         use ops_core::output::display_width;
