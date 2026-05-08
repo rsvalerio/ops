@@ -4,10 +4,10 @@ title: >-
   DUP-1: tests/integration.rs duplicate fork still exists after TASK-0939 (Done)
   — workspace-root file lacks the TEST-11/TEST-15/TEST-18/TEST-25 fixes applied
   to the cli-crate copy
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-05-07 20:22'
-updated_date: '2026-05-07 20:23'
+updated_date: '2026-05-08 00:00'
 labels:
   - code-review-rust
   - DUP
@@ -39,8 +39,8 @@ Recommended action: delete `tests/integration.rs` outright. After removal, run `
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 tests/integration.rs is removed (TASK-0939 AC #1 finally satisfied)
-- [ ] #2 No remaining file in the repo carries a stale '#![allow(deprecated)]' for set_var/remove_var that is never used
-- [ ] #3 Integration coverage runs only via crates/cli/tests/integration.rs (verified by cargo test -p ops --test integration)
-- [ ] #4 ops verify / ops qa stay green after the deletion
+- [x] #1 tests/integration.rs is removed (TASK-0939 AC #1 finally satisfied)
+- [x] #2 No remaining file in the repo carries a stale '#![allow(deprecated)]' for set_var/remove_var that is never used
+- [x] #3 Integration coverage runs only via crates/cli/tests/integration.rs (verified by cargo test -p ops --test integration)
+- [x] #4 ops verify / ops qa stay green after the deletion
 <!-- AC:END -->
