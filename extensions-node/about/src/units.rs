@@ -210,11 +210,13 @@ fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
             }
             let trimmed = line.trim();
             if let Some(rest) = trimmed.strip_prefix("- ") {
-                out.push(unquote(rest.trim()).to_string());
+                let stripped = strip_trailing_yaml_comment(rest.trim());
+                out.push(unquote(stripped.trim()).to_string());
             } else if let Some(rest) = trimmed.strip_prefix('-') {
                 let rest = rest.trim();
                 if !rest.is_empty() {
-                    out.push(unquote(rest).to_string());
+                    let stripped = strip_trailing_yaml_comment(rest);
+                    out.push(unquote(stripped.trim()).to_string());
                 }
             }
         }
@@ -231,6 +233,30 @@ fn unquote(s: &str) -> &str {
         .and_then(|t| t.strip_suffix('\''))
         .or_else(|| s.strip_prefix('"').and_then(|t| t.strip_suffix('"')))
         .unwrap_or(s)
+}
+
+/// PATTERN-1 / TASK-1061: drop a trailing YAML `# comment` from a list-item
+/// value. A `#` only starts a comment when it follows whitespace AND is not
+/// inside a matching pair of single or double quotes — `'#literal'` and
+/// `"#literal"` must survive intact. Walks the string left-to-right tracking
+/// quote state; on the first whitespace-then-`#` outside quotes, truncates.
+fn strip_trailing_yaml_comment(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut prev_ws = true; // a leading `#` (no preceding char) acts as a comment too
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b'#' if !in_single && !in_double && prev_ws => {
+                return s[..i].trim_end();
+            }
+            _ => {}
+        }
+        prev_ws = (b as char).is_whitespace();
+    }
+    s
 }
 
 #[derive(Debug, Deserialize)]
@@ -470,5 +496,35 @@ mod tests {
         let yaml = "packages: ['apps/*', \"libs/core\", services/api]\n";
         let pats = parse_pnpm_workspace_yaml(yaml).items;
         assert_eq!(pats, vec!["apps/*", "libs/core", "services/api"]);
+    }
+
+    /// PATTERN-1 / TASK-1061: a trailing `# comment` after a quoted list
+    /// item must be stripped before `unquote` runs — otherwise the value
+    /// retains the closing quote+comment and matches no directory.
+    #[test]
+    fn pnpm_trailing_comment_after_quoted_item_is_stripped() {
+        let yaml = "packages:\n  - 'apps/*' # note\n";
+        let pats = parse_pnpm_workspace_yaml(yaml).items;
+        assert_eq!(pats, vec!["apps/*"]);
+    }
+
+    /// PATTERN-1 / TASK-1061: a trailing `# comment` after an unquoted
+    /// list item is also stripped (whitespace-prefixed `#` is the YAML
+    /// comment marker).
+    #[test]
+    fn pnpm_trailing_comment_after_unquoted_item_is_stripped() {
+        let yaml = "packages:\n  - apps/* # note\n";
+        let pats = parse_pnpm_workspace_yaml(yaml).items;
+        assert_eq!(pats, vec!["apps/*"]);
+    }
+
+    /// PATTERN-1 / TASK-1061: a `#` inside matching quotes is a literal
+    /// character, not a comment marker — `'#literal-pattern'` must pass
+    /// through intact.
+    #[test]
+    fn pnpm_hash_inside_quotes_is_not_a_comment() {
+        let yaml = "packages:\n  - '#literal-pattern'\n";
+        let pats = parse_pnpm_workspace_yaml(yaml).items;
+        assert_eq!(pats, vec!["#literal-pattern"]);
     }
 }
