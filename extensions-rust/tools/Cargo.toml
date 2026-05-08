@@ -12,7 +12,7 @@ linkme = { workspace = true }
 indexmap = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
-wait-timeout = "0.2"
+wait-timeout = { workspace = true }
 
 [dev-dependencies]
 toml = { workspace = true }
