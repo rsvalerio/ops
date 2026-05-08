@@ -420,6 +420,35 @@ impl EnvGuard {
     }
 }
 
+/// TEST-19 (TASK-1033): true when the current effective UID is 0 on Unix.
+/// Tests that rely on DAC permission denial (`chmod 0o000` + assert read
+/// fails) silently invert their assertion when run as root because the
+/// kernel skips the permission check for UID 0. Container CI (Docker
+/// default UID 0, rootful devcontainers, privileged self-hosted runners)
+/// hits this routinely. Callers should `if is_root_euid() { return; }`
+/// at the top of the test and explain inline why the guard is mandatory.
+///
+/// On non-Unix targets this always returns `false`; callers should also
+/// be `#[cfg(unix)]`-gated since the underlying chmod assertion is too.
+#[allow(dead_code)]
+#[cfg(unix)]
+pub fn is_root_euid() -> bool {
+    // Avoid pulling in a libc dep just for one syscall: declare the FFI
+    // signature locally. `geteuid` is async-signal-safe and infallible per
+    // POSIX, so no errno handling is required.
+    unsafe extern "C" {
+        fn geteuid() -> u32;
+    }
+    // SAFETY: `geteuid` takes no arguments and cannot fail per POSIX.
+    unsafe { geteuid() == 0 }
+}
+
+#[allow(dead_code)]
+#[cfg(not(unix))]
+pub fn is_root_euid() -> bool {
+    false
+}
+
 impl Drop for EnvGuard {
     #[allow(unused_unsafe)]
     fn drop(&mut self) {

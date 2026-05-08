@@ -325,12 +325,25 @@ mod tests {
     /// TASK-0517 / TASK-0556 sweep. Tests the debug-level emission via the
     /// in-process fmt subscriber pattern already used by
     /// `resolve_unknown_config_override_emits_tracing_warning`.
+    /// TEST-19 (TASK-1033): the chmod-0o000 mechanism this test uses to
+    /// provoke a per-entry IO error only fires for non-root callers; root's
+    /// DAC bypass means the locked dir is readable, no error is emitted,
+    /// and the assertion `detected == Some(Stack::Terraform)` would pass
+    /// for the wrong reason (it reduces to "Terraform detection still
+    /// works at all"). Skipping under root keeps the breadcrumb-emission
+    /// contract pinned to a meaningful fs configuration. DO NOT strip this
+    /// guard without first replacing chmod with a deterministic error
+    /// source (e.g. injected `read_dir` failure via a trait seam).
     #[cfg(unix)]
     #[test]
     fn extension_walk_per_entry_error_logs_debug_breadcrumb() {
         use std::os::unix::fs::PermissionsExt;
         use std::sync::{Arc, Mutex};
         use tracing_subscriber::fmt::MakeWriter;
+
+        if crate::test_utils::is_root_euid() {
+            return;
+        }
 
         #[derive(Clone, Default)]
         struct BufWriter(Arc<Mutex<Vec<u8>>>);

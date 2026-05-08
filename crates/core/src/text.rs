@@ -123,15 +123,40 @@ pub fn format_number(n: i64) -> String {
     insert_thousands_separators(&n.to_string())
 }
 
+/// PERF-3 (TASK-1065): single forward pass over ASCII digits, no second
+/// allocation or `chars().rev()` round-trip. Callers in render hot paths
+/// (`format_number` from About-card / table rendering) hit this for every
+/// numeric cell. The input is always the decimal rendering of a non-negative
+/// integer (`u64`/`i64::to_string` magnitude) so all bytes are ASCII digits;
+/// indexing by byte position is therefore safe and avoids UTF-8 char iteration.
+///
+/// Strategy: compute the leading-group length (`len % 3`, falling back to 3
+/// when the input length is a multiple of 3), copy that prefix, then for each
+/// remaining 3-digit group push a separator followed by the group. The fast
+/// path for fewer than four digits returns the input unchanged with no comma
+/// allocation overhead beyond the single output `String`.
 fn insert_thousands_separators(digits: &str) -> String {
-    let mut result = String::with_capacity(digits.len() + digits.len() / 3);
-    for (i, c) in digits.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 {
-            result.push(',');
-        }
-        result.push(c);
+    let bytes = digits.as_bytes();
+    let len = bytes.len();
+    if len <= 3 {
+        // Zero-comma fast path: no separator needed for `n.abs() < 1000`.
+        return digits.to_string();
     }
-    result.chars().rev().collect()
+    let mut result = String::with_capacity(len + (len - 1) / 3);
+    let head = match len % 3 {
+        0 => 3,
+        n => n,
+    };
+    // SAFETY-equivalent: `bytes` are ASCII digits (caller passes
+    // `i64::to_string` magnitude), so byte slicing aligns with char boundaries.
+    result.push_str(&digits[..head]);
+    let mut i = head;
+    while i < len {
+        result.push(',');
+        result.push_str(&digits[i..i + 3]);
+        i += 3;
+    }
+    result
 }
 
 /// Extract the last path component as a project name, falling back to `"project"`.
@@ -349,10 +374,22 @@ mod tests {
         assert!(rendered.contains("\\n"));
     }
 
+    /// TEST-19 (TASK-1033): the `chmod 0o000` mechanism only synthesises a
+    /// `PermissionDenied` read error for non-root callers; the kernel skips
+    /// DAC checks for effective UID 0, so this assertion silently inverts
+    /// (read succeeds, callback runs, `for_each_trimmed_line` returns
+    /// `Some(())`) under rootful CI (Docker default UID, privileged
+    /// self-hosted runners, rootful devcontainers). Skip the assertion on
+    /// root rather than emit a green-but-meaningless result. DO NOT remove
+    /// this guard without also replacing the chmod-based denial mechanism
+    /// (e.g. open-then-revoke via `/proc/self/fd/X`).
     #[cfg(unix)]
     #[test]
     fn for_each_trimmed_line_unreadable_file_returns_none() {
         use std::os::unix::fs::PermissionsExt;
+        if crate::test_utils::is_root_euid() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("denied.txt");
         std::fs::write(&path, "data").unwrap();
