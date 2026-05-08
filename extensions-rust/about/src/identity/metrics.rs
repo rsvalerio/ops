@@ -54,20 +54,18 @@ fn query_dependency_count(db: &DuckDb) -> Option<usize> {
 }
 
 fn query_coverage_and_languages(db: &DuckDb) -> (Option<f64>, Vec<LanguageStat>) {
-    let coverage = query_or_warn(
-        "query_project_coverage",
-        "coverage_percent will be None",
-        None,
-        || {
-            ops_duckdb::sql::query_project_coverage(db).map(|c| {
-                if c.lines_count > 0 {
-                    Some(c.lines_percent)
-                } else {
-                    None
-                }
-            })
-        },
-    );
+    // DUP-1 / TASK-1079: share the single `query_project_coverage` result
+    // with `RustCoverageProvider` via the per-process cache rather than
+    // dispatching our own query. The cache memoizes `Option<CrateCoverage>`
+    // so a hard failure here is also already logged (or about to be) by
+    // the sibling provider exactly once per `ops about` run.
+    let coverage = crate::coverage_provider::cached_query_project_coverage(db).and_then(|c| {
+        if c.lines_count > 0 {
+            Some(c.lines_percent)
+        } else {
+            None
+        }
+    });
 
     let languages = query_or_warn(
         "query_project_languages",
