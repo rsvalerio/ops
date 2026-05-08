@@ -44,7 +44,19 @@ pub(crate) fn normalize_repo_url(raw: &str) -> String {
     let s = sanitised.trim();
     for (prefix, host) in HOST_PREFIXES {
         if let Some(rest) = s.strip_prefix(prefix) {
-            return format!("https://{host}/{rest}");
+            // SEC-14 / TASK-1111: the `rest` portion of an npm-shorthand
+            // (`github:`/`gitlab:`/`bitbucket:`) is a path component
+            // rendered into About cards, markdown, HTML, and log lines.
+            // An adversarial `package.json` with
+            // `"repository": "github:../../etc/passwd"` would otherwise
+            // produce `https://github.com/../../etc/passwd`. Same fix
+            // shape as `append_tree_directory` (SEC-14 / TASK-0811):
+            // drop empty, `.`, and `..` segments before interpolation.
+            let cleaned = scrub_path_segments(rest.trim_end_matches(".git"));
+            if cleaned.is_empty() {
+                return format!("https://{host}");
+            }
+            return format!("https://{host}/{cleaned}");
         }
     }
     if let Some(rest) = s
@@ -59,12 +71,22 @@ pub(crate) fn normalize_repo_url(raw: &str) -> String {
         // `https://` like the bare `git://` branch below — otherwise the
         // About card renders an unclickable `git://` link.
         if let Some(after) = trimmed.strip_prefix("git://") {
-            return format!("https://{after}");
+            // SEC-14 / TASK-1111: scrub path traversal (see HOST_PREFIXES
+            // branch above) from the `git+git://` body.
+            return format!("https://{}", scrub_authority_and_path(after));
         }
-        return trimmed.to_string();
+        // SEC-14 / TASK-1111: scrub path traversal from `git+<scheme>://`
+        // URLs (e.g. `git+https://github.com/../../etc/passwd`) too. The
+        // scheme is preserved intact so `https://` does not collapse.
+        return scrub_full_url_path(trimmed);
     }
     if let Some(rest) = s.strip_prefix("git://") {
-        return format!("https://{}", rest.trim_end_matches(".git"));
+        // SEC-14 / TASK-1111: scrub path traversal from the bare `git://`
+        // branch — same surface as the npm-shorthand branch above.
+        return format!(
+            "https://{}",
+            scrub_authority_and_path(rest.trim_end_matches(".git"))
+        );
     }
     // PATTERN-1 / TASK-1060: bare two-segment npm shorthand
     // (`owner/repo`) — no scheme, no colon, exactly one `/`, both
@@ -149,6 +171,54 @@ pub(crate) fn append_tree_directory(base: &str, directory: &str) -> String {
     }
     let trimmed_base = base.trim_end_matches('/');
     format!("{trimmed_base}/tree/HEAD/{cleaned}")
+}
+
+/// Drop empty, `.`, and `..` segments from a `/`-separated path. SEC-14 /
+/// TASK-1111: shared scrub used by the npm-shorthand and `git://` branches
+/// of [`normalize_repo_url`]. Mirrors the segment filter in
+/// [`append_tree_directory`] (SEC-14 / TASK-0811) so adversarial
+/// `repository` values like `github:../../etc/passwd` cannot produce a
+/// traversal-shaped URL in rendered About output.
+fn scrub_path_segments(path: &str) -> String {
+    path.replace('\\', "/")
+        .split('/')
+        .filter(|seg| !seg.is_empty() && *seg != "." && *seg != "..")
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Scrub path traversal from a `host[/path]` body where the leading
+/// segment is the authority (host[:port]) and must be preserved verbatim.
+/// SEC-14 / TASK-1111: the `git://`, `git+git://`, and `git+<scheme>://`
+/// branches of [`normalize_repo_url`] all carry an authority followed by a
+/// path component; only the path is scrubbed, the host is kept intact so
+/// `git://github.com/o/r` continues to round-trip to `https://github.com/o/r`.
+fn scrub_authority_and_path(authority_and_path: &str) -> String {
+    match authority_and_path.split_once('/') {
+        Some((authority, path)) => {
+            let cleaned = scrub_path_segments(path);
+            if cleaned.is_empty() {
+                authority.to_string()
+            } else {
+                format!("{authority}/{cleaned}")
+            }
+        }
+        None => authority_and_path.to_string(),
+    }
+}
+
+/// Scrub path traversal from a full URL of the form `<scheme>://<host>/<path>`.
+/// SEC-14 / TASK-1111: the `git+<scheme>://` branch of [`normalize_repo_url`]
+/// returns the URL with the scheme intact; we must only scrub the path
+/// portion, leaving `scheme://` and the authority alone (otherwise `https://`
+/// collapses to `https:/` because the empty segment between the two slashes
+/// is filtered).
+fn scrub_full_url_path(url: &str) -> String {
+    if let Some((scheme, rest)) = url.split_once("://") {
+        format!("{scheme}://{}", scrub_authority_and_path(rest))
+    } else {
+        scrub_authority_and_path(url)
+    }
 }
 
 pub(crate) fn is_numeric_port_prefix(path: &str) -> bool {
@@ -324,6 +394,67 @@ mod tests {
             "url still contains control chars: {out:?}"
         );
         assert_eq!(out, "https://github.com/owner/repoINJECTMORE");
+    }
+
+    /// SEC-14 / TASK-1111: a `github:` shorthand carrying `..` segments
+    /// must not produce a traversal-shaped URL — the same threat model as
+    /// [`append_tree_directory`] (TASK-0811). The scrub drops every empty,
+    /// `.`, and `..` segment before interpolation.
+    #[test]
+    fn normalize_github_shorthand_strips_traversal() {
+        let out = normalize_repo_url("github:../../etc/passwd");
+        assert!(!out.contains(".."), "url still contains ..: {out}");
+        assert_eq!(out, "https://github.com/etc/passwd");
+    }
+
+    #[test]
+    fn normalize_gitlab_shorthand_strips_traversal() {
+        let out = normalize_repo_url("gitlab:owner/../../../etc/passwd");
+        assert!(!out.contains(".."), "url still contains ..: {out}");
+        assert_eq!(out, "https://gitlab.com/owner/etc/passwd");
+    }
+
+    #[test]
+    fn normalize_bitbucket_shorthand_strips_traversal() {
+        let out = normalize_repo_url("bitbucket:../foo/bar");
+        assert!(!out.contains(".."), "url still contains ..: {out}");
+        assert_eq!(out, "https://bitbucket.org/foo/bar");
+    }
+
+    /// SEC-14 / TASK-1111: a shorthand whose suffix is purely traversal
+    /// collapses to the bare host — same shape as
+    /// `append_tree_directory` returning the base URL when every
+    /// component filters out.
+    #[test]
+    fn normalize_github_shorthand_pure_traversal_collapses_to_host() {
+        assert_eq!(normalize_repo_url("github:../../.."), "https://github.com");
+    }
+
+    /// SEC-14 / TASK-1111: the bare `git://` branch must scrub `..` too.
+    #[test]
+    fn normalize_git_scheme_strips_traversal() {
+        let out = normalize_repo_url("git://github.com/../../etc/passwd");
+        assert!(!out.contains(".."), "url still contains ..: {out}");
+        assert_eq!(out, "https://github.com/etc/passwd");
+    }
+
+    /// SEC-14 / TASK-1111: `git+git://` shares the scrub policy with the
+    /// bare `git://` branch (PATTERN-1 / TASK-1049 rewrites to https).
+    #[test]
+    fn normalize_git_plus_git_scheme_strips_traversal() {
+        let out = normalize_repo_url("git+git://github.com/../../etc/passwd");
+        assert!(!out.contains(".."), "url still contains ..: {out}");
+        assert_eq!(out, "https://github.com/etc/passwd");
+    }
+
+    /// SEC-14 / TASK-1111: `git+<scheme>://` (e.g. `git+https://`) also
+    /// scrubs `..` from the path component before rendering into the
+    /// About card.
+    #[test]
+    fn normalize_git_plus_https_strips_traversal() {
+        let out = normalize_repo_url("git+https://github.com/o/../../etc/passwd.git");
+        assert!(!out.contains(".."), "url still contains ..: {out}");
+        assert_eq!(out, "https://github.com/o/etc/passwd");
     }
 
     /// SEC-2 / TASK-1080: a debug-log of the normalised URL must remain
