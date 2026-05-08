@@ -38,9 +38,9 @@ fn warn_patterns() -> impl Iterator<Item = &'static &'static str> {
 /// - Values that look like secrets: long base64-like strings, AWS-style keys,
 ///   JWT-like tokens
 pub fn warn_if_sensitive_env(key: &str, value: &str) {
-    let lower = key.to_lowercase();
+    let key_bytes = key.as_bytes();
     for pattern in warn_patterns() {
-        if lower.contains(pattern) {
+        if ascii_contains_ignore_case(key_bytes, pattern.as_bytes()) {
             tracing::warn!(
                 key = %key,
                 "SEC-002: env variable name suggests sensitive data; use OS environment instead of config"
@@ -63,10 +63,33 @@ pub fn warn_if_sensitive_env(key: &str, value: &str) {
 /// This is used by dry-run mode to redact sensitive values in output.
 /// Returns true if the key name suggests it contains a secret.
 pub fn is_sensitive_env_key(key: &str) -> bool {
-    let lower = key.to_lowercase();
+    let key_bytes = key.as_bytes();
     SENSITIVE_REDACTION_PATTERNS
         .iter()
-        .any(|p| lower.contains(p))
+        .any(|p| ascii_contains_ignore_case(key_bytes, p.as_bytes()))
+}
+
+/// PERF-3 (TASK-1053): allocation-free ASCII case-insensitive substring search.
+///
+/// Walks `haystack.windows(needle.len())` and compares byte-by-byte with
+/// [`u8::eq_ignore_ascii_case`]. Patterns are pure ASCII by construction
+/// (see [`SENSITIVE_REDACTION_PATTERNS`] / [`WARN_ONLY_PATTERNS`]), and env
+/// keys are virtually always ASCII; non-ASCII bytes in the haystack simply
+/// fail the byte comparison and the window slides forward, preserving the
+/// previous `key.to_lowercase().contains(pattern)` semantics for ASCII input.
+fn ascii_contains_ignore_case(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    if haystack.len() < needle.len() {
+        return false;
+    }
+    haystack.windows(needle.len()).any(|window| {
+        window
+            .iter()
+            .zip(needle)
+            .all(|(h, n)| h.eq_ignore_ascii_case(n))
+    })
 }
 
 /// SEC-16: Upper bound on bytes scanned by [`looks_like_secret_value`].
@@ -274,6 +297,84 @@ mod tests {
         let key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
         assert_eq!(key.len(), 40);
         assert!(looks_like_aws_key(key));
+    }
+
+    /// PERF-3 (TASK-1053): the allocation-free ASCII case-insensitive
+    /// substring matcher must agree with the previous
+    /// `key.to_lowercase().contains(pattern)` behavior across upper/lower/
+    /// mixed case input for both warn and redaction decisions.
+    #[test]
+    fn sensitive_key_detection_parity_across_case() {
+        // Reference oracle: the original allocating implementation.
+        fn warn_oracle(key: &str) -> bool {
+            let lower = key.to_lowercase();
+            SENSITIVE_REDACTION_PATTERNS
+                .iter()
+                .chain(WARN_ONLY_PATTERNS.iter())
+                .any(|p| lower.contains(p))
+        }
+        fn redact_oracle(key: &str) -> bool {
+            let lower = key.to_lowercase();
+            SENSITIVE_REDACTION_PATTERNS
+                .iter()
+                .any(|p| lower.contains(p))
+        }
+
+        // Sensitive (warn): should match patterns from either list.
+        // Non-sensitive: should not match any pattern.
+        // Mix cases to confirm the case-fold is correct.
+        let cases = [
+            "aws_secret_access_key",
+            "AWS_SECRET_ACCESS_KEY",
+            "Aws_Secret_Access_Key",
+            "MY_API_KEY",
+            "github_token",
+            "DB_PASSWORD",
+            "X_PRIVATE_VALUE",
+            "auth_header",
+            "AWS_ACCESS_KEY_ID", // warn-only (access_key)
+            "session_id",        // warn-only
+            "PATH",
+            "HOME",
+            "CARGO_HOME",
+            "RUST_LOG",
+            "version_1_2_3",
+            "",
+            "tok", // shorter than any pattern
+        ];
+
+        for key in cases {
+            // Redaction parity:
+            assert_eq!(
+                is_sensitive_env_key(key),
+                redact_oracle(key),
+                "redaction mismatch for {key:?}"
+            );
+
+            // Warn-decision parity: replicate the warn-key branch in isolation.
+            let key_bytes = key.as_bytes();
+            let warn_decision =
+                warn_patterns().any(|p| ascii_contains_ignore_case(key_bytes, p.as_bytes()));
+            assert_eq!(warn_decision, warn_oracle(key), "warn mismatch for {key:?}");
+        }
+
+        // Spot-check explicit expectations called out in TASK-1053.
+        assert!(is_sensitive_env_key("aws_secret_access_key"));
+        assert!(!is_sensitive_env_key("PATH"));
+    }
+
+    #[test]
+    fn ascii_contains_ignore_case_basics() {
+        assert!(ascii_contains_ignore_case(b"AWS_SECRET", b"secret"));
+        assert!(ascii_contains_ignore_case(b"hello_TOKEN_x", b"token"));
+        assert!(ascii_contains_ignore_case(b"abc", b""));
+        assert!(!ascii_contains_ignore_case(b"PATH", b"secret"));
+        assert!(!ascii_contains_ignore_case(b"ab", b"abc"));
+        // Non-ASCII bytes do not match ASCII patterns (consistent with the
+        // previous to_lowercase-then-contains for ASCII patterns: a non-ASCII
+        // byte cannot equal an ASCII pattern byte under ASCII case fold).
+        let non_ascii = "héllo_secret".as_bytes();
+        assert!(ascii_contains_ignore_case(non_ascii, b"secret"));
     }
 
     #[test]
