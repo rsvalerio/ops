@@ -65,7 +65,16 @@ impl DataProvider for RustIdentityProvider {
                 m.stack_label = "Rust";
                 m.stack_detail = fields.edition.as_ref().map(|e| format!("Edition {e}"));
                 m.module_label = "crates";
-                m.module_count = manifest.workspace.as_ref().map(|w| w.members.len());
+                // ERR-1 / TASK-1076: count the resolved members (post glob
+                // expansion) rather than the raw `[workspace].members` spec,
+                // which may be a single `["crates/*"]` glob entry. The cached
+                // manifest preserves the original spec verbatim, so the
+                // resolved-members sibling on `LoadedManifest` is the only
+                // place to read the expanded count.
+                m.module_count = manifest
+                    .workspace
+                    .as_ref()
+                    .map(|_| manifest.resolved_members().len());
                 m.loc = metrics.loc;
                 m.file_count = metrics.file_count;
                 m.msrv = fields.msrv;

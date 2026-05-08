@@ -41,10 +41,12 @@ impl DataProvider for RustUnitsProvider {
                 return Ok(serde_json::to_value(Vec::<ProjectUnit>::new())?);
             }
         };
-        let members: &[String] = manifest
-            .workspace
-            .as_ref()
-            .map_or(&[][..], |ws| ws.members.as_slice());
+        // ERR-1 / TASK-1076: read the resolved-members sibling on
+        // `LoadedManifest`. The cached `manifest.workspace.members` now
+        // preserves the original glob spec (e.g. `["crates/*"]`) verbatim;
+        // only `resolved_members()` returns the post-expansion list this
+        // provider needs.
+        let members: &[String] = manifest.resolved_members();
 
         // Per-crate dep counts from DuckDB (Rust-specific, keyed by package name).
         // ERR-2 / TASK-0376: query failures route through `query_or_warn` so

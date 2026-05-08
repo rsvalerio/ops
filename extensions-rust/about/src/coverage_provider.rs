@@ -108,10 +108,10 @@ impl DataProvider for RustCoverageProvider {
         let total = CoverageStats::new(p.lines_percent, p.lines_covered, p.lines_count);
 
         let units = if let Some(manifest) = manifest {
-            let members: &[String] = manifest
-                .workspace
-                .as_ref()
-                .map_or(&[][..], |ws| ws.members.as_slice());
+            // ERR-1 / TASK-1076: read the resolved-members sibling on
+            // `LoadedManifest`. The cached `manifest.workspace.members` now
+            // preserves the original glob spec verbatim.
+            let members: &[String] = manifest.resolved_members();
             if members.is_empty() {
                 Vec::new()
             } else {

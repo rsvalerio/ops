@@ -48,8 +48,42 @@ fn next_lru_tick() -> u64 {
 /// smallest tick (least-recently-used).
 struct TypedManifestEntry {
     mtime: Option<SystemTime>,
-    manifest: Arc<CargoToml>,
+    loaded: LoadedManifest,
     last_accessed: u64,
+}
+
+/// ERR-1 / TASK-1076: pairs the cached parsed manifest with its resolved
+/// `[workspace].members` list so the original glob spec on the cached
+/// `CargoToml` is preserved verbatim.
+///
+/// Before TASK-1076 `load_workspace_manifest` overwrote
+/// `manifest.workspace.members` with the resolved list before caching the
+/// `Arc<CargoToml>`. That mutation lost the literal `["crates/*"]` spec for
+/// every subsequent consumer (a future linter or doc generator wanting the
+/// raw spec would see only the expanded list), and any code re-running glob
+/// expansion on the cached manifest no-op'd because the list was already
+/// flattened. Storing the resolved view in a sibling field keeps `ws.members`
+/// immutable post-parse while preserving the PERF-3 / TASK-0969 contract that
+/// resolved members survive across calls without re-walking the filesystem.
+#[derive(Clone)]
+pub(crate) struct LoadedManifest {
+    pub(crate) manifest: Arc<CargoToml>,
+    pub(crate) resolved_members: Arc<Vec<String>>,
+}
+
+impl LoadedManifest {
+    /// Resolved workspace members (post glob expansion, deduped, sorted).
+    /// Returns an empty slice when the manifest has no `[workspace]` table.
+    pub(crate) fn resolved_members(&self) -> &[String] {
+        self.resolved_members.as_slice()
+    }
+}
+
+impl std::ops::Deref for LoadedManifest {
+    type Target = CargoToml;
+    fn deref(&self) -> &CargoToml {
+        &self.manifest
+    }
 }
 
 fn cargo_toml_mtime(workspace_root: &Path) -> Option<SystemTime> {
@@ -121,9 +155,10 @@ fn typed_manifest_cache() -> &'static Mutex<HashMap<PathBuf, TypedManifestEntry>
 /// — exactly the invisibility class CONC-2 / TASK-0795 fought against in
 /// the previous thread_local refactor.
 ///
-/// The cache value type is plain data (`SystemTime` + `Arc<CargoToml>`); a
-/// panic in a sibling provider cannot leave it in a torn state, so
-/// `into_inner()` recovery is safe.
+/// The cache value type is plain data (`SystemTime` + `LoadedManifest`,
+/// which itself is just `Arc<CargoToml>` + `Arc<Vec<String>>`); a panic in
+/// a sibling provider cannot leave it in a torn state, so `into_inner()`
+/// recovery is safe.
 ///
 /// TASK-0962: every observed poisoning emits a warn carrying a monotonic
 /// `recovery_count`. The previous OnceLock-gated log fired only once per
@@ -158,13 +193,18 @@ fn lock_typed_manifest_cache(
 }
 
 /// Load and parse `Cargo.toml` for the current context, then resolve any
-/// `[workspace].members` globs in place. Reuses any value already cached at
-/// the `cargo_toml` key; otherwise reads via [`CargoTomlProvider`].
-/// Centralises the parse + glob-resolve step that identity / units /
-/// coverage providers all need (TASK-0381).
+/// `[workspace].members` globs into a sibling field on [`LoadedManifest`].
+/// Reuses any value already cached at the `cargo_toml` key; otherwise reads
+/// via [`CargoTomlProvider`]. Centralises the parse + glob-resolve step that
+/// identity / units / coverage providers all need (TASK-0381).
+///
+/// ERR-1 / TASK-1076: the parsed `manifest.workspace.members` is left
+/// untouched so the original spec (e.g. `["crates/*"]`) is preserved on the
+/// cached `Arc<CargoToml>`. Consumers that want the post-glob-expansion list
+/// must read [`LoadedManifest::resolved_members`].
 pub(crate) fn load_workspace_manifest(
     ctx: &mut Context,
-) -> Result<Arc<CargoToml>, DataProviderError> {
+) -> Result<LoadedManifest, DataProviderError> {
     let cwd: PathBuf = PathBuf::clone(&ctx.working_directory);
     let cache = typed_manifest_cache();
 
@@ -189,7 +229,7 @@ pub(crate) fn load_workspace_manifest(
                 // accessed entries survive eviction in a daemon visiting
                 // many cwds.
                 entry.last_accessed = next_lru_tick();
-                return Ok(Arc::clone(&entry.manifest));
+                return Ok(entry.loaded.clone());
             }
         }
     }
@@ -199,15 +239,20 @@ pub(crate) fn load_workspace_manifest(
     } else {
         CargoTomlProvider::new().provide(ctx)?
     };
-    let mut manifest: CargoToml =
+    let manifest: CargoToml =
         serde_json::from_value(value).map_err(DataProviderError::computation_error)?;
 
-    let resolved = resolved_workspace_members(&manifest, &cwd);
-    if let Some(ws) = manifest.workspace.as_mut() {
-        ws.members = resolved;
-    }
+    // ERR-1 / TASK-1076: resolve workspace members into a sibling field
+    // instead of mutating `manifest.workspace.members` in place. The previous
+    // mutation flattened `["crates/*"]` to the expanded list on the cached
+    // Arc, hiding the original glob spec from any future consumer (linter,
+    // doc generator) and silently no-op'ing any re-expansion attempt.
+    let resolved_members = Arc::new(resolved_workspace_members(&manifest, &cwd));
 
-    let arc = Arc::new(manifest);
+    let loaded = LoadedManifest {
+        manifest: Arc::new(manifest),
+        resolved_members,
+    };
     {
         let mut guard = lock_typed_manifest_cache(cache);
         // CONC-2 / TASK-0843 + TASK-1023: bound the cache with LRU
@@ -229,12 +274,12 @@ pub(crate) fn load_workspace_manifest(
             cwd,
             TypedManifestEntry {
                 mtime: current_mtime,
-                manifest: Arc::clone(&arc),
+                loaded: loaded.clone(),
                 last_accessed: next_lru_tick(),
             },
         );
     }
-    Ok(arc)
+    Ok(loaded)
 }
 
 /// Resolve `[workspace].members` globs to concrete member paths, honoring
@@ -409,12 +454,13 @@ mod tests {
 
     /// PERF-3 / TASK-0969: the resolved-members list (post glob expansion)
     /// must survive across `load_workspace_manifest` calls without
-    /// re-walking the filesystem. `load_workspace_manifest` rewrites
-    /// `manifest.workspace.members` with the resolved list before caching
-    /// the `Arc<CargoToml>`, so subsequent providers grab the resolved
-    /// members directly from the cached Arc — verified here by mutating a
-    /// member directory between two cached loads and asserting the cached
-    /// view does NOT pick up the change (proving no re-walk).
+    /// re-walking the filesystem. ERR-1 / TASK-1076: the resolved view is
+    /// now stored in a sibling field on `LoadedManifest` (the cached
+    /// `Arc<CargoToml>` keeps the original glob spec verbatim), so
+    /// subsequent providers grab the resolved members from the cached
+    /// `LoadedManifest::resolved_members` snapshot — verified here by
+    /// mutating a member directory between two cached loads and asserting
+    /// the cached view does NOT pick up the change (proving no re-walk).
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn resolved_workspace_members_are_amortised_via_typed_manifest_cache() {
@@ -438,11 +484,7 @@ mod tests {
 
         let mut ctx = Context::test_context(root.to_path_buf());
         let first = load_workspace_manifest(&mut ctx).expect("first load");
-        let resolved_first = first
-            .workspace
-            .as_ref()
-            .map(|w| w.members.clone())
-            .unwrap_or_default();
+        let resolved_first = first.resolved_members().to_vec();
         assert_eq!(resolved_first, vec!["crates/foo".to_string()]);
 
         // Add a sibling crate AFTER the first cache fill. If the second call
@@ -459,17 +501,78 @@ mod tests {
 
         let second = load_workspace_manifest(&mut ctx).expect("second load");
         assert!(
-            Arc::ptr_eq(&first, &second),
+            Arc::ptr_eq(&first.manifest, &second.manifest),
             "second call must serve the cached Arc, proving no re-walk"
         );
-        let resolved_second = second
+        let resolved_second = second.resolved_members().to_vec();
+        assert_eq!(
+            resolved_second, resolved_first,
+            "resolved members must be the cached snapshot, not re-walked"
+        );
+
+        evict_cache_for(root);
+    }
+
+    /// ERR-1 / TASK-1076: `load_workspace_manifest` must NOT mutate the
+    /// cached `manifest.workspace.members` to the resolved list. The
+    /// original spec (e.g. `["crates/*"]`) must survive on the cached Arc
+    /// across repeated calls so future consumers (linters, doc generators)
+    /// that want the literal spec can read it. The expanded list is exposed
+    /// separately via `LoadedManifest::resolved_members()`.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn cached_manifest_preserves_original_glob_spec_across_calls() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("crates/foo")).unwrap();
+        std::fs::write(
+            root.join("crates/foo/Cargo.toml"),
+            "[package]\nname=\"foo\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+        evict_cache_for(root);
+
+        let mut ctx = Context::test_context(root.to_path_buf());
+        let first = load_workspace_manifest(&mut ctx).expect("first load");
+        let second = load_workspace_manifest(&mut ctx).expect("second load");
+
+        // Same Arc — proves we are inspecting the cached manifest.
+        assert!(
+            Arc::ptr_eq(&first.manifest, &second.manifest),
+            "second call must serve the cached Arc"
+        );
+
+        // The cached manifest's literal `[workspace].members` must still be
+        // the glob spec, NOT the expanded `["crates/foo"]`. Before TASK-1076
+        // this would have been the resolved list because the loader
+        // overwrote `ws.members` in place before caching.
+        let cached_spec = first
             .workspace
             .as_ref()
             .map(|w| w.members.clone())
             .unwrap_or_default();
         assert_eq!(
-            resolved_second, resolved_first,
-            "resolved members must be the cached snapshot, not re-walked"
+            cached_spec,
+            vec!["crates/*".to_string()],
+            "cached manifest must preserve the original glob spec, not the expanded list"
+        );
+
+        // Repeated calls yield consistent inputs: same glob spec on the
+        // cached manifest AND the same resolved view.
+        assert_eq!(
+            first.resolved_members(),
+            second.resolved_members(),
+            "repeated calls must yield the same resolved members"
+        );
+        assert_eq!(
+            first.resolved_members(),
+            &["crates/foo".to_string()][..],
+            "resolved view must reflect glob expansion"
         );
 
         evict_cache_for(root);
@@ -490,14 +593,14 @@ mod tests {
         let first = load_workspace_manifest(&mut ctx).expect("load1");
         let second = load_workspace_manifest(&mut ctx).expect("load2");
         assert!(
-            Arc::ptr_eq(&first, &second),
+            Arc::ptr_eq(&first.manifest, &second.manifest),
             "second call must reuse cached Arc"
         );
 
         ctx.refresh = true;
         let third = load_workspace_manifest(&mut ctx).expect("load3");
         assert!(
-            !Arc::ptr_eq(&first, &third),
+            !Arc::ptr_eq(&first.manifest, &third.manifest),
             "refresh=true must invalidate cache and reparse"
         );
 
@@ -537,7 +640,7 @@ mod tests {
         let second = reader.join().expect("reader thread");
 
         assert!(
-            Arc::ptr_eq(&first, &second),
+            Arc::ptr_eq(&first.manifest, &second.manifest),
             "cross-thread callers must share the cached Arc"
         );
 
@@ -726,7 +829,7 @@ mod tests {
 
         let second = load_workspace_manifest(&mut ctx).expect("load2");
         assert!(
-            !Arc::ptr_eq(&first, &second),
+            !Arc::ptr_eq(&first.manifest, &second.manifest),
             "mtime change must invalidate cache and reparse"
         );
 
