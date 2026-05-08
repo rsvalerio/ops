@@ -118,6 +118,84 @@ name   old req compatible latest  new req
     assert!(entries.is_empty());
 }
 
+/// ERR-1 / TASK-1026: cargo-edit's table format is not a stable API; if a
+/// future release re-renders the header with different capitalisation
+/// (`Name`, `Old Req`, `New Req`), the parser must still recognise it
+/// rather than silently returning an empty Vec. The `====` separator row
+/// is what actually drives column alignment, so as long as we recognise
+/// the header AND find a separator we should produce entries.
+#[test]
+fn parse_upgrade_table_header_case_insensitive() {
+    let stdout = "\
+Name   Old Req Compatible Latest  New Req
+====   ======= ========== ======  =======
+serde  1.0.100 1.0.228    1.0.228 1.0.228
+";
+    let entries = parse_upgrade_table(stdout);
+    assert_eq!(
+        entries.len(),
+        1,
+        "case-flipped header must still be recognised; got: {entries:?}"
+    );
+    assert_eq!(entries[0].name, "serde");
+}
+
+/// ERR-1 / TASK-1026: when stdout carries body content but no `====`
+/// separator row was detected (the header drifted hard enough that we
+/// can't even line up columns), the parser must emit a tracing::warn
+/// breadcrumb instead of silently returning an empty Vec. We use the
+/// `tracing` test subscriber to assert the warn fires.
+#[test]
+fn parse_upgrade_table_warns_on_missing_separator() {
+    use tracing::subscriber::with_default;
+    use tracing::Level;
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    struct BufWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for BufWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    let buf = BufWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(Level::WARN)
+        .with_writer(buf.clone())
+        .without_time()
+        .finish();
+
+    // Hypothetical drifted format: no `====` row and an unrecognised header.
+    let stdout = "\
+Paquete  Versión actual  Última
+serde    1.0.100         1.0.228
+tokio    1.35.0          1.38.0
+";
+
+    let entries = with_default(subscriber, || parse_upgrade_table(stdout));
+    assert!(
+        entries.is_empty(),
+        "unparseable table must yield no entries"
+    );
+
+    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+    assert!(
+        logged.contains("TASK-1026") && logged.contains("separator"),
+        "expected a TASK-1026 separator-drift warn; got: {logged}"
+    );
+}
+
 #[test]
 fn categorize_upgrades_splits_correctly() {
     let entries = vec![

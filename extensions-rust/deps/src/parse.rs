@@ -86,29 +86,53 @@ pub fn interpret_upgrade_output(
 pub fn parse_upgrade_table(stdout: &str) -> Vec<UpgradeEntry> {
     let mut entries = Vec::new();
     let mut columns: Option<Vec<(usize, usize)>> = None;
+    let mut saw_separator = false;
+    let mut saw_body_line = false;
 
     for line in stdout.lines() {
         if line.trim().is_empty() {
             continue;
         }
 
-        // Header row resets state but doesn't yet provide the offsets.
-        if line.trim_start().starts_with("name") && line.contains("old req") {
+        // ERR-1 / TASK-1026: header detection must be case-insensitive and
+        // tolerant of cargo-edit's column-name drift (e.g. `Name`, `Old Req`,
+        // `New Req`). The cargo-edit table format is not a stable API, so a
+        // capitalisation flip used to silently break detection — `columns`
+        // stayed `None`, every data row was skipped, and the parser returned
+        // an empty Vec, masquerading as "no upgrades available".
+        let trimmed = line.trim_start();
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("name") && (lower.contains("old req") || lower.contains("new req")) {
             columns = None;
             continue;
         }
 
         // Separator row: `====   ======= ==========` defines exact byte columns.
-        if line.trim_start().starts_with("====") {
+        if trimmed.starts_with("====") {
             columns = Some(separator_columns(line));
+            saw_separator = true;
             continue;
         }
 
+        saw_body_line = true;
         if let Some(cols) = columns.as_deref() {
             if let Some(entry) = parse_upgrade_row(line, cols) {
                 entries.push(entry);
             }
         }
+    }
+
+    // ERR-1 / TASK-1026: if we saw non-empty body content but never recognised
+    // a separator row, header detection almost certainly drifted (renamed or
+    // localised columns). Surface this as a warn so the operator log carries
+    // a breadcrumb instead of a silent empty-Vec / "no upgrades" result. The
+    // exit-code guard from TASK-0913 only catches non-zero exits; cargo-upgrade
+    // emits exit 0 with a re-rendered table, so this is the only signal.
+    if saw_body_line && !saw_separator {
+        tracing::warn!(
+            "TASK-1026: cargo-upgrade stdout had body lines but no `====` separator row; \
+             parse_upgrade_table is returning an empty result — suspect cargo-edit table-format drift"
+        );
     }
 
     entries

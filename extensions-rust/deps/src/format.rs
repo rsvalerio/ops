@@ -284,9 +284,26 @@ fn format_bans_summary(out: &mut String, bans: &[BanEntry]) {
         format_empty_section(out, title);
         return;
     }
-    let errors = bans.iter().filter(|b| b.severity == "error").count();
-    let warnings = bans.iter().filter(|b| b.severity == "warning").count();
-    let others = bans.len() - errors - warnings;
+    // PATTERN-1 / TASK-1041: classify each ban via SeverityClass so unknown /
+    // <missing-severity> entries land in their own bucket rendered in red,
+    // matching the fail-closed gate decision made by `has_issues`. The
+    // previous implementation lumped every non-error / non-warning entry
+    // (including the MISSING_SEVERITY_SENTINEL and any future cargo-deny
+    // severity like `critical`) into a dim "info" counter, contradicting
+    // the gate and hiding schema-drift signal from the operator-facing
+    // summary line.
+    let mut errors = 0usize;
+    let mut warnings = 0usize;
+    let mut infos = 0usize;
+    let mut unknowns = 0usize;
+    for b in bans {
+        match SeverityClass::classify(&b.severity) {
+            SeverityClass::Error => errors += 1,
+            SeverityClass::Warning => warnings += 1,
+            SeverityClass::Info => infos += 1,
+            SeverityClass::Unknown => unknowns += 1,
+        }
+    }
 
     let mut parts = Vec::new();
     if errors > 0 {
@@ -303,8 +320,15 @@ fn format_bans_summary(out: &mut String, bans: &[BanEntry]) {
             if warnings == 1 { "" } else { "s" }
         )));
     }
-    if others > 0 {
-        parts.push(dim(&format!("{others} info")));
+    if infos > 0 {
+        parts.push(dim(&format!("{infos} info")));
+    }
+    if unknowns > 0 {
+        parts.push(red(&format!(
+            "{} unknown severit{}",
+            unknowns,
+            if unknowns == 1 { "y" } else { "ies" }
+        )));
     }
 
     let _ = writeln!(
@@ -410,5 +434,59 @@ mod helper_tests {
         );
         assert!(out.contains("foo"));
         assert!(out.contains("GPL-3.0 not allowed"));
+    }
+
+    /// PATTERN-1 / TASK-1041: a bans entry whose severity is `<missing-severity>`
+    /// (the cargo-deny schema-drift sentinel) or an unknown future value like
+    /// `critical` must NOT be folded into the dim "info" counter. The summary
+    /// has to render those distinctly so the operator-facing line agrees with
+    /// the fail-closed gate decision instead of contradicting it.
+    #[test]
+    fn bans_summary_unknown_severity_renders_distinctly_from_info() {
+        let bans = vec![
+            BanEntry {
+                package: "dup-a".to_string(),
+                message: "duplicate".to_string(),
+                severity: crate::parse::MISSING_SEVERITY_SENTINEL.to_string(),
+            },
+            BanEntry {
+                package: "dup-b".to_string(),
+                message: "duplicate".to_string(),
+                severity: "critical".to_string(),
+            },
+            BanEntry {
+                package: "dup-c".to_string(),
+                message: "duplicate".to_string(),
+                severity: "info".to_string(),
+            },
+        ];
+
+        let mut out = String::new();
+        format_bans_summary(&mut out, &bans);
+
+        // The two unknown-severity entries collapse into the "unknown" bucket,
+        // not the dim "info" bucket. A previous regression buried them as
+        // "3 info"; the corrected output must show "1 info" + the unknowns.
+        assert!(
+            out.contains("unknown severities"),
+            "summary must call out the unknown / missing-severity bucket: {out}"
+        );
+        assert!(
+            out.contains("1 info"),
+            "only the genuine `info` ban contributes to the info counter: {out}"
+        );
+        assert!(
+            !out.contains("3 info"),
+            "missing/unknown severities must not be lumped into info: {out}"
+        );
+
+        // And the unknown bucket must use the red style, mirroring
+        // SeverityClass::Unknown — same visual signal as `colorize_severity`
+        // for unknown advisory severities.
+        let red_unknown = red("2 unknown severities");
+        assert!(
+            out.contains(&red_unknown),
+            "unknown-severity counter must render in red, not dim: {out}"
+        );
     }
 }
