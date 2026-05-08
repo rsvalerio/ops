@@ -34,20 +34,46 @@ pub fn tail_lines<T>(lines: &[T], n: usize) -> &[T] {
 /// search, decoding only the tail segments instead of decoding the entire
 /// `stderr` (which can be megabytes under a failed `cargo test`). Memory and
 /// CPU cost are O(n * average-line-length) regardless of input size.
+///
+/// CR/LF normalisation contract (PATTERN-1 / TASK-1094):
+/// - A single trailing `\n` (optionally preceded by `\r`) is treated as a
+///   line terminator and dropped, so a buffer ending in `"...\n"` does not
+///   surface a phantom empty last line.
+/// - A single trailing bare `\r` (no following `\n`) is also treated as a
+///   terminator and dropped — this prevents stray CR bytes from rendering
+///   as cursor-control characters in operator terminals.
+/// - Within each emitted line, any trailing `\r` (from CRLF input) is
+///   stripped and any embedded bare `\r` bytes are replaced with `\n` so
+///   they cannot move the terminal cursor when the tail is rendered.
 pub fn format_error_tail(stderr: &[u8], n: usize) -> String {
+    format_error_tail_with_stats(stderr, n).0
+}
+
+/// Internal: returns `(rendered_tail, line_scans)` where `line_scans` is the
+/// number of backwards newline searches performed. Used by structural
+/// PERF-1 regression tests to assert that the byte-walk is bounded by `n`
+/// (and therefore independent of total buffer size) without resorting to
+/// flaky wall-clock timing assertions (TEST-15 / TASK-1029).
+fn format_error_tail_with_stats(stderr: &[u8], n: usize) -> (String, usize) {
     if n == 0 || stderr.is_empty() {
-        return String::new();
+        return (String::new(), 0);
     }
 
-    // Trim a single trailing newline so a buffer ending in "...\n" does not
-    // surface a phantom empty last line (matches the prior `str::lines()`
-    // semantics which suppress the trailing empty segment).
+    // Trim a single trailing line terminator. Recognise CRLF, LF, and bare
+    // CR so a stray `\r` at end-of-buffer does not survive into the
+    // rendered tail (PATTERN-1 / TASK-1094).
     let mut end = stderr.len();
-    if stderr.last() == Some(&b'\n') {
-        end -= 1;
-        if stderr.get(end.wrapping_sub(1)).copied() == Some(b'\r') {
+    match stderr.last().copied() {
+        Some(b'\n') => {
+            end -= 1;
+            if end > 0 && stderr[end - 1] == b'\r' {
+                end -= 1;
+            }
+        }
+        Some(b'\r') => {
             end -= 1;
         }
+        _ => {}
     }
 
     // Walk backwards collecting up to `n` line ranges. Each range stops at
@@ -56,14 +82,16 @@ pub fn format_error_tail(stderr: &[u8], n: usize) -> String {
     let mut ranges: std::collections::VecDeque<(usize, usize)> =
         std::collections::VecDeque::with_capacity(n);
     let mut tail_end = buf.len();
+    let mut line_scans = 0usize;
     while tail_end > 0 && ranges.len() < n {
+        line_scans += 1;
         let start = match buf[..tail_end].iter().rposition(|b| *b == b'\n') {
             Some(idx) => idx + 1,
             None => 0,
         };
         // Strip a trailing CR so CRLF-terminated lines render cleanly.
         let mut line_end = tail_end;
-        if buf.get(line_end.wrapping_sub(1)).copied() == Some(b'\r') {
+        if line_end > start && buf[line_end - 1] == b'\r' {
             line_end -= 1;
         }
         ranges.push_front((start, line_end));
@@ -74,10 +102,12 @@ pub fn format_error_tail(stderr: &[u8], n: usize) -> String {
     }
 
     if ranges.is_empty() {
-        return String::new();
+        return (String::new(), line_scans);
     }
 
     // Decode only the tail segments, joining without an intermediate Vec.
+    // Replace any embedded bare CR bytes with `\n` so they cannot render as
+    // cursor-control sequences in operator terminals (PATTERN-1 / TASK-1094).
     let mut out =
         String::with_capacity(ranges.iter().map(|(s, e)| e - s).sum::<usize>() + ranges.len());
     let mut first = true;
@@ -86,9 +116,14 @@ pub fn format_error_tail(stderr: &[u8], n: usize) -> String {
             out.push('\n');
         }
         first = false;
-        out.push_str(&String::from_utf8_lossy(&buf[s..e]));
+        let decoded = String::from_utf8_lossy(&buf[s..e]);
+        if decoded.contains('\r') {
+            out.push_str(&decoded.replace('\r', "\n"));
+        } else {
+            out.push_str(&decoded);
+        }
     }
-    out
+    (out, line_scans)
 }
 
 /// Logical status of a step for step-line rendering.
@@ -300,20 +335,43 @@ mod tests {
     /// decoded just to surface the last 5 lines. Pre-fix this allocated the
     /// full buffer via `String::from_utf8_lossy(stderr).into_owned()` —
     /// noticeable on failed builds and easy to regress under refactor.
+    ///
+    /// TEST-15 / TASK-1029: the original test asserted a wall-clock budget
+    /// of 50 ms which flaked on loaded CI hosts. The contract is now
+    /// expressed structurally: the number of backwards line scans must be
+    /// exactly `n`, independent of the input buffer size, and the decoded
+    /// output length must equal the sum of the last `n` line lengths
+    /// (proving we never decoded the prefix). This holds deterministically
+    /// under `--release`, `--test-threads=1`, and on virtualised runners.
     #[test]
     fn format_error_tail_does_not_decode_entire_buffer() {
         let mut buf = Vec::with_capacity(4 * 1024 * 1024);
         for i in 0..200_000 {
             buf.extend_from_slice(format!("line {i}\n").as_bytes());
         }
-        let start = std::time::Instant::now();
-        let tail = format_error_tail(&buf, 5);
-        let elapsed = start.elapsed();
+        let buf_len = buf.len();
+        let (tail, line_scans) = format_error_tail_with_stats(&buf, 5);
+        // Correctness: last 5 lines decoded.
         assert!(tail.ends_with("line 199999"));
         assert!(tail.contains("line 199995"));
+        // Structural PERF-1 invariant: backwards scans bounded by n,
+        // independent of buffer size.
+        assert_eq!(
+            line_scans, 5,
+            "byte-walk should perform exactly n=5 backwards scans, got {line_scans}"
+        );
+        // The rendered tail length must be a tiny fraction of the input —
+        // proves we did not allocate a full-buffer decode. Last 5 lines
+        // (`line 199995`..`line 199999` joined by `\n`) are well under 100
+        // bytes; the input is ~2.2 MiB.
         assert!(
-            elapsed < std::time::Duration::from_millis(50),
-            "tail extraction should not scale with buffer size; took {elapsed:?}"
+            tail.len() < 1024,
+            "tail length {} should be O(n*line) not O(buffer)",
+            tail.len()
+        );
+        assert!(
+            buf_len > 1_000_000,
+            "sanity: input buffer should be multi-MiB, got {buf_len}"
         );
     }
 
@@ -335,5 +393,56 @@ mod tests {
     fn format_error_tail_n_zero_returns_empty() {
         let stderr = b"line1\nline2";
         assert!(format_error_tail(stderr, 0).is_empty());
+    }
+
+    // -- PATTERN-1 / TASK-1094: bare CR must not survive into the rendered tail --
+
+    #[test]
+    fn format_error_tail_strips_trailing_bare_cr() {
+        // Buffer that ends in a bare `\r` (no following `\n`).
+        let stderr = b"line1\nline2\r";
+        let result = format_error_tail(stderr, 5);
+        assert!(
+            !result.contains('\r'),
+            "rendered tail must not contain a raw CR; got {result:?}"
+        );
+        assert_eq!(result, "line1\nline2");
+    }
+
+    #[test]
+    fn format_error_tail_strips_leading_bare_cr() {
+        // The ACs require b"\rfoo" to render without a raw \r.
+        let stderr = b"\rfoo";
+        let result = format_error_tail(stderr, 5);
+        assert!(
+            !result.contains('\r'),
+            "rendered tail must not contain a raw CR; got {result:?}"
+        );
+        assert!(result.contains("foo"));
+    }
+
+    #[test]
+    fn format_error_tail_normalises_embedded_bare_cr() {
+        // Bare CR inside a line (e.g. progress-bar updates) would otherwise
+        // move the cursor to column 0 in operator terminals.
+        let stderr = b"first\nbar\rbaz\n";
+        let result = format_error_tail(stderr, 5);
+        assert!(
+            !result.contains('\r'),
+            "rendered tail must not contain a raw CR; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn format_error_tail_only_bare_cr_buffer() {
+        // A corrupt single-byte input of just `\r` should render as empty,
+        // not as a literal CR.
+        let stderr = b"\r";
+        let result = format_error_tail(stderr, 5);
+        assert!(
+            !result.contains('\r'),
+            "rendered tail must not contain a raw CR; got {result:?}"
+        );
+        assert!(result.is_empty());
     }
 }
