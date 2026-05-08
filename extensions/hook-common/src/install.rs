@@ -126,9 +126,25 @@ fn has_legacy_marker(content: &str, config: &HookConfig) -> bool {
 /// SEC-25: the previous implementation `read_to_string` → `fs::write` left a
 /// race window in which a user-authored hook could be written between the
 /// marker check and the overwrite. We now (a) stage the new content in a temp
-/// file created with `create_new`, (b) re-read the original and re-verify the
-/// legacy marker right before the rename, and (c) `rename(2)` over the target
-/// (atomic on POSIX). The remaining window is a single rename call.
+/// file created with a randomised sibling name, (b) re-read the original and
+/// re-verify the legacy marker right before the rename, and (c) `rename(2)`
+/// over the target (atomic on POSIX). The remaining window is a single
+/// rename call.
+///
+/// SEC-25 / TASK-1210: the temp-file name is randomised via
+/// [`tempfile::NamedTempFile::new_in`] rather than the previous fixed
+/// `.{file_name}.ops-tmp` sibling. Concurrent installs against shared
+/// worktrees (`.git/worktrees/<name>/hooks/` is shared between checkouts of
+/// the same repo) used to race: process A would create the fixed temp path
+/// and start writing, process B would observe `AlreadyExists`, fall into the
+/// TASK-1113 stale-recovery branch, **delete process A's mid-write temp
+/// file**, then create its own. With randomised names the two processes get
+/// disjoint paths — both can stage in parallel and the rename serialises
+/// (`rename(2)` is atomic on POSIX, so exactly one writer wins the
+/// destination and the loser's stage gets cleaned up). The TASK-1113
+/// stale-leftover recovery path is therefore no longer needed: a crashed
+/// install leaves a randomised orphan, which subsequent installs simply
+/// ignore.
 fn upgrade_legacy_hook(
     hook_path: &Path,
     config: &HookConfig,
@@ -141,52 +157,34 @@ fn upgrade_legacy_hook(
         .file_name()
         .and_then(|n| n.to_str())
         .context("hook path has no filename")?;
-    let tmp_path = parent.join(format!(".{file_name}.ops-tmp"));
 
-    // ERR-1 (TASK-1113): a prior crash between write_temp_hook and the rename
-    // can leave .{file_name}.ops-tmp on disk. The next install would then fail
-    // at create_new with AlreadyExists. Detect that case, remove the stale
-    // sibling, and retry once before surfacing a clearer error.
-    if let Err(e) = write_temp_hook(&tmp_path, config) {
-        let is_stale = e
-            .downcast_ref::<std::io::Error>()
-            .is_some_and(|io| io.kind() == ErrorKind::AlreadyExists)
-            || e.root_cause()
-                .downcast_ref::<std::io::Error>()
-                .is_some_and(|io| io.kind() == ErrorKind::AlreadyExists);
-        if is_stale {
-            tracing::warn!(
-                tmp = %tmp_path.display(),
-                "removing stale ops temp hook left over from a previous crashed install",
-            );
-            std::fs::remove_file(&tmp_path).with_context(|| {
-                format!(
-                    "failed to remove stale temp hook {} left by a prior crashed install; \
-                     remove it manually and retry",
-                    tmp_path.display()
-                )
-            })?;
-            write_temp_hook(&tmp_path, config)
-                .inspect_err(|_| {
-                    let _ = std::fs::remove_file(&tmp_path);
-                })
-                .with_context(|| {
-                    format!(
-                        "failed to create temp hook {} after clearing a stale leftover; \
-                         remove it manually and retry",
-                        tmp_path.display()
-                    )
-                })?;
-        } else {
-            let _ = std::fs::remove_file(&tmp_path);
-            return Err(e);
-        }
-    }
+    // SEC-25 / TASK-1210: stage in a randomised sibling so concurrent
+    // installers do not collide. Prefix with `.` so the partial write is
+    // hidden by typical directory listings, and tag with the hook
+    // filename so an orphan from a crashed install is recognisable in a
+    // post-mortem `ls -la`.
+    let tmp = tempfile::Builder::new()
+        .prefix(&format!(".{file_name}.ops-tmp."))
+        .tempfile_in(parent)
+        .with_context(|| {
+            format!(
+                "failed to create temp hook in {} for atomic rename",
+                parent.display()
+            )
+        })?;
+    let tmp_path = tmp.path().to_path_buf();
+    write_hook_payload(tmp.as_file(), &tmp_path, config).inspect_err(|_| {
+        // NamedTempFile's Drop unlinks on failure too, but be explicit so
+        // a Drop-disabled future refactor cannot silently leave orphans.
+        let _ = std::fs::remove_file(&tmp_path);
+    })?;
+    set_hook_executable(&tmp_path)?;
 
     let recheck = std::fs::read_to_string(hook_path)
         .context("failed to re-read existing hook before upgrade")?;
     if !has_legacy_marker(&recheck, config) {
-        let _ = std::fs::remove_file(&tmp_path);
+        // Drop runs on `tmp` and unlinks the staged file. Bail loudly so
+        // the user-authored content stays intact.
         anyhow::bail!(
             "refusing to upgrade {}: file changed during install and no longer \
              looks like an ops-installed hook",
@@ -195,7 +193,12 @@ fn upgrade_legacy_hook(
     }
 
     writeln!(w, "Updating outdated ops hook at {}", hook_path.display())?;
-    std::fs::rename(&tmp_path, hook_path).context("failed to rename temp hook into place")?;
+    // `persist` consumes the NamedTempFile and renames its randomised
+    // path over `hook_path`. On error the inner `(io::Error, NamedTempFile)`
+    // pair lets the temp file fall back into Drop, unlinking the stage.
+    tmp.persist(hook_path).map_err(|e| {
+        anyhow::Error::from(e.error).context("failed to rename temp hook into place")
+    })?;
     // SEC-25 (TASK-0713): fsync the parent so the rename hits disk; without
     // this a crash can leave the directory entry pointing at the temp
     // inode (or the old hook) even though the new content is durable.
@@ -233,17 +236,15 @@ fn sync_parent_dir(_path: &Path) {
     }
 }
 
-fn write_temp_hook(tmp_path: &Path, config: &HookConfig) -> anyhow::Result<()> {
-    let mut tmp = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(tmp_path)
-        .with_context(|| format!("failed to create temp hook file {}", tmp_path.display()))?;
-    tmp.write_all(config.hook_script.as_bytes())
-        .context("failed to write temp hook")?;
-    tmp.sync_all().context("failed to fsync temp hook")?;
-    drop(tmp);
-    set_hook_executable(tmp_path)?;
+/// Write the hook script bytes into an already-open temp file and fsync.
+/// Caller owns the file handle (typically `tempfile::NamedTempFile::as_file`)
+/// so the randomised path stays single-source-of-truth.
+fn write_hook_payload(file: &File, tmp_path: &Path, config: &HookConfig) -> anyhow::Result<()> {
+    let mut file = file;
+    file.write_all(config.hook_script.as_bytes())
+        .with_context(|| format!("failed to write temp hook {}", tmp_path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("failed to fsync temp hook {}", tmp_path.display()))?;
     Ok(())
 }
 
@@ -552,12 +553,18 @@ mod tests {
         assert!(!tmp.exists(), "temp file should be removed on bail");
     }
 
-    /// ERR-1 (TASK-1113): a prior `ops install` that crashed between
-    /// write_temp_hook and the rename leaves `.pre-commit.ops-tmp` on disk.
-    /// The next upgrade must remove the stale sibling and recover, not fail
-    /// with AlreadyExists.
+    /// ERR-1 (TASK-1113) + SEC-25 (TASK-1210): a prior `ops install` that
+    /// crashed between write_hook_payload and the rename now leaves a
+    /// **randomised** orphan (e.g. `.pre-commit.ops-tmp.AbCxYz`) rather
+    /// than the previous fixed `.pre-commit.ops-tmp` sibling. The next
+    /// upgrade must succeed regardless of the orphan: with randomised
+    /// names there is no collision, so no stale-recovery branch is
+    /// needed. We assert the legacy fixed-name file is left untouched
+    /// (this is a foreign file from the new code's perspective) and the
+    /// install completes with a fresh randomised stage that gets
+    /// renamed onto the hook path.
     #[test]
-    fn upgrade_legacy_hook_recovers_from_stale_temp_file() {
+    fn upgrade_legacy_hook_ignores_legacy_fixed_name_orphan() {
         let cfg = commit_config();
         let dir = tempfile::tempdir().expect("tempdir");
         let hooks = dir.path().join("hooks");
@@ -567,25 +574,131 @@ mod tests {
         // Legacy ops hook on disk that should be upgraded.
         std::fs::write(&hook_path, "#!/bin/sh\nexec ops before-commit\n").unwrap();
 
-        // Stale temp file from a prior crashed install — same fixed sibling
-        // name that write_temp_hook would pick.
-        let tmp = hooks.join(".pre-commit.ops-tmp");
-        std::fs::write(&tmp, "garbage from a previous crashed install").unwrap();
+        // Pre-TASK-1210 orphan: the fixed sibling name a crashed install
+        // *used to* leave on disk. With randomised names this is no
+        // longer ours; a future cleanup can sweep it, but the install
+        // must not block on it.
+        let legacy_orphan = hooks.join(".pre-commit.ops-tmp");
+        std::fs::write(
+            &legacy_orphan,
+            "garbage from a previous crashed install (pre-TASK-1210)",
+        )
+        .unwrap();
 
         let mut buf = Vec::new();
-        let path =
-            upgrade_legacy_hook(&hook_path, &cfg, &mut buf).expect("recovery should succeed");
+        let path = upgrade_legacy_hook(&hook_path, &cfg, &mut buf)
+            .expect("randomised stage must not collide with the legacy fixed name");
 
         assert_eq!(path, hook_path);
         let content = std::fs::read_to_string(&hook_path).unwrap();
         assert_eq!(content, cfg.hook_script);
-        // Temp sibling consumed by the rename, no leftovers.
-        assert!(!tmp.exists(), "temp file should not survive recovery");
+        // Legacy fixed-name orphan is left in place (not ours to remove).
+        assert!(
+            legacy_orphan.exists(),
+            "pre-TASK-1210 fixed-name orphan must not be touched"
+        );
+        // The randomised stage created by this install was consumed by
+        // `persist`; no `.pre-commit.ops-tmp.*` siblings should remain
+        // *aside from* the legacy orphan we explicitly seeded.
+        let stray_random_stages = std::fs::read_dir(&hooks)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with(".pre-commit.ops-tmp."))
+            .count();
+        assert_eq!(
+            stray_random_stages, 0,
+            "randomised stage from this install must not leak"
+        );
 
         let output = String::from_utf8(buf).unwrap();
         assert!(
             output.contains("Updating outdated"),
             "unexpected output: {output}"
+        );
+    }
+
+    /// SEC-25 / TASK-1210 AC #2: two concurrent `upgrade_legacy_hook`
+    /// calls against the same `hook_path` must not collide on a fixed
+    /// temp-file name. With randomised stages the two writers get
+    /// disjoint files and the rename serialises atomically — exactly
+    /// one wins and writes the new payload, the other observes the
+    /// post-win content and returns the "file changed during install"
+    /// typed error from the recheck step. Pre-TASK-1210 the loser
+    /// would either (a) hit `AlreadyExists` on the fixed sibling or
+    /// (b) **delete the winner's mid-write temp file** via the
+    /// stale-recovery branch and clobber the install.
+    #[test]
+    fn upgrade_legacy_hook_concurrent_callers_do_not_corrupt_install() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let cfg = Arc::new(commit_config());
+        let dir = tempfile::tempdir().expect("tempdir");
+        let hooks = dir.path().join("hooks");
+        std::fs::create_dir(&hooks).unwrap();
+        let hook_path = hooks.join("pre-commit");
+        std::fs::write(&hook_path, "#!/bin/sh\nexec ops before-commit\n").unwrap();
+        let hook_path = Arc::new(hook_path);
+
+        let n = 8usize;
+        let mut handles = Vec::with_capacity(n);
+        for _ in 0..n {
+            let cfg = Arc::clone(&cfg);
+            let hook_path = Arc::clone(&hook_path);
+            handles.push(thread::spawn(move || {
+                let mut buf = Vec::new();
+                upgrade_legacy_hook(&hook_path, &cfg, &mut buf).map(|_| ())
+            }));
+        }
+
+        let mut wins = 0usize;
+        let mut typed_losses = 0usize;
+        for h in handles {
+            match h.join().expect("thread panicked") {
+                Ok(()) => wins += 1,
+                Err(e) => {
+                    let msg = e.to_string();
+                    // The loser of the rename race re-reads the file
+                    // (now the new ops payload) and surfaces the
+                    // typed "file changed during install" error.
+                    assert!(
+                        msg.contains("file changed during install")
+                            || msg.contains("failed to re-read existing hook"),
+                        "unexpected error from concurrent upgrade: {msg}"
+                    );
+                    typed_losses += 1;
+                }
+            }
+        }
+        assert_eq!(
+            wins + typed_losses,
+            n,
+            "every caller must return a typed result, no panics or AlreadyExists leaks"
+        );
+        assert!(
+            wins >= 1,
+            "at least one caller must observe a successful upgrade"
+        );
+
+        // Final on-disk content is the ops payload (one of the wins
+        // committed it).
+        assert_eq!(
+            std::fs::read_to_string(&*hook_path).unwrap(),
+            cfg.hook_script
+        );
+
+        // No randomised stage files should remain — every staged file
+        // is either renamed (winner) or dropped (loser).
+        let stray = std::fs::read_dir(&hooks)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with(".pre-commit.ops-tmp."))
+            .count();
+        assert_eq!(
+            stray, 0,
+            "no randomised stage may leak after concurrent upgrade"
         );
     }
 }
