@@ -111,17 +111,32 @@ fn merge_env_vars(config: &mut Config) -> anyhow::Result<()> {
 /// (TASK-0427) to assert that a typical `ops <cmd>` flow only loads
 /// `.ops.toml` once. Gated behind `cfg(any(test, feature = "test-support"))`
 /// so production CLI binaries do not carry the AtomicUsize or its symbols.
+///
+/// CONC-7 (TASK-1093): this counter is **process-global**. Two parallel tests
+/// that both call `reset_load_config_call_count()` and assert
+/// `load_config_call_count() == N` will race — one test's `fetch_add` lands in
+/// the other test's window. Every call site MUST be marked
+/// `#[serial_test::serial]` so cargo's default parallel test runner does not
+/// interleave them. The race is gated by convention, not by the type system;
+/// reviewers grepping for `load_config_call_count` should verify each hit also
+/// carries `#[serial]`.
 #[cfg(any(test, feature = "test-support"))]
 static LOAD_CONFIG_CALL_COUNT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
 /// Snapshot the current `load_config` invocation count.
+///
+/// **Hazard**: process-global state. See [`LOAD_CONFIG_CALL_COUNT`] for the
+/// CONC-7 race details. Callers MUST be `#[serial_test::serial]`.
 #[cfg(any(test, feature = "test-support"))]
 pub fn load_config_call_count() -> usize {
     LOAD_CONFIG_CALL_COUNT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Reset the `load_config` invocation count to zero.
+///
+/// **Hazard**: process-global state. See [`LOAD_CONFIG_CALL_COUNT`] for the
+/// CONC-7 race details. Callers MUST be `#[serial_test::serial]`.
 #[cfg(any(test, feature = "test-support"))]
 pub fn reset_load_config_call_count() {
     LOAD_CONFIG_CALL_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -288,11 +303,30 @@ pub(crate) fn global_config_path() -> Option<PathBuf> {
 /// ERR-1: a read/parse error on the global config surfaces as a hard error
 /// with the path attached — a corrupted `~/.config/ops/config.toml` should
 /// not be silently ignored, leaving the user thinking their config applied.
+///
+/// PATTERN-1 (TASK-1090): two filenames are tried, **in this order**:
+///
+/// 1. `<dir>/ops/config.toml` — the documented, conventional name.
+/// 2. `<dir>/ops/config` — a bare-extension fallback retained for legacy
+///    layouts (e.g. an older deployment that wrote the file without a `.toml`
+///    suffix). The first existing file wins; if both exist, `config.toml`
+///    takes precedence and the bare `config` is **silently ignored**. The
+///    actually-loaded path is logged at `tracing::debug` so operators can
+///    diagnose silent shadowing without strace.
 fn load_global_config(config: &mut Config) -> anyhow::Result<()> {
     let Some(global_path) = global_config_path() else {
         return Ok(());
     };
-    let to_try = [global_path.with_extension("toml"), global_path];
+    load_global_config_at(config, &global_path)
+}
+
+/// Test-friendly inner: try `<base>.toml` then `<base>` (bare-extension
+/// legacy fallback). See [`load_global_config`] for the precedence contract.
+fn load_global_config_at(config: &mut Config, global_path: &Path) -> anyhow::Result<()> {
+    let to_try = [
+        global_path.with_extension("toml"),
+        global_path.to_path_buf(),
+    ];
     for path in &to_try {
         match read_config_file(path) {
             Ok(Some(overlay)) => {
@@ -430,6 +464,75 @@ args = ["hello"]
         assert!(
             msg.contains(OPS_TOML_MAX_BYTES_ENV),
             "error must name the override env var, got: {msg}"
+        );
+    }
+
+    /// PATTERN-1 / TASK-1090: when both `<dir>/ops/config.toml` and the
+    /// legacy bare-extension `<dir>/ops/config` exist, `config.toml` MUST
+    /// win. A stray bare-extension file (e.g. an extracted backup) must not
+    /// silently shadow the documented filename.
+    #[test]
+    fn load_global_config_precedence_toml_over_bare() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().join("ops").join("config");
+        fs::create_dir_all(base.parent().unwrap()).unwrap();
+
+        // Bare file declares a command we expect NOT to be merged.
+        fs::write(
+            &base,
+            r#"
+[commands.from_bare]
+program = "echo"
+args = ["bare"]
+"#,
+        )
+        .unwrap();
+        // .toml file declares a different command — this one must win.
+        fs::write(
+            base.with_extension("toml"),
+            r#"
+[commands.from_toml]
+program = "echo"
+args = ["toml"]
+"#,
+        )
+        .unwrap();
+
+        let mut config = Config::default();
+        load_global_config_at(&mut config, &base).unwrap();
+        assert!(
+            config.commands.contains_key("from_toml"),
+            "config.toml must be loaded"
+        );
+        assert!(
+            !config.commands.contains_key("from_bare"),
+            "bare-extension config must be shadowed by config.toml"
+        );
+    }
+
+    /// PATTERN-1 / TASK-1090: the bare-extension legacy fallback still
+    /// loads when `config.toml` is absent. Removing this would silently
+    /// break operators relying on the legacy layout.
+    #[test]
+    fn load_global_config_falls_back_to_bare_when_toml_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().join("ops").join("config");
+        fs::create_dir_all(base.parent().unwrap()).unwrap();
+        fs::write(
+            &base,
+            r#"
+[commands.from_bare]
+program = "echo"
+args = ["bare"]
+"#,
+        )
+        .unwrap();
+
+        let mut config = Config::default();
+        load_global_config_at(&mut config, &base).unwrap();
+        assert!(
+            config.commands.contains_key("from_bare"),
+            "bare fallback must load when config.toml is absent"
         );
     }
 
