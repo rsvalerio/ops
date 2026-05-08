@@ -2,7 +2,7 @@
 
 pub(crate) use super::*;
 pub(crate) use crate::command::abort::AbortSignal;
-pub(crate) use crate::command::build::build_command;
+pub(crate) use crate::command::build::{build_command, WorkspaceCanonicalCache};
 pub(crate) use crate::command::events::RunnerEvent;
 pub(crate) use crate::command::exec::{emit_output_events, exec_standalone, ExecTaskCtx};
 pub(crate) use crate::command::results::StepResult;

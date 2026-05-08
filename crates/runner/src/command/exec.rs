@@ -33,7 +33,7 @@
 //! secret formats).
 
 use super::abort::AbortSignal;
-use super::build::{build_command_async, CwdEscapePolicy};
+use super::build::{build_command_async, CwdEscapePolicy, WorkspaceCanonicalCache};
 use super::events::RunnerEvent;
 use super::results::{CommandOutput, StepResult};
 use ops_core::config::{CommandId, ExecCommandSpec};
@@ -344,6 +344,7 @@ pub fn build_step_result(id: &str, duration: Duration, output: CommandOutput) ->
 pub async fn exec_command(
     id: &str,
     spec: &ExecCommandSpec,
+    workspace_cache: &Arc<WorkspaceCanonicalCache>,
     cwd: &Arc<PathBuf>,
     vars: &Arc<Variables>,
     policy: CwdEscapePolicy,
@@ -358,24 +359,31 @@ pub async fn exec_command(
     // CONC-5 / TASK-0330: build_command performs sync std::fs::canonicalize.
     // Run it on the blocking pool so we don't stall a tokio worker per
     // spawn. The clones below are cheap relative to the process spawn itself.
-    let mut cmd =
-        match build_command_async(spec.clone(), Arc::clone(cwd), Arc::clone(vars), policy).await {
-            Ok(c) => c,
-            Err(e) => {
-                // ERR-1 / TASK-0450: variable expansion or cwd-policy failure.
-                // Surface as a StepFailed so non-UTF-8 env vars and similar
-                // configuration errors are user-visible instead of materialising
-                // a literal `${VAR}` into argv / cwd.
-                let msg = log_and_redact_spawn_error(&spec.program, &e, "captured");
-                emit(RunnerEvent::StepFailed {
-                    id: id.into(),
-                    duration_secs: 0.0,
-                    message: msg.clone(),
-                    display_cmd,
-                });
-                return StepResult::failure(id, std::time::Duration::ZERO, msg);
-            }
-        };
+    let mut cmd = match build_command_async(
+        Arc::clone(workspace_cache),
+        spec.clone(),
+        Arc::clone(cwd),
+        Arc::clone(vars),
+        policy,
+    )
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            // ERR-1 / TASK-0450: variable expansion or cwd-policy failure.
+            // Surface as a StepFailed so non-UTF-8 env vars and similar
+            // configuration errors are user-visible instead of materialising
+            // a literal `${VAR}` into argv / cwd.
+            let msg = log_and_redact_spawn_error(&spec.program, &e, "captured");
+            emit(RunnerEvent::StepFailed {
+                id: id.into(),
+                duration_secs: 0.0,
+                message: msg.clone(),
+                display_cmd,
+            });
+            return StepResult::failure(id, std::time::Duration::ZERO, msg);
+        }
+    };
     let cap = super::results::output_byte_cap();
     let (result, duration) = run_with_timeout(spawn_capped(&mut cmd, cap), spec.timeout()).await;
     let output = match result {
@@ -411,27 +419,36 @@ pub async fn exec_command(
 /// emitted and the returned `StepResult` has empty stdout/stderr.
 ///
 /// Exit code and timeout behavior are preserved. Used by `--raw` mode.
+#[allow(clippy::too_many_arguments)]
 pub async fn exec_command_raw(
     id: &str,
     spec: &ExecCommandSpec,
+    workspace_cache: &Arc<WorkspaceCanonicalCache>,
     cwd: &Arc<PathBuf>,
     vars: &Arc<Variables>,
     policy: CwdEscapePolicy,
 ) -> StepResult {
     // CONC-5 / TASK-0330: see exec_command above.
-    let mut cmd =
-        match build_command_async(spec.clone(), Arc::clone(cwd), Arc::clone(vars), policy).await {
-            Ok(c) => c,
-            Err(e) => {
-                // ERR-1 / TASK-0450: surface expansion / policy failures rather
-                // than panic. Raw mode has no event stream, so we just return.
-                return StepResult::failure(
-                    id,
-                    std::time::Duration::ZERO,
-                    log_and_redact_spawn_error(&spec.program, &e, "raw"),
-                );
-            }
-        };
+    let mut cmd = match build_command_async(
+        Arc::clone(workspace_cache),
+        spec.clone(),
+        Arc::clone(cwd),
+        Arc::clone(vars),
+        policy,
+    )
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            // ERR-1 / TASK-0450: surface expansion / policy failures rather
+            // than panic. Raw mode has no event stream, so we just return.
+            return StepResult::failure(
+                id,
+                std::time::Duration::ZERO,
+                log_and_redact_spawn_error(&spec.program, &e, "raw"),
+            );
+        }
+    };
     cmd.stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit());
@@ -482,6 +499,12 @@ pub struct ExecTaskCtx {
     /// `CommandRunner` so parallel tasks share the same fail-closed
     /// guarantee that the sequential path applies via `exec_command`.
     pub policy: CwdEscapePolicy,
+    /// ARCH-9 / TASK-1126: runner-scoped workspace canonicalize cache so
+    /// parallel spawns share the same cache that
+    /// `CommandRunner::invalidate_workspace_cache` mutates. Previously the
+    /// spawn path read a process-global static, which made the public
+    /// invalidate API a no-op against the cache that decided escape outcomes.
+    pub workspace_cache: Arc<WorkspaceCanonicalCache>,
 }
 
 /// CONC-3 / CONC-6 / CONC-9: spawn the per-task event forwarder.
@@ -545,6 +568,7 @@ pub async fn exec_standalone(id: CommandId, spec: ExecCommandSpec, ctx: ExecTask
         tx,
         abort,
         policy,
+        workspace_cache,
     } = ctx;
     if abort.is_set() {
         // ERR-1 / TASK-0408: this branch fires only when fail_fast already
@@ -589,24 +613,32 @@ pub async fn exec_standalone(id: CommandId, spec: ExecCommandSpec, ctx: ExecTask
     // can surface them instead of silently losing the stdout/stderr lines
     // that explain a failure.
     let mut dropped_outputs: u64 = 0;
-    let result = exec_command(&id, &spec, &cwd, &vars, policy, &mut |ev| {
-        // OWN-2 / TASK-0462: cwd/vars are already Arcs in this scope; the
-        // `&Arc<…>` ref forwards through exec_command → build_command_async
-        // without a deep clone.
-        if matches!(
-            ev,
-            RunnerEvent::StepFinished { .. }
-                | RunnerEvent::StepFailed { .. }
-                | RunnerEvent::StepSkipped { .. }
-        ) {
-            terminal = Some(ev);
-            return;
-        }
-        if let Err(mpsc::error::TrySendError::Full(_)) = local_tx.try_send(ev) {
-            dropped_outputs = dropped_outputs.saturating_add(1);
-            tracing::debug!("per-task event buffer full; dropping event under backpressure");
-        }
-    })
+    let result = exec_command(
+        &id,
+        &spec,
+        &workspace_cache,
+        &cwd,
+        &vars,
+        policy,
+        &mut |ev| {
+            // OWN-2 / TASK-0462: cwd/vars are already Arcs in this scope; the
+            // `&Arc<…>` ref forwards through exec_command → build_command_async
+            // without a deep clone.
+            if matches!(
+                ev,
+                RunnerEvent::StepFinished { .. }
+                    | RunnerEvent::StepFailed { .. }
+                    | RunnerEvent::StepSkipped { .. }
+            ) {
+                terminal = Some(ev);
+                return;
+            }
+            if let Err(mpsc::error::TrySendError::Full(_)) = local_tx.try_send(ev) {
+                dropped_outputs = dropped_outputs.saturating_add(1);
+                tracing::debug!("per-task event buffer full; dropping event under backpressure");
+            }
+        },
+    )
     .await;
     drop(local_tx);
     // Drain the forwarder. JoinSet drops the JoinHandle on completion; if we

@@ -7,7 +7,7 @@
 //! implementation in `display.rs`.
 
 use std::fs::File;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::path::PathBuf;
 
 /// Tap-file writer with truncation tracking.
@@ -21,6 +21,14 @@ pub(crate) struct TapWriter {
     file: Option<File>,
     path: Option<PathBuf>,
     truncation: Option<(String, String)>,
+    /// CONC-7 / TASK-1176: capture the `io::ErrorKind` of the first write
+    /// failure so [`Self::append_marker`] can short-circuit when re-opening
+    /// the same path could only fail again (e.g. ENOSPC) or hang (e.g. a
+    /// stale NFS mount). Pre-fix `append_marker` blindly re-opened on every
+    /// truncation, producing two consecutive log lines under disk-full and
+    /// re-issuing blocking IO on a hung mount on the synchronous display
+    /// thread.
+    truncation_kind: Option<ErrorKind>,
 }
 
 impl TapWriter {
@@ -39,6 +47,7 @@ impl TapWriter {
             file,
             path: Some(path),
             truncation: None,
+            truncation_kind: None,
         }
     }
 
@@ -62,6 +71,7 @@ impl TapWriter {
                     step_id.unwrap_or("<unknown>").to_string(),
                     e.kind().to_string(),
                 ));
+                self.truncation_kind = Some(e.kind());
                 self.file = None;
             }
         }
@@ -82,6 +92,27 @@ impl TapWriter {
         let Some(path) = self.path.as_ref() else {
             return;
         };
+        // CONC-7 / TASK-1176: skip the re-open when the prior failure kind
+        // makes a successful retry impossible. Re-opening under disk-full
+        // (`StorageFull`) only repeats the failure with an extra log line,
+        // and re-opening under broken-pipe (`BrokenPipe`) on a hung NFS
+        // mount can issue blocking IO on the display thread. Both
+        // user-visible signals (the stderr warning + drained
+        // `take_truncation`) already exist; the marker is best-effort and
+        // not worth a second round of blocking IO. Other kinds (EACCES
+        // recovered after a chmod, transient EIO) fall through to the
+        // existing append attempt.
+        if matches!(
+            self.truncation_kind,
+            Some(ErrorKind::StorageFull) | Some(ErrorKind::BrokenPipe)
+        ) {
+            tracing::debug!(
+                target: "ops::tap",
+                kind = ?self.truncation_kind,
+                "skipping tap marker re-open: prior failure kind cannot succeed on retry"
+            );
+            return;
+        }
         // ERR-2 / TASK-0775: log distinct breadcrumbs for the open vs write
         // failure modes. Function stays infallible (best-effort), but a
         // silent partial tap with no stderr capture had no postmortem
@@ -114,11 +145,76 @@ impl TapWriter {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::path::Path;
 
     /// ERR-7 (TASK-0940): tracing fields for tap paths flow through the `?`
     /// formatter so a config-supplied path containing newlines or ANSI
     /// escapes cannot forge log records.
+    /// CONC-7 / TASK-1176: when the prior write failure kind is
+    /// `StorageFull` or `BrokenPipe`, `append_marker` must short-circuit
+    /// rather than re-open the path. Re-opening can only repeat the
+    /// failure (ENOSPC) or hang on a stale mount (BrokenPipe). We pin
+    /// the short-circuit by setting the recorded truncation kind and
+    /// asserting that the marker line is *not* written to the file.
+    #[test]
+    fn append_marker_skips_reopen_on_storage_full() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tap.txt");
+        let mut tap = TapWriter::new(path.clone());
+        // Simulate a prior failure with kind=StorageFull. Drop the file
+        // handle so the marker path is the only writer.
+        tap.file = None;
+        tap.truncation_kind = Some(ErrorKind::StorageFull);
+
+        // Write a known initial body to disk so the test can verify
+        // `append_marker` did NOT touch the file.
+        std::fs::write(&path, b"baseline\n").unwrap();
+        tap.append_marker("MARKER");
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            after, "baseline\n",
+            "append_marker must short-circuit on StorageFull and not re-open the file"
+        );
+    }
+
+    #[test]
+    fn append_marker_skips_reopen_on_broken_pipe() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tap.txt");
+        let mut tap = TapWriter::new(path.clone());
+        tap.file = None;
+        tap.truncation_kind = Some(ErrorKind::BrokenPipe);
+
+        std::fs::write(&path, b"baseline\n").unwrap();
+        tap.append_marker("MARKER");
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            after, "baseline\n",
+            "append_marker must short-circuit on BrokenPipe and not re-open the file"
+        );
+    }
+
+    /// Other failure kinds still attempt the re-open (the prior
+    /// best-effort behaviour) so a transient EACCES recovered between
+    /// the failed write and the marker still has a chance to land.
+    #[test]
+    fn append_marker_still_attempts_reopen_on_other_kinds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tap.txt");
+        let mut tap = TapWriter::new(path.clone());
+        tap.file = None;
+        tap.truncation_kind = Some(ErrorKind::PermissionDenied);
+
+        std::fs::write(&path, "baseline\n").unwrap();
+        tap.append_marker("MARKER");
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            after.contains("MARKER"),
+            "non-StorageFull/BrokenPipe kind should still attempt the marker append; got: {after}"
+        );
+    }
+
     #[test]
     fn tap_path_debug_escapes_control_characters() {
         let p = Path::new("a\nb\u{1b}[31mc/tap.txt");

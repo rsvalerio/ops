@@ -14,6 +14,7 @@ async fn spawn_parallel_tasks_creates_correct_count() {
         Arc::new(PathBuf::from(".")),
         Arc::new(test_vars()),
         crate::command::CwdEscapePolicy::WarnAndAllow,
+        Arc::new(WorkspaceCanonicalCache::new()),
     );
     drop(rx);
     let results = CommandRunner::collect_join_results(join_set, &id_map).await;
@@ -87,6 +88,80 @@ async fn handle_parallel_events_no_abort_without_fail_fast() {
         .await;
 
     assert!(!abort.is_set(), "abort should NOT be set without fail_fast");
+}
+
+/// CONC-6 / TASK-1177: a panicked sibling under fail_fast must trip abort
+/// at the same point a `StepFailed` event would. Pre-fix the abort signal
+/// only fired on `RunnerEvent::StepFailed`, so a task that panicked rather
+/// than emitting a failure event kept its siblings running until the
+/// channel drained naturally — defeating fail_fast for the panic path.
+///
+/// Spawn one task that panics immediately and one that holds an
+/// `AbortSignal::cancelled()` future the test checks; assert that the
+/// signal is set before the sleeping sibling's nominal duration elapses.
+#[tokio::test(flavor = "multi_thread")]
+async fn fail_fast_aborts_siblings_when_a_task_panics() {
+    let (tx, rx) = mpsc::channel(8);
+    let abort = Arc::new(AbortSignal::new());
+    let mut join_set: tokio::task::JoinSet<StepResult> = tokio::task::JoinSet::new();
+
+    // Task A panics immediately. No StepFailed event will be emitted; the
+    // panic surfaces only via JoinSet.
+    join_set.spawn(async {
+        panic!("simulated task panic");
+    });
+
+    // Task B observes the abort signal. Wait up to 5s; if abort fires
+    // earlier the task returns early — that is the contract under test.
+    let abort_b = Arc::clone(&abort);
+    join_set.spawn(async move {
+        tokio::select! {
+            () = abort_b.cancelled() => {
+                StepResult::cancelled(CommandId::from("b"))
+            }
+            () = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+                StepResult::success("b", Duration::from_secs(5))
+            }
+        }
+    });
+
+    // Drop tx so the events loop's rx-side closes once both tasks are
+    // accounted for; the loop continues draining the JoinSet until empty.
+    drop(tx);
+
+    let mut events = Vec::<RunnerEvent>::new();
+    let mut harvested: Vec<(tokio::task::Id, Result<StepResult, tokio::task::JoinError>)> =
+        Vec::new();
+    let start = std::time::Instant::now();
+    CommandRunner::handle_parallel_events_with_cancel_inner(
+        rx,
+        true, // fail_fast
+        Arc::clone(&abort),
+        &mut join_set,
+        &mut |e| events.push(e),
+        &mut harvested,
+    )
+    .await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        abort.is_set(),
+        "abort signal must be tripped when a sibling task panics under fail_fast"
+    );
+    // The sleeping sibling's nominal duration is 5s; the loop must
+    // complete well under that because abort fires first.
+    assert!(
+        elapsed < std::time::Duration::from_secs(4),
+        "fail_fast must abort siblings before the 5s sleep elapses; got {elapsed:?}"
+    );
+    // Two harvested entries: the panic (Err) and the cancelled sibling
+    // (Ok with success=false from `StepResult::cancelled`, OR Err with
+    // is_cancelled — abort_all aborts the JoinSet which yields Err).
+    assert_eq!(
+        harvested.len(),
+        2,
+        "both tasks must have been harvested before the loop exited"
+    );
 }
 
 /// TASK-0334: panic payloads from `JoinError` must not surface verbatim in

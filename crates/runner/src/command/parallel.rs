@@ -134,52 +134,82 @@ impl CommandRunner {
     ///
     /// This is important for robustness in CI/CD environments where a single
     /// misbehaving command should not abort the entire run.
+    #[cfg(test)]
     pub(crate) async fn collect_join_results(
+        join_set: tokio::task::JoinSet<StepResult>,
+        id_map: &HashMap<TaskId, CommandId>,
+    ) -> Vec<StepResult> {
+        Self::collect_join_results_with_pre(Vec::new(), join_set, id_map).await
+    }
+
+    /// CONC-6 / TASK-1177: merge results harvested by
+    /// `handle_parallel_events_with_cancel_inner` (which already drained
+    /// completed tasks during the events loop so panics could trigger
+    /// fail_fast) with whatever still remains in the JoinSet.
+    pub(crate) async fn collect_join_results_with_pre(
+        pre: Vec<(TaskId, Result<StepResult, tokio::task::JoinError>)>,
         mut join_set: tokio::task::JoinSet<StepResult>,
         id_map: &HashMap<TaskId, CommandId>,
     ) -> Vec<StepResult> {
         let mut results = Vec::new();
+        for (task_id, res) in pre {
+            Self::push_one(&mut results, task_id, res, id_map);
+        }
         // READ-5 / TASK-0767: use `join_next_with_id` so a panicking task
         // surfaces the originating `CommandId` (looked up via `id_map`)
         // instead of a sentinel "<panicked>". JSON event consumers and CI
         // dashboards can then correlate the panicked StepResult with the
         // step that produced it.
         while let Some(res) = join_set.join_next_with_id().await {
-            match res {
-                Ok((_task_id, step_result)) => results.push(step_result),
-                Err(e) => {
-                    let cmd_id = id_map
-                        .get(&e.id())
-                        .cloned()
-                        .unwrap_or_else(|| CommandId::from("<panicked>"));
-                    // CONC-6 / TASK-0214: distinguish a cancellation
-                    // (fail_fast aborted the JoinSet) from a real panic so
-                    // users see "cancelled" rather than misleading
-                    // "panicked" for siblings that were intentionally
-                    // stopped.
-                    if e.is_cancelled() {
-                        tracing::debug!(id = %cmd_id, "parallel task cancelled (fail_fast abort)");
-                        results.push(StepResult::cancelled(cmd_id));
-                    } else {
-                        // SEC-21 / TASK-0334: a JoinError's Display embeds the
-                        // panic payload, which often contains attacker-influenced
-                        // data (absolute paths from `expect`/`unwrap` panics,
-                        // user-supplied strings). That message flows into
-                        // StepResult.message → StepFailed → tap file / TAP CI
-                        // output, mirroring the leak channel SEC-22 closed for
-                        // spawn errors. Surface a generic message and log the
-                        // raw payload at debug for operators.
-                        tracing::debug!(id = %cmd_id, error = %e, "parallel task panicked (full payload)");
-                        results.push(StepResult::failure(
-                            cmd_id,
-                            Duration::ZERO,
-                            "task panicked".to_string(),
-                        ));
-                    }
+            let (task_id, joined): (TaskId, Result<StepResult, tokio::task::JoinError>) = match res
+            {
+                Ok((tid, sr)) => (tid, Ok(sr)),
+                Err(e) => (e.id(), Err(e)),
+            };
+            Self::push_one(&mut results, task_id, joined, id_map);
+        }
+        results
+    }
+
+    fn push_one(
+        results: &mut Vec<StepResult>,
+        _task_id: TaskId,
+        res: Result<StepResult, tokio::task::JoinError>,
+        id_map: &HashMap<TaskId, CommandId>,
+    ) {
+        match res {
+            Ok(step_result) => results.push(step_result),
+            Err(e) => {
+                let cmd_id = id_map
+                    .get(&e.id())
+                    .cloned()
+                    .unwrap_or_else(|| CommandId::from("<panicked>"));
+                // CONC-6 / TASK-0214: distinguish a cancellation
+                // (fail_fast aborted the JoinSet) from a real panic so
+                // users see "cancelled" rather than misleading
+                // "panicked" for siblings that were intentionally
+                // stopped.
+                if e.is_cancelled() {
+                    tracing::debug!(id = %cmd_id, "parallel task cancelled (fail_fast abort)");
+                    results.push(StepResult::cancelled(cmd_id));
+                } else {
+                    // SEC-21 / TASK-0334: a JoinError's Display embeds the
+                    // panic payload, which often contains attacker-influenced
+                    // data (absolute paths from `expect`/`unwrap` panics,
+                    // user-supplied strings). That message flows into
+                    // StepResult.message → StepFailed → tap file / TAP CI
+                    // output, mirroring the leak channel SEC-22 closed for
+                    // spawn errors. Surface a generic message and log the
+                    // raw payload at debug for operators.
+                    tracing::debug!(id = %cmd_id, error = %e, "parallel task panicked (full payload)");
+                    results.push(StepResult::failure(
+                        cmd_id,
+                        Duration::ZERO,
+                        "task panicked".to_string(),
+                    ));
                 }
             }
         }
-        results
     }
 
     /// Spawn parallel tasks into a JoinSet, returning the receiver and abort flag.
@@ -191,6 +221,7 @@ impl CommandRunner {
         cwd: Arc<PathBuf>,
         vars: Arc<Variables>,
         policy: CwdEscapePolicy,
+        workspace_cache: Arc<super::build::WorkspaceCanonicalCache>,
     ) -> (
         mpsc::Receiver<RunnerEvent>,
         Arc<AbortSignal>,
@@ -217,6 +248,7 @@ impl CommandRunner {
             let abort = Arc::clone(&abort);
             let cwd = Arc::clone(&cwd);
             let vars = Arc::clone(&vars);
+            let cache = Arc::clone(&workspace_cache);
             let sem = Arc::clone(&semaphore);
             let task_id = id.clone();
             let cmd_id = id.clone();
@@ -250,6 +282,7 @@ impl CommandRunner {
                         tx,
                         abort,
                         policy,
+                        workspace_cache: cache,
                     },
                 )
                 .await
@@ -306,6 +339,7 @@ impl CommandRunner {
             self.cwd.clone(),
             self.vars.clone(),
             self.cwd_escape_policy,
+            Arc::clone(&self.workspace_cache),
         );
         // CONC-6 / TASK-0204: when fail_fast sees the first failure, set
         // the abort flag **and** actively `abort_all()` the JoinSet so
@@ -326,6 +360,7 @@ impl CommandRunner {
         // `StepStarted` unpaired in JSON event consumers and the display.
         let mut terminal_counts: std::collections::HashMap<CommandId, usize> =
             std::collections::HashMap::new();
+        let mut harvested: Vec<(TaskId, Result<StepResult, tokio::task::JoinError>)> = Vec::new();
         {
             let on_event_inner: &mut dyn FnMut(RunnerEvent) = on_event;
             let mut wrapped = |ev: RunnerEvent| {
@@ -339,12 +374,18 @@ impl CommandRunner {
                 }
                 on_event_inner(ev);
             };
-            Self::handle_parallel_events_with_cancel(
+            // CONC-6 / TASK-1177: route through the inner variant so a
+            // panicked sibling is observed during the events loop and
+            // trips fail_fast at the same point a `StepFailed` would,
+            // instead of leaking a 5s sibling that keeps emitting events
+            // until the channel drains naturally.
+            Self::handle_parallel_events_with_cancel_inner(
                 rx,
                 fail_fast,
                 abort,
                 &mut join_set,
                 &mut wrapped,
+                &mut harvested,
             )
             .await;
         }
@@ -364,7 +405,7 @@ impl CommandRunner {
                 });
             }
         }
-        let results = Self::collect_join_results(join_set, &id_map).await;
+        let results = Self::collect_join_results_with_pre(harvested, join_set, &id_map).await;
 
         lifecycle.finish(results.iter().all(|r| r.success), on_event);
         results
@@ -387,23 +428,99 @@ impl CommandRunner {
 
     /// Drain events, and on first failure under `fail_fast` abort any
     /// in-flight parallel tasks via `JoinSet::abort_all`.
+    ///
+    /// CONC-6 / TASK-1177: also poll the JoinSet alongside the events
+    /// channel so a task that **panics** (rather than returning a non-zero
+    /// exit code) trips fail_fast at the same point a `StepFailed` event
+    /// would. Pre-fix, a panicked sibling surfaced only after the channel
+    /// drained naturally — defeating fail_fast for the panic path while a
+    /// 5-second sibling kept emitting output. Panic results captured here
+    /// are stashed in `panic_results` and merged by [`collect_join_results`]
+    /// so the caller still observes the synthesized failure.
+    #[cfg(test)]
     pub(crate) async fn handle_parallel_events_with_cancel(
-        mut rx: mpsc::Receiver<RunnerEvent>,
+        rx: mpsc::Receiver<RunnerEvent>,
         fail_fast: bool,
         abort: Arc<AbortSignal>,
         join_set: &mut tokio::task::JoinSet<StepResult>,
         on_event: &mut impl FnMut(RunnerEvent),
     ) {
+        let mut empty: Vec<(tokio::task::Id, Result<StepResult, tokio::task::JoinError>)> =
+            Vec::new();
+        Self::handle_parallel_events_with_cancel_inner(
+            rx, fail_fast, abort, join_set, on_event, &mut empty,
+        )
+        .await;
+        // The default test-facing wrapper does not surface harvested
+        // results; production routes through `run_plan_parallel` which
+        // calls the inner variant directly so it can merge them.
+        for (_, r) in empty {
+            drop(r);
+        }
+    }
+
+    /// CONC-6 / TASK-1177: inner select-loop variant that also drains
+    /// completed tasks from the JoinSet so panics trigger fail_fast.
+    /// Harvested `(task_id, result)` pairs are appended to
+    /// `harvested_results` so callers can merge them into the
+    /// `collect_join_results` output without losing the panic-aware
+    /// step ids `id_map` records.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn handle_parallel_events_with_cancel_inner(
+        mut rx: mpsc::Receiver<RunnerEvent>,
+        fail_fast: bool,
+        abort: Arc<AbortSignal>,
+        join_set: &mut tokio::task::JoinSet<StepResult>,
+        on_event: &mut impl FnMut(RunnerEvent),
+        harvested_results: &mut Vec<(tokio::task::Id, Result<StepResult, tokio::task::JoinError>)>,
+    ) {
         let mut cancelled = false;
-        while let Some(ev) = rx.recv().await {
-            if let RunnerEvent::StepFailed { .. } = &ev {
-                if fail_fast && !cancelled {
-                    abort.set();
-                    join_set.abort_all();
-                    cancelled = true;
+        let mut rx_open = true;
+        loop {
+            // Stop once the events channel closed AND the JoinSet is
+            // empty — both are required to fully drain.
+            if !rx_open && join_set.is_empty() {
+                break;
+            }
+            tokio::select! {
+                biased;
+                ev = rx.recv(), if rx_open => {
+                    match ev {
+                        Some(ev) => {
+                            if let RunnerEvent::StepFailed { .. } = &ev {
+                                if fail_fast && !cancelled {
+                                    abort.set();
+                                    join_set.abort_all();
+                                    cancelled = true;
+                                }
+                            }
+                            on_event(ev);
+                        }
+                        None => {
+                            rx_open = false;
+                        }
+                    }
+                }
+                joined = join_set.join_next_with_id(), if !join_set.is_empty() => {
+                    match joined {
+                        Some(Ok((task_id, result))) => {
+                            harvested_results.push((task_id, Ok(result)));
+                        }
+                        Some(Err(join_err)) => {
+                            // CONC-6 / TASK-1177: a JoinError that is NOT a
+                            // cancellation surfaces a panicked task. Trip
+                            // fail_fast so live siblings stop.
+                            if !join_err.is_cancelled() && fail_fast && !cancelled {
+                                abort.set();
+                                join_set.abort_all();
+                                cancelled = true;
+                            }
+                            harvested_results.push((join_err.id(), Err(join_err)));
+                        }
+                        None => {}
+                    }
                 }
             }
-            on_event(ev);
         }
     }
 }

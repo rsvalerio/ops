@@ -257,6 +257,24 @@ impl CommandRunner {
             }
         }
         for alias in new_spec.aliases() {
+            // CONC-3 / TASK-1137: also flag cross-store collisions against
+            // the config alias map. `register_commands` already warns on
+            // duplicate command-id registration (SEC-31 / TASK-0402) and
+            // intra-store alias collisions are caught below; without this
+            // check, an extension whose alias matches a config-defined
+            // alias is silently shadowed at lookup time (config wins via
+            // `resolve_alias` ordering at resolve.rs) with no audit trail
+            // for operators reading `RUST_LOG=ops=debug`.
+            if let Some(config_owner) = self.config.resolve_alias(alias.as_str()) {
+                if config_owner != id.as_str() {
+                    tracing::warn!(
+                        alias = %alias,
+                        config_owner = %config_owner,
+                        new = %id,
+                        "alias collision: extension/stack alias shadowed by config alias of same name"
+                    );
+                }
+            }
             match self.non_config_alias_map.entry(alias.clone()) {
                 Entry::Occupied(mut occ) => {
                     if occ.get() != id.as_str() {
@@ -357,6 +375,7 @@ impl CommandRunner {
         exec_command(
             id,
             spec,
+            &self.workspace_cache,
             &self.cwd,
             &self.vars,
             self.cwd_escape_policy,

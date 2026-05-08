@@ -8,9 +8,11 @@ async fn exec_command_raw_returns_success_for_true() {
     let spec = true_cmd();
     let cwd = Arc::new(std::env::current_dir().unwrap());
     let vars = Arc::new(test_vars());
+    let cache = Arc::new(WorkspaceCanonicalCache::new());
     let result = exec_command_raw(
         "true_cmd",
         &spec,
+        &cache,
         &cwd,
         &vars,
         crate::command::CwdEscapePolicy::WarnAndAllow,
@@ -27,9 +29,11 @@ async fn exec_command_raw_returns_failure_for_false() {
     let spec = false_cmd();
     let cwd = Arc::new(std::env::current_dir().unwrap());
     let vars = Arc::new(test_vars());
+    let cache = Arc::new(WorkspaceCanonicalCache::new());
     let result = exec_command_raw(
         "false_cmd",
         &spec,
+        &cache,
         &cwd,
         &vars,
         crate::command::CwdEscapePolicy::WarnAndAllow,

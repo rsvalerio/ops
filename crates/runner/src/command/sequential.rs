@@ -82,6 +82,7 @@ impl CommandRunner {
             let result = exec_command_raw(
                 id.as_str(),
                 &spec,
+                &self.workspace_cache,
                 &self.cwd,
                 &self.vars,
                 self.cwd_escape_policy,

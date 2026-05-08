@@ -29,7 +29,14 @@ fn build_command_uses_spec_cwd_when_provided() {
     let mut spec = exec_spec("echo", &["test"]);
     spec.cwd = Some(temp_dir.path().to_path_buf());
     let cmd = build_command(&spec, std::path::Path::new("."), &test_vars()).unwrap();
-    assert_eq!(cmd.as_std().get_current_dir(), Some(temp_dir.path()));
+    // SEC-23 / TASK-1140: `resolve_spec_cwd` now canonicalises the
+    // chdir target on success under both policies, so on platforms
+    // where `tempfile::tempdir()` returns a symlinked prefix (macOS
+    // `/var/folders/...` → `/private/var/folders/...`) the
+    // `get_current_dir` value is the resolved form. Compare against
+    // the canonical path rather than the verbatim tempdir handle.
+    let expected = std::fs::canonicalize(temp_dir.path()).unwrap();
+    assert_eq!(cmd.as_std().get_current_dir(), Some(expected.as_path()));
 }
 
 /// TQ-005: Tests for build_command error paths.

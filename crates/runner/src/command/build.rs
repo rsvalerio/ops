@@ -10,7 +10,9 @@ use ops_core::expand::{ExpandError, Variables};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Mutex;
+#[cfg(test)]
+use std::sync::{Arc, OnceLock};
 use tokio::process::Command;
 
 /// CONC-7 / TASK-1063: monotonic LRU access tick stamped on every cache hit
@@ -109,10 +111,34 @@ impl WorkspaceCanonicalCache {
     /// Look up — or compute and insert — the canonical form of `workspace`,
     /// using the supplied closure as the canonicalize implementation.
     ///
-    /// On a miss, the closure is called once under the lock so concurrent
+    /// # Concurrency contract (CONC-2 / TASK-1229)
+    ///
+    /// The cache mutex is held across the `canonicalize` closure. This is
+    /// **intentional** — the thundering-herd dedup the closure-under-lock
+    /// shape gives us is the whole reason for this cache: concurrent
     /// callers for the same uncached path collapse onto a single
-    /// canonicalize invocation (the same thundering-herd guarantee
-    /// PERF-3 / TASK-1095 added to the prior design).
+    /// `canonicalize` syscall (the contract PERF-3 / TASK-1095 pinned).
+    /// The cost is that concurrent first-time lookups for **distinct**
+    /// workspace paths also serialise on this mutex during the syscall.
+    ///
+    /// For `ops` today this is acceptable:
+    /// - **Single-shot CLI:** one workspace per invocation; the cache
+    ///   takes a single miss at startup and is uncontended thereafter.
+    /// - **Test fixtures / embedders:** burst-startup with many workspace
+    ///   paths can serialise on the closure, but the canonicalize cost
+    ///   is bounded by the path depth and any contention is bounded by
+    ///   `WORKSPACE_CANONICAL_CACHE_CAP` distinct keys.
+    ///
+    /// If a future high-concurrency caller (a multi-workspace daemon,
+    /// or `MAX_PARALLEL=32` against many distinct workspaces) becomes
+    /// the dominant workload, migrate to a per-key in-flight sentinel
+    /// pattern: keep the outer mutex for the get-or-insert of an
+    /// `Arc<OnceLock<Option<PathBuf>>>`, drop it before calling the
+    /// closure, and let same-path readers serialise on the inner once-init
+    /// while distinct paths run in parallel. The sibling cache in
+    /// `extensions/about/src/manifest_cache.rs` (TASK-1144) already moved
+    /// to that shape; this cache deliberately lags because the workload
+    /// has not yet justified the extra indirection.
     pub(crate) fn get_or_compute<F>(&self, workspace: &Path, canonicalize: F) -> Option<PathBuf>
     where
         F: FnOnce(&Path) -> std::io::Result<PathBuf>,
@@ -179,33 +205,42 @@ fn recover_workspace_cache<T>(
 
 /// PERF-3 / TASK-0765: cache the canonical workspace path keyed by raw path.
 ///
-/// CONC-7 / TASK-1063: routes through a process-global default
-/// [`WorkspaceCanonicalCache`] instance for back-compat with call sites
-/// that do not yet thread a runner-scoped cache (notably
-/// `build_command_async` from `exec.rs`). The cache type itself is
-/// bounded; runner-scoped instances live on [`CommandRunner`].
-fn canonical_workspace_cached(workspace: &Path) -> Option<PathBuf> {
-    default_workspace_cache().get_or_compute(workspace, |p| std::fs::canonicalize(p))
-}
-
-/// CONC-7 / TASK-1063: process-global default cache. Bounded — see
-/// [`WORKSPACE_CANONICAL_CACHE_CAP`].
-pub(crate) fn default_workspace_cache() -> &'static Arc<WorkspaceCanonicalCache> {
-    static CACHE: OnceLock<Arc<WorkspaceCanonicalCache>> = OnceLock::new();
-    CACHE.get_or_init(|| Arc::new(WorkspaceCanonicalCache::new()))
+/// ARCH-9 / TASK-1126: takes the runner-scoped cache instance as a
+/// parameter so the spawn path consults the same cache that
+/// [`CommandRunner::invalidate_workspace_cache`] / [`clear_workspace_cache`]
+/// mutate. Earlier this routed through a process-global static, which made
+/// the public invalidate API a no-op against the cache that actually decided
+/// escape outcomes for production callers.
+fn canonical_workspace_cached(
+    cache: &WorkspaceCanonicalCache,
+    workspace: &Path,
+) -> Option<PathBuf> {
+    cache.get_or_compute(workspace, |p| std::fs::canonicalize(p))
 }
 
 /// PERF-3 / TASK-1095: testable seam for the cache so tests can inject a
 /// canonicalize counter and verify the burst-startup thundering-herd is
-/// collapsed to a single syscall per workspace path. Forwards to a fresh
-/// local cache to keep test isolation under the new bounded design
-/// (TASK-1063); the static cache is exercised separately.
+/// collapsed to a single syscall per workspace path.
 #[cfg(test)]
-fn canonical_workspace_cached_with<F>(workspace: &Path, canonicalize: F) -> Option<PathBuf>
+fn canonical_workspace_cached_with<F>(
+    cache: &WorkspaceCanonicalCache,
+    workspace: &Path,
+    canonicalize: F,
+) -> Option<PathBuf>
 where
     F: FnOnce(&Path) -> std::io::Result<PathBuf>,
 {
-    default_workspace_cache().get_or_compute(workspace, canonicalize)
+    cache.get_or_compute(workspace, canonicalize)
+}
+
+/// ARCH-9 / TASK-1126: test-only ambient cache so the existing
+/// `resolve_spec_cwd` / `detect_workspace_escape` regression tests do not have
+/// to construct one per assertion. Production callers MUST thread the
+/// runner-scoped `Arc<WorkspaceCanonicalCache>` and never reach this static.
+#[cfg(test)]
+pub(crate) fn test_default_workspace_cache() -> &'static Arc<WorkspaceCanonicalCache> {
+    static CACHE: OnceLock<Arc<WorkspaceCanonicalCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Arc::new(WorkspaceCanonicalCache::new()))
 }
 
 /// ERR-1 / TASK-0450: convert a strict-expansion error into an `io::Error`
@@ -275,15 +310,21 @@ pub enum CwdEscapePolicy {
     /// [`detect_workspace_escape`], which calls `std::fs::canonicalize`,
     /// while the actual `chdir` is performed by the OS when the child is
     /// spawned. To shrink the window, [`resolve_spec_cwd`] canonicalizes
-    /// the joined path under `Deny` and hands the symlink-free result to
-    /// `current_dir`, so the kernel does not re-resolve any symlinks at
-    /// exec time. A narrow race remains: an attacker who can replace a
-    /// component of the canonical path (e.g. by mounting over it or
-    /// swapping a directory they own) between canonicalization and exec
-    /// can still divert the child. Closing this fully would require an
-    /// `openat`/`fchdir`-style fd handoff to the child, which neither
-    /// `std::process::Command` nor `tokio::process::Command` exposes
-    /// today.
+    /// the joined path on a best-effort basis under *both* policies and
+    /// hands the symlink-free result to `current_dir`, so the kernel does
+    /// not re-resolve any symlinks at exec time. SEC-23 / TASK-1140: prior
+    /// to this change the canonicalize-on-success step was gated on `Deny`
+    /// only, leaving the interactive `WarnAndAllow` path more exposed to a
+    /// symlink-swap race than the hook path even though both pay the same
+    /// canonicalize cost in `detect_workspace_escape`. The two policies
+    /// now share the same TOCTOU surface; `Deny` differs only in failing
+    /// closed on detected escapes. A narrow race remains: an attacker who
+    /// can replace a component of the canonical path (e.g. by mounting
+    /// over it or swapping a directory they own) between canonicalization
+    /// and exec can still divert the child. Closing this fully would
+    /// require an `openat`/`fchdir`-style fd handoff to the child, which
+    /// neither `std::process::Command` nor `tokio::process::Command`
+    /// exposes today.
     Deny,
 }
 
@@ -300,13 +341,14 @@ pub(crate) enum EscapeKind {
 /// first, then a canonical check so a symlink inside the workspace pointing
 /// outside is still caught.
 pub(crate) fn detect_workspace_escape(
+    cache: &WorkspaceCanonicalCache,
     joined: &std::path::Path,
     workspace: &std::path::Path,
 ) -> EscapeKind {
     let lexically_escapes = !normalize_path(joined).starts_with(workspace);
     let canonically_escapes = match (
         std::fs::canonicalize(joined).ok(),
-        canonical_workspace_cached(workspace),
+        canonical_workspace_cached(cache, workspace),
     ) {
         (Some(a), Some(b)) => !a.starts_with(&b),
         _ => false,
@@ -355,6 +397,7 @@ pub(crate) fn apply_escape_policy(
 /// Returns an error when the resolved path escapes the workspace root **and**
 /// `policy == Deny` (SEC-14 hook path). Otherwise logs and continues.
 pub fn resolve_spec_cwd(
+    cache: &WorkspaceCanonicalCache,
     spec_cwd: Option<&std::path::Path>,
     workspace_cwd: &std::path::Path,
     vars: &Variables,
@@ -389,23 +432,23 @@ pub fn resolve_spec_cwd(
     } else {
         ep.clone()
     };
-    if detect_workspace_escape(&joined, workspace_cwd) == EscapeKind::Escapes {
+    if detect_workspace_escape(cache, &joined, workspace_cwd) == EscapeKind::Escapes {
         apply_escape_policy(policy, &ep, workspace_cwd, &joined)?;
     }
-    // SEC-25 / READ-5 / TASK-0773: under Deny, hand the kernel a
+    // SEC-25 / SEC-23 / READ-5 / TASK-0773 / TASK-1140: hand the kernel a
     // symlink-free canonical path so it does not re-resolve symlinks at
     // chdir time. Narrows (but does not close) the TOCTOU window — see
     // `CwdEscapePolicy::Deny` docs. Applied uniformly to relative *and*
-    // absolute spec_cwd values: prior to TASK-0773 the absolute branch
-    // short-circuited before this block, leaving absolute hook-path cwds
-    // less protected than the relative siblings even though both are
-    // equally targetable by a symlink swap. Best effort: if canonicalize
-    // fails (e.g. cwd does not exist yet), fall back to the joined path
-    // and let the OS surface the spawn error.
-    if policy == CwdEscapePolicy::Deny {
-        if let Ok(canonical) = std::fs::canonicalize(&joined) {
-            return Ok(canonical);
-        }
+    // absolute spec_cwd values *and* under both policies: TASK-1140 lifts
+    // the previous `Deny`-only gate because `detect_workspace_escape`
+    // already pays the canonicalize cost regardless, and gating the
+    // symlink-free handoff on `Deny` left the interactive `WarnAndAllow`
+    // path uniquely exposed to symlink swap between the escape check and
+    // the spawn. Best effort: if canonicalize fails (e.g. cwd does not
+    // exist yet), fall back to the joined path and let the OS surface the
+    // spawn error.
+    if let Ok(canonical) = std::fs::canonicalize(&joined) {
+        return Ok(canonical);
     }
     if !ep.is_relative() {
         return Ok(ep);
@@ -439,7 +482,8 @@ pub fn build_command(
     cwd: &std::path::Path,
     vars: &Variables,
 ) -> Result<Command, std::io::Error> {
-    build_command_with(spec, cwd, vars, CwdEscapePolicy::WarnAndAllow)
+    let cache = WorkspaceCanonicalCache::new();
+    build_command_with(&cache, spec, cwd, vars, CwdEscapePolicy::WarnAndAllow)
 }
 
 /// CONC-5 / TASK-0330: async variant that runs the synchronous filesystem
@@ -461,6 +505,7 @@ pub fn build_command(
 /// worst of both. `spec` is still moved by value because each task
 /// already owns a distinct `ExecCommandSpec` it consumes.
 pub async fn build_command_async(
+    cache: std::sync::Arc<WorkspaceCanonicalCache>,
     spec: ExecCommandSpec,
     cwd: std::sync::Arc<std::path::PathBuf>,
     vars: std::sync::Arc<Variables>,
@@ -502,7 +547,7 @@ pub async fn build_command_async(
     // only happen if the runtime is shutting down, in which case
     // returning Err is no worse than a hard panic.
     match tokio::task::spawn_blocking(move || {
-        build_command_with(&spec, cwd.as_ref(), vars.as_ref(), policy)
+        build_command_with(&cache, &spec, cwd.as_ref(), vars.as_ref(), policy)
     })
     .await
     {
@@ -522,6 +567,7 @@ pub async fn build_command_async(
 /// Build a tokio Command with an explicit cwd-escape policy. Returns `Err`
 /// only when `policy == Deny` and the spec's cwd escapes the workspace root.
 pub fn build_command_with(
+    cache: &WorkspaceCanonicalCache,
     spec: &ExecCommandSpec,
     cwd: &std::path::Path,
     vars: &Variables,
@@ -538,7 +584,7 @@ pub fn build_command_with(
         let expanded = vars.try_expand(a).map_err(expand_err_to_io)?;
         cmd.arg(expanded.as_ref());
     }
-    let resolved_cwd = resolve_spec_cwd(spec.cwd.as_deref(), cwd, vars, policy)?;
+    let resolved_cwd = resolve_spec_cwd(cache, spec.cwd.as_deref(), cwd, vars, policy)?;
     cmd.current_dir(&resolved_cwd);
     for (k, v) in &spec.env {
         let expanded_v = vars.try_expand(v).map_err(expand_err_to_io)?;
@@ -596,10 +642,12 @@ mod tests {
             // debug_assert pinned in build_command_async.
             let cwd_arc = std::sync::Arc::new(tmp.path().to_path_buf());
             let vars_arc = std::sync::Arc::new(vars.clone());
+            let cache_arc = std::sync::Arc::clone(test_default_workspace_cache());
             for _ in 0..5 {
                 let spec =
                     exec_spec_with_cwd("echo", &["x"], Some(std::path::PathBuf::from("sub")));
                 let _cmd = build_command_async(
+                    std::sync::Arc::clone(&cache_arc),
                     spec,
                     std::sync::Arc::clone(&cwd_arc),
                     std::sync::Arc::clone(&vars_arc),
@@ -630,7 +678,9 @@ mod tests {
         // when the call clones them, satisfying the Arc-only debug_assert.
         let cwd_arc = std::sync::Arc::new(tmp.path().to_path_buf());
         let vars_arc = std::sync::Arc::new(vars);
+        let cache_arc = std::sync::Arc::clone(test_default_workspace_cache());
         let cmd = build_command_async(
+            std::sync::Arc::clone(&cache_arc),
             spec,
             std::sync::Arc::clone(&cwd_arc),
             std::sync::Arc::clone(&vars_arc),
@@ -648,7 +698,14 @@ mod tests {
     fn resolve_spec_cwd_none_returns_workspace() {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let vars = Variables::from_env(&ws);
-        let out = resolve_spec_cwd(None, &ws, &vars, CwdEscapePolicy::WarnAndAllow).unwrap();
+        let out = resolve_spec_cwd(
+            test_default_workspace_cache(),
+            None,
+            &ws,
+            &vars,
+            CwdEscapePolicy::WarnAndAllow,
+        )
+        .unwrap();
         assert_eq!(out, ws);
     }
 
@@ -660,7 +717,14 @@ mod tests {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let vars = Variables::from_env(&ws);
         let abs = std::path::Path::new("/tmp/ws/inside");
-        let out = resolve_spec_cwd(Some(abs), &ws, &vars, CwdEscapePolicy::Deny).unwrap();
+        let out = resolve_spec_cwd(
+            test_default_workspace_cache(),
+            Some(abs),
+            &ws,
+            &vars,
+            CwdEscapePolicy::Deny,
+        )
+        .unwrap();
         assert_eq!(out, std::path::PathBuf::from("/tmp/ws/inside"));
     }
 
@@ -673,8 +737,14 @@ mod tests {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let vars = Variables::from_env(&ws);
         let abs = std::path::Path::new("/etc");
-        let err = resolve_spec_cwd(Some(abs), &ws, &vars, CwdEscapePolicy::Deny)
-            .expect_err("absolute path outside workspace must be denied under Deny");
+        let err = resolve_spec_cwd(
+            test_default_workspace_cache(),
+            Some(abs),
+            &ws,
+            &vars,
+            CwdEscapePolicy::Deny,
+        )
+        .expect_err("absolute path outside workspace must be denied under Deny");
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
         assert!(err.to_string().contains("SEC-14"));
     }
@@ -687,7 +757,14 @@ mod tests {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let vars = Variables::from_env(&ws);
         let abs = std::path::Path::new("/opt/elsewhere");
-        let out = resolve_spec_cwd(Some(abs), &ws, &vars, CwdEscapePolicy::WarnAndAllow).unwrap();
+        let out = resolve_spec_cwd(
+            test_default_workspace_cache(),
+            Some(abs),
+            &ws,
+            &vars,
+            CwdEscapePolicy::WarnAndAllow,
+        )
+        .unwrap();
         assert_eq!(out, std::path::PathBuf::from("/opt/elsewhere"));
     }
 
@@ -696,8 +773,14 @@ mod tests {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let vars = Variables::from_env(&ws);
         let escaping = std::path::Path::new("../etc");
-        let err = resolve_spec_cwd(Some(escaping), &ws, &vars, CwdEscapePolicy::Deny)
-            .expect_err("escape should fail under Deny");
+        let err = resolve_spec_cwd(
+            test_default_workspace_cache(),
+            Some(escaping),
+            &ws,
+            &vars,
+            CwdEscapePolicy::Deny,
+        )
+        .expect_err("escape should fail under Deny");
         assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
         assert!(err.to_string().contains("SEC-14"));
     }
@@ -707,8 +790,14 @@ mod tests {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let vars = Variables::from_env(&ws);
         let escaping = std::path::Path::new("../etc");
-        let out =
-            resolve_spec_cwd(Some(escaping), &ws, &vars, CwdEscapePolicy::WarnAndAllow).unwrap();
+        let out = resolve_spec_cwd(
+            test_default_workspace_cache(),
+            Some(escaping),
+            &ws,
+            &vars,
+            CwdEscapePolicy::WarnAndAllow,
+        )
+        .unwrap();
         // Still joined; caller trusts `.ops.toml` in interactive mode.
         assert_eq!(out, ws.join("../etc"));
     }
@@ -718,7 +807,14 @@ mod tests {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let vars = Variables::from_env(&ws);
         let inside = std::path::Path::new("sub/dir");
-        let out = resolve_spec_cwd(Some(inside), &ws, &vars, CwdEscapePolicy::Deny).unwrap();
+        let out = resolve_spec_cwd(
+            test_default_workspace_cache(),
+            Some(inside),
+            &ws,
+            &vars,
+            CwdEscapePolicy::Deny,
+        )
+        .unwrap();
         assert_eq!(out, ws.join("sub/dir"));
     }
 
@@ -736,6 +832,7 @@ mod tests {
         let bad_path: std::path::PathBuf = bad.into();
         let vars = Variables::from_env(&ws);
         let err = resolve_spec_cwd(
+            test_default_workspace_cache(),
             Some(bad_path.as_path()),
             &ws,
             &vars,
@@ -753,14 +850,20 @@ mod tests {
     fn detect_workspace_escape_inside_is_inside() {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let inside = ws.join("sub/dir");
-        assert_eq!(detect_workspace_escape(&inside, &ws), EscapeKind::Inside);
+        assert_eq!(
+            detect_workspace_escape(test_default_workspace_cache(), &inside, &ws),
+            EscapeKind::Inside
+        );
     }
 
     #[test]
     fn detect_workspace_escape_parent_escapes() {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let escaping = ws.join("../etc");
-        assert_eq!(detect_workspace_escape(&escaping, &ws), EscapeKind::Escapes);
+        assert_eq!(
+            detect_workspace_escape(test_default_workspace_cache(), &escaping, &ws),
+            EscapeKind::Escapes
+        );
     }
 
     #[test]
@@ -797,8 +900,14 @@ mod tests {
         let escape_target_canonical = std::fs::canonicalize(escape_target.path()).unwrap();
 
         let vars = Variables::from_env(&ws);
-        let resolved = resolve_spec_cwd(Some(&inside), &ws, &vars, CwdEscapePolicy::Deny)
-            .expect("absolute path inside workspace must be allowed under Deny");
+        let resolved = resolve_spec_cwd(
+            test_default_workspace_cache(),
+            Some(&inside),
+            &ws,
+            &vars,
+            CwdEscapePolicy::Deny,
+        )
+        .expect("absolute path inside workspace must be allowed under Deny");
         assert_eq!(resolved, inside, "Deny should return the canonical path");
 
         // Swap the absolute target for a symlink to outside the workspace.
@@ -844,7 +953,7 @@ mod tests {
             let expected = expected.clone();
             handles.push(std::thread::spawn(move || {
                 barrier.wait();
-                canonical_workspace_cached_with(&key, |_p| {
+                canonical_workspace_cached_with(test_default_workspace_cache(), &key, |_p| {
                     counter.fetch_add(1, Ordering::SeqCst);
                     // Sleep briefly so concurrent callers reliably reach the
                     // write-lock re-check window before we return; without
@@ -883,11 +992,17 @@ mod tests {
         // Prime the cache by detecting an inside path first.
         let inside = ws.join("inside");
         std::fs::create_dir(&inside).unwrap();
-        assert_eq!(detect_workspace_escape(&inside, &ws), EscapeKind::Inside);
+        assert_eq!(
+            detect_workspace_escape(test_default_workspace_cache(), &inside, &ws),
+            EscapeKind::Inside
+        );
 
         // The trap is lexically inside but resolves outside via symlink.
         // The cached workspace path must not mask the escape.
-        assert_eq!(detect_workspace_escape(&trap, &ws), EscapeKind::Escapes);
+        assert_eq!(
+            detect_workspace_escape(test_default_workspace_cache(), &trap, &ws),
+            EscapeKind::Escapes
+        );
     }
 
     /// SEC-25: best-effort regression for the symlink-swap window. Layout:
@@ -910,6 +1025,7 @@ mod tests {
 
         let vars = Variables::from_env(&ws);
         let resolved = resolve_spec_cwd(
+            test_default_workspace_cache(),
             Some(std::path::Path::new("sub")),
             &ws,
             &vars,
@@ -929,6 +1045,37 @@ mod tests {
         assert_ne!(
             resolved, escape_target_canonical,
             "resolved path must not be the post-swap escape target"
+        );
+    }
+
+    /// SEC-23 / TASK-1140: WarnAndAllow must enjoy the same
+    /// canonicalize-on-success narrowing as Deny. Prior to TASK-1140 the
+    /// canonicalize block was gated on `Deny`, leaving the interactive
+    /// path uniquely exposed to a symlink swap between the
+    /// `detect_workspace_escape` check and the spawn even though both
+    /// policies pay the same canonicalize cost in the check.
+    #[cfg(unix)]
+    #[test]
+    fn warn_and_allow_canonicalizes_inside_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = std::fs::canonicalize(tmp.path()).unwrap();
+        let real = ws.join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = ws.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let vars = Variables::from_env(&ws);
+        let resolved = resolve_spec_cwd(
+            test_default_workspace_cache(),
+            Some(std::path::Path::new("link")),
+            &ws,
+            &vars,
+            CwdEscapePolicy::WarnAndAllow,
+        )
+        .expect("inside-workspace symlink must be allowed under WarnAndAllow");
+        assert_eq!(
+            resolved, real,
+            "WarnAndAllow must hand the kernel the symlink-free canonical path"
         );
     }
 
@@ -990,6 +1137,62 @@ mod tests {
         assert_eq!(
             refreshed, canonical_b,
             "after invalidate, the swapped symlink must be re-canonicalized to target_b"
+        );
+    }
+
+    /// ARCH-9 / TASK-1126 AC #2: `CommandRunner::invalidate_workspace_cache`
+    /// must observably affect subsequent spawn-time canonicalize results.
+    /// Pre-fix the spawn path read a process-global static cache while
+    /// `invalidate_workspace_cache` mutated only the runner-scoped
+    /// `workspace_cache` field — the public invalidate API was a no-op
+    /// against the cache that decided escape outcomes for production
+    /// callers. This test drives the runner cache through the same
+    /// `detect_workspace_escape` entry point the spawn path uses and
+    /// asserts the second call observes a re-canonicalize after invalidate.
+    #[cfg(unix)]
+    #[test]
+    fn invalidate_workspace_cache_changes_subsequent_spawn_canonicalize() {
+        // Two distinct on-disk targets behind a single workspace symlink.
+        let target_a = tempfile::tempdir().unwrap();
+        let target_b = tempfile::tempdir().unwrap();
+        let canonical_a = std::fs::canonicalize(target_a.path()).unwrap();
+        let canonical_b = std::fs::canonicalize(target_b.path()).unwrap();
+        std::fs::create_dir(canonical_a.join("inside")).unwrap();
+        std::fs::create_dir(canonical_b.join("inside")).unwrap();
+
+        let parent = tempfile::tempdir().unwrap();
+        let workspace = parent.path().join("ws-link");
+        std::os::unix::fs::symlink(&canonical_a, &workspace).unwrap();
+
+        // Spawn-path cache (the type the runner holds).
+        let cache = WorkspaceCanonicalCache::new();
+
+        // Prime: an "inside" join under the workspace symlink resolves to
+        // target_a/inside, which starts_with(canonical_a) — Inside.
+        let inside = workspace.join("inside");
+        assert_eq!(
+            detect_workspace_escape(&cache, &inside, &workspace),
+            EscapeKind::Inside
+        );
+
+        // Swap the workspace symlink to target_b. Without invalidate, the
+        // cached canonical workspace is still canonical_a, so a path that
+        // *now* resolves under canonical_b is judged to escape.
+        std::fs::remove_file(&workspace).unwrap();
+        std::os::unix::fs::symlink(&canonical_b, &workspace).unwrap();
+        assert_eq!(
+            detect_workspace_escape(&cache, &inside, &workspace),
+            EscapeKind::Escapes,
+            "stale cache must mis-classify the post-swap path until invalidate"
+        );
+
+        // After invalidate, the spawn path observes the new canonical and
+        // classifies the path as inside again.
+        cache.invalidate(&workspace);
+        assert_eq!(
+            detect_workspace_escape(&cache, &inside, &workspace),
+            EscapeKind::Inside,
+            "invalidate must let the spawn path re-canonicalize and reclassify"
         );
     }
 
