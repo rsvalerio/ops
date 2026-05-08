@@ -513,7 +513,12 @@ impl ProgressDisplay {
         duration_secs: f64,
         display_cmd: Option<&str>,
     ) -> Option<usize> {
-        let i = self.step_index(id)?;
+        // PATTERN-1 (TASK-1109): terminal events consume the front of the
+        // per-id occurrence queue so a plan that repeats an id (legal in
+        // parallel composites — TASK-0997) routes its second
+        // `StepStarted`/`StepFinished` pair to the second bar instead of
+        // last-write-wins'ing onto the same row.
+        let i = self.state.consume_step_index(id)?;
         self.state.bars[i].disable_steady_tick();
         let display = display_cmd.unwrap_or(self.state.steps[i].1.as_str());
         let step = StepLine::new(status, display.to_string(), Some(duration_secs));

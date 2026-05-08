@@ -38,7 +38,18 @@ pub(crate) struct ProgressState {
     /// [`Self::reset_for_plan`] alongside `steps`; queried by
     /// [`Self::step_index`] so the per-RunnerEvent lookup does not linearly
     /// scan a 32-step plan with thousands of stderr lines per step.
-    pub index_by_id: HashMap<String, usize>,
+    ///
+    /// PATTERN-1 (TASK-1109): the value is a queue of *remaining* step
+    /// positions for that id, not a single position. A composite that fans
+    /// the same leaf twice (TASK-0997: parallel orchestrator counts
+    /// occurrences instead of dedup'ing by HashSet) would otherwise
+    /// last-write-wins on duplicate ids, leaving the first bar permanently
+    /// pending while the second received doubled `StepStarted`/`StepFinished`
+    /// updates. [`Self::step_index`] now peeks the front of the queue (used
+    /// by non-terminal events like `StepStarted`/`StepOutput`) and
+    /// [`Self::consume_step_index`] pops it (called from the terminal
+    /// `finish_step` path so the next occurrence routes to the next bar).
+    pub index_by_id: HashMap<String, VecDeque<usize>>,
 }
 
 impl ProgressState {
@@ -57,13 +68,38 @@ impl ProgressState {
 
     /// Look up the bar/step row index for a given command id. Returns
     /// `None` if no step with that id is registered (e.g. an event arrived
-    /// after the plan finished).
+    /// after the plan finished, or every occurrence of a duplicated id has
+    /// already reached a terminal state and been consumed).
     ///
     /// O(1): hits `index_by_id` directly. The map is rebuilt on every
     /// `reset_for_plan`; tests that mutate `steps` outside that path must
     /// also update `index_by_id` for `step_index` to stay consistent.
+    ///
+    /// PATTERN-1 (TASK-1109): peeks at the front of the per-id queue. For
+    /// duplicate ids the *current* (oldest still-running) occurrence is
+    /// returned; a subsequent terminal event must call
+    /// [`Self::consume_step_index`] to advance to the next occurrence.
     pub fn step_index(&self, id: &str) -> Option<usize> {
-        self.index_by_id.get(id).copied()
+        self.index_by_id.get(id).and_then(|q| q.front().copied())
+    }
+
+    /// Pop the next step row index for a command id. Called from the
+    /// terminal-event path (`finish_step` for `Succeeded` / `Failed` /
+    /// `Skipped`) so duplicate ids advance to the next bar instead of
+    /// last-write-wins'ing onto a single row.
+    ///
+    /// Returns the index that was active *before* the pop (i.e. the same
+    /// value the prior `step_index` call would have returned), or `None`
+    /// if the id has no remaining occurrences.
+    pub fn consume_step_index(&mut self, id: &str) -> Option<usize> {
+        let q = self.index_by_id.get_mut(id)?;
+        let idx = q.pop_front()?;
+        if q.is_empty() {
+            // Keep the map tidy so `step_index` returns None promptly for
+            // ids whose every occurrence has finished.
+            self.index_by_id.remove(id);
+        }
+        Some(idx)
     }
 
     /// Resolve a `CommandId` to its `(id_string, display_string)` pair,
@@ -112,7 +148,22 @@ impl ProgressState {
         self.index_by_id.clear();
         self.index_by_id.reserve(self.steps.len());
         for (idx, (sid, _)) in self.steps.iter().enumerate() {
-            self.index_by_id.insert(sid.clone(), idx);
+            // PATTERN-1 (TASK-1109): append to a per-id queue rather than
+            // overwriting. A naive `insert(sid, idx)` would silently
+            // last-write-wins when a plan repeats an id (legal in parallel
+            // composites — see TASK-0997), routing every event for that id
+            // to the *last* row and leaving the first bar permanently
+            // pending. We log a warn breadcrumb on each duplicate so
+            // operators can correlate display oddities with plan shape.
+            let entry = self.index_by_id.entry(sid.clone()).or_default();
+            if !entry.is_empty() {
+                tracing::warn!(
+                    id = %sid,
+                    occurrence = entry.len() + 1,
+                    "ProgressState::reset_for_plan: duplicate command id; allocating an additional bar (TASK-1109)"
+                );
+            }
+            entry.push_back(idx);
         }
         self.bars.clear();
         self.step_stderr.clear();
@@ -251,5 +302,50 @@ mod tests {
             "stderr from prior plan must not leak"
         );
         assert!(s.bars.is_empty());
+    }
+
+    /// PATTERN-1 (TASK-1109): a plan with a duplicated command id (legal in
+    /// parallel composites — see TASK-0997) must allocate a distinct bar
+    /// per occurrence. The previous `HashMap<String, usize>` silently
+    /// last-write-wins'd, so every event for "x" routed to the second bar
+    /// and the first bar sat as "pending" forever. Now `step_index` peeks
+    /// the front of a per-id queue and `consume_step_index` pops it,
+    /// mirroring the orchestrator's occurrence-counting in TASK-0997.
+    #[test]
+    fn duplicate_ids_route_to_distinct_bars_via_consume() {
+        let mut s = ProgressState::new(HashMap::new());
+        s.reset_for_plan(&[
+            CommandId::from("x"),
+            CommandId::from("y"),
+            CommandId::from("x"),
+        ]);
+        // Both "x" rows exist as separate slots in `steps`.
+        assert_eq!(s.steps.len(), 3);
+        assert_eq!(s.steps[0].0, "x");
+        assert_eq!(s.steps[2].0, "x");
+        // First occurrence: peek then consume (terminal event).
+        assert_eq!(s.step_index("x"), Some(0));
+        assert_eq!(s.consume_step_index("x"), Some(0));
+        // Second occurrence is now active — would be index 2 with the bug
+        // (first occurrence would have been overwritten and lost).
+        assert_eq!(s.step_index("x"), Some(2));
+        assert_eq!(s.consume_step_index("x"), Some(2));
+        // Both occurrences consumed → id is no longer routable.
+        assert_eq!(s.step_index("x"), None);
+        assert_eq!(s.consume_step_index("x"), None);
+        // Untouched id still routes correctly.
+        assert_eq!(s.step_index("y"), Some(1));
+    }
+
+    /// PATTERN-1 (TASK-1109): consume on a never-registered id is a no-op
+    /// (mirrors the `step_index` contract — events arriving after a plan
+    /// finished must not panic).
+    #[test]
+    fn consume_step_index_on_unknown_id_returns_none() {
+        let mut s = ProgressState::new(HashMap::new());
+        s.reset_for_plan(&[CommandId::from("a")]);
+        assert_eq!(s.consume_step_index("missing"), None);
+        // The known id is unaffected.
+        assert_eq!(s.step_index("a"), Some(0));
     }
 }
