@@ -70,12 +70,22 @@ impl GitInfo {
                 // loses host/owner/repo with no operator clue why; debug-level
                 // keeps it out of the default log volume while remaining
                 // discoverable when someone goes looking.
+                //
+                // SEC-13 / TASK-1151: previously the fallback shipped the
+                // post-redaction `raw` string verbatim as `remote_url`. That
+                // adopts the same fail-open posture SEC-2 / TASK-1102 already
+                // closed for control-byte values: pathological scp-style
+                // inputs trim to a single segment after redaction and end up
+                // in operator-facing logs / about cards as a plausible URL.
+                // The parser is the canonical "this is a recognisable remote
+                // URL" gate, so when it rejects the value, drop `remote_url`
+                // entirely and let downstream surfaces render the absence
+                // instead of garbage.
                 tracing::debug!(
                     raw_remote = %raw.as_str(),
-                    "git remote URL did not match parse_remote_url shape; host/owner/repo will be omitted"
+                    "git remote URL did not match parse_remote_url shape; host/owner/repo and remote_url will be omitted"
                 );
                 Self {
-                    remote_url: Some(raw.into_string()),
                     branch,
                     ..Self::default()
                 }
@@ -170,8 +180,13 @@ mod tests {
         assert!(info.host.is_none());
     }
 
+    /// SEC-13 / TASK-1151: when `parse_remote_url` rejects the redacted
+    /// value, `remote_url` is dropped entirely. Previously the fallback
+    /// shipped the post-redaction string verbatim, leaving operator-facing
+    /// surfaces with shapes like `weird-value-without-shape` masquerading
+    /// as a remote URL.
     #[test]
-    fn collect_unparseable_remote_preserves_raw_url() {
+    fn collect_unparseable_remote_drops_remote_url() {
         let dir = tempfile::tempdir().unwrap();
         let git_dir = dir.path().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
@@ -182,30 +197,37 @@ mod tests {
         .unwrap();
 
         let info = GitInfo::collect(dir.path());
-        assert_eq!(
-            info.remote_url.as_deref(),
-            Some("weird-value-without-shape")
+        assert!(
+            info.remote_url.is_none(),
+            "unparseable remote must drop remote_url, got: {:?}",
+            info.remote_url
         );
         assert!(info.host.is_none());
     }
 
+    /// SEC-13 / TASK-1151: same fail-closed posture as the
+    /// previously-named `..._strips_credentials` test, now expressed as
+    /// "drop the value entirely". The redacted form
+    /// `https://host.example/weird` happens to be parseable, so we use a
+    /// shape `parse_remote_url` rejects (bracketed IPv6) to exercise the
+    /// fallback.
     #[test]
-    fn collect_unparseable_remote_strips_credentials() {
+    fn collect_unparseable_remote_with_credentials_drops_remote_url() {
         let dir = tempfile::tempdir().unwrap();
         let git_dir = dir.path().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
-        // Trailing `/extra/segment/path` keeps parse_remote_url from succeeding
-        // — we still must scrub the user:token authority from the fallback.
         std::fs::write(
             git_dir.join("config"),
-            "[remote \"origin\"]\n\turl = https://user:tok@host.example/weird\n",
+            "[remote \"origin\"]\n\turl = https://user:tok@[2001:db8::1]/weird\n",
         )
         .unwrap();
 
         let info = GitInfo::collect(dir.path());
-        let url = info.remote_url.expect("remote_url");
-        assert!(!url.contains("user:tok"), "url leaked credentials: {url}");
-        assert!(!url.contains('@'), "url retained userinfo: {url}");
+        assert!(
+            info.remote_url.is_none(),
+            "credentialed unparseable remote must drop remote_url, got: {:?}",
+            info.remote_url
+        );
     }
 
     /// SEC-2 / TASK-1102: a `.git/config` whose `url = ...` value contains
