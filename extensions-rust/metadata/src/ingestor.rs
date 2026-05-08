@@ -71,6 +71,23 @@ impl DataIngestor for MetadataIngestor {
                 })
             })?;
 
+        // ERR-1 (TASK-1043): the `workspace_root` SELECT below uses
+        // `ORDER BY rowid LIMIT 1`, which silently picks an arbitrary row
+        // when `metadata_raw` ends up with more than one entry. Today the
+        // ingest path produces exactly one row per workspace, but a future
+        // schema variant (multi-target, partial re-ingest without truncate)
+        // could yield more. Emit a `tracing::warn!` when we observe >1 rows
+        // so the discrepancy is observable; the sister read in
+        // `query_metadata_raw` already enforces the singleton invariant via
+        // `ensure!`. Behaviour is otherwise unchanged: we still take the
+        // first row by `rowid`.
+        if record_count > 1 {
+            tracing::warn!(
+                rows = record_count,
+                "metadata_raw has multiple workspace_root rows; using first"
+            );
+        }
+
         let workspace_root: String = conn
             .query_row(
                 "SELECT workspace_root FROM metadata_raw ORDER BY rowid LIMIT 1",
@@ -361,6 +378,110 @@ mod tests {
             )
             .unwrap();
         assert_eq!(path_dep_count, 1, "path dep (source=null) must be retained");
+    }
+
+    /// ERR-1 (TASK-1043): when `metadata_raw` ends up with more than one
+    /// row (multi-target metadata, partial re-ingest without truncate), the
+    /// `workspace_root` SELECT silently picked an arbitrary first row. The
+    /// loader now emits a `tracing::warn!` carrying the row count so the
+    /// discrepancy is observable. Drive the path with a JSON array of two
+    /// cargo-metadata objects (DuckDB's `read_json_auto` yields one row per
+    /// array element) and assert the warn fires.
+    #[test]
+    fn metadata_load_warns_when_metadata_raw_has_multiple_rows() {
+        use std::sync::{Arc as StdArc, Mutex as StdMutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        fn sample_obj(workspace_root: &str) -> serde_json::Value {
+            serde_json::json!({
+                "packages": [{
+                    "name": "test-crate",
+                    "version": "0.1.0",
+                    "id": "test-crate 0.1.0 (path+file:///test)",
+                    "source": "registry+https://github.com/rust-lang/crates.io-index",
+                    "dependencies": [],
+                    "targets": [],
+                    "features": {},
+                    "manifest_path": "/test/Cargo.toml",
+                    "metadata": {},
+                    "publish": [],
+                    "authors": [],
+                    "categories": [],
+                    "keywords": [],
+                    "readme": "",
+                    "repository": "",
+                    "homepage": "",
+                    "documentation": "",
+                    "edition": "2021",
+                    "links": "",
+                    "default_run": "",
+                    "rust_version": "",
+                    "license": "",
+                    "license_file": "",
+                    "description": ""
+                }],
+                "workspace_members": ["test-crate 0.1.0 (path+file:///test)"],
+                "workspace_default_members": ["test-crate 0.1.0 (path+file:///test)"],
+                "resolve": {"nodes": [], "root": ""},
+                "target_directory": "/test/target",
+                "version": 1,
+                "workspace_root": workspace_root,
+                "metadata": {}
+            })
+        }
+
+        let data_dir = tempfile::tempdir().unwrap();
+        // Two-element JSON array → DuckDB `read_json_auto` emits two rows.
+        let metadata_json =
+            serde_json::Value::Array(vec![sample_obj("/test/a"), sample_obj("/test/b")]);
+        let json_path = data_dir.path().join("metadata.json");
+        std::fs::write(
+            &json_path,
+            serde_json::to_vec_pretty(&metadata_json).unwrap(),
+        )
+        .unwrap();
+
+        #[derive(Clone, Default)]
+        struct BufWriter(StdArc<StdMutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let ingestor = MetadataIngestor;
+        let result =
+            tracing::subscriber::with_default(subscriber, || ingestor.load(data_dir.path(), &db));
+        assert!(result.is_ok(), "load should succeed (warn-only path)");
+
+        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        assert!(
+            logs.contains("multiple workspace_root rows"),
+            "expected warn about multiple workspace_root rows, got: {logs}"
+        );
+        assert!(
+            logs.contains("rows=2"),
+            "warn should include rows=2 field, got: {logs}"
+        );
     }
 
     #[test]
