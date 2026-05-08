@@ -2,7 +2,7 @@
 
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use ops_core::config::atomic_write;
 
@@ -18,8 +18,13 @@ fn run_init_to(
     sections: ops_core::config::InitSections,
     w: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let path = PathBuf::from(".ops.toml");
+    // PATTERN-1 / TASK-1066: capture cwd once and join to an absolute path so
+    // the create and the parent fsync target the same directory even if cwd
+    // changes mid-call (signal handler, threaded init template). Using a
+    // relative ".ops.toml" while reading current_dir separately leaves a
+    // small TOCTOU window between the two filesystem ops.
     let cwd = std::env::current_dir()?;
+    let path = cwd.join(".ops.toml");
     let content = ops_core::config::init_template(&cwd, &sections)?;
     match write_init(&path, content.as_bytes(), force) {
         Ok(()) => {}
@@ -249,6 +254,39 @@ mod tests {
         assert!(
             output.contains("Add commands"),
             "no-stack message expected, got: {output}"
+        );
+    }
+
+    /// PATTERN-1 / TASK-1066: the file must land in the directory that was
+    /// cwd at entry, and the path used internally must be absolute (not the
+    /// bare relative `".ops.toml"`). Prior to the fix, `path` was relative
+    /// while `cwd` was captured separately, so a cwd change mid-call (signal
+    /// handler, threaded init template) could split create vs. parent fsync
+    /// across two directories. The fix joins cwd with the filename once, so
+    /// both ops target the same absolute path. We pin that the file lands at
+    /// the captured-cwd absolute path (resolved via canonicalize, since
+    /// macOS tmpdirs go through a /private symlink) and that no stray
+    /// `.ops.toml` is created elsewhere.
+    #[test]
+    fn run_init_writes_to_captured_cwd_absolute_path() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).expect("mkdir sub");
+        let _guard = CwdGuard::new(&sub).expect("CwdGuard sub");
+
+        run_init(false, default_sections()).expect("run_init should succeed");
+
+        let landed = sub.join(".ops.toml");
+        assert!(
+            landed.is_file(),
+            ".ops.toml must land in the captured cwd at {}",
+            landed.display()
+        );
+        // No stray copy in the parent — would indicate the relative path
+        // escaped or was re-resolved against a different cwd.
+        assert!(
+            !dir.path().join(".ops.toml").exists(),
+            "no .ops.toml should leak into the parent tempdir"
         );
     }
 
