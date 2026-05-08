@@ -349,6 +349,54 @@ where
     Ok(serde_json::Value::Array(results))
 }
 
+// CONC-2 / TASK-1143: thread-local set of `&'static str` table names that
+// the current thread already holds the ingest mutex for. Used by
+// `ReentryGuard` to convert a same-thread same-table re-entry from a
+// silent deadlock into a `debug_assert!` panic during development.
+#[cfg(debug_assertions)]
+thread_local! {
+    static HELD_INGEST_TABLES: std::cell::RefCell<std::collections::HashSet<&'static str>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+// CONC-2 / TASK-1143: RAII guard that records the current thread's
+// ownership of the per-table ingest lock and detects re-entry on
+// construction. Release builds compile to a zero-sized stub.
+struct ReentryGuard {
+    #[cfg(debug_assertions)]
+    table: &'static str,
+}
+
+impl ReentryGuard {
+    fn new(table: &'static str) -> Self {
+        #[cfg(debug_assertions)]
+        {
+            HELD_INGEST_TABLES.with(|set| {
+                let inserted = set.borrow_mut().insert(table);
+                debug_assert!(
+                    inserted,
+                    "CONC-2 / TASK-1143: provide_via_ingestor re-entered on the same thread for table `{table}`; std::sync::Mutex is non-reentrant and would deadlock in release builds"
+                );
+            });
+            Self { table }
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = table;
+            Self {}
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+impl Drop for ReentryGuard {
+    fn drop(&mut self) {
+        HELD_INGEST_TABLES.with(|set| {
+            set.borrow_mut().remove(self.table);
+        });
+    }
+}
+
 /// DUP-028/029/030: Refresh an ingestor (collect + load) and return query results.
 ///
 /// Orchestrates the full pipeline: check if table has data, if not collect and load,
@@ -374,6 +422,22 @@ where
 /// `query_rows_to_json` is also held continuously across `prepare` and
 /// `query_map`, so a DROP cannot interleave between the two even if it
 /// somehow bypassed the ingest mutex.
+///
+/// # Non-reentrancy contract (CONC-2 / TASK-1143)
+///
+/// `provide_via_ingestor` holds a `std::sync::Mutex<()>` across the entire
+/// body, including `query_fn`. `std::sync::Mutex` is **not reentrant**: a
+/// `query_fn` that recursively calls `provide_via_ingestor` for the **same**
+/// `table_name` on the **same thread** deadlocks silently. Callers MUST
+/// NOT re-enter for the same table from inside `query_fn` (composing
+/// providers across distinct tables is fine, and concurrent callers from
+/// different threads block as designed).
+///
+/// In `debug_assertions` builds we track the per-thread set of currently
+/// held tables in a thread-local and `debug_assert!` that the table is not
+/// already held; release builds do not pay the bookkeeping cost. The
+/// assertion converts a previously silent self-deadlock under a refactor
+/// into a clear panic in tests.
 pub fn provide_via_ingestor<I, Q>(
     db: &DuckDb,
     ctx: &ops_extension::Context,
@@ -395,6 +459,14 @@ where
     // reports poisoning as `DbError::MutexPoisoned` because a panic mid
     // DuckDB transaction can leave half-applied schema state we should
     // not silently reuse. The asymmetry is intentional.
+    // CONC-2 / TASK-1143: detect same-thread re-entry on the same table
+    // before acquiring the lock. Without this, a `query_fn` that
+    // recursively re-enters `provide_via_ingestor` for the same table
+    // deadlocks the thread silently. Tracking is `debug_assertions`-only
+    // so release builds do not pay the bookkeeping cost; the contract is
+    // documented on the public rustdoc above.
+    let _reentry_guard = ReentryGuard::new(table_name);
+
     let ingest_mutex = db.ingest_mutex_for(table_name);
     let _ingest_guard = ingest_mutex.lock().unwrap_or_else(|poisoned| {
         tracing::warn!(
@@ -1424,6 +1496,37 @@ mod tests {
     /// `OsStr::from_encoded_bytes_unchecked`. On Unix the byte stream is
     /// accepted verbatim by `OsString::from_vec`, so this test is gated
     /// to non-Unix targets where the WTF-8 invariant matters.
+    #[cfg(not(unix))]
+    /// CONC-2 / TASK-1143: same-thread re-entry on the same table must be
+    /// caught by the `ReentryGuard` debug_assert rather than silently
+    /// deadlocking on the non-reentrant std::sync::Mutex.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn reentry_guard_panics_on_same_thread_same_table_reentry() {
+        // First guard records the table as held on this thread.
+        let _outer = ReentryGuard::new("conc2_reentry_test");
+        // Second construction for the same table on the same thread must
+        // panic via debug_assert, surfacing the deadlock as a clear test
+        // failure instead of a hung process.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _inner = ReentryGuard::new("conc2_reentry_test");
+        }));
+        assert!(
+            result.is_err(),
+            "ReentryGuard must panic on same-thread re-entry"
+        );
+    }
+
+    /// CONC-2 / TASK-1143: distinct tables on the same thread are fine —
+    /// a provider composing across tables must not be flagged as
+    /// re-entry.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn reentry_guard_allows_distinct_tables_on_same_thread() {
+        let _a = ReentryGuard::new("conc2_table_a");
+        let _b = ReentryGuard::new("conc2_table_b");
+    }
+
     #[cfg(not(unix))]
     #[test]
     fn read_workspace_sidecar_rejects_invalid_utf8_on_non_unix() {

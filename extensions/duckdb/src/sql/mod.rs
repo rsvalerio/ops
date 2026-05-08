@@ -92,6 +92,13 @@ pub use query::{
     query_crate_loc, query_dependency_count, query_project_coverage, query_project_file_count,
     query_project_languages, query_project_loc, CrateCoverage,
 };
+// `SqlError` and `quoted_ident` cross the crate boundary; the rest of the
+// granular validation helpers stay module-internal (ARCH-9). `quoted_ident` is
+// the SEC-12 defense-in-depth wrapper and is needed at every site that
+// interpolates an identifier into a hand-written SQL string (e.g.
+// `extensions/tokei/src/views::tokei_languages_view_sql`).
+pub use validation::{quoted_ident, SqlError, TableName};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,10 +153,3 @@ mod tests {
         assert_eq!(v, 42);
     }
 }
-
-// `SqlError` and `quoted_ident` cross the crate boundary; the rest of the
-// granular validation helpers stay module-internal (ARCH-9). `quoted_ident` is
-// the SEC-12 defense-in-depth wrapper and is needed at every site that
-// interpolates an identifier into a hand-written SQL string (e.g.
-// `extensions/tokei/src/views::tokei_languages_view_sql`).
-pub use validation::{quoted_ident, SqlError, TableName};

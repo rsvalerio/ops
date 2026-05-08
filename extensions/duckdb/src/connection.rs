@@ -4,7 +4,18 @@ use crate::error::{DbError, DbResult};
 use ops_core::config::DataConfig;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+/// ARCH-9 / TASK-1155: process-wide monotonic counter that mints a fresh
+/// `DuckDb::id` per instance. Stable for the lifetime of the instance, and
+/// guaranteed distinct from every previously-minted id, so callers keying
+/// caches on the id avoid the pointer-address ABA hazard the prior
+/// `std::ptr::from_ref(db) as usize` scheme had.
+fn mint_db_id() -> u64 {
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 
 /// Thread-safe DuckDB connection wrapper.
 ///
@@ -27,6 +38,15 @@ pub struct DuckDb {
     conn: Mutex<duckdb::Connection>,
     #[allow(dead_code)]
     db_path: PathBuf,
+    /// ARCH-9 / TASK-1155: stable per-instance identity used by callers
+    /// that key process-local caches by DuckDb identity. The previous
+    /// pattern (`std::ptr::from_ref(db) as usize`) was vulnerable to
+    /// pointer-address ABA — a dropped-and-replaced `DuckDb` could
+    /// re-allocate at the same address and silently return a previous
+    /// instance's cached value. Minted from a process-wide monotonic
+    /// counter so two distinct instances always receive distinct ids
+    /// regardless of allocation reuse.
+    id: u64,
     /// Per-table ingest locks scoped to this `DuckDb` instance.
     ///
     /// CONC-7 (TASK-0779): keying by table name and storing the map in
@@ -55,6 +75,7 @@ impl DuckDb {
         Ok(Self {
             conn: Mutex::new(conn),
             db_path,
+            id: mint_db_id(),
             ingest_locks: Mutex::new(HashMap::new()),
         })
     }
@@ -82,6 +103,7 @@ impl DuckDb {
         Ok(Self {
             conn: Mutex::new(conn),
             db_path: path,
+            id: mint_db_id(),
             ingest_locks: Mutex::new(HashMap::new()),
         })
     }
@@ -92,8 +114,17 @@ impl DuckDb {
         Ok(Self {
             conn: Mutex::new(conn),
             db_path: PathBuf::from(":memory:"),
+            id: mint_db_id(),
             ingest_locks: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// ARCH-9 / TASK-1155: stable per-instance identity for keying
+    /// process-local caches by DuckDb identity. Distinct instances always
+    /// receive distinct ids regardless of allocation reuse, eliminating
+    /// the ABA hazard the prior pointer-address scheme had.
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     /// Resolved absolute path to the database file.

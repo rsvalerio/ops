@@ -141,11 +141,30 @@ pub fn quoted_ident(name: &str) -> Result<String, SqlError> {
 /// key is `[a-zA-Z_][a-zA-Z0-9_]*` and the value is a non-negative decimal
 /// integer or a bare alphanumeric token. Quotes, parentheses, semicolons, and
 /// whitespace are rejected to prevent SQL fragment injection.
+///
+/// SEC-33 / TASK-1241: hard upper bounds protect the only fragment that
+/// gets *interpolated* (rather than parameterized) into
+/// `read_json_auto(..., {opts})`. The whole-string cap at
+/// [`EXTRA_OPTS_MAX_BYTES`] (4 KiB) and the pair-count cap at
+/// [`EXTRA_OPTS_MAX_PAIRS`] (32) bound resource exposure on the
+/// interpolated surface. Today's call sites are all static literals well
+/// under these caps; the limits document the safety contract for any
+/// future dynamic caller — without them an allowlist-conformant
+/// multi-megabyte input would pass char-by-char validation and reach the
+/// SQL builder unbounded.
 pub fn validate_extra_opts(opts: &str) -> Result<(), SqlError> {
     if opts.is_empty() {
         return Err(SqlError::InvalidExtraOpts(opts.to_string()));
     }
+    if opts.len() > EXTRA_OPTS_MAX_BYTES {
+        return Err(SqlError::InvalidExtraOpts(opts.to_string()));
+    }
+    let mut pair_count = 0usize;
     for pair in opts.split(',') {
+        pair_count += 1;
+        if pair_count > EXTRA_OPTS_MAX_PAIRS {
+            return Err(SqlError::InvalidExtraOpts(opts.to_string()));
+        }
         let mut parts = pair.splitn(2, '=');
         let key = parts
             .next()
@@ -163,6 +182,18 @@ pub fn validate_extra_opts(opts: &str) -> Result<(), SqlError> {
     }
     Ok(())
 }
+
+/// SEC-33 / TASK-1241: hard upper bound on the byte length of an
+/// `extra_opts` fragment. Sized well above realistic static call-site
+/// values (today's longest is on the order of 100 bytes) so the cap
+/// never fires for legitimate input.
+pub const EXTRA_OPTS_MAX_BYTES: usize = 4 * 1024;
+
+/// SEC-33 / TASK-1241: hard upper bound on the number of comma-separated
+/// `key=value` pairs in an `extra_opts` fragment. Sized to comfortably
+/// admit every option DuckDB's `read_json_auto` recognises today while
+/// still bounding resource exposure on the interpolated surface.
+pub const EXTRA_OPTS_MAX_PAIRS: usize = 32;
 
 /// Escape a string for safe interpolation into a SQL-standard single-quoted
 /// literal.
@@ -599,6 +630,56 @@ mod tests {
             prepare_path_for_sql(&path),
             Err(SqlError::EmptyPath)
         ));
+    }
+
+    /// SEC-33 / TASK-1241 AC #2: an oversize `opts` (above the 4-KiB
+    /// whole-string cap) must be rejected even when every byte passes
+    /// the per-character allowlist. Without the cap a future dynamic
+    /// caller could push a multi-megabyte allowlist-conformant string
+    /// straight into the interpolated `read_json_auto(..., {opts})`
+    /// fragment.
+    #[test]
+    fn validate_extra_opts_rejects_oversize_input() {
+        // A single key=value pair whose value alone exceeds the cap.
+        let value = "v".repeat(EXTRA_OPTS_MAX_BYTES);
+        let big = format!("k={value}");
+        assert!(
+            big.len() > EXTRA_OPTS_MAX_BYTES,
+            "test setup must exceed cap"
+        );
+        let err = validate_extra_opts(&big);
+        assert!(matches!(err, Err(SqlError::InvalidExtraOpts(_))));
+    }
+
+    /// SEC-33 / TASK-1241 AC #2: an `opts` whose pair count exceeds the
+    /// 32-pair cap must be rejected. Each pair stays well under the
+    /// per-character body cap, so this test isolates the pair-count
+    /// guard from the byte-length guard.
+    #[test]
+    fn validate_extra_opts_rejects_excess_pair_count() {
+        let pairs: Vec<String> = (0..(EXTRA_OPTS_MAX_PAIRS + 1))
+            .map(|i| format!("k{i}=v"))
+            .collect();
+        let big = pairs.join(",");
+        assert!(
+            big.len() <= EXTRA_OPTS_MAX_BYTES,
+            "test setup must isolate pair-count guard from byte-length guard"
+        );
+        let err = validate_extra_opts(&big);
+        assert!(matches!(err, Err(SqlError::InvalidExtraOpts(_))));
+    }
+
+    /// SEC-33 / TASK-1241: legitimate inputs (1 pair up to the
+    /// `EXTRA_OPTS_MAX_PAIRS` cap, body under `EXTRA_OPTS_MAX_BYTES`)
+    /// continue to validate so today's static call sites are unaffected.
+    #[test]
+    fn validate_extra_opts_accepts_at_cap() {
+        let pairs: Vec<String> = (0..EXTRA_OPTS_MAX_PAIRS)
+            .map(|i| format!("k{i}=v"))
+            .collect();
+        let at_cap = pairs.join(",");
+        assert!(at_cap.len() <= EXTRA_OPTS_MAX_BYTES);
+        assert!(validate_extra_opts(&at_cap).is_ok());
     }
 
     #[test]
