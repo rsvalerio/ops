@@ -70,61 +70,40 @@ fn resolve_event_budget() -> usize {
     )
 }
 
-#[cfg(test)]
-mod resolve_tests {
-    use super::*;
-
-    /// PERF-3 / TASK-0995: an out-of-range `OPS_MAX_PARALLEL` must clamp
-    /// to [`MAX_PARALLEL_CEILING`] so the `output_byte_cap` peak-RSS
-    /// warning (which now reuses this resolver) is computed against the
-    /// same clamped value the orchestrator actually uses, not against the
-    /// raw env var.
-    #[serial_test::serial(env_max_parallel)]
-    #[test]
-    fn resolve_max_parallel_clamps_above_ceiling() {
-        let prev = std::env::var_os("OPS_MAX_PARALLEL");
-        // SAFETY: tests serialised via `serial_test` so other threads
-        // cannot read the env mid-mutation.
-        unsafe { std::env::set_var("OPS_MAX_PARALLEL", "5000") };
-        let resolved = resolve_max_parallel();
-        match prev {
-            Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
-            None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },
-        }
-        assert_eq!(
-            resolved, MAX_PARALLEL_CEILING,
-            "OPS_MAX_PARALLEL=5000 must clamp to {MAX_PARALLEL_CEILING}, not pass through; the peak-RSS warning depends on this"
-        );
-    }
-
-    #[serial_test::serial(env_max_parallel)]
-    #[test]
-    fn resolve_max_parallel_falls_back_on_zero_or_unparseable() {
-        let prev = std::env::var_os("OPS_MAX_PARALLEL");
-        unsafe { std::env::set_var("OPS_MAX_PARALLEL", "junk") };
-        let resolved_junk = resolve_max_parallel();
-        unsafe { std::env::set_var("OPS_MAX_PARALLEL", "0") };
-        let resolved_zero = resolve_max_parallel();
-        match prev {
-            Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
-            None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },
-        }
-        assert_eq!(resolved_junk, DEFAULT_MAX_PARALLEL);
-        assert_eq!(resolved_zero, DEFAULT_MAX_PARALLEL);
-    }
-}
+/// ERR-1 / TASK-1092: the warn-message text emitted when `OPS_MAX_PARALLEL`
+/// (or `OPS_PARALLEL_EVENT_BUDGET`) is set to `0`. Pinned as a `const` so
+/// a unit test can assert the operator-facing diagnostic — distinguishing
+/// "explicit 0 (sequential intent)" from a generic parse failure — does
+/// not silently regress.
+pub(crate) const ZERO_NOT_ALLOWED_MSG: &str =
+    "zero is not allowed; use 1 for sequential execution; falling back to default";
 
 fn resolve_env_usize(var: &'static str, default: usize, ceiling: usize) -> usize {
     let Ok(raw) = std::env::var(var) else {
         return default;
     };
+    // ERR-1 / TASK-1092: empty string (e.g. `OPS_MAX_PARALLEL=`) is
+    // treated the same as unset — operators clearing the variable should
+    // not see a confusing `value = ""` parse-error warning.
+    if raw.is_empty() {
+        return default;
+    }
     match raw.parse::<usize>() {
-        Ok(0) | Err(_) => {
+        Ok(0) => {
+            // ERR-1 / TASK-1092: distinguish "user explicitly asked for
+            // sequential by setting 0" from "garbage value". Zero is a
+            // valid intent but not a legal channel/semaphore size, so we
+            // still fall back to the default — but say so explicitly so
+            // operators know to use `1` for single-threaded execution.
+            tracing::warn!(env = var, default, "{ZERO_NOT_ALLOWED_MSG}");
+            default
+        }
+        Err(_) => {
             tracing::warn!(
                 env = var,
                 value = %raw,
                 default,
-                "unparseable or zero value; falling back to default"
+                "unparseable value; falling back to default"
             );
             default
         }
@@ -426,5 +405,91 @@ impl CommandRunner {
             }
             on_event(ev);
         }
+    }
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    /// PERF-3 / TASK-0995: an out-of-range `OPS_MAX_PARALLEL` must clamp
+    /// to [`MAX_PARALLEL_CEILING`] so the `output_byte_cap` peak-RSS
+    /// warning (which now reuses this resolver) is computed against the
+    /// same clamped value the orchestrator actually uses, not against the
+    /// raw env var.
+    #[serial_test::serial(env_max_parallel)]
+    #[test]
+    fn resolve_max_parallel_clamps_above_ceiling() {
+        let prev = std::env::var_os("OPS_MAX_PARALLEL");
+        // SAFETY: tests serialised via `serial_test` so other threads
+        // cannot read the env mid-mutation.
+        unsafe { std::env::set_var("OPS_MAX_PARALLEL", "5000") };
+        let resolved = resolve_max_parallel();
+        match prev {
+            Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
+            None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },
+        }
+        assert_eq!(
+            resolved, MAX_PARALLEL_CEILING,
+            "OPS_MAX_PARALLEL=5000 must clamp to {MAX_PARALLEL_CEILING}, not pass through; the peak-RSS warning depends on this"
+        );
+    }
+
+    #[serial_test::serial(env_max_parallel)]
+    #[test]
+    fn resolve_max_parallel_falls_back_on_zero_or_unparseable() {
+        let prev = std::env::var_os("OPS_MAX_PARALLEL");
+        unsafe { std::env::set_var("OPS_MAX_PARALLEL", "junk") };
+        let resolved_junk = resolve_max_parallel();
+        unsafe { std::env::set_var("OPS_MAX_PARALLEL", "0") };
+        let resolved_zero = resolve_max_parallel();
+        match prev {
+            Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
+            None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },
+        }
+        assert_eq!(resolved_junk, DEFAULT_MAX_PARALLEL);
+        assert_eq!(resolved_zero, DEFAULT_MAX_PARALLEL);
+    }
+
+    /// ERR-1 / TASK-1092 AC-1, AC-3: pin the operator-facing warn message
+    /// for the zero case so the diagnostic
+    /// ("use 1 for sequential execution") stays distinct from the generic
+    /// parse-error message. A regression to the old joint
+    /// "unparseable or zero value" wording would silently re-conflate
+    /// "explicit sequential intent" with "garbage" — exactly the bug
+    /// TASK-1092 closed.
+    #[test]
+    fn zero_warn_message_distinguishes_sequential_intent() {
+        assert!(
+            ZERO_NOT_ALLOWED_MSG.contains("zero is not allowed"),
+            "operators must learn that 0 is rejected, not silently accepted: {ZERO_NOT_ALLOWED_MSG}"
+        );
+        assert!(
+            ZERO_NOT_ALLOWED_MSG.contains("1 for sequential"),
+            "the message must steer operators to the correct value (1) for sequential execution: {ZERO_NOT_ALLOWED_MSG}"
+        );
+        assert!(
+            !ZERO_NOT_ALLOWED_MSG.contains("unparseable"),
+            "the zero-case message must not conflate with the parse-error path: {ZERO_NOT_ALLOWED_MSG}"
+        );
+    }
+
+    /// ERR-1 / TASK-1092 AC-2: an empty-string env var (`OPS_MAX_PARALLEL=`)
+    /// is treated as unset, not as an "unparseable value = \"\"" warning.
+    #[serial_test::serial(env_max_parallel)]
+    #[test]
+    fn resolve_max_parallel_treats_empty_as_unset() {
+        let prev = std::env::var_os("OPS_MAX_PARALLEL");
+        // SAFETY: tests serialised via `serial_test`.
+        unsafe { std::env::set_var("OPS_MAX_PARALLEL", "") };
+        let resolved = resolve_max_parallel();
+        match prev {
+            Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
+            None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },
+        }
+        assert_eq!(
+            resolved, DEFAULT_MAX_PARALLEL,
+            "an explicitly-empty OPS_MAX_PARALLEL must behave like unset, not trip the parse-error fallback"
+        );
     }
 }
