@@ -241,9 +241,16 @@ const ACTION_PREFIXES: &[(&str, UpdateAction, VersionRole)] = &[
 /// any known verb are noise (warnings, blank, etc.) and don't deserve a
 /// "skipping cargo-update line" log.
 fn starts_with_known_verb(line: &str) -> bool {
-    ACTION_PREFIXES
-        .iter()
-        .any(|(prefix, _, _)| line.starts_with(prefix))
+    // PATTERN-1 / TASK-1030: require a whitespace (or end-of-string) boundary
+    // after the verb so prefix-without-boundary matches like `Updatingxyz ...`
+    // do not classify as a known verb and emit false-positive drift warnings.
+    ACTION_PREFIXES.iter().any(|(prefix, _, _)| {
+        line.starts_with(prefix)
+            && line[prefix.len()..]
+                .chars()
+                .next()
+                .is_none_or(char::is_whitespace)
+    })
 }
 
 /// Parse one of:
@@ -255,6 +262,12 @@ fn parse_action_line(line: &str) -> Option<UpdateEntry> {
         let Some(rest) = line.strip_prefix(prefix) else {
             continue;
         };
+        // PATTERN-1 / TASK-1030: only fire when a whitespace boundary follows
+        // the verb; otherwise `Updatingxyz serde v1 -> v2` would strip to
+        // `xyz serde v1 -> v2` and consume the line.
+        if !rest.chars().next().is_none_or(char::is_whitespace) {
+            continue;
+        }
         let rest = rest.trim();
 
         // TASK-0476: iterator-based destructuring avoids the per-line

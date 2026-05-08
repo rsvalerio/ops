@@ -168,6 +168,34 @@ fn parse_drops_verb_prefixed_line_with_unexpected_shape() {
     assert_eq!(result.update_count, 0);
 }
 
+/// PATTERN-1 / TASK-1030: a verb-prefix without a whitespace boundary must
+/// not classify as a known verb (no false-positive drift warning) and must
+/// not be consumed by `parse_action_line`'s `strip_prefix`. The legitimate
+/// `Updating serde v1 -> v2` form must still parse.
+#[test]
+fn verb_prefix_requires_whitespace_boundary() {
+    // `Updatingxyz` is not a known verb: produces no entry AND no warn.
+    assert!(
+        !starts_with_known_verb("Updatingxyz serde v1 -> v2"),
+        "verb prefix without word boundary must not classify as known verb"
+    );
+    let stderr = b"    Updatingxyz serde v1 -> v2\n";
+    let result = parse_update_output(stderr);
+    assert!(
+        result.entries.is_empty(),
+        "Updatingxyz must not produce a parsed entry"
+    );
+
+    // Legitimate `Updating ` still works.
+    assert!(starts_with_known_verb("Updating serde v1 -> v2"));
+    let stderr_ok = b"    Updating serde v1.0.0 -> v1.0.1\n";
+    let result_ok = parse_update_output(stderr_ok);
+    assert_eq!(result_ok.entries.len(), 1);
+    assert_eq!(result_ok.entries[0].name, "serde");
+    assert_eq!(result_ok.entries[0].from.as_deref(), Some("1.0.0"));
+    assert_eq!(result_ok.entries[0].to.as_deref(), Some("1.0.1"));
+}
+
 #[test]
 fn parse_skips_locking_line() {
     let stderr = b"      Locking 5 packages to latest compatible versions\n";
