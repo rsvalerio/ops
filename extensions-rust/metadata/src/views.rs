@@ -14,6 +14,14 @@ use std::path::Path;
 // NULL` filter would silently drop workspace-internal coupling — the
 // dependency count would underreport reality for workspaces (such as this
 // repo) that use path deps as the primary modularity tool.
+//
+// PATTERN-1 / TASK-1056: include `dep.target` so target-conditional
+// declarations of the same dep (e.g. `[target.'cfg(windows)'.dependencies]`
+// + `[target.'cfg(unix)'.dependencies]`) preserve their platform-specific
+// shape instead of presenting as identical `(crate_name, dependency_name,
+// version_req, dependency_kind, is_optional)` tuples that double-count in
+// downstream consumers. NULL means "all targets" (the default
+// `[dependencies]` table); a non-empty string is the cfg expression.
 pub fn crate_dependencies_view_sql() -> String {
     "CREATE OR REPLACE VIEW crate_dependencies AS \
      WITH pkgs AS (SELECT unnest(packages) AS pkg FROM metadata_raw), \
@@ -24,9 +32,10 @@ pub fn crate_dependencies_view_sql() -> String {
      ) \
      SELECT crate_name, dep.name AS dependency_name, dep.req AS version_req, \
             COALESCE(dep.kind, 'normal') AS dependency_kind, \
-            COALESCE(dep.optional, false) AS is_optional \
+            COALESCE(dep.optional, false) AS is_optional, \
+            NULLIF(dep.target, '') AS target \
      FROM member_deps \
-     ORDER BY crate_name, dependency_kind, dependency_name"
+     ORDER BY crate_name, dependency_kind, dependency_name, target"
         .to_string()
 }
 
@@ -51,6 +60,11 @@ mod tests {
         // TASK-0982: path/intra-workspace deps must not be filtered out.
         assert!(!sql.contains("dep.source IS NOT NULL"));
         assert!(sql.contains("dependency_kind"));
+        // PATTERN-1 / TASK-1056: target column must surface so
+        // target-conditional duplicates don't collapse into identical
+        // tuples and inflate downstream counts.
+        assert!(sql.contains("dep.target"));
+        assert!(sql.contains("AS target"));
     }
 
     ops_duckdb::test_create_sql_validation!(metadata_raw_create_sql, "metadata.json");

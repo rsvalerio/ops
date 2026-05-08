@@ -484,6 +484,124 @@ mod tests {
         );
     }
 
+    /// PATTERN-1 / TASK-1056: the same dependency declared under two
+    /// `[target.'cfg(...)'.dependencies]` blocks must surface as TWO
+    /// distinct rows in `crate_dependencies` (preserving the
+    /// platform-specific shape via the new `target` column) rather than
+    /// collapsing into a single tuple. cargo metadata serialises each
+    /// declaration as its own entry in `package.dependencies`, so the
+    /// view must keep both — TASK-0982 fixed the inverse drop, this
+    /// fixes the duplicate-collapse.
+    #[test]
+    fn crate_dependencies_view_preserves_target_conditional_duplicates() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let metadata_json = serde_json::json!({
+            "packages": [{
+                "name": "test-crate",
+                "version": "0.1.0",
+                "id": "test-crate 0.1.0 (path+file:///test)",
+                "source": "registry+https://github.com/rust-lang/crates.io-index",
+                "dependencies": [
+                    {
+                        "name": "libc",
+                        "source": "registry+https://github.com/rust-lang/crates.io-index",
+                        "req": "^0.2",
+                        "kind": "normal",
+                        "optional": false,
+                        "uses_default_features": true,
+                        "features": [],
+                        "target": "cfg(unix)",
+                        "rename": "",
+                        "registry": ""
+                    },
+                    {
+                        "name": "libc",
+                        "source": "registry+https://github.com/rust-lang/crates.io-index",
+                        "req": "^0.2",
+                        "kind": "normal",
+                        "optional": false,
+                        "uses_default_features": true,
+                        "features": [],
+                        "target": "cfg(windows)",
+                        "rename": "",
+                        "registry": ""
+                    }
+                ],
+                "targets": [],
+                "features": {},
+                "manifest_path": "/test/Cargo.toml",
+                "metadata": {},
+                "publish": [],
+                "authors": [],
+                "categories": [],
+                "keywords": [],
+                "readme": "",
+                "repository": "",
+                "homepage": "",
+                "documentation": "",
+                "edition": "2021",
+                "links": "",
+                "default_run": "",
+                "rust_version": "",
+                "license": "",
+                "license_file": "",
+                "description": ""
+            }],
+            "workspace_members": ["test-crate 0.1.0 (path+file:///test)"],
+            "workspace_default_members": ["test-crate 0.1.0 (path+file:///test)"],
+            "resolve": {"nodes": [], "root": ""},
+            "target_directory": "/test/target",
+            "version": 1,
+            "workspace_root": "/test",
+            "metadata": {}
+        });
+        let json_path = data_dir.path().join("metadata.json");
+        std::fs::write(
+            &json_path,
+            serde_json::to_vec_pretty(&metadata_json).unwrap(),
+        )
+        .unwrap();
+
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let ingestor = MetadataIngestor;
+        let _ = ingestor.load(data_dir.path(), &db).unwrap();
+
+        let conn = db.lock().unwrap();
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM crate_dependencies WHERE dependency_name = 'libc'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            total, 2,
+            "both target-conditional libc declarations must surface as distinct rows"
+        );
+
+        // The new `target` column must carry the cfg expression so
+        // platform-specific shape isn't lost.
+        let mut targets: Vec<String> = Vec::new();
+        let mut stmt = conn
+            .prepare(
+                "SELECT target FROM crate_dependencies \
+                 WHERE dependency_name = 'libc' \
+                 ORDER BY target",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(row
+                    .get::<_, Option<String>>(0)?
+                    .unwrap_or_else(|| "<null>".to_string()))
+            })
+            .unwrap();
+        for r in rows {
+            targets.push(r.unwrap());
+        }
+        assert_eq!(targets, vec!["cfg(unix)", "cfg(windows)"]);
+    }
+
     #[test]
     fn negative_record_count_surfaces_as_invalid_record_count_error() {
         let raw_count: i64 = -1;

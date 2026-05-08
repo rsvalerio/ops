@@ -5,17 +5,28 @@ use std::collections::HashMap;
 
 use super::helpers::{query_project_scalar, query_rows_fold, QuerySpec};
 
-/// Query total dependency count from `crate_dependencies`.
+/// Query total normal-dependency count from `crate_dependencies`.
 ///
 /// ERR-1 (TASK-0506): a negative i64 from COUNT (which DuckDB should never
 /// emit but a future cast or schema bug could) used to be silently coerced
 /// to 0. Now we surface the anomaly via `tracing::warn` before falling back
 /// so a misbehaving view doesn't impersonate "no dependencies".
+///
+/// PATTERN-1 / TASK-1075: filter to `dependency_kind = 'normal'` so the
+/// scalar matches the "Dependencies" identity-card label rendered by
+/// `extensions-rust/about/src/identity/metrics.rs`. Without the filter,
+/// the count silently includes dev- and build-deps (often 2-3× normal
+/// — `serde-test`, `tempfile`, …), producing operator-visible
+/// misreporting. Sister queries `query_crate_deps` and
+/// `query_crate_dep_counts` already filter on `dependency_kind =
+/// 'normal'`; this brings the project-total scalar into line with that
+/// policy.
 pub fn query_dependency_count(db: &DuckDb) -> anyhow::Result<usize> {
     let count = query_project_scalar(
         db,
         "crate_dependencies",
-        "SELECT COUNT(DISTINCT dependency_name) FROM crate_dependencies",
+        "SELECT COUNT(DISTINCT dependency_name) FROM crate_dependencies \
+         WHERE dependency_kind = 'normal'",
         "query_dependency_count",
     )?;
     Ok(coerce_count_to_usize(count))

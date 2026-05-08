@@ -52,19 +52,40 @@ fn metadata_max_bytes() -> u64 {
         .unwrap_or(METADATA_MAX_BYTES_DEFAULT)
 }
 
+/// Run `cargo metadata --format-version 1 --locked`.
+///
+/// PATTERN-1 / TASK-1059: pass `--locked` so the read-only ingestor cannot
+/// silently mutate `Cargo.lock` (resolver refresh, yanked-version refresh,
+/// transitive-dep additions). Without it, two concurrent invocations
+/// (`ops about` + `cargo build`) can race on lockfile rewrites and
+/// reproducibility breaks (`data_sources.checksum` drifts between runs of
+/// the same workspace). `--locked` fails fast if cargo would need to
+/// update the lockfile, surfacing the drift rather than rewriting on the
+/// operator's behalf. We prefer `--locked` over `--frozen` because the
+/// latter additionally forbids network access, which can break first-run
+/// metadata for fresh checkouts where the registry index has not yet been
+/// downloaded — the operator-visible failure mode of `--frozen` is worse
+/// than the lockfile-mutation issue we're guarding against.
 pub(crate) fn run_cargo_metadata(working_dir: &Path) -> Result<Output, RunError> {
     run_cargo(
-        &["metadata", "--format-version", "1"],
+        &["metadata", "--format-version", "1", "--locked"],
         working_dir,
         CARGO_METADATA_TIMEOUT,
         "cargo metadata",
     )
 }
 
+/// PATTERN-1 / TASK-1099: include the numeric exit code (or `signal` for
+/// `None`) in the error string so a SIGKILL/OOM kill is distinguishable
+/// from a real cargo failure. Mirrors `interpret_deny_result` /
+/// `interpret_upgrade_output` in the deps crate.
 pub(crate) fn check_metadata_output(output: &Output) -> Result<(), anyhow::Error> {
     if !output.status.success() {
         let tail = format_error_tail(&output.stderr, 5);
-        anyhow::bail!("cargo metadata failed: {}", tail);
+        match output.status.code() {
+            Some(code) => anyhow::bail!("cargo metadata exited with status {code}: {tail}"),
+            None => anyhow::bail!("cargo metadata terminated by signal (exit_code = None): {tail}"),
+        }
     }
     Ok(())
 }

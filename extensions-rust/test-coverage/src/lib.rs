@@ -91,6 +91,17 @@ impl DataProvider for CoverageProvider {
 /// is the largest of the cargo-subprocess defaults.
 pub(crate) const CARGO_LLVM_COV_TIMEOUT: Duration = Duration::from_secs(900);
 
+/// Run `cargo llvm-cov` against the workspace and return the captured
+/// `Output`.
+///
+/// ERR-1 / TASK-1057: pass `--no-fail-fast` (forwarded to cargo test) so a
+/// single failing test does not abort the whole suite — without it,
+/// `cargo llvm-cov` returns non-zero with empty / partial JSON and the
+/// entire coverage signal vanishes from `coverage_files` /
+/// `coverage_summary`. With `--no-fail-fast`, every test runs and the
+/// per-file coverage data for the passing slice is preserved; the
+/// `check_llvm_cov_output` helper then tolerates a non-zero exit when
+/// stdout still contains a parseable llvm-cov JSON document.
 pub(crate) fn run_cargo_llvm_cov(working_dir: &Path) -> Result<Output, RunError> {
     run_cargo(
         &[
@@ -98,6 +109,7 @@ pub(crate) fn run_cargo_llvm_cov(working_dir: &Path) -> Result<Output, RunError>
             "--workspace",
             "--no-cfg-coverage",
             "--tests",
+            "--no-fail-fast",
             "--json",
         ],
         working_dir,
@@ -106,10 +118,22 @@ pub(crate) fn run_cargo_llvm_cov(working_dir: &Path) -> Result<Output, RunError>
     )
 }
 
+/// PATTERN-1 / TASK-1099: include the exit code (or `signal` for `None`)
+/// in the error so SIGKILL/OOM kills are distinguishable from a real
+/// cargo failure.
+///
+/// ERR-1 / TASK-1057: when the exit is non-zero but stdout contains a
+/// parseable llvm-cov JSON document, `collect_coverage` treats it as a
+/// soft failure (warn + continue) so the per-file coverage for the
+/// passing slice of the workspace is preserved. This helper still
+/// surfaces the non-zero exit; the caller decides whether to demote it.
 pub(crate) fn check_llvm_cov_output(output: &Output) -> Result<(), anyhow::Error> {
     if !output.status.success() {
         let tail = format_error_tail(&output.stderr, 5);
-        anyhow::bail!("cargo llvm-cov failed: {}", tail);
+        match output.status.code() {
+            Some(code) => anyhow::bail!("cargo llvm-cov exited with status {code}: {tail}"),
+            None => anyhow::bail!("cargo llvm-cov terminated by signal (exit_code = None): {tail}"),
+        }
     }
     Ok(())
 }
@@ -213,7 +237,19 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
         })
         .collect::<Result<_, _>>()?;
     let total: usize = file_arrays.iter().map(|f| f.len()).sum();
-    let mut records = Vec::with_capacity(total);
+    let mut records: Vec<serde_json::Value> = Vec::with_capacity(total);
+    // ERR-1 / TASK-1021: dedup by filename across all data[] exports.
+    // cargo llvm-cov emits one export today, but a future per-target
+    // merge (or a sibling caller passing a multi-export merge) would
+    // surface the same source file in two `files[]` arrays. Without
+    // dedup, `coverage_files` ingests both rows under the same
+    // `filename` key and downstream `coverage_summary` SUMs double-count
+    // `lines_count` / `lines_covered`. Index by filename → records-slot
+    // and apply last-write-wins (the most recently merged export
+    // typically reflects the most up-to-date instrumentation).
+    let mut filename_to_idx: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::with_capacity(total);
+    let mut duplicate_count: usize = 0;
     for file in file_arrays.into_iter().flat_map(|f| f.iter()) {
         // ERR-1 / TASK-0984: an absent or non-string `filename` used to coerce
         // to "" and still get pushed into `coverage_files` — the empty-key row
@@ -240,7 +276,7 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
         let regions = extract_section(summary, "regions");
         let branches = extract_section(summary, "branches");
 
-        records.push(serde_json::json!({
+        let record = serde_json::json!({
             "filename": filename,
             "lines_count": lines.count,
             "lines_covered": lines.covered,
@@ -256,14 +292,58 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
             "branches_covered": branches.covered,
             "branches_notcovered": branches.notcovered,
             "branches_percent": branches.percent,
-        }));
+        });
+        match filename_to_idx.get(filename).copied() {
+            Some(idx) => {
+                duplicate_count += 1;
+                records[idx] = record;
+            }
+            None => {
+                filename_to_idx.insert(filename.to_string(), records.len());
+                records.push(record);
+            }
+        }
+    }
+    if duplicate_count > 0 {
+        tracing::warn!(
+            duplicates = duplicate_count,
+            unique_files = records.len(),
+            "TASK-1021: coverage JSON contained duplicate filename rows across data[] exports; \
+             applied last-write-wins dedup to keep coverage_summary aggregates honest"
+        );
     }
     Ok(serde_json::Value::Array(records))
 }
 
 pub fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
     let output = run_cargo_llvm_cov(working_dir)?;
-    check_llvm_cov_output(&output)?;
+    // ERR-1 / TASK-1057: with `--no-fail-fast`, `cargo llvm-cov` still
+    // exits non-zero when one or more tests fail, but stdout contains a
+    // complete llvm-cov JSON document for the passing slice of the
+    // workspace. Treat that case as a soft failure: warn (so the
+    // operator still sees the test breakage in the log) and continue
+    // with the partial-but-useful coverage data instead of dropping
+    // every per-file row.
+    if !output.status.success() {
+        match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+            Ok(raw) if raw.get("data").and_then(|d| d.as_array()).is_some() => {
+                let tail = format_error_tail(&output.stderr, 5);
+                let code_str = output
+                    .status
+                    .code()
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "signal".to_string());
+                tracing::warn!(
+                    exit_code = %code_str,
+                    stderr_tail = %tail,
+                    "TASK-1057: cargo llvm-cov exited non-zero but stdout contains parseable JSON; \
+                     continuing with partial coverage data (likely test failures with --no-fail-fast)"
+                );
+                return flatten_coverage_json(&raw);
+            }
+            _ => check_llvm_cov_output(&output)?,
+        }
+    }
     let raw: serde_json::Value =
         serde_json::from_slice(&output.stdout).context("parsing llvm-cov JSON output")?;
     flatten_coverage_json(&raw)

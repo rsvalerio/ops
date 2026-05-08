@@ -317,7 +317,9 @@ fn check_llvm_cov_output_failure_includes_stderr_tail() {
     };
     let err = check_llvm_cov_output(&output).unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("cargo llvm-cov failed"), "got: {msg}");
+    // PATTERN-1 / TASK-1099: format is "cargo llvm-cov exited with status {code}: ...".
+    assert!(msg.contains("cargo llvm-cov"), "got: {msg}");
+    assert!(msg.contains("status 1"), "exit code must appear: {msg}");
     assert!(
         msg.contains("could not compile"),
         "stderr tail should appear: {msg}"
@@ -333,7 +335,132 @@ fn check_llvm_cov_output_failure_empty_stderr() {
         stderr: Vec::new(),
     };
     let err = check_llvm_cov_output(&output).unwrap_err();
-    assert!(err.to_string().contains("cargo llvm-cov failed"));
+    // PATTERN-1 / TASK-1099: error message format is now
+    // "cargo llvm-cov exited with status {code}: ...".
+    assert!(err.to_string().contains("cargo llvm-cov"));
+}
+
+/// PATTERN-1 / TASK-1099: non-zero exit codes must appear in the error
+/// string so exit 1 (issues), exit 101 (panic), and SIGKILL/None are
+/// distinguishable in operator logs.
+#[cfg(unix)]
+#[test]
+fn check_llvm_cov_output_failure_includes_exit_code() {
+    use std::os::unix::process::ExitStatusExt;
+    let output = std::process::Output {
+        status: std::process::ExitStatus::from_raw(101 << 8),
+        stdout: Vec::new(),
+        stderr: b"thread 'main' panicked".to_vec(),
+    };
+    let err = check_llvm_cov_output(&output).expect_err("non-zero must fail");
+    let msg = err.to_string();
+    assert!(msg.contains("status 101"), "exit code must appear: {msg}");
+    assert!(msg.contains("panicked"), "stderr tail must remain: {msg}");
+}
+
+/// PATTERN-1 / TASK-1099: a None exit (signal kill, e.g. OOM) is named
+/// as `signal` so it's distinguishable from a real cargo failure.
+#[cfg(unix)]
+#[test]
+fn check_llvm_cov_output_failure_signal_kill_says_signal() {
+    use std::os::unix::process::ExitStatusExt;
+    // signal 9 (SIGKILL) → exit_code() returns None
+    let output = std::process::Output {
+        status: std::process::ExitStatus::from_raw(9),
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    };
+    let err = check_llvm_cov_output(&output).expect_err("signal must fail");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("signal") || msg.contains("None"),
+        "signal-kill case must be named in error: {msg}"
+    );
+}
+
+/// ERR-1 / TASK-1057: `cargo llvm-cov` must run with `--no-fail-fast`
+/// so a single failing test does not erase the entire coverage signal
+/// for the run. Pin the arg list at the source-of-truth.
+#[test]
+fn run_cargo_llvm_cov_arg_list_includes_no_fail_fast() {
+    let src = include_str!("lib.rs");
+    let needle = "\"--no-fail-fast\"";
+    assert!(
+        src.contains(needle),
+        "run_cargo_llvm_cov arg list must include --no-fail-fast (TASK-1057)"
+    );
+    // Also pin order: --tests must precede --no-fail-fast and --json
+    // must remain the final flag (downstream parsing depends on JSON
+    // mode being on).
+    assert!(src.contains("\"--json\""));
+}
+
+/// ERR-1 / TASK-1021: when `data[]` carries multiple exports listing the
+/// same source filename (per-target merge from a future llvm-cov
+/// version, or a sibling caller passing a multi-export JSON), the
+/// flatten step must dedup by filename so `coverage_summary` SUMs do
+/// not double-count `lines_count` / `lines_covered`. Behaviour
+/// documented: last-write-wins (the most recently merged export
+/// reflects the most up-to-date instrumentation).
+#[test]
+fn flatten_coverage_json_dedups_overlapping_filenames_across_exports() {
+    let raw = serde_json::json!({
+        "data": [
+            {
+                "files": [{
+                    "filename": "src/main.rs",
+                    "summary": {
+                        "lines": { "count": 100, "covered": 50, "percent": 50.0 }
+                    }
+                }]
+            },
+            {
+                "files": [{
+                    "filename": "src/main.rs",
+                    "summary": {
+                        "lines": { "count": 100, "covered": 80, "percent": 80.0 }
+                    }
+                }]
+            }
+        ]
+    });
+    let result = flatten_coverage_json(&raw).expect("flatten must succeed");
+    let arr = result.as_array().unwrap();
+    assert_eq!(
+        arr.len(),
+        1,
+        "duplicate filenames across exports must collapse to a single row"
+    );
+    // Last-write-wins: the second export's coverage values are kept.
+    assert_eq!(arr[0]["filename"], "src/main.rs");
+    assert_eq!(arr[0]["lines_count"], 100);
+    assert_eq!(arr[0]["lines_covered"], 80);
+    assert!((arr[0]["lines_percent"].as_f64().unwrap() - 80.0).abs() < 0.01);
+}
+
+/// ERR-1 / TASK-1021: dedup must not collapse distinct filenames; only
+/// exact filename matches are merged.
+#[test]
+fn flatten_coverage_json_keeps_distinct_filenames_across_exports() {
+    let raw = serde_json::json!({
+        "data": [
+            { "files": [{ "filename": "src/a.rs", "summary": {} }] },
+            { "files": [{ "filename": "src/b.rs", "summary": {} }] },
+            { "files": [{ "filename": "src/a.rs", "summary": {} }] }
+        ]
+    });
+    let arr = flatten_coverage_json(&raw)
+        .expect("flatten")
+        .as_array()
+        .cloned()
+        .unwrap();
+    assert_eq!(arr.len(), 2);
+    let filenames: Vec<&str> = arr
+        .iter()
+        .map(|r| r["filename"].as_str().unwrap())
+        .collect();
+    assert!(filenames.contains(&"src/a.rs"));
+    assert!(filenames.contains(&"src/b.rs"));
 }
 
 // -- flatten_coverage_json edge cases --
