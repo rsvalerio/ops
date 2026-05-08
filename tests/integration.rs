@@ -398,7 +398,11 @@ NORMAL_VAR = "visible"
                 .assert()
                 .success()
                 .stdout(predicate::str::contains("***REDACTED***"))
-                .stdout(predicate::str::contains("visible"));
+                .stdout(predicate::str::contains("visible"))
+                // TEST-12 (TASK-1081): the raw secret must never reach
+                // stdout or stderr, even alongside the redacted line.
+                .stdout(predicate::str::contains("super_secret_value").not())
+                .stderr(predicate::str::contains("super_secret_value").not());
         },
     );
 }
@@ -440,9 +444,16 @@ theme = "classic"
     std::fs::create_dir_all(&ops_d).expect("create .ops.d");
     std::fs::write(ops_d.join("invalid.toml"), "not valid toml [[[[").expect("write invalid");
 
+    // TEST-12 (TASK-1082): without a stderr breadcrumb the failure mode is
+    // ambiguous (could equally be "unknown command"). Assert the malformed
+    // .ops.d/invalid.toml path is named in the error so the test can
+    // actually detect the regression it advertises.
     ops()
         .arg("build")
         .current_dir(dir.path())
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(
+            "failed to parse config file: .ops.d/invalid.toml",
+        ));
 }

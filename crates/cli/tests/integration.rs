@@ -594,7 +594,11 @@ NORMAL_VAR = "visible"
                 .assert()
                 .success()
                 .stdout(predicate::str::contains("***REDACTED***"))
-                .stdout(predicate::str::contains("visible"));
+                .stdout(predicate::str::contains("visible"))
+                // TEST-12 (TASK-1081): the raw secret must never reach
+                // stdout or stderr, even alongside the redacted line.
+                .stdout(predicate::str::contains("super_secret_value").not())
+                .stderr(predicate::str::contains("super_secret_value").not());
         },
     );
 }
