@@ -24,6 +24,16 @@ use tokio::process::Command;
 /// by the number of distinct workspace paths the process ever sees, which
 /// is `1` in the production runner and a small constant in tests.
 fn canonical_workspace_cached(workspace: &Path) -> Option<PathBuf> {
+    canonical_workspace_cached_with(workspace, |p| std::fs::canonicalize(p))
+}
+
+/// PERF-3 / TASK-1095: testable seam for the cache so tests can inject a
+/// canonicalize counter and verify the burst-startup thundering-herd is
+/// collapsed to a single syscall per workspace path.
+fn canonical_workspace_cached_with<F>(workspace: &Path, canonicalize: F) -> Option<PathBuf>
+where
+    F: FnOnce(&Path) -> std::io::Result<PathBuf>,
+{
     // CONC-7 / TASK-0839: the cache is read-mostly — production has exactly
     // one workspace key, tests a small constant — so a `RwLock` lets the
     // 32-way parallel spawn path take a shared read lock on cache hits and
@@ -37,13 +47,21 @@ fn canonical_workspace_cached(workspace: &Path) -> Option<PathBuf> {
             return hit.clone();
         }
     }
-    let canonical = std::fs::canonicalize(workspace).ok();
-    if let Ok(mut guard) = cache.write() {
-        // Another writer may have raced us in between the read miss and
-        // the write lock; insert is idempotent (same canonicalize input
-        // yields the same value) so overwriting is fine.
-        guard.insert(workspace.to_path_buf(), canonical.clone());
+    // PERF-3 / TASK-1095: double-checked locking. After acquiring the write
+    // lock, re-check the entry — a racing writer that won the lock between
+    // our read miss and our write acquire has already paid the canonicalize
+    // cost. Without this re-check, N burst-startup callers each incur a
+    // full `std::fs::canonicalize` syscall on the blocking pool for the
+    // same workspace path even though only the first one is meaningful.
+    let mut guard = match cache.write() {
+        Ok(g) => g,
+        Err(_) => return canonicalize(workspace).ok(),
+    };
+    if let Some(hit) = guard.get(workspace) {
+        return hit.clone();
     }
+    let canonical = canonicalize(workspace).ok();
+    guard.insert(workspace.to_path_buf(), canonical.clone());
     canonical
 }
 
@@ -629,6 +647,60 @@ mod tests {
         assert_ne!(
             resolved, escape_target_canonical,
             "resolved path must not be the post-swap escape target"
+        );
+    }
+
+    /// PERF-3 / TASK-1095: under burst startup with N threads asking for the
+    /// same fresh workspace path, the cache must collapse the thundering herd
+    /// to exactly one canonicalize call. Pre-TASK-1095, the writer path
+    /// always re-canonicalized after the read-lock miss even if a racing
+    /// writer had already populated the entry — N calls instead of 1.
+    #[test]
+    fn canonical_workspace_cached_collapses_burst_to_single_canonicalize() {
+        use std::sync::Barrier;
+
+        // Use a path keyed by this test name + nanos so the static cache
+        // does not have a hit from a prior test run in the same process.
+        let unique = std::path::PathBuf::from(format!(
+            "/tmp/ops-task-1095-burst-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let n = 32usize;
+        let counter = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(Barrier::new(n));
+        let mut handles = Vec::with_capacity(n);
+        let expected = std::path::PathBuf::from("/expected/canonical");
+        for _ in 0..n {
+            let counter = Arc::clone(&counter);
+            let barrier = Arc::clone(&barrier);
+            let key = unique.clone();
+            let expected = expected.clone();
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                canonical_workspace_cached_with(&key, |_p| {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    // Sleep briefly so concurrent callers reliably reach the
+                    // write-lock re-check window before we return; without
+                    // this the first writer can finish so fast that the
+                    // others hit the read-lock fast path and the test does
+                    // not exercise the double-check at all.
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    Ok(expected.clone())
+                })
+            }));
+        }
+        for h in handles {
+            let got = h.join().unwrap();
+            assert_eq!(got, Some(expected.clone()));
+        }
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "double-checked locking must collapse N concurrent first-callers to a single canonicalize syscall"
         );
     }
 
