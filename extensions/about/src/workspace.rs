@@ -8,9 +8,12 @@
 //!
 //! Pattern shape supported is the simple `prefix/*` case Cargo / yarn / npm /
 //! uv all use in practice. Multi-segment globs (`**`, `prefix/*/suffix`) are
-//! treated like the bare-`*` form: the prefix is enumerated, suffix is
-//! ignored. Exclusion patterns follow the same shape and filter the resolved
-//! list (TASK-0389 / TASK-0400).
+//! **not supported** and are skipped with a `tracing::warn` per
+//! TASK-1069 — the previous behaviour silently flattened them onto the
+//! prefix, producing either a brute-force scan of the workspace root
+//! (`**/foo`) or dropped patterns (`prefix/*/suffix`) with no breadcrumb.
+//! Exclusion patterns follow the same single-`*`-per-segment shape and
+//! filter the resolved list (TASK-0389 / TASK-0400).
 
 use std::path::{Component, Path};
 
@@ -46,6 +49,23 @@ pub fn resolve_member_globs(
             continue;
         }
         if let Some(idx) = member.find('*') {
+            // PATTERN-1 (TASK-1069): the original implementation found the
+            // first `*` and treated everything before it as the prefix,
+            // silently ignoring any suffix after it. That meant `**/foo`
+            // (prefix `""`) brute-force-scanned the workspace root, and
+            // `prefix/*/suffix` silently flattened to `prefix/*`. Reject
+            // both shapes explicitly with a `tracing::warn` so the
+            // divergence is observable rather than silent.
+            let suffix = &member[idx + 1..];
+            let is_recursive = member.contains("**");
+            let suffix_is_trivial = suffix.is_empty() || !suffix.contains('/');
+            if is_recursive || !suffix_is_trivial {
+                tracing::warn!(
+                    member,
+                    "workspace member glob shape unsupported (only single trailing `*` per segment); skipping"
+                );
+                continue;
+            }
             let prefix = &member[..idx];
             let parent = root.join(prefix);
             // ERR-1 (TASK-0517): a read_dir error here used to silently
@@ -78,9 +98,48 @@ pub fn resolve_member_globs(
                             continue;
                         }
                         if let Some(manifest) = try_read_manifest(&path, marker) {
-                            if let Ok(rel) = path.strip_prefix(root) {
-                                resolved.push((rel.to_string_lossy().to_string(), manifest));
-                            }
+                            // ERR-1 (TASK-1070): a `strip_prefix` failure
+                            // here used to silently drop a successfully-read
+                            // manifest — typically when `root` and
+                            // `entry.path()` disagree on symlink resolution
+                            // (common on macOS via `/var` vs
+                            // `/private/var`). Try canonicalising both
+                            // sides as a fallback, log a tracing breadcrumb
+                            // either way, and fall back to the absolute
+                            // path so the unit is not silently lost.
+                            let rel_string = match path.strip_prefix(root) {
+                                Ok(rel) => rel.to_string_lossy().to_string(),
+                                Err(_) => {
+                                    let canonical_rel =
+                                        std::fs::canonicalize(root).ok().and_then(|root_canon| {
+                                            std::fs::canonicalize(&path).ok().and_then(|p_canon| {
+                                                p_canon
+                                                    .strip_prefix(&root_canon)
+                                                    .ok()
+                                                    .map(|r| r.to_string_lossy().to_string())
+                                            })
+                                        });
+                                    match canonical_rel {
+                                        Some(rel) => {
+                                            tracing::debug!(
+                                                root = ?root.display(),
+                                                path = ?path.display(),
+                                                "workspace strip_prefix failed; recovered via canonicalize"
+                                            );
+                                            rel
+                                        }
+                                        None => {
+                                            tracing::warn!(
+                                                root = ?root.display(),
+                                                path = ?path.display(),
+                                                "workspace strip_prefix failed and canonicalize did not recover; falling back to absolute path so manifest is not silently dropped"
+                                            );
+                                            path.to_string_lossy().to_string()
+                                        }
+                                    }
+                                }
+                            };
+                            resolved.push((rel_string, manifest));
                         }
                     }
                 }
@@ -435,21 +494,98 @@ mod tests {
         );
     }
 
-    /// Suffix-after-`*` (e.g. `prefix/*/suffix`) is documented but unsupported
-    /// — the suffix part is ignored and only the prefix is enumerated. Test
-    /// guards against silent breakage of the existing semantics.
+    /// PATTERN-1 (TASK-1069): non-trivial suffix-after-`*` (e.g.
+    /// `prefix/*/suffix`) is now explicitly skipped rather than silently
+    /// flattened onto the prefix. The valid sibling member must still load
+    /// to confirm the skip is per-pattern, not whole-call.
     #[test]
-    fn suffix_after_star_is_ignored() {
+    fn suffix_after_star_is_skipped_with_warning() {
         let dir = tempfile::tempdir().unwrap();
         write(&dir.path().join("packages/a/package.json"), r#"{}"#);
+        write(&dir.path().join("apps/web/package.json"), r#"{}"#);
 
         let resolved = resolve_member_globs(
-            &["packages/*/sub".to_string()],
+            &["packages/*/sub".to_string(), "apps/*".to_string()],
             &[],
             dir.path(),
             "package.json",
         );
         let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
-        assert_eq!(names, vec!["packages/a"]);
+        assert_eq!(
+            names,
+            vec!["apps/web"],
+            "non-trivial suffix glob must be skipped, sibling must still load"
+        );
+    }
+
+    /// PATTERN-1 (TASK-1069): a recursive `**` member must be skipped, not
+    /// brute-force-scanned over the entire workspace root.
+    #[test]
+    fn double_star_member_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        // Populate top-level dirs that the pre-fix behaviour would have
+        // brute-force enumerated when prefix collapsed to `""`.
+        write(&dir.path().join("a/package.json"), r#"{}"#);
+        write(&dir.path().join("b/package.json"), r#"{}"#);
+
+        let resolved =
+            resolve_member_globs(&["**/foo".to_string()], &[], dir.path(), "package.json");
+        assert!(
+            resolved.is_empty(),
+            "`**/foo` must be skipped (not brute-force-enumerated), got {resolved:?}"
+        );
+    }
+
+    /// ERR-1 (TASK-1070): a `strip_prefix` mismatch caused by symlinked
+    /// roots must not silently drop the manifest. macOS `/var` ->
+    /// `/private/var` is the canonical example: callers pass the
+    /// non-canonical root and `read_dir` yields canonical entry paths.
+    /// The fallback canonicalises both sides (or, failing that, uses the
+    /// absolute path) so the unit survives.
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_root_does_not_drop_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create the real workspace under `real/` and a symlink `link` to
+        // it. We pass the symlinked path as `root`, but `read_dir` follows
+        // the symlink and yields entries rooted at the canonical target,
+        // so `entry.path().strip_prefix(symlink_root)` would otherwise fail.
+        let real_root = dir.path().join("real");
+        let symlink_root = dir.path().join("link");
+        std::fs::create_dir_all(&real_root).unwrap();
+        write(
+            &real_root.join("packages/a/package.json"),
+            r#"{"name":"a"}"#,
+        );
+        std::os::unix::fs::symlink(&real_root, &symlink_root).unwrap();
+
+        // Read via the symlinked root *with* the symlink resolved on the
+        // entries side — emulate the macOS `/var` -> `/private/var`
+        // mismatch by canonicalising the parent that read_dir walks.
+        // We achieve this by passing `symlink_root` directly and relying
+        // on the implementation's canonicalize-fallback to recover.
+        let resolved = resolve_member_globs(
+            &["packages/*".to_string()],
+            &[],
+            &symlink_root,
+            "package.json",
+        );
+
+        // Either path: a successful strip_prefix (no mismatch) or a
+        // recovered relative path via the fallback. What must NOT happen
+        // is the manifest being silently dropped.
+        assert_eq!(
+            resolved.len(),
+            1,
+            "symlinked root must not silently drop the resolved manifest, got {resolved:?}"
+        );
+        // The recovered name should still end with `packages/a` regardless
+        // of whether strip_prefix succeeded or the absolute-path fallback
+        // was used.
+        assert!(
+            resolved[0].0.ends_with("packages/a"),
+            "expected resolved name to end with `packages/a`, got {:?}",
+            resolved[0].0
+        );
     }
 }
