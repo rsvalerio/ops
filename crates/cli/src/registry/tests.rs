@@ -711,3 +711,63 @@ fn dedup_compiled_extensions_warns_on_duplicate_config_name() {
         "warning must describe the issue, got: {captured}"
     );
 }
+
+/// PATTERN-1 / TASK-1087: when `extensions.enabled` is unset, the
+/// `enabled = None` branch of `builtin_extensions` must yield extensions in a
+/// stable order so that `register_extension_commands` (last-write-wins, CL-5
+/// / TASK-0904) picks the same winner every process. Prior to TASK-1087 the
+/// branch returned a `HashMap::into_values()` iterator, randomising the
+/// command-id collision winner per process. We simulate the wiring directly
+/// (`dedup_compiled_extensions` → `register_extension_commands`) so the test
+/// is hermetic — independent of which extension crates are linked into this
+/// build — and re-run it N=100 times to catch any stochastic flips.
+#[test]
+fn dedup_then_register_pins_command_winner_across_invocations() {
+    use ops_core::config::{CommandSpec, ExecCommandSpec};
+    use ops_extension::{CommandRegistry, Extension};
+
+    struct ExtA;
+    impl Extension for ExtA {
+        fn name(&self) -> &'static str {
+            "ext_a"
+        }
+        fn register_commands(&self, registry: &mut CommandRegistry) {
+            registry.insert(
+                "build".into(),
+                CommandSpec::Exec(ExecCommandSpec::new("from_a", Vec::<String>::new())),
+            );
+        }
+    }
+    struct ExtB;
+    impl Extension for ExtB {
+        fn name(&self) -> &'static str {
+            "ext_b"
+        }
+        fn register_commands(&self, registry: &mut CommandRegistry) {
+            registry.insert(
+                "build".into(),
+                CommandSpec::Exec(ExecCommandSpec::new("from_b", Vec::<String>::new())),
+            );
+        }
+    }
+
+    // Distinct config_names — sorted ascending, "alpha" < "beta", so beta
+    // (ExtB) is the last to write under BTreeMap iteration and must win.
+    let expected_winner = "from_b";
+    for i in 0..100 {
+        let pairs: Vec<(&'static str, Box<dyn Extension>)> =
+            vec![("alpha", Box::new(ExtA)), ("beta", Box::new(ExtB))];
+        let map = super::discovery::dedup_compiled_extensions(pairs);
+        let exts: Vec<Box<dyn Extension>> = map.into_values().collect();
+        let ext_refs = as_ext_refs(&exts);
+        let mut registry = CommandRegistry::new();
+        register_extension_commands(&ext_refs, &mut registry);
+        match registry.get("build") {
+            Some(CommandSpec::Exec(e)) => assert_eq!(
+                e.program, expected_winner,
+                "iteration {i}: command-id collision winner must be stable across invocations"
+            ),
+            other => panic!("iteration {i}: expected exec spec, got {other:?}"),
+        }
+    }
+}

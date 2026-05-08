@@ -10,7 +10,7 @@ use ops_core::stack::Stack;
 use ops_extension::Extension;
 #[cfg(test)]
 use ops_extension::ExtensionInfo;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::Path;
 use tracing::{debug, warn};
 
@@ -65,12 +65,24 @@ pub fn collect_compiled_extensions(
 /// # Architecture (CQ-020)
 ///
 /// This function uses a two-phase approach:
-/// 1. **Collection**: Build a HashMap of all compiled-in extensions
+/// 1. **Collection**: Build a `BTreeMap` of all compiled-in extensions
 /// 2. **Filtering**: Return only enabled extensions, or all if none specified
 ///
-/// The HashMap serves dual purposes:
-/// - Enables O(1) lookup for the "not compiled in" error message
+/// The `BTreeMap` serves three purposes:
+/// - Enables O(log n) lookup for the "not compiled in" error message
 /// - Allows efficient filtering by key removal
+/// - Yields deterministic, sorted-by-`config_name` iteration order
+///
+/// # Ordering (PATTERN-1 / TASK-1087)
+///
+/// The `enabled = None` branch must return extensions in a stable order
+/// because [`super::registration::register_extension_commands`] is
+/// **last-write-wins** on duplicate command ids (CL-5 / TASK-0904). A
+/// `HashMap`-random iteration order would let the surviving extension for a
+/// command-id collision flip between processes — genuine functional
+/// non-determinism, not just log noise. Sorting by `config_name` (via
+/// `BTreeMap`) pins the winner across builds and matches the deterministic
+/// `enabled = Some(..)` branch (which iterates the user's config order).
 ///
 /// Alternative designs considered:
 /// - Vec + iterator filter: Simpler but O(n) for each lookup
@@ -126,28 +138,32 @@ pub fn builtin_extensions(
     Ok(exts)
 }
 
-/// Collapse `(config_name, extension)` pairs into a `HashMap`, emitting a
+/// Collapse `(config_name, extension)` pairs into a `BTreeMap`, emitting a
 /// `tracing::warn!` audit breadcrumb for each duplicate `config_name` that
-/// would otherwise be silently dropped by `HashMap::insert`.
+/// would otherwise be silently dropped by `BTreeMap::insert`.
 ///
 /// PATTERN-1 / TASK-1088: the symmetric command and data-provider audit
 /// pipelines (CL-5 / TASK-0756, DUP-1 / TASK-0876) explicitly surface
 /// duplicate registrations via `take_duplicate_inserts` + `tracing::warn!`;
 /// the discovery layer regressed by collapsing the `Vec<(name, ext)>` it
-/// gets back from `collect_compiled_extensions` straight into a `HashMap`,
+/// gets back from `collect_compiled_extensions` straight into a map,
 /// dropping the earlier `Box` for any colliding `config_name` with no
 /// breadcrumb.
 ///
 /// **Resolution policy**: last-write-wins on duplicate `config_name`,
-/// matching `register_extension_commands` (CL-5 / TASK-0904) — the order
-/// is the link-time order of the `EXTENSION_REGISTRY` distributed slice,
-/// stable for a given build. Extracted as a free function so the warn
-/// path is unit-testable without touching the global slice.
+/// matching `register_extension_commands` (CL-5 / TASK-0904).
+///
+/// **Iteration order** (PATTERN-1 / TASK-1087): `BTreeMap` yields entries
+/// sorted by `config_name`. The `enabled = None` branch of
+/// [`builtin_extensions`] forwards that order to
+/// `register_extension_commands`, so the last-write-wins winner of a
+/// command-id collision between two compiled-in extensions is stable
+/// across processes. Using a `HashMap` here would re-randomise that order
+/// per process and silently flip the winner.
 pub(super) fn dedup_compiled_extensions(
     pairs: Vec<(&'static str, Box<dyn Extension>)>,
-) -> HashMap<&'static str, Box<dyn Extension>> {
-    let mut available: HashMap<&'static str, Box<dyn Extension>> =
-        HashMap::with_capacity(pairs.len());
+) -> BTreeMap<&'static str, Box<dyn Extension>> {
+    let mut available: BTreeMap<&'static str, Box<dyn Extension>> = BTreeMap::new();
     for (name, ext) in pairs {
         let new_ext_name = ext.name();
         if let Some(prev) = available.insert(name, ext) {
