@@ -10,7 +10,9 @@
 //! workspace globs with the static expander below. `MetadataProvider` is used
 //! by `deps_provider` where dependency graph data is unavoidable.
 
-use ops_cargo_toml::{CargoToml, CargoTomlProvider, FindWorkspaceRootError};
+use ops_cargo_toml::{
+    find_workspace_root_strict, CargoToml, CargoTomlProvider, FindWorkspaceRootError,
+};
 use ops_extension::{Context, DataProvider, DataProviderError};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -46,8 +48,22 @@ fn next_lru_tick() -> u64 {
 /// CONC-2 / TASK-1023: `last_accessed` is the LRU tick stamped at insert
 /// and refreshed on every cache hit. Eviction picks the entry with the
 /// smallest tick (least-recently-used).
+/// CONC-2 / TASK-1198: cache freshness key. Pairs the file's mtime with
+/// its byte length so two writes within the same mtime tick (HFS+, FAT,
+/// NFS with old `actimeo` all expose second-resolution mtime) cannot
+/// silently keep serving the pre-edit manifest. Length-equal collisions
+/// inside one second remain possible but require both the same byte
+/// length AND identical mtime — far less likely than mtime alone.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ManifestFreshness {
+    mtime: SystemTime,
+    len: u64,
+}
+
 struct TypedManifestEntry {
-    mtime: Option<SystemTime>,
+    /// `None` means we couldn't stat the file at parse time; the legacy
+    /// "always trust the cache until ctx.refresh" behaviour applies.
+    freshness: Option<ManifestFreshness>,
     loaded: LoadedManifest,
     last_accessed: u64,
 }
@@ -86,10 +102,12 @@ impl std::ops::Deref for LoadedManifest {
     }
 }
 
-fn cargo_toml_mtime(workspace_root: &Path) -> Option<SystemTime> {
-    std::fs::metadata(workspace_root.join("Cargo.toml"))
-        .and_then(|m| m.modified())
-        .ok()
+fn cargo_toml_freshness(workspace_root: &Path) -> Option<ManifestFreshness> {
+    let meta = std::fs::metadata(workspace_root.join("Cargo.toml")).ok()?;
+    Some(ManifestFreshness {
+        mtime: meta.modified().ok()?,
+        len: meta.len(),
+    })
 }
 
 /// Log a `load_workspace_manifest` failure differentiating "no manifest /
@@ -143,6 +161,32 @@ fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
 // a panic in a sibling provider would silently degrade the cache to
 // "always-miss" — the same invisibility class the thread-local rewrite
 // fought against, just routed through a different mechanism.
+//
+// CONC-7 / TASK-1163: concurrency contract.
+//
+// The wrapper is a single `Mutex<HashMap>`, which serialises every probe.
+// This is intentional and bounded by the workload it guards:
+//
+// - **Single-shot CLI (`ops about`):** every provider runs in turn from one
+//   thread, so the lock is uncontended. The hot path is HashMap probe + LRU
+//   tick under the lock and never holds the lock across IO or parsing.
+// - **Daemon / language-server hosts:** when multiple worker threads start
+//   running providers in parallel against many distinct workspace roots,
+//   this single-mutex shape becomes the bottleneck (CONC-7 forbids
+//   `Mutex<Collection>` on hot paths exactly because of this). At that
+//   point the cache MUST migrate to `DashMap<PathBuf, TypedManifestEntry>`
+//   plus a separate small `parking_lot::Mutex<()>` only for the LRU
+//   eviction scan — sharded reads, occasional global serialisation just
+//   for the cap-evict step. Keep this comment in sync with
+//   `extensions/about/src/manifest_cache.rs` (TASK-1144 already moved that
+//   sibling cache to a per-key `OnceLock` shape so distinct paths progress
+//   in parallel; the typed-manifest cache here intentionally lags because
+//   no daemon caller exists yet).
+//
+// Reviewer rule: do not add a daemon caller without first making the
+// migration above. A new caller that opens parallel `ctx`s against
+// distinct cwds and bottlenecks here would silently undo a downstream
+// performance fix.
 fn typed_manifest_cache() -> &'static Mutex<HashMap<PathBuf, TypedManifestEntry>> {
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, TypedManifestEntry>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
@@ -208,7 +252,7 @@ pub(crate) fn load_workspace_manifest(
     let cwd: PathBuf = PathBuf::clone(&ctx.working_directory);
     let cache = typed_manifest_cache();
 
-    let current_mtime = cargo_toml_mtime(&cwd);
+    let current_freshness = cargo_toml_freshness(&cwd);
 
     if ctx.refresh {
         let mut guard = lock_typed_manifest_cache(cache);
@@ -216,11 +260,15 @@ pub(crate) fn load_workspace_manifest(
     } else {
         let mut guard = lock_typed_manifest_cache(cache);
         if let Some(entry) = guard.get_mut(&cwd) {
-            // CONC-2 / TASK-0843: if both mtimes are known and they match,
-            // serve the cached Arc. If the on-disk mtime advanced, fall
-            // through to reparse. If we couldn't stat at all, fall back
-            // to the legacy "trust until refresh" behaviour.
-            let still_fresh = match (entry.mtime, current_mtime) {
+            // CONC-2 / TASK-0843 + TASK-1198: serve the cached Arc only
+            // when both the mtime AND the byte length match. Pairing
+            // mtime with size closes the second-resolution-mtime window
+            // (HFS+, FAT, NFS with old `actimeo`): two writes inside the
+            // same second can produce identical mtimes, so mtime alone
+            // happily served the pre-edit manifest until the next tick.
+            // If we couldn't stat at all, fall back to the legacy "trust
+            // until refresh" behaviour.
+            let still_fresh = match (entry.freshness, current_freshness) {
                 (Some(cached), Some(now)) => cached == now,
                 _ => true,
             };
@@ -234,10 +282,34 @@ pub(crate) fn load_workspace_manifest(
         }
     }
 
+    // SEC-25 / TASK-1204: route through the strict workspace-root finder
+    // so a hostile Cargo.toml planted at the symlink target of an ancestor
+    // is rejected before it can redirect the about/units/coverage stack.
+    // The lenient `find_workspace_root` walk reaches each ancestor via
+    // `Path::parent` on the lexical canonical-start path and never
+    // re-canonicalises at each step; the strict variant adds a
+    // per-candidate canonicalize so a redirected ancestor surfaces a
+    // tracing breadcrumb instead of becoming the discovered root. Falls
+    // back to the lenient default when strict resolution fails so the
+    // caller still receives a typed `FindWorkspaceRootError` that
+    // `is_manifest_missing` understands; on success we hand the resolved
+    // root to `CargoTomlProvider::with_root` so the inner provider does
+    // not redo discovery.
     let value = if let Some(cached) = ctx.cached(ops_cargo_toml::DATA_PROVIDER_NAME) {
         (**cached).clone()
     } else {
-        CargoTomlProvider::new().provide(ctx)?
+        let provider = match find_workspace_root_strict(&cwd) {
+            Ok(root) => CargoTomlProvider::with_root(root),
+            Err(err) => {
+                tracing::debug!(
+                    cwd = ?cwd.display(),
+                    error = ?err,
+                    "TASK-1204: strict workspace-root resolution failed; surfacing typed error"
+                );
+                return Err(DataProviderError::from(anyhow::Error::from(err)));
+            }
+        };
+        provider.provide(ctx)?
     };
     let manifest: CargoToml =
         serde_json::from_value(value).map_err(DataProviderError::computation_error)?;
@@ -273,7 +345,7 @@ pub(crate) fn load_workspace_manifest(
         guard.insert(
             cwd,
             TypedManifestEntry {
-                mtime: current_mtime,
+                freshness: current_freshness,
                 loaded: loaded.clone(),
                 last_accessed: next_lru_tick(),
             },
@@ -302,6 +374,25 @@ pub(crate) fn resolved_workspace_members(
 
     let mut resolved = Vec::new();
     for member in &ws.members {
+        // SEC-14 / TASK-1246 AC #2: reject absolute and `..`-traversal
+        // member entries before they reach any join. The glob-expansion
+        // arm below already filters via `read_dir(prefix)` (the prefix
+        // would not be readable for `/abs` or `../escape`), but the
+        // passthrough arms — both the unsupported-glob-meta branch and
+        // the literal-member fallthrough — interpolate the value
+        // verbatim, so per-crate manifest reads downstream end up
+        // targeting filesystem locations outside the workspace root.
+        // Sister checks (`resolve_crate_display_name` /
+        // `read_crate_metadata`) also re-validate so a future caller
+        // bypassing `resolved_workspace_members` does not regress the
+        // contract.
+        if !member_path_is_workspace_safe(member) {
+            tracing::warn!(
+                member = %member,
+                "SEC-14 / TASK-1246: workspace member is absolute or contains `..`; dropping"
+            );
+            continue;
+        }
         let star_idx = member.find('*');
         // PATTERN-1 (TASK-0803): detect glob shapes that lack `*` but still
         // contain class/alternation metacharacters (`crates/{core,cli}`,
@@ -421,6 +512,26 @@ fn is_unsupported_glob(member: &str, first_star: usize) -> bool {
 
 fn contains_unsupported_glob_meta(member: &str) -> bool {
     member.contains(['?', '[', ']', '{', '}'])
+}
+
+/// SEC-14 / TASK-1246: a workspace member must be a relative path with
+/// no `..` segments. `Path::join` discards `cwd` when the operand is
+/// absolute and walks parents on `..`, so a hostile root `Cargo.toml`
+/// could otherwise drive `read_capped_to_string` and tracing
+/// breadcrumbs at any filesystem location reachable from the workspace
+/// root. Rejecting those shapes up front matches the
+/// `append_tree_directory` (SEC-14 / TASK-0811) and `scrub_path_segments`
+/// (SEC-14 / TASK-1111) policies on the rendering side.
+pub(crate) fn member_path_is_workspace_safe(member: &str) -> bool {
+    use std::path::Component;
+    let p = Path::new(member);
+    if p.is_absolute() {
+        return false;
+    }
+    // Reject any segment equal to `..`. We accept `.` segments because
+    // they are inert under `Path::join` and Cargo itself emits them in
+    // some manifests (e.g. `members = ["./crates/foo"]`).
+    !p.components().any(|c| matches!(c, Component::ParentDir))
 }
 
 #[cfg(test)]
@@ -804,6 +915,68 @@ mod tests {
         assert!(
             logs.contains("poisoned") && logs.contains("recovery_count"),
             "second poison cycle must still emit a warn with recovery_count, got: {logs}"
+        );
+
+        evict_cache_for(dir.path());
+    }
+
+    /// CONC-2 / TASK-1198: two writes inside the same mtime tick (HFS+,
+    /// FAT, NFS with old `actimeo` all expose second-resolution mtime)
+    /// must NOT serve the pre-edit manifest. The freshness key now
+    /// includes the file byte length, so a write that changes the
+    /// content size invalidates the cache even when mtime is unchanged.
+    ///
+    /// Direct-cache simulation: manually pin the cached entry's
+    /// `freshness` to the *post-write* length-equal mtime to mimic a
+    /// same-second second write that the second-resolution filesystem
+    /// would silently keep stale. Then write a new manifest with a
+    /// different byte length and assert the next load reparses.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn typed_manifest_cache_invalidates_on_size_change_within_same_mtime_tick() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let manifest_path = dir.path().join("Cargo.toml");
+        // Initial body (small).
+        std::fs::write(&manifest_path, "[package]\nname=\"x\"\nversion=\"0.1.0\"\n").unwrap();
+        evict_cache_for(dir.path());
+
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
+        let first = load_workspace_manifest(&mut ctx).expect("load1");
+
+        // Capture the just-cached freshness so we can simulate a
+        // same-tick second write: rewrite the file with a *different*
+        // byte length, then patch the cached entry's freshness.mtime to
+        // match what we expect the new write to produce. The test fails
+        // if the cache pre-fix relies on mtime alone — len differs, so
+        // the freshness comparison must reject the cached entry.
+        let new_body = "[package]\nname=\"x\"\nversion=\"0.1.0\"\n# trailing comment that bumps len significantly so the freshness comparison can detect the change\n";
+        std::fs::write(&manifest_path, new_body).unwrap();
+        let new_meta = std::fs::metadata(&manifest_path).unwrap();
+        let new_mtime = new_meta.modified().unwrap();
+
+        // Splice the cached entry's freshness so the mtime matches
+        // post-write but the len stays at the *pre-write* value (the
+        // same-second-tick illusion). Without the size component, the
+        // cache would happily serve `first` again.
+        {
+            let cache = typed_manifest_cache();
+            let mut guard = cache.lock().unwrap();
+            let entry = guard.get_mut(dir.path()).expect("entry");
+            let pre_len = entry
+                .freshness
+                .as_ref()
+                .map(|f| f.len)
+                .expect("freshness present");
+            entry.freshness = Some(ManifestFreshness {
+                mtime: new_mtime,
+                len: pre_len,
+            });
+        }
+
+        let second = load_workspace_manifest(&mut ctx).expect("load2");
+        assert!(
+            !Arc::ptr_eq(&first.manifest, &second.manifest),
+            "size change inside the same mtime tick must invalidate the cache"
         );
 
         evict_cache_for(dir.path());

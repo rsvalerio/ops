@@ -1,7 +1,7 @@
 //! Rust `project_coverage` data provider.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use ops_core::project_identity::{CoverageStats, ProjectCoverage, UnitCoverage};
 use ops_duckdb::sql::{query_crate_coverage, query_or_warn, query_project_coverage, CrateCoverage};
@@ -21,16 +21,21 @@ pub(crate) const PROVIDER_NAME: &str = "project_coverage";
 /// DuckDB. That doubled the scan and — more visibly — fired any
 /// `query_or_warn` schema-drift log line twice.
 ///
-/// We dedup with a tiny global cache keyed by the `DuckDb` pointer address.
-/// The pointer is a stable identity for the lifetime of the in-process Arc
-/// the providers share via [`Context`]; since the `ops` binary exits between
-/// invocations, the cache is naturally process-scoped and never has to
-/// invalidate. `Option<CrateCoverage>` mirrors the `query_or_warn` fallback
+/// ARCH-9 / TASK-1155: dedup with a tiny process-local cache keyed by the
+/// `DuckDb` instance's stable `id()` (a monotonic u64 minted on
+/// construction). Earlier this used `std::ptr::from_ref(db) as usize` as
+/// the key, which was vulnerable to pointer-address ABA — a dropped-and-
+/// replaced `DuckDb` could re-allocate at the same address and return a
+/// previous instance's cached value. The id-keyed scheme guarantees two
+/// distinct instances always receive distinct keys regardless of allocation
+/// reuse. `Option<CrateCoverage>` mirrors the `query_or_warn` fallback
 /// (None on query failure) so a hard failure is also memoized — the warn
 /// fires exactly once per run regardless of how many providers consume the
 /// value.
-fn project_coverage_cache() -> &'static Mutex<HashMap<usize, Option<CrateCoverage>>> {
-    static CACHE: OnceLock<Mutex<HashMap<usize, Option<CrateCoverage>>>> = OnceLock::new();
+type CoverageSlot = Arc<OnceLock<Option<CrateCoverage>>>;
+
+fn project_coverage_cache() -> &'static Mutex<HashMap<u64, CoverageSlot>> {
+    static CACHE: OnceLock<Mutex<HashMap<u64, CoverageSlot>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -40,33 +45,38 @@ fn project_coverage_cache() -> &'static Mutex<HashMap<usize, Option<CrateCoverag
 /// in turn during `ops about`; the second caller gets the cached value
 /// (including the cached `None` when the query failed and `query_or_warn`
 /// already logged the warn).
+///
+/// CONC-2 / TASK-1193: keyed by an `Arc<OnceLock<...>>` per DuckDb id so
+/// concurrent first-callers race only on the inner `OnceLock::get_or_init`
+/// (which guarantees the closure runs exactly once). Pre-fix the outer
+/// mutex was acquired, the entry checked, the guard dropped, and
+/// `query_or_warn` then ran outside any lock — two threads entering at
+/// the same time both observed a miss, both dispatched the query, and the
+/// "warn fires exactly once" contract advertised by DUP-1 / TASK-1079
+/// silently degraded to "warn fires once per concurrent first-caller".
 pub(crate) fn cached_query_project_coverage(db: &DuckDb) -> Option<CrateCoverage> {
-    let key = std::ptr::from_ref(db) as usize;
+    let key = db.id();
 
-    if let Ok(guard) = project_coverage_cache().lock() {
-        if let Some(cached) = guard.get(&key) {
-            return cached.clone();
-        }
-    }
+    let slot: CoverageSlot = {
+        let mut guard = project_coverage_cache()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        Arc::clone(
+            guard
+                .entry(key)
+                .or_insert_with(|| Arc::new(OnceLock::new())),
+        )
+    };
 
-    let fresh = query_or_warn(
-        "query_project_coverage",
-        "reporting empty coverage",
-        None,
-        || query_project_coverage(db).map(Some),
-    );
-
-    if let Ok(mut guard) = project_coverage_cache().lock() {
-        guard.insert(key, fresh.clone());
-    }
-    fresh
-}
-
-#[cfg(test)]
-pub(crate) fn clear_project_coverage_cache_for_test() {
-    if let Ok(mut guard) = project_coverage_cache().lock() {
-        guard.clear();
-    }
+    slot.get_or_init(|| {
+        query_or_warn(
+            "query_project_coverage",
+            "reporting empty coverage",
+            None,
+            || query_project_coverage(db).map(Some),
+        )
+    })
+    .clone()
 }
 
 pub(crate) struct RustCoverageProvider;
@@ -176,7 +186,7 @@ impl DataProvider for RustCoverageProvider {
 
 #[cfg(test)]
 mod cache_tests {
-    use super::{cached_query_project_coverage, clear_project_coverage_cache_for_test};
+    use super::cached_query_project_coverage;
     use ops_duckdb::DuckDb;
     use std::sync::{Arc, Mutex};
     use tracing_subscriber::fmt::MakeWriter;
@@ -231,8 +241,6 @@ mod cache_tests {
             .expect("seed broken-schema coverage_files");
         }
 
-        clear_project_coverage_cache_for_test();
-
         let buf = BufWriter::default();
         let captured = buf.0.clone();
         let subscriber = tracing_subscriber::fmt()
@@ -262,8 +270,93 @@ mod cache_tests {
             warn_count, 1,
             "warn must fire exactly once across both call sites; got {warn_count} in:\n{logs}"
         );
+    }
 
-        clear_project_coverage_cache_for_test();
+    /// CONC-2 / TASK-1193: the AC #1 contract is that
+    /// `cached_query_project_coverage` runs the underlying query exactly
+    /// once even when two threads enter concurrently. Pre-fix the outer
+    /// mutex was dropped around the query — both threads observed a miss,
+    /// both dispatched, and `query_or_warn` fired its warn N times. We
+    /// pin AC #2 by running the two call sites from two threads (rather
+    /// than sequentially) and asserting the warn count is still 1.
+    #[test]
+    #[serial_test::serial(project_coverage_cache)]
+    fn project_coverage_warn_fires_once_under_concurrent_first_callers() {
+        let db = Arc::new(DuckDb::open_in_memory().expect("open in-memory db"));
+        // Same broken-schema seed as the sister test.
+        {
+            let conn = db.lock().expect("lock");
+            conn.execute_batch(
+                "CREATE TABLE coverage_files (\
+                    filename VARCHAR, \
+                    lines_count VARCHAR, \
+                    lines_covered VARCHAR, \
+                    lines_percent VARCHAR\
+                 ); \
+                 INSERT INTO coverage_files VALUES ('a.rs', 'x', 'y', 'z');",
+            )
+            .expect("seed broken-schema coverage_files");
+        }
+
+        let captured = Arc::new(Mutex::new(Vec::<u8>::new()));
+
+        let make_subscriber = || {
+            tracing_subscriber::fmt()
+                .with_writer(BufWriter(Arc::clone(&captured)))
+                .with_max_level(tracing::Level::WARN)
+                .with_ansi(false)
+                .finish()
+        };
+
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let db_a = Arc::clone(&db);
+        let bar_a = Arc::clone(&barrier);
+        let sub_a = make_subscriber();
+        let h_a = std::thread::spawn(move || {
+            // Per-thread subscriber: `tracing::subscriber::with_default`
+            // is thread-local, so each spawned thread must install its
+            // own subscriber pointing at the shared buffer.
+            tracing::subscriber::with_default(sub_a, move || {
+                bar_a.wait();
+                cached_query_project_coverage(&db_a)
+            })
+        });
+        let db_b = Arc::clone(&db);
+        let bar_b = Arc::clone(&barrier);
+        let sub_b = make_subscriber();
+        let h_b = std::thread::spawn(move || {
+            tracing::subscriber::with_default(sub_b, move || {
+                bar_b.wait();
+                cached_query_project_coverage(&db_b)
+            })
+        });
+        let _ = h_a.join().unwrap();
+        let _ = h_b.join().unwrap();
+        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+
+        let warn_count = logs.matches("query_project_coverage").count();
+        assert_eq!(
+            warn_count, 1,
+            "warn must fire exactly once under concurrent first-callers; got {warn_count} in:\n{logs}"
+        );
+    }
+
+    /// ARCH-9 / TASK-1155: two distinct `DuckDb` instances must receive
+    /// distinct cache keys even when one is dropped and the next is
+    /// allocated at the same memory address (the ABA hazard the prior
+    /// pointer-address scheme had). With the id-keyed scheme each instance
+    /// gets a fresh monotonic id, so a re-allocated address cannot
+    /// silently surface a previous instance's cached value.
+    #[test]
+    #[serial_test::serial(project_coverage_cache)]
+    fn distinct_db_instances_do_not_alias_cache_keys() {
+        let a = DuckDb::open_in_memory().expect("open a");
+        let b = DuckDb::open_in_memory().expect("open b");
+        assert_ne!(
+            a.id(),
+            b.id(),
+            "distinct DuckDb instances must mint distinct ids"
+        );
     }
 }
 
