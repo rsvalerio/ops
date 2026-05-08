@@ -18,8 +18,22 @@ pub fn install_cargo_tool(name: &str, package: Option<&str>) -> anyhow::Result<(
 /// the values still land as positional arguments to a privileged operation —
 /// a name beginning with `-` would be parsed as a flag (e.g. `--config`,
 /// `--git`) and silently change install semantics. We accept the conservative
-/// crate-name shape `[A-Za-z0-9][A-Za-z0-9_.\-]*`: at least one character,
-/// no leading dash, and no other characters.
+/// crate-name shape `[A-Za-z0-9][A-Za-z0-9_-]*`: at least one character,
+/// alphanumeric leading byte, no dash leader, no dots, no other characters.
+///
+/// SEC-13 / TASK-1199: prior to TASK-1199 the allow-set also included `.`,
+/// which is broader than crates.io's grammar (`[a-zA-Z][a-zA-Z0-9_-]*`) and
+/// rustup's component shape. Allowing `.` let entries like `tool.cargo` or
+/// `cargo.deny.something` reach `cargo install` / `rustup component add`
+/// and invited future contributors to assume the validator had vetted names
+/// in path-construction or display contexts where `.` carries meaning (e.g.
+/// dotfile shells, `parent.<x>` traversal). We reject `.` here so the
+/// validator's defense-in-depth contract matches the upstream grammars it is
+/// guarding. The leading byte stays alphanumeric (rather than tightening to
+/// alphabetic to fully match crates.io) so that version-leading rustup
+/// toolchain identifiers like `1.70.0-x86_64-apple-darwin` are still
+/// rejected on the dot — not on the leading digit — keeping the operator
+/// error message pointed at the actual policy break.
 pub(crate) fn validate_cargo_tool_arg(value: &str, label: &str) -> anyhow::Result<()> {
     let mut chars = value.chars();
     let Some(first) = chars.next() else {
@@ -27,17 +41,18 @@ pub(crate) fn validate_cargo_tool_arg(value: &str, label: &str) -> anyhow::Resul
     };
     if !first.is_ascii_alphanumeric() {
         anyhow::bail!(
-            "{label} {value:?} must start with an alphanumeric character (cannot begin with `-`)"
+            "{label} {value:?} must start with an alphanumeric character (cannot begin with `-` or `.`)"
         );
     }
-    // TASK-0519: skip the explicit alphanumeric guard above when validating
-    // the rest of the string. Re-checking `first` against the broader allow-set
-    // hides a subtle SEC-13 dependency: deleting the alphanumeric check would
-    // silently accept a leading `-` again because the loop allows it.
+    // TASK-0519: skip the explicit leading-character guard above when
+    // validating the rest of the string. Re-checking `first` against the
+    // broader allow-set hides a subtle SEC-13 dependency: deleting the
+    // leading-character check would silently accept a leading `-` again
+    // because the loop allows it.
     for ch in chars {
-        if !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == '-') {
+        if !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-') {
             anyhow::bail!(
-                "{label} {value:?} contains invalid character {ch:?}; allowed: [A-Za-z0-9_.-]"
+                "{label} {value:?} contains invalid character {ch:?}; allowed: [A-Za-z0-9_-]"
             );
         }
     }

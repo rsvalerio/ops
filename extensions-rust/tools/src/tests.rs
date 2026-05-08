@@ -715,8 +715,41 @@ fn validate_cargo_tool_arg_accepts_real_crate_names() {
     assert!(validate_cargo_tool_arg("cargo-llvm-cov", "tool name").is_ok());
     assert!(validate_cargo_tool_arg("ripgrep", "tool name").is_ok());
     assert!(validate_cargo_tool_arg("crate_with_underscore", "tool name").is_ok());
-    assert!(validate_cargo_tool_arg("crate.with.dots", "tool name").is_ok());
     assert!(validate_cargo_tool_arg("a", "tool name").is_ok());
+    // SEC-13 / TASK-1199 AC #2: legitimate names already in use across
+    // ops `[tools]` blocks must continue to validate after the dot was
+    // dropped from the allow-set.
+    for ok in ["cargo-deny", "cargo-edit", "clippy", "rustfmt", "rust-src"] {
+        assert!(
+            validate_cargo_tool_arg(ok, "tool name").is_ok(),
+            "expected {ok:?} to pass after dropping `.` from the allow-set"
+        );
+    }
+}
+
+/// SEC-13 / TASK-1199 AC #1: `.` is no longer in the allow-set. The error
+/// message must name the offending `.` so an operator hitting an invalid
+/// `[tools]` entry like `tool.cargo` learns which character broke the
+/// validator (rather than seeing a generic "must start with alphanumeric"
+/// reroute).
+#[test]
+fn validate_cargo_tool_arg_rejects_dot_in_name() {
+    let err = validate_cargo_tool_arg("ops.bad", "tool name").expect_err("dot must be rejected");
+    let msg = err.to_string();
+    assert!(
+        msg.contains('.'),
+        "error message must name the offending `.`, got: {msg}"
+    );
+    assert!(
+        msg.contains("invalid character"),
+        "error must point at the per-character allow-set, got: {msg}"
+    );
+    // Multi-dot shapes should still trip the same per-character check.
+    assert!(validate_cargo_tool_arg("cargo.deny.something", "tool name").is_err());
+    // A leading dot trips the leading-character guard rather than the
+    // body loop, so the message wording changes — but the value still
+    // ends up rejected.
+    assert!(validate_cargo_tool_arg(".dotfile", "tool name").is_err());
 }
 
 /// SEC-13 AC #1+#2: a name beginning with `-` would be parsed by `cargo

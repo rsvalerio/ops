@@ -162,7 +162,31 @@ pub fn check_cargo_tool_installed(name: &str) -> bool {
 /// lookup. The set stores the raw directory entry filenames (without
 /// stripping `$PATHEXT`) — the lookup helper handles the suffix list, so the
 /// index stays portable.
+///
+/// CONC-7 / TASK-1249: on Windows the filesystem is case-insensitive
+/// (`tokei.EXE`, `Tokei.exe`, `tokei.exe` all refer to the same file)
+/// but `OsString` equality is case-sensitive. To avoid false-negative
+/// install probes for cargo-installed binaries with mixed-case names,
+/// the index normalises basenames to lowercase under `cfg(windows)` —
+/// both at insert time in [`capture_path_index_from`] and at lookup time
+/// in [`is_in_path_index`]. Unix is unchanged: filenames are case-
+/// sensitive on POSIX filesystems and verbatim equality is correct.
 pub type PathIndex = HashSet<OsString>;
+
+/// CONC-7 / TASK-1249: normalise an `OsString` basename to the index key
+/// form. Lowercase on Windows; verbatim on Unix.
+pub(crate) fn index_key(name: OsString) -> OsString {
+    if cfg!(windows) {
+        // `to_string_lossy` is safe here: Windows filenames go through
+        // WTF-8 / UTF-16 and the `String::to_lowercase` ASCII-fold is
+        // sufficient for the case-insensitive equality the filesystem
+        // already enforces. Non-UTF-8 components fall through verbatim
+        // (an unrealistic edge case on NTFS).
+        OsString::from(name.to_string_lossy().to_lowercase())
+    } else {
+        name
+    }
+}
 
 /// Build a one-shot index of executable basenames present on `$PATH`.
 ///
@@ -203,7 +227,7 @@ pub(crate) fn capture_path_index_from(path_var: &std::ffi::OsStr) -> PathIndex {
         for entry in entries.flatten() {
             let candidate = entry.path();
             if matches!(check_executable(&candidate), ExecCheck::Yes) {
-                set.insert(entry.file_name());
+                set.insert(index_key(entry.file_name()));
             }
         }
     }
@@ -215,14 +239,16 @@ pub(crate) fn capture_path_index_from(path_var: &std::ffi::OsStr) -> PathIndex {
 /// On Windows the lookup also tries each `$PATHEXT` suffix, mirroring the
 /// behaviour of [`find_on_path_in`].
 pub(crate) fn is_in_path_index(index: &PathIndex, name: &str) -> bool {
-    if index.contains(std::ffi::OsStr::new(name)) {
+    // CONC-7 / TASK-1249: lookup keys are normalised on Windows so a
+    // probe for "tokei" matches an on-disk `Tokei.EXE`. See `index_key`.
+    if index.contains(&index_key(OsString::from(name))) {
         return true;
     }
     if cfg!(windows) {
         for ext in pathext_suffixes() {
             let mut candidate = OsString::from(name);
             candidate.push(&ext);
-            if index.contains(&candidate) {
+            if index.contains(&index_key(candidate)) {
                 return true;
             }
         }
@@ -586,6 +612,46 @@ pub fn capture_rustup_components() -> Option<String> {
         return None;
     }
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+#[cfg(all(test, windows))]
+mod path_index_case_tests {
+    use super::*;
+
+    /// CONC-7 / TASK-1249: `is_in_path_index` must match a probe name
+    /// against an on-disk basename that differs only by case under
+    /// Windows. The index normalises basenames to lowercase at insert
+    /// AND lookup time, so `tokei` finds `Tokei.EXE`, `tokei.exe`, etc.
+    #[test]
+    fn windows_lookup_matches_mixed_case_basename() {
+        let mut idx: PathIndex = HashSet::new();
+        idx.insert(index_key(OsString::from("Tokei.EXE")));
+        assert!(
+            is_in_path_index(&idx, "tokei"),
+            "Windows lookup must be case-insensitive in both directions"
+        );
+        idx.insert(index_key(OsString::from("ripgrep.exe")));
+        assert!(is_in_path_index(&idx, "RipGrep"));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod path_index_unix_tests {
+    use super::*;
+
+    /// CONC-7 / TASK-1249: under Unix the index keeps verbatim filenames —
+    /// POSIX filesystems are case-sensitive and a probe for `tokei` must
+    /// NOT match an on-disk `Tokei` (which would be a different binary).
+    #[test]
+    fn unix_lookup_remains_case_sensitive() {
+        let mut idx: PathIndex = HashSet::new();
+        idx.insert(index_key(OsString::from("Tokei")));
+        assert!(
+            !is_in_path_index(&idx, "tokei"),
+            "Unix lookup must stay case-sensitive: `tokei` and `Tokei` are distinct"
+        );
+        assert!(is_in_path_index(&idx, "Tokei"));
+    }
 }
 
 #[cfg(test)]
