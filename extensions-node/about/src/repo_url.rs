@@ -106,7 +106,23 @@ pub(crate) fn normalize_repo_url(raw: &str) -> String {
     // as a link. Scoped npm names (`@scope/name`) are intentionally
     // excluded: they're package names, not repo shorthands.
     if is_bare_github_shorthand(s) {
-        return format!("https://github.com/{s}");
+        // SEC-14 / TASK-1205: route through `scrub_path_segments` so a
+        // bare shorthand whose segments are `.` or `..` (e.g.
+        // `package.json::repository = "../etc"`) cannot reach the
+        // rendered URL with a literal traversal form. `is_bare_github_shorthand`
+        // intentionally permits `.` in identifier bytes (legitimate
+        // crate/npm names contain dots), but admits `..` as a *segment*
+        // because the per-byte allow-set says nothing about whole-segment
+        // shape. Sister branches (`github:` / `git://` / `git+*://`)
+        // already go through this scrub via SEC-14 / TASK-1111; without
+        // this call the bare branch surfaces `https://github.com/../etc`
+        // into About cards / markdown / HTML / JSON outputs and
+        // operator-facing logs even though browsers may collapse it.
+        let cleaned = scrub_path_segments(s);
+        if cleaned.is_empty() {
+            return "https://github.com".to_string();
+        }
+        return format!("https://github.com/{cleaned}");
     }
     s.trim_end_matches(".git").to_string()
 }
@@ -354,6 +370,32 @@ mod tests {
             normalize_repo_url("expressjs/express"),
             "https://github.com/expressjs/express"
         );
+    }
+
+    /// SEC-14 / TASK-1205: the bare-shorthand branch must not surface a
+    /// traversal-shaped URL. Pre-TASK-1205 a `package.json` with
+    /// `"repository": "../etc"` produced `https://github.com/../etc`
+    /// — sister branches (`github:`/`git://`/`git+*://`) all routed
+    /// through `scrub_path_segments` per SEC-14 / TASK-1111, but the
+    /// bare branch was added by PATTERN-1 / TASK-1060 without the same
+    /// scrub. We pin both AC outcomes here:
+    /// 1. The rendered URL contains no literal `..`.
+    /// 2. `../etc` lands on `https://github.com/etc` (the `..` segment
+    ///    is filtered, `etc` survives).
+    #[test]
+    fn normalize_bare_shorthand_strips_traversal() {
+        let out = normalize_repo_url("../etc");
+        assert!(!out.contains(".."), "url still contains ..: {out}");
+        assert_eq!(out, "https://github.com/etc");
+    }
+
+    /// SEC-14 / TASK-1205: a bare shorthand whose every segment is
+    /// `.`/`..` collapses to the bare host, mirroring the shape
+    /// `normalize_github_shorthand_pure_traversal_collapses_to_host`
+    /// already pins for the explicit `github:` branch.
+    #[test]
+    fn normalize_bare_shorthand_pure_traversal_collapses_to_host() {
+        assert_eq!(normalize_repo_url("../.."), "https://github.com");
     }
 
     /// PATTERN-1 / TASK-1060: a scoped npm package name like `@scope/name`
