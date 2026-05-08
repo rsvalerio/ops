@@ -125,12 +125,41 @@ async fn spawn_capped(
         .stderr
         .take()
         .ok_or_else(|| std::io::Error::other("stderr pipe missing after spawn"))?;
-    let stdout_task = tokio::spawn(read_capped(stdout, cap));
-    let stderr_task = tokio::spawn(read_capped(stderr, cap));
+    // CONC-9 / TASK-1064: own the drain tasks in a local `JoinSet` rather than
+    // bare `tokio::spawn`. If the surrounding parallel task is aborted (e.g.
+    // `JoinSet::abort_all` after a fail_fast trip while the child is wedged
+    // and `child.wait()` is parked), `JoinSet::drop` aborts these readers so
+    // they cannot keep draining the pipes after the parent has been
+    // cancelled. The `AbortOnDropHandle`-via-JoinSet pattern matches what
+    // `spawn_event_forwarder` does for the same reason.
+    let mut drains: tokio::task::JoinSet<std::io::Result<(Vec<u8>, u64)>> =
+        tokio::task::JoinSet::new();
+    let stdout_handle = drains.spawn(read_capped(stdout, cap));
+    let stderr_handle = drains.spawn(read_capped(stderr, cap));
     let status = child.wait().await?;
     let join_to_io = |e: tokio::task::JoinError| std::io::Error::other(e);
-    let (stdout_bytes, stdout_dropped) = stdout_task.await.map_err(join_to_io)??;
-    let (stderr_bytes, stderr_dropped) = stderr_task.await.map_err(join_to_io)??;
+    // Await the specific handles by id so we keep the per-stream result
+    // mapping; `JoinSet::join_next` would yield in completion order.
+    type DrainOutcome = Result<std::io::Result<(Vec<u8>, u64)>, tokio::task::JoinError>;
+    let mut stdout_result: Option<DrainOutcome> = None;
+    let mut stderr_result: Option<DrainOutcome> = None;
+    while stdout_result.is_none() || stderr_result.is_none() {
+        match drains.join_next_with_id().await {
+            Some(Ok((id, val))) if id == stdout_handle.id() => stdout_result = Some(Ok(val)),
+            Some(Ok((id, val))) if id == stderr_handle.id() => stderr_result = Some(Ok(val)),
+            Some(Ok(_)) => unreachable!("only stdout/stderr drains spawned"),
+            Some(Err(e)) if e.id() == stdout_handle.id() => stdout_result = Some(Err(e)),
+            Some(Err(e)) if e.id() == stderr_handle.id() => stderr_result = Some(Err(e)),
+            Some(Err(_)) => unreachable!("only stdout/stderr drains spawned"),
+            None => unreachable!("two drains spawned, two results expected"),
+        }
+    }
+    let (stdout_bytes, stdout_dropped) = stdout_result
+        .expect("stdout drain awaited")
+        .map_err(join_to_io)??;
+    let (stderr_bytes, stderr_dropped) = stderr_result
+        .expect("stderr drain awaited")
+        .map_err(join_to_io)??;
     Ok(CommandOutput::from_streamed(
         status,
         stdout_bytes,

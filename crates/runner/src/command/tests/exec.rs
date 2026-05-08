@@ -94,6 +94,45 @@ mod exec_unit_tests {
         assert!(result.is_ok());
     }
 
+    /// CONC-9 / TASK-1064: when the surrounding parallel task is aborted while
+    /// the child is wedged (e.g. fail_fast tripped after a sibling failed and
+    /// the current child is stuck on `child.wait()`), the per-stream pipe
+    /// drains spawned inside `spawn_capped` must die with the parent rather
+    /// than detach and keep reading until the wedged child finally exits.
+    /// Regression test: spawn `spawn_capped` against a `sleep 60` child inside
+    /// a `JoinSet`, `abort_all`, and assert wall-clock for the abort path is
+    /// well under the child's runtime. With the pre-fix bare `tokio::spawn`,
+    /// the drain tasks would survive the abort and the test reaches the
+    /// timeout asserting drain-task survival.
+    #[tokio::test]
+    async fn spawn_capped_drains_die_with_parent_joinset_abort() {
+        use tokio::time::{timeout, Duration};
+        let mut outer: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
+        outer.spawn(async move {
+            let mut cmd = tokio::process::Command::new("sleep");
+            cmd.arg("60");
+            // Kill on drop so the child is reaped even if abort interrupts us
+            // mid-spawn — keeps the test from leaking processes.
+            cmd.kill_on_drop(true);
+            let _ = crate::command::exec::spawn_capped_for_test(&mut cmd, 1024).await;
+        });
+        // Yield once so the spawned task actually starts the child + drains.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let start = std::time::Instant::now();
+        outer.abort_all();
+        // Drain the JoinSet — every aborted handle yields a JoinError(cancelled).
+        timeout(Duration::from_secs(2), async {
+            while outer.join_next().await.is_some() {}
+        })
+        .await
+        .expect("aborting parent JoinSet must release spawn_capped within 2s");
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "expected bounded abort wall-clock, got {elapsed:?}"
+        );
+    }
+
     /// PERF-1 / TASK-0764: a child that floods stdout past the configured cap
     /// must not buffer the full output. `spawn_capped` reads up to `cap` and
     /// drains the rest into a sink — the resulting `CommandOutput.stdout` is
