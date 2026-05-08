@@ -626,3 +626,88 @@ fn extension_types_methods_work() {
     assert!(!cmd.is_datasource());
     assert!(cmd.is_command());
 }
+
+/// PATTERN-1 / TASK-1088: when two compiled-in extensions self-register
+/// under the same `config_name` (e.g. via colliding `impl_extension!`
+/// invocations), the discovery layer must not silently drop the earlier
+/// `Box<dyn Extension>` — it must emit a `tracing::warn!` audit
+/// breadcrumb naming both slots. Resolution policy: last-write-wins,
+/// matching `register_extension_commands` (CL-5 / TASK-0904).
+#[test]
+fn dedup_compiled_extensions_warns_on_duplicate_config_name() {
+    use ops_extension::{CommandRegistry, Extension};
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    struct ExtA;
+    impl Extension for ExtA {
+        fn name(&self) -> &'static str {
+            "ext_a"
+        }
+        fn register_commands(&self, _registry: &mut CommandRegistry) {}
+    }
+
+    struct ExtB;
+    impl Extension for ExtB {
+        fn name(&self) -> &'static str {
+            "ext_b"
+        }
+        fn register_commands(&self, _registry: &mut CommandRegistry) {}
+    }
+
+    #[derive(Clone, Default)]
+    struct BufWriter(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for BufWriter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    let buf = BufWriter::default();
+    let captured = buf.0.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buf)
+        .with_max_level(tracing::Level::WARN)
+        .with_ansi(false)
+        .finish();
+
+    // Two distinct extensions sharing the same config_name "shared".
+    let pairs: Vec<(&'static str, Box<dyn Extension>)> =
+        vec![("shared", Box::new(ExtA)), ("shared", Box::new(ExtB))];
+
+    let map = tracing::subscriber::with_default(subscriber, || {
+        super::discovery::dedup_compiled_extensions(pairs)
+    });
+
+    // Last-write-wins: ExtB survives.
+    assert_eq!(map.len(), 1, "duplicate config_name collapses to one entry");
+    assert_eq!(
+        map.get("shared").unwrap().name(),
+        "ext_b",
+        "last-write-wins: the second extension survives"
+    );
+
+    let captured = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+    assert!(
+        captured.contains("shared"),
+        "warning must name the colliding config_name, got: {captured}"
+    );
+    assert!(
+        captured.contains("ext_a") && captured.contains("ext_b"),
+        "warning must name both extension slots, got: {captured}"
+    );
+    assert!(
+        captured.contains("duplicate compiled-in extension"),
+        "warning must describe the issue, got: {captured}"
+    );
+}

@@ -12,7 +12,7 @@ use ops_extension::Extension;
 use ops_extension::ExtensionInfo;
 use std::collections::HashMap;
 use std::path::Path;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Resolves the active stack from config override or auto-detection.
 /// DUP-001: Delegates to `Stack::resolve()` to avoid duplicating the chain.
@@ -82,13 +82,14 @@ pub fn builtin_extensions(
     let stack = resolve_stack(config, workspace_root);
     let compiled = collect_compiled_extensions(config, workspace_root);
 
-    let mut available: HashMap<&'static str, Box<dyn Extension>> = compiled
+    let stack_filtered: Vec<(&'static str, Box<dyn Extension>)> = compiled
         .into_iter()
         .filter(|(_, ext)| match ext.stack() {
             None => true,
             Some(ext_stack) => stack == Some(ext_stack),
         })
         .collect();
+    let mut available = dedup_compiled_extensions(stack_filtered);
 
     if let Some(s) = stack {
         debug!(stack = ?s, "stack resolved");
@@ -123,6 +124,42 @@ pub fn builtin_extensions(
         .collect();
     debug!(count = exts.len(), "extensions loaded from config");
     Ok(exts)
+}
+
+/// Collapse `(config_name, extension)` pairs into a `HashMap`, emitting a
+/// `tracing::warn!` audit breadcrumb for each duplicate `config_name` that
+/// would otherwise be silently dropped by `HashMap::insert`.
+///
+/// PATTERN-1 / TASK-1088: the symmetric command and data-provider audit
+/// pipelines (CL-5 / TASK-0756, DUP-1 / TASK-0876) explicitly surface
+/// duplicate registrations via `take_duplicate_inserts` + `tracing::warn!`;
+/// the discovery layer regressed by collapsing the `Vec<(name, ext)>` it
+/// gets back from `collect_compiled_extensions` straight into a `HashMap`,
+/// dropping the earlier `Box` for any colliding `config_name` with no
+/// breadcrumb.
+///
+/// **Resolution policy**: last-write-wins on duplicate `config_name`,
+/// matching `register_extension_commands` (CL-5 / TASK-0904) — the order
+/// is the link-time order of the `EXTENSION_REGISTRY` distributed slice,
+/// stable for a given build. Extracted as a free function so the warn
+/// path is unit-testable without touching the global slice.
+pub(super) fn dedup_compiled_extensions(
+    pairs: Vec<(&'static str, Box<dyn Extension>)>,
+) -> HashMap<&'static str, Box<dyn Extension>> {
+    let mut available: HashMap<&'static str, Box<dyn Extension>> =
+        HashMap::with_capacity(pairs.len());
+    for (name, ext) in pairs {
+        let new_ext_name = ext.name();
+        if let Some(prev) = available.insert(name, ext) {
+            warn!(
+                config_name = name,
+                first = prev.name(),
+                second = new_ext_name,
+                "duplicate compiled-in extension config_name; last-write-wins, the earlier extension is dropped"
+            );
+        }
+    }
+    available
 }
 
 /// Convert boxed extensions to trait-object references.
