@@ -88,7 +88,15 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    // ERR-1 / TASK-1040: `Path::parent()` returns `Some("")` — not `None` —
+    // for a bare filename like `Path::new("foo.toml")`. The empty path
+    // silently fails to open in the parent-fsync block below (ENOENT),
+    // skipping the crash-safety guarantee. Remap empty to "." so the fsync
+    // codepath actually runs against the cwd.
+    let parent = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
     let file_name = path.file_name().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no file name")
     })?;
@@ -401,6 +409,39 @@ mod tests {
             })
             .collect();
         assert!(leftovers.is_empty(), "leaked tmp: {leftovers:?}");
+    }
+
+    /// ERR-1 / TASK-1040: `atomic_write` with a bare-filename path (no
+    /// directory component) must still resolve a real parent directory for
+    /// the post-rename fsync. Pre-fix, `Path::parent()` returned `Some("")`,
+    /// the empty path fell through to `std::fs::File::open("")` which
+    /// errored with ENOENT, and the parent-fsync was silently skipped —
+    /// breaking the documented crash-safety guarantee for the production
+    /// `.ops.toml` write path (which IS a bare filename).
+    #[test]
+    #[serial_test::serial]
+    fn atomic_write_bare_filename_fsyncs_cwd_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let saved_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let result = atomic_write(Path::new("bare.toml"), b"payload");
+
+        // Restore cwd before any assertion to avoid poisoning sibling tests.
+        std::env::set_current_dir(&saved_cwd).unwrap();
+
+        result.expect("atomic_write must succeed for a bare filename");
+
+        // The file landed in the temp dir (proving cwd was the parent we
+        // resolved) and Path::new(".") opens successfully there — i.e. the
+        // fsync codepath had a real, openable directory handle to act on,
+        // rather than the empty path it would have had pre-fix.
+        let written = dir.path().join("bare.toml");
+        assert_eq!(std::fs::read(&written).unwrap(), b"payload");
+        assert!(
+            std::fs::File::open(dir.path()).is_ok(),
+            "parent dir must be openable for fsync"
+        );
     }
 
     /// READ-5 / TASK-0908: a leftover tmp file from a crash mid-write
