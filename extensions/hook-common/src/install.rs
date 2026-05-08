@@ -93,11 +93,31 @@ fn handle_existing_hook(
     upgrade_legacy_hook(hook_path, config, w)
 }
 
+/// Match a legacy ops marker against the script body.
+///
+/// PATTERN-1 (TASK-1072): the previous implementation used naked
+/// `content.contains(marker)`, which matched inside shell comments and
+/// quoted strings. A user-authored hook with a comment like
+/// `# legacy: ops run-before-commit (do not use)` would falsely trigger the
+/// upgrade path and have its script overwritten by the ops template.
+///
+/// We now scan line-by-line and skip lines whose first non-whitespace
+/// character is `#` (a shell comment). Within an uncommented line we still
+/// require the marker as a substring, but we also reject the case where
+/// the substring is preceded only by whitespace and a `#` that we missed
+/// (defence in depth: a marker on a line that is comment-only after
+/// trimming should never match).
 fn has_legacy_marker(content: &str, config: &HookConfig) -> bool {
-    config
-        .legacy_markers
-        .iter()
-        .any(|marker| content.contains(marker))
+    content.lines().any(|line| {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            return false;
+        }
+        config
+            .legacy_markers
+            .iter()
+            .any(|marker| trimmed.contains(marker))
+    })
 }
 
 /// Replace a legacy ops hook with the current script via a sibling temp file
@@ -348,6 +368,59 @@ mod tests {
 
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("Updating outdated"));
+    }
+
+    /// PATTERN-1 (TASK-1072): a user-authored hook whose only mention of an
+    /// ops legacy marker lives inside a shell comment must NOT be classified
+    /// as an ops legacy hook. The installer must refuse to overwrite it.
+    #[test]
+    fn install_hook_refuses_foreign_hook_with_marker_in_comment() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        // The marker appears only in a comment — this is a user-authored
+        // hook, not an ops-installed one.
+        let user_hook =
+            "#!/bin/sh\n# ops legacy marker: do not actually run `ops run-before-commit`\n\
+             echo my own checks\n";
+        std::fs::write(git_dir.join("hooks/pre-commit"), user_hook).unwrap();
+
+        let mut buf = Vec::new();
+        let result = install_hook(&cfg, &git_dir, &mut buf);
+        assert!(
+            result.is_err(),
+            "installer must refuse user hook whose marker is only in a comment"
+        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not installed by ops"));
+
+        // User's hook content must be preserved verbatim.
+        assert_eq!(
+            std::fs::read_to_string(git_dir.join("hooks/pre-commit")).unwrap(),
+            user_hook
+        );
+    }
+
+    /// PATTERN-1 (TASK-1072): unit-level coverage of `has_legacy_marker`
+    /// covering the comment-skip and indented-comment paths.
+    #[test]
+    fn has_legacy_marker_skips_commented_lines() {
+        let cfg = commit_config();
+        // Marker only inside a comment — must not match.
+        let only_in_comment = "#!/bin/sh\n# ops run-before-commit (legacy note)\necho hi\n";
+        assert!(!has_legacy_marker(only_in_comment, &cfg));
+
+        // Indented comment — still must not match.
+        let indented_comment = "#!/bin/sh\n    # ops run-before-commit\necho hi\n";
+        assert!(!has_legacy_marker(indented_comment, &cfg));
+
+        // Genuine ops hook line — must match.
+        let real_hook = "#!/bin/sh\nexec ops run-before-commit\n";
+        assert!(has_legacy_marker(real_hook, &cfg));
     }
 
     #[test]
