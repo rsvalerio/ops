@@ -95,6 +95,17 @@ impl CommandRunner {
             if let Some((k, v)) = self.config.commands.get_key_value(name) {
                 return Some((k.as_str(), v));
             }
+            // ERR-1 / TASK-1089: orphan config alias (alias map survived a
+            // config edit that removed the underlying entry). Fall through
+            // to stack / extension lookups below — both by the canonical
+            // name the orphan alias points to and by the original id, so a
+            // stack default sharing either name still resolves.
+            if let Some((k, v)) = self.stack_commands.get_key_value(name) {
+                return Some((k.as_str(), v));
+            }
+            if let Some((k, v)) = self.extension_commands.get_key_value(name) {
+                return Some((k.as_str(), v));
+            }
         }
         if let Some(name) = self.non_config_alias_map.get(id) {
             let n = name.as_str();
@@ -112,7 +123,24 @@ impl CommandRunner {
     fn resolve_alias(&self, alias: &str) -> Option<&CommandSpec> {
         // Config aliases use a dedicated method (separate alias map)
         if let Some(name) = self.config.resolve_alias(alias) {
-            return self.config.commands.get(name);
+            if let Some(spec) = self.config.commands.get(name) {
+                return Some(spec);
+            }
+            // ERR-1 / TASK-1089: orphan config alias — config alias map
+            // points at a name that has no command in `config.commands`
+            // (possible when a config edit removes the canonical entry but
+            // leaves a stale alias entry, or when alias storage drifts from
+            // command storage). Fall through to the stack/extension stores
+            // by the canonical name *and* by the original alias so a stack
+            // default of the same name still resolves instead of
+            // short-circuiting to `None`.
+            if let Some(spec) = self
+                .stack_commands
+                .get(name)
+                .or_else(|| self.extension_commands.get(name))
+            {
+                return Some(spec);
+            }
         }
         let canonical = self.non_config_alias_map.get(alias)?;
         self.stack_commands

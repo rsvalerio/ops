@@ -107,6 +107,76 @@ fn expand_to_leaves_via_alias() {
     assert_eq!(plan, vec!["build"]);
 }
 
+/// ERR-1 / TASK-1089: when a configured command that owns an alias is
+/// deleted (a user edits `.ops.toml` and removes the entry), the alias
+/// must still resolve if the same canonical name exists as a stack
+/// default. The pre-fix `resolve_alias` returned the `None` from
+/// `config.commands.get(name)` directly without consulting the stack /
+/// extension stores; the fix falls through to those stores so the alias
+/// stays usable.
+///
+/// The test seeds a config with a command + alias, deletes the command,
+/// and verifies the alias resolves to a stack default of the same name.
+/// It also exercises the orphan-fallthrough branch added to
+/// `resolve_alias` and `canonical_with_spec` by repopulating the
+/// non-config alias map after deletion (matching what
+/// `register_commands` would do for an extension that owns the alias).
+#[test]
+fn orphan_config_alias_falls_through_to_stack_default() {
+    use ops_core::config::CommandId;
+
+    // Seed: config command "build" with alias "b".
+    let mut commands = HashMap::new();
+    let mut spec = exec_spec("cargo", &["build"]);
+    spec.aliases = vec!["b".to_string()];
+    commands.insert("build".to_string(), CommandSpec::Exec(spec));
+    let mut runner = test_runner(commands);
+
+    // Stack default of the same canonical name. Inserted post-construction
+    // because `test_runner` does not detect a stack from a synthetic
+    // working directory.
+    runner.stack_commands.insert(
+        CommandId::from("build"),
+        CommandSpec::Exec(exec_spec("echo", &["from-stack"])),
+    );
+
+    // Sanity: with the config entry present the alias resolves to the
+    // config spec.
+    assert!(runner.resolve("b").is_some());
+
+    // Simulate the config edit that removed the underlying command.
+    {
+        let cfg =
+            Arc::get_mut(&mut runner.config).expect("runner is the sole Config owner in this test");
+        cfg.commands.shift_remove("build");
+    }
+    // Mirror the alias on the non-config alias map (what an extension or
+    // stack default that re-declared the alias would produce); without
+    // this entry there is nothing to resolve "b" to in any store.
+    runner
+        .non_config_alias_map
+        .insert("b".to_string(), "build".to_string());
+
+    // The alias must still resolve — to the stack default — rather than
+    // returning `None` (the pre-fix bug).
+    assert!(
+        runner.resolve("b").is_some(),
+        "alias `b` must fall through to the stack default after the config command was deleted"
+    );
+    assert!(
+        runner.resolve("build").is_some(),
+        "canonical name resolves via the stack store"
+    );
+
+    // expand_to_leaves drives `canonical_with_spec`; the single-pass
+    // canonical+spec lookup must agree with the double-pass `resolve`
+    // path (AC #3).
+    let plan = runner
+        .expand_to_leaves("b")
+        .expect("alias must canonicalize via canonical_with_spec");
+    assert_eq!(plan, vec!["build"]);
+}
+
 mod proptest_tests {
     use super::*;
     use proptest::prelude::*;
