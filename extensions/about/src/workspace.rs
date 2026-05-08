@@ -12,7 +12,7 @@
 //! ignored. Exclusion patterns follow the same shape and filter the resolved
 //! list (TASK-0389 / TASK-0400).
 
-use std::path::Path;
+use std::path::{Component, Path};
 
 use crate::manifest_io::read_optional_text;
 
@@ -33,6 +33,18 @@ pub fn resolve_member_globs(
 ) -> Vec<(String, String)> {
     let mut resolved: Vec<(String, String)> = Vec::new();
     for member in members {
+        // PATTERN-1 (TASK-1071): reject `..` traversal in member values before
+        // any I/O. Workspace config is operator-controlled so the impact is
+        // low, but `root.join(member)` is otherwise the only surface where a
+        // `../sibling` entry escapes the workspace root. Aligns with the
+        // SEC-13 dot-only-segment work in `git/src/remote.rs`.
+        if Path::new(member)
+            .components()
+            .any(|c| matches!(c, Component::ParentDir))
+        {
+            tracing::warn!(member, "workspace member contains `..` traversal; skipping");
+            continue;
+        }
         if let Some(idx) = member.find('*') {
             let prefix = &member[..idx];
             let parent = root.join(prefix);
@@ -386,6 +398,40 @@ mod tests {
         assert!(
             names.is_empty(),
             "multi-`*` exclude must fail closed (drop candidates), got {names:?}"
+        );
+    }
+
+    /// PATTERN-1 (TASK-1071): a non-glob member value containing `..` must be
+    /// rejected before any I/O — `root.join("../sibling")` would otherwise
+    /// escape the workspace root. The valid sibling member `packages/foo`
+    /// continues to resolve, confirming the check only fires on `ParentDir`
+    /// components. The accompanying `tracing::warn` is exercised but not
+    /// asserted here to avoid pulling in a tracing-subscriber dev-dep.
+    #[test]
+    fn parent_dir_member_is_rejected_sibling_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create a "sibling" manifest one level above `root` that a `..`
+        // traversal would otherwise reach.
+        let root = dir.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        write(
+            &dir.path().join("sibling/package.json"),
+            r#"{"name":"escape"}"#,
+        );
+        // Valid in-root member must still load.
+        write(&root.join("packages/foo/package.json"), r#"{"name":"foo"}"#);
+
+        let resolved = resolve_member_globs(
+            &["../sibling".to_string(), "packages/foo".to_string()],
+            &[],
+            &root,
+            "package.json",
+        );
+        let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["packages/foo"],
+            "`..` traversal must be rejected; sibling member must still load"
         );
     }
 
