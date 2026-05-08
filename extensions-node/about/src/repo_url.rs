@@ -7,12 +7,31 @@
 //! target and a documented boundary, separate from the serde model and
 //! the parse orchestrator in [`super::package_json`].
 
+/// Strip ASCII control characters (C0: U+0000..U+001F, plus DEL U+007F)
+/// from a repository URL body. SEC-2 / TASK-1080: an adversarial
+/// `package.json` `repository.url` like `"github:owner/repo\nINJECT"`
+/// flows verbatim into About cards, markdown, HTML, and operator-facing
+/// log lines. Sister policy to the SEC-14 traversal fix
+/// ([`append_tree_directory`]) and the ERR-7 path-debug-escape pattern:
+/// repository URLs are operator-facing surfaces and must be single-line
+/// and free of ANSI escape (U+001B) injection.
+fn strip_control_chars(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| !c.is_control() && *c != '\u{007f}')
+        .collect()
+}
+
 /// Normalise a `repository` URL value: turn npm shorthand
 /// (`github:owner/repo`), git+ssh, ssh scp form, git+https, and the bare
 /// `.git` suffix into a plain `https://host/path` shape that renders
 /// cleanly in the About card.
 ///
 /// SSH URL handling is delegated to [`ssh_to_https`].
+///
+/// SEC-2 / TASK-1080: control characters (CR, LF, ANSI escape, other
+/// C0 / DEL) are stripped from the URL body before any prefix logic
+/// runs, so a `"github:owner/repo\nINJECT"` repository field cannot
+/// inject a newline into the rendered link or a debug-log line.
 pub(crate) fn normalize_repo_url(raw: &str) -> String {
     /// (shorthand prefix, host) for npm hostname shortcuts.
     const HOST_PREFIXES: &[(&str, &str)] = &[
@@ -21,7 +40,8 @@ pub(crate) fn normalize_repo_url(raw: &str) -> String {
         ("bitbucket:", "bitbucket.org"),
     ];
 
-    let s = raw.trim();
+    let sanitised = strip_control_chars(raw);
+    let s = sanitised.trim();
     for (prefix, host) in HOST_PREFIXES {
         if let Some(rest) = s.strip_prefix(prefix) {
             return format!("https://{host}/{rest}");
@@ -260,5 +280,61 @@ mod tests {
     #[test]
     fn normalize_scoped_npm_name_falls_through() {
         assert_eq!(normalize_repo_url("@scope/name"), "@scope/name");
+    }
+
+    /// SEC-2 / TASK-1080: an embedded LF inside a `github:` shorthand must
+    /// not survive into the rendered URL — it would otherwise inject a
+    /// newline into About cards, markdown, HTML, and debug log lines.
+    #[test]
+    fn normalize_strips_embedded_lf_in_shorthand() {
+        let out = normalize_repo_url("github:owner/repo\nINJECT");
+        assert!(!out.contains('\n'), "url still contains LF: {out:?}");
+        assert_eq!(out, "https://github.com/owner/repoINJECT");
+    }
+
+    /// SEC-2 / TASK-1080: a CR inside a git+https URL (Object{url} shape)
+    /// is stripped before normalisation. Pins the behaviour for the
+    /// `repository: { url: "..." }` parse path, which routes through the
+    /// same `normalize_repo_url` entry point.
+    #[test]
+    fn normalize_strips_embedded_cr_in_git_https() {
+        let out = normalize_repo_url("git+https://github.com/o/r\r.git");
+        assert!(!out.contains('\r'), "url still contains CR: {out:?}");
+        assert_eq!(out, "https://github.com/o/r");
+    }
+
+    /// SEC-2 / TASK-1080: ANSI escape (U+001B) bytes embedded in the URL
+    /// body must not flow into operator-facing surfaces (About cards,
+    /// log lines) where they would be interpreted as terminal escapes.
+    #[test]
+    fn normalize_strips_embedded_ansi_escape() {
+        let out = normalize_repo_url("https://github.com/o/\u{1b}[31mr");
+        assert!(!out.contains('\u{1b}'), "url still contains ESC: {out:?}");
+        assert_eq!(out, "https://github.com/o/[31mr");
+    }
+
+    /// SEC-2 / TASK-1080: the Text shape (`repository: "github:..."`)
+    /// must also be sanitised. Pins the regression for both repository
+    /// field shapes — Text and Object{url} — feeding the same helper.
+    #[test]
+    fn normalize_strips_control_chars_in_text_shape() {
+        let out = normalize_repo_url("github:owner/repo\rINJECT\nMORE");
+        assert!(
+            !out.contains('\r') && !out.contains('\n'),
+            "url still contains control chars: {out:?}"
+        );
+        assert_eq!(out, "https://github.com/owner/repoINJECTMORE");
+    }
+
+    /// SEC-2 / TASK-1080: a debug-log of the normalised URL must remain
+    /// single-line — i.e. the `Debug`/`Display` rendering after
+    /// normalisation contains no embedded newlines.
+    #[test]
+    fn normalize_debug_log_stays_single_line() {
+        let out = normalize_repo_url("github:owner/repo\nINJECT\rMORE");
+        let debug = format!("{out:?}");
+        let display = out.to_string();
+        assert!(!debug.contains('\n') && !debug.contains('\r'));
+        assert!(!display.contains('\n') && !display.contains('\r'));
     }
 }
