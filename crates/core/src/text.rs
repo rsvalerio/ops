@@ -2,6 +2,7 @@
 
 use std::io::Read;
 use std::path::Path;
+use std::sync::OnceLock;
 
 /// SEC-33 (TASK-0932): default cap on manifest-style file reads
 /// (`Cargo.toml`, `go.mod`, `package.json`, `requirements.txt`, …).
@@ -15,14 +16,59 @@ pub const MANIFEST_MAX_BYTES_DEFAULT: u64 = 4 * 1024 * 1024;
 /// that fail to parse or are zero fall back to [`MANIFEST_MAX_BYTES_DEFAULT`].
 pub const MANIFEST_MAX_BYTES_ENV: &str = "OPS_MANIFEST_MAX_BYTES";
 
-/// Effective manifest read cap. Resolved from the env knob on every call so
-/// tests can override without process restart.
+/// PERF-3 / TASK-1055: resolve the env-driven cap once per process. The
+/// value is process-global and constant for a run, so the prior per-call
+/// `std::env::var` lookup contended on the global env lock under parallel
+/// stack-detection probes (which call this from `read_capped_to_string`
+/// for every manifest read). `OnceLock` keeps the override / fallback
+/// semantics (parsed at first use) without re-reading. Mirrors
+/// `crates/runner/src/command/results.rs::output_byte_cap` (TASK-0542).
+static MANIFEST_MAX_BYTES: OnceLock<u64> = OnceLock::new();
+
+/// ERR-2 / TASK-0840 (mirrored for TASK-1055): pure parser for the
+/// `OPS_MAX_MANIFEST_BYTES` env value. Returns the resolved cap and, when
+/// the input was present-but-unusable, a human message describing the
+/// fallback so the caller can emit a `tracing::warn!` outside the
+/// unit-test path. Factored out so the fallback semantics are
+/// unit-testable without poking the process-global `OnceLock`.
+fn parse_manifest_max_bytes(raw: Option<&str>) -> (u64, Option<String>) {
+    match raw {
+        None => (MANIFEST_MAX_BYTES_DEFAULT, None),
+        Some(s) => match s.parse::<u64>() {
+            Ok(n) if n > 0 => (n, None),
+            Ok(_) => (
+                MANIFEST_MAX_BYTES_DEFAULT,
+                Some(format!(
+                    "{MANIFEST_MAX_BYTES_ENV}={s:?} is not a positive integer; using default {MANIFEST_MAX_BYTES_DEFAULT}"
+                )),
+            ),
+            Err(e) => (
+                MANIFEST_MAX_BYTES_DEFAULT,
+                Some(format!(
+                    "{MANIFEST_MAX_BYTES_ENV}={s:?} failed to parse as u64 ({e}); using default {MANIFEST_MAX_BYTES_DEFAULT}"
+                )),
+            ),
+        },
+    }
+}
+
+/// Effective manifest read cap. Resolved from the env knob on the first
+/// call and cached behind a `OnceLock<u64>` for the remainder of the
+/// process — subsequent calls do not touch `std::env`. Tests that need to
+/// override the cap must set `OPS_MANIFEST_MAX_BYTES` before any call to
+/// `manifest_max_bytes` (directly or via `read_capped_to_string` /
+/// `for_each_trimmed_line`); changes after the first read are ignored.
+/// Unparseable / zero values fall back to [`MANIFEST_MAX_BYTES_DEFAULT`]
+/// with a one-shot `tracing::warn!` from the `OnceLock` initialiser.
 pub fn manifest_max_bytes() -> u64 {
-    std::env::var(MANIFEST_MAX_BYTES_ENV)
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .filter(|n| *n > 0)
-        .unwrap_or(MANIFEST_MAX_BYTES_DEFAULT)
+    *MANIFEST_MAX_BYTES.get_or_init(|| {
+        let raw = std::env::var(MANIFEST_MAX_BYTES_ENV).ok();
+        let (cap, warn_msg) = parse_manifest_max_bytes(raw.as_deref());
+        if let Some(msg) = warn_msg {
+            tracing::warn!(env_var = MANIFEST_MAX_BYTES_ENV, "{msg}");
+        }
+        cap
+    })
 }
 
 /// Read `path` to a `String`, capped at [`manifest_max_bytes`] bytes.
@@ -34,7 +80,13 @@ pub fn manifest_max_bytes() -> u64 {
 /// `NotFound` and other IO errors are returned verbatim so callers can
 /// classify (silent fall-through vs warn-and-skip vs hard fail).
 pub fn read_capped_to_string(path: &Path) -> std::io::Result<String> {
-    let cap = manifest_max_bytes();
+    read_capped_to_string_with(path, manifest_max_bytes())
+}
+
+/// Internal: same as [`read_capped_to_string`] but with an explicit cap.
+/// Used by unit tests to exercise the cap-handling behaviour without
+/// depending on the process-global memoised [`manifest_max_bytes`] value.
+fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut buf = String::new();
     let limit = cap.saturating_add(1);
