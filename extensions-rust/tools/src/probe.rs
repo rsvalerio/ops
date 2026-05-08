@@ -242,6 +242,64 @@ pub fn check_binary_installed_with(name: &str, index: Option<&PathIndex>) -> boo
     }
 }
 
+/// PATTERN-1 / TASK-1101: `cargo --list` enumerates *every* subcommand cargo
+/// knows about — built-ins like `build` / `check` / `test` / `run` ship inside
+/// the cargo binary itself, not as separately installable `cargo-*` crates.
+/// Historically `is_in_cargo_list` happily matched these names, so a
+/// `tools.toml` entry called `build` (a `ToolSource::Cargo` spec) would be
+/// reported `Installed` despite no `cargo install cargo-build` ever having
+/// run, and a subsequent `install_tool` would short-circuit on the
+/// `is_installed` flag without actually installing anything. Filter the
+/// known built-ins out of the membership check so a deliberate (or
+/// accidental) collision falls through to the PATH-based binary probe and
+/// ultimately drives an install.
+///
+/// Coverage is intentionally comprehensive but not exhaustive; cargo grows
+/// new built-ins occasionally, and "missing some" only re-exposes the prior
+/// false-positive for that specific name. The common ones — the full set of
+/// build / test / dependency / publish workflow verbs — are pinned here.
+const CARGO_BUILTIN_SUBCOMMANDS: &[&str] = &[
+    "add",
+    "bench",
+    "build",
+    "check",
+    "clean",
+    "clippy",
+    "config",
+    "doc",
+    "fetch",
+    "fix",
+    "fmt",
+    "generate-lockfile",
+    "help",
+    "init",
+    "install",
+    "locate-project",
+    "login",
+    "logout",
+    "metadata",
+    "new",
+    "owner",
+    "package",
+    "pkgid",
+    "publish",
+    "read-manifest",
+    "remove",
+    "report",
+    "run",
+    "rustc",
+    "rustdoc",
+    "search",
+    "test",
+    "tree",
+    "uninstall",
+    "update",
+    "vendor",
+    "verify-project",
+    "version",
+    "yank",
+];
+
 pub(crate) fn is_in_cargo_list(stdout: &str, name: &str) -> bool {
     let cargo_name = name.strip_prefix("cargo-").unwrap_or(name);
     // TASK-0526: an empty short-name (caller passed "cargo-" or "") would
@@ -249,6 +307,16 @@ pub(crate) fn is_in_cargo_list(stdout: &str, name: &str) -> bool {
     // with leading whitespace. Reject early so a malformed [tools] entry
     // can't produce a false positive.
     if cargo_name.is_empty() {
+        return false;
+    }
+    // PATTERN-1 / TASK-1101: see `CARGO_BUILTIN_SUBCOMMANDS` doc — a
+    // `tools.toml` entry whose short-name collides with a cargo built-in
+    // must NOT be treated as installed via the membership check, because
+    // the built-in is shipped inside the cargo binary and was never
+    // `cargo install`-ed. Returning false here pushes the caller through
+    // the `check_binary_installed_with` PATH fallback, which only fires for
+    // an actual `cargo-<name>` executable on `$PATH`.
+    if CARGO_BUILTIN_SUBCOMMANDS.contains(&cargo_name) {
         return false;
     }
     stdout.lines().any(|line| {
