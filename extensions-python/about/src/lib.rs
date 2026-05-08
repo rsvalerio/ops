@@ -350,7 +350,26 @@ fn pick_url(
         // policy so a whitespace-only URL renders as "no homepage" instead of
         // an empty About bullet.
         .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+        // SEC-2 / TASK-1207: a `[project.urls]` value containing any control
+        // byte (C0 / DEL / Unicode `is_control`) is dropped entirely, mirroring
+        // the SEC-2 / TASK-1165 policy in
+        // `extensions-node/about::repo_url::normalize_repo_url`. Stripping
+        // would silently concatenate the attacker-controlled tail
+        // (`https://demo.dev\nINJECT` → `https://demo.devINJECT`) into a
+        // clickable URL pointing at an attacker-chosen path; dropping
+        // surfaces the field as missing in About cards / markdown / HTML.
+        .filter(|s| !s.is_empty() && !contains_control_chars(s))
+}
+
+/// SEC-2 / TASK-1207: detect ASCII / Unicode control characters (C0:
+/// U+0000..U+001F, DEL U+007F, plus the broader `char::is_control` set
+/// covering C1) in a `[project.urls]` value. The field is rendered into
+/// About cards (markdown + HTML), JSON output, and operator-facing log
+/// lines; any control byte is treated as evidence of tampering and the
+/// field is dropped. Sister policy to
+/// `extensions-node/about::repo_url::contains_control_chars` (TASK-1165).
+fn contains_control_chars(raw: &str) -> bool {
+    raw.chars().any(|c| c.is_control() || c == '\u{007f}')
 }
 
 fn normalize_url_key(key: &str) -> String {
@@ -686,6 +705,67 @@ Repository = "https://github.com/x/demo"
             id.homepage.is_none(),
             "whitespace-only Homepage must drop, got: {:?}",
             id.homepage
+        );
+    }
+
+    /// SEC-2 / TASK-1207: a `[project.urls]` value containing an embedded
+    /// newline must not survive into ProjectIdentity.homepage — sister
+    /// policy to extensions-node/about::strip_control_chars (TASK-1080) and
+    /// the field-drop policy (TASK-1165). Stripping would silently
+    /// concatenate `https://demo.dev\nINJECTED` into a clickable
+    /// attacker-named URL; dropping surfaces the field as missing.
+    #[test]
+    fn homepage_with_embedded_newline_drops_field() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\n\
+             name = \"demo\"\n\
+             version = \"1.0.0\"\n\
+             \n\
+             [project.urls]\n\
+             Homepage = \"https://demo.dev\\nINJECTED\"\n",
+        )
+        .unwrap();
+
+        let provider = PythonIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let id: ProjectIdentity =
+            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert!(
+            id.homepage.is_none(),
+            "Homepage with embedded LF must drop, got: {:?}",
+            id.homepage
+        );
+    }
+
+    /// SEC-2 / TASK-1207: a `[project.urls]` Repository value containing an
+    /// embedded ANSI escape (U+001B) must not survive — would otherwise
+    /// repaint the operator terminal when the About card is rendered.
+    #[test]
+    fn repository_with_embedded_ansi_drops_field() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\n\
+             name = \"demo\"\n\
+             version = \"1.0.0\"\n\
+             \n\
+             [project.urls]\n\
+             Repository = \"https://demo.dev\\u001b[31mfake\"\n",
+        )
+        .unwrap();
+
+        let provider = PythonIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let id: ProjectIdentity =
+            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert!(
+            id.repository.is_none(),
+            "Repository with embedded ANSI escape must drop, got: {:?}",
+            id.repository
         );
     }
 

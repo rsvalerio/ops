@@ -4,7 +4,19 @@ use std::io::Write;
 use std::process::ExitCode;
 
 use ops_core::config::CommandSpec;
+use ops_core::ui::sanitise_line;
 use ops_runner::command::{is_sensitive_env_key, looks_like_secret_value_public};
+
+/// SEC-21 / TASK-1184: route an audit-channel value through `sanitise_line`
+/// so ANSI clear-screen / cursor-move / NUL bytes embedded in a
+/// `.ops.toml` value (or its `${VAR}` expansion) cannot repaint the
+/// operator's terminal during `ops --dry-run`. Mirrors the stderr policy
+/// from `ops_core::ui::emit_to`.
+fn audit_safe(value: &str) -> String {
+    let mut buf = String::with_capacity(value.len());
+    sanitise_line(value, &mut buf);
+    buf
+}
 
 /// SEC-001: Preview commands without executing.
 ///
@@ -54,9 +66,13 @@ pub(crate) fn print_exec_spec(
     // ERR-7 (TASK-0576): switch to strict expansion so a non-UTF-8 env var
     // surfaces in the dry-run preview instead of being silently logged while
     // the literal `${VAR}` flows to display.
-    writeln!(w, "      program: {}", vars.try_expand(&e.program)?)?;
+    writeln!(
+        w,
+        "      program: {}",
+        audit_safe(&vars.try_expand(&e.program)?)
+    )?;
     if let Some(args) = e.expanded_args_display(vars)? {
-        writeln!(w, "      args:    {}", args)?;
+        writeln!(w, "      args:    {}", audit_safe(&args))?;
     }
     if !e.env.is_empty() {
         writeln!(w, "      env:")?;
@@ -86,9 +102,9 @@ pub(crate) fn print_exec_spec(
                 if is_sensitive_env_key(k) || looks_like_secret_value_public(&expanded) {
                     "***REDACTED***".to_string()
                 } else {
-                    expanded.into_owned()
+                    audit_safe(&expanded)
                 };
-            writeln!(w, "        {}={}", k, display_val)?;
+            writeln!(w, "        {}={}", audit_safe(k), display_val)?;
         }
     }
     if let Some(cwd) = &e.cwd {
@@ -100,12 +116,12 @@ pub(crate) fn print_exec_spec(
         let lossy = cwd.to_string_lossy();
         let expanded = vars.try_expand(&lossy)?;
         if cwd.to_str().is_some() {
-            writeln!(w, "      cwd:     {}", expanded)?;
+            writeln!(w, "      cwd:     {}", audit_safe(&expanded))?;
         } else {
             writeln!(
                 w,
                 "      cwd:     {} (non-UTF-8 path; lossy preview)",
-                expanded
+                audit_safe(&expanded)
             )?;
         }
     }

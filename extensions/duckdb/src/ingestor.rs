@@ -417,7 +417,7 @@ mod tests {
     #[test]
     fn data_ingestor_trait_collect() {
         let ingestor = MockIngestor { name: "test" };
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let ctx = Context::new(config, std::path::PathBuf::from("."));
         let temp_dir = tempfile::tempdir().expect("tempdir");
         ingestor
@@ -606,7 +606,7 @@ mod tests {
         #[test]
         fn ingestor_collect_error_propagates() {
             let ingestor = FailingCollectIngestor;
-            let config = std::sync::Arc::new(ops_core::config::Config::default());
+            let config = std::sync::Arc::new(ops_core::config::Config::empty());
             let ctx = Context::new(config, std::path::PathBuf::from("."));
             let temp_dir = tempfile::tempdir().expect("tempdir");
             let result = ingestor.collect(&ctx, temp_dir.path());

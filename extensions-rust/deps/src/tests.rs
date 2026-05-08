@@ -21,7 +21,7 @@ mod user_config_tests {
     use serial_test::serial;
 
     /// `build_user_context` must read the user's `.ops.toml` rather than
-    /// falling back to `Config::default()`. We chdir to a tempdir that
+    /// falling back to `Config::empty()`. We chdir to a tempdir that
     /// contains a config file with a recognizable `stack` and confirm the
     /// resulting Context carries that value through to the data provider
     /// boundary (i.e. `ctx.config.stack`).
@@ -1481,5 +1481,59 @@ fn check_tool_in_times_out_on_hung_probe() {
     assert!(
         msg.contains("timed out") || msg.contains("wedged"),
         "expected timeout-shaped error, got: {msg}"
+    );
+}
+
+// -- ERR-7 / SEC-21 / TASK-1160: stderr tail Debug-escapes control bytes --
+
+/// `interpret_upgrade_output` and `interpret_deny_result` must format the
+/// stderr tail through the `?` formatter so embedded ANSI / newlines /
+/// NULs from cargo-edit / cargo-deny cannot forge log records or repaint
+/// the operator terminal. Pin the value-level escape on the unrecognised
+/// upgrade-exit arm.
+#[test]
+fn interpret_upgrade_output_unrecognised_exit_debug_escapes_stderr_tail() {
+    let stderr = b"warn\nerror: \x1b[31mhi\x1b[0m\nbye\n";
+    let result = crate::parse::interpret_upgrade_output(Some(7), b"", stderr);
+    let err = result.expect_err("unrecognised exit must surface");
+    let msg = err.to_string();
+    assert!(
+        !msg.contains('\u{1b}'),
+        "ANSI ESC must not survive in: {msg:?}"
+    );
+    assert!(
+        msg.contains("\\n") || !msg.contains('\n'),
+        "stderr newlines must be escaped or stripped: {msg:?}"
+    );
+}
+
+/// Pin the same escape contract on the zero-diagnostics exit-1 arm.
+#[test]
+fn interpret_deny_result_zero_diagnostics_debug_escapes_stderr_tail() {
+    let stderr = "error[A001]\n\x1b[31mfatal\x1b[0m\n";
+    let result = interpret_deny_result(Some(1), stderr);
+    let err = result.expect_err("non-JSON stderr at exit 1 must surface");
+    let msg = err.to_string();
+    assert!(
+        !msg.contains('\u{1b}'),
+        "ANSI ESC must not survive in: {msg:?}"
+    );
+}
+
+/// Pin the escape contract on the exit-2 (configuration error) arm — TASK-1250.
+#[test]
+fn interpret_deny_result_exit_two_debug_escapes_stderr_tail() {
+    let stderr = "error: \x1b[31minvalid TOML\x1b[0m\nbye\n";
+    let result = interpret_deny_result(Some(2), stderr);
+    let err = result.expect_err("config error must surface");
+    let msg = err.to_string();
+    assert!(
+        !msg.contains('\u{1b}'),
+        "ANSI ESC must not survive in: {msg:?}"
+    );
+    // Operator-readable content survives.
+    assert!(
+        msg.contains("invalid TOML"),
+        "expected stderr context preserved: {msg}"
     );
 }

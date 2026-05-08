@@ -79,7 +79,7 @@ impl Drop for CwdGuard {
 #[allow(dead_code)]
 pub fn test_context(path: std::path::PathBuf) -> ops_extension::Context {
     use std::sync::Arc;
-    ops_extension::Context::new(Arc::new(ops_core::config::Config::default()), path)
+    ops_extension::Context::new(Arc::new(ops_core::config::Config::empty()), path)
 }
 
 /// DUP-006: Register an extension and return both registries.

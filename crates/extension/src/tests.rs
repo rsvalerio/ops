@@ -598,3 +598,19 @@ fn data_registry_default() {
     let registry = DataRegistry::default();
     assert!(registry.provider_names().is_empty());
 }
+
+/// SEC-21 / TASK-1226: `DataRegistry::register` formats the runtime-
+/// generated `provider_name` field via the `?` (Debug) formatter so an
+/// extension that builds a provider name from external data containing
+/// newlines or ANSI sequences cannot forge log entries through the
+/// duplicate-insert breadcrumb. Pin the value-level escape directly,
+/// mirroring `program_field_debug_escapes_control_characters`
+/// (TASK-1127) and the broader workspace policy.
+#[test]
+fn provider_name_field_debug_escapes_control_characters() {
+    let name = "stub\nFAKE_LOG\n\u{1b}[31m";
+    let rendered = format!("{name:?}");
+    assert!(!rendered.contains('\n'));
+    assert!(!rendered.contains('\u{1b}'));
+    assert!(rendered.contains("\\n"));
+}

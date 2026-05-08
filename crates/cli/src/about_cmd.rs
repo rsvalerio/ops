@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn run_about_setup_non_tty_returns_error() {
         let registry = DataRegistry::new();
-        let config = ops_core::config::Config::default();
+        let config = ops_core::config::Config::empty();
         let dir = tempfile::tempdir().expect("tempdir");
         let result = run_about_setup_with(&config, &registry, dir.path(), || false);
         assert!(result.is_err());

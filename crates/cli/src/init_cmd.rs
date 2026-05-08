@@ -29,15 +29,21 @@ fn run_init_to(
     match write_init(&path, content.as_bytes(), force) {
         Ok(()) => {}
         Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+            // ERR-7 / TASK-1191: Debug-format the path so newlines / ANSI in
+            // a hostile cwd cannot forge log records. Mirrors the manifest-
+            // probe sweep (TASK-0944 / TASK-0945).
             tracing::warn!(
-                "{} already exists; not overwriting (use --force to overwrite)",
-                path.display()
+                path = ?path.display(),
+                "ops.toml already exists; not overwriting (use --force to overwrite)"
             );
             return Ok(());
         }
         Err(e) => return Err(e.into()),
     }
-    tracing::info!("created {}", path.display());
+    // ERR-7 / TASK-1191: Debug-format the path on the success info event too
+    // so a hostile cwd cannot smuggle newlines / ANSI into the structured-log
+    // pipeline through the same field.
+    tracing::info!(path = ?path.display(), "created .ops.toml");
     if sections.commands {
         let stack = ops_core::stack::Stack::detect(&cwd);
         if stack.is_some() {
@@ -95,16 +101,19 @@ fn write_init(path: &Path, bytes: &[u8], force: bool) -> std::io::Result<()> {
             match std::fs::File::open(parent) {
                 Ok(dir) => {
                     if let Err(e) = dir.sync_all() {
+                        // ERR-7 / TASK-1191: Debug-format the parent path so
+                        // a hostile cwd cannot forge log records.
                         tracing::warn!(
-                            parent = %parent.display(),
+                            parent = ?parent.display(),
                             error = %e,
                             "directory fsync after .ops.toml create failed; new file may not survive a power loss"
                         );
                     }
                 }
                 Err(e) => {
+                    // ERR-7 / TASK-1191: Debug-format the parent path.
                     tracing::warn!(
-                        parent = %parent.display(),
+                        parent = ?parent.display(),
                         error = %e,
                         "could not open parent directory to fsync after .ops.toml create; new file may not survive a power loss"
                     );
@@ -288,6 +297,21 @@ mod tests {
             !dir.path().join(".ops.toml").exists(),
             "no .ops.toml should leak into the parent tempdir"
         );
+    }
+
+    /// ERR-7 / TASK-1191: the warn / info / fsync-warn events in init_cmd
+    /// format paths via the `?` (Debug) formatter so newlines / ANSI in a
+    /// hostile cwd-derived path cannot forge log records. This pins the
+    /// value-level escape contract directly without spinning up a tracing
+    /// subscriber, mirroring `stack_detection_path_debug_escapes_control_characters`.
+    #[test]
+    fn init_cmd_path_debug_escapes_control_characters() {
+        let raw = "/tmp/dir\n\u{1b}[31m/.ops.toml";
+        let display = std::path::Path::new(raw).display().to_string();
+        let rendered = format!("{display:?}");
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
     }
 
     #[test]

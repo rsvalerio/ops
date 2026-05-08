@@ -210,7 +210,9 @@ fn redact_spawn_error(program: &str, e: &std::io::Error) -> String {
 /// fields evolve. `context` is included as a tracing field so the two call
 /// sites remain distinguishable in logs ("captured" vs "raw").
 fn log_and_redact_spawn_error(program: &str, e: &std::io::Error, context: &'static str) -> String {
-    tracing::debug!(error = %e, program = %program, context, "exec spawn failed (full error)");
+    // SEC-21 / TASK-1127: format `program` via Debug so newlines/ANSI escape sequences
+    // smuggled through `.ops.toml`-supplied program names cannot forge log entries.
+    tracing::debug!(error = %e, program = ?program, context, "exec spawn failed (full error)");
     redact_spawn_error(program, e)
 }
 
@@ -647,4 +649,22 @@ pub fn resolution_failure(
 ) -> StepResult {
     emit_instant_failure(id, &message, on_event);
     StepResult::failure(id, Duration::ZERO, message)
+}
+
+#[cfg(test)]
+mod spawn_error_log_format_tests {
+    /// SEC-21 / TASK-1127: `log_and_redact_spawn_error` formats `program`
+    /// (the raw `.ops.toml`-supplied program string) via the `?` (Debug)
+    /// formatter so embedded newlines / ANSI escapes cannot forge log
+    /// records or repaint operator terminals. Pin the value-level escape
+    /// without requiring a tracing-subscriber dev-dep, mirroring
+    /// `stderr_snippet_debug_escapes_control_characters` in tools/probe.rs.
+    #[test]
+    fn program_field_debug_escapes_control_characters() {
+        let program = "evil\nFAKE_LOG_LINE\n\u{1b}[31mred\u{1b}[0m";
+        let rendered = format!("{program:?}");
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
+    }
 }

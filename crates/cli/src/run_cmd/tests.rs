@@ -17,7 +17,7 @@ fn display_cmd_for_exec_command() {
 
 #[test]
 fn display_cmd_for_unknown_returns_id() {
-    let config = ops_core::config::Config::default();
+    let config = ops_core::config::Config::empty();
     let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
     assert_eq!(display_cmd_for(&runner, "missing"), "missing");
 }
@@ -217,7 +217,7 @@ mod build_display_map_tests {
 
     #[test]
     fn build_display_map_with_unknown_command() {
-        let config = ops_core::config::Config::default();
+        let config = ops_core::config::Config::empty();
         let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         let display_map = build_display_map(&runner, &["unknown".into()]);
 
@@ -238,7 +238,7 @@ mod build_display_map_tests {
     #[test]
     fn display_cmd_for_with_extension_command() {
         let mut runner = ops_runner::command::CommandRunner::new(
-            ops_core::config::Config::default(),
+            ops_core::config::Config::empty(),
             PathBuf::from("."),
         );
         runner.register_commands(vec![(
@@ -598,6 +598,39 @@ mod run_command_dry_run_tests {
             "annotation missing: {output}"
         );
     }
+
+    /// SEC-21 / TASK-1184: print_exec_spec routes program / args / env
+    /// values / cwd through `sanitise_line` so an adversarial `.ops.toml`
+    /// (or `${VAR}` expansion) carrying ANSI clear-screen / cursor-move
+    /// bytes cannot repaint the operator's terminal during dry-run.
+    /// Mirrors the stderr policy from `ops_core::ui::emit_to`.
+    #[test]
+    fn dry_run_escapes_ansi_in_program_args_env_and_cwd() {
+        let mut spec = ops_core::config::ExecCommandSpec::new(
+            "x\u{1b}[2J\u{1b}[H",
+            vec!["arg\u{1b}[31m".to_string()],
+        );
+        let mut env = std::collections::HashMap::new();
+        env.insert("INNOCUOUS".to_string(), "v\u{1b}[2K".to_string());
+        spec.env = env;
+        spec.cwd = Some(PathBuf::from("/tmp/cwd\u{1b}[2J"));
+        let config = TestConfigBuilder::new()
+            .command("evil", ops_core::config::CommandSpec::Exec(spec))
+            .build();
+        let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+        let mut buf = Vec::new();
+        let result = run_command_dry_run_to(&runner, "evil", &mut buf);
+        assert!(result.is_ok());
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            !output.contains('\u{1b}'),
+            "raw ESC byte must not survive in dry-run audit output: {output:?}"
+        );
+        assert!(
+            output.contains("\\x1b"),
+            "expected escaped \\x1b form in: {output:?}"
+        );
+    }
 }
 
 mod raw_warnings_tests {
@@ -758,7 +791,7 @@ mod nested_parallel_detection_tests {
         // Two composites referencing each other — should terminate.
         let a = CompositeCommandSpec::new(["b"]);
         let b = CompositeCommandSpec::new(["a"]);
-        let mut config = ops_core::config::Config::default();
+        let mut config = ops_core::config::Config::empty();
         config
             .commands
             .insert("a".to_string(), CommandSpec::Composite(a));

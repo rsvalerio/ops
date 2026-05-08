@@ -193,7 +193,7 @@ pub fn run_deps(
 
     // ERR-4 / TASK-0405: route through the same config-loading path as
     // sibling subcommands (`run_about`, `run_extension_show`). Previously
-    // this constructed `Config::default()`, so any `[deps]`/global settings
+    // this constructed `Config::empty()`, so any `[deps]`/global settings
     // that happen to be added to `Config` would silently no-op for `ops
     // deps` while working for `ops about deps`.
     let mut ctx = build_user_context()?;

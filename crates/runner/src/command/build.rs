@@ -211,8 +211,26 @@ where
 /// ERR-1 / TASK-0450: convert a strict-expansion error into an `io::Error`
 /// so build failures share the spawn-error pipeline and surface as a
 /// `StepFailed` event rather than panicking through `expect`.
+///
+/// SEC-22 / TASK-1175: the produced `io::Error` is the source of
+/// `StepFailed.message` and the TAP file body, both of which round-trip
+/// to CI artifacts. Log the full chain (including the offending variable
+/// name and the underlying `VarError`) at `tracing::debug!` like
+/// `log_and_redact_spawn_error`, but return a generic operator-facing
+/// message so the variable name from a `.ops.toml`-supplied
+/// `${OPS_TOKEN}`/`${ATTACKER_VAR}` reference cannot leak into uploaded
+/// CI logs. Operators chasing the leak follow the same `RUST_LOG=debug`
+/// path as for spawn-error redaction.
 fn expand_err_to_io(err: ExpandError) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string())
+    tracing::debug!(
+        error = ?err,
+        var_name = ?err.var_name,
+        "expand: variable expansion failed (full error)"
+    );
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        "variable expansion failed",
+    )
 }
 
 /// Lexically normalize a path by resolving `.` and `..` components without I/O.
@@ -468,8 +486,10 @@ pub async fn build_command_async(
     // strong_count) and the spec move — no Variables/PathBuf deep
     // clones. Strong counts > 1 prove the parallel path is sharing the
     // same instance across MAX_PARALLEL workers.
+    // SEC-21 / TASK-1127: spec.program is `.ops.toml`-supplied; format via Debug so
+    // embedded newlines/ANSI cannot forge log entries on this trace event either.
     tracing::trace!(
-        program = %spec.program,
+        program = ?spec.program,
         vars_strong = std::sync::Arc::strong_count(&vars),
         cwd_strong = std::sync::Arc::strong_count(&cwd),
         "build_command_async: Arc-only inputs, no deep clone"
@@ -991,5 +1011,27 @@ mod tests {
             len <= cap,
             "cache residency {len} must be bounded by cap {cap}"
         );
+    }
+
+    /// SEC-22 / TASK-1175: `expand_err_to_io` must NOT leak the offending
+    /// variable name into the user-facing message body. The full error
+    /// (including `var_name`) is logged at debug for operator follow-up,
+    /// but the rendered `io::Error` message stays generic so a
+    /// `${OPS_TOKEN}` typo or `${ATTACKER_VAR}` reference dropped into a
+    /// `.ops.toml` cannot surface in StepFailed message uploaded to CI.
+    #[test]
+    fn expand_err_to_io_does_not_leak_variable_name_in_message() {
+        let err = ops_core::expand::ExpandError {
+            var_name: "OPS_SECRET_TOKEN".to_string(),
+            cause: std::env::VarError::NotPresent,
+        };
+        let io_err = expand_err_to_io(err);
+        let msg = io_err.to_string();
+        assert!(
+            !msg.contains("OPS_SECRET_TOKEN"),
+            "variable name leaked to user-facing message: {msg}"
+        );
+        assert_eq!(io_err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(msg.contains("variable expansion failed"));
     }
 }

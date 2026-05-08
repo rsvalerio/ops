@@ -26,6 +26,19 @@ impl RedactedUrl {
     /// remote" instead. Mirrors the control-char hardening already applied
     /// to other log-bound fields (TASK-0937, TASK-0974).
     ///
+    /// SEC-2 / TASK-1238: the policy is broadened to reject Unicode
+    /// formatting / separator / control characters too. The bare ASCII
+    /// filter let multibyte sequences for RIGHT-TO-LEFT OVERRIDE
+    /// (U+202E), zero-width joiners (U+200B / U+200D), BOM (U+FEFF),
+    /// other directional / formatting overrides (U+2066..U+2069), and
+    /// Unicode line separators (U+2028 / U+2029) survive into operator-
+    /// facing surfaces — bidi/homograph spoofing of remote host or owner
+    /// in About cards / JSON / logs. Whole-codepoint policy:
+    /// reject any char whose Unicode general category is Cc / Cf / Cs /
+    /// Zl / Zp (matched directly via `char::is_control` and an explicit
+    /// list of the most abused formatting codepoints), then redact
+    /// userinfo on the cleaned value.
+    ///
     /// ```
     /// use ops_git::config::RedactedUrl;
     /// let r = RedactedUrl::redact("https://alice:secret@github.com/o/r.git").unwrap();
@@ -36,10 +49,14 @@ impl RedactedUrl {
     /// // Control bytes (ANSI escape, raw newline) cause the value to be
     /// // dropped entirely.
     /// assert!(RedactedUrl::redact("https://host/repo\u{1b}[31m\nfake").is_none());
+    /// // Unicode RTL override / zero-width / BOM are also rejected.
+    /// assert!(RedactedUrl::redact("https://host/\u{202e}fake/repo").is_none());
+    /// assert!(RedactedUrl::redact("https://host/\u{200b}repo").is_none());
     /// ```
     #[must_use]
     pub fn redact(raw: &str) -> Option<Self> {
-        if raw.bytes().any(is_ascii_control_byte) {
+        if raw.bytes().any(is_ascii_control_byte) || raw.chars().any(is_unicode_format_or_separator)
+        {
             return None;
         }
         Some(Self(redact_userinfo(raw)))
@@ -63,6 +80,39 @@ impl RedactedUrl {
 #[inline]
 fn is_ascii_control_byte(b: u8) -> bool {
     b < 0x20 || b == 0x7f
+}
+
+/// SEC-2 / TASK-1238: Unicode formatting / directional-override /
+/// zero-width / line-separator codepoints must also be rejected before a
+/// remote URL flows into operator-facing surfaces (About cards, JSON,
+/// logs). The ASCII gate above only covers `<0x20` / `0x7f`, so multibyte
+/// sequences for U+202E (RIGHT-TO-LEFT OVERRIDE), U+200B / U+200D /
+/// U+200C (zero-width joiner family), U+FEFF (BOM), the bidi isolate
+/// codepoints U+2066..U+2069, U+2028 / U+2029 (line / paragraph
+/// separators), and the broader `char::is_control` set survive otherwise.
+/// Used by [`RedactedUrl::redact`] alongside the ASCII filter to give a
+/// single whole-codepoint policy, mirroring the SEC-2 hardening in
+/// `extensions-node/about::repo_url::contains_control_chars` (TASK-1165)
+/// and `extensions-python/about::contains_control_chars` (TASK-1207).
+#[inline]
+fn is_unicode_format_or_separator(c: char) -> bool {
+    if c.is_control() {
+        return true;
+    }
+    matches!(
+        c,
+        // Zero-width family + ZWNJ / ZWJ + word joiner.
+        '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}'
+        // BOM / specials.
+        | '\u{FEFF}'
+        // Bidi formatting characters: LRM/RLM, LRE/RLE/PDF, LRO/RLO.
+        | '\u{200E}' | '\u{200F}'
+        | '\u{202A}' | '\u{202B}' | '\u{202C}' | '\u{202D}' | '\u{202E}'
+        // Bidi isolates.
+        | '\u{2066}' | '\u{2067}' | '\u{2068}' | '\u{2069}'
+        // Unicode line / paragraph separators (Zl / Zp).
+        | '\u{2028}' | '\u{2029}'
+    )
 }
 
 impl std::fmt::Display for RedactedUrl {
@@ -96,8 +146,11 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
+            // ERR-7 / TASK-1206: Debug-format the path so a hostile checkout
+            // path with newlines / ANSI cannot forge log records. Mirrors
+            // read_workspace_sidecar / manifest_io::read_optional_text policy.
             tracing::warn!(
-                path = %path.display(),
+                path = ?path.display(),
                 error = %e,
                 "failed to open .git/config; treating as no remote"
             );
@@ -107,16 +160,18 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
     let mut content = String::new();
     let limit = MAX_GIT_CONFIG_BYTES.saturating_add(1);
     if let Err(e) = (&mut file).take(limit).read_to_string(&mut content) {
+        // ERR-7 / TASK-1206: Debug-format path; see comment above.
         tracing::warn!(
-            path = %path.display(),
+            path = ?path.display(),
             error = %e,
             "failed to read .git/config (within byte cap); treating as no remote"
         );
         return None;
     }
     if content.len() as u64 > MAX_GIT_CONFIG_BYTES {
+        // ERR-7 / TASK-1206: Debug-format path; see comment above.
         tracing::warn!(
-            path = %path.display(),
+            path = ?path.display(),
             cap = MAX_GIT_CONFIG_BYTES,
             "SEC-33: .git/config exceeds byte cap; refusing to parse and treating as no remote"
         );
@@ -621,6 +676,45 @@ mod tests {
         );
     }
 
+    /// SEC-2 / TASK-1238: bidi / zero-width / line-separator codepoints
+    /// must also be rejected before reaching About cards / JSON / logs
+    /// through `RedactedUrl`. The ASCII gate alone (TASK-1102) was bypassed
+    /// by multibyte sequences for U+202E (RTL OVERRIDE), U+200B / U+200D
+    /// (zero-width joiners), U+FEFF (BOM), the bidi isolates U+2066..U+2069,
+    /// and U+2028 / U+2029 (line / paragraph separators).
+    #[test]
+    fn redact_rejects_unicode_format_and_separator_codepoints() {
+        for raw in [
+            // Bidi formatting (homograph / spoofing surface).
+            "https://host/\u{202e}fake/repo",
+            "https://host\u{202d}/repo",
+            "https://github.com/\u{2066}attacker\u{2069}/repo",
+            // Zero-width family.
+            "https://host/\u{200b}repo",
+            "https://host/\u{200c}repo",
+            "https://host/\u{200d}repo",
+            "https://host/\u{2060}repo",
+            // BOM / specials.
+            "https://host/\u{feff}repo",
+            // Unicode line / paragraph separators.
+            "https://host/\u{2028}fake",
+            "https://host/\u{2029}fake",
+        ] {
+            assert!(
+                RedactedUrl::redact(raw).is_none(),
+                "expected rejection for {raw:?}"
+            );
+        }
+        // A URL containing only unrelated multibyte text (e.g. a Punycode-
+        // encoded host or a UTF-8 path segment) still round-trips.
+        assert_eq!(
+            RedactedUrl::redact("https://例子.test/repo")
+                .map(RedactedUrl::into_string)
+                .as_deref(),
+            Some("https://例子.test/repo")
+        );
+    }
+
     #[test]
     fn origin_url_with_control_bytes_is_dropped() {
         let cfg = "[remote \"origin\"]\n\turl = https://host/repo\u{1b}[31m fake\n";
@@ -797,5 +891,19 @@ mod tests {
         let mut restore = std::fs::metadata(&head).unwrap().permissions();
         restore.set_mode(0o644);
         std::fs::set_permissions(&head, restore).unwrap();
+    }
+
+    /// ERR-7 / TASK-1206: read_origin_url logs the .git/config path through
+    /// the `?` (Debug) formatter so a hostile checkout path containing
+    /// newlines or ANSI escapes cannot forge log entries or repaint the
+    /// operator terminal. Pin the value-level escape contract directly,
+    /// mirroring the workspace-sidecar / manifest_io policy.
+    #[test]
+    fn read_origin_url_path_debug_escapes_control_characters() {
+        let p = std::path::Path::new("/tmp/dir\n\u{1b}[31m/.git/config");
+        let rendered = format!("{:?}", p.display());
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
     }
 }

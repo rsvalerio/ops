@@ -490,7 +490,7 @@ mod tests {
         let mut cmd = clap::Command::new("ops");
         cmd = cmd.subcommand(clap::Command::new("init").about("Initialize config"));
 
-        let mut config = ops_core::config::Config::default();
+        let mut config = ops_core::config::Config::empty();
         config.commands.insert(
             "build".to_string(),
             ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec::new(
@@ -510,7 +510,7 @@ mod tests {
         let mut cmd = clap::Command::new("ops");
         cmd = cmd.subcommand(clap::Command::new("build").about("Built-in build"));
 
-        let mut config = ops_core::config::Config::default();
+        let mut config = ops_core::config::Config::empty();
         config.commands.insert(
             "build".to_string(),
             ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec::new(
@@ -530,7 +530,7 @@ mod tests {
         cmd = cmd.subcommand(clap::Command::new("visible").about("Visible"));
         cmd = cmd.subcommand(clap::Command::new("hidden").about("Hidden").hide(true));
 
-        let config = ops_core::config::Config::default();
+        let config = ops_core::config::Config::empty();
         let entries = collect_command_entries(&cmd, &config, None);
         let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"visible"));
@@ -543,7 +543,7 @@ mod tests {
             .about("ops test")
             .subcommand(clap::Command::new("init").about("Initialize"));
         cmd = cmd.arg(clap::Arg::new("verbose").short('v').long("verbose"));
-        let config = ops_core::config::Config::default();
+        let config = ops_core::config::Config::empty();
 
         let out = render_categorized_help(cmd, &config, None, false);
         // The grouped section must appear before the Options: block, not after.
@@ -625,7 +625,7 @@ mod tests {
             }
         }
         let cmd = clap::Command::new("ops").subcommand(clap::Command::new("init"));
-        let config = ops_core::config::Config::default();
+        let config = ops_core::config::Config::empty();
         let err = write_categorized_help(&mut FailingWriter, cmd, &config, None, false)
             .expect_err("failing writer must surface its error");
         assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
@@ -634,7 +634,7 @@ mod tests {
     #[test]
     fn collect_command_entries_with_stack_adds_defaults() {
         let cmd = clap::Command::new("ops");
-        let config = ops_core::config::Config::default();
+        let config = ops_core::config::Config::empty();
         let entries = collect_command_entries(&cmd, &config, Some(ops_core::stack::Stack::Rust));
         let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"build"), "should include Rust stack build");

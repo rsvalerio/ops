@@ -287,7 +287,7 @@ build = "cargo build"
 
     #[test]
     fn run_theme_select_non_tty_returns_error() {
-        let config = ops_core::config::Config::default();
+        let config = ops_core::config::Config::empty();
         let result = run_theme_select_with_tty_check(&config, || false);
         assert!(result.is_err(), "run_theme_select should fail without TTY");
         assert!(result
@@ -371,7 +371,7 @@ theme = "compact"
             // fields that the TOML round-trip would otherwise duplicate
             // verbatim. Description differentiates the two rows so we can
             // locate them in the rendered output.
-            let mut config = ops_core::config::Config::default();
+            let mut config = ops_core::config::Config::empty();
             config.themes.insert(
                 "ビルド".to_string(),
                 ops_core::config::theme_types::ThemeConfig {
@@ -409,7 +409,7 @@ theme = "compact"
 
         #[test]
         fn collect_theme_options_includes_custom() {
-            let mut config = ops_core::config::Config::default();
+            let mut config = ops_core::config::Config::empty();
             config.themes.insert(
                 "my-custom".to_string(),
                 ops_core::config::theme_types::ThemeConfig {

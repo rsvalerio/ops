@@ -3,7 +3,7 @@ use ops_core::config::Config;
 use std::sync::Arc;
 
 fn test_context(working_dir: PathBuf) -> Context {
-    Context::new(Arc::new(Config::default()), working_dir)
+    Context::new(Arc::new(Config::empty()), working_dir)
 }
 
 #[test]

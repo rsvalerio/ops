@@ -450,7 +450,7 @@ mod tests {
     #[cfg(feature = "stack-rust")]
     #[test]
     fn extension_summary_returns_types_and_commands() {
-        let config = ops_core::config::Config::default();
+        let config = ops_core::config::Config::empty();
         let cwd = std::path::Path::new(".");
         let compiled = collect_compiled_extensions(&config, cwd);
         if let Some((_, ext)) = compiled.first() {
@@ -488,7 +488,7 @@ enabled = []
                     "definitely-not-a-real-extension-xyz".to_string(),
                 ]),
             },
-            ..ops_core::config::Config::default()
+            ..ops_core::config::Config::empty()
         };
         let cwd = std::path::PathBuf::from(".");
         let compiled = collect_compiled_extensions(&config, &cwd);

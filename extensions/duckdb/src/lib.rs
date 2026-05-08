@@ -167,7 +167,7 @@ mod tests {
         let provider = DuckDbProvider {
             db_path: std::path::PathBuf::from(":memory:"),
         };
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = Context::new(config, std::path::PathBuf::from("."));
         ctx.db = Some(std::sync::Arc::new(db));
         let result = provider.provide(&mut ctx).expect("provide should succeed");
@@ -181,7 +181,7 @@ mod tests {
         let provider = DuckDbProvider {
             db_path: db_path.clone(),
         };
-        let config = std::sync::Arc::new(ops_core::config::Config::default());
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = Context::new(config, std::path::PathBuf::from("."));
 
         assert!(ctx.db.is_none(), "ctx.db should start as None");

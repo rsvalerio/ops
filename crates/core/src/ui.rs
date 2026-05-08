@@ -20,7 +20,14 @@ use std::io::Write;
 /// escapes or terminal control codes into operator-facing output. Newlines are
 /// the responsibility of the caller — they are split before reaching this
 /// helper so each physical line gets its own `ops: <level>:` prefix.
-fn sanitise_line(line: &str, out: &mut String) {
+///
+/// SEC-21 / TASK-1184: also exposed for the `ops --dry-run` audit channel,
+/// which prints (env-expanded) program / args / env values / cwd verbatim
+/// to stdout. An adversarial `.ops.toml` value (or `${VAR}` expansion of
+/// one) containing ANSI clear-screen / cursor-move sequences can otherwise
+/// repaint the operator's terminal during a preview, defeating the whole
+/// purpose of dry-run.
+pub fn sanitise_line(line: &str, out: &mut String) {
     for ch in line.chars() {
         match ch {
             '\t' => out.push('\t'),

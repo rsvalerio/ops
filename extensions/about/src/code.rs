@@ -127,7 +127,7 @@ mod tests {
         .join();
 
         // Lock now poisoned — query path should log + return None.
-        let config = Arc::new(Config::default());
+        let config = Arc::new(Config::empty());
         let mut ctx = Context::new(config, std::path::PathBuf::from("/tmp"));
         ctx.db = Some(db);
 

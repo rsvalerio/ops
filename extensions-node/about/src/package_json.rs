@@ -122,14 +122,20 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
             LicenseField::Object { r#type } => trim_nonempty(r#type),
         }),
         homepage: trim_nonempty(raw.homepage),
+        // SEC-2 / TASK-1165: `normalize_repo_url` returns "" when the input
+        // contains control bytes; surface that as a missing field rather than
+        // an empty link in the About card.
         repository: raw.repository.and_then(|r| match r {
-            RepositoryField::Text(s) => Some(normalize_repo_url(&s)),
-            RepositoryField::Object { url, directory } => url.map(|u| {
+            RepositoryField::Text(s) => trim_nonempty(Some(normalize_repo_url(&s))),
+            RepositoryField::Object { url, directory } => url.and_then(|u| {
                 let base = normalize_repo_url(&u);
-                match trim_nonempty(directory) {
+                if base.is_empty() {
+                    return None;
+                }
+                Some(match trim_nonempty(directory) {
                     Some(dir) => append_tree_directory(&base, &dir),
                     None => base,
-                }
+                })
             }),
         }),
         authors,

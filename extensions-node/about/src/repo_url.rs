@@ -7,18 +7,18 @@
 //! target and a documented boundary, separate from the serde model and
 //! the parse orchestrator in [`super::package_json`].
 
-/// Strip ASCII control characters (C0: U+0000..U+001F, plus DEL U+007F)
-/// from a repository URL body. SEC-2 / TASK-1080: an adversarial
-/// `package.json` `repository.url` like `"github:owner/repo\nINJECT"`
-/// flows verbatim into About cards, markdown, HTML, and operator-facing
-/// log lines. Sister policy to the SEC-14 traversal fix
-/// ([`append_tree_directory`]) and the ERR-7 path-debug-escape pattern:
-/// repository URLs are operator-facing surfaces and must be single-line
-/// and free of ANSI escape (U+001B) injection.
-fn strip_control_chars(raw: &str) -> String {
-    raw.chars()
-        .filter(|c| !c.is_control() && *c != '\u{007f}')
-        .collect()
+/// Detect ASCII / Unicode control characters (C0: U+0000..U+001F, DEL U+007F,
+/// plus the broader `char::is_control` set covering C1 etc.) in a repository
+/// URL body. SEC-2 / TASK-1165: previously these were silently filtered, so
+/// `"github:owner/repo\nINJECT"` became `"https://github.com/owner/repoINJECT"`
+/// — a clickable URL pointing at an attacker-named repo. The defence against
+/// log-injection succeeded but the rendered URL was still attacker-chosen.
+/// We now treat any control byte as evidence of tampering and the caller
+/// drops the field entirely (returns an empty `String` from
+/// [`normalize_repo_url`]), so the About card surfaces no link at all rather
+/// than a silently rewritten one.
+fn contains_control_chars(raw: &str) -> bool {
+    raw.chars().any(|c| c.is_control() || c == '\u{007f}')
 }
 
 /// Normalise a `repository` URL value: turn npm shorthand
@@ -32,6 +32,15 @@ fn strip_control_chars(raw: &str) -> String {
 /// C0 / DEL) are stripped from the URL body before any prefix logic
 /// runs, so a `"github:owner/repo\nINJECT"` repository field cannot
 /// inject a newline into the rendered link or a debug-log line.
+///
+/// SEC-2 / TASK-1165: a `repository` containing any control byte is
+/// dropped entirely (returns an empty `String`) rather than silently
+/// concatenated. The previous filter let `"github:owner/repo\nINJECT"`
+/// normalise to `"https://github.com/owner/repoINJECT"` — a clickable
+/// URL pointing at an attacker-chosen repo. Returning empty surfaces
+/// the field as missing in the About card / markdown / HTML and avoids
+/// the silent-rewrite. Callers (`package_json::parse_package_json`)
+/// treat the empty result the same as a missing repository field.
 pub(crate) fn normalize_repo_url(raw: &str) -> String {
     /// (shorthand prefix, host) for npm hostname shortcuts.
     const HOST_PREFIXES: &[(&str, &str)] = &[
@@ -40,8 +49,10 @@ pub(crate) fn normalize_repo_url(raw: &str) -> String {
         ("bitbucket:", "bitbucket.org"),
     ];
 
-    let sanitised = strip_control_chars(raw);
-    let s = sanitised.trim();
+    if contains_control_chars(raw) {
+        return String::new();
+    }
+    let s = raw.trim();
     for (prefix, host) in HOST_PREFIXES {
         if let Some(rest) = s.strip_prefix(prefix) {
             // SEC-14 / TASK-1111: the `rest` portion of an npm-shorthand
@@ -352,48 +363,82 @@ mod tests {
         assert_eq!(normalize_repo_url("@scope/name"), "@scope/name");
     }
 
-    /// SEC-2 / TASK-1080: an embedded LF inside a `github:` shorthand must
-    /// not survive into the rendered URL — it would otherwise inject a
-    /// newline into About cards, markdown, HTML, and debug log lines.
+    /// SEC-2 / TASK-1080 + TASK-1165: an embedded LF inside a `github:`
+    /// shorthand must not survive into the rendered URL — and per
+    /// TASK-1165 the field is now dropped entirely so the silent
+    /// concatenation `repo\nINJECT → repoINJECT` (a clickable
+    /// attacker-chosen URL) cannot reach About cards / markdown / HTML.
     #[test]
-    fn normalize_strips_embedded_lf_in_shorthand() {
+    fn normalize_drops_field_on_embedded_lf_in_shorthand() {
         let out = normalize_repo_url("github:owner/repo\nINJECT");
         assert!(!out.contains('\n'), "url still contains LF: {out:?}");
-        assert_eq!(out, "https://github.com/owner/repoINJECT");
+        assert!(
+            out.is_empty(),
+            "field must be dropped on control byte: {out:?}"
+        );
     }
 
-    /// SEC-2 / TASK-1080: a CR inside a git+https URL (Object{url} shape)
-    /// is stripped before normalisation. Pins the behaviour for the
+    /// SEC-2 / TASK-1080 + TASK-1165: a CR inside a git+https URL
+    /// (Object{url} shape) drops the field. Pins the behaviour for the
     /// `repository: { url: "..." }` parse path, which routes through the
     /// same `normalize_repo_url` entry point.
     #[test]
-    fn normalize_strips_embedded_cr_in_git_https() {
+    fn normalize_drops_field_on_embedded_cr_in_git_https() {
         let out = normalize_repo_url("git+https://github.com/o/r\r.git");
         assert!(!out.contains('\r'), "url still contains CR: {out:?}");
-        assert_eq!(out, "https://github.com/o/r");
+        assert!(
+            out.is_empty(),
+            "field must be dropped on control byte: {out:?}"
+        );
     }
 
-    /// SEC-2 / TASK-1080: ANSI escape (U+001B) bytes embedded in the URL
-    /// body must not flow into operator-facing surfaces (About cards,
-    /// log lines) where they would be interpreted as terminal escapes.
+    /// SEC-2 / TASK-1080 + TASK-1165: ANSI escape (U+001B) bytes drop
+    /// the field — they would otherwise flow into operator-facing
+    /// surfaces (About cards, log lines) and be interpreted as terminal
+    /// escapes, or silently concatenate into a clickable URL.
     #[test]
-    fn normalize_strips_embedded_ansi_escape() {
+    fn normalize_drops_field_on_embedded_ansi_escape() {
         let out = normalize_repo_url("https://github.com/o/\u{1b}[31mr");
         assert!(!out.contains('\u{1b}'), "url still contains ESC: {out:?}");
-        assert_eq!(out, "https://github.com/o/[31mr");
+        assert!(
+            out.is_empty(),
+            "field must be dropped on control byte: {out:?}"
+        );
     }
 
-    /// SEC-2 / TASK-1080: the Text shape (`repository: "github:..."`)
-    /// must also be sanitised. Pins the regression for both repository
-    /// field shapes — Text and Object{url} — feeding the same helper.
+    /// SEC-2 / TASK-1080 + TASK-1165: the Text shape
+    /// (`repository: "github:..."`) is treated identically.
     #[test]
-    fn normalize_strips_control_chars_in_text_shape() {
+    fn normalize_drops_field_on_control_chars_in_text_shape() {
         let out = normalize_repo_url("github:owner/repo\rINJECT\nMORE");
         assert!(
             !out.contains('\r') && !out.contains('\n'),
             "url still contains control chars: {out:?}"
         );
-        assert_eq!(out, "https://github.com/owner/repoINJECTMORE");
+        assert!(
+            out.is_empty(),
+            "field must be dropped on control byte: {out:?}"
+        );
+    }
+
+    /// SEC-2 / TASK-1165: a tampered URL containing a control byte must
+    /// NOT produce a syntactically valid URL pointing at attacker-chosen
+    /// path segments. Pins the broader contract directly so future
+    /// changes that re-introduce silent concatenation regress here.
+    #[test]
+    fn normalize_drops_field_yields_no_attacker_chosen_url() {
+        for raw in [
+            "github:owner/repo\nINJECT",
+            "github:legit\rINJECT",
+            "https://example.com/o/r\u{1b}[31mfake",
+            "git+https://example.com/o\u{0c}/passwd",
+        ] {
+            let out = normalize_repo_url(raw);
+            assert!(
+                out.is_empty(),
+                "expected dropped URL for {raw:?}, got {out:?}"
+            );
+        }
     }
 
     /// SEC-14 / TASK-1111: a `github:` shorthand carrying `..` segments
@@ -467,5 +512,8 @@ mod tests {
         let display = out.to_string();
         assert!(!debug.contains('\n') && !debug.contains('\r'));
         assert!(!display.contains('\n') && !display.contains('\r'));
+        // SEC-2 / TASK-1165: the dropped-field policy means the rendered
+        // string is empty, not a silent rewrite to attacker-chosen segments.
+        assert!(out.is_empty(), "field must be dropped on control byte");
     }
 }

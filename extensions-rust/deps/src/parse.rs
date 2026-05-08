@@ -79,10 +79,15 @@ pub fn interpret_upgrade_output(
         ),
         Some(other) => {
             let stderr = String::from_utf8_lossy(stderr);
+            // ERR-7 / SEC-21 / TASK-1160: format the stderr tail via Debug ({:?})
+            // so embedded ANSI escapes / newlines / NULs from registry-served
+            // diagnostics cannot forge log entries or repaint the operator
+            // terminal. Mirrors the workspace policy enforced in probe.rs and
+            // query.rs.
             anyhow::bail!(
                 "cargo upgrade --dry-run exited with status {other}; \
                  refusing to parse output as authoritative. \
-                 stderr (truncated): {}",
+                 stderr (truncated): {:?}",
                 truncate_for_log(stderr.trim())
             )
         }
@@ -508,18 +513,24 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
                 && parsed.bans.is_empty()
                 && parsed.sources.is_empty()
             {
+                // ERR-7 / SEC-21 / TASK-1160: Debug-format the stderr tail so
+                // ANSI / newlines / NULs in cargo-deny text-mode output cannot
+                // forge log entries.
                 anyhow::bail!(
                     "cargo deny exited with status 1 but stderr decoded zero diagnostics; \
                      refusing to score as clean — likely non-JSON (text-mode) output. \
-                     stderr (truncated): {}",
+                     stderr (truncated): {:?}",
                     truncate_for_log(stderr)
                 );
             }
             Ok(parsed)
         }
+        // SEC-21 / TASK-1250: scrub control bytes by Debug-formatting the
+        // stderr tail so registry-served deny.toml diagnostics cannot inject
+        // ANSI / newlines into operator-facing anyhow chains.
         Some(2) => anyhow::bail!(
-            "cargo deny exited with status 2 (configuration error): {}",
-            stderr.trim()
+            "cargo deny exited with status 2 (configuration error): {:?}",
+            truncate_for_log(stderr.trim())
         ),
         // ERR-7 (TASK-0598): exit_code == None means cargo-deny was killed
         // by a signal (SIGKILL / OOM-killer / parent timeout). Fail loudly
@@ -532,10 +543,12 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
         // additions, etc.) used to fall through to `parse_deny_output`,
         // which for a non-diagnostic stderr returns an empty `DenyResult`
         // — a fail-open hole in the supply-chain gate. Fail closed instead.
+        // ERR-7 / SEC-21 / TASK-1160: Debug-format stderr so panic/abort text
+        // (cargo-deny exit 101 etc.) with embedded ANSI cannot repaint logs.
         Some(other) => anyhow::bail!(
             "cargo deny exited with unexpected status code {other}; \
              refusing to treat partial diagnostics as authoritative. \
-             stderr (truncated): {}",
+             stderr (truncated): {:?}",
             truncate_for_log(stderr)
         ),
     }

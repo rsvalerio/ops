@@ -258,6 +258,26 @@ pub fn read_workspace_sidecar(data_dir: &Path, name: &str) -> DbResult<std::ffi:
             format!("workspace sidecar exceeds {MAX_SIDECAR_BYTES} byte cap; refusing to load"),
         )));
     }
+    // SEC-21 / TASK-1217: defense-in-depth ASCII control-byte filter. The
+    // 0o700 ingest dir (TASK-0787) gates writers, and TASK-1104 removed the
+    // `from_encoded_bytes_unchecked` UB hole; but a tampered sidecar can
+    // still seed arbitrary bytes (embedded `\n`, `\0`, ANSI escape, or
+    // path-traversal segments) that round-trip into the OsString and reach
+    // `Path::display` consumers / `upsert_data_source`. Mirrors the SEC-2 /
+    // TASK-1102 control-byte gate on RedactedUrl::redact: reject any byte in
+    // the C0 set (`0x00..=0x1f`) or DEL (`0x7f`) at the read boundary.
+    // Legitimate non-UTF-8 paths (Unix encoding superset) keep round-
+    // tripping; only control bytes — which no real working-directory path
+    // contains — are rejected.
+    if let Some(idx) = bytes.iter().position(|b| (*b <= 0x1f) || *b == 0x7f) {
+        return Err(DbError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "workspace sidecar contains ASCII control byte at offset {idx}; \
+                 refusing to load (SEC-21 defense-in-depth, see TASK-1217)"
+            ),
+        )));
+    }
     // UNSAFE-1 (TASK-1104): the previous implementation used
     // `OsStr::from_encoded_bytes_unchecked` here, whose safety invariant is
     // defined over the bytes actually present on disk — not over what the
@@ -860,6 +880,31 @@ mod tests {
 
         let err =
             read_workspace_sidecar(dir.path(), "huge").expect_err("oversize sidecar must error");
+        match err {
+            DbError::Io(e) => assert_eq!(
+                e.kind(),
+                std::io::ErrorKind::InvalidData,
+                "expected InvalidData, got {e:?}"
+            ),
+            other => panic!("expected DbError::Io, got {other:?}"),
+        }
+    }
+
+    /// SEC-21 / TASK-1217: a tampered sidecar containing an embedded
+    /// newline (or any C0 / DEL byte) must be rejected at the read
+    /// boundary with `DbError::Io(InvalidData)`. Defense-in-depth
+    /// against the post-TASK-1104 contract that `OsString::from_vec`
+    /// accepts arbitrary bytes — embedded `\n`, `\0`, ANSI escape, or
+    /// path-traversal-shaped segments otherwise round-trip into the
+    /// OsString and reach `Path::display` / `upsert_data_source`.
+    #[test]
+    fn read_workspace_sidecar_rejects_embedded_newline() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = sidecar_path(dir.path(), "tampered");
+        std::fs::write(&path, b"/ws/path\nfake/path").expect("plant tampered sidecar");
+
+        let err = read_workspace_sidecar(dir.path(), "tampered")
+            .expect_err("control-byte sidecar must error");
         match err {
             DbError::Io(e) => assert_eq!(
                 e.kind(),
