@@ -258,19 +258,33 @@ pub fn read_workspace_sidecar(data_dir: &Path, name: &str) -> DbResult<std::ffi:
             format!("workspace sidecar exceeds {MAX_SIDECAR_BYTES} byte cap; refusing to load"),
         )));
     }
-    // SAFETY: `write_workspace_sidecar` persists the path via
-    // `working_directory.as_os_str().as_encoded_bytes()` and routes
-    // through `atomic_write`, which writes the buffer verbatim. The
-    // standard library documents `OsStr::from_encoded_bytes_unchecked`
-    // as the exact round-trip pair for `as_encoded_bytes`, valid so long
-    // as the bytes came from a prior `as_encoded_bytes` call on the same
-    // platform — which is precisely the case here. Any other producer
-    // (a tampered or hand-edited sidecar) is a corrupted-input issue,
-    // not a soundness concern: callers treat the result as an opaque OS
-    // string and the persistence-time UTF-8 check in
-    // `upsert_data_source` would still reject invalid bytes downstream.
-    let os_str = unsafe { std::ffi::OsStr::from_encoded_bytes_unchecked(&bytes) };
-    Ok(os_str.to_os_string())
+    // UNSAFE-1 (TASK-1104): the previous implementation used
+    // `OsStr::from_encoded_bytes_unchecked` here, whose safety invariant is
+    // defined over the bytes actually present on disk — not over what the
+    // writer originally produced. A tampered or hand-edited sidecar (or a
+    // hostile co-tenant despite the 0o700 ingest dir) could violate the
+    // platform encoding contract (WTF-8 on Windows, UTF-8 superset
+    // semantics on Unix) and produce undefined behaviour. We now construct
+    // the `OsString` via safe APIs: on Unix the platform's `OsStrExt`
+    // accepts arbitrary bytes verbatim (matching the writer's
+    // `as_encoded_bytes` output for any path that round-trips); on
+    // non-Unix targets we require valid UTF-8 and surface a typed
+    // `DbError::Io(InvalidData)` otherwise instead of triggering UB.
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        Ok(std::ffi::OsString::from_vec(bytes))
+    }
+    #[cfg(not(unix))]
+    {
+        let s = std::str::from_utf8(&bytes).map_err(|e| {
+            DbError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("workspace sidecar contains invalid UTF-8: {e}"),
+            ))
+        })?;
+        Ok(std::ffi::OsString::from(s))
+    }
 }
 
 /// Remove a workspace root sidecar file. Best-effort: a missing file is
@@ -327,6 +341,19 @@ where
 /// collect+load cycles. The lock is held across the check and the full
 /// ingest sequence but does **not** hold the DuckDB connection lock during
 /// the (potentially expensive) `collect` phase.
+///
+/// CONC-2 (TASK-1073): the per-table ingest mutex MUST extend across the
+/// trailing `query_fn(db)` call. A second caller arriving with
+/// `ctx.refresh = true` would otherwise be free to enter
+/// `drop_table_if_exists` while the first caller is mid-query, surfacing
+/// an opaque DuckDB "table not found" error instead of the documented
+/// happy path. We bind the guard to a named local (`_ingest_guard`, not
+/// the wildcard `_`) so its lifetime ends at the function's closing
+/// brace — *after* `query_fn` returns. Reviewers: do not refactor this
+/// into a narrower scope. The connection-level lock inside
+/// `query_rows_to_json` is also held continuously across `prepare` and
+/// `query_map`, so a DROP cannot interleave between the two even if it
+/// somehow bypassed the ingest mutex.
 pub fn provide_via_ingestor<I, Q>(
     db: &DuckDb,
     ctx: &ops_extension::Context,
@@ -948,11 +975,11 @@ mod tests {
         let db1 = Arc::clone(&db);
         let db2 = Arc::clone(&db);
         let ctx1 = ops_extension::Context::new(
-            Arc::new(ops_core::config::Config::default()),
+            Arc::new(ops_core::config::Config::empty()),
             PathBuf::from("/tmp"),
         );
         let ctx2 = ops_extension::Context::new(
-            Arc::new(ops_core::config::Config::default()),
+            Arc::new(ops_core::config::Config::empty()),
             PathBuf::from("/tmp"),
         );
 
@@ -1017,7 +1044,7 @@ mod tests {
         init_schema(&db).expect("init_schema");
 
         let ctx = ops_extension::Context::new(
-            Arc::new(ops_core::config::Config::default()),
+            Arc::new(ops_core::config::Config::empty()),
             PathBuf::from("/tmp"),
         );
 
@@ -1107,7 +1134,7 @@ mod tests {
         let ing1 = Arc::clone(&ingestor);
         let h = std::thread::spawn(move || {
             let ctx = ops_extension::Context::new(
-                Arc::new(ops_core::config::Config::default()),
+                Arc::new(ops_core::config::Config::empty()),
                 PathBuf::from("/tmp"),
             );
             provide_via_ingestor(&db1, &ctx, "panicky_table", &*ing1, |_| {
@@ -1120,7 +1147,7 @@ mod tests {
         // Subsequent caller must succeed despite the poisoned per-table
         // mutex. Without poison recovery this would itself panic.
         let ctx = ops_extension::Context::new(
-            Arc::new(ops_core::config::Config::default()),
+            Arc::new(ops_core::config::Config::empty()),
             PathBuf::from("/tmp"),
         );
         provide_via_ingestor(&db, &ctx, "panicky_table", &*ingestor, |_| {
@@ -1197,7 +1224,7 @@ mod tests {
         let ing1 = Arc::clone(&ingestor);
         let h = std::thread::spawn(move || {
             let ctx = ops_extension::Context::new(
-                Arc::new(ops_core::config::Config::default()),
+                Arc::new(ops_core::config::Config::empty()),
                 PathBuf::from("/tmp"),
             );
             provide_via_ingestor(&db1, &ctx, "panicky_warn_table", &*ing1, |_| {
@@ -1215,7 +1242,7 @@ mod tests {
             .finish();
         tracing::subscriber::with_default(subscriber, || {
             let ctx = ops_extension::Context::new(
-                Arc::new(ops_core::config::Config::default()),
+                Arc::new(ops_core::config::Config::empty()),
                 PathBuf::from("/tmp"),
             );
             provide_via_ingestor(&db, &ctx, "panicky_warn_table", &*ingestor, |_| {
@@ -1233,5 +1260,142 @@ mod tests {
             logs.contains("panicky_warn_table"),
             "expected table name in warn, got: {logs}"
         );
+    }
+
+    /// CONC-2 (TASK-1073): a second caller arriving with `ctx.refresh =
+    /// true` while the first caller is still inside `query_fn` must not
+    /// be able to drop the table mid-query. The per-table ingest mutex
+    /// must serialize the refresh behind the in-flight query so the
+    /// first caller's `query_fn` returns successfully — never with an
+    /// opaque DuckDB "table not found".
+    #[test]
+    fn refresh_during_query_fn_is_serialized_by_ingest_mutex() {
+        use crate::DataIngestor;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Barrier;
+        use std::time::Duration;
+
+        struct TrivialIngestor;
+        impl DataIngestor for TrivialIngestor {
+            fn name(&self) -> &'static str {
+                "race"
+            }
+            fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
+                let path = data_dir.join("race.json");
+                std::fs::write(&path, "[{\"id\":1}]").map_err(DbError::Io)?;
+                Ok(())
+            }
+            fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<crate::LoadResult> {
+                let json_path = data_dir.join("race.json");
+                let create_sql = create_table_from_json_sql("race_table", &json_path, None)?;
+                let conn = db.lock()?;
+                conn.execute(&create_sql, [])
+                    .map_err(|e| DbError::query_failed("race create", e))?;
+                drop(conn);
+                Ok(crate::LoadResult::success("race", 1))
+            }
+        }
+
+        let db_dir = tempfile::tempdir().expect("tempdir");
+        let db_path = db_dir.path().join("race.duckdb");
+        let db = Arc::new(DuckDb::open(&db_path).expect("db"));
+        init_schema(&db).expect("init_schema");
+
+        // Prime: ingest once so the table exists for the racing pair.
+        let prime_ctx = ops_extension::Context::new(
+            Arc::new(ops_core::config::Config::empty()),
+            PathBuf::from("/tmp"),
+        );
+        provide_via_ingestor(&db, &prime_ctx, "race_table", &TrivialIngestor, |_| {
+            Ok(serde_json::Value::Null)
+        })
+        .expect("prime ingest");
+
+        // Thread 1: enters query_fn and parks long enough for thread 2 to
+        // attempt a refresh-driven DROP. If the ingest mutex did NOT
+        // extend across query_fn, thread 2 would race in and drop the
+        // table while thread 1 is still inside its query closure.
+        let inside_query = Arc::new(Barrier::new(2));
+        let query_done = Arc::new(AtomicBool::new(false));
+        let db1 = Arc::clone(&db);
+        let bar1 = Arc::clone(&inside_query);
+        let done1 = Arc::clone(&query_done);
+        let h1 = std::thread::spawn(move || {
+            let ctx = ops_extension::Context::new(
+                Arc::new(ops_core::config::Config::empty()),
+                PathBuf::from("/tmp"),
+            );
+            provide_via_ingestor(&db1, &ctx, "race_table", &TrivialIngestor, |db| {
+                // Signal we have entered query_fn while the ingest mutex
+                // is held; let thread 2 attempt to acquire it.
+                bar1.wait();
+                // Hold inside query_fn long enough for thread 2 to
+                // contend on the ingest mutex.
+                std::thread::sleep(Duration::from_millis(150));
+                let conn = db.lock().expect("lock");
+                let count: i64 = conn
+                    .query_row("SELECT COUNT(*) FROM race_table", [], |r| r.get(0))
+                    .expect("table must still exist mid-query");
+                done1.store(true, Ordering::SeqCst);
+                Ok(serde_json::json!({ "count": count }))
+            })
+        });
+
+        // Thread 2: arrives with refresh=true and tries to drop the
+        // table. Must block on the ingest mutex until thread 1 finishes.
+        let db2 = Arc::clone(&db);
+        let bar2 = Arc::clone(&inside_query);
+        let done2 = Arc::clone(&query_done);
+        let h2 = std::thread::spawn(move || {
+            // Wait until thread 1 is inside query_fn.
+            bar2.wait();
+            let mut ctx = ops_extension::Context::new(
+                Arc::new(ops_core::config::Config::empty()),
+                PathBuf::from("/tmp"),
+            );
+            ctx.refresh = true;
+            // When thread 2 returns from provide_via_ingestor, thread 1
+            // must already have completed its query.
+            let result = provide_via_ingestor(&db2, &ctx, "race_table", &TrivialIngestor, |_| {
+                Ok(serde_json::Value::Null)
+            });
+            (done2.load(Ordering::SeqCst), result)
+        });
+
+        let r1 = h1.join().expect("join 1").expect("query 1 succeeded");
+        let (q1_was_done, r2) = h2.join().expect("join 2");
+        r2.expect("ingest 2 succeeded");
+
+        assert_eq!(r1["count"], 1, "thread 1 saw the row mid-query");
+        assert!(
+            q1_was_done,
+            "thread 2 must have been serialized behind thread 1's query_fn",
+        );
+    }
+
+    /// UNSAFE-1 (TASK-1104): on non-Unix targets, a sidecar containing
+    /// bytes that are not valid UTF-8 must surface as a typed
+    /// `DbError::Io(InvalidData)` rather than triggering UB through
+    /// `OsStr::from_encoded_bytes_unchecked`. On Unix the byte stream is
+    /// accepted verbatim by `OsString::from_vec`, so this test is gated
+    /// to non-Unix targets where the WTF-8 invariant matters.
+    #[cfg(not(unix))]
+    #[test]
+    fn read_workspace_sidecar_rejects_invalid_utf8_on_non_unix() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = sidecar_path(dir.path(), "bad");
+        // 0xFF is invalid as the first byte of any UTF-8 sequence and
+        // also invalid as the first byte of a WTF-8 sequence.
+        std::fs::write(&path, [0xFFu8, 0xFE, 0xFD]).expect("plant bad sidecar");
+        let err = read_workspace_sidecar(dir.path(), "bad")
+            .expect_err("invalid encoding must error, not UB");
+        match err {
+            DbError::Io(e) => assert_eq!(
+                e.kind(),
+                std::io::ErrorKind::InvalidData,
+                "expected InvalidData, got {e:?}"
+            ),
+            other => panic!("expected DbError::Io, got {other:?}"),
+        }
     }
 }
