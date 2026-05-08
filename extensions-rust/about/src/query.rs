@@ -347,6 +347,13 @@ pub(crate) fn resolved_workspace_members(
 
     resolved.retain(|m| !exclude.contains(m.as_str()));
     resolved.sort();
+    // PATTERN-1 (TASK-1042): dedup the resolved member list. Cargo treats
+    // `[workspace].members` with set semantics — overlapping entries like
+    // `members = ["crates/foo", "crates/*"]` resolve to a single `crates/foo`
+    // crate. Without this dedup the about pipeline would double-count a member
+    // in `module_count` (identity provider) and emit duplicate `ProjectUnit`s
+    // in the units / coverage providers, diverging from `cargo metadata`.
+    resolved.dedup();
     resolved
 }
 
@@ -985,6 +992,29 @@ mod tests {
         let manifest = manifest_with_members(&["crates/*/sub"]);
         let resolved = resolved_workspace_members(&manifest, std::path::Path::new("/nonexistent"));
         assert_eq!(resolved, vec!["crates/*/sub".to_string()]);
+    }
+
+    /// PATTERN-1 (TASK-1042): overlapping `[workspace].members` entries
+    /// (literal + glob covering the same crate) must collapse to a single
+    /// resolved member. Cargo itself dedups, so the about pipeline must too —
+    /// otherwise `module_count` and the units / coverage providers would
+    /// double-count the duplicated crate.
+    #[test]
+    fn duplicate_member_from_literal_and_glob_is_deduped() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+
+        std::fs::create_dir_all(root.join("crates/foo")).unwrap();
+        std::fs::write(
+            root.join("crates/foo/Cargo.toml"),
+            "[package]\nname=\"foo\"\n",
+        )
+        .unwrap();
+
+        let manifest = manifest_with_members(&["crates/foo", "crates/*"]);
+        let resolved = resolved_workspace_members(&manifest, root);
+
+        assert_eq!(resolved, vec!["crates/foo".to_string()]);
     }
 
     #[test]
