@@ -177,6 +177,38 @@ fn categorize_upgrades_matches_incompatible_substring() {
     assert_eq!(cmp_names, vec!["d", "e"]);
 }
 
+/// PERF-3 / TASK-1112: behaviour parity after replacing the per-row
+/// `to_ascii_lowercase().contains(...)` with the allocation-free
+/// `contains_ascii_ci` byte-window scan. Pins the canonical cases — fully
+/// upper-case match, embedded match after additional words, and a non-match
+/// substring that shares a prefix ("compatible" vs. "incompatible") — so a
+/// future helper rewrite cannot silently flip classification.
+#[test]
+fn categorize_upgrades_perf3_parity_after_alloc_free_scan() {
+    let mk = |name: &str, note: Option<&str>| UpgradeEntry {
+        name: name.into(),
+        old_req: String::new(),
+        compatible: String::new(),
+        latest: String::new(),
+        new_req: String::new(),
+        note: note.map(str::to_string),
+    };
+    let entries = vec![
+        mk("upper", Some("INCOMPATIBLE")),
+        mk("embedded", Some("semver incompatible")),
+        mk("compat_only", Some("compatible")),
+    ];
+    let result = categorize_upgrades(entries);
+    let inc_names: Vec<_> = result
+        .incompatible
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
+    let cmp_names: Vec<_> = result.compatible.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(inc_names, vec!["upper", "embedded"]);
+    assert_eq!(cmp_names, vec!["compat_only"]);
+}
+
 // -- Upgrade exit-code interpretation (ERR-1 / TASK-0913) --
 
 /// ERR-1 / TASK-0913: `cargo upgrade --dry-run` exit 1 (lockfile contention,

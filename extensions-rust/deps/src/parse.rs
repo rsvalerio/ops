@@ -260,6 +260,26 @@ fn separator_columns(line: &str) -> Vec<(usize, usize)> {
     cols
 }
 
+/// PERF-3 / TASK-1112: case-insensitive ASCII substring scan that does not
+/// allocate. The previous `n.to_ascii_lowercase().contains(needle)` form
+/// allocated a fresh `String` per `UpgradeEntry` note solely to feed a
+/// single `.contains()` check; on an active workspace `cargo upgrade
+/// --dry-run` emits dozens of rows. Walk `haystack.as_bytes().windows(...)`
+/// and compare with `eq_ignore_ascii_case` per window so the check stays
+/// allocation-free while preserving ASCII case-insensitive semantics
+/// (`needle` is expected to be ASCII at the call site).
+fn contains_ascii_ci(haystack: &str, needle: &str) -> bool {
+    let n = needle.as_bytes();
+    if n.is_empty() {
+        return true;
+    }
+    let h = haystack.as_bytes();
+    if h.len() < n.len() {
+        return false;
+    }
+    h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n))
+}
+
 /// Split upgrade entries into compatible and incompatible.
 pub fn categorize_upgrades(entries: Vec<UpgradeEntry>) -> UpgradeResult {
     let mut compatible = Vec::new();
@@ -271,10 +291,12 @@ pub fn categorize_upgrades(entries: Vec<UpgradeEntry>) -> UpgradeResult {
         // future release. Use a case-insensitive substring check so a wording
         // drift does not silently misclassify breaking upgrades as compatible.
         // See cargo-edit upgrade output formatting for the source token.
+        // PERF-3 / TASK-1112: `contains_ascii_ci` walks bytes in place rather
+        // than allocating a per-row lowercase `String`.
         let is_incompatible = entry
             .note
             .as_deref()
-            .is_some_and(|n| n.to_ascii_lowercase().contains("incompatible"));
+            .is_some_and(|n| contains_ascii_ci(n, "incompatible"));
         if is_incompatible {
             incompatible.push(entry);
         } else {
