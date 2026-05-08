@@ -26,7 +26,7 @@ const ACTION_DISPLAY_ORDER: [Action; 7] = [
     Action::NoOp,
 ];
 
-pub fn render_summary_table(changes: &[ClassifiedChange], is_tty: bool) -> String {
+pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> String {
     let mut counts: HashMap<Action, usize> = HashMap::new();
     for c in changes {
         *counts.entry(c.action).or_default() += 1;
@@ -36,7 +36,11 @@ pub fn render_summary_table(changes: &[ClassifiedChange], is_tty: bool) -> Strin
         return "No changes. Infrastructure is up-to-date.\n".to_string();
     }
 
-    let mut table = OpsTable::with_tty(is_tty);
+    // PATTERN-1 / TASK-1017: `OpsTable::with_tty` only gates colour in
+    // `cell()`, so the colour preference (not TTY detection) is what
+    // belongs here. Width-aware rendering is decoupled in
+    // `render_resource_table` via a separate `is_tty` flag.
+    let mut table = OpsTable::with_tty(use_color);
     table.set_header(vec!["Action", "Count"]);
 
     for action in ACTION_DISPLAY_ORDER {
@@ -58,7 +62,19 @@ pub fn render_summary_table(changes: &[ClassifiedChange], is_tty: bool) -> Strin
     format!("{table}\n{summary}")
 }
 
-pub fn render_resource_table(changes: &[ClassifiedChange], is_tty: bool) -> String {
+/// PATTERN-1 / TASK-1017: `is_tty` drives terminal-width probing
+/// (right-sizing the `Module` column); `use_color` drives whether
+/// `Action::color()` is applied to cells. The two were previously
+/// conflated under one boolean, which (a) made piped-but-coloured
+/// output environment-sensitive and (b) disabled width probing on a
+/// real TTY when `--no-color` was set. Callers must derive `is_tty`
+/// from `IsTerminal` on the actual writer (or pass `false` for buffered
+/// sinks) and `use_color` from the user's preference (e.g. `!no_color`).
+pub fn render_resource_table(
+    changes: &[ClassifiedChange],
+    is_tty: bool,
+    use_color: bool,
+) -> String {
     let mut filtered: Vec<&ClassifiedChange> =
         changes.iter().filter(|c| c.action.is_change()).collect();
 
@@ -91,7 +107,10 @@ Inspect the rows marked `unknown` before applying.\n"
             .then_with(|| a.name.cmp(&b.name))
     });
 
-    let mut table = OpsTable::with_tty(is_tty);
+    // PATTERN-1 / TASK-1017: `OpsTable::with_tty` gates colour in
+    // `cell()`, so the colour preference is what belongs here. The
+    // `is_tty` flag controls width probing below.
+    let mut table = OpsTable::with_tty(use_color);
     table.set_header(vec!["Action", "Type", "Name", "Module"]);
 
     // ARCH-2 / TASK-0849: only consult the real terminal size when the
@@ -128,13 +147,16 @@ Inspect the rows marked `unknown` before applying.\n"
 
 pub fn render_outputs_table(
     outputs: &serde_json::Map<String, serde_json::Value>,
-    is_tty: bool,
+    use_color: bool,
 ) -> String {
     if outputs.is_empty() {
         return String::new();
     }
 
-    let mut table = OpsTable::with_tty(is_tty);
+    // PATTERN-1 / TASK-1017: see `render_summary_table`. The outputs
+    // table has no width-aware column, so it only needs the colour
+    // preference.
+    let mut table = OpsTable::with_tty(use_color);
     table.set_header(vec!["Output", "Action"]);
 
     for (name, value) in outputs {
@@ -211,7 +233,7 @@ mod tests {
             make_change(Action::Delete, "null_resource", "old"),
             make_change(Action::Update, "aws_s3_bucket", "logs"),
         ];
-        let output = render_resource_table(&changes, false);
+        let output = render_resource_table(&changes, false, false);
         let delete_pos = output.find("delete").expect("delete should be present");
         let create_pos = output.find("create").expect("create should be present");
         let update_pos = output.find("update").expect("update should be present");
@@ -231,7 +253,7 @@ mod tests {
             make_change(Action::Create, "aws_instance", "web"),
             make_change(Action::NoOp, "aws_s3_bucket", "existing"),
         ];
-        let output = render_resource_table(&changes, false);
+        let output = render_resource_table(&changes, false, false);
         assert!(
             !output.contains("no-op"),
             "no-op should be filtered: {output}"
@@ -245,7 +267,7 @@ mod tests {
     #[test]
     fn resource_table_empty_after_filter() {
         let changes = vec![make_change(Action::NoOp, "aws_s3_bucket", "existing")];
-        let output = render_resource_table(&changes, false);
+        let output = render_resource_table(&changes, false, false);
         assert!(output.is_empty(), "only no-op should produce empty output");
     }
 
@@ -265,8 +287,8 @@ mod tests {
         // the real terminal size could theoretically observe a window
         // resize between them; under is_tty=false they must NOT call
         // terminal_size at all and the output is therefore identical.
-        let a = render_resource_table(&changes, false);
-        let b = render_resource_table(&changes, false);
+        let a = render_resource_table(&changes, false, false);
+        let b = render_resource_table(&changes, false, false);
         assert_eq!(a, b, "non-TTY output must be deterministic");
         // Sanity: width-dependent module-column truncation should not
         // appear when no TTY is available — the final column carries the

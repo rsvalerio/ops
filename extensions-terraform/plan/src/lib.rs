@@ -34,23 +34,47 @@ pub fn has_changes(classified: &[ClassifiedChange]) -> bool {
 }
 
 /// FN-9 / TASK-0850: thin wrapper that locks `io::stdout()` and delegates
-/// to [`run_plan_pipeline_to`]. Preserves the previous public signature
-/// so the binary entry point and downstream callers stay unchanged.
+/// to [`run_plan_pipeline_to_with_tty`]. Preserves the previous public
+/// signature so the binary entry point and downstream callers stay
+/// unchanged. PATTERN-1 / TASK-1017: real TTY-ness is detected on
+/// `stdout` here (via `IsTerminal`) and passed through explicitly,
+/// rather than being derived from `--no-color`.
 pub fn run_plan_pipeline(opts: PlanOptions) -> anyhow::Result<ExitCode> {
+    use std::io::IsTerminal;
+    let is_tty = std::io::stdout().is_terminal();
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    run_plan_pipeline_to(opts, &mut handle)
+    run_plan_pipeline_to_with_tty(opts, &mut handle, is_tty)
 }
 
 /// FN-9 / TASK-0850: orchestration entry point that writes rendered
 /// summary / resource / outputs tables to `out` instead of global stdout.
 /// Library callers (LSP plugin, web UI, dry-run) and tests can supply
 /// their own `Vec<u8>` / file / pipe sink without spawning a subprocess.
+///
+/// PATTERN-1 / TASK-1017: defaults `is_tty=false` because an arbitrary
+/// `&mut dyn Write` (a `Vec<u8>`, file, pipe) is not a terminal. Width
+/// probing must therefore stay disabled or snapshot output becomes
+/// environment-sensitive. Callers that *do* hand in a real TTY-backed
+/// writer should call [`run_plan_pipeline_to_with_tty`] explicitly.
 pub fn run_plan_pipeline_to(
     opts: PlanOptions,
     out: &mut dyn std::io::Write,
 ) -> anyhow::Result<ExitCode> {
-    let is_tty = !opts.no_color;
+    run_plan_pipeline_to_with_tty(opts, out, false)
+}
+
+/// PATTERN-1 / TASK-1017: explicit form that accepts the writer's
+/// TTY-ness as a separate argument from the user's colour preference
+/// (`opts.no_color`). `is_tty` drives terminal-width probing in
+/// `render_resource_table`; `!opts.no_color` drives whether
+/// `Action::color()` is applied to cells.
+pub fn run_plan_pipeline_to_with_tty(
+    opts: PlanOptions,
+    out: &mut dyn std::io::Write,
+    is_tty: bool,
+) -> anyhow::Result<ExitCode> {
+    let use_color = !opts.no_color;
 
     let json_str = match opts.json_file.as_deref() {
         Some("-") => read_stdin()?,
@@ -64,19 +88,19 @@ pub fn run_plan_pipeline_to(
 
     let (plan, classified) = parse_and_classify(&json_str)?;
 
-    let summary = render_summary_table(&classified, is_tty);
+    let summary = render_summary_table(&classified, use_color);
     write!(out, "{summary}").context("write summary table")?;
 
     let changes_present = classified.iter().any(|c| c.action.is_change());
     if changes_present {
-        let resources = render_resource_table(&classified, is_tty);
+        let resources = render_resource_table(&classified, is_tty, use_color);
         write!(out, "{resources}").context("write resource table")?;
     }
 
     if opts.show_outputs {
         if let Some(ref outputs) = plan.output_changes {
             if !outputs.is_empty() {
-                let out_tbl = render_outputs_table(outputs, is_tty);
+                let out_tbl = render_outputs_table(outputs, use_color);
                 write!(out, "{out_tbl}").context("write outputs table")?;
             }
         }
@@ -466,6 +490,57 @@ mod tests {
         assert!(
             !out.contains("aws_s3_bucket"),
             "no-op must be filtered: {out}"
+        );
+    }
+
+    /// PATTERN-1 / TASK-1017: piped output (a `Vec<u8>` sink) must
+    /// produce byte-identical bytes regardless of the host terminal
+    /// width, even when the caller has *not* requested `--no-color`.
+    /// Previously `is_tty` was derived from `!no_color`, so a
+    /// coloured-but-piped invocation would still probe
+    /// `terminal_size::terminal_size()` and width-truncate the module
+    /// column based on the parent process's TTY. With colour and TTY
+    /// detection decoupled, `run_plan_pipeline_to` now defaults
+    /// `is_tty=false` for buffered sinks and the output is stable.
+    #[test]
+    #[serial_test::serial(plan_json_max_bytes_env)]
+    fn run_plan_pipeline_to_buffered_sink_is_terminal_width_independent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plan.json");
+        std::fs::write(&path, include_str!("../tests/fixtures/minimal.json")).unwrap();
+
+        let make_opts = || PlanOptions {
+            json_file: Some(path.to_string_lossy().into_owned()),
+            out: None,
+            json_out: None,
+            keep_plan: false,
+            // Crucially: colour is *enabled* (no_color=false). Under the
+            // old conflated `is_tty=!opts.no_color`, this would trigger
+            // terminal_size probing and make the output width-dependent.
+            no_color: false,
+            detailed_exitcode: false,
+            show_outputs: false,
+            passthrough: vec![],
+        };
+
+        let mut buf_a: Vec<u8> = Vec::new();
+        run_plan_pipeline_to(make_opts(), &mut buf_a).expect("pipeline ok");
+        let mut buf_b: Vec<u8> = Vec::new();
+        run_plan_pipeline_to(make_opts(), &mut buf_b).expect("pipeline ok");
+
+        assert_eq!(
+            buf_a, buf_b,
+            "byte-identical output is required across runs for a buffered sink"
+        );
+
+        // And explicitly: passing is_tty=false through the
+        // `_with_tty` form must match the default `_to` behaviour, so
+        // there is one canonical "buffered sink" rendering.
+        let mut buf_c: Vec<u8> = Vec::new();
+        run_plan_pipeline_to_with_tty(make_opts(), &mut buf_c, false).expect("pipeline ok");
+        assert_eq!(
+            buf_a, buf_c,
+            "run_plan_pipeline_to must default is_tty=false"
         );
     }
 
