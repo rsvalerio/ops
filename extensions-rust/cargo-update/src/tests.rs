@@ -150,6 +150,101 @@ fn parse_skips_index_update_line() {
     assert!(result.entries.is_empty());
 }
 
+/// TEST-1 / TASK-1077: pin BOTH invariants of the arrow-drift / extra-trailing
+/// path in `parse_action_line` — the warn fires AND `entries` stays empty (or,
+/// for the Adding/Removing extra-tokens case, the entry is still produced
+/// alongside the warn). A refactor that swallows the warn silently (e.g. by
+/// short-circuiting the verb match) would otherwise be undetected by the
+/// existing tests.
+#[test]
+fn arrow_drift_and_extra_tokens_warn_fires_with_expected_entries() {
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    struct BufWriter(Arc<Mutex<Vec<u8>>>);
+    impl Write for BufWriter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    // -- Updating arrow-drift: warn fires AND entries.is_empty() --
+    let buf = BufWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buf.clone())
+        .with_max_level(tracing::Level::WARN)
+        .with_ansi(false)
+        .finish();
+    tracing::subscriber::with_default(subscriber, || {
+        // Drift shape: `to` instead of `->`.
+        let stderr = b"    Updating serde v1.0.0 to v1.0.1\n";
+        let result = parse_update_output(stderr);
+        assert!(
+            result.entries.is_empty(),
+            "arrow-drift Updating line must produce no entry"
+        );
+        assert_eq!(result.update_count, 0);
+    });
+    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+    assert!(
+        logged.contains("WARN") && logged.contains("possible format drift"),
+        "arrow-drift must emit the format-drift warn at default level; got {logged:?}"
+    );
+
+    // -- Adding with extra trailing tokens: warn fires AND entry is still produced --
+    let buf = BufWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buf.clone())
+        .with_max_level(tracing::Level::WARN)
+        .with_ansi(false)
+        .finish();
+    tracing::subscriber::with_default(subscriber, || {
+        // `Adding new-crate v0.1.0 (locked)` — the (locked) annotation must
+        // not be glued onto the version. parse_action_line warns and keeps
+        // the entry; observability contract is the warn line.
+        let stderr = b"      Adding new-crate v0.1.0 (locked)\n";
+        let result = parse_update_output(stderr);
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].to.as_deref(), Some("0.1.0"));
+    });
+    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+    assert!(
+        logged.contains("WARN") && logged.contains("unexpected trailing tokens"),
+        "Adding extra-tokens must emit the trailing-tokens warn at default level; got {logged:?}"
+    );
+
+    // -- Removing with extra trailing tokens: warn fires AND entry is still produced --
+    let buf = BufWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buf.clone())
+        .with_max_level(tracing::Level::WARN)
+        .with_ansi(false)
+        .finish();
+    tracing::subscriber::with_default(subscriber, || {
+        let stderr = b"    Removing old-crate v0.2.0 (yanked)\n";
+        let result = parse_update_output(stderr);
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].from.as_deref(), Some("0.2.0"));
+    });
+    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+    assert!(
+        logged.contains("WARN") && logged.contains("unexpected trailing tokens"),
+        "Removing extra-tokens must emit the trailing-tokens warn at default level; got {logged:?}"
+    );
+}
+
 /// TASK-0472: a verb-prefixed line that does not match the expected shape
 /// must not silently disappear from the count headline. The dropped line
 /// is still not produced as an `UpdateEntry`, but operators must observe
@@ -407,6 +502,44 @@ fn parse_updating_line_with_various_index_names() {
     let stderr = b"    Updating github.com index\n";
     let result = parse_update_output(stderr);
     assert!(result.entries.is_empty());
+}
+
+/// PATTERN-1 / TASK-1054: a crate whose name contains the substring `index`
+/// (e.g. `indexer`, `index-map`, `reindex`) must be parsed as a real update.
+/// The previous `starts_with("Updating") && contains("index")` predicate was
+/// too broad and silently dropped these entries.
+#[test]
+fn parse_update_for_crate_name_containing_index_is_not_dropped() {
+    let stderr = b"\
+    Updating crates.io index
+    Updating indexer v1.0.0 -> v1.0.1
+    Updating index-map v0.4.0 -> v0.5.0
+    Updating reindex v2.0.0 -> v2.0.1
+";
+    let result = parse_update_output(stderr);
+    assert_eq!(
+        result.entries.len(),
+        3,
+        "all three crates whose names contain 'index' must be parsed"
+    );
+    assert_eq!(result.update_count, 3);
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, vec!["indexer", "index-map", "reindex"]);
+    // Sanity-check the index-noise line is still filtered (no entry with that shape).
+    assert!(!result.entries.iter().any(|e| e.name == "crates.io"));
+}
+
+/// PATTERN-1 / TASK-1054: alternate-registry index-progress noise lines
+/// (cargo emits a parenthesised suffix for non-default registries) must
+/// continue to be filtered.
+#[test]
+fn parse_skips_alternate_registry_index_progress_line() {
+    let stderr = b"    Updating crates.io index (sparse+https://index.crates.io/)\n";
+    let result = parse_update_output(stderr);
+    assert!(
+        result.entries.is_empty(),
+        "alternate-registry index-progress line must remain filtered"
+    );
 }
 
 #[test]

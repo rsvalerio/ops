@@ -110,8 +110,15 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
             continue;
         }
 
-        // "Updating crates.io index" — skip index updates
-        if clean.starts_with("Updating") && clean.contains("index") {
+        // PATTERN-1 / TASK-1054: skip the "Updating <registry> index" noise
+        // line only on its exact documented forms. The previous
+        // `starts_with("Updating") && contains("index")` predicate matched
+        // anywhere in the line and silently dropped legitimate updates for
+        // crates whose names contain `index` (e.g. `Updating indexer v1.0.0
+        // -> v1.0.1`). Guard on absence of the `->` arrow — the index-progress
+        // line never carries one — to robustly distinguish noise from updates,
+        // independent of registry naming.
+        if clean.starts_with("Updating") && is_index_progress_line(clean) {
             continue;
         }
 
@@ -235,6 +242,44 @@ const ACTION_PREFIXES: &[(&str, UpdateAction, VersionRole)] = &[
     ("Adding", UpdateAction::Add, VersionRole::To),
     ("Removing", UpdateAction::Remove, VersionRole::From),
 ];
+
+/// PATTERN-1 / TASK-1054: distinguish the index-progress noise line
+/// (`Updating crates.io index`, optionally with an alternate-registry
+/// `(sparse+https://...)` suffix) from a real update line such as
+/// `Updating indexer v1.0.0 -> v1.0.1`. The previous gate
+/// `contains("index")` matched any crate name containing the substring
+/// `index` and silently dropped legitimate updates.
+///
+/// Caller must already know `line` starts with `Updating`. Returns true
+/// iff the line has the documented index-progress shape: the second
+/// whitespace-separated token is exactly `index`, with at most a
+/// parenthesised alternate-registry suffix after it. A real update line
+/// always has the version (`v1.2.3`) as the third token, so it cannot
+/// match this shape.
+fn is_index_progress_line(line: &str) -> bool {
+    let mut tokens = line.split_whitespace();
+    // First token is "Updating" (caller guarantees).
+    if tokens.next() != Some("Updating") {
+        return false;
+    }
+    // Second token: registry name (e.g. `crates.io`, `github.com`,
+    // `my-registry`). Any non-empty token is acceptable.
+    if tokens.next().is_none() {
+        return false;
+    }
+    // Third token must be exactly `index` — for a real update line this
+    // would be the from-version (`v1.0.0`) and the gate would not fire.
+    if tokens.next() != Some("index") {
+        return false;
+    }
+    // Anything after `index` must be the alternate-registry suffix in
+    // parens, e.g. `(sparse+https://index.crates.io/)`. Crucially, a real
+    // update would have ` -> vX.Y.Z` here.
+    match tokens.next() {
+        None => true,
+        Some(rest) => rest.starts_with('('),
+    }
+}
 
 /// True when `line` starts with one of our recognised verb prefixes — used
 /// solely to keep the tracing diagnostic narrow: lines that don't begin with
