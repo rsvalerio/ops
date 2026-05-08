@@ -5,6 +5,8 @@ use ops_core::output::format_error_tail;
 use ops_core::subprocess::{
     default_timeout, resolve_cargo_bin, resolve_rustup_bin, run_with_timeout, RunError,
 };
+use std::collections::HashSet;
+use std::ffi::OsString;
 use std::process::Command;
 use std::time::Duration;
 
@@ -143,6 +145,101 @@ pub fn check_cargo_tool_installed(name: &str) -> bool {
     // Standalone binaries installed via `cargo install` (e.g. tokei) don't
     // appear in `cargo --list` — fall back to checking PATH.
     is_in_cargo_list(&stdout, name) || check_binary_installed(name)
+}
+
+/// Cached index of executable basenames found on `$PATH`.
+///
+/// PERF-3 / TASK-1046: `collect_tools` previously fell through to
+/// [`check_binary_installed`] for every Cargo-source tool that did not appear
+/// in `cargo --list` (any tool installed standalone via `cargo install`,
+/// e.g. `tokei`, `bacon`). Each fallback re-walked the entire `$PATH`
+/// (`std::env::split_paths` × `std::fs::metadata` per directory entry, plus
+/// `$PATHEXT` on Windows), turning what should be O(N) probes into
+/// O(N × |PATH| × |PATHEXT|).
+///
+/// Capturing the index once at the top of [`crate::collect_tools`] amortises
+/// the walk into a single pass and reduces the per-tool fallback to a hash
+/// lookup. The set stores the raw directory entry filenames (without
+/// stripping `$PATHEXT`) — the lookup helper handles the suffix list, so the
+/// index stays portable.
+pub type PathIndex = HashSet<OsString>;
+
+/// Build a one-shot index of executable basenames present on `$PATH`.
+///
+/// Returns `None` when `$PATH` is unset (matches [`find_on_path`]'s shape).
+/// Unreadable directories are skipped with a `tracing::warn!` so a single
+/// stale `$PATH` entry can't poison the whole probe sweep.
+///
+/// On Unix the executable bit is enforced via the same [`check_executable`]
+/// path used by [`find_on_path_in`]; on Windows we accept any regular file
+/// because the OS does not surface an executable bit and the suffix loop in
+/// [`is_in_path_index`] already constrains matches to `$PATHEXT`.
+pub fn capture_path_index() -> Option<PathIndex> {
+    let path = std::env::var_os("PATH")?;
+    Some(capture_path_index_from(&path))
+}
+
+pub(crate) fn capture_path_index_from(path_var: &std::ffi::OsStr) -> PathIndex {
+    let mut set: PathIndex = HashSet::new();
+    for dir in std::env::split_paths(path_var) {
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd,
+            Err(e) => {
+                // Missing PATH entries are common and noisy at info-level.
+                // Only surface unexpected errors (e.g. permission denied).
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(
+                        path = %dir.display(),
+                        error = %e,
+                        "PATH entry unreadable while building path index; skipping"
+                    );
+                }
+                continue;
+            }
+        };
+        for entry in entries.flatten() {
+            let candidate = entry.path();
+            if matches!(check_executable(&candidate), ExecCheck::Yes) {
+                set.insert(entry.file_name());
+            }
+        }
+    }
+    set
+}
+
+/// Look up `name` in a precomputed [`PathIndex`].
+///
+/// On Windows the lookup also tries each `$PATHEXT` suffix, mirroring the
+/// behaviour of [`find_on_path_in`].
+pub(crate) fn is_in_path_index(index: &PathIndex, name: &str) -> bool {
+    if index.contains(std::ffi::OsStr::new(name)) {
+        return true;
+    }
+    if cfg!(windows) {
+        for ext in pathext_suffixes() {
+            let mut candidate = OsString::from(name);
+            candidate.push(&ext);
+            if index.contains(&candidate) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// PERF-3 / TASK-1046: `check_binary_installed` variant that consults a
+/// precomputed [`PathIndex`] when supplied, falling back to the per-call
+/// `$PATH` walk when `index` is `None`. Preserves the public API for
+/// one-off callers (CLI subcommands, tests) while letting `collect_tools`
+/// amortise the walk across N tools.
+pub fn check_binary_installed_with(name: &str, index: Option<&PathIndex>) -> bool {
+    match index {
+        Some(idx) => is_in_path_index(idx, name),
+        None => check_binary_installed(name),
+    }
 }
 
 pub(crate) fn is_in_cargo_list(stdout: &str, name: &str) -> bool {
@@ -354,21 +451,26 @@ pub(crate) fn is_component_in_list(stdout: &str, component: &str) -> bool {
 }
 
 pub fn check_tool_status(name: &str, spec: &ToolSpec) -> ToolStatus {
-    check_tool_status_with(name, spec, None, None)
+    check_tool_status_with(name, spec, None, None, None)
 }
 
-/// Variant of [`check_tool_status`] that reuses precomputed `cargo --list` and
-/// `rustup component list --installed` outputs, so the caller can resolve them
-/// once per probe sweep and amortise the spawn cost across all entries.
+/// Variant of [`check_tool_status`] that reuses precomputed `cargo --list`,
+/// `rustup component list --installed`, and `$PATH` index outputs, so the
+/// caller can resolve them once per probe sweep and amortise the spawn /
+/// directory-walk cost across all entries.
 ///
 /// `cargo_list` is consulted only for `ToolSource::Cargo` specs; `rustup_components`
-/// only for specs that name a `rustup_component`. Falling back to `None` runs the
-/// per-tool subprocess as before.
+/// only for specs that name a `rustup_component`. `path_index` (PERF-3 /
+/// TASK-1046) replaces the per-tool `$PATH` walk performed by
+/// [`check_binary_installed`] when the cargo-list fallback path or a
+/// `ToolSource::System` spec needs to confirm a binary; `None` runs the
+/// per-tool walk as before.
 pub fn check_tool_status_with(
     name: &str,
     spec: &ToolSpec,
     cargo_list: Option<&str>,
     rustup_components: Option<&str>,
+    path_index: Option<&PathIndex>,
 ) -> ToolStatus {
     if let Some(component) = spec.rustup_component() {
         let installed = match rustup_components {
@@ -382,10 +484,10 @@ pub fn check_tool_status_with(
 
     let is_installed = match spec.source() {
         ToolSource::Cargo => match cargo_list {
-            Some(s) => is_in_cargo_list(s, name) || check_binary_installed(name),
+            Some(s) => is_in_cargo_list(s, name) || check_binary_installed_with(name, path_index),
             None => check_cargo_tool_installed(name),
         },
-        ToolSource::System => check_binary_installed(name),
+        ToolSource::System => check_binary_installed_with(name, path_index),
     };
 
     if is_installed {

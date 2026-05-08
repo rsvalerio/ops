@@ -16,9 +16,9 @@ pub use ops_core::config::tools::{ExtendedToolSpec, ToolSource, ToolSpec};
 
 pub use install::{install_cargo_tool, install_rustup_component, install_tool};
 pub use probe::{
-    capture_cargo_list, capture_rustup_components, check_binary_installed,
-    check_cargo_tool_installed, check_rustup_component_installed, check_tool_status,
-    check_tool_status_with, get_active_toolchain,
+    capture_cargo_list, capture_path_index, capture_rustup_components, check_binary_installed,
+    check_binary_installed_with, check_cargo_tool_installed, check_rustup_component_installed,
+    check_tool_status, check_tool_status_with, get_active_toolchain, PathIndex,
 };
 pub use timeout::{run_with_timeout, DEFAULT_INSTALL_TIMEOUT};
 
@@ -109,6 +109,15 @@ pub fn collect_tools(tools: &IndexMap<String, ToolSpec>) -> Vec<ToolInfo> {
         .values()
         .any(|s| matches!(s.source(), ToolSource::Cargo));
     let needs_rustup = tools.values().any(|s| s.rustup_component().is_some());
+    // PERF-3 / TASK-1046: any Cargo-source spec may fall through to the
+    // PATH-binary fallback (standalone `cargo install` binaries that don't
+    // appear in `cargo --list`, e.g. tokei/bacon), and System-source specs
+    // always check PATH. Capture the index whenever either case applies so
+    // the per-tool fallback becomes an O(1) hash lookup instead of an
+    // O(|PATH| × |PATHEXT|) walk per tool.
+    let needs_path_index = tools
+        .values()
+        .any(|s| matches!(s.source(), ToolSource::Cargo | ToolSource::System));
     let cargo_list = if needs_cargo {
         probe::capture_cargo_list()
     } else {
@@ -116,6 +125,11 @@ pub fn collect_tools(tools: &IndexMap<String, ToolSpec>) -> Vec<ToolInfo> {
     };
     let rustup_components = if needs_rustup {
         probe::capture_rustup_components()
+    } else {
+        None
+    };
+    let path_index = if needs_path_index {
+        probe::capture_path_index()
     } else {
         None
     };
@@ -127,6 +141,7 @@ pub fn collect_tools(tools: &IndexMap<String, ToolSpec>) -> Vec<ToolInfo> {
                 spec,
                 cargo_list.as_deref(),
                 rustup_components.as_deref(),
+                path_index.as_ref(),
             );
             ToolInfo {
                 name: name.clone(),
