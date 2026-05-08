@@ -3,11 +3,11 @@ id: TASK-1176
 title: >-
   CONC-7: TapWriter::append_marker re-opens path after first write failure
   ignoring root cause
-status: To Do
+status: Done
 assignee:
   - TASK-1261
 created_date: '2026-05-08 08:08'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:47'
 labels:
   - code-review-rust
   - conc

@@ -1,11 +1,11 @@
 ---
 id: TASK-1163
 title: 'CONC-7: typed_manifest_cache uses Mutex around HashMap on the about hot path'
-status: To Do
+status: Done
 assignee:
   - TASK-1261
 created_date: '2026-05-08 07:45'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:46'
 labels:
   - code-review-rust
   - CONC

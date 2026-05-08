@@ -3,11 +3,11 @@ id: TASK-1246
 title: >-
   SEC-14: resolve_crate_display_name joins workspace member without rejecting
   absolute or ..-segment members
-status: To Do
+status: Done
 assignee:
   - TASK-1260
 created_date: '2026-05-08 13:00'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:20'
 labels:
   - code-review-rust
   - security
@@ -27,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Reject member entries that are absolute or contain .. before join with a one-shot tracing::warn
-- [ ] #2 Apply the same scrub at resolved_workspace_members's passthrough arm so non-glob entries cannot bypass it
-- [ ] #3 Unit test pinning members = ["../escape"] and ["/abs"] produce empty units with a warn
+- [x] #1 Reject member entries that are absolute or contain .. before join with a one-shot tracing::warn
+- [x] #2 Apply the same scrub at resolved_workspace_members's passthrough arm so non-glob entries cannot bypass it
+- [x] #3 Unit test pinning members = ["../escape"] and ["/abs"] produce empty units with a warn
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1177
 title: >-
   CONC-6: handle_parallel_events_with_cancel only triggers fail_fast on
   StepFailed, not on panicked tasks
-status: To Do
+status: Done
 assignee:
   - TASK-1261
 created_date: '2026-05-08 08:08'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:51'
 labels:
   - code-review-rust
   - conc

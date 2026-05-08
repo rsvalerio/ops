@@ -1,11 +1,11 @@
 ---
 id: TASK-1241
 title: 'SEC-33: validate_extra_opts has no upper bound on pair count or token length'
-status: To Do
+status: Done
 assignee:
   - TASK-1260
 created_date: '2026-05-08 12:59'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:17'
 labels:
   - code-review-rust
   - security
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add a hard cap on opts.len() (e.g. 4 KiB) and pair count (e.g. 32)
-- [ ] #2 Tests for oversize input pinning the cap
-- [ ] #3 Document the cap in the function-level doc as part of the safety contract
+- [x] #1 Add a hard cap on opts.len() (e.g. 4 KiB) and pair count (e.g. 32)
+- [x] #2 Tests for oversize input pinning the cap
+- [x] #3 Document the cap in the function-level doc as part of the safety contract
 <!-- AC:END -->

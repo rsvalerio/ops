@@ -3,11 +3,11 @@ id: TASK-1194
 title: >-
   SEC-33: query_metadata_raw_with_cap enforces byte cap after materialising the
   full DuckDB row
-status: To Do
+status: Done
 assignee:
   - TASK-1260
 created_date: '2026-05-08 08:14'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:06'
 labels:
   - code-review-rust
   - sec
@@ -27,6 +27,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A metadata_raw row whose JSON length exceeds the configured cap surfaces the byte-cap error without ever materialising the full text into a Rust String — verified by a test that wires up a 100-MiB synthetic payload with a 1-MiB cap.
-- [ ] #2 The error message and warn line still cite the observed length and the override env var, matching today's output.
+- [x] #1 A metadata_raw row whose JSON length exceeds the configured cap surfaces the byte-cap error without ever materialising the full text into a Rust String — verified by a test that wires up a 100-MiB synthetic payload with a 1-MiB cap.
+- [x] #2 The error message and warn line still cite the observed length and the override env var, matching today's output.
 <!-- AC:END -->

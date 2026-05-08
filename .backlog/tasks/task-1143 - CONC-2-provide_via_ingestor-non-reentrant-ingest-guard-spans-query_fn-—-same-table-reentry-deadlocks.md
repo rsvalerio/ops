@@ -3,11 +3,11 @@ id: TASK-1143
 title: >-
   CONC-2: provide_via_ingestor non-reentrant ingest guard spans query_fn —
   same-table reentry deadlocks
-status: To Do
+status: Done
 assignee:
   - TASK-1261
 created_date: '2026-05-08 07:41'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:42'
 labels:
   - code-review-rust
   - CONC

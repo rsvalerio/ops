@@ -1,11 +1,11 @@
 ---
 id: TASK-1249
 title: 'CONC-7: capture_path_index_from stores file_name case-sensitively on Windows'
-status: To Do
+status: Done
 assignee:
   - TASK-1261
 created_date: '2026-05-08 13:00'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:56'
 labels:
   - code-review-rust
   - concurrency

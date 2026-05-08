@@ -3,11 +3,11 @@ id: TASK-1144
 title: >-
   CONC-1: ArcTextCache serialises all distinct-path reads on one map mutex
   during file I/O
-status: To Do
+status: Done
 assignee:
   - TASK-1261
 created_date: '2026-05-08 07:42'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:43'
 labels:
   - code-review-rust
   - CONC

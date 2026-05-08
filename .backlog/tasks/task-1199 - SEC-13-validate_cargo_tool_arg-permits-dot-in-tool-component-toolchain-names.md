@@ -1,11 +1,11 @@
 ---
 id: TASK-1199
 title: 'SEC-13: validate_cargo_tool_arg permits dot in tool/component/toolchain names'
-status: To Do
+status: Done
 assignee:
   - TASK-1260
 created_date: '2026-05-08 08:14'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:08'
 labels:
   - code-review-rust
   - sec
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 validate_cargo_tool_arg('ops.bad', 'tool name') returns Err whose message names the offending . character.
-- [ ] #2 All existing call sites with legitimate names (cargo-deny, cargo-edit, clippy, rustfmt, rust-src) continue to validate.
+- [x] #1 validate_cargo_tool_arg('ops.bad', 'tool name') returns Err whose message names the offending . character.
+- [x] #2 All existing call sites with legitimate names (cargo-deny, cargo-edit, clippy, rustfmt, rust-src) continue to validate.
 <!-- AC:END -->

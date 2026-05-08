@@ -3,11 +3,11 @@ id: TASK-1151
 title: >-
   SEC-13: GitInfo fallback branch ships unparseable post-redaction garbage as
   remote_url
-status: To Do
+status: Done
 assignee:
   - TASK-1260
 created_date: '2026-05-08 07:43'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:04'
 labels:
   - code-review-rust
   - SEC
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When parse_remote_url returns None in GitInfo::collect, drop remote_url entirely (set to None)
+- [x] #1 When parse_remote_url returns None in GitInfo::collect, drop remote_url entirely (set to None)
 - [ ] #2 Or tighten RedactedUrl::redact to require a recognised scheme prefix (https://, ssh://, git@) and return None otherwise
 <!-- AC:END -->

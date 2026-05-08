@@ -1,11 +1,11 @@
 ---
 id: TASK-1155
 title: 'ARCH-9: project_coverage cache keyed by raw *const DuckDb pointer address'
-status: To Do
+status: Done
 assignee:
   - TASK-1261
 created_date: '2026-05-08 07:43'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:45'
 labels:
   - code-review-rust
   - ARCH

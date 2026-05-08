@@ -3,11 +3,11 @@ id: TASK-1137
 title: >-
   CONC-3: register_commands does not detect alias collisions across config and
   stack stores
-status: To Do
+status: Done
 assignee:
   - TASK-1261
 created_date: '2026-05-08 07:40'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:38'
 labels:
   - code-review-rust
   - CONC

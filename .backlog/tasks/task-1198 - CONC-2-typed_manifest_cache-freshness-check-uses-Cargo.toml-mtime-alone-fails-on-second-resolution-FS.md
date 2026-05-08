@@ -3,11 +3,11 @@ id: TASK-1198
 title: >-
   CONC-2: typed_manifest_cache freshness check uses Cargo.toml mtime alone,
   fails on second-resolution FS
-status: To Do
+status: Done
 assignee:
   - TASK-1261
 created_date: '2026-05-08 08:14'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:54'
 labels:
   - code-review-rust
   - conc

@@ -3,11 +3,11 @@ id: TASK-1229
 title: >-
   CONC-2: WorkspaceCanonicalCache::get_or_compute holds Mutex across
   canonicalize() syscall
-status: To Do
+status: Done
 assignee:
   - TASK-1261
 created_date: '2026-05-08 12:58'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:54'
 labels:
   - code-review-rust
   - concurrency

@@ -3,11 +3,11 @@ id: TASK-1210
 title: >-
   SEC-25: upgrade_legacy_hook uses fixed predictable temp-file name; concurrent
   installs race
-status: To Do
+status: Done
 assignee:
   - TASK-1260
 created_date: '2026-05-08 08:19'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:16'
 labels:
   - code-review-rust
   - sec
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 write_temp_hook switches to a tempfile::NamedTempFile::new_in(parent)-style randomised path; the rename target stays the canonical hook path.
-- [ ] #2 A regression test simulates two concurrent upgrade_legacy_hook calls against the same hook_path and asserts that exactly one rename wins, the other returns a typed error.
+- [x] #1 write_temp_hook switches to a tempfile::NamedTempFile::new_in(parent)-style randomised path; the rename target stays the canonical hook path.
+- [x] #2 A regression test simulates two concurrent upgrade_legacy_hook calls against the same hook_path and asserts that exactly one rename wins, the other returns a typed error.
 <!-- AC:END -->

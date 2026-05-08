@@ -3,11 +3,11 @@ id: TASK-1126
 title: >-
   ARCH-9: default_workspace_cache process-global static duplicates per-runner
   workspace_cache; runner invalidate has no effect on spawn path
-status: To Do
+status: Done
 assignee:
   - TASK-1261
 created_date: '2026-05-08 07:28'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:37'
 labels:
   - code-review-rust
   - architecture

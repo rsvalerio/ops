@@ -3,11 +3,11 @@ id: TASK-1140
 title: >-
   SEC-23: resolve_spec_cwd skips canonicalize under WarnAndAllow leaving
   symlink-swap TOCTOU window
-status: To Do
+status: Done
 assignee:
   - TASK-1260
 created_date: '2026-05-08 07:41'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:03'
 labels:
   - code-review-rust
   - SEC
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Apply canonicalize-on-success uniformly under both policies (best-effort fallback when canonicalize fails)
-- [ ] #2 Update CwdEscapePolicy::Deny doc so the residual TOCTOU note no longer claims WarnAndAllow is strictly weaker
+- [x] #1 Apply canonicalize-on-success uniformly under both policies (best-effort fallback when canonicalize fails)
+- [x] #2 Update CwdEscapePolicy::Deny doc so the residual TOCTOU note no longer claims WarnAndAllow is strictly weaker
 <!-- AC:END -->

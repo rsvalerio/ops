@@ -3,11 +3,11 @@ id: TASK-1193
 title: >-
   CONC-2: cached_query_project_coverage drops the lock around the query, racing
   duplicate warns
-status: To Do
+status: Done
 assignee:
   - TASK-1261
 created_date: '2026-05-08 08:13'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:52'
 labels:
   - code-review-rust
   - conc

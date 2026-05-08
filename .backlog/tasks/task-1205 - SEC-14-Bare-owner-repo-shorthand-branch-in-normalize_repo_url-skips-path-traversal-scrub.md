@@ -3,11 +3,11 @@ id: TASK-1205
 title: >-
   SEC-14: Bare owner/repo shorthand branch in normalize_repo_url skips
   path-traversal scrub
-status: To Do
+status: Done
 assignee:
   - TASK-1260
 created_date: '2026-05-08 08:16'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 14:14'
 labels:
   - code-review-rust
   - sec
@@ -27,6 +27,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A new test normalize_bare_shorthand_strips_traversal asserts that normalize_repo_url('../etc') does not contain  and lands on https://github.com/etc (or collapses to https://github.com if every segment filters out).
-- [ ] #2 is_bare_github_shorthand is updated (or the branch routes through scrub_path_segments) so that segments equal to . or .. are rejected/dropped before the URL is synthesised; existing tests continue to pass.
+- [x] #1 A new test normalize_bare_shorthand_strips_traversal asserts that normalize_repo_url('../etc') does not contain  and lands on https://github.com/etc (or collapses to https://github.com if every segment filters out).
+- [x] #2 is_bare_github_shorthand is updated (or the branch routes through scrub_path_segments) so that segments equal to . or .. are rejected/dropped before the URL is synthesised; existing tests continue to pass.
 <!-- AC:END -->
