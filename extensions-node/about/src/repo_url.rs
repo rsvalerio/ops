@@ -46,7 +46,42 @@ pub(crate) fn normalize_repo_url(raw: &str) -> String {
     if let Some(rest) = s.strip_prefix("git://") {
         return format!("https://{}", rest.trim_end_matches(".git"));
     }
+    // PATTERN-1 / TASK-1060: bare two-segment npm shorthand
+    // (`owner/repo`) — no scheme, no colon, exactly one `/`, both
+    // segments non-empty and identifier-shaped — is rewritten to a
+    // GitHub URL. Otherwise the About card surfaces a non-URL string
+    // as a link. Scoped npm names (`@scope/name`) are intentionally
+    // excluded: they're package names, not repo shorthands.
+    if is_bare_github_shorthand(s) {
+        return format!("https://github.com/{s}");
+    }
     s.trim_end_matches(".git").to_string()
+}
+
+/// Recognise the bare `owner/repo` npm shorthand that npm itself accepts in
+/// `package.json::repository`. Requires:
+/// - no scheme (no `:` anywhere — this also rejects `@scope/name` only via
+///   the leading-`@` check, since scoped names contain no colon),
+/// - no leading `@` (scoped npm package names),
+/// - exactly one `/` separator,
+/// - both segments non-empty,
+/// - each segment composed of identifier-shaped ASCII (alphanumerics,
+///   `_`, `-`, `.`).
+fn is_bare_github_shorthand(s: &str) -> bool {
+    if s.is_empty() || s.starts_with('@') || s.contains(':') {
+        return false;
+    }
+    let Some((owner, repo)) = s.split_once('/') else {
+        return false;
+    };
+    if owner.is_empty() || repo.is_empty() || repo.contains('/') {
+        return false;
+    }
+    let ident_ok = |seg: &str| {
+        seg.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
+    };
+    ident_ok(owner) && ident_ok(repo)
 }
 
 /// Convert the body of an `ssh://` (or `git+ssh://`) URL to its `https://`
@@ -207,5 +242,23 @@ mod tests {
             normalize_repo_url("github:owner/repo"),
             "https://github.com/owner/repo"
         );
+    }
+
+    /// PATTERN-1 / TASK-1060: bare `owner/repo` npm shorthand must be
+    /// rewritten to a GitHub URL — otherwise the About card emits a
+    /// non-URL link.
+    #[test]
+    fn normalize_bare_owner_repo_shorthand() {
+        assert_eq!(
+            normalize_repo_url("expressjs/express"),
+            "https://github.com/expressjs/express"
+        );
+    }
+
+    /// PATTERN-1 / TASK-1060: a scoped npm package name like `@scope/name`
+    /// is NOT a repo shorthand and must fall through unchanged.
+    #[test]
+    fn normalize_scoped_npm_name_falls_through() {
+        assert_eq!(normalize_repo_url("@scope/name"), "@scope/name");
     }
 }
