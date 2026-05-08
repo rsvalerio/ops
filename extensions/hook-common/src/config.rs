@@ -16,6 +16,29 @@ use crate::HookConfig;
 /// If the config already has the command, does nothing.
 /// Otherwise, adds a composite command that runs the given `selected_commands`.
 /// If `selected_commands` is empty, skips writing the entry.
+///
+/// # `fail_fast` policy (PATTERN-1, TASK-1114)
+///
+/// The synthesized entry hardcodes `fail_fast = true`. Rationale:
+///
+/// 1. **Why `true` is the default.** Git hooks gate a destructive-ish user
+///    action (commit, push). When the first sub-command (e.g. `fmt`) fails,
+///    running the rest (`clippy`, `test`) usually just produces noise on top
+///    of the same root cause and delays the operator's feedback. `true` keeps
+///    the failure signal sharp and the wait short.
+/// 2. **Why the knob is intentionally not exposed.** Adding `fail_fast` to
+///    [`HookConfig`] would ripple into the [`crate::impl_hook_wrappers!`]
+///    macro, both hook extension crates, and their tests for a setting that
+///    has exactly one good answer for the install-time default. The TOML
+///    entry is a normal `[commands.*]` table — the user already has a
+///    structured place to override it.
+/// 3. **How operators flip it to `false`.** After install, hand-edit
+///    `.ops.toml` and change `fail_fast = true` to `fail_fast = false` under
+///    `[commands.<hook-name>]`. The early-exit guard at the top of this
+///    function (the `commands.contains_key(config.name)` check) means a
+///    subsequent `ops <hook>-install` run will see the entry already exists
+///    and leave the user's edit alone — the override is sticky across
+///    reinstalls.
 pub fn ensure_config_command(
     config: &HookConfig,
     config_dir: &Path,
@@ -52,6 +75,10 @@ pub fn ensure_config_command(
         arr.push(name.as_str());
     }
     cmd.insert("commands", toml_edit::value(arr));
+    // PATTERN-1 (TASK-1114): `fail_fast = true` is hardcoded by design — see
+    // the function-level doc for the rationale and the operator override path
+    // (hand-edit `.ops.toml`; the early-exit guard above preserves the edit
+    // on subsequent installs).
     cmd.insert("fail_fast", toml_edit::value(true));
     cmd.insert("help", toml_edit::value(config.command_help));
 

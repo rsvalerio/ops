@@ -128,6 +128,13 @@ macro_rules! impl_hook_wrappers {
             $crate::install_hook(&HOOK_CONFIG, git_dir, w)
         }
 
+        /// Per-extension wrapper for [`ops_hook_common::ensure_config_command`].
+        ///
+        /// The synthesized `[commands.<name>]` entry hardcodes
+        /// `fail_fast = true`. See the wrapped function's doc for the
+        /// rationale and the operator override path
+        /// (hand-edit `.ops.toml` post-install; the early-exit guard
+        /// preserves the edit on subsequent reinstalls).
         pub fn ensure_config_command(
             config_dir: &::std::path::Path,
             selected_commands: &[String],
