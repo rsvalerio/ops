@@ -295,12 +295,46 @@ fn extract_urls(
 /// "home page" normalise identically, so passing both is dead weight.
 /// PERF-3 / TASK-0991: shared normalisation pass — once per About call,
 /// rather than once per pick_url candidate-set.
+///
+/// PATTERN-1 / TASK-1110: PEP 621 places no constraints on key casing or
+/// punctuation. Two source keys can collapse under `normalize_url_key` —
+/// e.g. `"Homepage"` and `"home page"`, or `"Source-Code"` and
+/// `"source code"`. A naive `.collect()` into a HashMap would silently
+/// keep an arbitrary winner (last-write-wins by BTreeMap iteration order)
+/// and discard the other URL with no diagnostic. Walk the map explicitly,
+/// keep the first-seen entry, and emit a `tracing::warn!` naming both
+/// raw keys and both URLs so the operator sees the schema drift instead
+/// of a silently dropped URL. Same finding class as TASK-1019 / TASK-1100.
 fn normalize_urls(
     urls: &std::collections::BTreeMap<String, String>,
 ) -> std::collections::HashMap<String, &String> {
-    urls.iter()
-        .map(|(k, v)| (normalize_url_key(k), v))
-        .collect()
+    let mut out: std::collections::HashMap<String, &String> =
+        std::collections::HashMap::with_capacity(urls.len());
+    let mut first_seen_raw: std::collections::HashMap<String, &String> =
+        std::collections::HashMap::with_capacity(urls.len());
+    for (k, v) in urls.iter() {
+        let norm = normalize_url_key(k);
+        if let Some(existing_url) = out.get(&norm) {
+            let existing_key = first_seen_raw
+                .get(&norm)
+                .copied()
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            tracing::warn!(
+                normalized_key = %norm,
+                first_key = %existing_key,
+                first_url = %existing_url,
+                duplicate_key = %k,
+                duplicate_url = %v,
+                recovery = "keep-first",
+                "pyproject [project.urls] keys collapse under normalisation; keeping first-seen entry"
+            );
+            continue;
+        }
+        out.insert(norm.clone(), v);
+        first_seen_raw.insert(norm, k);
+    }
+    out
 }
 
 fn pick_url(
