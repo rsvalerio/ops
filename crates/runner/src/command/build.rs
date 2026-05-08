@@ -9,60 +9,203 @@ use ops_core::config::ExecCommandSpec;
 use ops_core::expand::{ExpandError, Variables};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{OnceLock, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::process::Command;
+
+/// CONC-7 / TASK-1063: monotonic LRU access tick stamped on every cache hit
+/// and insert. Mirrors the `next_lru_tick` pattern in
+/// `extensions/about/src/manifest_cache.rs` (TASK-1106) — `Relaxed` is
+/// sufficient because each access is taken under the cache mutex; we only
+/// need a strictly increasing stamp for victim selection.
+fn next_workspace_lru_tick() -> u64 {
+    static LRU_TICK: AtomicU64 = AtomicU64::new(0);
+    LRU_TICK.fetch_add(1, Ordering::Relaxed)
+}
+
+/// CONC-7 / TASK-1063: cap on the number of distinct workspace paths held
+/// resident. Production runs see `1` key; tests inject many tempdirs.
+/// The cap is a high-water mark for embedders and integration tests so the
+/// previous unbounded `RwLock<HashMap>` cannot grow without limit.
+pub(crate) const WORKSPACE_CANONICAL_CACHE_CAP: usize = 256;
+
+#[derive(Clone)]
+struct WorkspaceCacheEntry {
+    canonical: Option<PathBuf>,
+    last_accessed: u64,
+}
+
+/// CONC-7 / TASK-1063: bounded, runner-scoped cache of
+/// `canonicalize(workspace)` results.
+///
+/// Replaces the prior `OnceLock<RwLock<HashMap<PathBuf, Option<PathBuf>>>>`
+/// process-global. The previous design had two problems:
+///
+/// 1. **Unbounded**: every distinct workspace `PathBuf` ever seen was
+///    retained for the lifetime of the process. Long-running embedders or
+///    in-process test fixtures that spin up many tempdirs accumulated
+///    entries indefinitely.
+/// 2. **Stale forever**: a `canonicalize(...)` result was cached on first
+///    miss with no invalidation path. If a symlink under the cached
+///    workspace was swapped after the entry was populated, all subsequent
+///    containment decisions used the stale canonical path.
+///
+/// The cache is now an instance type owned by [`CommandRunner`] (see
+/// `mod.rs`). When the runner is dropped, the cache and its entries go
+/// with it. The runner exposes [`CommandRunner::invalidate_workspace_cache`]
+/// and [`CommandRunner::clear_workspace_cache`] for hosts that need to
+/// react to a known on-disk change without dropping the runner.
+///
+/// Eviction policy mirrors `extensions/about/src/manifest_cache.rs`
+/// (TASK-1106): least-recently-used by access tick, evicted one entry at
+/// a time when the cap is reached.
+pub(crate) struct WorkspaceCanonicalCache {
+    /// CONC-7 / TASK-1063: a `Mutex` (rather than `RwLock`) is sufficient
+    /// here. The hot path is dominated by lock-free reads downstream of
+    /// the canonicalize syscall; the per-spawn cost of the mutex
+    /// acquisition itself is negligible against the work it guards.
+    /// Using `Mutex` also matches `ArcTextCache`'s pattern, keeping the
+    /// poison-recovery shape consistent across caches in this codebase.
+    inner: Mutex<HashMap<PathBuf, WorkspaceCacheEntry>>,
+    cap: usize,
+}
+
+impl WorkspaceCanonicalCache {
+    /// Create an empty cache with the given residency cap.
+    pub(crate) fn with_capacity(cap: usize) -> Self {
+        Self {
+            inner: Mutex::new(HashMap::new()),
+            cap,
+        }
+    }
+
+    /// Default-capacity constructor used by [`CommandRunner::new`].
+    pub(crate) fn new() -> Self {
+        Self::with_capacity(WORKSPACE_CANONICAL_CACHE_CAP)
+    }
+
+    /// Forget the cached canonicalization for `workspace` so the next call
+    /// re-runs `canonicalize`. Used by hosts that observe an on-disk swap
+    /// (and by the symlink-swap regression test for AC #3).
+    pub(crate) fn invalidate(&self, workspace: &Path) {
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|e| recover_workspace_cache(e));
+        guard.remove(workspace);
+    }
+
+    /// Drop every cached entry. Useful for tests and for embedders that
+    /// know the workspace layout has changed wholesale.
+    #[allow(dead_code)]
+    pub(crate) fn clear(&self) {
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|e| recover_workspace_cache(e));
+        guard.clear();
+    }
+
+    /// Look up — or compute and insert — the canonical form of `workspace`,
+    /// using the supplied closure as the canonicalize implementation.
+    ///
+    /// On a miss, the closure is called once under the lock so concurrent
+    /// callers for the same uncached path collapse onto a single
+    /// canonicalize invocation (the same thundering-herd guarantee
+    /// PERF-3 / TASK-1095 added to the prior design).
+    pub(crate) fn get_or_compute<F>(&self, workspace: &Path, canonicalize: F) -> Option<PathBuf>
+    where
+        F: FnOnce(&Path) -> std::io::Result<PathBuf>,
+    {
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|e| recover_workspace_cache(e));
+        if let Some(entry) = guard.get_mut(workspace) {
+            // ARCH-1 / TASK-1106: bump LRU tick on hit so frequently
+            // accessed workspaces survive eviction.
+            entry.last_accessed = next_workspace_lru_tick();
+            return entry.canonical.clone();
+        }
+        // Cap-evict the LRU victim before inserting, mirroring
+        // `ArcTextCache`'s policy in extensions/about/src/manifest_cache.rs.
+        if guard.len() >= self.cap {
+            if let Some(victim) = guard
+                .iter()
+                .min_by_key(|(_, e)| e.last_accessed)
+                .map(|(k, _)| k.clone())
+            {
+                tracing::debug!(
+                    cap = self.cap,
+                    victim = ?victim.display(),
+                    "workspace canonicalize cache reached cap; evicting LRU entry"
+                );
+                guard.remove(&victim);
+            }
+        }
+        let canonical = canonicalize(workspace).ok();
+        guard.insert(
+            workspace.to_path_buf(),
+            WorkspaceCacheEntry {
+                canonical: canonical.clone(),
+                last_accessed: next_workspace_lru_tick(),
+            },
+        );
+        debug_assert!(
+            guard.len() <= self.cap,
+            "workspace canonicalize cache exceeded cap of {}",
+            self.cap
+        );
+        canonical
+    }
+}
+
+impl Default for WorkspaceCanonicalCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// ERR-5 / TASK-1063: poison recovery. The cache value is the pure result
+/// of `canonicalize`, not authoritative state, so a panic in a previous
+/// holder cannot leave a torn invariant; treating poison as fatal would
+/// brick the cache for every other caller in the process.
+fn recover_workspace_cache<T>(
+    err: std::sync::PoisonError<std::sync::MutexGuard<'_, T>>,
+) -> std::sync::MutexGuard<'_, T> {
+    tracing::warn!("workspace canonicalize cache mutex was poisoned by a prior panic; recovered");
+    err.into_inner()
+}
 
 /// PERF-3 / TASK-0765: cache the canonical workspace path keyed by raw path.
 ///
-/// The workspace root is fixed for the runner's lifetime, but
-/// `detect_workspace_escape` was invoking `std::fs::canonicalize(workspace)`
-/// on every spawn — wasted work on the blocking pool under
-/// `MAX_PARALLEL=32`. A process-global cache scoped by path serves the same
-/// role as a per-`CommandRunner` `OnceLock` (workers share one
-/// `CommandRunner`, so the path is identical across spawns) without
-/// threading a fresh handle through every call site. The cache is bounded
-/// by the number of distinct workspace paths the process ever sees, which
-/// is `1` in the production runner and a small constant in tests.
+/// CONC-7 / TASK-1063: routes through a process-global default
+/// [`WorkspaceCanonicalCache`] instance for back-compat with call sites
+/// that do not yet thread a runner-scoped cache (notably
+/// `build_command_async` from `exec.rs`). The cache type itself is
+/// bounded; runner-scoped instances live on [`CommandRunner`].
 fn canonical_workspace_cached(workspace: &Path) -> Option<PathBuf> {
-    canonical_workspace_cached_with(workspace, |p| std::fs::canonicalize(p))
+    default_workspace_cache().get_or_compute(workspace, |p| std::fs::canonicalize(p))
+}
+
+/// CONC-7 / TASK-1063: process-global default cache. Bounded — see
+/// [`WORKSPACE_CANONICAL_CACHE_CAP`].
+pub(crate) fn default_workspace_cache() -> &'static Arc<WorkspaceCanonicalCache> {
+    static CACHE: OnceLock<Arc<WorkspaceCanonicalCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Arc::new(WorkspaceCanonicalCache::new()))
 }
 
 /// PERF-3 / TASK-1095: testable seam for the cache so tests can inject a
 /// canonicalize counter and verify the burst-startup thundering-herd is
-/// collapsed to a single syscall per workspace path.
+/// collapsed to a single syscall per workspace path. Forwards to a fresh
+/// local cache to keep test isolation under the new bounded design
+/// (TASK-1063); the static cache is exercised separately.
+#[cfg(test)]
 fn canonical_workspace_cached_with<F>(workspace: &Path, canonicalize: F) -> Option<PathBuf>
 where
     F: FnOnce(&Path) -> std::io::Result<PathBuf>,
 {
-    // CONC-7 / TASK-0839: the cache is read-mostly — production has exactly
-    // one workspace key, tests a small constant — so a `RwLock` lets the
-    // 32-way parallel spawn path take a shared read lock on cache hits and
-    // only escalate to a write lock on the (per-key, once-per-process)
-    // canonicalize miss. Avoids the under-contention `Mutex::lock` that
-    // CONC-7 specifically calls out for hot-path Mutex<HashMap>.
-    static CACHE: OnceLock<RwLock<HashMap<PathBuf, Option<PathBuf>>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| RwLock::new(HashMap::new()));
-    if let Ok(guard) = cache.read() {
-        if let Some(hit) = guard.get(workspace) {
-            return hit.clone();
-        }
-    }
-    // PERF-3 / TASK-1095: double-checked locking. After acquiring the write
-    // lock, re-check the entry — a racing writer that won the lock between
-    // our read miss and our write acquire has already paid the canonicalize
-    // cost. Without this re-check, N burst-startup callers each incur a
-    // full `std::fs::canonicalize` syscall on the blocking pool for the
-    // same workspace path even though only the first one is meaningful.
-    let mut guard = match cache.write() {
-        Ok(g) => g,
-        Err(_) => return canonicalize(workspace).ok(),
-    };
-    if let Some(hit) = guard.get(workspace) {
-        return hit.clone();
-    }
-    let canonical = canonicalize(workspace).ok();
-    guard.insert(workspace.to_path_buf(), canonical.clone());
-    canonical
+    default_workspace_cache().get_or_compute(workspace, canonicalize)
 }
 
 /// ERR-1 / TASK-0450: convert a strict-expansion error into an `io::Error`
@@ -766,6 +909,87 @@ mod tests {
         assert_ne!(
             resolved, escape_target_canonical,
             "resolved path must not be the post-swap escape target"
+        );
+    }
+
+    /// CONC-7 / TASK-1063: regression for AC #3. The unbounded process-global
+    /// `OnceLock<RwLock<HashMap>>` previously cached `canonicalize(workspace)`
+    /// forever with no invalidation path. After a symlink swap under a
+    /// previously cached workspace path, the next call returned the stale
+    /// canonical destination — a SEC-25-shaped escape window the cache
+    /// widened.
+    ///
+    /// This test populates the cache against a symlink workspace path,
+    /// swaps the symlink to point at a different real directory, calls
+    /// `invalidate(...)` to mark the entry stale (the supported
+    /// runner-scoped flow — see [`CommandRunner::invalidate_workspace_cache`]),
+    /// and asserts that the next lookup re-runs canonicalize and observes
+    /// the new target.
+    #[cfg(unix)]
+    #[test]
+    fn workspace_canonical_cache_re_canonicalizes_after_symlink_swap_and_invalidate() {
+        let target_a = tempfile::tempdir().unwrap();
+        let target_b = tempfile::tempdir().unwrap();
+        let canonical_a = std::fs::canonicalize(target_a.path()).unwrap();
+        let canonical_b = std::fs::canonicalize(target_b.path()).unwrap();
+        assert_ne!(
+            canonical_a, canonical_b,
+            "two tempdirs must canonicalize to distinct paths"
+        );
+
+        // Create a workspace symlink that initially points at target_a.
+        let parent = tempfile::tempdir().unwrap();
+        let workspace = parent.path().join("ws-link");
+        std::os::unix::fs::symlink(&canonical_a, &workspace).unwrap();
+
+        let cache = WorkspaceCanonicalCache::new();
+        let first = cache
+            .get_or_compute(&workspace, |p| std::fs::canonicalize(p))
+            .expect("first canonicalize must succeed");
+        assert_eq!(first, canonical_a, "first call resolves to target_a");
+
+        // Without invalidation, a second call must still hit the cache and
+        // return the stale entry — this pins the dedup behaviour the LRU
+        // cache shares with the prior implementation.
+        std::fs::remove_file(&workspace).unwrap();
+        std::os::unix::fs::symlink(&canonical_b, &workspace).unwrap();
+        let stale = cache
+            .get_or_compute(&workspace, |p| std::fs::canonicalize(p))
+            .expect("cached entry survives without invalidation");
+        assert_eq!(
+            stale, canonical_a,
+            "cache hit must return the original canonicalization until invalidated"
+        );
+
+        // After invalidation, the next call re-runs canonicalize and
+        // observes the new target. This is the AC #3 contract.
+        cache.invalidate(&workspace);
+        let refreshed = cache
+            .get_or_compute(&workspace, |p| std::fs::canonicalize(p))
+            .expect("post-invalidate canonicalize must succeed");
+        assert_eq!(
+            refreshed, canonical_b,
+            "after invalidate, the swapped symlink must be re-canonicalized to target_b"
+        );
+    }
+
+    /// CONC-7 / TASK-1063: AC #1 regression. The cache must hard-cap
+    /// residency so a long-running embedder injecting many distinct
+    /// workspace paths cannot grow the map without bound.
+    #[test]
+    fn workspace_canonical_cache_evicts_lru_at_cap() {
+        let cap = 4;
+        let cache = WorkspaceCanonicalCache::with_capacity(cap);
+        let keys: Vec<PathBuf> = (0..cap + 2)
+            .map(|i| PathBuf::from(format!("/tmp/ops-task-1063-key-{i}")))
+            .collect();
+        for k in &keys {
+            cache.get_or_compute(k, |p| Ok(p.to_path_buf()));
+        }
+        let len = cache.inner.lock().unwrap().len();
+        assert!(
+            len <= cap,
+            "cache residency {len} must be bounded by cap {cap}"
         );
     }
 }

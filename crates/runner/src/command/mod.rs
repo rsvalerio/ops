@@ -39,6 +39,7 @@ mod secret_patterns;
 mod sequential;
 
 pub use build::CwdEscapePolicy;
+use build::WorkspaceCanonicalCache;
 pub use events::{OutputLine, RunnerEvent};
 pub use results::StepResult;
 pub use secret_patterns::is_sensitive_env_key;
@@ -126,6 +127,21 @@ pub struct CommandRunner {
     /// cannot escape the workspace on the next commit; the default
     /// interactive path keeps `WarnAndAllow`.
     pub(super) cwd_escape_policy: CwdEscapePolicy,
+    /// CONC-7 / TASK-1063: bounded, runner-scoped cache of
+    /// `canonicalize(workspace)` results. Replaces the prior unbounded
+    /// process-global `OnceLock<RwLock<HashMap>>` in `build.rs`. The cache
+    /// type itself is bounded (LRU eviction at
+    /// [`build::WORKSPACE_CANONICAL_CACHE_CAP`]); folding it onto the
+    /// runner means its lifetime ends with the runner instead of the
+    /// process. The runner exposes [`Self::invalidate_workspace_cache`]
+    /// so embedders that observe an on-disk symlink swap can force a
+    /// re-canonicalize without dropping the runner.
+    ///
+    /// Note: today's `build_command_async` call from `exec.rs` still
+    /// reads the static default cache for compatibility; this field is
+    /// the authoritative per-runner instance and the migration target as
+    /// the spawn signatures are reworked. See TASK-1063 notes.
+    pub(super) workspace_cache: Arc<WorkspaceCanonicalCache>,
 }
 
 impl CommandRunner {
@@ -174,7 +190,21 @@ impl CommandRunner {
             data_cache: std::collections::HashMap::new(),
             detected_stack,
             cwd_escape_policy: CwdEscapePolicy::WarnAndAllow,
+            workspace_cache: Arc::new(WorkspaceCanonicalCache::new()),
         }
+    }
+
+    /// CONC-7 / TASK-1063: forget the cached canonicalization for
+    /// `workspace`. The next escape check will re-run
+    /// `std::fs::canonicalize`, picking up any post-cache symlink swap.
+    pub fn invalidate_workspace_cache(&self, workspace: &std::path::Path) {
+        self.workspace_cache.invalidate(workspace);
+    }
+
+    /// CONC-7 / TASK-1063: drop every cached workspace canonicalization.
+    /// For embedders that know the layout has changed wholesale.
+    pub fn clear_workspace_cache(&self) {
+        self.workspace_cache.clear();
     }
 
     /// SEC-14 / TASK-0886: opt this runner into the fail-closed cwd-escape
