@@ -167,9 +167,25 @@ impl DataRegistry {
     /// the warning). The audit-trail mechanism replaces that panic so
     /// in-extension duplicates surface as a single warning emitted from one
     /// place rather than as a bespoke panic.
+    ///
+    /// API-9 / TASK-1067: when a duplicate is detected, the incoming
+    /// `Box<dyn DataProvider>` is dropped at the end of this call (the first
+    /// registration wins) and a `tracing::debug!` breadcrumb is emitted at
+    /// the drop site naming the rejected provider so that any constructor
+    /// side effects (DB handles, file descriptors) opened by the dropped
+    /// provider are at least observable in logs. The aggregated
+    /// `tracing::warn!` emitted by the CLI wiring layer via
+    /// [`take_duplicate_inserts`](Self::take_duplicate_inserts) remains the
+    /// primary user-facing signal; the debug breadcrumb here is the
+    /// finer-grained drop-site trace.
     pub fn register(&mut self, name: impl Into<String>, provider: Box<dyn DataProvider>) {
         let name = name.into();
         if self.providers.contains_key(&name) {
+            tracing::debug!(
+                provider_name = %name,
+                dropped_provider_reports_name = %provider.name(),
+                "DataRegistry::register dropping duplicate provider (first-write-wins); incoming Box<dyn DataProvider> will be dropped at end of scope"
+            );
             self.duplicate_inserts.push(name);
             return;
         }
