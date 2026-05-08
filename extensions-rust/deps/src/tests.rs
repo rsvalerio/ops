@@ -345,6 +345,69 @@ fn interpret_upgrade_output_parses_on_clean_exit() {
     assert_eq!(result[0].name, "serde");
 }
 
+/// PATTERN-1 / TASK-1074: when cargo-edit emits a `====` separator row but
+/// the header line above it has been renamed (e.g. `Package` / `Current Req`
+/// instead of `name` / `old req`), the parser must NOT silently score the
+/// run as authoritative — even though the separator alone would still align
+/// columns and yield rows. `interpret_upgrade_output` must emit a warn and
+/// bail so the supply-chain gate fails loudly on cargo-edit format drift.
+#[test]
+fn interpret_upgrade_output_bails_on_unrecognised_header_with_separator() {
+    use tracing::subscriber::with_default;
+    use tracing::Level;
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    struct BufWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for BufWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    let buf = BufWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(Level::WARN)
+        .with_writer(buf.clone())
+        .without_time()
+        .finish();
+
+    // Renamed header columns ("Package" / "Current Req" / "Available") with
+    // a real `====` separator and one body row. Pre-fix this would silently
+    // parse and return 1 entry; post-fix it bails with a TASK-1074 warn.
+    let stdout = b"Package Current Req Available Latest  Pinned Note\n\
+                   ======= =========== ========= ======  ====== ====\n\
+                   serde   1.0.100     1.0.228   1.0.228 1.0.228\n";
+
+    let result = with_default(subscriber, || {
+        crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
+    });
+
+    let err = result
+        .expect_err("renamed header with separator must bail, not silently parse as authoritative");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("header") && (msg.contains("not recognised") || msg.contains("drift")),
+        "error must call out header-drift; got: {msg}"
+    );
+
+    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+    assert!(
+        logged.contains("TASK-1074") && logged.contains("header"),
+        "expected a TASK-1074 header-drift warn; got: {logged}"
+    );
+}
+
 // -- Deny exit-code interpretation --
 
 #[test]

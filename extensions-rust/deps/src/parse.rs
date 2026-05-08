@@ -51,7 +51,27 @@ pub fn interpret_upgrade_output(
     match exit_code {
         Some(0) => {
             let stdout = String::from_utf8_lossy(stdout);
-            Ok(parse_upgrade_table(&stdout))
+            let (entries, diag) = parse_upgrade_table_inner(&stdout);
+            // PATTERN-1 / TASK-1074: if cargo-edit's table prints a `====`
+            // separator row but the header line above it does not match any
+            // recognised token shape (renamed / localised columns), refuse to
+            // score the run as "no upgrades available". The separator alone
+            // would still calibrate column offsets and yield rows, but the
+            // header drift is the canary for an upstream format change we
+            // have not vetted — fail closed so operators see the drift
+            // signal instead of silently downgrading the supply-chain gate.
+            if diag.saw_separator && !diag.saw_recognised_header {
+                tracing::warn!(
+                    "TASK-1074: cargo-upgrade stdout had a `====` separator row but no recognised header line; \
+                     refusing to parse output as authoritative — suspect cargo-edit header-token drift"
+                );
+                anyhow::bail!(
+                    "cargo upgrade --dry-run produced a table whose header line was not recognised \
+                     (no `name` / `old req` / `new req` tokens); refusing to score as `no upgrades` — \
+                     suspect cargo-edit format drift"
+                );
+            }
+            Ok(entries)
         }
         None => anyhow::bail!(
             "cargo upgrade --dry-run terminated by signal (exit_code = None); \
@@ -84,9 +104,33 @@ pub fn interpret_upgrade_output(
 /// by parent") and any future column additions don't silently shift values
 /// across `UpgradeEntry` fields.
 pub fn parse_upgrade_table(stdout: &str) -> Vec<UpgradeEntry> {
+    parse_upgrade_table_inner(stdout).0
+}
+
+/// Diagnostics surfaced by [`parse_upgrade_table_inner`] so callers higher up
+/// the stack (e.g. [`interpret_upgrade_output`]) can decide whether to bail
+/// on suspected cargo-edit format drift instead of silently scoring the run
+/// as "no upgrades available".
+pub(crate) struct UpgradeParseDiagnostics {
+    /// `true` once a `====` row aligned the column offsets.
+    pub saw_separator: bool,
+    /// `true` once a header line matched the recognised token shape
+    /// (`name` + `old req` / `new req`, case-insensitive).
+    pub saw_recognised_header: bool,
+}
+
+/// Inner parser shared by [`parse_upgrade_table`] and
+/// [`interpret_upgrade_output`]. Returns the parsed rows plus diagnostics so
+/// the exit-code-aware caller can fail closed on header-token drift
+/// (TASK-1074) while the public [`parse_upgrade_table`] keeps its tolerant
+/// `-> Vec<_>` signature for unit-test ergonomics.
+pub(crate) fn parse_upgrade_table_inner(
+    stdout: &str,
+) -> (Vec<UpgradeEntry>, UpgradeParseDiagnostics) {
     let mut entries = Vec::new();
     let mut columns: Option<Vec<(usize, usize)>> = None;
     let mut saw_separator = false;
+    let mut saw_recognised_header = false;
     let mut saw_body_line = false;
 
     for line in stdout.lines() {
@@ -104,6 +148,7 @@ pub fn parse_upgrade_table(stdout: &str) -> Vec<UpgradeEntry> {
         let lower = trimmed.to_ascii_lowercase();
         if lower.starts_with("name") && (lower.contains("old req") || lower.contains("new req")) {
             columns = None;
+            saw_recognised_header = true;
             continue;
         }
 
@@ -135,7 +180,13 @@ pub fn parse_upgrade_table(stdout: &str) -> Vec<UpgradeEntry> {
         );
     }
 
-    entries
+    (
+        entries,
+        UpgradeParseDiagnostics {
+            saw_separator,
+            saw_recognised_header,
+        },
+    )
 }
 
 /// Slice a single data row from `cargo upgrade --dry-run` into an
