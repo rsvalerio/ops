@@ -136,7 +136,12 @@ fn resolve_identity(
     cwd: &Path,
 ) -> anyhow::Result<ProjectIdentity> {
     match ctx.get_or_provide("project_identity", data_registry) {
-        Ok(value) => Ok(serde_json::from_value::<ProjectIdentity>((*value).clone())?),
+        // PERF-3 (TASK-1117): borrow the Arc payload via `Deserialize::deserialize`
+        // on `&Value` instead of deep-cloning the entire JSON tree just to feed
+        // `from_value`, which takes `Value` by value.
+        Ok(value) => Ok(<ProjectIdentity as serde::Deserialize>::deserialize(
+            value.as_ref(),
+        )?),
         Err(DataProviderError::NotFound(_)) => Ok(build_fallback_identity(cwd)),
         Err(e) => Err(e.into()),
     }

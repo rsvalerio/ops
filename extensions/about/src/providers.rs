@@ -43,7 +43,10 @@ where
     T: DeserializeOwned + Default,
 {
     match ctx.get_or_provide(provider, registry) {
-        Ok(value) => Ok(serde_json::from_value::<T>((*value).clone())?),
+        // PERF-3 (TASK-1117): borrow the Arc payload via `Deserialize::deserialize`
+        // on `&Value` instead of deep-cloning the entire JSON tree just to feed
+        // `from_value`, which takes `Value` by value.
+        Ok(value) => Ok(T::deserialize(value.as_ref())?),
         Err(DataProviderError::NotFound(_)) => Ok(T::default()),
         Err(e) => Err(e.into()),
     }
