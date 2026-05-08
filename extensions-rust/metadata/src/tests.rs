@@ -1054,4 +1054,112 @@ mod metadata_edge_case_tests {
             warn_lines[0]
         );
     }
+
+    /// PATTERN-1 / TASK-1019: Duplicate package names in `inner["packages"]`
+    /// (e.g. the same crate resolved at two versions) must emit a single
+    /// `tracing::warn!` and the index must keep the first-seen entry rather
+    /// than silently overwriting (last-write-wins). Consumers calling
+    /// `package_by_name` then get a deterministic, observable answer; for
+    /// version disambiguation they must use `package_by_id`.
+    #[test]
+    fn metadata_package_index_by_name_warns_on_duplicate_name() {
+        use std::sync::{Arc as StdArc, Mutex as StdMutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone, Default)]
+        struct BufWriter(StdArc<StdMutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let id_v1 = "serde 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)";
+        let id_v0 = "serde 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)";
+        let value = serde_json::json!({
+            "workspace_root": "/workspace",
+            "target_directory": "/workspace/target",
+            "workspace_members": [],
+            "workspace_default_members": [],
+            "packages": [
+                {
+                    "name": "serde",
+                    "version": "1.0.0",
+                    "id": id_v1,
+                    "edition": "2021",
+                    "manifest_path": "/cache/serde-1.0.0/Cargo.toml",
+                    "dependencies": [],
+                    "targets": []
+                },
+                {
+                    "name": "serde",
+                    "version": "0.9.0",
+                    "id": id_v0,
+                    "edition": "2018",
+                    "manifest_path": "/cache/serde-0.9.0/Cargo.toml",
+                    "dependencies": [],
+                    "targets": []
+                }
+            ]
+        });
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let m = Metadata::from_value(value);
+        let pkg = tracing::subscriber::with_default(subscriber, || {
+            // Force lazy index construction.
+            m.package_by_name("serde")
+        })
+        .expect("first-seen entry must be present");
+
+        // First-write-wins: version of the first package, not the second.
+        assert_eq!(
+            pkg.version(),
+            "1.0.0",
+            "first-seen entry must win on duplicate name"
+        );
+        assert_eq!(
+            pkg.manifest_path(),
+            "/cache/serde-1.0.0/Cargo.toml",
+            "first-seen entry must win on duplicate name"
+        );
+
+        // Both packages still reachable via package_by_id (the disambiguating
+        // accessor). This documents the recommended workaround for callers
+        // that hit this collision.
+        assert_eq!(m.package_by_id(id_v1).expect("v1 by id").version(), "1.0.0");
+        assert_eq!(m.package_by_id(id_v0).expect("v0 by id").version(), "0.9.0");
+
+        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        let warn_lines: Vec<&str> = logs
+            .lines()
+            .filter(|l| l.contains("duplicate package name"))
+            .collect();
+        assert_eq!(
+            warn_lines.len(),
+            1,
+            "expected exactly one warn line for the single duplicate, got logs: {logs}"
+        );
+        assert!(
+            warn_lines[0].contains("serde"),
+            "warn line should name the duplicate package, got: {}",
+            warn_lines[0]
+        );
+    }
 }

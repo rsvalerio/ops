@@ -143,19 +143,42 @@ impl Metadata {
         })
     }
 
+    /// Builds a map from package `name` to its index in `inner["packages"]`.
+    ///
+    /// Cargo metadata names are NOT unique across the resolution graph: a real
+    /// workspace can include multiple entries with the same `name` but
+    /// different versions/sources (transitive deps resolved at multiple
+    /// versions, or a workspace member shadowing a registry crate).
+    /// [`Self::package_by_name`] is therefore inherently ambiguous when
+    /// duplicates exist. To make the non-determinism observable, this function
+    /// emits a single `tracing::warn!` per duplicate name and keeps the
+    /// **first-seen** entry (first-write-wins) for predictable lookups.
+    /// Consumers that need version disambiguation should use
+    /// [`Self::package_by_id`] instead.
     fn package_index_by_name(&self) -> &HashMap<String, usize> {
         self.package_index_by_name.get_or_init(|| {
-            self.inner["packages"]
+            let mut map: HashMap<String, usize> = HashMap::new();
+            for (i, v) in self.inner["packages"]
                 .as_array()
                 .into_iter()
                 .flatten()
                 .enumerate()
-                .filter_map(|(i, v)| {
-                    v.get("name")
-                        .and_then(|n| n.as_str())
-                        .map(|n| (n.to_string(), i))
-                })
-                .collect()
+            {
+                let Some(name) = v.get("name").and_then(|n| n.as_str()) else {
+                    continue;
+                };
+                if let Some(&existing) = map.get(name) {
+                    tracing::warn!(
+                        duplicate_name = name,
+                        first_index = existing,
+                        duplicate_index = i,
+                        "duplicate package name in cargo metadata; keeping first-seen entry (use package_by_id for version disambiguation)"
+                    );
+                    continue;
+                }
+                map.insert(name.to_string(), i);
+            }
+            map
         })
     }
 
@@ -256,6 +279,12 @@ impl Metadata {
 
     /// Find a package by name. PERF-1 / TASK-0883: O(1) average-case after
     /// first call via the lazy [`Self::package_index_by_name`] index.
+    ///
+    /// **Ambiguity (PATTERN-1 / TASK-1019):** cargo metadata can contain
+    /// multiple packages with the same `name` (different versions/sources).
+    /// When duplicates exist, this returns the **first-seen** entry and the
+    /// index build emits a `tracing::warn!`. For deterministic version-aware
+    /// lookup use [`Self::package_by_id`].
     pub fn package_by_name(&self, name: &str) -> Option<Package<'_>> {
         let idx = *self.package_index_by_name().get(name)?;
         self.package_at(idx)
