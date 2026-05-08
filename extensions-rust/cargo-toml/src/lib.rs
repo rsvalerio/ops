@@ -434,6 +434,123 @@ pub fn find_workspace_root_with_depth(
     })
 }
 
+/// Strict variant of [`find_workspace_root`] that re-canonicalises each
+/// candidate `Cargo.toml`'s parent before accepting it as the workspace
+/// root. Rejects (with [`tracing::warn`]) any candidate whose canonical
+/// path does not lie on the canonical start's ancestor chain — i.e. a
+/// symlink in the lexical walk that would otherwise redirect the
+/// discovered root outside the user's intended logical path.
+///
+/// SEC-25 / TASK-1204: addresses the symlink-retarget gap documented on
+/// [`find_workspace_root`]. The lenient walk reaches each ancestor via
+/// [`Path::parent`] on the lexical path of the canonicalized start and
+/// reads each candidate by its lexical path, so an attacker who can
+/// write inside any reachable ancestor can plant a `Cargo.toml`
+/// containing `[workspace]` and have it returned as the root — every
+/// downstream provider (units, coverage, deps) then targets the wrong
+/// workspace. The strict variant adds a per-candidate canonicalize step
+/// so a redirected ancestor is detected and skipped.
+///
+/// Lenient siblings remain available for callers that explicitly opt
+/// out (e.g. legacy `find_workspace_root` / `find_workspace_root_with_depth`),
+/// preserving behaviour for tools that rely on the lexical walk.
+pub fn find_workspace_root_strict(start: &Path) -> Result<PathBuf, FindWorkspaceRootError> {
+    find_workspace_root_strict_with_depth(start, MAX_ANCESTOR_DEPTH)
+}
+
+/// Variant of [`find_workspace_root_strict`] with an explicit ancestor-depth
+/// bound. Exposed for tests and for callers whose layout legitimately needs
+/// a deeper walk.
+pub fn find_workspace_root_strict_with_depth(
+    start: &Path,
+    max_depth: usize,
+) -> Result<PathBuf, FindWorkspaceRootError> {
+    let start_canonical = match fs::canonicalize(start) {
+        Ok(p) => p,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
+            tracing::debug!(
+                start = ?start.display(),
+                "find_workspace_root_strict: start path is unreachable (canonicalize NotFound); reporting NotFound"
+            );
+            return Err(FindWorkspaceRootError::NotFound {
+                start: start.to_path_buf(),
+                depth: max_depth,
+            });
+        }
+        Err(source) => {
+            return Err(FindWorkspaceRootError::CanonicalizeFailed {
+                path: start.to_path_buf(),
+                source,
+            });
+        }
+    };
+    let mut current = start_canonical.as_path();
+    let mut first_cargo_toml: Option<PathBuf> = None;
+    for _ in 0..max_depth {
+        let cargo_toml = current.join("Cargo.toml");
+        let exists = match cargo_toml.try_exists() {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(
+                    path = ?cargo_toml.display(),
+                    error = ?e,
+                    "TASK-1204: Cargo.toml stat failed (non-NotFound IO error); skipping ancestor"
+                );
+                false
+            }
+        };
+        if exists {
+            // Canonicalise the candidate manifest's parent. If its
+            // canonical form is not an ancestor of the canonical start,
+            // a symlink on the lexical chain would have redirected the
+            // discovered root outside the user's intended workspace —
+            // skip it with a warn breadcrumb. Best effort: when
+            // canonicalize itself fails we conservatively skip the
+            // candidate and keep walking, mirroring the
+            // try_exists/manifest_declares_workspace skip-and-continue
+            // pattern above.
+            match fs::canonicalize(current) {
+                Ok(canonical_parent) => {
+                    if start_canonical.starts_with(&canonical_parent) {
+                        if manifest_declares_workspace(&cargo_toml) {
+                            return Ok(canonical_parent);
+                        }
+                        if first_cargo_toml.is_none() {
+                            first_cargo_toml = Some(canonical_parent);
+                        }
+                    } else {
+                        tracing::warn!(
+                            cargo_toml = ?cargo_toml.display(),
+                            lexical_parent = ?current.display(),
+                            canonical_parent = ?canonical_parent.display(),
+                            canonical_start = ?start_canonical.display(),
+                            "SEC-25 / TASK-1204: candidate Cargo.toml's canonical parent escapes the canonical start's ancestor chain; rejecting"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        path = ?current.display(),
+                        error = ?e,
+                        "TASK-1204: failed to canonicalize candidate manifest's parent; skipping ancestor"
+                    );
+                }
+            }
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => break,
+        }
+    }
+    if let Some(root) = first_cargo_toml {
+        return Ok(root);
+    }
+    Err(FindWorkspaceRootError::NotFound {
+        start: start.to_path_buf(),
+        depth: max_depth,
+    })
+}
+
 /// True iff the manifest at `path` parses to TOML and contains a top-level
 /// `[workspace]` table. Read errors and parse errors return false — the walk
 /// will keep looking and ultimately fall back to the first Cargo.toml seen.
