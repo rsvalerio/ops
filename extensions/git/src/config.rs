@@ -19,17 +19,30 @@ impl RedactedUrl {
     /// `redact_userinfo` is idempotent so calling this on an already-clean
     /// value is a no-op.
     ///
+    /// SEC-2 / TASK-1102: returns `None` when `raw` contains any ASCII
+    /// control byte (`\x00..=\x1f` or `\x7f`). A `.git/config` line with an
+    /// embedded ANSI escape, raw newline, or NUL must not flow through to
+    /// JSON / about cards / logs — the redacted form is treated as "no
+    /// remote" instead. Mirrors the control-char hardening already applied
+    /// to other log-bound fields (TASK-0937, TASK-0974).
+    ///
     /// ```
     /// use ops_git::config::RedactedUrl;
-    /// let r = RedactedUrl::redact("https://alice:secret@github.com/o/r.git");
+    /// let r = RedactedUrl::redact("https://alice:secret@github.com/o/r.git").unwrap();
     /// assert_eq!(r.as_str(), "https://github.com/o/r.git");
     /// // Idempotent: re-redacting an already-clean value is a no-op.
-    /// let r2 = RedactedUrl::redact(r.as_str());
+    /// let r2 = RedactedUrl::redact(r.as_str()).unwrap();
     /// assert_eq!(r2.as_str(), r.as_str());
+    /// // Control bytes (ANSI escape, raw newline) cause the value to be
+    /// // dropped entirely.
+    /// assert!(RedactedUrl::redact("https://host/repo\u{1b}[31m\nfake").is_none());
     /// ```
     #[must_use]
-    pub fn redact(raw: &str) -> Self {
-        Self(redact_userinfo(raw))
+    pub fn redact(raw: &str) -> Option<Self> {
+        if raw.bytes().any(is_ascii_control_byte) {
+            return None;
+        }
+        Some(Self(redact_userinfo(raw)))
     }
 
     #[must_use]
@@ -43,10 +56,13 @@ impl RedactedUrl {
     }
 }
 
-impl From<&str> for RedactedUrl {
-    fn from(raw: &str) -> Self {
-        Self::redact(raw)
-    }
+/// SEC-2 / TASK-1102: ASCII control bytes (`0x00..=0x1f` and `0x7f`) must
+/// never reach JSON / about cards / logs through a [`RedactedUrl`]. Newlines,
+/// NULs, and ANSI escapes from a hostile `.git/config` would otherwise
+/// forge log lines or recolor terminal output downstream.
+#[inline]
+fn is_ascii_control_byte(b: u8) -> bool {
+    b < 0x20 || b == 0x7f
 }
 
 impl std::fmt::Display for RedactedUrl {
@@ -155,7 +171,19 @@ pub fn read_origin_url_from(content: &str) -> Option<RedactedUrl> {
         }
         if in_origin {
             if let Some(value) = strip_url_key(trimmed) {
-                last = Some(RedactedUrl::redact(value));
+                match RedactedUrl::redact(value) {
+                    Some(r) => last = Some(r),
+                    None => {
+                        // SEC-2 / TASK-1102: a `url = ...` line with embedded
+                        // ASCII control bytes (raw newline, ANSI escape, NUL)
+                        // is dropped rather than propagated. Operators chasing
+                        // "remote URL not detected" still get a debug-level
+                        // breadcrumb pointing at the corruption.
+                        tracing::debug!(
+                            "git-config: dropped origin url= line containing ASCII control bytes"
+                        );
+                    }
+                }
             }
         }
     }
@@ -571,6 +599,35 @@ mod tests {
             read_origin_url(&git_dir).is_none(),
             "oversized .git/config must not yield an origin URL"
         );
+    }
+
+    /// SEC-2 / TASK-1102: a `.git/config` `url = ...` value containing
+    /// ASCII control bytes (raw newline, ANSI escape, NUL) must be dropped
+    /// rather than propagated through `RedactedUrl` into JSON / about cards
+    /// / logs. The directly-affected helpers are covered here; the
+    /// provider-level end-to-end is pinned in `provider::tests`.
+    #[test]
+    fn redact_rejects_control_bytes() {
+        assert!(RedactedUrl::redact("https://host/repo\u{1b}[31m\nfake").is_none());
+        assert!(RedactedUrl::redact("https://host/repo\nfake").is_none());
+        assert!(RedactedUrl::redact("https://host/repo\u{0}fake").is_none());
+        assert!(RedactedUrl::redact("https://host/repo\u{7f}fake").is_none());
+        // A clean URL still round-trips.
+        assert_eq!(
+            RedactedUrl::redact("https://host/repo.git")
+                .map(RedactedUrl::into_string)
+                .as_deref(),
+            Some("https://host/repo.git")
+        );
+    }
+
+    #[test]
+    fn origin_url_with_control_bytes_is_dropped() {
+        let cfg = "[remote \"origin\"]\n\turl = https://host/repo\u{1b}[31m fake\n";
+        // The trailing literal `\n` ends the line, but the ANSI escape and
+        // any other control bytes inside the value cause the line to be
+        // dropped entirely.
+        assert!(read_origin_url_from(cfg).is_none());
     }
 
     #[test]

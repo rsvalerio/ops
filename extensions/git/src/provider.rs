@@ -208,6 +208,41 @@ mod tests {
         assert!(!url.contains('@'), "url retained userinfo: {url}");
     }
 
+    /// SEC-2 / TASK-1102: a `.git/config` whose `url = ...` value contains
+    /// ASCII control bytes (raw newline, ANSI escape) must not surface
+    /// those bytes through `info.remote_url`. The redaction layer drops
+    /// the line entirely, so the fallback at `GitInfo::collect` never
+    /// observes the poisoned value and `remote_url` ends up `None`.
+    #[test]
+    fn collect_drops_remote_url_with_control_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        // Write the config bytes directly so the embedded ANSI escape +
+        // raw newline survive into the file. A newline inside the value
+        // would normally end the line, so we use only the ESC byte here
+        // and pin the post-newline `fake` content as a separate line that
+        // the parser should not pick up either.
+        let cfg = "[remote \"origin\"]\n\turl = https://host/repo\u{1b}[31m fake\n";
+        std::fs::write(git_dir.join("config"), cfg.as_bytes()).unwrap();
+
+        let info = GitInfo::collect(dir.path());
+        let url = info.remote_url.clone().unwrap_or_default();
+        assert!(
+            !url.contains('\n'),
+            "remote_url leaked raw newline: {url:?}"
+        );
+        assert!(
+            !url.contains('\u{1b}'),
+            "remote_url leaked ANSI escape: {url:?}"
+        );
+        assert!(
+            info.remote_url.is_none(),
+            "control-byte url= must be dropped, got: {:?}",
+            info.remote_url
+        );
+    }
+
     /// OWN-8 / TASK-0785 AC#2: pin that `read_origin_url_from` already returns
     /// redacted values, so the provider's fallback branch can trust it without
     /// re-redacting. If this test breaks, the provider must add redaction back.
