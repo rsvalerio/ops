@@ -123,9 +123,45 @@ fn upgrade_legacy_hook(
         .context("hook path has no filename")?;
     let tmp_path = parent.join(format!(".{file_name}.ops-tmp"));
 
-    write_temp_hook(&tmp_path, config).inspect_err(|_| {
-        let _ = std::fs::remove_file(&tmp_path);
-    })?;
+    // ERR-1 (TASK-1113): a prior crash between write_temp_hook and the rename
+    // can leave .{file_name}.ops-tmp on disk. The next install would then fail
+    // at create_new with AlreadyExists. Detect that case, remove the stale
+    // sibling, and retry once before surfacing a clearer error.
+    if let Err(e) = write_temp_hook(&tmp_path, config) {
+        let is_stale = e
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == ErrorKind::AlreadyExists)
+            || e.root_cause()
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|io| io.kind() == ErrorKind::AlreadyExists);
+        if is_stale {
+            tracing::warn!(
+                tmp = %tmp_path.display(),
+                "removing stale ops temp hook left over from a previous crashed install",
+            );
+            std::fs::remove_file(&tmp_path).with_context(|| {
+                format!(
+                    "failed to remove stale temp hook {} left by a prior crashed install; \
+                     remove it manually and retry",
+                    tmp_path.display()
+                )
+            })?;
+            write_temp_hook(&tmp_path, config)
+                .inspect_err(|_| {
+                    let _ = std::fs::remove_file(&tmp_path);
+                })
+                .with_context(|| {
+                    format!(
+                        "failed to create temp hook {} after clearing a stale leftover; \
+                         remove it manually and retry",
+                        tmp_path.display()
+                    )
+                })?;
+        } else {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(e);
+        }
+    }
 
     let recheck = std::fs::read_to_string(hook_path)
         .context("failed to re-read existing hook before upgrade")?;
@@ -441,5 +477,42 @@ mod tests {
         // Temp file is cleaned up.
         let tmp = hooks.join(".pre-commit.ops-tmp");
         assert!(!tmp.exists(), "temp file should be removed on bail");
+    }
+
+    /// ERR-1 (TASK-1113): a prior `ops install` that crashed between
+    /// write_temp_hook and the rename leaves `.pre-commit.ops-tmp` on disk.
+    /// The next upgrade must remove the stale sibling and recover, not fail
+    /// with AlreadyExists.
+    #[test]
+    fn upgrade_legacy_hook_recovers_from_stale_temp_file() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let hooks = dir.path().join("hooks");
+        std::fs::create_dir(&hooks).unwrap();
+        let hook_path = hooks.join("pre-commit");
+
+        // Legacy ops hook on disk that should be upgraded.
+        std::fs::write(&hook_path, "#!/bin/sh\nexec ops before-commit\n").unwrap();
+
+        // Stale temp file from a prior crashed install — same fixed sibling
+        // name that write_temp_hook would pick.
+        let tmp = hooks.join(".pre-commit.ops-tmp");
+        std::fs::write(&tmp, "garbage from a previous crashed install").unwrap();
+
+        let mut buf = Vec::new();
+        let path =
+            upgrade_legacy_hook(&hook_path, &cfg, &mut buf).expect("recovery should succeed");
+
+        assert_eq!(path, hook_path);
+        let content = std::fs::read_to_string(&hook_path).unwrap();
+        assert_eq!(content, cfg.hook_script);
+        // Temp sibling consumed by the rename, no leftovers.
+        assert!(!tmp.exists(), "temp file should not survive recovery");
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("Updating outdated"),
+            "unexpected output: {output}"
+        );
     }
 }
