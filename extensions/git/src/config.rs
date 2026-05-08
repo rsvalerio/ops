@@ -446,6 +446,7 @@ mod tests {
     /// is verified via `tracing-test`-free assertion: we only pin the return
     /// value here and rely on the inline `tracing::debug!` survival in the
     /// source — call-site presence is guarded by code review.
+    #[test]
     fn origin_section_present_but_no_url_returns_none() {
         let cfg = "[remote \"origin\"]\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n";
         assert!(read_origin_url_from(cfg).is_none());
