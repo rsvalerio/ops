@@ -175,6 +175,8 @@ struct PnpmParse {
 ///     - 'apps/*'
 ///     - "libs/*"
 ///     - services/api
+///   packages: [apps/*, "libs/*", 'services/api']
+///   packages: ["a,b", 'c,d']  (commas inside quoted scalars preserved)
 fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
     let mut out = Vec::new();
     let mut saw_packages_key = false;
@@ -189,7 +191,7 @@ fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
             saw_packages_key = true;
             let rest = rest.trim();
             if let Some(inner) = rest.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
-                for item in inner.split(',') {
+                for item in split_inline_list(inner) {
                     let item = item.trim();
                     if !item.is_empty() {
                         out.push(unquote(item).to_string());
@@ -225,6 +227,31 @@ fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
         items: out,
         saw_packages_key,
     }
+}
+
+/// PATTERN-1 / TASK-1084: split a YAML flow-sequence body on `,` while
+/// preserving commas that appear inside single- or double-quoted scalars.
+/// `inner` is the substring between `[` and `]` — quotes are not stripped
+/// here, the caller passes each piece through `unquote`.
+fn split_inline_list(inner: &str) -> Vec<&str> {
+    let bytes = inner.as_bytes();
+    let mut out = Vec::new();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut start = 0usize;
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b',' if !in_single && !in_double => {
+                out.push(&inner[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&inner[start..]);
+    out
 }
 
 fn unquote(s: &str) -> &str {
@@ -521,6 +548,33 @@ mod tests {
     /// PATTERN-1 / TASK-1061: a `#` inside matching quotes is a literal
     /// character, not a comment marker — `'#literal-pattern'` must pass
     /// through intact.
+    /// PATTERN-1 / TASK-1084: inline flow-sequence with bare entries splits
+    /// on `,` as expected.
+    #[test]
+    fn pnpm_inline_list_bare_entries_split_on_comma() {
+        let yaml = "packages: [apps/*, libs/*]\n";
+        let pats = parse_pnpm_workspace_yaml(yaml).items;
+        assert_eq!(pats, vec!["apps/*", "libs/*"]);
+    }
+
+    /// PATTERN-1 / TASK-1084: a `,` inside a double-quoted scalar is part of
+    /// the value, not a separator — `["a,b", "c"]` is two items.
+    #[test]
+    fn pnpm_inline_list_double_quoted_comma_preserved() {
+        let yaml = "packages: [\"a,b\", \"c\"]\n";
+        let pats = parse_pnpm_workspace_yaml(yaml).items;
+        assert_eq!(pats, vec!["a,b", "c"]);
+    }
+
+    /// PATTERN-1 / TASK-1084: a `,` inside a single-quoted scalar is part of
+    /// the value, not a separator — `['x', 'y,z']` is two items.
+    #[test]
+    fn pnpm_inline_list_single_quoted_comma_preserved() {
+        let yaml = "packages: ['x', 'y,z']\n";
+        let pats = parse_pnpm_workspace_yaml(yaml).items;
+        assert_eq!(pats, vec!["x", "y,z"]);
+    }
+
     #[test]
     fn pnpm_hash_inside_quotes_is_not_a_comment() {
         let yaml = "packages:\n  - '#literal-pattern'\n";
