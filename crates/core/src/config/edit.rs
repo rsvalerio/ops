@@ -139,19 +139,36 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     // destination doesn't exist we default to 0o600 rather than letting
     // umask leak. On non-Unix platforms we keep the previous behaviour
     // (no per-file mode set; relies on filesystem ACL inheritance).
+    //
+    // SEC-25 / TASK-1086: `OpenOptions::mode()` is passed through to
+    // `open(2)`, which masks the requested mode by the process umask
+    // (`mode & ~umask`). For a non-default umask (e.g. 0o077) a
+    // destination requested at 0o644 lands at 0o600 on disk and the
+    // rename silently narrows — or, symmetrically, a 0o660 destination
+    // collapses to 0o640. Apply `set_permissions` on the temp path after
+    // creation so the on-disk mode is exact regardless of umask.
     {
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create_new(true);
         #[cfg(unix)]
-        {
+        let requested_mode: u32 = {
             use std::os::unix::fs::OpenOptionsExt;
             let mode = std::fs::metadata(path)
                 .ok()
                 .map(|m| std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o7777)
                 .unwrap_or(0o600);
             opts.mode(mode);
-        }
+            mode
+        };
         let mut f = opts.open(&tmp)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // fchmod via set_permissions overrides the umask-masked mode
+            // that open(2) actually applied, so the on-disk bits match
+            // what the caller requested.
+            f.set_permissions(std::fs::Permissions::from_mode(requested_mode))?;
+        }
         f.write_all(bytes)?;
         f.sync_all()?;
     }
@@ -365,6 +382,44 @@ mod tests {
             mode, 0o600,
             "expected 0o600 default for new file, got {mode:o}"
         );
+    }
+
+    /// SEC-25 / TASK-1086: `OpenOptions::mode()` is masked by the process
+    /// umask (`open(2)` applies `mode & ~umask`). A destination at 0o644
+    /// with umask 0o077 lands at 0o600 on disk and the rename silently
+    /// narrows the ACL. The fix re-applies the requested mode via
+    /// `set_permissions` after creation so the on-disk bits are exact
+    /// regardless of umask.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn atomic_write_mode_unaffected_by_umask() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // SAFETY: serial-marked. umask is process-global; we restore it
+        // before returning so sibling tests are not poisoned.
+        unsafe extern "C" {
+            fn umask(mask: u32) -> u32;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ops.toml");
+        std::fs::write(&path, b"first").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let prev = unsafe { umask(0o077) };
+        let result = atomic_write(&path, b"second");
+        unsafe {
+            umask(prev);
+        }
+        result.unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(
+            mode, 0o644,
+            "expected 0o644 preserved under umask 0o077, got {mode:o}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"second");
     }
 
     /// SEC-25 / TASK-0837: two siblings whose names differ only in invalid
