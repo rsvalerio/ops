@@ -233,20 +233,27 @@ fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Valu
         count == 1,
         "metadata_raw must contain exactly one row, found {count}"
     );
-    let json_text: String = conn
+    // SEC-33 / TASK-1194: bound the JSON payload size **before** materialising
+    // the row into a Rust `String`. Previously this code ran
+    // `SELECT to_json(m)::VARCHAR FROM metadata_raw` first and only checked
+    // the length on the resulting `String`, so by the time the cap fired,
+    // the very allocation it was meant to prevent had already happened —
+    // and the DuckDB columnar buffer was still live, leaving peak RSS at
+    // ≥2× the payload before the bail. Query the length first so an
+    // oversized payload returns just an `i64` to Rust, then fetch the
+    // text only when we know it fits under the cap. The DuckDB-side
+    // `to_json` allocation still happens for the length probe, but never
+    // crosses the FFI boundary into a Rust `String` when over cap.
+    let len: i64 = conn
         .query_row(
-            "SELECT to_json(m)::VARCHAR FROM metadata_raw m",
+            "SELECT octet_length(CAST(to_json(m)::VARCHAR AS BLOB)) FROM metadata_raw m",
             [],
             |row: &duckdb::Row| row.get(0),
         )
-        .context("reading from metadata_raw table")?;
-    drop(conn);
-    // ERR-1 / TASK-1034: bound the size of the JSON payload before the
-    // `serde_json::from_str` call doubles allocation by materialising a
-    // `serde_json::Value` tree. Above the cap, fail loudly with the
-    // override hint rather than risk an OOM kill in `ops about`.
-    let len = json_text.len() as u64;
+        .context("sizing metadata_raw payload")?;
+    let len = u64::try_from(len.max(0)).unwrap_or(u64::MAX);
     if len > cap {
+        drop(conn);
         tracing::warn!(
             bytes = len,
             cap,
@@ -258,6 +265,14 @@ fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Valu
              (override via {METADATA_MAX_BYTES_ENV})"
         );
     }
+    let json_text: String = conn
+        .query_row(
+            "SELECT to_json(m)::VARCHAR FROM metadata_raw m",
+            [],
+            |row: &duckdb::Row| row.get(0),
+        )
+        .context("reading from metadata_raw table")?;
+    drop(conn);
     let json: serde_json::Value =
         serde_json::from_str(&json_text).context("parsing metadata JSON")?;
     Ok(json)

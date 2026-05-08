@@ -995,6 +995,46 @@ mod metadata_edge_case_tests {
         assert!(msg.contains(super::METADATA_MAX_BYTES_ENV), "got: {msg}");
     }
 
+    /// SEC-33 / TASK-1194: an oversized payload must fail the byte cap
+    /// **before** the full text is materialised into a Rust `String`.
+    /// Pre-TASK-1194 the check ran on `json_text.len()` after the
+    /// `query_row` had already pulled the entire payload across the FFI
+    /// boundary — by the time the cap fired, the very allocation it was
+    /// meant to prevent had already happened. We verify the new ordering
+    /// by wiring up a ~100-MiB synthetic payload with a 1-MiB cap: if
+    /// the implementation regressed to materialising-then-checking, peak
+    /// RSS would balloon by ~100 MiB during this test (and on a
+    /// memory-tight CI runner the OS would kill the process the AC
+    /// describes).
+    #[test]
+    fn query_metadata_raw_rejects_oversized_payload_before_materialising() {
+        let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory");
+        {
+            let conn = db.lock().expect("lock");
+            // 100 MiB of 'a' bytes wrapped in a singleton row. DuckDB's
+            // repeat() builds the value server-side so the seed itself
+            // does not pull 100 MiB across the FFI boundary.
+            conn.execute_batch(
+                "CREATE TABLE metadata_raw (workspace_root VARCHAR, blob VARCHAR);
+                 INSERT INTO metadata_raw \
+                 SELECT '/workspace', repeat('a', 100 * 1024 * 1024);",
+            )
+            .expect("seed");
+        }
+        let cap: u64 = 1024 * 1024;
+        let err = super::query_metadata_raw_with_cap(&db, cap)
+            .expect_err("100-MiB payload must fail under a 1-MiB cap");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("exceeds") && msg.contains("byte cap"),
+            "error message must cite the cap, got: {msg}"
+        );
+        assert!(
+            msg.contains(super::METADATA_MAX_BYTES_ENV),
+            "error message must cite the override env var, got: {msg}"
+        );
+    }
+
     /// ERR-1 / TASK-1034: payloads at or under the cap parse normally.
     #[test]
     fn query_metadata_raw_succeeds_when_payload_within_cap() {
