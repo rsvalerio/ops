@@ -83,7 +83,17 @@ pub(crate) fn install_cargo_tool_with_timeout(
     if status.success() {
         Ok(())
     } else {
-        anyhow::bail!("cargo install {} failed", name)
+        // ERR-2 (TASK-1048): when both `package` and `name` are present, the
+        // invocation is `cargo install <pkg> --bin <name>` — and a common
+        // failure mode is the package not exposing a `<name>` bin target.
+        // Naming only `name` in the error hides the package and misleads
+        // operators debugging a misconfigured `[tools]` table. Surface both
+        // identifiers (and the `--bin` redirection) so the failure points at
+        // the actual cargo invocation.
+        match package {
+            Some(pkg) => anyhow::bail!("cargo install {} --bin {} failed", pkg, name),
+            None => anyhow::bail!("cargo install {} failed", name),
+        }
     }
 }
 

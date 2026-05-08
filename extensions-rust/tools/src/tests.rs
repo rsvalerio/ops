@@ -264,20 +264,20 @@ fn parse_active_toolchain_accepts_colon_in_token() {
 
 #[test]
 fn cargo_list_finds_subcommand() {
-    let stdout = "    bench\n    build\n    fmt\n    check\n";
-    assert!(is_in_cargo_list(stdout, "cargo-fmt"));
+    let stdout = "    bench\n    build\n    nextest\n    check\n";
+    assert!(is_in_cargo_list(stdout, "cargo-nextest"));
 }
 
 #[test]
 fn cargo_list_strips_cargo_prefix() {
-    let stdout = "    fmt\n";
-    assert!(is_in_cargo_list(stdout, "cargo-fmt"));
+    let stdout = "    nextest\n";
+    assert!(is_in_cargo_list(stdout, "cargo-nextest"));
 }
 
 #[test]
 fn cargo_list_no_prefix_match() {
-    let stdout = "    fmt\n";
-    assert!(is_in_cargo_list(stdout, "fmt"));
+    let stdout = "    watch\n";
+    assert!(is_in_cargo_list(stdout, "watch"));
 }
 
 #[test]
@@ -288,19 +288,19 @@ fn cargo_list_not_found() {
 
 #[test]
 fn cargo_list_empty() {
-    assert!(!is_in_cargo_list("", "cargo-fmt"));
+    assert!(!is_in_cargo_list("", "cargo-nextest"));
 }
 
 #[test]
 fn cargo_list_ignores_description_suffix() {
-    let stdout = "    fmt                  Format Rust code\n";
-    assert!(is_in_cargo_list(stdout, "cargo-fmt"));
+    let stdout = "    nextest              Next-gen test runner\n";
+    assert!(is_in_cargo_list(stdout, "cargo-nextest"));
 }
 
 #[test]
 fn cargo_list_partial_name_no_match() {
-    let stdout = "    fmt\n";
-    assert!(!is_in_cargo_list(stdout, "cargo-fmtx"));
+    let stdout = "    nextest\n";
+    assert!(!is_in_cargo_list(stdout, "cargo-nextestx"));
 }
 
 #[test]
@@ -315,9 +315,43 @@ fn cargo_list_similar_prefix_no_match() {
 /// indented line was reported as installed.
 #[test]
 fn cargo_list_empty_name_after_strip_is_rejected() {
-    let stdout = "    fmt\n    clippy\n";
+    let stdout = "    nextest\n    watch\n";
     assert!(!is_in_cargo_list(stdout, "cargo-"));
     assert!(!is_in_cargo_list(stdout, ""));
+}
+
+/// PATTERN-1 / TASK-1101: built-in cargo subcommands (e.g. `build`, `check`,
+/// `test`, `run`) appear in `cargo --list` because they're shipped inside the
+/// cargo binary itself — not because anyone ran `cargo install cargo-build`.
+/// A `tools.toml` entry that collides with a built-in name must not be
+/// reported as installed via the membership check; it should fall through to
+/// the PATH probe so a real `cargo-<name>` executable still resolves.
+#[test]
+fn cargo_list_rejects_builtin_subcommand_named_build() {
+    let stdout = "    build\n    cargo-foo\n";
+    assert!(!is_in_cargo_list(stdout, "build"));
+    assert!(!is_in_cargo_list(stdout, "cargo-build"));
+}
+
+#[test]
+fn cargo_list_rejects_other_common_builtins() {
+    let stdout = "    check\n    test\n    run\n    clippy\n    fmt\n    update\n";
+    for builtin in ["check", "test", "run", "clippy", "fmt", "update"] {
+        assert!(
+            !is_in_cargo_list(stdout, builtin),
+            "built-in {builtin} must not match"
+        );
+    }
+}
+
+#[test]
+fn cargo_list_still_resolves_real_third_party_among_builtins() {
+    // Mixed listing: real `cargo install`-ed tools alongside built-ins.
+    // `cargo-watch` / `cargo-nextest`-style entries must still resolve.
+    let stdout = "    bench\n    build\n    check\n    watch\n    nextest\n";
+    assert!(is_in_cargo_list(stdout, "cargo-watch"));
+    assert!(is_in_cargo_list(stdout, "watch"));
+    assert!(is_in_cargo_list(stdout, "cargo-nextest"));
 }
 
 // --- is_component_in_list ---
@@ -941,5 +975,79 @@ fn check_cargo_tool_installed_honours_cargo_env() {
     assert!(
         installed,
         "probe must invoke the binary at $CARGO; falling back to PATH would not list `fake-marker-tool`"
+    );
+}
+
+/// ERR-2 (TASK-1048) AC #1+#2: when `install_cargo_tool_with_timeout` is
+/// called with both a `name` and a `package`, the spawned invocation is
+/// `cargo install <pkg> --bin <name>`. A common failure mode is the package
+/// not exposing a `<name>` bin target; naming only `name` in the resulting
+/// error misleads operators about which identifier is wrong. The error must
+/// surface BOTH identifiers so the failure points at the actual cargo args.
+#[cfg(unix)]
+#[test]
+#[serial_test::serial]
+fn install_cargo_tool_failure_names_both_package_and_bin() {
+    use crate::install::install_cargo_tool_with_timeout;
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let fake = dir.path().join("cargo");
+    // Always exit non-zero to simulate `cargo install <pkg> --bin <name>`
+    // failing (e.g. "no bin target named <name>").
+    std::fs::write(&fake, "#!/bin/sh\nexit 101\n").unwrap();
+    let mut perms = std::fs::metadata(&fake).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&fake, perms).unwrap();
+
+    // SAFETY: serial_test::serial guards against concurrent env mutation.
+    unsafe { std::env::set_var("CARGO", &fake) };
+    let err = install_cargo_tool_with_timeout(
+        "also-missing",
+        Some("does-not-exist"),
+        std::time::Duration::from_secs(5),
+    )
+    .expect_err("expected non-zero exit to surface as an error");
+    unsafe { std::env::remove_var("CARGO") };
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("does-not-exist"),
+        "error must name the package: {msg}"
+    );
+    assert!(
+        msg.contains("also-missing"),
+        "error must name the bin/tool: {msg}"
+    );
+}
+
+/// ERR-2 (TASK-1048): when no `package` is supplied, the invocation reduces
+/// to `cargo install <name>` and the legacy single-identifier error is
+/// preserved (no spurious `--bin` mention).
+#[cfg(unix)]
+#[test]
+#[serial_test::serial]
+fn install_cargo_tool_failure_without_package_keeps_single_identifier() {
+    use crate::install::install_cargo_tool_with_timeout;
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let fake = dir.path().join("cargo");
+    std::fs::write(&fake, "#!/bin/sh\nexit 101\n").unwrap();
+    let mut perms = std::fs::metadata(&fake).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&fake, perms).unwrap();
+
+    unsafe { std::env::set_var("CARGO", &fake) };
+    let err =
+        install_cargo_tool_with_timeout("lonely-tool", None, std::time::Duration::from_secs(5))
+            .expect_err("expected non-zero exit to surface as an error");
+    unsafe { std::env::remove_var("CARGO") };
+
+    let msg = err.to_string();
+    assert!(msg.contains("lonely-tool"), "error must name tool: {msg}");
+    assert!(
+        !msg.contains("--bin"),
+        "no --bin should appear when package is absent: {msg}"
     );
 }
