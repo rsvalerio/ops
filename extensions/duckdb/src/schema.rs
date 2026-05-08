@@ -91,6 +91,15 @@ impl<'a> DataSourceMetadata<'a> {
 /// Fails fast with [`DbError::NonUtf8Path`] when `source_path` is not valid
 /// UTF-8 — the previous lossy conversion silently stored a string that
 /// could not be mapped back to the actual file (ERR-4).
+///
+/// ERR-1 / TASK-1103: the same fail-fast contract is mirrored in
+/// `ops_about::identity::build_identity_value`, which rejects a non-UTF-8
+/// `cwd` with a typed [`ops_extension::DataProviderError`] instead of
+/// shipping `U+FFFD`-mangled bytes into the `project_root` JSON field.
+/// Any path persisted into a downstream consumer (this DuckDB row, the
+/// `ProjectIdentity` JSON, audit logs) must round-trip faithfully — so
+/// the two callsites share one policy: typed error on non-UTF-8, no
+/// lossy `Path::display` / `to_string_lossy` shortcut.
 pub fn upsert_data_source(db: &DuckDb, meta: &DataSourceMetadata<'_>) -> DbResult<()> {
     let path_str = meta
         .source_path

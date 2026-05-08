@@ -79,6 +79,15 @@ where
 /// Falls back to the working-directory name when `name` is absent and
 /// applies the git-remote repository fallback when no manifest-supplied
 /// repository URL is present.
+///
+/// ERR-1 / TASK-1103: rejects a non-UTF-8 `cwd` with a typed
+/// [`DataProviderError::ComputationFailed`] rather than letting
+/// `Path::display` smuggle `U+FFFD` replacement bytes into the
+/// `project_root` JSON field. This mirrors the strict
+/// [`ops_duckdb::DbError::NonUtf8Path`] policy adopted in TASK-0928 for
+/// `upsert_data_source`: any path persisted into a downstream consumer
+/// (DuckDB row, JSON identity payload, audit log) must round-trip
+/// faithfully, so the two paths now share the same fail-fast contract.
 pub fn build_identity_value(
     manifest: ParsedManifest,
     cwd: &Path,
@@ -103,11 +112,22 @@ pub fn build_identity_value(
         languages,
     } = manifest;
 
+    // ERR-1 / TASK-1103: reject non-UTF-8 cwd up front. `Path::display`
+    // would otherwise replace each invalid byte with `U+FFFD`, silently
+    // corrupting the `project_root` field of every downstream identity
+    // JSON. See module-level / fn-level docs for the shared contract
+    // with `upsert_data_source`'s `NonUtf8Path`.
+    let project_root = cwd.to_str().ok_or_else(|| {
+        DataProviderError::computation_failed(format!(
+            "project_root path is not valid UTF-8: {}",
+            cwd.display()
+        ))
+    })?;
+
     let name = name.unwrap_or_else(|| dir_name(cwd).to_string());
     let repository = ops_git::resolve_repository_with_git_fallback(cwd, repository);
 
-    let mut identity =
-        ProjectIdentity::new(name, stack_label, cwd.display().to_string(), module_label);
+    let mut identity = ProjectIdentity::new(name, stack_label, project_root, module_label);
     identity.version = version;
     identity.description = description;
     identity.stack_detail = stack_detail;
@@ -124,4 +144,31 @@ pub fn build_identity_value(
     identity.languages = languages;
 
     serde_json::to_value(&identity).map_err(DataProviderError::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ERR-1 / TASK-1103: a non-UTF-8 `cwd` must fail fast with a typed
+    /// [`DataProviderError::ComputationFailed`] rather than silently
+    /// shipping `U+FFFD`-mangled bytes into the `project_root` JSON
+    /// field. Mirrors the `upsert_data_source` `NonUtf8Path` test in
+    /// `ops-duckdb`.
+    #[test]
+    #[cfg(unix)]
+    fn build_identity_value_rejects_non_utf8_cwd() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let bad_cwd = Path::new(OsStr::from_bytes(b"/ws/\xff/proj"));
+        let manifest = ParsedManifest::build(|m| {
+            m.stack_label = "rust";
+            m.module_label = "crate";
+        });
+
+        let err = build_identity_value(manifest, bad_cwd)
+            .expect_err("non-UTF-8 cwd must yield a typed error");
+        assert!(matches!(err, DataProviderError::ComputationFailed(_)));
+    }
 }
