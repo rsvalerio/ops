@@ -159,19 +159,38 @@ impl Metadata {
         })
     }
 
+    /// Builds a map from package `id` to its index in `inner["packages"]`.
+    ///
+    /// Cargo metadata package ids are expected to be unique, but the contract
+    /// is not enforced by `cargo metadata` itself. If duplicate ids appear
+    /// (e.g. path-dep aliases, vendored crate collisions, future schema
+    /// changes), this function emits a single `tracing::warn!` per duplicate
+    /// and keeps the **first-seen** entry (first-write-wins) for predictable
+    /// lookups via [`Self::package_by_id`].
     fn package_index_by_id(&self) -> &HashMap<String, usize> {
         self.package_index_by_id.get_or_init(|| {
-            self.inner["packages"]
+            let mut map: HashMap<String, usize> = HashMap::new();
+            for (i, v) in self.inner["packages"]
                 .as_array()
                 .into_iter()
                 .flatten()
                 .enumerate()
-                .filter_map(|(i, v)| {
-                    v.get("id")
-                        .and_then(|n| n.as_str())
-                        .map(|n| (n.to_string(), i))
-                })
-                .collect()
+            {
+                let Some(id) = v.get("id").and_then(|n| n.as_str()) else {
+                    continue;
+                };
+                if let Some(&existing) = map.get(id) {
+                    tracing::warn!(
+                        duplicate_id = id,
+                        first_index = existing,
+                        duplicate_index = i,
+                        "duplicate package id in cargo metadata; keeping first-seen entry"
+                    );
+                    continue;
+                }
+                map.insert(id.to_string(), i);
+            }
+            map
         })
     }
 
