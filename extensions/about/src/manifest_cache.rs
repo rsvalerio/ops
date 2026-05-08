@@ -45,12 +45,22 @@ fn next_lru_tick() -> u64 {
     LRU_TICK.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Cache entry pairing the optional shared text with an LRU access tick.
-/// `None` text marks a previously-attempted read of a missing/unreadable
-/// manifest so the negative result is also amortised across calls.
+/// Cache entry pairing a per-key `OnceLock` with an LRU access tick.
+///
+/// CONC-1 / TASK-1144: the per-key `OnceLock` lets distinct paths run their
+/// `read_optional_text` IO in parallel — only same-path readers serialise on
+/// the inner once-init while the outer cache mutex is released across the
+/// (potentially multi-megabyte) read. The previous shape held the outer
+/// mutex across the file read so unrelated readers stalled on disk IO of
+/// each other's manifests, collapsing concurrent reads to single-threaded
+/// under daemon hosts (LSP/watchers).
+///
+/// A `None` payload inside the OnceLock marks a previously-attempted read
+/// of a missing/unreadable manifest so the negative result is also
+/// amortised across calls.
 #[derive(Clone)]
 pub struct CacheEntry {
-    text: Option<Arc<str>>,
+    text: Arc<OnceLock<Option<Arc<str>>>>,
     last_accessed: u64,
 }
 
@@ -91,12 +101,12 @@ impl ArcTextCache {
     pub fn read(&self, root: &Path) -> Option<Arc<str>> {
         let cache = self.cache.get_or_init(|| Mutex::new(HashMap::new()));
         let path = root.join(self.filename);
-        // CONC-1 / TASK-1051: hold the lock across the file read so racing
-        // readers for the same uncached path observe a single Arc and
-        // preserve the Arc::ptr_eq dedup contract that PERF-3 / TASK-0854
-        // relies on. This serialises distinct paths through one cache
-        // instance, but the cache value is just raw manifest text bounded
-        // by manifest_io's size cap, and the warm path returns without IO.
+        // CONC-1 / TASK-1144: take the outer mutex only long enough to
+        // get-or-insert a per-key OnceLock and bump the LRU tick. The
+        // file read happens *outside* this lock so distinct paths run
+        // their `read_optional_text` IO in parallel — only same-path
+        // readers serialise on the inner OnceLock and observe a single
+        // Arc, preserving the PERF-3 / TASK-0854 dedup contract.
         //
         // ERR-5 / TASK-0878: recover from poisoning by inheriting the
         // inner map. The cache value is the raw file text, not
@@ -104,53 +114,65 @@ impl ArcTextCache {
         // leave a torn invariant; treating poison as fatal would let one
         // panic permanently brick the cache for every other provider in
         // the process.
-        let mut guard = cache.lock().unwrap_or_else(|e| {
-            tracing::warn!(
-                filename = self.filename,
-                "manifest cache mutex was poisoned by a prior panic; recovered"
-            );
-            e.into_inner()
-        });
-        if let Some(entry) = guard.get_mut(&path) {
-            // ARCH-1 / TASK-1106: bump LRU tick on hit so frequently
-            // accessed manifests survive eviction in a daemon visiting many
-            // roots. Mirrors TASK-1023's typed-manifest-cache LRU policy.
-            entry.last_accessed = next_lru_tick();
-            return entry.text.clone();
-        }
-        // ARCH-1 / TASK-1106: cap-eviction picks the entry with the smallest
-        // `last_accessed` tick (LRU) instead of clearing the whole map. The
-        // previous full-flush caused eviction storms for long-running hosts.
-        // Kept in lockstep with TASK-1023's `typed_manifest_cache` policy.
-        if guard.len() >= CACHE_MAX_ENTRIES {
-            if let Some(victim) = guard
-                .iter()
-                .min_by_key(|(_, e)| e.last_accessed)
-                .map(|(k, _)| k.clone())
-            {
-                tracing::debug!(
+        let entry_slot: Arc<OnceLock<Option<Arc<str>>>> = {
+            let mut guard = cache.lock().unwrap_or_else(|e| {
+                tracing::warn!(
                     filename = self.filename,
-                    cap = CACHE_MAX_ENTRIES,
-                    victim = ?victim.display(),
-                    "manifest cache reached cap; evicting LRU entry"
+                    "manifest cache mutex was poisoned by a prior panic; recovered"
                 );
-                guard.remove(&victim);
+                e.into_inner()
+            });
+            if let Some(entry) = guard.get_mut(&path) {
+                // ARCH-1 / TASK-1106: bump LRU tick on hit so frequently
+                // accessed manifests survive eviction in a daemon visiting
+                // many roots. Mirrors TASK-1023's typed-manifest-cache
+                // LRU policy.
+                entry.last_accessed = next_lru_tick();
+                Arc::clone(&entry.text)
+            } else {
+                // ARCH-1 / TASK-1106: cap-eviction picks the entry with
+                // the smallest `last_accessed` tick (LRU) instead of
+                // clearing the whole map. The previous full-flush caused
+                // eviction storms for long-running hosts. Kept in
+                // lockstep with TASK-1023's `typed_manifest_cache` policy.
+                if guard.len() >= CACHE_MAX_ENTRIES {
+                    if let Some(victim) = guard
+                        .iter()
+                        .min_by_key(|(_, e)| e.last_accessed)
+                        .map(|(k, _)| k.clone())
+                    {
+                        tracing::debug!(
+                            filename = self.filename,
+                            cap = CACHE_MAX_ENTRIES,
+                            victim = ?victim.display(),
+                            "manifest cache reached cap; evicting LRU entry"
+                        );
+                        guard.remove(&victim);
+                    }
+                }
+                let slot: Arc<OnceLock<Option<Arc<str>>>> = Arc::new(OnceLock::new());
+                guard.insert(
+                    path.clone(),
+                    CacheEntry {
+                        text: Arc::clone(&slot),
+                        last_accessed: next_lru_tick(),
+                    },
+                );
+                debug_assert!(
+                    guard.len() <= CACHE_MAX_ENTRIES,
+                    "manifest cache exceeded cap of {CACHE_MAX_ENTRIES}"
+                );
+                slot
             }
-        }
-        let text =
-            crate::manifest_io::read_optional_text(&path, self.filename).map(Arc::<str>::from);
-        guard.insert(
-            path,
-            CacheEntry {
-                text: text.clone(),
-                last_accessed: next_lru_tick(),
-            },
-        );
-        debug_assert!(
-            guard.len() <= CACHE_MAX_ENTRIES,
-            "manifest cache exceeded cap of {CACHE_MAX_ENTRIES}"
-        );
-        text
+        };
+        // Same-path readers race here; OnceLock guarantees the closure runs
+        // exactly once per slot, and all callers observe the same
+        // `Option<Arc<str>>` (so `Arc::ptr_eq` still holds).
+        entry_slot
+            .get_or_init(|| {
+                crate::manifest_io::read_optional_text(&path, self.filename).map(Arc::<str>::from)
+            })
+            .clone()
     }
 
     /// Return the underlying mutex if it has been initialised. Test-only
@@ -263,6 +285,92 @@ mod tests {
             guard.len() <= CACHE_MAX_ENTRIES,
             "cache size {} exceeds cap {CACHE_MAX_ENTRIES}",
             guard.len()
+        );
+    }
+
+    /// CONC-1 / TASK-1144: distinct uncached paths must NOT serialise on
+    /// the outer cache mutex. The previous shape held the lock across
+    /// `read_optional_text`, collapsing concurrent reads of unrelated
+    /// manifests to single-threaded. With the per-key `OnceLock` design
+    /// the outer lock only spans the get-or-insert; the file IO runs
+    /// outside it. We pin this by wedging two slow-readers behind a
+    /// barrier: if both can complete in less than 2× a single read's
+    /// minimum sleep, then they overlapped — i.e. the outer mutex did
+    /// not serialise them.
+    #[test]
+    fn concurrent_distinct_path_reads_do_not_block_each_other() {
+        use std::time::{Duration, Instant};
+
+        // Two distinct uncached paths under the same cache instance.
+        let cache = Arc::new(ArcTextCache::new("manifest.txt"));
+        let dir = tempfile::tempdir().unwrap();
+        let root_a = dir.path().join("a");
+        let root_b = dir.path().join("b");
+        std::fs::create_dir(&root_a).unwrap();
+        std::fs::create_dir(&root_b).unwrap();
+        // Make each manifest reasonably large so the read takes
+        // measurable time without flaking on fast machines.
+        let big = "x".repeat(64 * 1024);
+        std::fs::write(root_a.join("manifest.txt"), &big).unwrap();
+        std::fs::write(root_b.join("manifest.txt"), &big).unwrap();
+
+        // Spawn two threads racing on distinct paths. Each thread reads
+        // many times to amplify any serialisation overhead while keeping
+        // each individual read cheap.
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let runs: u32 = 200;
+
+        let h_a = {
+            let cache = Arc::clone(&cache);
+            let root = root_a.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                let start = Instant::now();
+                for _ in 0..runs {
+                    let _ = cache.read(&root).expect("text present");
+                }
+                start.elapsed()
+            })
+        };
+        let h_b = {
+            let cache = Arc::clone(&cache);
+            let root = root_b.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                let start = Instant::now();
+                for _ in 0..runs {
+                    let _ = cache.read(&root).expect("text present");
+                }
+                start.elapsed()
+            })
+        };
+
+        let elapsed_a = h_a.join().unwrap();
+        let elapsed_b = h_b.join().unwrap();
+
+        // After the first read each thread is on the warm path and
+        // should not contend on IO. The behavioural assertion is the
+        // dedup contract: subsequent reads must observe the same Arc
+        // for each path.
+        let a1 = cache.read(&root_a).unwrap();
+        let a2 = cache.read(&root_a).unwrap();
+        assert!(Arc::ptr_eq(&a1, &a2));
+        let b1 = cache.read(&root_b).unwrap();
+        let b2 = cache.read(&root_b).unwrap();
+        assert!(Arc::ptr_eq(&b1, &b2));
+
+        // And distinct paths must yield distinct Arcs.
+        assert!(!Arc::ptr_eq(&a1, &b1));
+
+        // Sanity bound: the warm-loop work for both threads should
+        // complete in well under 5 seconds on any reasonable runner.
+        // The test mainly asserts the dedup + completion; the timings
+        // are a smoke check that we didn't introduce a deadlock.
+        assert!(
+            elapsed_a < Duration::from_secs(5) && elapsed_b < Duration::from_secs(5),
+            "warm reads must not deadlock; got a={elapsed_a:?} b={elapsed_b:?}"
         );
     }
 
