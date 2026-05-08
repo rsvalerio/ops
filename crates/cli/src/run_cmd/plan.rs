@@ -10,10 +10,27 @@ use ops_runner::command::StepResult;
 /// honoured. The earlier shape only inspected the top-level composite for
 /// each `name`, silently dropping nested parallelism / fail-fast semantics
 /// for `umbrella = { commands = ["inner"] }` where `inner.parallel = true`.
+///
+/// PATTERN-1 / TASK-1091: an empty `names` slice is rejected with an error.
+/// The previous shape returned `(empty_plan, any_parallel = false,
+/// fail_fast = true)`, and the executor then ran zero steps and reported
+/// success. That silent "ran nothing, success" outcome masks upstream
+/// filtering bugs (callers that ended up with an empty argv after CLI
+/// parsing or hook filtering). The single production caller
+/// [`run_external_command`] already rejects empty argv before reaching
+/// here, so the error path is a defensive fail-loud guard rather than a
+/// behavioural change for the happy path.
 pub(crate) fn merge_plan(
     runner: &ops_runner::command::CommandRunner,
     names: &[&str],
 ) -> anyhow::Result<(Vec<ops_core::config::CommandId>, bool, bool)> {
+    if names.is_empty() {
+        anyhow::bail!(
+            "merge_plan called with empty names slice — refusing to plan zero commands \
+             (this would otherwise execute zero steps and report success, masking an \
+             upstream filtering bug)"
+        );
+    }
     let mut all_leaf_ids = Vec::new();
     let mut any_parallel = false;
     let mut fail_fast = true;

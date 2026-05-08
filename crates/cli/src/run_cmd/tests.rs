@@ -826,4 +826,21 @@ mod merge_plan_nested_aggregation_tests {
             "nested inner.fail_fast = false must propagate to merge_plan"
         );
     }
+
+    /// PATTERN-1 / TASK-1091: `merge_plan` rejects an empty `names` slice
+    /// rather than returning `(empty_plan, false, true)` and letting the
+    /// executor run zero steps under a silent success. The single
+    /// production caller (`run_external_command`) already rejects empty
+    /// argv earlier; this test pins the defensive fail-loud contract so a
+    /// future refactor cannot regress to the silent-success shape.
+    #[test]
+    fn merge_plan_rejects_empty_names() {
+        let config = TestConfigBuilder::new().exec("a", "echo", &["a"]).build();
+        let err = merge_plan(&runner_with(config), &[]).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("empty names slice"),
+            "error must name the empty-slice contract, got: {msg}"
+        );
+    }
 }
