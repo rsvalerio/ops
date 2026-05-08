@@ -119,7 +119,16 @@ pub struct CommandRunner {
     /// `register_commands` mutates the extension store.
     pub(super) non_config_alias_map: std::collections::HashMap<String, String>,
     pub(super) data_registry: DataRegistry,
-    pub(super) data_cache: std::collections::HashMap<String, Arc<serde_json::Value>>,
+    /// ARCH-9 / TASK-0993: single source of truth for the per-runner data
+    /// cache. The previous shape held both a runner-owned
+    /// `HashMap<String, Arc<serde_json::Value>>` and constructed a fresh
+    /// `Context` per `query_data` call; the throw-away context's own
+    /// `data_cache` was discarded immediately, so any provider that
+    /// composed others via `ctx.get_or_provide(...)` paid recompute cost on
+    /// every outer query. Storing the `Context` directly means transitive
+    /// `get_or_provide` results survive across calls and `in_flight`
+    /// markers are not duplicated state.
+    pub(super) data_context: ops_extension::Context,
     pub(super) detected_stack: Option<Stack>,
     /// SEC-14 / TASK-0886: cwd-escape policy applied to every spawn this
     /// runner orchestrates. Hook-triggered entry points construct the
@@ -179,15 +188,19 @@ impl CommandRunner {
             std::iter::once(&stack_commands).chain(std::iter::once(&extension_commands)),
         );
 
+        let cwd = Arc::new(cwd);
+        let data_context =
+            ops_extension::Context::from_cwd_arc(Arc::clone(&config), Arc::clone(&cwd));
+
         Self {
             config,
-            cwd: Arc::new(cwd),
+            cwd,
             vars: Arc::new(vars),
             stack_commands,
             extension_commands,
             non_config_alias_map,
             data_registry: DataRegistry::new(),
-            data_cache: std::collections::HashMap::new(),
+            data_context,
             detected_stack,
             cwd_escape_policy: CwdEscapePolicy::WarnAndAllow,
             workspace_cache: Arc::new(WorkspaceCanonicalCache::new()),
@@ -294,20 +307,16 @@ impl CommandRunner {
     }
 
     /// Query cached data or compute via provider.
+    ///
+    /// ARCH-9 / TASK-0993: dispatches into the persistent
+    /// [`ops_extension::Context`] held on the runner. Earlier this method
+    /// kept its own `HashMap` cache and threw away a freshly-built context
+    /// on every call, which meant transitive `ctx.get_or_provide(other)`
+    /// calls inside a provider were always recomputed on subsequent
+    /// `query_data` invocations. With a single cache, composed providers
+    /// pay the inner cost once per runner.
     pub fn query_data(&mut self, name: &str) -> Result<Arc<serde_json::Value>, DataProviderError> {
-        use std::collections::hash_map::Entry;
-        match self.data_cache.entry(name.to_string()) {
-            Entry::Occupied(v) => Ok(Arc::clone(v.get())),
-            Entry::Vacant(slot) => {
-                let mut ctx = ops_extension::Context::from_cwd_arc(
-                    Arc::clone(&self.config),
-                    Arc::clone(&self.cwd),
-                );
-                let v = ctx.get_or_provide(name, &self.data_registry)?;
-                slot.insert(Arc::clone(&v));
-                Ok(v)
-            }
-        }
+        self.data_context.get_or_provide(name, &self.data_registry)
     }
 
     /// Register commands from extensions (merged with config commands).

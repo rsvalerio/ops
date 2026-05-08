@@ -3,10 +3,10 @@ id: TASK-0993
 title: >-
   ARCH-9: CommandRunner.data_cache and Context.data_cache duplicate the
   provider-result cache
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-04 21:59'
-updated_date: '2026-05-06 06:48'
+updated_date: '2026-05-08 00:00'
 labels:
   - code-review-rust
   - structure
@@ -55,6 +55,6 @@ back into `self.data_cache` after each call.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 single source of truth for the per-runner data cache (no duplicated HashMap)
-- [ ] #2 regression test: a provider that calls ctx.get_or_provide(other) only computes 'other' once across two outer query_data calls in the same runner
+- [x] #1 single source of truth for the per-runner data cache (no duplicated HashMap)
+- [x] #2 regression test: a provider that calls ctx.get_or_provide(other) only computes 'other' once across two outer query_data calls in the same runner
 <!-- AC:END -->

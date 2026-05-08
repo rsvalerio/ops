@@ -145,9 +145,14 @@ fn orphan_config_alias_falls_through_to_stack_default() {
     assert!(runner.resolve("b").is_some());
 
     // Simulate the config edit that removed the underlying command.
+    // ARCH-9 / TASK-0993: the runner's persistent `data_context` also holds
+    // an `Arc<Config>` clone (single-source-of-truth for the data cache),
+    // so this test no longer has the runner as the unique Config owner.
+    // `Arc::make_mut` clones the Config when shared and rebinds runner.config
+    // to the new Arc; the data_context's stale clone is irrelevant for this
+    // alias-resolution test.
     {
-        let cfg =
-            Arc::get_mut(&mut runner.config).expect("runner is the sole Config owner in this test");
+        let cfg = Arc::make_mut(&mut runner.config);
         cfg.commands.shift_remove("build");
     }
     // Mirror the alias on the non-config alias map (what an extension or

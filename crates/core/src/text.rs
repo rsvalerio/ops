@@ -179,8 +179,15 @@ pub fn dir_name(path: &Path) -> &str {
 ///
 /// SEC-33 (TASK-0932): the read is byte-capped via [`read_capped_to_string`] so
 /// an adversarial manifest cannot OOM the process before the first callback.
-pub fn for_each_trimmed_line<F: FnMut(&str)>(path: &Path, mut f: F) -> Option<()> {
-    let content = match read_capped_to_string(path) {
+pub fn for_each_trimmed_line<F: FnMut(&str)>(path: &Path, f: F) -> Option<()> {
+    for_each_trimmed_line_with(path, manifest_max_bytes(), f)
+}
+
+/// Internal: same as [`for_each_trimmed_line`] but with an explicit cap.
+/// Used by unit tests to exercise the cap-handling behaviour without
+/// depending on the process-global memoised [`manifest_max_bytes`] value.
+fn for_each_trimmed_line_with<F: FnMut(&str)>(path: &Path, cap: u64, mut f: F) -> Option<()> {
+    let content = match read_capped_to_string_with(path, cap) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
@@ -191,7 +198,7 @@ pub fn for_each_trimmed_line<F: FnMut(&str)>(path: &Path, mut f: F) -> Option<()
             tracing::warn!(
                 path = ?path.display(),
                 error = ?e,
-                cap = manifest_max_bytes(),
+                cap = cap,
                 "failed to read manifest for line iteration"
             );
             return None;
@@ -304,40 +311,39 @@ mod tests {
     /// SEC-33 (TASK-0932): files larger than the cap must be rejected by the
     /// shared reader without slurping the full content into memory. The
     /// callback in `for_each_trimmed_line` must not run.
+    ///
+    /// Uses the `_with(cap)` internal variants so the test does not depend on
+    /// the process-global `OnceLock`-memoised cap (which can be initialised by
+    /// any earlier test in the same binary and then sticks for the rest of the
+    /// run).
     #[test]
-    #[serial_test::serial]
     fn for_each_trimmed_line_oversize_returns_none() {
-        let _guard = crate::test_utils::EnvGuard::set(MANIFEST_MAX_BYTES_ENV, "64");
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("huge.txt");
         let oversize = vec![b'a'; 65];
         std::fs::write(&path, &oversize).unwrap();
 
         let mut called = false;
-        let res = for_each_trimmed_line(&path, |_| called = true);
+        let res = for_each_trimmed_line_with(&path, 64, |_| called = true);
         assert!(res.is_none(), "oversize file should return None");
         assert!(!called, "callback must not run for oversize file");
     }
 
     #[test]
-    #[serial_test::serial]
     fn read_capped_to_string_oversize_returns_invalid_data() {
-        let _guard = crate::test_utils::EnvGuard::set(MANIFEST_MAX_BYTES_ENV, "16");
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("big");
         std::fs::write(&path, vec![b'a'; 17]).unwrap();
-        let err = read_capped_to_string(&path).expect_err("must reject oversize");
+        let err = read_capped_to_string_with(&path, 16).expect_err("must reject oversize");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[test]
-    #[serial_test::serial]
     fn read_capped_to_string_at_cap_returns_content() {
-        let _guard = crate::test_utils::EnvGuard::set(MANIFEST_MAX_BYTES_ENV, "8");
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ok");
         std::fs::write(&path, b"12345678").unwrap();
-        let got = read_capped_to_string(&path).expect("at-cap file reads ok");
+        let got = read_capped_to_string_with(&path, 8).expect("at-cap file reads ok");
         assert_eq!(got, "12345678");
     }
 

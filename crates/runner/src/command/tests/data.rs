@@ -81,6 +81,87 @@ fn query_data_failing_provider_errors() {
     assert!(result.unwrap_err().to_string().contains("provider error"));
 }
 
+/// ARCH-9 / TASK-0993: a provider that fans out to a peer via
+/// `ctx.get_or_provide(other, registry)` should compute the peer exactly
+/// once across two outer `query_data` calls on the same runner. Prior to
+/// TASK-0993, `query_data` constructed a fresh `Context` per call and
+/// promoted only the *outer* key into `self.data_cache`; the inner
+/// provider's cached result lived only in the throw-away context, so a
+/// later `runner.query_data("inner")` recomputed it.
+#[test]
+fn query_data_shares_inner_cache_across_outer_calls() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc as StdArc;
+
+    struct CountingInner {
+        calls: StdArc<AtomicUsize>,
+    }
+    impl DataProvider for CountingInner {
+        fn name(&self) -> &'static str {
+            "inner"
+        }
+        fn provide(&self, _ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(serde_json::json!("inner-value"))
+        }
+    }
+
+    struct ComposingOuter {
+        sub_registry: StdArc<DataRegistry>,
+    }
+    impl DataProvider for ComposingOuter {
+        fn name(&self) -> &'static str {
+            "outer"
+        }
+        fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            let _ = ctx.get_or_provide("inner", &self.sub_registry)?;
+            Ok(serde_json::json!("outer-value"))
+        }
+    }
+
+    let calls = StdArc::new(AtomicUsize::new(0));
+
+    let mut sub_registry = DataRegistry::new();
+    sub_registry.register(
+        "inner",
+        Box::new(CountingInner {
+            calls: StdArc::clone(&calls),
+        }),
+    );
+    let sub_registry = StdArc::new(sub_registry);
+
+    let mut main_registry = DataRegistry::new();
+    main_registry.register(
+        "inner",
+        Box::new(CountingInner {
+            calls: StdArc::clone(&calls),
+        }),
+    );
+    main_registry.register(
+        "outer",
+        Box::new(ComposingOuter {
+            sub_registry: StdArc::clone(&sub_registry),
+        }),
+    );
+
+    let mut runner = test_runner(HashMap::new());
+    runner.register_data_providers(main_registry);
+
+    // Outer composes "inner" transitively via ctx.get_or_provide.
+    runner.query_data("outer").expect("outer");
+    // Now query "inner" directly. With a single shared Context cache,
+    // this hits the cached inner-value populated during the outer call;
+    // no extra invocation of either CountingInner instance occurs.
+    runner.query_data("inner").expect("inner");
+    runner.query_data("inner").expect("inner again");
+
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "inner provider should be computed exactly once across outer calls"
+    );
+}
+
 /// PERF-3 / TASK-0890: capture the cwd `Arc<PathBuf>` inside a provider
 /// and assert its strong_count climbs above 1 — proof that `query_data`
 /// hands out shared `Arc::clone`s instead of deep-cloning the inner path.
