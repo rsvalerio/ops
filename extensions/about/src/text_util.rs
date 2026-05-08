@@ -61,6 +61,21 @@ pub fn truncate_to_width(s: &str, max_width: usize) -> String {
     result
 }
 
+/// Wrap `text` into at most `max_lines` lines whose `display_width` is at
+/// most `max_width`.
+///
+/// # Truncation behaviour
+///
+/// PATTERN-1 / TASK-1105: when wrapping exceeds `max_lines`, the function
+/// **does not silently drop** the trailing content. The last emitted line
+/// has a `\u{2026}` (HORIZONTAL ELLIPSIS) appended (replacing its tail if
+/// necessary to stay within `max_width`) so callers can tell at a glance
+/// that the rendered description is truncated. An unbreakable word wider
+/// than `max_width` is still truncated by `truncate_to_width` per the
+/// READ-5 / TASK-0550 contract; the ellipsis policy here applies to the
+/// "ran out of lines" case.
+///
+/// Empty input or `max_lines == 0` returns an empty vector unchanged.
 pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> {
     if text.is_empty() || max_lines == 0 {
         return vec![];
@@ -72,6 +87,12 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
     // `current_line` via display_width on every iteration. Scanning was
     // O(N) per word, making the overall wrap O(N^2) for long descriptions.
     let mut current_width: usize = 0;
+    // PATTERN-1 / TASK-1105: track whether the input had more words than
+    // `max_lines` could accommodate, so the post-loop fixup can append an
+    // ellipsis to the last emitted line. Without this, the trailing word
+    // pushed into `current_line` after the `max_lines` cap was reached was
+    // dropped silently.
+    let mut truncated = false;
 
     for word in text.split_whitespace() {
         let word_width = display_width(word);
@@ -89,6 +110,10 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
             current_width = word_width;
 
             if lines.len() >= max_lines {
+                // The just-pushed word lives in `current_line` but cannot
+                // be emitted as a new line — record that tail content was
+                // dropped so the last line gets an ellipsis below.
+                truncated = true;
                 break;
             }
         }
@@ -96,9 +121,34 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
 
     if !current_line.is_empty() && lines.len() < max_lines {
         lines.push(current_line);
+    } else if !current_line.is_empty() {
+        // Non-empty `current_line` with no room left: we are about to drop
+        // it, which is exactly the silent-truncation case TASK-1105 fixes.
+        truncated = true;
     }
 
     lines.truncate(max_lines);
+
+    // PATTERN-1 / TASK-1105: mark the last emitted line as truncated. We
+    // append `\u{2026}` and trim from the end if the resulting display
+    // width would exceed max_width, so the contract (every line <=
+    // max_width) is preserved. `truncate_to_width` already implements that
+    // shape — feed it the line-plus-ellipsis "intent" and it produces a
+    // single trailing ellipsis at most max_width columns wide.
+    if truncated {
+        if let Some(last) = lines.last_mut() {
+            // Avoid double-ellipsis if the line already ends in U+2026
+            // (e.g. an unbreakable word that was truncated mid-emit).
+            if !last.ends_with('\u{2026}') {
+                let with_ellipsis = format!("{last}\u{2026}");
+                *last = if display_width(&with_ellipsis) <= max_width {
+                    with_ellipsis
+                } else {
+                    truncate_to_width(last, max_width)
+                };
+            }
+        }
+    }
 
     // READ-5 (TASK-0550): an unbreakable word wider than max_width is pushed
     // verbatim when current_line is empty and may land on an intermediate
@@ -205,27 +255,79 @@ mod tests {
         assert!(!result.is_empty());
     }
 
-    /// READ-5 (TASK-0550): every emitted line — including intermediate ones —
-    /// must satisfy display_width(line) <= max_width when an unbreakable word
-    /// wider than max_width appears in the first of three lines.
-    /// PERF-1 (TASK-0709): pathological long descriptions must wrap in
-    /// linear time. Pre-fix this allocated O(N^2) work because
-    /// `display_width(&current_line)` was called inside the per-word loop;
-    /// a 10k-word input was visibly slow. We can't pin the asymptotic bound
-    /// in a unit test cheaply, but we can demand the wrapper completes a
-    /// 10k-token input in a budget that the quadratic version blows past
-    /// even on fast machines.
+    /// PATTERN-1 / TASK-1105: when `max_lines` runs out mid-iteration the
+    /// previous implementation silently dropped the word that would have
+    /// started the next line. Pin the new policy: the last emitted line
+    /// ends with `\u{2026}` so callers can tell content was truncated.
+    ///
+    /// `max_width` is set to 8 here (bigger than the longest word, 5) so
+    /// the READ-5 / TASK-0550 "intermediate-line >= max_width-1" pass does
+    /// not also truncate the otherwise-unchanged words and obscure the
+    /// signal we are pinning.
+    #[test]
+    fn wrap_text_truncates_with_ellipsis_when_max_lines_exceeded() {
+        let result = wrap_text("alpha beta gamma delta", 8, 2);
+        assert_eq!(
+            result,
+            vec!["alpha".to_string(), "beta\u{2026}".to_string()],
+            "TASK-1105: trailing word must drive an ellipsis on the last line"
+        );
+        for line in &result {
+            assert!(display_width(line) <= 8);
+        }
+    }
+
+    /// PATTERN-1 / TASK-1105: when the input fits within max_lines exactly
+    /// no ellipsis must be appended — only signal truncation when tail
+    /// content was actually dropped.
+    #[test]
+    fn wrap_text_no_ellipsis_when_input_fits() {
+        let result = wrap_text("alpha beta", 8, 2);
+        assert_eq!(result, vec!["alpha", "beta"]);
+        assert!(result.iter().all(|l| !l.ends_with('\u{2026}')));
+    }
+
+    /// PERF-1 (TASK-0709) + TEST-15 (TASK-1044): pathological long
+    /// descriptions must wrap in linear time. Pre-fix this allocated
+    /// O(N^2) work because `display_width(&current_line)` was called
+    /// inside the per-word loop; a 10k-word input was visibly slow.
+    ///
+    /// TASK-1044: the previous form asserted an absolute wall-clock budget
+    /// (`elapsed < 250ms`) which is flaky under coverage / sanitiser /
+    /// shared-runner builds. Replaced with a ratio check: a 10x larger
+    /// input must take less than ~50x as long. A quadratic regression
+    /// would blow this by ~100x; a linear implementation lands well below
+    /// it. The constant factor cancels so noisy CI runners — including
+    /// debug, valgrind, miri, and qemu — converge on the same ratio.
     #[test]
     fn wrap_text_handles_very_long_input_in_linear_time() {
-        let words = std::iter::repeat_n("word", 10_000).collect::<Vec<_>>();
-        let text = words.join(" ");
-        let start = std::time::Instant::now();
-        let lines = wrap_text(&text, 80, 50);
-        let elapsed = start.elapsed();
-        assert!(!lines.is_empty());
+        // Helper that times a wrap of `n` repeated tokens. Run each size
+        // a few times and take the min so a single GC / scheduler hiccup
+        // does not skew the ratio.
+        fn time_wrap(n: usize) -> std::time::Duration {
+            let words = std::iter::repeat_n("word", n).collect::<Vec<_>>();
+            let text = words.join(" ");
+            (0..3)
+                .map(|_| {
+                    let start = std::time::Instant::now();
+                    let lines = wrap_text(&text, 80, 50);
+                    assert!(!lines.is_empty());
+                    start.elapsed()
+                })
+                .min()
+                .unwrap()
+        }
+
+        // Floor each measurement at 1µs so a sub-microsecond fast path
+        // cannot inflate the ratio when the small case rounds to zero.
+        let small = time_wrap(1_000).max(std::time::Duration::from_micros(1));
+        let large = time_wrap(10_000).max(std::time::Duration::from_micros(1));
+        let ratio = large.as_nanos() as f64 / small.as_nanos() as f64;
         assert!(
-            elapsed < std::time::Duration::from_millis(250),
-            "wrap_text should be O(N); 10k-word input took {elapsed:?}"
+            ratio < 50.0,
+            "wrap_text should be O(N): 10x input took {ratio:.1}x time \
+             (small={small:?}, large={large:?}); a quadratic regression \
+             would put this near 100x"
         );
     }
 

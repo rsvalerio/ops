@@ -17,17 +17,44 @@
 //! (TEST-18 / TASK-0956). Production code keeps its `static
 //! ArcTextCache::new(...)` and benefits from the cross-call dedup.
 //!
-//! ARCH-1 / TASK-0867: residency is hard-capped at [`CACHE_MAX_ENTRIES`].
-//! When the table grows past the cap the entire map is cleared (cheap drop,
-//! no LRU bookkeeping) — adequate because the cache value is a parse input,
-//! not authoritative state, so a cleared entry just means the next caller
-//! re-reads the file.
+//! ARCH-1 / TASK-0867 + TASK-1106: residency is hard-capped at
+//! [`CACHE_MAX_ENTRIES`]. When the cap is hit and a new key arrives, the
+//! least-recently-used entry is evicted. The previous policy cleared the
+//! entire map on overflow — long-running embedders (LSP-style hosts,
+//! watchers) re-entering paths at a steady rate paid the full re-read cost
+//! in unison after each eviction storm.
+//!
+//! This LRU policy is kept in lockstep with the sibling `typed_manifest_cache`
+//! in `extensions-rust/about/src/query.rs` (TASK-1023). Any change to the
+//! eviction policy here MUST also be applied there, or the two caches will
+//! silently drift.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-type CacheMap = HashMap<PathBuf, Option<Arc<str>>>;
+/// ARCH-1 / TASK-1106: monotonic tick stamped on every cache hit / insert,
+/// mirroring TASK-1023's `next_lru_tick` in the typed-manifest cache. The
+/// lowest tick is the least-recently-used entry and is evicted when the cap
+/// is hit. `AtomicU64::Relaxed` is sufficient: cross-thread ordering is
+/// irrelevant for victim selection — we only need each access to receive a
+/// strictly increasing stamp under the cache lock.
+fn next_lru_tick() -> u64 {
+    static LRU_TICK: AtomicU64 = AtomicU64::new(0);
+    LRU_TICK.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Cache entry pairing the optional shared text with an LRU access tick.
+/// `None` text marks a previously-attempted read of a missing/unreadable
+/// manifest so the negative result is also amortised across calls.
+#[derive(Clone)]
+pub struct CacheEntry {
+    text: Option<Arc<str>>,
+    last_accessed: u64,
+}
+
+type CacheMap = HashMap<PathBuf, CacheEntry>;
 
 /// Hard cap on cached manifests. Far above the realistic distinct-root
 /// count of a single `ops` invocation, so the cap never trips on the CLI
@@ -84,20 +111,41 @@ impl ArcTextCache {
             );
             e.into_inner()
         });
-        if let Some(entry) = guard.get(&path) {
-            return entry.clone();
+        if let Some(entry) = guard.get_mut(&path) {
+            // ARCH-1 / TASK-1106: bump LRU tick on hit so frequently
+            // accessed manifests survive eviction in a daemon visiting many
+            // roots. Mirrors TASK-1023's typed-manifest-cache LRU policy.
+            entry.last_accessed = next_lru_tick();
+            return entry.text.clone();
         }
+        // ARCH-1 / TASK-1106: cap-eviction picks the entry with the smallest
+        // `last_accessed` tick (LRU) instead of clearing the whole map. The
+        // previous full-flush caused eviction storms for long-running hosts.
+        // Kept in lockstep with TASK-1023's `typed_manifest_cache` policy.
         if guard.len() >= CACHE_MAX_ENTRIES {
-            tracing::debug!(
-                filename = self.filename,
-                cap = CACHE_MAX_ENTRIES,
-                "manifest cache reached cap; clearing"
-            );
-            guard.clear();
+            if let Some(victim) = guard
+                .iter()
+                .min_by_key(|(_, e)| e.last_accessed)
+                .map(|(k, _)| k.clone())
+            {
+                tracing::debug!(
+                    filename = self.filename,
+                    cap = CACHE_MAX_ENTRIES,
+                    victim = ?victim.display(),
+                    "manifest cache reached cap; evicting LRU entry"
+                );
+                guard.remove(&victim);
+            }
         }
         let text =
             crate::manifest_io::read_optional_text(&path, self.filename).map(Arc::<str>::from);
-        guard.insert(path, text.clone());
+        guard.insert(
+            path,
+            CacheEntry {
+                text: text.clone(),
+                last_accessed: next_lru_tick(),
+            },
+        );
         debug_assert!(
             guard.len() <= CACHE_MAX_ENTRIES,
             "manifest cache exceeded cap of {CACHE_MAX_ENTRIES}"
@@ -165,6 +213,57 @@ mod tests {
                 "thread {i} returned a distinct Arc — racing readers broke the dedup contract"
             );
         }
+    }
+
+    /// ARCH-1 / TASK-1106: when the cap is hit, eviction must pick the LRU
+    /// entry, not full-flush the map. Warm CACHE_MAX_ENTRIES distinct paths,
+    /// touch one of the early entries to make it most-recently-used, then
+    /// trigger eviction by reading a fresh path. The recently-touched entry
+    /// must survive while the never-touched LRU victim is dropped.
+    #[test]
+    fn cap_eviction_drops_lru_not_whole_map() {
+        let cache = ArcTextCache::new("manifest.txt");
+        let dir = tempfile::tempdir().unwrap();
+
+        // Warm CACHE_MAX_ENTRIES distinct roots; each gets a manifest file.
+        let mut roots: Vec<PathBuf> = Vec::with_capacity(CACHE_MAX_ENTRIES);
+        for i in 0..CACHE_MAX_ENTRIES {
+            let root = dir.path().join(format!("root-{i}"));
+            std::fs::create_dir(&root).unwrap();
+            std::fs::write(root.join("manifest.txt"), format!("body-{i}")).unwrap();
+            let arc = cache.read(&root).expect("warm read");
+            assert!(arc.contains(&format!("body-{i}")));
+            roots.push(root);
+        }
+
+        // Bump root 0 to most-recently-used; root 1 is now the LRU victim.
+        let touched = cache.read(&roots[0]).expect("re-read warm root");
+        let touched_ptr = Arc::as_ptr(&touched);
+        drop(touched);
+
+        // Trigger cap-eviction with a fresh root.
+        let fresh = dir.path().join("fresh");
+        std::fs::create_dir(&fresh).unwrap();
+        std::fs::write(fresh.join("manifest.txt"), "fresh-body").unwrap();
+        let _ = cache.read(&fresh).expect("fresh read");
+
+        // root 0 must still be cached as the same Arc — pin the LRU contract.
+        let after = cache.read(&roots[0]).expect("root 0 still cached");
+        assert_eq!(
+            Arc::as_ptr(&after),
+            touched_ptr,
+            "LRU eviction must keep recently-touched root 0 cached; \
+             a full-flush regression would re-read the file and yield a new Arc"
+        );
+
+        // The map size never exceeds the cap.
+        let mutex = cache.raw_mutex().expect("initialised");
+        let guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            guard.len() <= CACHE_MAX_ENTRIES,
+            "cache size {} exceeds cap {CACHE_MAX_ENTRIES}",
+            guard.len()
+        );
     }
 
     /// ERR-5 / TASK-0878: a panic while holding the cache lock must not

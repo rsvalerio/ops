@@ -359,24 +359,48 @@ mod tests {
         assert_eq!(top_border_lines, cards_with_top);
     }
 
-    /// PERF-3 (TASK-0722): rendering 100+ cards must complete in trivial
-    /// time. The pre-fix layout cloned every card line into an owned String
-    /// per cell; this smoke test pins the borrow-friendly hot path.
+    /// PERF-3 (TASK-0722) + TEST-15 (TASK-1044): rendering 100+ cards must
+    /// scale linearly. The pre-fix layout cloned every card line into an
+    /// owned String per cell.
+    ///
+    /// TASK-1044: the previous form asserted an absolute wall-clock budget
+    /// (`elapsed < 250ms`) which is flaky on shared / coverage / sanitiser
+    /// runners. Replaced with a ratio check that compares 50-card and
+    /// 500-card runs — a 10x larger workspace must take less than ~50x as
+    /// long. The constant factor cancels so the bound holds across noisy
+    /// CI runners as well as fast developer laptops.
     #[test]
     fn layout_cards_handles_large_workspace() {
-        let cards: Vec<Vec<String>> = (0..150)
-            .map(|i| {
-                let name = format!("unit-{i}");
-                render_card(&unit(&name, &format!("crates/{name}")), false)
-            })
-            .collect();
-        let start = std::time::Instant::now();
-        let result = layout_cards_in_grid_with_width(&cards, 120);
-        let elapsed = start.elapsed();
-        assert!(!result.is_empty());
+        fn build_cards(n: usize) -> Vec<Vec<String>> {
+            (0..n)
+                .map(|i| {
+                    let name = format!("unit-{i}");
+                    render_card(&unit(&name, &format!("crates/{name}")), false)
+                })
+                .collect()
+        }
+        fn time_layout(cards: &[Vec<String>]) -> std::time::Duration {
+            (0..3)
+                .map(|_| {
+                    let start = std::time::Instant::now();
+                    let result = layout_cards_in_grid_with_width(cards, 120);
+                    assert!(!result.is_empty());
+                    start.elapsed()
+                })
+                .min()
+                .unwrap()
+        }
+
+        let small_cards = build_cards(50);
+        let large_cards = build_cards(500);
+        let small = time_layout(&small_cards).max(std::time::Duration::from_micros(1));
+        let large = time_layout(&large_cards).max(std::time::Duration::from_micros(1));
+        let ratio = large.as_nanos() as f64 / small.as_nanos() as f64;
         assert!(
-            elapsed < std::time::Duration::from_millis(250),
-            "layout_cards_in_grid_with_width should be fast for 150 units; took {elapsed:?}"
+            ratio < 50.0,
+            "layout_cards_in_grid_with_width should be O(N): 10x workspace \
+             took {ratio:.1}x time (small={small:?}, large={large:?}); a \
+             per-cell-clone regression would push this well past linear"
         );
     }
 
