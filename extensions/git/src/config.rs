@@ -157,9 +157,15 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
             return None;
         }
     };
-    let mut content = String::new();
+    // ERR-1 / TASK-1244: read raw bytes and lossy-decode so a single non-UTF-8
+    // byte (BOM, latin-1 commit-template, hostile injection) anywhere in
+    // .git/config does not poison remote detection. The previous
+    // `read_to_string` required the whole file to be valid UTF-8 and
+    // surfaced any failure as a generic IO warn, even when the
+    // [remote "origin"] section was well-formed.
+    let mut bytes = Vec::new();
     let limit = MAX_GIT_CONFIG_BYTES.saturating_add(1);
-    if let Err(e) = (&mut file).take(limit).read_to_string(&mut content) {
+    if let Err(e) = (&mut file).take(limit).read_to_end(&mut bytes) {
         // ERR-7 / TASK-1206: Debug-format path; see comment above.
         tracing::warn!(
             path = ?path.display(),
@@ -168,6 +174,19 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
         );
         return None;
     }
+    let content = match std::str::from_utf8(&bytes) {
+        Ok(_) => String::from_utf8(bytes).expect("validated above"),
+        Err(_) => {
+            // ERR-1 / TASK-1244: typed debug breadcrumb so operators chasing
+            // "remote_url is None" can tell a non-UTF-8 config apart from a
+            // generic IO error or a missing file.
+            tracing::debug!(
+                path = ?path.display(),
+                "git-config: non-UTF-8 bytes detected; decoding lossily so remote detection survives"
+            );
+            String::from_utf8_lossy(&bytes).into_owned()
+        }
+    };
     if content.len() as u64 > MAX_GIT_CONFIG_BYTES {
         // ERR-7 / TASK-1206: Debug-format path; see comment above.
         tracing::warn!(
@@ -177,7 +196,7 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
         );
         return None;
     }
-    read_origin_url_from(&content)
+    parse_origin_url_inner(&content, Some(&path))
 }
 
 /// Parse a git-config body and return the `[remote "origin"]` url.
@@ -209,9 +228,14 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
 /// future credential-leak refactor visible at the call site instead of
 /// silent.
 pub fn read_origin_url_from(content: &str) -> Option<RedactedUrl> {
+    parse_origin_url_inner(content, None)
+}
+
+fn parse_origin_url_inner(content: &str, path: Option<&Path>) -> Option<RedactedUrl> {
     let mut in_origin = false;
     let mut origin_seen = false;
     let mut last: Option<RedactedUrl> = None;
+    let mut rejected_count: usize = 0;
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
@@ -226,20 +250,37 @@ pub fn read_origin_url_from(content: &str) -> Option<RedactedUrl> {
         }
         if in_origin {
             if let Some(value) = strip_url_key(trimmed) {
-                match RedactedUrl::redact(value) {
+                match RedactedUrl::redact(value.as_ref()) {
                     Some(r) => last = Some(r),
                     None => {
                         // SEC-2 / TASK-1102: a `url = ...` line with embedded
                         // ASCII control bytes (raw newline, ANSI escape, NUL)
-                        // is dropped rather than propagated. Operators chasing
-                        // "remote URL not detected" still get a debug-level
-                        // breadcrumb pointing at the corruption.
-                        tracing::debug!(
-                            "git-config: dropped origin url= line containing ASCII control bytes"
-                        );
+                        // is dropped rather than propagated.
+                        rejected_count += 1;
                     }
                 }
             }
+        }
+    }
+    // ERR-1 / TASK-1215: rejecting a control-byte url= line used to log only
+    // at debug. Combined with the last-wins policy, a trailing control-byte
+    // url= line was silently masked by an earlier valid value. Surface every
+    // rejected origin url= line at warn so operators chasing "branch shows
+    // but remote_url is stale" see one event per parse, with a count and
+    // (when available) the originating path so a malformed config that drops
+    // every value differs from one that drops only the latest.
+    if rejected_count > 0 {
+        if let Some(p) = path {
+            tracing::warn!(
+                path = ?p,
+                rejected = rejected_count,
+                "SEC-2 / TASK-1215: dropped origin url= line(s) containing ASCII control bytes"
+            );
+        } else {
+            tracing::warn!(
+                rejected = rejected_count,
+                "SEC-2 / TASK-1215: dropped origin url= line(s) containing ASCII control bytes"
+            );
         }
     }
     // TASK-0966: distinguish "no [remote \"origin\"] section" (silent) from
@@ -289,17 +330,50 @@ pub(crate) fn redact_userinfo(value: &str) -> String {
     value.to_string()
 }
 
-fn strip_url_key(line: &str) -> Option<&str> {
+fn strip_url_key(line: &str) -> Option<std::borrow::Cow<'_, str>> {
     let (key, value) = line.split_once('=')?;
     if !key.trim().eq_ignore_ascii_case("url") {
         return None;
     }
-    // READ-2 (TASK-0726): drop trailing inline comments (`#`, `;`) so the
-    // returned value matches `git config --get remote.origin.url`. The
-    // minimal scanner does not yet support quoted values; in the unquoted
-    // case any `#`/`;` ends the value.
+    let value = value.trim_start();
+    // READ-2 / TASK-1213: a leading `"` puts the value in git-config's
+    // quoted form. Read up to the matching closing quote, applying the
+    // same escape rules as `parse_section_header` (`\\` → `\`, `\"` → `"`)
+    // so a real-world templated URL like
+    // `url = "https://example.com/path;tag=v1"` is not silently truncated
+    // at the first `;` by the unquoted-comment-stripper below. Inline
+    // comments inside a quoted value pass through unchanged. An
+    // unbalanced or malformed quoted value falls back to None so the
+    // caller's downstream redaction step sees no candidate (matching the
+    // policy for other malformed lines).
+    if let Some(body) = value.strip_prefix('"') {
+        let mut decoded = String::with_capacity(body.len());
+        let mut chars = body.chars();
+        let mut closed = false;
+        while let Some(c) = chars.next() {
+            match c {
+                '"' => {
+                    closed = true;
+                    break;
+                }
+                '\\' => match chars.next() {
+                    Some('\\') => decoded.push('\\'),
+                    Some('"') => decoded.push('"'),
+                    Some(_) | None => return None,
+                },
+                other => decoded.push(other),
+            }
+        }
+        if !closed {
+            return None;
+        }
+        return Some(std::borrow::Cow::Owned(decoded));
+    }
+    // READ-2 (TASK-0726): unquoted form — drop trailing inline comments
+    // (`#`, `;`) so the returned value matches `git config --get
+    // remote.origin.url`.
     let comment_start = value.find(['#', ';']).unwrap_or(value.len());
-    Some(value[..comment_start].trim())
+    Some(std::borrow::Cow::Borrowed(value[..comment_start].trim()))
 }
 
 fn is_origin_header(line: &str) -> bool {
@@ -602,6 +676,109 @@ mod tests {
             .is_none());
     }
 
+    /// ERR-1 / TASK-1215: when last-wins picks up a trailing `url = ...`
+    /// line that gets dropped for embedded ASCII control bytes (e.g. an
+    /// ANSI escape), the previous valid URL must still be returned AND the
+    /// drop must surface as a warn-level event with a rejected-line count
+    /// so the operator can tell "stale URL" from "all URLs malformed".
+    #[test]
+    fn read_origin_url_warns_on_control_byte_drop_keeping_prior_valid() {
+        use tracing::subscriber::with_default;
+        use tracing::Level;
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone, Default)]
+        struct BufWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(Level::WARN)
+            .with_writer(buf.clone())
+            .with_ansi(false)
+            .without_time()
+            .finish();
+
+        // Two `url = ...` lines: a valid one, then a trailing line with an
+        // embedded ANSI escape. Pre-fix: silent debug-only breadcrumb, the
+        // valid earlier URL is returned (last-wins is *masked*). Post-fix:
+        // the valid URL is still returned (we have no later valid value)
+        // AND a warn fires with the rejected count.
+        let cfg = "\
+[remote \"origin\"]
+\turl = https://github.com/real/repo.git
+\turl = https://example.com/\u{001b}[31mrogue\u{001b}[0m
+";
+        let url =
+            with_default(subscriber, || read_origin_url_from(cfg)).map(RedactedUrl::into_string);
+        assert_eq!(
+            url,
+            Some("https://github.com/real/repo.git".to_string()),
+            "must fall back to the previous valid url= line"
+        );
+
+        let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+        assert!(
+            logged.contains("WARN") && logged.contains("TASK-1215"),
+            "expected one TASK-1215 warn-level event; got: {logged}"
+        );
+        assert!(
+            logged.contains("rejected=1"),
+            "warn must include rejected-line count; got: {logged}"
+        );
+    }
+
+    /// READ-2 / TASK-1213: a quoted `url = "..."` value containing an
+    /// embedded `;` (legal per git-config) must round-trip without being
+    /// truncated by the inline-comment stripper that applies to unquoted
+    /// values.
+    #[test]
+    fn origin_url_quoted_value_with_semicolon_round_trips() {
+        let cfg = "\
+[remote \"origin\"]
+\turl = \"https://example.com/path;tag=v1\"
+";
+        assert_eq!(
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
+            Some("https://example.com/path;tag=v1".to_string())
+        );
+    }
+
+    /// READ-2 / TASK-1213: quoted form decodes the same `\\\\` / `\\"` escapes
+    /// that `parse_section_header` honours. Unbalanced quotes return None
+    /// rather than silently shipping a leading-quote string.
+    #[test]
+    fn origin_url_quoted_value_with_escapes() {
+        let cfg = "\
+[remote \"origin\"]
+\turl = \"https://example.com/q\\\"path\"
+";
+        assert_eq!(
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
+            Some("https://example.com/q\"path".to_string())
+        );
+
+        let cfg_unbalanced = "\
+[remote \"origin\"]
+\turl = \"https://example.com/path
+";
+        assert!(read_origin_url_from(cfg_unbalanced).is_none());
+    }
+
     #[test]
     fn no_origin_section_returns_none() {
         let cfg = "\
@@ -626,6 +803,33 @@ mod tests {
         assert_eq!(
             read_origin_url(&git_dir).map(RedactedUrl::into_string),
             Some("https://github.com/o/r.git".to_string())
+        );
+    }
+
+    /// ERR-1 / TASK-1244: a single non-UTF-8 byte anywhere in `.git/config`
+    /// (BOM, latin-1 commit-template, hostile injection in an unrelated
+    /// section) used to fail the whole-file `read_to_string` decode and
+    /// surface as a generic IO warn — remote detection silently zeroed out
+    /// even when the `[remote "origin"]` block was well-formed UTF-8. The
+    /// helper now lossy-decodes per-byte so the well-formed url= line
+    /// survives.
+    #[test]
+    fn read_origin_url_survives_non_utf8_byte_in_unrelated_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        // Construct a config whose `[user]` section contains a non-UTF-8
+        // byte in the email field (a hostile / latin-1-encoded value), but
+        // whose `[remote "origin"]` block is clean ASCII.
+        let mut bytes: Vec<u8> = Vec::new();
+        bytes.extend_from_slice(b"[user]\n\temail = bad-\xff-byte@example.com\n");
+        bytes.extend_from_slice(b"[remote \"origin\"]\n\turl = https://github.com/o/r.git\n");
+        std::fs::write(git_dir.join("config"), &bytes).unwrap();
+
+        assert_eq!(
+            read_origin_url(&git_dir).map(RedactedUrl::into_string),
+            Some("https://github.com/o/r.git".to_string()),
+            "the well-formed url= line must survive a non-UTF-8 byte elsewhere"
         );
     }
 

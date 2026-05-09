@@ -83,25 +83,57 @@ pub fn query_crate_deps(db: &DuckDb) -> anyhow::Result<HashMap<String, Vec<(Stri
 
 /// Query per-crate external dependency counts from `crate_dependencies` view.
 ///
-/// Returns a map of package name -> normal dependency count.
+/// Returns a map of `crate_manifest_path` -> normal dependency count.
 /// Returns an empty map if the view doesn't exist (graceful degradation).
+///
+/// ERR-2 / TASK-1253: keyed by `crate_manifest_path` (uniquely identifying a
+/// workspace member) instead of bare `crate_name`. The previous shape silently
+/// mis-attributed counts for renamed packages (`[package] name = "alt-name"`)
+/// and collapsed members that share a `package.name` into a single map entry.
+/// When the same `crate_name` maps to multiple manifest paths we emit a
+/// `tracing::debug` breadcrumb so an operator chasing a None dep_count for a
+/// duplicate-named member sees the diagnosis.
 pub fn query_crate_dep_counts(db: &DuckDb) -> anyhow::Result<HashMap<String, i64>> {
-    query_rows_fold(
+    let rows = query_rows_fold(
         db,
         &QuerySpec {
             table: "crate_dependencies",
-            sql: "SELECT crate_name, COUNT(*) AS dep_count \
+            sql: "SELECT crate_manifest_path, crate_name, COUNT(*) AS dep_count \
                   FROM crate_dependencies \
                   WHERE dependency_kind = 'normal' \
-                  GROUP BY crate_name",
+                  GROUP BY crate_manifest_path, crate_name",
             label: "query_crate_dep_counts",
         },
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
-        HashMap::new(),
-        |map, (name, count)| {
-            map.insert(name, count);
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
         },
-    )
+        Vec::<(String, String, i64)>::new(),
+        |acc, (manifest_path, name, count)| {
+            acc.push((manifest_path, name, count));
+        },
+    )?;
+
+    let mut name_seen: HashMap<&str, usize> = HashMap::new();
+    for (_, name, _) in &rows {
+        *name_seen.entry(name.as_str()).or_default() += 1;
+    }
+    for (name, count) in name_seen.iter().filter(|(_, c)| **c > 1) {
+        tracing::debug!(
+            crate_name = name,
+            occurrences = count,
+            "ERR-2 / TASK-1253: crate_name maps to multiple manifest_paths; dep_counts now key by manifest_path"
+        );
+    }
+
+    let mut map = HashMap::with_capacity(rows.len());
+    for (manifest_path, _, count) in rows {
+        map.insert(manifest_path, count);
+    }
+    Ok(map)
 }
 
 #[cfg(test)]

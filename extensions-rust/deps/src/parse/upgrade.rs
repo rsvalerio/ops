@@ -64,6 +64,29 @@ pub fn interpret_upgrade_output(
                      suspect cargo-edit format drift"
                 );
             }
+            // ERR-1 / TASK-1202: a recognised header + separator with body
+            // lines but zero parsed entries means every row was dropped by
+            // `parse_upgrade_row` (column shape mismatch). Fail closed so a
+            // wholesale row-shape drift surfaces as an error rather than a
+            // silent empty Vec masquerading as "no upgrades available".
+            if diag.saw_recognised_header
+                && diag.saw_separator
+                && diag.body_lines > 0
+                && diag.entries_emitted == 0
+            {
+                tracing::warn!(
+                    body_lines = diag.body_lines,
+                    "TASK-1202: cargo-upgrade stdout had a recognised header, a `====` separator, \
+                     and body lines, but every row failed parse_upgrade_row (column-shape drift); \
+                     refusing to parse output as authoritative"
+                );
+                anyhow::bail!(
+                    "cargo upgrade --dry-run produced {body_lines} body row(s) but none filled the \
+                     5 fixed columns; refusing to score as `no upgrades` — suspect cargo-edit \
+                     row-shape drift",
+                    body_lines = diag.body_lines
+                );
+            }
             Ok(entries)
         }
         None => anyhow::bail!(
@@ -107,6 +130,14 @@ struct UpgradeParseDiagnostics {
     /// `true` once a header line matched the recognised token shape
     /// (`name` + `old req` / `new req`, case-insensitive).
     saw_recognised_header: bool,
+    /// Number of non-empty, non-header, non-separator lines observed.
+    body_lines: usize,
+    /// Number of rows successfully parsed into an `UpgradeEntry`.
+    /// ERR-1 / TASK-1202: combined with `body_lines`, this lets
+    /// [`interpret_upgrade_output`] fail closed when every body row was
+    /// dropped by `parse_upgrade_row` — wholesale row-shape drift would
+    /// otherwise return an empty Vec and look like "no upgrades available".
+    entries_emitted: usize,
 }
 
 fn parse_upgrade_table_inner(stdout: &str) -> (Vec<UpgradeEntry>, UpgradeParseDiagnostics) {
@@ -114,7 +145,7 @@ fn parse_upgrade_table_inner(stdout: &str) -> (Vec<UpgradeEntry>, UpgradeParseDi
     let mut columns: Option<Vec<(usize, usize)>> = None;
     let mut saw_separator = false;
     let mut saw_recognised_header = false;
-    let mut saw_body_line = false;
+    let mut body_lines: usize = 0;
 
     for line in stdout.lines() {
         if line.trim().is_empty() {
@@ -130,6 +161,19 @@ fn parse_upgrade_table_inner(stdout: &str) -> (Vec<UpgradeEntry>, UpgradeParseDi
         let trimmed = line.trim_start();
         let lower = trimmed.to_ascii_lowercase();
         if lower.starts_with("name") && (lower.contains("old req") || lower.contains("new req")) {
+            // ERR-1 / TASK-1203: detect the header once. A future cargo-edit
+            // sub-table header or a localised note row that happens to
+            // contain the same tokens would otherwise re-arm `columns` to
+            // None, dropping every subsequent body row until the next
+            // `====` separator restores them. Keep the existing column
+            // calibration in place after the first header detection.
+            if saw_recognised_header {
+                tracing::debug!(
+                    line = %line,
+                    "TASK-1203: ignoring repeat header-shaped line — column offsets retained"
+                );
+                continue;
+            }
             columns = None;
             saw_recognised_header = true;
             continue;
@@ -142,7 +186,7 @@ fn parse_upgrade_table_inner(stdout: &str) -> (Vec<UpgradeEntry>, UpgradeParseDi
             continue;
         }
 
-        saw_body_line = true;
+        body_lines += 1;
         if let Some(cols) = columns.as_deref() {
             if let Some(entry) = parse_upgrade_row(line, cols) {
                 entries.push(entry);
@@ -150,18 +194,21 @@ fn parse_upgrade_table_inner(stdout: &str) -> (Vec<UpgradeEntry>, UpgradeParseDi
         }
     }
 
-    if saw_body_line && !saw_separator {
+    if body_lines > 0 && !saw_separator {
         tracing::warn!(
             "TASK-1026: cargo-upgrade stdout had body lines but no `====` separator row; \
              parse_upgrade_table is returning an empty result — suspect cargo-edit table-format drift"
         );
     }
 
+    let entries_emitted = entries.len();
     (
         entries,
         UpgradeParseDiagnostics {
             saw_separator,
             saw_recognised_header,
+            body_lines,
+            entries_emitted,
         },
     )
 }

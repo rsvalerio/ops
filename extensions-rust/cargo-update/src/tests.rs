@@ -542,6 +542,54 @@ fn parse_skips_alternate_registry_index_progress_line() {
     );
 }
 
+/// ERR-1 / TASK-1252: a 2-token `Updating crates.io` progress form (some
+/// cargo releases / locales emit the index-progress line without the third
+/// `index` token) must be filtered as noise — and must NOT trigger the
+/// `starts_with_known_verb` format-drift warn that PATTERN-1 / TASK-1054
+/// installed.
+#[test]
+fn parse_skips_two_token_updating_registry_form_no_warn() {
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    struct BufWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for BufWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    let buf = BufWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buf.clone())
+        .with_max_level(tracing::Level::WARN)
+        .with_ansi(false)
+        .finish();
+    tracing::subscriber::with_default(subscriber, || {
+        let stderr = b"    Updating crates.io\n";
+        let result = parse_update_output(stderr);
+        assert!(
+            result.entries.is_empty(),
+            "2-token Updating <registry> must be filtered as index-progress noise"
+        );
+    });
+    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+    assert!(
+        !logged.contains("possible format drift"),
+        "2-token Updating <registry> must not trigger a format-drift warn; got {logged:?}"
+    );
+}
+
 #[test]
 fn update_action_serialization() {
     let update = serde_json::to_value(UpdateAction::Update).unwrap();

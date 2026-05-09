@@ -65,7 +65,8 @@ impl DataProvider for GoIdentityProvider {
             // e.g. "github.com/openbao/openbao" → "openbao"
             let name = go_mod
                 .as_ref()
-                .and_then(|m| m.module.rsplit('/').next())
+                .and_then(|m| m.module.as_deref())
+                .and_then(|m| m.rsplit('/').next())
                 .map(str::to_string);
 
             let stack_detail = go_mod
@@ -106,15 +107,15 @@ fn compute_module_count(
 // --- go.mod parsing ---
 
 struct GoMod {
-    module: String,
+    module: Option<String>,
     go_version: Option<String>,
     local_replaces: Vec<String>,
 }
 
 fn parse_go_mod(project_root: &Path) -> Option<GoMod> {
     let raw = go_mod::parse(project_root)?;
-    raw.module.map(|m| GoMod {
-        module: m,
+    Some(GoMod {
+        module: raw.module,
         go_version: raw.go_version,
         local_replaces: raw.local_replaces,
     })
@@ -129,7 +130,7 @@ mod tests {
     fn compute_module_count_workspace_precedence() {
         let work = vec!["./a".to_string(), "./b".to_string()];
         let m = GoMod {
-            module: "x".to_string(),
+            module: Some("x".to_string()),
             go_version: None,
             local_replaces: vec!["./c".to_string()],
         };
@@ -140,7 +141,7 @@ mod tests {
     #[test]
     fn compute_module_count_single_module_returns_none() {
         let m = GoMod {
-            module: "x".to_string(),
+            module: Some("x".to_string()),
             go_version: None,
             local_replaces: Vec::new(),
         };
@@ -150,7 +151,7 @@ mod tests {
     #[test]
     fn compute_module_count_with_local_replaces() {
         let m = GoMod {
-            module: "x".to_string(),
+            module: Some("x".to_string()),
             go_version: None,
             local_replaces: vec!["./a".to_string(), "./b".to_string()],
         };
@@ -303,6 +304,29 @@ mod tests {
         let id: ProjectIdentity = serde_json::from_value(value).unwrap();
 
         assert!(id.repository.is_none());
+    }
+
+    /// ERR-2 / TASK-1167: a `module    ` line (whitespace-only path) must
+    /// drop to None so the directory-name fallback fires, matching the
+    /// trim_nonempty policy applied by the Node and Python identity providers.
+    #[test]
+    fn provide_whitespace_only_module_falls_back_to_dir_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module    \n\ngo 1.22\n").unwrap();
+
+        let provider = GoIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = provider.provide(&mut ctx).unwrap();
+        let id: ProjectIdentity = serde_json::from_value(value).unwrap();
+
+        let expected = dir
+            .path()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(id.name, expected);
+        assert_eq!(id.stack_detail.as_deref(), Some("Go 1.22"));
     }
 
     #[test]

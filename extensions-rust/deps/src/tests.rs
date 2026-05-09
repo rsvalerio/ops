@@ -408,6 +408,50 @@ fn interpret_upgrade_output_bails_on_unrecognised_header_with_separator() {
     );
 }
 
+/// ERR-1 / TASK-1203: a second header-shaped line appearing between the
+/// separator and a body row must NOT re-arm `columns` to None. Pre-fix the
+/// post-second-header rows were dropped silently.
+#[test]
+fn parse_upgrade_table_repeat_header_keeps_columns() {
+    let stdout = "\
+name   old req compatible latest  new req
+====   ======= ========== ======  =======
+serde  1.0.100 1.0.228    1.0.228 1.0.228
+name   old req compatible latest  new req
+tokio  1.35.0  1.38.0     1.38.0  1.38.0
+";
+    let entries = parse_upgrade_table(stdout);
+    assert_eq!(
+        entries.len(),
+        2,
+        "second header must not drop subsequent rows; got: {entries:?}"
+    );
+    assert_eq!(entries[0].name, "serde");
+    assert_eq!(entries[1].name, "tokio");
+}
+
+/// ERR-1 / TASK-1202: if cargo-edit emits a recognised header and a `====`
+/// separator with body rows but every row fails the 5-column shape check
+/// (wholesale row-shape drift), `interpret_upgrade_output` must bail rather
+/// than silently scoring the run as "no upgrades available".
+#[test]
+fn interpret_upgrade_output_bails_on_row_shape_drift() {
+    // Recognised header, real separator, but every body row only fills 3
+    // columns — pre-fix: parse_upgrade_row drops them at debug, returns Ok([]).
+    let stdout = b"name   old req compatible latest  new req\n\
+                   ====   ======= ========== ======  =======\n\
+                   serde  1.0.100 1.0.228\n\
+                   tokio  1.35.0  1.38.0\n";
+
+    let result = crate::parse::interpret_upgrade_output(Some(0), stdout, b"");
+    let err = result.expect_err("row-shape drift must bail, not silently parse as authoritative");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("row-shape") || msg.contains("body row"),
+        "error must call out row-shape drift; got: {msg}"
+    );
+}
+
 // -- Deny exit-code interpretation --
 
 #[test]

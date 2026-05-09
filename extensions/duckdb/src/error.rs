@@ -53,8 +53,13 @@ pub enum DbError {
     /// and similar callers that return `anyhow::Error` — wrapping these as
     /// `DbError::Io` misleads operators into investigating filesystem problems
     /// when the real cause may be a parse failure, missing tool, or timeout.
-    #[error("external error: {0}")]
-    External(String),
+    ///
+    /// ERR-2 / TASK-1209: carries the wrapped `anyhow::Error` via `#[source]`
+    /// so consumers walking `Error::source()` recover the cause graph.
+    /// Display renders the alternate-format chain via `{0:#}` so log output
+    /// remains identical to the previous flattened-string variant.
+    #[error("external error: {0:#}")]
+    External(#[source] anyhow::Error),
 }
 
 impl DbError {

@@ -118,9 +118,14 @@ pub fn build_identity_value(
     // JSON. See module-level / fn-level docs for the shared contract
     // with `upsert_data_source`'s `NonUtf8Path`.
     let project_root = cwd.to_str().ok_or_else(|| {
+        // ERR-1 / TASK-1211: render the offending OsStr via `Debug` so
+        // invalid UTF-8 bytes are escaped as `\xNN` rather than replaced
+        // with `U+FFFD` by `Path::display`. The error string lands in
+        // operator logs / CLI output verbatim, so the previous Display
+        // path embedded the same lossy bytes the JSON guard rejects.
         DataProviderError::computation_failed(format!(
-            "project_root path is not valid UTF-8: {}",
-            cwd.display()
+            "project_root path is not valid UTF-8: {:?}",
+            cwd.as_os_str()
         ))
     })?;
 
@@ -170,5 +175,17 @@ mod tests {
         let err = build_identity_value(manifest, bad_cwd)
             .expect_err("non-UTF-8 cwd must yield a typed error");
         assert!(matches!(err, DataProviderError::ComputationFailed(_)));
+        let msg = err.to_string();
+        // ERR-1 / TASK-1211: the rendered message must NOT smuggle U+FFFD
+        // (Path::display's lossy substitute) and must encode the offending
+        // byte faithfully (Debug escapes invalid UTF-8 as `\xff` or similar).
+        assert!(
+            !msg.contains('\u{FFFD}'),
+            "error message embedded U+FFFD: {msg}"
+        );
+        assert!(
+            msg.to_ascii_lowercase().contains("\\xff"),
+            "error message must encode the invalid 0xff byte via Debug escape: {msg}"
+        );
     }
 }

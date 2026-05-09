@@ -50,7 +50,10 @@ impl DataProvider for RustUnitsProvider {
         // provider needs.
         let members: &[String] = manifest.resolved_members();
 
-        // Per-crate dep counts from DuckDB (Rust-specific, keyed by package name).
+        // Per-crate dep counts from DuckDB (Rust-specific, keyed by
+        // `crate_manifest_path` — ERR-2 / TASK-1253). The previous bare-name
+        // key collided for renamed (`package = "alt-name"`) or duplicate-named
+        // workspace members.
         // ERR-2 / TASK-0376: query failures route through `query_or_warn` so
         // they don't manifest as a silent "no deps" on a misconfigured DB.
         let dep_counts: std::collections::HashMap<String, i64> = match ops_duckdb::get_db(ctx) {
@@ -97,19 +100,32 @@ impl DataProvider for RustUnitsProvider {
                     version,
                     description,
                 } = read_crate_metadata(&crate_toml);
-                // ERR-2 (TASK-0804): when the manifest is missing or
-                // unparseable, the package name is unknown — return None for
-                // dep_count rather than masquerading the lookup miss as a
-                // legitimate "no deps" answer.
-                let dep_count = match pkg_name.as_deref() {
-                    Some(pn) => dep_counts.get(pn).copied(),
-                    None => {
+                // ERR-2 / TASK-1253: cargo metadata stores `manifest_path` as
+                // a canonicalised absolute path; canonicalize the
+                // workspace-relative `cwd.join(member)` form so the lookup
+                // matches even when `cwd` has unresolved symlinks. A failed
+                // canonicalize falls back to the unresolved path so the
+                // lookup still has a chance on platforms / paths where
+                // canonicalize errors are normal (e.g. broken symlinks).
+                let canonical_manifest_path = std::fs::canonicalize(&crate_toml)
+                    .unwrap_or_else(|_| crate_toml.clone());
+                let dep_count = if pkg_name.is_some() {
+                    let key = canonical_manifest_path.to_string_lossy().into_owned();
+                    let lookup = dep_counts.get(&key).copied();
+                    if lookup.is_none() {
                         tracing::debug!(
                             member,
-                            "no package name resolved for member; dep_count unavailable"
+                            manifest_path = %key,
+                            "ERR-2 / TASK-1253: no dep_count row for canonical manifest_path"
                         );
-                        None
                     }
+                    lookup
+                } else {
+                    tracing::debug!(
+                        member,
+                        "no package name resolved for member; dep_count unavailable"
+                    );
+                    None
                 };
                 let name = format_unit_name(member);
 
@@ -370,6 +386,49 @@ mod tests {
         let mut sorted = order1.clone();
         sorted.sort();
         assert_eq!(order1, sorted, "must traverse in sorted order");
+    }
+
+    /// ERR-2 / TASK-1253: two workspace members both named `lib` (legal in
+    /// cargo when the parent paths differ) must each resolve to a
+    /// `ProjectUnit` rather than colliding on the bare `package.name` key
+    /// the previous code used. The provider doesn't fail loudly on a
+    /// missing dep_count map (DuckDB is optional in this provider's
+    /// contract), so the assertion here is structural — both units appear
+    /// with their correct path metadata even when the names duplicate.
+    #[test]
+    #[serial_test::serial(typed_manifest_cache)]
+    fn rust_units_provider_handles_duplicate_named_members() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for parent in ["a", "b"] {
+            let crate_dir = root.join(parent).join("lib");
+            std::fs::create_dir_all(&crate_dir).unwrap();
+            std::fs::write(
+                crate_dir.join("Cargo.toml"),
+                "[package]\nname = \"lib\"\nversion = \"0.1.0\"\n",
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"a/lib\", \"b/lib\"]\n",
+        )
+        .unwrap();
+
+        let mut ctx = ops_extension::Context::test_context(root.to_path_buf());
+        let v = RustUnitsProvider.provide(&mut ctx).expect("provide");
+        let arr = v.as_array().expect("array");
+        assert_eq!(
+            arr.len(),
+            2,
+            "duplicate-named members must each surface as a distinct unit, got: {arr:?}"
+        );
+        let paths: std::collections::BTreeSet<&str> = arr
+            .iter()
+            .filter_map(|u| u.get("path").and_then(|p| p.as_str()))
+            .collect();
+        assert!(paths.contains("a/lib"));
+        assert!(paths.contains("b/lib"));
     }
 
     #[test]

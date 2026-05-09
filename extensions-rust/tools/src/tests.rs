@@ -216,6 +216,25 @@ fn parse_active_toolchain_rejects_info_prefix() {
     assert_eq!(parse_active_toolchain("info: something\n"), None);
 }
 
+/// ERR-1 / TASK-1197: rustup commonly emits a leading `info:` progress line
+/// before the real toolchain identifier — skip it and continue scanning.
+#[test]
+fn parse_active_toolchain_skips_leading_info_prefix() {
+    let output = "info: syncing channel updates for 'stable'\nstable-aarch64-apple-darwin\n";
+    assert_eq!(
+        parse_active_toolchain(output),
+        Some("stable-aarch64-apple-darwin".to_string())
+    );
+}
+
+#[test]
+fn parse_active_toolchain_returns_none_when_only_diagnostics() {
+    assert_eq!(
+        parse_active_toolchain("error: no default toolchain configured\n"),
+        None
+    );
+}
+
 #[test]
 fn parse_active_toolchain_rejects_no_active_toolchain_message() {
     // rustup ≥1.28 "no active toolchain" output

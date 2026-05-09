@@ -53,12 +53,19 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
                         }
                     })
                 });
-            let mut unit = ProjectUnit::new(
-                meta.name.unwrap_or_else(|| format_unit_name(&member)),
-                member,
-            );
-            unit.version = meta.version;
-            unit.description = meta.description;
+            // ERR-2 / TASK-1254: trim and drop whitespace-only fields before
+            // constructing the ProjectUnit so the workspace card matches the
+            // policy already enforced by the Node identity provider
+            // (TASK-0563/0813/0814). Without this guard a `name = "  "` field
+            // bypassed the `format_unit_name` directory fallback and a
+            // whitespace-only version/description rendered as a blank bullet.
+            let name = ops_about::text_util::trim_nonempty(meta.name)
+                .unwrap_or_else(|| format_unit_name(&member));
+            let version = ops_about::text_util::trim_nonempty(meta.version);
+            let description = ops_about::text_util::trim_nonempty(meta.description);
+            let mut unit = ProjectUnit::new(name, member);
+            unit.version = version;
+            unit.description = description;
             unit
         })
         .collect()
@@ -345,6 +352,28 @@ mod tests {
         assert_eq!(units[0].version.as_deref(), Some("1.0.0"));
         assert_eq!(units[0].description.as_deref(), Some("A"));
         assert_eq!(units[1].name, "beta");
+    }
+
+    /// ERR-2 / TASK-1254: a member whose `name`/`version`/`description`
+    /// fields are whitespace-only must trim+drop to None so the directory
+    /// fallback fires and blank fields don't leak into rendered cards.
+    #[test]
+    fn whitespace_only_metadata_falls_back_and_drops_blank_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("package.json"),
+            r#"{ "name": "root", "workspaces": ["packages/*"] }"#,
+        );
+        write(
+            &dir.path().join("packages/blank/package.json"),
+            r#"{ "name": "  ", "version": "  ", "description": "  " }"#,
+        );
+        let units = collect_units(dir.path());
+        assert_eq!(units.len(), 1);
+        // Directory fallback must fire when name is whitespace-only.
+        assert_ne!(units[0].name, "  ");
+        assert!(units[0].version.is_none());
+        assert!(units[0].description.is_none());
     }
 
     #[test]

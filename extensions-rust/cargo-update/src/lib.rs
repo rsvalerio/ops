@@ -267,9 +267,15 @@ fn is_index_progress_line(line: &str) -> bool {
     if tokens.next().is_none() {
         return false;
     }
-    // Third token must be exactly `index` — for a real update line this
-    // would be the from-version (`v1.0.0`) and the gate would not fire.
-    if tokens.next() != Some("index") {
+    // Third token: either `index` (canonical 3-token form) or absent
+    // (2-token form `Updating crates.io` observed on some cargo
+    // releases / locales — ERR-1 / TASK-1252). A real update line always
+    // has the from-version (`v1.0.0`) here, so a 2-token line cannot be
+    // confused with a real update.
+    let Some(third) = tokens.next() else {
+        return true;
+    };
+    if third != "index" {
         return false;
     }
     // Anything after `index` must be the alternate-registry suffix in
@@ -289,13 +295,30 @@ fn starts_with_known_verb(line: &str) -> bool {
     // PATTERN-1 / TASK-1030: require a whitespace (or end-of-string) boundary
     // after the verb so prefix-without-boundary matches like `Updatingxyz ...`
     // do not classify as a known verb and emit false-positive drift warnings.
-    ACTION_PREFIXES.iter().any(|(prefix, _, _)| {
+    let matches_verb = ACTION_PREFIXES.iter().any(|(prefix, _, _)| {
         line.starts_with(prefix)
             && line[prefix.len()..]
                 .chars()
                 .next()
                 .is_none_or(char::is_whitespace)
-    })
+    });
+    if !matches_verb {
+        return false;
+    }
+    // ERR-1 / TASK-1252: only treat the line as a real action line (and
+    // therefore worth a format-drift warn when parse_action_line fails) if
+    // it carries a `v\d` version token. Progress lines such as the 2-token
+    // `Updating crates.io` form share the `Updating` verb but have no
+    // version, so without this guard parse_action_line's failure would
+    // bubble into a bogus drift warn on every `ops about --refresh`.
+    line.split_whitespace().any(is_version_token)
+}
+
+/// `true` iff `tok` matches the `v<digit>...` shape cargo emits for the
+/// from/to versions on a real update line.
+fn is_version_token(tok: &str) -> bool {
+    let mut chars = tok.chars();
+    chars.next() == Some('v') && chars.next().is_some_and(|c| c.is_ascii_digit())
 }
 
 /// Parse one of:

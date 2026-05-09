@@ -40,7 +40,14 @@ pub(crate) fn parse(dir: &Path) -> Option<GoMod> {
             continue;
         }
         if let Some(rest) = line.strip_prefix("module ") {
-            out.module = Some(rest.trim().to_string());
+            // ERR-2 / TASK-1167: a `module ""` or `module    ` line must drop
+            // to None so the directory-name fallback in lib.rs fires, matching
+            // the trim_nonempty policy applied by the Node and Python identity
+            // providers.
+            let trimmed = rest.trim();
+            if !trimmed.is_empty() {
+                out.module = Some(trimmed.to_string());
+            }
         } else if let Some(rest) = line.strip_prefix("go ") {
             out.go_version = Some(rest.trim().to_string());
         } else if is_block_opener(line, "replace") {

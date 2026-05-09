@@ -26,15 +26,26 @@ pub fn get_active_toolchain() -> Option<String> {
 /// PATTERN-1 / TASK-1078: only the rustup diagnostic prefixes
 /// (`error:`, `warning:`, `info:`, `note:`) cause rejection. Match the
 /// prefix on the full first whitespace-bounded segment, not as a substring.
+///
+/// ERR-1 / TASK-1197: rustup commonly emits a leading `info:` progress line
+/// before the real toolchain identifier (e.g. `info: syncing channel
+/// updates ...\nstable-aarch64-apple-darwin\n`). Skip diagnostic-prefixed
+/// lines and continue scanning so a healthy toolchain is still recognised.
 pub(crate) fn parse_active_toolchain(stdout: &str) -> Option<String> {
     const RUSTUP_DIAGNOSTIC_PREFIXES: &[&str] = &["error:", "warning:", "info:", "note:"];
 
-    let line = stdout.lines().map(str::trim).find(|l| !l.is_empty())?;
-    let token = line.split_whitespace().next()?;
-    if RUSTUP_DIAGNOSTIC_PREFIXES.contains(&token) {
-        return None;
-    }
-    Some(token.to_string())
+    stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .find_map(|line| {
+            let token = line.split_whitespace().next()?;
+            if RUSTUP_DIAGNOSTIC_PREFIXES.contains(&token) {
+                None
+            } else {
+                Some(token.to_string())
+            }
+        })
 }
 
 pub fn check_rustup_component_installed(component: &str) -> bool {

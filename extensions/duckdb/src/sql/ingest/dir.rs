@@ -71,10 +71,14 @@ pub fn default_data_dir(workspace_root: &Path) -> PathBuf {
 /// check_metadata_output, etc.) should use this instead of the old `io_err`
 /// which misleadingly wrapped them as `DbError::Io`.
 ///
-/// SEC-21 (TASK-0862): formats with the alternate `{e:#}` flag so
-/// `anyhow::Context` chains are preserved end-to-end.
-pub fn external_err(e: impl std::fmt::Display) -> DbError {
-    DbError::External(format!("{e:#}"))
+/// SEC-21 (TASK-0862): Display renders via the alternate `{:#}` flag so
+/// `anyhow::Context` chains continue to surface end-to-end.
+///
+/// ERR-2 / TASK-1209: passes the underlying `anyhow::Error` through as
+/// `#[source]` instead of flattening it via `format!`, so consumers walking
+/// `Error::source()` recover the cause graph (e.g. typed retry decisions).
+pub fn external_err(e: anyhow::Error) -> DbError {
+    DbError::External(e)
 }
 
 /// Compute SHA-256 checksum of a file, returning hex string.
@@ -181,7 +185,7 @@ mod tests {
 
     #[test]
     fn external_err_wraps_display_error() {
-        let err = external_err("test error message");
+        let err = external_err(anyhow::anyhow!("test error message"));
         let msg = err.to_string();
         assert!(msg.contains("test error message"));
     }
@@ -201,6 +205,35 @@ mod tests {
         assert!(msg.contains("wrap two"), "missing outer wrap: {msg}");
         assert!(msg.contains("wrap one"), "missing middle wrap: {msg}");
         assert!(msg.contains("leaf cause"), "missing leaf cause: {msg}");
+    }
+
+    /// ERR-2 / TASK-1209: walking `std::error::Error::source()` on the
+    /// resulting `DbError::External` recovers the wrapped `anyhow::Error`
+    /// chain rather than the previous flattened-string leaf.
+    #[test]
+    fn external_err_preserves_error_source_chain() {
+        use anyhow::Context;
+        use std::error::Error as _;
+
+        let chained: anyhow::Error = Err::<(), _>(anyhow::Error::msg("leaf cause"))
+            .context("wrap one")
+            .context("wrap two")
+            .unwrap_err();
+        let err = external_err(chained);
+
+        // First source = the wrapped anyhow::Error itself; subsequent calls
+        // walk the anyhow context chain down to the leaf cause.
+        let mut messages = Vec::new();
+        let mut current: Option<&dyn std::error::Error> = err.source();
+        while let Some(e) = current {
+            messages.push(e.to_string());
+            current = e.source();
+        }
+        let joined = messages.join(" | ");
+        assert!(
+            joined.contains("leaf cause"),
+            "expected leaf cause in source chain, got: {joined}"
+        );
     }
 
     #[test]

@@ -197,23 +197,52 @@ fn query_crate_dep_counts_with_data() {
     let db = DuckDb::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
+    // ERR-2 / TASK-1253: dep counts now key by `crate_manifest_path`, so
+    // the synthetic view also surfaces that column.
     let conn = db.lock().expect("lock");
     conn.execute_batch(
         "CREATE VIEW crate_dependencies AS \
          SELECT * FROM (VALUES \
-             ('ops-core', 'serde', '^1.0', 'normal', false), \
-             ('ops-core', 'anyhow', '^1.0', 'normal', false), \
-             ('ops-core', 'tempfile', '^3.0', 'dev', false), \
-             ('ops-cli', 'clap', '^4.0', 'normal', false) \
-         ) AS t(crate_name, dependency_name, version_req, dependency_kind, is_optional)",
+             ('ops-core', 'serde', '^1.0', 'normal', false, '/ws/core/Cargo.toml'), \
+             ('ops-core', 'anyhow', '^1.0', 'normal', false, '/ws/core/Cargo.toml'), \
+             ('ops-core', 'tempfile', '^3.0', 'dev', false, '/ws/core/Cargo.toml'), \
+             ('ops-cli', 'clap', '^4.0', 'normal', false, '/ws/cli/Cargo.toml') \
+         ) AS t(crate_name, dependency_name, version_req, dependency_kind, is_optional, crate_manifest_path)",
     )
     .expect("create view with test data");
     drop(conn);
 
     let result = query_crate_dep_counts(&db).expect("query should work");
     assert_eq!(result.len(), 2);
-    assert_eq!(result["ops-core"], 2); // only normal deps
-    assert_eq!(result["ops-cli"], 1);
+    assert_eq!(result["/ws/core/Cargo.toml"], 2); // only normal deps
+    assert_eq!(result["/ws/cli/Cargo.toml"], 1);
+}
+
+/// ERR-2 / TASK-1253: when two workspace members share the same
+/// `crate_name` (legal in cargo for renamed packages), keying by manifest
+/// path keeps both rows distinct rather than collapsing into a single map
+/// entry that silently mis-attributes counts.
+#[test]
+fn query_crate_dep_counts_distinguishes_duplicate_named_members() {
+    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    init_schema(&db).expect("init_schema");
+
+    let conn = db.lock().expect("lock");
+    conn.execute_batch(
+        "CREATE VIEW crate_dependencies AS \
+         SELECT * FROM (VALUES \
+             ('lib', 'serde', '^1.0', 'normal', false, '/ws/a/lib/Cargo.toml'), \
+             ('lib', 'serde', '^1.0', 'normal', false, '/ws/b/lib/Cargo.toml'), \
+             ('lib', 'anyhow', '^1.0', 'normal', false, '/ws/b/lib/Cargo.toml') \
+         ) AS t(crate_name, dependency_name, version_req, dependency_kind, is_optional, crate_manifest_path)",
+    )
+    .expect("create view with test data");
+    drop(conn);
+
+    let result = query_crate_dep_counts(&db).expect("query should work");
+    assert_eq!(result.len(), 2, "duplicate-named members must not collide");
+    assert_eq!(result["/ws/a/lib/Cargo.toml"], 1);
+    assert_eq!(result["/ws/b/lib/Cargo.toml"], 2);
 }
 
 #[test]

@@ -17,3 +17,4 @@ tracing = { workspace = true }
 [dev-dependencies]
 ops-extension = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt"] }

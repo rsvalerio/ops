@@ -23,17 +23,26 @@ use std::path::Path;
 // downstream consumers. NULL means "all targets" (the default
 // `[dependencies]` table); a non-empty string is the cfg expression.
 pub fn crate_dependencies_view_sql() -> String {
+    // ERR-2 / TASK-1253: surface `pkg.manifest_path` so callers
+    // (e.g. `query_crate_dep_counts`) can key per-crate counts on a unique
+    // identifier. `pkg.name` collides for renamed (`package = "alt"`) or
+    // duplicate-named workspace crates and used to silently mis-attribute
+    // counts. The column is nullable in extreme edge cases (synthetic
+    // metadata) and ordered last so existing positional consumers keep
+    // working.
     "CREATE OR REPLACE VIEW crate_dependencies AS \
      WITH pkgs AS (SELECT unnest(packages) AS pkg FROM metadata_raw), \
      ws_ids AS (SELECT unnest(workspace_members) AS member_id FROM metadata_raw), \
      member_deps AS ( \
-         SELECT pkg.name AS crate_name, unnest(pkg.dependencies) AS dep \
+         SELECT pkg.name AS crate_name, pkg.manifest_path AS crate_manifest_path, \
+                unnest(pkg.dependencies) AS dep \
          FROM pkgs WHERE pkg.id IN (SELECT member_id FROM ws_ids) \
      ) \
      SELECT crate_name, dep.name AS dependency_name, dep.req AS version_req, \
             COALESCE(dep.kind, 'normal') AS dependency_kind, \
             COALESCE(dep.optional, false) AS is_optional, \
-            NULLIF(dep.target, '') AS target \
+            NULLIF(dep.target, '') AS target, \
+            crate_manifest_path \
      FROM member_deps \
      ORDER BY crate_name, dependency_kind, dependency_name, target"
         .to_string()

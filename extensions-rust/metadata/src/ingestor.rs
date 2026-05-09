@@ -24,7 +24,7 @@ impl DataIngestor for MetadataIngestor {
                 label: t.label,
                 timeout_secs: t.timeout.as_secs(),
             },
-            other => DbError::External(format!("cargo metadata: {other}")),
+            other => external_err(anyhow::Error::new(other).context("cargo metadata")),
         })?;
         check_metadata_output(&output).map_err(external_err)?;
         let path = data_dir.join("metadata.json");
