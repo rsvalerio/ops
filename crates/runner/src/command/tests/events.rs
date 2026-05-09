@@ -1,11 +1,16 @@
 //! Tests for emit_output_events.
 
 use super::*;
+use std::sync::Arc;
+
+fn emit(id: &str, stdout: &str, stderr: &str, sink: &mut impl FnMut(RunnerEvent)) {
+    emit_output_events(id, &Arc::from(stdout), &Arc::from(stderr), sink);
+}
 
 #[test]
 fn emit_output_events_emits_stdout_and_stderr() {
     let mut events: Vec<RunnerEvent> = Vec::new();
-    emit_output_events("test", "line1\nline2\n", "err1\n", &mut |e| events.push(e));
+    emit("test", "line1\nline2\n", "err1\n", &mut |e| events.push(e));
 
     let stdout_events: Vec<_> = events
         .iter()
@@ -28,7 +33,7 @@ mod emit_output_edge_tests {
     fn emit_output_events_with_very_long_line() {
         let mut events: Vec<RunnerEvent> = Vec::new();
         let long_line = "x".repeat(100_000);
-        emit_output_events("test", &long_line, "", &mut |e| events.push(e));
+        emit("test", &long_line, "", &mut |e| events.push(e));
 
         assert_eq!(events.len(), 1);
         if let RunnerEvent::StepOutput { line, .. } = &events[0] {
@@ -42,7 +47,7 @@ mod emit_output_edge_tests {
     fn emit_output_events_with_many_lines() {
         let mut events: Vec<RunnerEvent> = Vec::new();
         let many_lines: String = (0..1000).map(|i| format!("line{}\n", i)).collect();
-        emit_output_events("test", &many_lines, "", &mut |e| events.push(e));
+        emit("test", &many_lines, "", &mut |e| events.push(e));
 
         assert_eq!(events.len(), 1000);
     }
@@ -51,7 +56,7 @@ mod emit_output_edge_tests {
     fn emit_output_events_with_unicode() {
         let mut events: Vec<RunnerEvent> = Vec::new();
         let unicode = "\u{65E5}\u{672C}\u{8A9E}\n\u{30C6}\u{30B9}\u{30C8}\n\u{1F389}\n";
-        emit_output_events("test", unicode, "", &mut |e| events.push(e));
+        emit("test", unicode, "", &mut |e| events.push(e));
 
         assert_eq!(events.len(), 3);
     }

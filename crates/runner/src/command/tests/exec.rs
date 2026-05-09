@@ -47,6 +47,7 @@ async fn run_exec_timeout() {
     let runner = test_runner(HashMap::new());
     let mut spec = sleep_cmd(3);
     spec.timeout_secs = Some(1);
+    let spec = Arc::new(spec);
     let mut events = Vec::new();
     let result = runner
         .run_exec("sleep_cmd", &spec, &mut |e| events.push(e))
@@ -75,6 +76,10 @@ mod exec_unit_tests {
         build_step_result, emit_output_events, emit_step_completion, execute_with_timeout,
     };
     use crate::command::results::CommandOutput;
+
+    fn emit(id: &str, stdout: &str, stderr: &str, sink: &mut impl FnMut(RunnerEvent)) {
+        emit_output_events(id, &Arc::from(stdout), &Arc::from(stderr), sink);
+    }
 
     #[tokio::test]
     async fn execute_with_timeout_no_timeout_succeeds() {
@@ -244,14 +249,14 @@ mod exec_unit_tests {
     #[test]
     fn emit_output_events_empty_input() {
         let mut events: Vec<RunnerEvent> = Vec::new();
-        emit_output_events("test", "", "", &mut |e| events.push(e));
+        emit("test", "", "", &mut |e| events.push(e));
         assert!(events.is_empty(), "empty input should produce no events");
     }
 
     #[test]
     fn emit_output_events_crlf_handling() {
         let mut events: Vec<RunnerEvent> = Vec::new();
-        emit_output_events("test", "line1\r\nline2\r\n", "err\r\n", &mut |e| {
+        emit("test", "line1\r\nline2\r\n", "err\r\n", &mut |e| {
             events.push(e)
         });
 
@@ -289,7 +294,7 @@ mod exec_unit_tests {
 
         let mut events: Vec<RunnerEvent> = Vec::with_capacity(10_001);
         let start = std::time::Instant::now();
-        emit_output_events("noisy", "", &payload, &mut |e| events.push(e));
+        emit("noisy", "", &payload, &mut |e| events.push(e));
         let elapsed = start.elapsed();
 
         let lines: Vec<&crate::command::OutputLine> = events
@@ -332,7 +337,7 @@ mod exec_unit_tests {
     fn emit_output_events_arc_ptr_eq_per_stream() {
         let stdout = "a\nb\nc\n";
         let mut events: Vec<RunnerEvent> = Vec::new();
-        emit_output_events("t", stdout, "", &mut |e| events.push(e));
+        emit("t", stdout, "", &mut |e| events.push(e));
 
         let lines: Vec<&crate::command::OutputLine> = events
             .iter()
@@ -367,7 +372,7 @@ mod exec_unit_tests {
     #[test]
     fn emit_output_events_trailing_newline() {
         let mut events: Vec<RunnerEvent> = Vec::new();
-        emit_output_events("test", "line1\nline2\n\n", "", &mut |e| events.push(e));
+        emit("test", "line1\nline2\n\n", "", &mut |e| events.push(e));
 
         let stdout_events: Vec<_> = events
             .iter()
@@ -411,7 +416,7 @@ async fn run_exec_fails_loudly_on_non_utf8_env_var() {
     unsafe { std::env::set_var(key, &bad) };
 
     let runner = test_runner(HashMap::new());
-    let spec = exec_spec("echo", &[&format!("${{{key}}}/payload")]);
+    let spec = Arc::new(exec_spec("echo", &[&format!("${{{key}}}/payload")]));
     let mut events = Vec::new();
     let result = runner
         .run_exec("bad_var", &spec, &mut |e| events.push(e))
@@ -440,7 +445,7 @@ mod error_path_tests {
     #[tokio::test]
     async fn run_exec_nonexistent_program() {
         let runner = test_runner(HashMap::new());
-        let spec = exec_spec("nonexistent_program_xyz123", &[]);
+        let spec = Arc::new(exec_spec("nonexistent_program_xyz123", &[]));
         let mut events = Vec::new();
         let result = runner
             .run_exec("bad_cmd", &spec, &mut |e| events.push(e))
@@ -458,11 +463,11 @@ mod error_path_tests {
     #[tokio::test]
     async fn run_exec_invalid_cwd() {
         let runner = test_runner(HashMap::new());
-        let spec = exec_spec_with_cwd(
+        let spec = Arc::new(exec_spec_with_cwd(
             "echo",
             &["test"],
             Some(PathBuf::from("/nonexistent/directory/xyz123")),
-        );
+        ));
         let mut events = Vec::new();
         let result = runner
             .run_exec("bad_cwd", &spec, &mut |e| events.push(e))
@@ -483,7 +488,7 @@ mod error_path_tests {
             f.write_all(b"#!/bin/sh\necho hello\n").unwrap();
         }
         let runner = test_runner(HashMap::new());
-        let spec = exec_spec(script.to_str().unwrap(), &[]);
+        let spec = Arc::new(exec_spec(script.to_str().unwrap(), &[]));
         let mut events = Vec::new();
         let result = runner
             .run_exec("perm_denied", &spec, &mut |e| events.push(e))

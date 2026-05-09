@@ -306,10 +306,10 @@ async fn run_parallel_composite() {
 async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
     let (tx, mut rx) = mpsc::channel(8);
     let abort = Arc::new(AbortSignal::new());
-    let spec = exec_spec(
+    let spec = Arc::new(exec_spec(
         "sh",
         &["-c", "for i in $(seq 1 500); do echo line_$i; done"],
-    );
+    ));
     let exec_handle = tokio::spawn(exec_standalone(
         "buffer_full".into(),
         spec,
@@ -363,13 +363,13 @@ async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
 
     let (tx, mut rx) = mpsc::channel::<RunnerEvent>(1);
     let abort = Arc::new(AbortSignal::new());
-    let spec = exec_spec(
+    let spec = Arc::new(exec_spec(
         "sh",
         &[
             "-c",
             "for i in $(seq 1 1000); do echo line_$i; done; sleep 5",
         ],
-    );
+    ));
 
     let handle = tokio::spawn(exec_standalone(
         "leak_test".into(),
@@ -413,10 +413,10 @@ async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
 async fn exec_standalone_emits_step_output_dropped_under_burst() {
     let (tx, mut rx) = mpsc::channel::<RunnerEvent>(8);
     let abort = Arc::new(AbortSignal::new());
-    let spec = exec_spec(
+    let spec = Arc::new(exec_spec(
         "sh",
         &["-c", "for i in $(seq 1 1500); do echo line_$i; done"],
-    );
+    ));
 
     let handle = tokio::spawn(exec_standalone(
         "burst".into(),
@@ -488,7 +488,7 @@ async fn exec_standalone_terminal_send_aborts_on_full_outer_channel() {
 
     let (tx, _rx) = mpsc::channel::<RunnerEvent>(1);
     let abort = Arc::new(AbortSignal::new());
-    let spec = exec_spec("sh", &["-c", "echo line; echo line; exit 0"]);
+    let spec = Arc::new(exec_spec("sh", &["-c", "echo line; echo line; exit 0"]));
 
     // Fill the outer channel before the task can deliver a terminal event
     // by sending a placeholder. Capacity is 1 so the next send blocks.
@@ -534,7 +534,7 @@ async fn exec_standalone_skips_when_abort_set() {
         s.set();
         s
     };
-    let spec = echo_cmd("should not run");
+    let spec = Arc::new(echo_cmd("should not run"));
     let result = exec_standalone(
         "skipped".into(),
         spec,

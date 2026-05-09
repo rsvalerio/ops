@@ -3,11 +3,11 @@ id: TASK-1161
 title: >-
   PERF-1: parse_upgrade_row::slice_col routes through Option<String> forcing
   heap allocation per column
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 07:45'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:06'
 labels:
   - code-review-rust
   - PERF
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Refactor slice_col to return Option<&str>; do the to_string() in the final UpgradeEntry literal
-- [ ] #2 Net effect: 0 allocations in empty-trim path; 5–6 allocations per real row instead of 5–6 plus intermediate Option<String>
+- [x] #1 Refactor slice_col to return Option<&str>; do the to_string() in the final UpgradeEntry literal
+- [x] #2 Net effect: 0 allocations in empty-trim path; 5–6 allocations per real row instead of 5–6 plus intermediate Option<String>
 <!-- AC:END -->

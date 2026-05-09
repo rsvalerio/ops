@@ -3,11 +3,11 @@ id: TASK-1251
 title: >-
   PERF-3: RustUnitsProvider rebuilds Vec<&str> and sort_unstable per provide()
   despite resolved_members already sorted+deduped
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 13:01'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:21'
 labels:
   - code-review-rust
   - performance
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Drop sorted_members and iterate members.iter() directly
-- [ ] #2 Encode the ordering invariant on LoadedManifest::resolved_members rustdoc
-- [ ] #3 Regression test pinning fixed traversal order across two provide() calls
+- [x] #1 Drop sorted_members and iterate members.iter() directly
+- [x] #2 Encode the ordering invariant on LoadedManifest::resolved_members rustdoc
+- [x] #3 Regression test pinning fixed traversal order across two provide() calls
 <!-- AC:END -->

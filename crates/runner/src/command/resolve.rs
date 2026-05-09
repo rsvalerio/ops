@@ -149,11 +149,15 @@ impl CommandRunner {
     }
 
     /// List all available command IDs (config first, then stack, then extension commands; sorted for stable order).
+    ///
+    /// PERF-3 / TASK-1180: collect into a `BTreeSet<&str>` so sort+dedup
+    /// happens during insertion, then map straight into `CommandId`. The
+    /// previous shape allocated two `Vec`s (`Vec<&str>` then `Vec<CommandId>`)
+    /// and a separate `sort_unstable`/`dedup` pass; tab-completion latency on
+    /// `--list` and the help/discovery paths benefits from the single-pass form.
     pub fn list_command_ids(&self) -> Vec<CommandId> {
-        let mut ids: Vec<&str> = self.all_command_keys().collect();
-        ids.sort_unstable();
-        ids.dedup();
-        ids.iter().map(|s| CommandId::from(*s)).collect()
+        let ids: std::collections::BTreeSet<&str> = self.all_command_keys().collect();
+        ids.into_iter().map(CommandId::from).collect()
     }
 
     /// Expand to a flat list of exec-only command IDs (no composites), so run_plan need not recurse.

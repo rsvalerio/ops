@@ -266,6 +266,11 @@ impl CommandRunner {
         let mut join_set = tokio::task::JoinSet::new();
         let mut id_map: HashMap<TaskId, CommandId> = HashMap::new();
         for (id, spec) in steps {
+            // PERF-3 / TASK-1125: wrap once per task; subsequent forwards
+            // through exec_standalone → exec_command → build_command_async
+            // are Arc::clone (refcount bump) instead of deep clones of
+            // args/env/cwd/program.
+            let spec = Arc::new(spec);
             let tx = tx.clone();
             let abort = Arc::clone(&abort);
             let cwd = Arc::clone(&cwd);

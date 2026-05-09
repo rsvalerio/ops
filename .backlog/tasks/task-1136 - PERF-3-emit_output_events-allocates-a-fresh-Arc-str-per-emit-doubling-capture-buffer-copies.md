@@ -3,11 +3,11 @@ id: TASK-1136
 title: >-
   PERF-3: emit_output_events allocates a fresh Arc<str> per emit, doubling
   capture-buffer copies
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 07:40'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:00'
 labels:
   - code-review-rust
   - PERF
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Pass captured strings by value or as Arc<str> into emit_output_events so output is wrapped exactly once
-- [ ] #2 StepResult.stdout/stderr continue to surface owned String (or migrate to Arc<str> as a follow-up)
-- [ ] #3 Test confirms one alloc per stream
+- [x] #1 Pass captured strings by value or as Arc<str> into emit_output_events so output is wrapped exactly once
+- [x] #2 StepResult.stdout/stderr continue to surface owned String (or migrate to Arc<str> as a follow-up)
+- [x] #3 Test confirms one alloc per stream
 <!-- AC:END -->

@@ -126,7 +126,10 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
         // contains control bytes; surface that as a missing field rather than
         // an empty link in the About card.
         repository: raw.repository.and_then(|r| match r {
-            RepositoryField::Text(s) => trim_nonempty(Some(normalize_repo_url(&s))),
+            // PERF-3 / TASK-1257: `normalize_repo_url` returns `Cow<str>` so
+            // the clean-URL hot path stays alloc-free; only `into_owned()`
+            // when we need to hand a String to the field.
+            RepositoryField::Text(s) => trim_nonempty(Some(normalize_repo_url(&s).into_owned())),
             RepositoryField::Object { url, directory } => url.and_then(|u| {
                 let base = normalize_repo_url(&u);
                 if base.is_empty() {
@@ -134,7 +137,7 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
                 }
                 Some(match trim_nonempty(directory) {
                     Some(dir) => append_tree_directory(&base, &dir),
-                    None => base,
+                    None => base.into_owned(),
                 })
             }),
         }),

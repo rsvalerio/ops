@@ -3,11 +3,11 @@ id: TASK-1125
 title: >-
   PERF-3: exec_command/exec_command_raw clone spec per spawn before
   build_command_async, defeating Arc-only invariant for spec
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 07:28'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 10:53'
 labels:
   - code-review-rust
   - performance
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 exec_command/exec_command_raw no longer take ownership of a freshly cloned ExecCommandSpec on every spawn
-- [ ] #2 build_command_async signature accepts Arc<ExecCommandSpec> or borrowed reference, matching the Arc-only invariant traced for cwd/vars
-- [ ] #3 spawn_parallel_tasks does not clone the spec into each tokio task body when an Arc share would suffice
+- [x] #1 exec_command/exec_command_raw no longer take ownership of a freshly cloned ExecCommandSpec on every spawn
+- [x] #2 build_command_async signature accepts Arc<ExecCommandSpec> or borrowed reference, matching the Arc-only invariant traced for cwd/vars
+- [x] #3 spawn_parallel_tasks does not clone the spec into each tokio task body when an Arc share would suffice
 <!-- AC:END -->

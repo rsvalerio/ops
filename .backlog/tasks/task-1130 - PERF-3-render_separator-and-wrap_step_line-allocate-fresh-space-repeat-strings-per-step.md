@@ -3,11 +3,11 @@ id: TASK-1130
 title: >-
   PERF-3: render_separator and wrap_step_line allocate fresh space-repeat
   strings per step
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 07:39'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 10:55'
 labels:
   - code-review-rust
   - PERF
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Avoid temporary String allocations in wrap_step_line and render_separator by pushing chars directly into output buffer
-- [ ] #2 Add a test pinning the no-extra-allocation contract on the hot path
+- [x] #1 Avoid temporary String allocations in wrap_step_line and render_separator by pushing chars directly into output buffer
+- [x] #2 Add a test pinning the no-extra-allocation contract on the hot path
 <!-- AC:END -->

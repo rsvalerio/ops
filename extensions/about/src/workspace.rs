@@ -35,6 +35,15 @@ pub fn resolve_member_globs(
     marker: &str,
 ) -> Vec<(String, String)> {
     let mut resolved: Vec<(String, String)> = Vec::new();
+    // PERF-3 / TASK-1149: lazily canonicalize `root` once across the whole
+    // resolution. The recovery path below (run when `strip_prefix(root)`
+    // misses, e.g. macOS `/var` ↔ `/private/var` or any symlinked workspace
+    // root) re-canonicalised the *same* root for every directory entry,
+    // turning a one-shot fallback into O(N) syscalls on monorepos with
+    // hundreds of members. Cache the result on first miss; `None` means the
+    // canonicalize call itself failed (we still try `path` canonicalize
+    // below, but the strip can't succeed without a valid root canonical).
+    let mut root_canonical: Option<Option<std::path::PathBuf>> = None;
     for member in members {
         // PATTERN-1 (TASK-1071): reject `..` traversal in member values before
         // any I/O. Workspace config is operator-controlled so the impact is
@@ -110,15 +119,23 @@ pub fn resolve_member_globs(
                             let rel_string = match path.strip_prefix(root) {
                                 Ok(rel) => rel.to_string_lossy().to_string(),
                                 Err(_) => {
-                                    let canonical_rel =
-                                        std::fs::canonicalize(root).ok().and_then(|root_canon| {
-                                            std::fs::canonicalize(&path).ok().and_then(|p_canon| {
-                                                p_canon
-                                                    .strip_prefix(&root_canon)
-                                                    .ok()
-                                                    .map(|r| r.to_string_lossy().to_string())
-                                            })
-                                        });
+                                    // PERF-3 / TASK-1149: hoist the
+                                    // root-canonicalize out of the per-entry
+                                    // loop so a 200-entry symlinked-root tree
+                                    // pays one canonicalize for the root
+                                    // (plus one per entry path) instead of
+                                    // 200 root canonicalizes.
+                                    let root_canon = root_canonical
+                                        .get_or_insert_with(|| std::fs::canonicalize(root).ok())
+                                        .as_deref();
+                                    let canonical_rel = root_canon.and_then(|root_canon| {
+                                        std::fs::canonicalize(&path).ok().and_then(|p_canon| {
+                                            p_canon
+                                                .strip_prefix(root_canon)
+                                                .ok()
+                                                .map(|r| r.to_string_lossy().to_string())
+                                        })
+                                    });
                                     match canonical_rel {
                                         Some(rel) => {
                                             tracing::debug!(
@@ -386,6 +403,50 @@ mod tests {
         assert!(
             resolved.is_empty(),
             "unreadable manifest must be skipped (not falsely included)"
+        );
+    }
+
+    /// PERF-3 / TASK-1149: when the workspace root is reached through a
+    /// symlink, `path.strip_prefix(root)` misses for every entry and the
+    /// recovery path canonicalises both sides. The root canonicalisation
+    /// is hoisted out of the per-entry loop and cached on first miss, so
+    /// a many-entry tree pays one root canonicalize, not N.
+    ///
+    /// We can't observe syscall counts portably; instead we exercise a
+    /// 200-entry symlinked-root tree and assert every member resolves
+    /// without the recovery path silently dropping units. Combined with
+    /// the structural lazy-init in `resolve_member_globs`, this pins the
+    /// behaviour the AC asks for.
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_root_with_many_entries_resolves_via_cached_canonicalize() {
+        let dir = tempfile::tempdir().unwrap();
+        let real_root = dir.path().join("real");
+        std::fs::create_dir(&real_root).unwrap();
+        for i in 0..200 {
+            write(
+                &real_root.join(format!("packages/m{i:03}/package.json")),
+                r#"{"name":"x"}"#,
+            );
+        }
+        let link_root = dir.path().join("link");
+        std::os::unix::fs::symlink(&real_root, &link_root).unwrap();
+
+        let resolved = resolve_member_globs(
+            &["packages/*".to_string()],
+            &[],
+            // Pass the symlinked root so strip_prefix misses on each entry
+            // (entry.path() resolves through canonicalised parent on some
+            // platforms) and the recovery path is exercised.
+            &link_root,
+            "package.json",
+        );
+        // 200 members must all resolve; the recovery path's cached
+        // canonicalize must not lose entries.
+        assert_eq!(
+            resolved.len(),
+            200,
+            "all 200 symlinked-root entries should resolve"
         );
     }
 

@@ -20,21 +20,20 @@ pub(super) fn merge_indexmap<K: Eq + std::hash::Hash + std::fmt::Debug, V>(
     overlay: Option<IndexMap<K, V>>,
 ) {
     if let Some(items) = overlay {
-        // SEC-21 / TASK-0745: pre-format each colliding key into its Debug
-        // representation (which escapes control characters and newlines)
-        // *before* the tracing event records the field. Recording the raw
-        // `&K` slice via `?replaced` already escapes the rendered form
-        // through any Debug-aware subscriber, but a subscriber that pulls
-        // the field as a Display-rendered string (or a flat-line log
-        // sink) loses that escaping — and a config with a key like
-        // `foo\n2026-01-01 ERROR injected` could forge a log line. Owning
-        // the escaped form removes the renderer-shape dependency.
-        let replaced: Vec<String> = items
-            .keys()
-            .filter(|k| base.contains_key(*k))
-            .map(|k| format!("{k:?}"))
-            .collect();
-        if !replaced.is_empty() {
+        // READ-5 / TASK-1133: short-circuit when no overlay key collides with
+        // base — the common no-overlap case skips the Vec<String>/format!
+        // allocation entirely. The first colliding key seeds the Vec; subsequent
+        // collisions extend it. Preserves the SEC-21 / TASK-0745 escape contract:
+        // every recorded key is still pre-formatted via Debug before the
+        // tracing event sees it, so a subscriber that pulls the field as a
+        // Display-rendered string still gets the escaped form.
+        let mut replaced: Option<Vec<String>> = None;
+        for k in items.keys() {
+            if base.contains_key(k) {
+                replaced.get_or_insert_with(Vec::new).push(format!("{k:?}"));
+            }
+        }
+        if let Some(replaced) = replaced {
             tracing::debug!(
                 keys = ?replaced,
                 "config overlay shadows base entries (last-write-wins)"

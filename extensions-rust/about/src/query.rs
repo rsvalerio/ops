@@ -14,7 +14,9 @@ use ops_cargo_toml::{
     find_workspace_root_strict, CargoToml, CargoTomlProvider, FindWorkspaceRootError,
 };
 use ops_extension::{Context, DataProviderError};
-use std::collections::HashMap;
+use serde::Deserialize;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -68,6 +70,38 @@ struct TypedManifestEntry {
     last_accessed: u64,
 }
 
+/// PERF-1 / TASK-1240: pair the cwd→entry map with a min-heap of
+/// `(last_accessed, cwd)` so cap-bound eviction picks the LRU entry in
+/// `O(log n)` (heap pop with lazy invalidation) instead of an `O(n)`
+/// scan. Kept in lockstep with `manifest_cache::CacheMap` per the
+/// module-level lockstep contract.
+struct TypedManifestCache {
+    map: HashMap<PathBuf, TypedManifestEntry>,
+    victim_heap: BinaryHeap<Reverse<(u64, PathBuf)>>,
+}
+
+impl TypedManifestCache {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            victim_heap: BinaryHeap::new(),
+        }
+    }
+
+    fn evict_lru(&mut self) -> Option<PathBuf> {
+        while let Some(Reverse((tick, path))) = self.victim_heap.pop() {
+            match self.map.get(&path) {
+                Some(entry) if entry.last_accessed == tick => {
+                    self.map.remove(&path);
+                    return Some(path);
+                }
+                _ => continue,
+            }
+        }
+        None
+    }
+}
+
 /// ERR-1 / TASK-1076: pairs the cached parsed manifest with its resolved
 /// `[workspace].members` list so the original glob spec on the cached
 /// `CargoToml` is preserved verbatim.
@@ -90,6 +124,15 @@ pub(crate) struct LoadedManifest {
 impl LoadedManifest {
     /// Resolved workspace members (post glob expansion, deduped, sorted).
     /// Returns an empty slice when the manifest has no `[workspace]` table.
+    ///
+    /// # Ordering invariant
+    ///
+    /// PERF-3 / TASK-1251: this slice is produced by
+    /// [`resolved_workspace_members`] which sorts (TASK-0794) and dedups
+    /// (TASK-1042) the result before returning. Consumers (about, identity,
+    /// units, coverage providers) MUST consume this view directly and MUST
+    /// NOT re-sort it — re-sorting allocates a fresh `Vec<&str>` on every
+    /// call and adds no semantic value.
     pub(crate) fn resolved_members(&self) -> &[String] {
         self.resolved_members.as_slice()
     }
@@ -187,9 +230,9 @@ fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
 // migration above. A new caller that opens parallel `ctx`s against
 // distinct cwds and bottlenecks here would silently undo a downstream
 // performance fix.
-fn typed_manifest_cache() -> &'static Mutex<HashMap<PathBuf, TypedManifestEntry>> {
-    static CACHE: OnceLock<Mutex<HashMap<PathBuf, TypedManifestEntry>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn typed_manifest_cache() -> &'static Mutex<TypedManifestCache> {
+    static CACHE: OnceLock<Mutex<TypedManifestCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(TypedManifestCache::new()))
 }
 
 /// ERR-1 / TASK-0844: acquire the typed-manifest cache lock, recovering
@@ -212,8 +255,8 @@ fn typed_manifest_cache() -> &'static Mutex<HashMap<PathBuf, TypedManifestEntry>
 /// mutex; only an *actual* re-poisoning by a fresh panic increments the
 /// counter.
 fn lock_typed_manifest_cache(
-    cache: &'static Mutex<HashMap<PathBuf, TypedManifestEntry>>,
-) -> std::sync::MutexGuard<'static, HashMap<PathBuf, TypedManifestEntry>> {
+    cache: &'static Mutex<TypedManifestCache>,
+) -> std::sync::MutexGuard<'static, TypedManifestCache> {
     static POISON_RECOVERY_COUNT: AtomicU64 = AtomicU64::new(0);
     match cache.lock() {
         Ok(g) => g,
@@ -256,10 +299,10 @@ pub(crate) fn load_workspace_manifest(
 
     if ctx.refresh {
         let mut guard = lock_typed_manifest_cache(cache);
-        guard.remove(&cwd);
+        guard.map.remove(&cwd);
     } else {
         let mut guard = lock_typed_manifest_cache(cache);
-        if let Some(entry) = guard.get_mut(&cwd) {
+        if let Some(entry) = guard.map.get_mut(&cwd) {
             // CONC-2 / TASK-0843 + TASK-1198: serve the cached Arc only
             // when both the mtime AND the byte length match. Pairing
             // mtime with size closes the second-resolution-mtime window
@@ -276,8 +319,15 @@ pub(crate) fn load_workspace_manifest(
                 // CONC-2 / TASK-1023: bump LRU tick on hit so frequently
                 // accessed entries survive eviction in a daemon visiting
                 // many cwds.
-                entry.last_accessed = next_lru_tick();
-                return Ok(entry.loaded.clone());
+                //
+                // PERF-1 / TASK-1240: push the new tick onto the victim
+                // heap; the older `(prev_tick, cwd)` pair stays in the
+                // heap and is discarded as stale during eviction.
+                let tick = next_lru_tick();
+                entry.last_accessed = tick;
+                let loaded = entry.loaded.clone();
+                guard.victim_heap.push(Reverse((tick, cwd.clone())));
+                return Ok(loaded);
             }
         }
     }
@@ -303,7 +353,14 @@ pub(crate) fn load_workspace_manifest(
     // arm still pays one `serde_json::from_value`, but the dominant typed
     // cache miss no longer does.
     let manifest: CargoToml = if let Some(cached) = ctx.cached(ops_cargo_toml::DATA_PROVIDER_NAME) {
-        serde_json::from_value((**cached).clone()).map_err(DataProviderError::computation_error)?
+        // PERF-3 / TASK-1201: deserialize against a borrowed `&serde_json::Value`
+        // instead of `(**cached).clone()` deep-cloning the entire tree before
+        // `from_value` consumes it. The clone allocated one Box per nested
+        // map/array node — multi-MB workspaces clone 10k+ allocations only
+        // to drop them. `serde::Deserialize::deserialize` takes the value by
+        // reference via its `IntoDeserializer` impl, so the cached Arc stays
+        // shared and only the typed fields are produced.
+        CargoToml::deserialize(cached.as_ref()).map_err(DataProviderError::computation_error)?
     } else {
         let provider = match find_workspace_root_strict(&cwd) {
             Ok(root) => CargoTomlProvider::with_root(root),
@@ -338,21 +395,19 @@ pub(crate) fn load_workspace_manifest(
         // working-set survives a daemon visiting many cwds. The previous
         // `keys().next()` policy picked an arbitrary HashMap bucket and
         // could evict the daemon's own workspace.
-        if !guard.contains_key(&cwd) && guard.len() >= MAX_TYPED_MANIFEST_CACHE_ENTRIES {
-            if let Some(victim) = guard
-                .iter()
-                .min_by_key(|(_, e)| e.last_accessed)
-                .map(|(k, _)| k.clone())
-            {
-                guard.remove(&victim);
-            }
+        // PERF-1 / TASK-1240: O(log n) eviction via the lazy-invalidation
+        // min-heap, replacing the previous O(n) `min_by_key` scan.
+        if !guard.map.contains_key(&cwd) && guard.map.len() >= MAX_TYPED_MANIFEST_CACHE_ENTRIES {
+            let _ = guard.evict_lru();
         }
-        guard.insert(
+        let tick = next_lru_tick();
+        guard.victim_heap.push(Reverse((tick, cwd.clone())));
+        guard.map.insert(
             cwd,
             TypedManifestEntry {
                 freshness: current_freshness,
                 loaded: loaded.clone(),
-                last_accessed: next_lru_tick(),
+                last_accessed: tick,
             },
         );
     }
@@ -564,7 +619,7 @@ mod tests {
     /// the cache and yields a freshly parsed allocation.
     fn evict_cache_for(path: &Path) {
         if let Ok(mut guard) = typed_manifest_cache().lock() {
-            guard.remove(path);
+            guard.map.remove(path);
         }
     }
 
@@ -966,7 +1021,7 @@ mod tests {
         {
             let cache = typed_manifest_cache();
             let mut guard = cache.lock().unwrap();
-            let entry = guard.get_mut(dir.path()).expect("entry");
+            let entry = guard.map.get_mut(dir.path()).expect("entry");
             let pre_len = entry
                 .freshness
                 .as_ref()
@@ -1028,7 +1083,8 @@ mod tests {
         let cache = typed_manifest_cache();
         {
             let mut guard = cache.lock().unwrap();
-            guard.clear();
+            guard.map.clear();
+            guard.victim_heap.clear();
         }
         for i in 0..(MAX_TYPED_MANIFEST_CACHE_ENTRIES + 10) {
             let cwd = dir.path().join(format!("ws-{i}"));
@@ -1041,13 +1097,15 @@ mod tests {
             let mut ctx = Context::test_context(cwd);
             let _ = load_workspace_manifest(&mut ctx).expect("load");
         }
-        let len = cache.lock().unwrap().len();
+        let len = cache.lock().unwrap().map.len();
         assert!(
             len <= MAX_TYPED_MANIFEST_CACHE_ENTRIES,
             "cache size {len} must stay within MAX_TYPED_MANIFEST_CACHE_ENTRIES = {MAX_TYPED_MANIFEST_CACHE_ENTRIES}"
         );
         // Cleanup so we don't pollute later tests in the same process.
-        cache.lock().unwrap().clear();
+        let mut g = cache.lock().unwrap();
+        g.map.clear();
+        g.victim_heap.clear();
     }
 
     /// CONC-2 / TASK-1023: eviction must pick the least-recently-used entry,
@@ -1062,7 +1120,8 @@ mod tests {
         let cache = typed_manifest_cache();
         {
             let mut guard = cache.lock().unwrap();
-            guard.clear();
+            guard.map.clear();
+            guard.victim_heap.clear();
         }
 
         // Fill the cache to MAX with a deterministic insertion order.
@@ -1080,7 +1139,7 @@ mod tests {
             keys.push(cwd);
         }
         assert_eq!(
-            cache.lock().unwrap().len(),
+            cache.lock().unwrap().map.len(),
             MAX_TYPED_MANIFEST_CACHE_ENTRIES
         );
 
@@ -1109,23 +1168,28 @@ mod tests {
 
         let guard = cache.lock().unwrap();
         assert_eq!(
-            guard.len(),
+            guard.map.len(),
             MAX_TYPED_MANIFEST_CACHE_ENTRIES,
             "cap must hold after eviction"
         );
         assert!(
-            guard.contains_key(&hot),
+            guard.map.contains_key(&hot),
             "hot key must survive LRU eviction"
         );
-        assert!(guard.contains_key(&fresh), "newly inserted key must remain");
         assert!(
-            !guard.contains_key(&coldest),
+            guard.map.contains_key(&fresh),
+            "newly inserted key must remain"
+        );
+        assert!(
+            !guard.map.contains_key(&coldest),
             "victim must be the coldest key (LRU), got cache keys: {:?}",
-            guard.keys().collect::<Vec<_>>()
+            guard.map.keys().collect::<Vec<_>>()
         );
         drop(guard);
 
-        cache.lock().unwrap().clear();
+        let mut g = cache.lock().unwrap();
+        g.map.clear();
+        g.victim_heap.clear();
     }
 
     fn manifest_with_members(members: &[&str]) -> CargoToml {

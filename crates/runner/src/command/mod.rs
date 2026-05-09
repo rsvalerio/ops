@@ -378,13 +378,15 @@ impl CommandRunner {
     pub async fn run_exec(
         &self,
         id: &str,
-        spec: &ExecCommandSpec,
+        spec: &std::sync::Arc<ExecCommandSpec>,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> StepResult {
         exec_command(
             id,
             spec,
             &self.workspace_cache,
+            // ↑ PERF-3 / TASK-1125: `&Arc<ExecCommandSpec>` — Arc::clone per
+            // build_command_async dispatch, no spec deep clone per spawn.
             &self.cwd,
             &self.vars,
             self.cwd_escape_policy,

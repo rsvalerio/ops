@@ -29,7 +29,8 @@
 //! eviction policy here MUST also be applied there, or the two caches will
 //! silently drift.
 
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -64,7 +65,49 @@ pub struct CacheEntry {
     last_accessed: u64,
 }
 
-type CacheMap = HashMap<PathBuf, CacheEntry>;
+/// PERF-1 / TASK-1240: pair the canonical entry map with a min-heap of
+/// `(last_accessed, path)` so cap-bound eviction picks the least-recently-
+/// used entry in `O(log n)` (heap pop with lazy invalidation) instead of an
+/// `O(n)` `min_by_key` scan over the whole map. The heap may contain stale
+/// `(tick, path)` pairs (a hit pushes a fresh entry but leaves the older
+/// one in place); the eviction loop discards those by comparing the popped
+/// tick against `map[path].last_accessed` before removing.
+pub struct CacheMap {
+    map: HashMap<PathBuf, CacheEntry>,
+    /// Min-heap of (last_accessed_tick, path). `Reverse` flips `BinaryHeap`'s
+    /// max-heap default into a min-heap.
+    victim_heap: BinaryHeap<Reverse<(u64, PathBuf)>>,
+}
+
+impl CacheMap {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            victim_heap: BinaryHeap::new(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    /// Pop the LRU victim by lazily skipping stale heap entries whose
+    /// `last_accessed` no longer matches the value recorded in `map`.
+    fn evict_lru(&mut self) -> Option<PathBuf> {
+        while let Some(Reverse((tick, path))) = self.victim_heap.pop() {
+            match self.map.get(&path) {
+                Some(entry) if entry.last_accessed == tick => {
+                    self.map.remove(&path);
+                    return Some(path);
+                }
+                // Stale: the entry was bumped on a later access and a fresh
+                // (higher-tick, path) heap entry exists; discard.
+                _ => continue,
+            }
+        }
+        None
+    }
+}
 
 /// Hard cap on cached manifests. Far above the realistic distinct-root
 /// count of a single `ops` invocation, so the cap never trips on the CLI
@@ -99,7 +142,7 @@ impl ArcTextCache {
     /// `manifest_io::read_optional_text` which logs non-NotFound IO errors
     /// at warn).
     pub fn read(&self, root: &Path) -> Option<Arc<str>> {
-        let cache = self.cache.get_or_init(|| Mutex::new(HashMap::new()));
+        let cache = self.cache.get_or_init(|| Mutex::new(CacheMap::new()));
         let path = root.join(self.filename);
         // CONC-1 / TASK-1144: take the outer mutex only long enough to
         // get-or-insert a per-key OnceLock and bump the LRU tick. The
@@ -122,42 +165,52 @@ impl ArcTextCache {
                 );
                 e.into_inner()
             });
-            if let Some(entry) = guard.get_mut(&path) {
+            if let Some(entry) = guard.map.get_mut(&path) {
                 // ARCH-1 / TASK-1106: bump LRU tick on hit so frequently
                 // accessed manifests survive eviction in a daemon visiting
                 // many roots. Mirrors TASK-1023's typed-manifest-cache
                 // LRU policy.
-                entry.last_accessed = next_lru_tick();
-                Arc::clone(&entry.text)
+                //
+                // PERF-1 / TASK-1240: push the fresh tick onto the victim
+                // heap as well; the older `(prev_tick, path)` entry stays
+                // and is discarded as stale during eviction.
+                let tick = next_lru_tick();
+                entry.last_accessed = tick;
+                let arc = Arc::clone(&entry.text);
+                guard.victim_heap.push(Reverse((tick, path.clone())));
+                arc
             } else {
                 // ARCH-1 / TASK-1106: cap-eviction picks the entry with
                 // the smallest `last_accessed` tick (LRU) instead of
                 // clearing the whole map. The previous full-flush caused
                 // eviction storms for long-running hosts. Kept in
                 // lockstep with TASK-1023's `typed_manifest_cache` policy.
+                //
+                // PERF-1 / TASK-1240: O(log n) eviction via a min-heap of
+                // `(last_accessed, path)` with lazy invalidation. The
+                // previous shape walked the entire HashMap on every
+                // cap-bound miss — 1024 probes per evicting read on the
+                // long-running daemon path.
                 if guard.len() >= CACHE_MAX_ENTRIES {
-                    if let Some(victim) = guard
-                        .iter()
-                        .min_by_key(|(_, e)| e.last_accessed)
-                        .map(|(k, _)| k.clone())
-                    {
+                    if let Some(victim) = guard.evict_lru() {
                         tracing::debug!(
                             filename = self.filename,
                             cap = CACHE_MAX_ENTRIES,
                             victim = ?victim.display(),
                             "manifest cache reached cap; evicting LRU entry"
                         );
-                        guard.remove(&victim);
                     }
                 }
                 let slot: Arc<OnceLock<Option<Arc<str>>>> = Arc::new(OnceLock::new());
-                guard.insert(
+                let tick = next_lru_tick();
+                guard.map.insert(
                     path.clone(),
                     CacheEntry {
                         text: Arc::clone(&slot),
-                        last_accessed: next_lru_tick(),
+                        last_accessed: tick,
                     },
                 );
+                guard.victim_heap.push(Reverse((tick, path.clone())));
                 debug_assert!(
                     guard.len() <= CACHE_MAX_ENTRIES,
                     "manifest cache exceeded cap of {CACHE_MAX_ENTRIES}"

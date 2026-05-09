@@ -3,11 +3,11 @@ id: TASK-1243
 title: >-
   PERF-3: create_tables_with allocates two format strings per ingest call for
   static labels
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 13:00'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:19'
 labels:
   - code-review-rust
   - performance
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Move the format! into the map_err closure so the happy path allocates nothing
-- [ ] #2 Apply the same pattern to count_records_with's analogous label
-- [ ] #3 Microbench / dhat-style alloc test pinning zero allocations on success
+- [x] #1 Move the format! into the map_err closure so the happy path allocates nothing
+- [x] #2 Apply the same pattern to count_records_with's analogous label
+- [x] #3 Microbench / dhat-style alloc test pinning zero allocations on success
 <!-- AC:END -->

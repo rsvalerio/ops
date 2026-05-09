@@ -3,11 +3,11 @@ id: TASK-1257
 title: >-
   PERF-3: strip_control_chars allocates a fresh String for every URL even when
   no control bytes are present
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 13:01'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:23'
 labels:
   - code-review-rust
   - performance
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Hot-path returns Cow<str> (or short-circuits the allocation) when no control byte is present
-- [ ] #2 Bench or microtest shows zero String allocation on a clean URL
-- [ ] #3 Regression tests for the strip behaviour stay green
+- [x] #1 Hot-path returns Cow<str> (or short-circuits the allocation) when no control byte is present
+- [x] #2 Bench or microtest shows zero String allocation on a clean URL
+- [x] #3 Regression tests for the strip behaviour stay green
 <!-- AC:END -->

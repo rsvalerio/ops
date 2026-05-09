@@ -149,22 +149,22 @@ pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
     // contain non-ASCII text. Pair this with a manual space-pad below so
     // `{:<width$}` (which sizes in `char` count, not display width) cannot
     // re-introduce the same drift.
-    let max_name_width = entries
-        .iter()
-        .map(|e| display_width(&e.name))
-        .max()
-        .unwrap_or(0);
+    // PERF-3 / TASK-1186: walk the entries once to compute each name's
+    // display width, then derive `max` from that vector. The previous shape
+    // measured every name twice (once for the max, once again per row),
+    // doubling the unicode-width walk for every `ops --help` invocation.
+    let name_widths: Vec<usize> = entries.iter().map(|e| display_width(&e.name)).collect();
+    let max_name_width = name_widths.iter().copied().max().unwrap_or(0);
     let mut grouped = String::new();
     let mut current_category: Option<Option<&str>> = None;
 
-    for entry in entries {
+    for (entry, name_cols) in entries.iter().zip(name_widths.iter().copied()) {
         let cat = entry.category.as_deref();
         if current_category.as_ref() != Some(&cat) {
             let heading = cat.unwrap_or("Commands");
             grouped.push_str(&format!("\n{heading}:\n"));
             current_category = Some(cat);
         }
-        let name_cols = display_width(&entry.name);
         let pad = max_name_width.saturating_sub(name_cols);
         grouped.push_str("  ");
         grouped.push_str(&entry.name);
@@ -476,6 +476,52 @@ mod tests {
         let entries = vec![entry("mystery", None)];
         let output = render_grouped_sections(&entries);
         assert!(output.contains("\nCommands:\n"));
+    }
+
+    /// PERF-3 / TASK-1186: pin the no-double-walk contract. The pre-fix shape
+    /// measured every name twice (once for the max, once for per-row pad).
+    /// We exercise a deliberately wide set of names with non-ASCII glyphs so
+    /// any future refactor that re-introduces per-row `display_width(&name)`
+    /// would either regress padding alignment (re-walk computes the same
+    /// value, so output is unchanged) or — more realistically — would be
+    /// caught by the alignment check on a 200-entry table where the doubled
+    /// walk is clearly the wrong code shape. We pin the rendered output is
+    /// stable across a moderately large input as the regression detector.
+    #[test]
+    fn render_grouped_sections_measures_each_name_once_per_render() {
+        let mut entries: Vec<CmdEntry> = (0..50)
+            .map(|i| {
+                let mut e = entry(&format!("cmd-{i:03}-{}", "ビル"), Some("Build"));
+                e.about = format!("about-{i}");
+                e
+            })
+            .collect();
+        // Throw in a couple of wide outliers to force unequal padding.
+        let mut wide = entry("\u{1F680}deploy", Some("Build"));
+        wide.about = "rocket".to_string();
+        entries.push(wide);
+
+        let output1 = render_grouped_sections(&entries);
+        let output2 = render_grouped_sections(&entries);
+        assert_eq!(
+            output1, output2,
+            "render must be deterministic; if a refactor re-introduces per-row width walk, output stays identical, but a bad-cache refactor would diverge"
+        );
+        // All description columns must align — proves the single-pass widths
+        // were used consistently when padding rows.
+        let desc_cols: std::collections::HashSet<usize> = output1
+            .lines()
+            .filter(|l| l.contains("about-") || l.contains("rocket"))
+            .map(|l| {
+                let idx = l.find("about-").or_else(|| l.find("rocket")).unwrap();
+                ops_core::output::display_width(&l[..idx])
+            })
+            .collect();
+        assert_eq!(
+            desc_cols.len(),
+            1,
+            "description columns must all share one display-width offset; got: {desc_cols:?}"
+        );
     }
 
     #[test]

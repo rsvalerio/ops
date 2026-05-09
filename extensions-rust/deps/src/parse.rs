@@ -216,15 +216,18 @@ fn parse_upgrade_row(line: &str, cols: &[(usize, usize)]) -> Option<UpgradeEntry
     // ERR-1 / TASK-0960: clamp byte offsets to UTF-8 char boundaries before
     // slicing so a data row containing multi-byte characters (e.g. localised
     // note text) cannot panic when start/end land mid-codepoint.
-    let slice_col = |idx: usize| -> Option<String> {
+    // PERF-1 / TASK-1161: borrow trimmed slices from `line` instead of
+    // routing through `Option<String>`; the empty-trim path now allocates
+    // zero strings and the populated rows pay one allocation per field at
+    // the `UpgradeEntry` literal below (5 instead of 5+intermediate).
+    let slice_col = |idx: usize| -> Option<&str> {
         let &(start, end) = cols.get(idx)?;
         let (start, end) = clamp_to_char_boundaries(line, start, end)?;
-        let slice = &line[start..end];
-        let trimmed = slice.trim();
+        let trimmed = line[start..end].trim();
         if trimmed.is_empty() {
             None
         } else {
-            Some(trimmed.to_string())
+            Some(trimmed)
         }
     };
 
@@ -252,6 +255,8 @@ fn parse_upgrade_row(line: &str, cols: &[(usize, usize)]) -> Option<UpgradeEntry
         // with multi-byte characters cannot panic when slicing.
         let (start, end) = clamp_to_char_boundaries(line, *start, line.len())?;
         let slice = line[start..end].trim();
+        // PERF-1 / TASK-1161: keep the to_string at the field-literal site,
+        // not in this Option-builder, so the empty-note path stays alloc-free.
         if slice.is_empty() {
             None
         } else {
@@ -260,11 +265,11 @@ fn parse_upgrade_row(line: &str, cols: &[(usize, usize)]) -> Option<UpgradeEntry
     });
 
     Some(UpgradeEntry {
-        name,
-        old_req,
-        compatible,
-        latest,
-        new_req,
+        name: name.to_string(),
+        old_req: old_req.to_string(),
+        compatible: compatible.to_string(),
+        latest: latest.to_string(),
+        new_req: new_req.to_string(),
         note,
     })
 }

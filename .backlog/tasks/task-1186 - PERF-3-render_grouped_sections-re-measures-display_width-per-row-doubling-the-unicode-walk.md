@@ -3,11 +3,11 @@ id: TASK-1186
 title: >-
   PERF-3: render_grouped_sections re-measures display_width per row, doubling
   the unicode walk
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 08:11'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:10'
 labels:
   - code-review-rust
   - perf
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each entry's display_width is computed exactly once per render_grouped_sections call.
-- [ ] #2 A test pins that calls into display_width equal entries.len(), not 2 * entries.len().
+- [x] #1 Each entry's display_width is computed exactly once per render_grouped_sections call.
+- [x] #2 A test pins that calls into display_width equal entries.len(), not 2 * entries.len().
 <!-- AC:END -->

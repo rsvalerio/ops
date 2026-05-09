@@ -240,15 +240,20 @@ fn log_and_redact_spawn_error(program: &str, e: &std::io::Error, context: &'stat
 /// already at a few hundred lines.
 pub fn emit_output_events(
     id: &str,
-    stdout: &str,
-    stderr: &str,
+    stdout: &Arc<str>,
+    stderr: &Arc<str>,
     emit: &mut impl FnMut(RunnerEvent),
 ) {
-    for (output, is_stderr) in [(stdout, false), (stderr, true)] {
-        if output.is_empty() {
+    // PERF-3 / TASK-1136: callers wrap the captured String into `Arc<str>`
+    // exactly once and pass the handle in. Per-line events Arc::clone the
+    // shared buffer, never re-allocating. The previous signature took
+    // `&str` and re-wrapped on every call, which (in addition to the
+    // already-existing per-stream allocation) discouraged callers from
+    // reusing the same Arc across multiple call sites.
+    for (buf, is_stderr) in [(stdout, false), (stderr, true)] {
+        if buf.is_empty() {
             continue;
         }
-        let buf: std::sync::Arc<str> = std::sync::Arc::from(output);
         let mut start = 0usize;
         let bytes = buf.as_bytes();
         while start < bytes.len() {
@@ -269,7 +274,7 @@ pub fn emit_output_events(
             emit(RunnerEvent::StepOutput {
                 id: id.into(),
                 line: crate::command::OutputLine::slice(
-                    std::sync::Arc::clone(&buf),
+                    std::sync::Arc::clone(buf),
                     start..line_end,
                 ),
                 stderr: is_stderr,
@@ -343,7 +348,7 @@ pub fn build_step_result(id: &str, duration: Duration, output: CommandOutput) ->
 #[allow(clippy::too_many_arguments)]
 pub async fn exec_command(
     id: &str,
-    spec: &ExecCommandSpec,
+    spec: &Arc<ExecCommandSpec>,
     workspace_cache: &Arc<WorkspaceCanonicalCache>,
     cwd: &Arc<PathBuf>,
     vars: &Arc<Variables>,
@@ -359,9 +364,11 @@ pub async fn exec_command(
     // CONC-5 / TASK-0330: build_command performs sync std::fs::canonicalize.
     // Run it on the blocking pool so we don't stall a tokio worker per
     // spawn. The clones below are cheap relative to the process spawn itself.
+    // PERF-3 / TASK-1125: spec is now `Arc<ExecCommandSpec>` end-to-end;
+    // only an atomic refcount bump per spawn, no deep clone of args/env.
     let mut cmd = match build_command_async(
         Arc::clone(workspace_cache),
-        spec.clone(),
+        Arc::clone(spec),
         Arc::clone(cwd),
         Arc::clone(vars),
         policy,
@@ -407,7 +414,22 @@ pub async fn exec_command(
         }
     };
 
-    emit_output_events(id, &output.stdout, &output.stderr, emit);
+    // PERF-3 / TASK-1136: wrap each captured stream into `Arc<str>` exactly
+    // once for the per-line event fan-out. Per-line emission is then a cheap
+    // `Arc::clone` (refcount bump), not a fresh `Arc::from(&str)` per call.
+    // The original `output.stdout`/`output.stderr` `String`s remain owned
+    // and are moved into `StepResult` by `build_step_result` below.
+    let stdout_arc: Arc<str> = if output.stdout.is_empty() {
+        Arc::from("")
+    } else {
+        Arc::from(output.stdout.as_str())
+    };
+    let stderr_arc: Arc<str> = if output.stderr.is_empty() {
+        Arc::from("")
+    } else {
+        Arc::from(output.stderr.as_str())
+    };
+    emit_output_events(id, &stdout_arc, &stderr_arc, emit);
     emit_step_completion(id, duration, &output, display_cmd, emit);
     build_step_result(id, duration, output)
 }
@@ -422,16 +444,17 @@ pub async fn exec_command(
 #[allow(clippy::too_many_arguments)]
 pub async fn exec_command_raw(
     id: &str,
-    spec: &ExecCommandSpec,
+    spec: &Arc<ExecCommandSpec>,
     workspace_cache: &Arc<WorkspaceCanonicalCache>,
     cwd: &Arc<PathBuf>,
     vars: &Arc<Variables>,
     policy: CwdEscapePolicy,
 ) -> StepResult {
     // CONC-5 / TASK-0330: see exec_command above.
+    // PERF-3 / TASK-1125: Arc::clone — no spec deep clone per spawn.
     let mut cmd = match build_command_async(
         Arc::clone(workspace_cache),
-        spec.clone(),
+        Arc::clone(spec),
         Arc::clone(cwd),
         Arc::clone(vars),
         policy,
@@ -561,7 +584,11 @@ async fn forward_terminal_event_or_drop(
 }
 
 /// Standalone exec used by parallel plan: runs one command, sends events via channel, respects abort flag.
-pub async fn exec_standalone(id: CommandId, spec: ExecCommandSpec, ctx: ExecTaskCtx) -> StepResult {
+pub async fn exec_standalone(
+    id: CommandId,
+    spec: Arc<ExecCommandSpec>,
+    ctx: ExecTaskCtx,
+) -> StepResult {
     let ExecTaskCtx {
         cwd,
         vars,
@@ -613,6 +640,7 @@ pub async fn exec_standalone(id: CommandId, spec: ExecCommandSpec, ctx: ExecTask
     // can surface them instead of silently losing the stdout/stderr lines
     // that explain a failure.
     let mut dropped_outputs: u64 = 0;
+    // PERF-3 / TASK-1125: spec passed by &Arc; Arc::clone on the spawn path.
     let result = exec_command(
         &id,
         &spec,

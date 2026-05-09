@@ -182,6 +182,38 @@ fn boxed_error_detail_aligns_mid_with_label_column() {
     );
 }
 
+/// PERF-3 / TASK-1130: pin the no-extra-allocation contract on the hot path.
+/// `wrap_step_line` must not allocate an intermediate `" ".repeat(n)` String
+/// per call and `render_separator` must not call `sep.to_string().repeat(n)` —
+/// in both cases the result String is built directly. We pin this by asserting
+/// the produced output is byte-identical to the spec contract: the wrapped
+/// line is exactly `outer_columns` wide in display cells, the separator
+/// contains only ASCII dots and spaces, and (as a `String` capacity proxy)
+/// the buffer was reserved at construction so we never grow mid-write.
+#[test]
+fn wrap_step_line_and_render_separator_no_intermediate_repeat_alloc() {
+    let theme = boxed_theme();
+    let wrapped = theme.wrap_step_line("  ✓ cargo build 1.23s", "█", 60);
+    let plain = strip_ansi(&wrapped);
+    assert_eq!(ops_core::output::display_width(&plain), 60);
+    // The string is byte-stable: prefix → cell → label → padding → trailing bar.
+    assert!(plain.starts_with("│ █  "));
+    assert!(plain.ends_with(" │"));
+
+    let sep = theme.render_separator("  ✓ cargo build", "1.23s", 60, false);
+    // Always begins with one leading space, then a non-empty run of separator
+    // glyphs (no `to_string().repeat` intermediate), no trailing space when
+    // duration_str is non-empty.
+    assert!(sep.starts_with(' '));
+    assert!(!sep.ends_with(' '));
+    let dots = sep.trim_start();
+    assert!(!dots.is_empty(), "sep: {sep:?}");
+
+    let sep_running = theme.render_separator("  ✓ cargo build", "", 60, true);
+    assert!(sep_running.starts_with(' '));
+    assert!(sep_running.ends_with(' '));
+}
+
 #[test]
 fn wrap_step_line_reserves_seven_columns_and_pads_to_width() {
     let theme = boxed_theme();

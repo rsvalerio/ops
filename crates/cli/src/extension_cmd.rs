@@ -125,6 +125,22 @@ fn write_extension_table(
 /// extensions). Falls back to a one-shot `register_commands` only when an
 /// extension does not expose a static list, preserving the previous
 /// behaviour for legacy extensions.
+/// PERF-1 / TASK-1142: dedupe self-shadow warnings to a single emission per
+/// `(extension, command)` pair per CLI invocation.
+///
+/// Both the table render path (`run_extension_list`) and the per-extension
+/// detail path (`print_extension_details`) call `extension_summary`, and a
+/// future call site would compound the duplication. Track the pairs that
+/// already warned in this process so the diagnostic remains a single audit
+/// signal instead of a noisy stream.
+fn warned_self_shadow_set() -> &'static std::sync::Mutex<std::collections::HashSet<(String, String)>>
+{
+    static WARNED: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashSet<(String, String)>>,
+    > = std::sync::OnceLock::new();
+    WARNED.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
 fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<String>) {
     let info = ext.info();
     let mut types = Vec::new();
@@ -144,12 +160,20 @@ fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<St
         // runner-wiring path (`register_extension_commands`) emits a WARN.
         // Mirror that warning here so operators reading `ops extension show`
         // see the same diagnostic.
+        //
+        // PERF-1 / TASK-1142: emit at most once per (extension, command)
+        // pair per CLI invocation — both list and show handlers route
+        // through here and a future call site would compound the warns.
         for dup in cmd_registry.take_duplicate_inserts() {
-            tracing::warn!(
-                command = %dup,
-                extension = ext.name(),
-                "extension registered the same command id more than once; the later registration shadows the earlier within this extension"
-            );
+            let key = (ext.name().to_string(), dup.to_string());
+            let mut warned = warned_self_shadow_set().lock().unwrap();
+            if warned.insert(key) {
+                tracing::warn!(
+                    command = %dup,
+                    extension = ext.name(),
+                    "extension registered the same command id more than once; the later registration shadows the earlier within this extension"
+                );
+            }
         }
         cmd_registry.keys().map(|s| s.to_string()).collect()
     } else {
@@ -575,6 +599,78 @@ enabled = []
         assert!(
             captured.contains("double_register_summary") && captured.contains("lint"),
             "self-shadow warning must name extension and command id, got: {captured}"
+        );
+    }
+
+    /// PERF-1 / TASK-1142: emit at most one self-shadow WARN per
+    /// `(extension, command)` pair per CLI invocation. Both list and show
+    /// handlers fan through `extension_summary`; a follow-up call site
+    /// would compound the warns. The dedupe set survives across calls in
+    /// the same process, mirroring a single CLI run.
+    #[test]
+    fn extension_summary_warn_is_dedup_per_cli_invocation() {
+        use ops_core::config::{CommandSpec, ExecCommandSpec};
+        use ops_extension::{CommandRegistry, Extension};
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        struct DupExt;
+        impl Extension for DupExt {
+            fn name(&self) -> &'static str {
+                "dedupe_warn_ext"
+            }
+            fn register_commands(&self, registry: &mut CommandRegistry) {
+                registry.insert(
+                    "lint".into(),
+                    CommandSpec::Exec(ExecCommandSpec::new("first", Vec::<String>::new())),
+                );
+                registry.insert(
+                    "lint".into(),
+                    CommandSpec::Exec(ExecCommandSpec::new("second", Vec::<String>::new())),
+                );
+            }
+        }
+
+        #[derive(Clone, Default)]
+        struct BufWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for BufWriter {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for BufWriter {
+            type Writer = BufWriter;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let ext = DupExt;
+        tracing::subscriber::with_default(subscriber, || {
+            // Mirror `extension list` then `extension show` calling on the
+            // same compiled extension within one process.
+            let _ = extension_summary(&ext);
+            let _ = extension_summary(&ext);
+            let _ = extension_summary(&ext);
+        });
+
+        let captured = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        let warn_count = captured.matches("dedupe_warn_ext").count();
+        assert_eq!(
+            warn_count, 1,
+            "self-shadow warning must be emitted exactly once per CLI invocation, got {warn_count} in: {captured}"
         );
     }
 

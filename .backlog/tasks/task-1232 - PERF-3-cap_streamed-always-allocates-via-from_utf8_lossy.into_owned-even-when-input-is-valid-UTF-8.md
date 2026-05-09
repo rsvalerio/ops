@@ -3,11 +3,11 @@ id: TASK-1232
 title: >-
   PERF-3: cap_streamed always allocates via from_utf8_lossy().into_owned() even
   when input is valid UTF-8
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 12:58'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:14'
 labels:
   - code-review-rust
   - performance
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Try String::from_utf8 first and fall back to lossy on InvalidUtf8
-- [ ] #2 Confirm parity for invalid bytes (U+FFFD substitution preserved)
-- [ ] #3 Bench or comment pinning the saved alloc on the parallel path
+- [x] #1 Try String::from_utf8 first and fall back to lossy on InvalidUtf8
+- [x] #2 Confirm parity for invalid bytes (U+FFFD substitution preserved)
+- [x] #3 Bench or comment pinning the saved alloc on the parallel path
 <!-- AC:END -->

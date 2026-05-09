@@ -19,6 +19,9 @@ impl CommandRunner {
     ) -> (StepResult, bool) {
         match self.resolve_exec_leaf(id) {
             Ok(e) => {
+                // PERF-3 / TASK-1125: wrap once at the boundary; downstream
+                // build_command_async dispatch is then Arc::clone, not deep clone.
+                let e = std::sync::Arc::new(e);
                 let r = self.run_exec(id, &e, on_event).await;
                 let should_stop = !r.success;
                 (r, should_stop)
@@ -79,6 +82,9 @@ impl CommandRunner {
                     continue;
                 }
             };
+            // PERF-3 / TASK-1125: wrap once at the boundary; build_command_async
+            // dispatch is then Arc::clone, not deep clone of args/env.
+            let spec = std::sync::Arc::new(spec);
             let result = exec_command_raw(
                 id.as_str(),
                 &spec,

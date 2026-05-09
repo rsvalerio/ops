@@ -3,11 +3,11 @@ id: TASK-1180
 title: >-
   PERF-3: list_command_ids allocates Vec<&str>, sorts, dedups, then re-allocates
   Vec<CommandId>
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 08:09'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:09'
 labels:
   - code-review-rust
   - perf
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One pass collects sorted, deduped CommandId values without an intermediate Vec<&str>.
-- [ ] #2 Output ordering / dedup behaviour unchanged.
+- [x] #1 One pass collects sorted, deduped CommandId values without an intermediate Vec<&str>.
+- [x] #2 Output ordering / dedup behaviour unchanged.
 <!-- AC:END -->

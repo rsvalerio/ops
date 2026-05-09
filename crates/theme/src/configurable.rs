@@ -265,14 +265,23 @@ impl ConfigurableTheme {
         let inner_budget = outer.saturating_sub(frame_overhead);
         let inner_visible = visible_width(inner);
         let right_pad = inner_budget.saturating_sub(inner_visible);
-        let spaces = " ".repeat(right_pad);
-        format!(
-            "{pad}│ {cell}  {inner}{spaces} │",
-            pad = pad,
-            cell = progress_cell,
-            inner = inner,
-            spaces = spaces,
-        )
+        // PERF-3 / TASK-1130: push directly into the result buffer instead of
+        // allocating an intermediate `" ".repeat(right_pad)` String per step.
+        let mut out = String::with_capacity(
+            pad.len() + inner.len() + right_pad + "│   │".len() + progress_cell.len() + 2,
+        );
+        out.push_str(pad);
+        out.push('│');
+        out.push(' ');
+        out.push_str(progress_cell);
+        out.push_str("  ");
+        out.push_str(inner);
+        for _ in 0..right_pad {
+            out.push(' ');
+        }
+        out.push(' ');
+        out.push('│');
+        out
     }
 
     /// DUP-5 / TASK-0354: shared layout for the left portion of a step line.
@@ -336,13 +345,21 @@ impl ConfigurableTheme {
         let sep_count = space_for_sep.max(MIN_SEP_GLYPHS);
         let sep = self.separator_char();
 
-        if duration_str.is_empty() {
-            let dots = sep.to_string().repeat(sep_count.saturating_sub(1));
-            format!(" {}{}", dots, ' ')
-        } else {
-            let dots = sep.to_string().repeat(sep_count.saturating_sub(1));
-            format!(" {}", dots)
+        // PERF-3 / TASK-1130: build the leading-space + repeated-sep + optional
+        // trailing-space directly into a single String, avoiding the intermediate
+        // `sep.to_string().repeat(n)` allocation per step render.
+        let dots_count = sep_count.saturating_sub(1);
+        let trailing_space = duration_str.is_empty();
+        let sep_len = sep.len_utf8();
+        let mut out = String::with_capacity(1 + dots_count * sep_len + usize::from(trailing_space));
+        out.push(' ');
+        for _ in 0..dots_count {
+            out.push(sep);
         }
+        if trailing_space {
+            out.push(' ');
+        }
+        out
     }
 
     // TASK-0747: render uses precomputed SGR prefixes instead of re-parsing

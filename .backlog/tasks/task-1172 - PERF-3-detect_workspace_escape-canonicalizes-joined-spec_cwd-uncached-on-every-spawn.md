@@ -3,11 +3,11 @@ id: TASK-1172
 title: >-
   PERF-3: detect_workspace_escape canonicalizes joined spec_cwd uncached on
   every spawn
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 08:06'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:08'
 labels:
   - code-review-rust
   - perf
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The joined-path canonicalize result is reused across spawns that share the same joined path within a runner (or a documented short TTL), via the same cache type.
-- [ ] #2 Symlink-swap regression continues to be detected after invalidation (mirror of TASK-1063 AC #3).
+- [x] #1 The joined-path canonicalize result is reused across spawns that share the same joined path within a runner (or a documented short TTL), via the same cache type.
+- [x] #2 Symlink-swap regression continues to be detected after invalidation (mirror of TASK-1063 AC #3).
 <!-- AC:END -->

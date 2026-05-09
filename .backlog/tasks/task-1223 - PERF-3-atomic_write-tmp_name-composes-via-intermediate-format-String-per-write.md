@@ -3,11 +3,11 @@ id: TASK-1223
 title: >-
   PERF-3: atomic_write tmp_name composes via intermediate format!() String per
   write
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 12:57'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:13'
 labels:
   - code-review-rust
   - performance
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Push pid/counter/nanos as separate appends via itoa or write! to a reused buffer
-- [ ] #2 End-state OsString unchanged
-- [ ] #3 Existing crash-safety / tmp-name uniqueness tests pass
+- [x] #1 Push pid/counter/nanos as separate appends via itoa or write! to a reused buffer
+- [x] #2 End-state OsString unchanged
+- [x] #3 Existing crash-safety / tmp-name uniqueness tests pass
 <!-- AC:END -->

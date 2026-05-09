@@ -125,10 +125,18 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     // an invalid OsStr encoding.
     let stem = unsafe { OsStr::from_encoded_bytes_unchecked(stem_bytes) };
 
-    let mut tmp_name = OsString::with_capacity(name_bytes.len() + 48);
+    // PERF-3 / TASK-1223: build the suffix in a single reusable `String`
+    // (which the `OsString::push` then borrows as a UTF-8 slice) instead
+    // of `format!()` allocating a fresh `String` per atomic write. One
+    // allocation for the suffix, one for the OsString — down from two
+    // independent allocations every time a `.ops.toml` is edited.
+    let mut suffix = String::with_capacity(48);
+    use std::fmt::Write as _;
+    let _ = write!(suffix, ".tmp.{pid}.{counter}.{nanos}");
+    let mut tmp_name = OsString::with_capacity(name_bytes.len() + suffix.len() + 1);
     tmp_name.push(".");
     tmp_name.push(stem);
-    tmp_name.push(format!(".tmp.{pid}.{counter}.{nanos}"));
+    tmp_name.push(&suffix);
     let tmp = parent.join(tmp_name);
 
     // SEC-25 / TASK-0898: preserve restrictive permissions across

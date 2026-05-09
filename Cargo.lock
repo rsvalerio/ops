@@ -2166,6 +2166,7 @@ dependencies = [
  "ops-extension",
  "ops-git",
  "ops-tools",
+ "serde",
  "serde_json",
  "serial_test",
  "tempfile",

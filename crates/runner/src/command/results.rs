@@ -236,7 +236,16 @@ fn cap_streamed(mut head: Vec<u8>, dropped_after: u64, cap: usize) -> String {
         head.truncate(cap);
     }
     let total_dropped = (from_head_overflow as u64).saturating_add(dropped_after);
-    let mut out = String::from_utf8_lossy(&head).into_owned();
+    // PERF-3 / TASK-1232: try the in-place `String::from_utf8` fast path
+    // first (the common case for cargo / rustc / shell-script stdout), so a
+    // 4 MiB capture transmutes the existing `Vec<u8>` into a `String`
+    // without the lossy-then-copy round trip. Only fall back to the lossy
+    // path when bytes are not valid UTF-8, in which case U+FFFD
+    // substitution is preserved exactly as before.
+    let mut out = match String::from_utf8(head) {
+        Ok(s) => s,
+        Err(e) => String::from_utf8_lossy(&e.into_bytes()).into_owned(),
+    };
     if total_dropped == 0 {
         return out;
     }

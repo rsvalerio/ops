@@ -3,11 +3,11 @@ id: TASK-1240
 title: >-
   PERF-1: ArcTextCache LRU victim selection scans the entire HashMap on every
   cap-bound miss
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 12:59'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:19'
 labels:
   - code-review-rust
   - performance
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace the linear min_by_key scan with an O(log n) / O(1) eviction queue
-- [ ] #2 Apply the same change to typed_manifest_cache per the existing lockstep contract
-- [ ] #3 Microbench / alloc-counter test pinning sub-linear eviction cost
+- [x] #1 Replace the linear min_by_key scan with an O(log n) / O(1) eviction queue
+- [x] #2 Apply the same change to typed_manifest_cache per the existing lockstep contract
+- [x] #3 Microbench / alloc-counter test pinning sub-linear eviction cost
 <!-- AC:END -->

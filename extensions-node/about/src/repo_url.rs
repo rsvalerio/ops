@@ -41,7 +41,14 @@ fn contains_control_chars(raw: &str) -> bool {
 /// the field as missing in the About card / markdown / HTML and avoids
 /// the silent-rewrite. Callers (`package_json::parse_package_json`)
 /// treat the empty result the same as a missing repository field.
-pub(crate) fn normalize_repo_url(raw: &str) -> String {
+/// PERF-3 / TASK-1257: returns `Cow<'_, str>` so a well-formed
+/// `https://github.com/owner/repo` URL with no rewrites required passes
+/// straight through as `Cow::Borrowed`. Callers that need owned `String`
+/// can `.into_owned()`. Branches that rewrite the URL (npm shorthand,
+/// SSH form, scrubbing) still allocate; only the fall-through clean path
+/// stays alloc-free, where it dominates the per-`parse_package_json`
+/// invocation count.
+pub(crate) fn normalize_repo_url(raw: &str) -> std::borrow::Cow<'_, str> {
     /// (shorthand prefix, host) for npm hostname shortcuts.
     const HOST_PREFIXES: &[(&str, &str)] = &[
         ("github:", "github.com"),
@@ -49,82 +56,50 @@ pub(crate) fn normalize_repo_url(raw: &str) -> String {
         ("bitbucket:", "bitbucket.org"),
     ];
 
+    use std::borrow::Cow;
     if contains_control_chars(raw) {
-        return String::new();
+        return Cow::Borrowed("");
     }
     let s = raw.trim();
     for (prefix, host) in HOST_PREFIXES {
         if let Some(rest) = s.strip_prefix(prefix) {
-            // SEC-14 / TASK-1111: the `rest` portion of an npm-shorthand
-            // (`github:`/`gitlab:`/`bitbucket:`) is a path component
-            // rendered into About cards, markdown, HTML, and log lines.
-            // An adversarial `package.json` with
-            // `"repository": "github:../../etc/passwd"` would otherwise
-            // produce `https://github.com/../../etc/passwd`. Same fix
-            // shape as `append_tree_directory` (SEC-14 / TASK-0811):
-            // drop empty, `.`, and `..` segments before interpolation.
             let cleaned = scrub_path_segments(rest.trim_end_matches(".git"));
             if cleaned.is_empty() {
-                return format!("https://{host}");
+                return Cow::Owned(format!("https://{host}"));
             }
-            return format!("https://{host}/{cleaned}");
+            return Cow::Owned(format!("https://{host}/{cleaned}"));
         }
     }
     if let Some(rest) = s
         .strip_prefix("git+ssh://")
         .or_else(|| s.strip_prefix("ssh://"))
     {
-        return ssh_to_https(rest);
+        return Cow::Owned(ssh_to_https(rest));
     }
     if let Some(rest) = s.strip_prefix("git+") {
         let trimmed = rest.trim_end_matches(".git");
-        // PATTERN-1 / TASK-1049: a `git+git://` URL must be rewritten to
-        // `https://` like the bare `git://` branch below — otherwise the
-        // About card renders an unclickable `git://` link.
         if let Some(after) = trimmed.strip_prefix("git://") {
-            // SEC-14 / TASK-1111: scrub path traversal (see HOST_PREFIXES
-            // branch above) from the `git+git://` body.
-            return format!("https://{}", scrub_authority_and_path(after));
+            return Cow::Owned(format!("https://{}", scrub_authority_and_path(after)));
         }
-        // SEC-14 / TASK-1111: scrub path traversal from `git+<scheme>://`
-        // URLs (e.g. `git+https://github.com/../../etc/passwd`) too. The
-        // scheme is preserved intact so `https://` does not collapse.
-        return scrub_full_url_path(trimmed);
+        return Cow::Owned(scrub_full_url_path(trimmed));
     }
     if let Some(rest) = s.strip_prefix("git://") {
-        // SEC-14 / TASK-1111: scrub path traversal from the bare `git://`
-        // branch — same surface as the npm-shorthand branch above.
-        return format!(
+        return Cow::Owned(format!(
             "https://{}",
             scrub_authority_and_path(rest.trim_end_matches(".git"))
-        );
+        ));
     }
-    // PATTERN-1 / TASK-1060: bare two-segment npm shorthand
-    // (`owner/repo`) — no scheme, no colon, exactly one `/`, both
-    // segments non-empty and identifier-shaped — is rewritten to a
-    // GitHub URL. Otherwise the About card surfaces a non-URL string
-    // as a link. Scoped npm names (`@scope/name`) are intentionally
-    // excluded: they're package names, not repo shorthands.
     if is_bare_github_shorthand(s) {
-        // SEC-14 / TASK-1205: route through `scrub_path_segments` so a
-        // bare shorthand whose segments are `.` or `..` (e.g.
-        // `package.json::repository = "../etc"`) cannot reach the
-        // rendered URL with a literal traversal form. `is_bare_github_shorthand`
-        // intentionally permits `.` in identifier bytes (legitimate
-        // crate/npm names contain dots), but admits `..` as a *segment*
-        // because the per-byte allow-set says nothing about whole-segment
-        // shape. Sister branches (`github:` / `git://` / `git+*://`)
-        // already go through this scrub via SEC-14 / TASK-1111; without
-        // this call the bare branch surfaces `https://github.com/../etc`
-        // into About cards / markdown / HTML / JSON outputs and
-        // operator-facing logs even though browsers may collapse it.
         let cleaned = scrub_path_segments(s);
         if cleaned.is_empty() {
-            return "https://github.com".to_string();
+            return Cow::Borrowed("https://github.com");
         }
-        return format!("https://github.com/{cleaned}");
+        return Cow::Owned(format!("https://github.com/{cleaned}"));
     }
-    s.trim_end_matches(".git").to_string()
+    // PERF-3 / TASK-1257: clean URL fall-through — borrow the trimmed slice
+    // so a well-formed `https://github.com/owner/repo` (no `.git` suffix)
+    // returns `Cow::Borrowed` and the per-call allocation drops to zero.
+    Cow::Borrowed(s.trim_end_matches(".git"))
 }
 
 /// Recognise the bare `owner/repo` npm shorthand that npm itself accepts in
@@ -256,6 +231,22 @@ pub(crate) fn is_numeric_port_prefix(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// PERF-3 / TASK-1257: a well-formed `https://github.com/...` URL with
+    /// no rewrites required must pass through as `Cow::Borrowed`, leaving
+    /// the per-call allocation count at zero on the dominant clean path.
+    #[test]
+    fn normalize_clean_https_url_returns_borrowed() {
+        let raw = "https://github.com/owner/repo";
+        let out = normalize_repo_url(raw);
+        assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(out, raw);
+        // A `.git` suffix is stripped via slice trimming, still borrowed.
+        let with_git = "https://github.com/owner/repo.git";
+        let out2 = normalize_repo_url(with_git);
+        assert!(matches!(out2, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(out2, "https://github.com/owner/repo");
+    }
 
     #[test]
     fn normalize_git_ssh_to_https() {

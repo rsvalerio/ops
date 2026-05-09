@@ -3,11 +3,11 @@ id: TASK-1142
 title: >-
   PERF-1: extension_summary may double-emit duplicate-insert warnings across
   list/show paths
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 07:41'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:04'
 labels:
   - code-review-rust
   - PERF
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cache extension_summary result for the duration of a CLI invocation, or have print_extension_details pass through a precomputed summary
-- [ ] #2 Add a test that asserts a single warn per self-shadow per CLI invocation
+- [x] #1 Cache extension_summary result for the duration of a CLI invocation, or have print_extension_details pass through a precomputed summary
+- [x] #2 Add a test that asserts a single warn per self-shadow per CLI invocation
 <!-- AC:END -->

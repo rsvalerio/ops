@@ -5,7 +5,7 @@ use crate::command::exec::exec_command_raw;
 
 #[tokio::test]
 async fn exec_command_raw_returns_success_for_true() {
-    let spec = true_cmd();
+    let spec = Arc::new(true_cmd());
     let cwd = Arc::new(std::env::current_dir().unwrap());
     let vars = Arc::new(test_vars());
     let cache = Arc::new(WorkspaceCanonicalCache::new());
@@ -26,7 +26,7 @@ async fn exec_command_raw_returns_success_for_true() {
 
 #[tokio::test]
 async fn exec_command_raw_returns_failure_for_false() {
-    let spec = false_cmd();
+    let spec = Arc::new(false_cmd());
     let cwd = Arc::new(std::env::current_dir().unwrap());
     let vars = Arc::new(test_vars());
     let cache = Arc::new(WorkspaceCanonicalCache::new());

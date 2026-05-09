@@ -63,11 +63,14 @@ impl DataProvider for RustUnitsProvider {
             ),
         };
 
-        let mut sorted_members: Vec<&str> = members.iter().map(String::as_str).collect();
-        sorted_members.sort_unstable();
-
-        let units: Vec<ProjectUnit> = sorted_members
-            .into_iter()
+        // PERF-3 / TASK-1251: `resolved_members` already returns a sorted +
+        // deduplicated list (TASK-0794 + TASK-1042); the previous extra
+        // `Vec<&str>` collect + `sort_unstable()` pass was wasted work. Sister
+        // providers (`coverage_provider`, `identity`) consume `resolved_members`
+        // directly without re-sorting because the contract guarantees order.
+        let units: Vec<ProjectUnit> = members
+            .iter()
+            .map(String::as_str)
             .filter(|member| {
                 // SEC-14 / TASK-1246 AC #1: defence-in-depth — even though
                 // `resolved_workspace_members` already filters absolute /
@@ -321,6 +324,52 @@ mod tests {
             arr.is_empty(),
             "absolute and `..` members must produce zero units, got: {arr:?}"
         );
+    }
+
+    /// PERF-3 / TASK-1251: with the redundant `Vec<&str>` collect +
+    /// `sort_unstable` removed, traversal order on subsequent `provide()`
+    /// calls must match the ordering invariant declared on
+    /// `LoadedManifest::resolved_members`. Pin the sorted-stable order so a
+    /// future regression that re-introduces a sort (or a refactor that
+    /// changes `resolved_workspace_members` order) is caught here.
+    #[test]
+    #[serial_test::serial(typed_manifest_cache)]
+    fn rust_units_provider_traversal_order_is_stable_across_provides() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for name in ["zeta", "alpha", "mu", "beta"] {
+            let crate_dir = root.join(format!("crates/{name}"));
+            std::fs::create_dir_all(&crate_dir).unwrap();
+            std::fs::write(
+                crate_dir.join("Cargo.toml"),
+                format!("[package]\nname=\"{name}\"\nversion=\"0.1.0\"\n"),
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .unwrap();
+
+        let mut ctx = ops_extension::Context::test_context(root.to_path_buf());
+        let v1 = RustUnitsProvider.provide(&mut ctx).expect("provide1");
+        let v2 = RustUnitsProvider.provide(&mut ctx).expect("provide2");
+
+        let names = |v: &serde_json::Value| -> Vec<String> {
+            v.as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|u| u.get("path").and_then(|p| p.as_str()).map(String::from))
+                .collect()
+        };
+        let order1 = names(&v1);
+        let order2 = names(&v2);
+        assert_eq!(order1, order2, "traversal order must be stable");
+        // Sorted order matches the documented invariant.
+        let mut sorted = order1.clone();
+        sorted.sort();
+        assert_eq!(order1, sorted, "must traverse in sorted order");
     }
 
     #[test]

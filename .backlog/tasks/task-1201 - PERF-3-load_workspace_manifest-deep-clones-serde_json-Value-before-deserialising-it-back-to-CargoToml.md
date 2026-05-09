@@ -3,11 +3,11 @@ id: TASK-1201
 title: >-
   PERF-3: load_workspace_manifest deep-clones serde_json Value before
   deserialising it back to CargoToml
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 08:16'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:12'
 labels:
   - code-review-rust
   - perf
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 load_workspace_manifest no longer calls (**cached).clone(); it either deserialises through Value::deserialize against a borrowed reference, or the JSON bridge is removed and the typed value is cached directly.
-- [ ] #2 Existing tests for Arc::ptr_eq / refresh / cross-thread sharing continue to pass.
+- [x] #1 load_workspace_manifest no longer calls (**cached).clone(); it either deserialises through Value::deserialize against a borrowed reference, or the JSON bridge is removed and the typed value is cached directly.
+- [x] #2 Existing tests for Arc::ptr_eq / refresh / cross-thread sharing continue to pass.
 <!-- AC:END -->

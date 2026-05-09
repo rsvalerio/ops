@@ -86,15 +86,24 @@ impl WorkspaceCanonicalCache {
         Self::with_capacity(WORKSPACE_CANONICAL_CACHE_CAP)
     }
 
-    /// Forget the cached canonicalization for `workspace` so the next call
-    /// re-runs `canonicalize`. Used by hosts that observe an on-disk swap
-    /// (and by the symlink-swap regression test for AC #3).
+    /// Forget the cached canonicalization for `workspace` and any joined-path
+    /// descendants so the next call re-runs `canonicalize`. Used by hosts that
+    /// observe an on-disk swap (and by the symlink-swap regression test for
+    /// AC #3).
+    ///
+    /// PERF-3 / TASK-1172: `detect_workspace_escape` now caches joined-path
+    /// canonicalizations in this same cache, keyed by the (uncanonicalised)
+    /// joined path. A workspace symlink swap therefore invalidates not just
+    /// the workspace entry but every joined-path entry underneath it; we
+    /// drop both shapes in one pass so callers retain a single invalidate
+    /// API.
     pub(crate) fn invalidate(&self, workspace: &Path) {
         let mut guard = self
             .inner
             .lock()
             .unwrap_or_else(|e| recover_workspace_cache(e));
         guard.remove(workspace);
+        guard.retain(|k, _| !k.starts_with(workspace));
     }
 
     /// Drop every cached entry. Useful for tests and for embedders that
@@ -346,8 +355,16 @@ pub(crate) fn detect_workspace_escape(
     workspace: &std::path::Path,
 ) -> EscapeKind {
     let lexically_escapes = !normalize_path(joined).starts_with(workspace);
+    // PERF-3 / TASK-1172: route the joined-path canonicalize through the
+    // same `WorkspaceCanonicalCache` as the workspace side, so a composite
+    // that fans the same `cwd = "sub"` over many parallel spawns pays one
+    // canonicalize per distinct joined path instead of one per spawn. The
+    // existing `invalidate(path)` API removes whatever entry sits at that
+    // key, so a SEC-25 symlink-swap recovery can invalidate either the
+    // workspace or the joined path and continue to detect the escape on
+    // the next call (mirror of TASK-1063 AC #3 for the workspace side).
     let canonically_escapes = match (
-        std::fs::canonicalize(joined).ok(),
+        canonical_workspace_cached(cache, joined),
         canonical_workspace_cached(cache, workspace),
     ) {
         (Some(a), Some(b)) => !a.starts_with(&b),
@@ -502,11 +519,16 @@ pub fn build_command(
 /// clone. The previous signature took `Variables`/`PathBuf` by value,
 /// which silently re-allocated the inner `HashMap` per spawn and mixed
 /// `Arc` indirection at the call site with per-call deep clones — the
-/// worst of both. `spec` is still moved by value because each task
-/// already owns a distinct `ExecCommandSpec` it consumes.
+/// worst of both.
+///
+/// PERF-3 / TASK-1125: `spec` is now `Arc<ExecCommandSpec>` so callers
+/// (notably the parallel spawn path) only pay an `Arc::clone` per spawn
+/// instead of a deep clone of `args: Vec<String>` / `env: IndexMap` /
+/// `cwd: Option<PathBuf>` / `program: String`. End-to-end Arc-only
+/// inputs match the trace claim emitted below.
 pub async fn build_command_async(
     cache: std::sync::Arc<WorkspaceCanonicalCache>,
-    spec: ExecCommandSpec,
+    spec: std::sync::Arc<ExecCommandSpec>,
     cwd: std::sync::Arc<std::path::PathBuf>,
     vars: std::sync::Arc<Variables>,
     policy: CwdEscapePolicy,
@@ -547,7 +569,7 @@ pub async fn build_command_async(
     // only happen if the runtime is shutting down, in which case
     // returning Err is no worse than a hard panic.
     match tokio::task::spawn_blocking(move || {
-        build_command_with(&cache, &spec, cwd.as_ref(), vars.as_ref(), policy)
+        build_command_with(&cache, spec.as_ref(), cwd.as_ref(), vars.as_ref(), policy)
     })
     .await
     {
@@ -644,8 +666,11 @@ mod tests {
             let vars_arc = std::sync::Arc::new(vars.clone());
             let cache_arc = std::sync::Arc::clone(test_default_workspace_cache());
             for _ in 0..5 {
-                let spec =
-                    exec_spec_with_cwd("echo", &["x"], Some(std::path::PathBuf::from("sub")));
+                let spec = std::sync::Arc::new(exec_spec_with_cwd(
+                    "echo",
+                    &["x"],
+                    Some(std::path::PathBuf::from("sub")),
+                ));
                 let _cmd = build_command_async(
                     std::sync::Arc::clone(&cache_arc),
                     spec,
@@ -673,7 +698,7 @@ mod tests {
     async fn build_command_async_preserves_program_name() {
         let tmp = tempfile::tempdir().unwrap();
         let vars = Variables::from_env(tmp.path());
-        let spec = exec_spec("echo", &["hello"]);
+        let spec = std::sync::Arc::new(exec_spec("echo", &["hello"]));
         // API-2 / TASK-0659: hold the Arcs locally so strong_count > 1
         // when the call clones them, satisfying the Arc-only debug_assert.
         let cwd_arc = std::sync::Arc::new(tmp.path().to_path_buf());
@@ -1175,22 +1200,30 @@ mod tests {
             EscapeKind::Inside
         );
 
-        // Swap the workspace symlink to target_b. Without invalidate, the
-        // cached canonical workspace is still canonical_a, so a path that
-        // *now* resolves under canonical_b is judged to escape.
+        // PERF-3 / TASK-1172: with joined-path canonicalize results also
+        // cached under the same key shape, a fresh `inside2` path issued
+        // *after* the symlink swap will canonicalize against the *stale*
+        // workspace canonical (target_a), producing an Escapes
+        // mis-classification — that's the AC-mandated equivalent of the
+        // original "cache stale until invalidate" symptom.
+        std::fs::create_dir(canonical_a.join("inside2")).unwrap();
+        std::fs::create_dir(canonical_b.join("inside2")).unwrap();
         std::fs::remove_file(&workspace).unwrap();
         std::os::unix::fs::symlink(&canonical_b, &workspace).unwrap();
+        let inside2 = workspace.join("inside2");
         assert_eq!(
-            detect_workspace_escape(&cache, &inside, &workspace),
+            detect_workspace_escape(&cache, &inside2, &workspace),
             EscapeKind::Escapes,
-            "stale cache must mis-classify the post-swap path until invalidate"
+            "stale workspace cache must mis-classify a freshly-issued path until invalidate"
         );
 
-        // After invalidate, the spawn path observes the new canonical and
-        // classifies the path as inside again.
+        // After invalidate, the spawn path observes the new canonical for
+        // both the workspace and the joined-path entries underneath it
+        // (TASK-1172 invalidate clears descendants too) and classifies as
+        // inside again.
         cache.invalidate(&workspace);
         assert_eq!(
-            detect_workspace_escape(&cache, &inside, &workspace),
+            detect_workspace_escape(&cache, &inside2, &workspace),
             EscapeKind::Inside,
             "invalidate must let the spawn path re-canonicalize and reclassify"
         );

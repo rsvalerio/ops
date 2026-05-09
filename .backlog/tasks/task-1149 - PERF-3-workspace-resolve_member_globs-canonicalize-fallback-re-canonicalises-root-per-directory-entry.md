@@ -3,11 +3,11 @@ id: TASK-1149
 title: >-
   PERF-3: workspace::resolve_member_globs canonicalize fallback re-canonicalises
   root per directory entry
-status: To Do
+status: Done
 assignee:
   - TASK-1263
 created_date: '2026-05-08 07:43'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 11:05'
 labels:
   - code-review-rust
   - PERF
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Lazily canonicalize root once on first miss and cache the OnceCell across the loop
-- [ ] #2 Add a test mounting a 200-entry symlinked-root tree and asserting canonicalize is called at most twice
+- [x] #1 Lazily canonicalize root once on first miss and cache the OnceCell across the loop
+- [x] #2 Add a test mounting a 200-entry symlinked-root tree and asserting canonicalize is called at most twice
 <!-- AC:END -->

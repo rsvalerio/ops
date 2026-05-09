@@ -212,6 +212,11 @@ impl SidecarIngestorConfig {
         create_sql: &str,
         view_sql: &str,
     ) -> DbResult<()> {
+        // PERF-3 / TASK-1243: keep the `format!` inside the `map_err` closure
+        // so the success path (the dominant case on every ingest) allocates
+        // zero strings for the error label. The pre-fix shape allocated two
+        // `String`s per call (one per SQL execute) for labels that the
+        // success path immediately dropped.
         conn.execute(create_sql, [])
             .map_err(|e| crate::error::DbError::query_failed(format!("{} create", self.name), e))?;
         conn.execute(view_sql, [])
