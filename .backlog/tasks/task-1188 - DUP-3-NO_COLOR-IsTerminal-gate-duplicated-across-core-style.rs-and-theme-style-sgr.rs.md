@@ -3,11 +3,11 @@ id: TASK-1188
 title: >-
   DUP-3: NO_COLOR + IsTerminal gate duplicated across core/style.rs and
   theme/style/sgr.rs
-status: To Do
+status: Done
 assignee:
   - TASK-1265
 created_date: '2026-05-08 08:11'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 13:47'
 labels:
   - code-review-rust
   - dup
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One shared color_enabled resolver lives in a neutral location (e.g. ops_core::style) and theme::style::sgr calls it; the duplicate OnceLock<bool> is removed.
-- [ ] #2 A test asserts both core::style::cyan and theme::style::sgr::apply_style agree on color enablement under the same NO_COLOR / TTY conditions.
+- [x] #1 One shared color_enabled resolver lives in a neutral location (e.g. ops_core::style) and theme::style::sgr calls it; the duplicate OnceLock<bool> is removed.
+- [x] #2 A test asserts both core::style::cyan and theme::style::sgr::apply_style agree on color enablement under the same NO_COLOR / TTY conditions.
 <!-- AC:END -->

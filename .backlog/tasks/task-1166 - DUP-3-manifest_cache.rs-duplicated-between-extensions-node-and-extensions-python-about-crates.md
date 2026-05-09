@@ -3,11 +3,11 @@ id: TASK-1166
 title: >-
   DUP-3: manifest_cache.rs duplicated between extensions-node and
   extensions-python about crates
-status: To Do
+status: Done
 assignee:
   - TASK-1265
 created_date: '2026-05-08 07:45'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 13:46'
 labels:
   - code-review-rust
   - DUP
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Single ops_about::manifest_cache entry point lets a downstream crate name a filename and obtain the cached-text accessor without per-crate boilerplate
-- [ ] #2 Both extensions-node/about/src/manifest_cache.rs and extensions-python/about/src/manifest_cache.rs are deleted
-- [ ] #3 No behavioural change: same per-process Arc dedup, missing-file None, poison-recovery semantics
+- [x] #1 Single ops_about::manifest_cache entry point lets a downstream crate name a filename and obtain the cached-text accessor without per-crate boilerplate
+- [x] #2 Both extensions-node/about/src/manifest_cache.rs and extensions-python/about/src/manifest_cache.rs are deleted
+- [x] #3 No behavioural change: same per-process Arc dedup, missing-file None, poison-recovery semantics
 <!-- AC:END -->

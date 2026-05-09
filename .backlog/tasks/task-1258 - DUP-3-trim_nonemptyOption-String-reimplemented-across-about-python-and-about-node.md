@@ -3,11 +3,11 @@ id: TASK-1258
 title: >-
   DUP-3: trim_nonempty(Option<String>) reimplemented across about-python and
   about-node
-status: To Do
+status: Done
 assignee:
   - TASK-1265
 created_date: '2026-05-08 13:02'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 13:52'
 labels:
   - code-review-rust
   - duplication
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ops_about exports a single trim_nonempty consumed by both about-node and about-python
-- [ ] #2 Both crates drop their local copy
-- [ ] #3 Inline trim+filter chain in pick_url rewritten in terms of the shared helper
+- [x] #1 ops_about exports a single trim_nonempty consumed by both about-node and about-python
+- [x] #2 Both crates drop their local copy
+- [x] #3 Inline trim+filter chain in pick_url rewritten in terms of the shared helper
 <!-- AC:END -->

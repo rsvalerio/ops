@@ -3,11 +3,11 @@ id: TASK-1225
 title: >-
   DUP-3: FromIterator for CommandRegistry silently drops the duplicate-insert
   audit trail
-status: To Do
+status: Done
 assignee:
   - TASK-1265
 created_date: '2026-05-08 12:57'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 13:49'
 labels:
   - code-review-rust
   - duplication
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Drain in FromIterator and emit tracing::warn from there
+- [x] #1 Drain in FromIterator and emit tracing::warn from there
 - [ ] #2 OR document loss of audit and redirect callers to insert()
-- [ ] #3 Add a doc-test or assertion in tests
+- [x] #3 Add a doc-test or assertion in tests
 <!-- AC:END -->

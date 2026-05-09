@@ -3,11 +3,11 @@ id: TASK-1162
 title: >-
   TEST-12: typed_manifest_cache poison tests duplicate ~80 lines of capture
   harness
-status: To Do
+status: Done
 assignee:
   - TASK-1265
 created_date: '2026-05-08 07:45'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 13:45'
 labels:
   - code-review-rust
   - TEST
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Parameterise poison count via assert_poison_warn_after(n_cycles: usize) helper returning captured logs
-- [ ] #2 Keep two distinct test names so failure mode is attributable but each body becomes a 5-line call to the helper
+- [x] #1 Parameterise poison count via assert_poison_warn_after(n_cycles: usize) helper returning captured logs
+- [x] #2 Keep two distinct test names so failure mode is attributable but each body becomes a 5-line call to the helper
 <!-- AC:END -->

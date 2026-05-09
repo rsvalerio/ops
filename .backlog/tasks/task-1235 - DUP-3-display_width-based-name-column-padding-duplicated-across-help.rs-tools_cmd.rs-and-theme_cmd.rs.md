@@ -3,11 +3,11 @@ id: TASK-1235
 title: >-
   DUP-3: display_width-based name-column padding duplicated across help.rs,
   tools_cmd.rs, and theme_cmd.rs
-status: To Do
+status: Done
 assignee:
   - TASK-1265
 created_date: '2026-05-08 12:58'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 13:51'
 labels:
   - code-review-rust
   - duplication
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract a shared helper in ops_core::output::pad_to_display_width
-- [ ] #2 Migrate all three call sites
-- [ ] #3 Route the existing alignment regressions through the shared helper
+- [x] #1 Extract a shared helper in ops_core::output::pad_to_display_width
+- [x] #2 Migrate all three call sites
+- [x] #3 Route the existing alignment regressions through the shared helper
 <!-- AC:END -->

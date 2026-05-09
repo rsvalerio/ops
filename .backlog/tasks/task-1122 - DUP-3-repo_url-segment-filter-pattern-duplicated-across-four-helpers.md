@@ -1,11 +1,11 @@
 ---
 id: TASK-1122
 title: 'DUP-3: repo_url segment-filter pattern duplicated across four helpers'
-status: To Do
+status: Done
 assignee:
   - TASK-1265
 created_date: '2026-05-08 07:27'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 13:37'
 labels:
   - code-review-rust
   - duplication
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 append_tree_directory delegates segment scrubbing to scrub_path_segments
-- [ ] #2 Tightening the segment filter requires only one source-code change
+- [x] #1 append_tree_directory delegates segment scrubbing to scrub_path_segments
+- [x] #2 Tightening the segment filter requires only one source-code change
 <!-- AC:END -->

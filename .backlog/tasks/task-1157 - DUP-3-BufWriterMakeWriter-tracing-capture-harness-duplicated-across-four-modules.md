@@ -3,11 +3,11 @@ id: TASK-1157
 title: >-
   DUP-3: BufWriter+MakeWriter tracing-capture harness duplicated across four
   modules
-status: To Do
+status: Done
 assignee:
   - TASK-1265
 created_date: '2026-05-08 07:44'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 13:44'
 labels:
   - code-review-rust
   - DUP
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Move BufWriter (or equivalent tracing capture wrapper) into a shared dev helper crate or test_support module under extensions-rust/
-- [ ] #2 Replace per-file copies with a single use of the shared helper
+- [x] #1 Move BufWriter (or equivalent tracing capture wrapper) into a shared dev helper crate or test_support module under extensions-rust/
+- [x] #2 Replace per-file copies with a single use of the shared helper
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1145
 title: >-
   DUP-1: ArcTextCache LRU/cap policy duplicated in extensions-rust
   typed_manifest_cache by comment alone
-status: To Do
+status: Done
 assignee:
   - TASK-1265
 created_date: '2026-05-08 07:42'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 13:41'
 labels:
   - code-review-rust
   - DUP
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract a generic ArcTextCache<T> into ops_about (or shared crate) parameterised by deserialiser; both crates depend on it
+- [x] #1 Extract a generic ArcTextCache<T> into ops_about (or shared crate) parameterised by deserialiser; both crates depend on it
 - [ ] #2 Or pin CACHE_MAX_ENTRIES in both modules to a single shared const and add an integration test asserting identical eviction
 <!-- AC:END -->
