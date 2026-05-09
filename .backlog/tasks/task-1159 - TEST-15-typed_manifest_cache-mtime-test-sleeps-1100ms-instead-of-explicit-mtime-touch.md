@@ -3,11 +3,11 @@ id: TASK-1159
 title: >-
   TEST-15: typed_manifest_cache mtime test sleeps 1100ms instead of explicit
   mtime touch
-status: To Do
+status: Done
 assignee:
   - TASK-1266
 created_date: '2026-05-08 07:44'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:05'
 labels:
   - code-review-rust
   - TEST
@@ -27,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Use filetime crate or std::fs::File::set_modified to bump mtime explicitly to a known-future timestamp
-- [ ] #2 Drop the sleep(Duration::from_millis(1100)) line
-- [ ] #3 Total test wall-time drops from >1.1s to <50ms
+- [x] #1 Use filetime crate or std::fs::File::set_modified to bump mtime explicitly to a known-future timestamp
+- [x] #2 Drop the sleep(Duration::from_millis(1100)) line
+- [x] #3 Total test wall-time drops from >1.1s to <50ms
 <!-- AC:END -->

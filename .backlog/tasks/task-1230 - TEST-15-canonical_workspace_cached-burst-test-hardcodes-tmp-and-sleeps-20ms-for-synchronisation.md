@@ -3,11 +3,11 @@ id: TASK-1230
 title: >-
   TEST-15: canonical_workspace_cached burst test hardcodes /tmp and sleeps 20ms
   for synchronisation
-status: To Do
+status: Done
 assignee:
   - TASK-1266
 created_date: '2026-05-08 12:58'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:08'
 labels:
   - code-review-rust
   - tests
@@ -27,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace /tmp with std::env::temp_dir() or tempfile
-- [ ] #2 Use a Barrier or Notify rendezvous instead of sleep(20ms)
-- [ ] #3 Or pin the property at the cache-API level via a closure that signals start/finish
+- [x] #1 Replace /tmp with std::env::temp_dir() or tempfile
+- [x] #2 Use a Barrier or Notify rendezvous instead of sleep(20ms)
+- [x] #3 Or pin the property at the cache-API level via a closure that signals start/finish
 <!-- AC:END -->

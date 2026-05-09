@@ -3,11 +3,11 @@ id: TASK-1123
 title: >-
   TEST-17: tokei tests scan CARGO_MANIFEST_DIR producing non-deterministic
   results
-status: To Do
+status: Done
 assignee:
   - TASK-1266
 created_date: '2026-05-08 07:27'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:01'
 labels:
   - code-review-rust
   - test-quality
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace CARGO_MANIFEST_DIR with a tempdir+fixture for the four named tests, OR mark them `#[ignore = "..."]` matching the precedent set by tokei_provider_returns_valid_json_on_real_project
-- [ ] #2 Add a regression test or doc that prevents new `env!("CARGO_MANIFEST_DIR")` introductions outside #[ignore]'d cases
+- [x] #1 Replace CARGO_MANIFEST_DIR with a tempdir+fixture for the four named tests, OR mark them `#[ignore = "..."]` matching the precedent set by tokei_provider_returns_valid_json_on_real_project
+- [x] #2 Add a regression test or doc that prevents new `env!("CARGO_MANIFEST_DIR")` introductions outside #[ignore]'d cases
 <!-- AC:END -->

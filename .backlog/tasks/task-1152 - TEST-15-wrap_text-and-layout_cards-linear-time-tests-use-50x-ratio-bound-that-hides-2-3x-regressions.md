@@ -3,11 +3,11 @@ id: TASK-1152
 title: >-
   TEST-15: wrap_text and layout_cards linear-time tests use 50x ratio bound that
   hides 2-3x regressions
-status: To Do
+status: Done
 assignee:
   - TASK-1266
 created_date: '2026-05-08 07:43'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:03'
 labels:
   - code-review-rust
   - TEST
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tighten the ratio bound to a value reflecting actual measured spread on local hardware (10-15x for true linear)
-- [ ] #2 Or replace the wall-clock assertion with an instrument-based check counting clones / String allocations
+- [x] #1 Tighten the ratio bound to a value reflecting actual measured spread on local hardware (10-15x for true linear)
+- [x] #2 Or replace the wall-clock assertion with an instrument-based check counting clones / String allocations
 <!-- AC:END -->

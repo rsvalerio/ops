@@ -1,11 +1,11 @@
 ---
 id: TASK-1124
 title: 'TEST-25: name_from_module_path test exercises only std rsplit, not crate logic'
-status: To Do
+status: Done
 assignee:
   - TASK-1266
 created_date: '2026-05-08 07:27'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:01'
 labels:
   - code-review-rust
   - tests
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Standard-library-only test removed
-- [ ] #2 Coverage of name projection is preserved through provider-level tests
+- [x] #1 Standard-library-only test removed
+- [x] #2 Coverage of name projection is preserved through provider-level tests
 <!-- AC:END -->

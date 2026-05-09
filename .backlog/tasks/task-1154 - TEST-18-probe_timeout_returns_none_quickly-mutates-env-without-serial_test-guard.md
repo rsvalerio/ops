@@ -3,11 +3,11 @@ id: TASK-1154
 title: >-
   TEST-18: probe_timeout_returns_none_quickly mutates env without serial_test
   guard
-status: To Do
+status: Done
 assignee:
   - TASK-1266
 created_date: '2026-05-08 07:43'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:04'
 labels:
   - code-review-rust
   - TEST
@@ -27,6 +27,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add #[serial_test::serial] to timeout_returns_none_quickly
-- [ ] #2 If the env-mutation pattern repeats, extract a small with_env(key, val, body) helper in a shared test module
+- [x] #1 Add #[serial_test::serial] to timeout_returns_none_quickly
+- [x] #2 If the env-mutation pattern repeats, extract a small with_env(key, val, body) helper in a shared test module
 <!-- AC:END -->

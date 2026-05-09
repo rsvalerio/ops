@@ -3,11 +3,11 @@ id: TASK-1173
 title: >-
   TEST-15: canonical_workspace_cached_with test seam routes to static cache,
   breaking isolation
-status: To Do
+status: Done
 assignee:
   - TASK-1266
 created_date: '2026-05-08 08:07'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:08'
 labels:
   - code-review-rust
   - test
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test seam constructs a fresh WorkspaceCanonicalCache per call (or threads one through), matching its docstring.
-- [ ] #2 The burst-startup test exercises a fresh local cache instance.
+- [x] #1 The test seam constructs a fresh WorkspaceCanonicalCache per call (or threads one through), matching its docstring.
+- [x] #2 The burst-startup test exercises a fresh local cache instance.
 <!-- AC:END -->
