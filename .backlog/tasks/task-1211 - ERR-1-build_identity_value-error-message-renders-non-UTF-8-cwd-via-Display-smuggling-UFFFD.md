@@ -3,11 +3,11 @@ id: TASK-1211
 title: >-
   ERR-1: build_identity_value error message renders non-UTF-8 cwd via Display,
   smuggling U+FFFD
-status: To Do
+status: Done
 assignee:
   - TASK-1267
 created_date: '2026-05-08 08:19'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:46'
 labels:
   - code-review-rust
   - err
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The error message uses format!('{:?}', cwd) which prints the raw OsStr quoted with escaped non-printables, OR reports byte length and a hex preview of the leading invalid sequence.
-- [ ] #2 A unit test extends build_identity_value_rejects_non_utf8_cwd to capture the DataProviderError::ComputationFailed(msg) payload and assert the rendered message contains no U+FFFD and instead encodes the invalid bytes faithfully.
+- [x] #1 The error message uses format!('{:?}', cwd) which prints the raw OsStr quoted with escaped non-printables, OR reports byte length and a hex preview of the leading invalid sequence.
+- [x] #2 A unit test extends build_identity_value_rejects_non_utf8_cwd to capture the DataProviderError::ComputationFailed(msg) payload and assert the rendered message contains no U+FFFD and instead encodes the invalid bytes faithfully.
 <!-- AC:END -->

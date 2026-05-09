@@ -3,11 +3,11 @@ id: TASK-1197
 title: >-
   ERR-1: parse_active_toolchain returns None when first non-empty line is an
   info: diagnostic
-status: To Do
+status: Done
 assignee:
   - TASK-1267
 created_date: '2026-05-08 08:14'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:40'
 labels:
   - code-review-rust
   - err
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_active_toolchain('info: syncing channel updates...\nstable-aarch64-apple-darwin\n...') returns Some(stable-aarch64-apple-darwin), not None.
-- [ ] #2 parse_active_toolchain('error: no default toolchain configured\n') still returns None (no non-diagnostic line exists).
+- [x] #1 parse_active_toolchain('info: syncing channel updates...\nstable-aarch64-apple-darwin\n...') returns Some(stable-aarch64-apple-darwin), not None.
+- [x] #2 parse_active_toolchain('error: no default toolchain configured\n') still returns None (no non-diagnostic line exists).
 <!-- AC:END -->

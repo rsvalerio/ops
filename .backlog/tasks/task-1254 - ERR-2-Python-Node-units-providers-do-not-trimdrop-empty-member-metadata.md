@@ -1,11 +1,11 @@
 ---
 id: TASK-1254
 title: 'ERR-2: Python/Node units providers do not trim+drop-empty member metadata'
-status: To Do
+status: Done
 assignee:
   - TASK-1267
 created_date: '2026-05-08 13:01'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:56'
 labels:
   - code-review-rust
   - errors
@@ -25,7 +25,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Trim and drop empty name/version/description before constructing ProjectUnit in both providers
-- [ ] #2 Test: a workspace member with name = "  " falls back to format_unit_name(&member)
-- [ ] #3 Sibling test for whitespace-only version/description rendering as None
+- [x] #1 Trim and drop empty name/version/description before constructing ProjectUnit in both providers
+- [x] #2 Test: a workspace member with name = "  " falls back to format_unit_name(&member)
+- [x] #3 Sibling test for whitespace-only version/description rendering as None
 <!-- AC:END -->

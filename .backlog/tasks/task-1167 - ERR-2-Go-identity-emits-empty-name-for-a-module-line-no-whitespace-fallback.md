@@ -3,11 +3,11 @@ id: TASK-1167
 title: >-
   ERR-2: Go identity emits empty name for a 'module ""' line, no whitespace
   fallback
-status: To Do
+status: Done
 assignee:
   - TASK-1267
 created_date: '2026-05-08 07:45'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:39'
 labels:
   - code-review-rust
   - ERR
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_go_mod (or go_mod::parse) drops a whitespace-only module value to None
-- [ ] #2 Test writes 'module    \n\ngo 1.22\n' and asserts rendered identity falls back to directory name like Node/Python
+- [x] #1 parse_go_mod (or go_mod::parse) drops a whitespace-only module value to None
+- [x] #2 Test writes 'module    \n\ngo 1.22\n' and asserts rendered identity falls back to directory name like Node/Python
 <!-- AC:END -->

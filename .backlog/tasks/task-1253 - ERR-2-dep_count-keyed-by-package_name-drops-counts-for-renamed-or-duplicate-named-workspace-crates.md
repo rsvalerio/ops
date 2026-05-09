@@ -3,11 +3,11 @@ id: TASK-1253
 title: >-
   ERR-2: dep_count keyed by package_name drops counts for renamed or
   duplicate-named workspace crates
-status: To Do
+status: Done
 assignee:
   - TASK-1267
 created_date: '2026-05-08 13:01'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:55'
 labels:
   - code-review-rust
   - errors
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Key dep_counts by member manifest_path or metadata id instead of bare name
-- [ ] #2 tracing::debug breadcrumb when the same name maps to multiple packages
-- [ ] #3 Unit test with two members both named lib but different parent paths
+- [x] #1 Key dep_counts by member manifest_path or metadata id instead of bare name
+- [x] #2 tracing::debug breadcrumb when the same name maps to multiple packages
+- [x] #3 Unit test with two members both named lib but different parent paths
 <!-- AC:END -->

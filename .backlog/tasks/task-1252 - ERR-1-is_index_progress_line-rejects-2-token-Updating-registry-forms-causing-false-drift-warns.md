@@ -3,11 +3,11 @@ id: TASK-1252
 title: >-
   ERR-1: is_index_progress_line rejects 2-token Updating <registry> forms
   causing false drift warns
-status: To Do
+status: Done
 assignee:
   - TASK-1267
 created_date: '2026-05-08 13:01'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:51'
 labels:
   - code-review-rust
   - errors
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Relax the third-token check to allow end-of-line on a 2-token form (pin observed cargo behaviour in a comment)
-- [ ] #2 Extend starts_with_known_verb to require a v\d version token
-- [ ] #3 Unit test for the 2-token Updating crates.io no-warn case
+- [x] #1 Relax the third-token check to allow end-of-line on a 2-token form (pin observed cargo behaviour in a comment)
+- [x] #2 Extend starts_with_known_verb to require a v\d version token
+- [x] #3 Unit test for the 2-token Updating crates.io no-warn case
 <!-- AC:END -->

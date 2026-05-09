@@ -3,11 +3,11 @@ id: TASK-1209
 title: >-
   ERR-2: external_err flattens anyhow chain into String, dropping
   std::error::Error::source
-status: To Do
+status: Done
 assignee:
   - TASK-1267
 created_date: '2026-05-08 08:19'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:45'
 labels:
   - code-review-rust
   - err
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 DbError::External is reshaped to carry #[source] anyhow::Error (or Box<dyn Error + Send + Sync>); external_err returns the wrapped error directly without the format! flattening. Display continues to render the alternate-format chain.
-- [ ] #2 A unit test asserts Error::source() traversal recovers the wrapped leaf cause from a chained anyhow::Context input.
+- [x] #1 DbError::External is reshaped to carry #[source] anyhow::Error (or Box<dyn Error + Send + Sync>); external_err returns the wrapped error directly without the format! flattening. Display continues to render the alternate-format chain.
+- [x] #2 A unit test asserts Error::source() traversal recovers the wrapped leaf cause from a chained anyhow::Context input.
 <!-- AC:END -->

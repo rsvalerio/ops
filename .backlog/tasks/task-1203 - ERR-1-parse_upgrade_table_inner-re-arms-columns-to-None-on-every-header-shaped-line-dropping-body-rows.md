@@ -3,11 +3,11 @@ id: TASK-1203
 title: >-
   ERR-1: parse_upgrade_table_inner re-arms columns to None on every
   header-shaped line, dropping body rows
-status: To Do
+status: Done
 assignee:
   - TASK-1267
 created_date: '2026-05-08 08:16'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:43'
 labels:
   - code-review-rust
   - err
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After the first header detection, parse_upgrade_table_inner keeps the existing columns until the next ==== row replaces them; a synthetic input with two header-shaped lines and one separator parses every row that follows the separator.
-- [ ] #2 An explicit test pins the multi-header behaviour and asserts the parsed entry count matches the body row count.
+- [x] #1 After the first header detection, parse_upgrade_table_inner keeps the existing columns until the next ==== row replaces them; a synthetic input with two header-shaped lines and one separator parses every row that follows the separator.
+- [x] #2 An explicit test pins the multi-header behaviour and asserts the parsed entry count matches the body row count.
 <!-- AC:END -->

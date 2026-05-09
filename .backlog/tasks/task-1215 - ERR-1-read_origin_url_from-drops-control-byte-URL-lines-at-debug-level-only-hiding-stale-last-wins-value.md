@@ -3,11 +3,11 @@ id: TASK-1215
 title: >-
   ERR-1: read_origin_url_from drops control-byte URL lines at debug level only,
   hiding stale last-wins value
-status: To Do
+status: Done
 assignee:
   - TASK-1267
 created_date: '2026-05-08 08:19'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:49'
 labels:
   - code-review-rust
   - err
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The control-byte rejection branch logs at tracing::warn (not debug) with path Debug-formatted and a count of rejected lines so a malformed config that drops every value differs from one that drops only the latest.
-- [ ] #2 A regression test feeds read_origin_url_from a config where the trailing url = ... line contains an embedded ANSI escape; asserts the function returns the previous valid URL AND that one warn-level event was emitted naming the rejected line count.
+- [x] #1 The control-byte rejection branch logs at tracing::warn (not debug) with path Debug-formatted and a count of rejected lines so a malformed config that drops every value differs from one that drops only the latest.
+- [x] #2 A regression test feeds read_origin_url_from a config where the trailing url = ... line contains an embedded ANSI escape; asserts the function returns the previous valid URL AND that one warn-level event was emitted naming the rejected line count.
 <!-- AC:END -->

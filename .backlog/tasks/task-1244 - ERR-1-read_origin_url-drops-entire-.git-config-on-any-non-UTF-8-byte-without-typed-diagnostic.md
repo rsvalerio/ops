@@ -3,11 +3,11 @@ id: TASK-1244
 title: >-
   ERR-1: read_origin_url drops entire .git/config on any non-UTF-8 byte without
   typed diagnostic
-status: To Do
+status: Done
 assignee:
   - TASK-1267
 created_date: '2026-05-08 13:00'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:50'
 labels:
   - code-review-rust
   - errors
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Decode line-by-line (lossy or per-line strict) so a single bad byte does not poison remote detection
-- [ ] #2 Emit a dedicated tracing::debug! when the file is non-UTF-8 vs other IO errors
-- [ ] #3 Regression test: a valid url= line survives a non-UTF-8 byte in another section
+- [x] #1 Decode line-by-line (lossy or per-line strict) so a single bad byte does not poison remote detection
+- [x] #2 Emit a dedicated tracing::debug! when the file is non-UTF-8 vs other IO errors
+- [x] #3 Regression test: a valid url= line survives a non-UTF-8 byte in another section
 <!-- AC:END -->

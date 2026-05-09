@@ -3,11 +3,11 @@ id: TASK-1202
 title: >-
   ERR-1: parse_upgrade_row downgrades column-shape mismatches to tracing::debug,
   hiding cargo-edit drift
-status: To Do
+status: Done
 assignee:
   - TASK-1267
 created_date: '2026-05-08 08:16'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:42'
 labels:
   - code-review-rust
   - err
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A row whose separator advertises >=5 columns but where any of the first 5 columns trims to empty produces a tracing::warn (or contributes to a counter that interpret_upgrade_output checks).
-- [ ] #2 The TASK-1074 / TASK-1026 fail-closed path covers 'saw_recognised_header && saw_separator && body_lines > 0 && entries == 0' so a wholesale row-shape drift surfaces as an error rather than an empty Vec.
+- [x] #1 A row whose separator advertises >=5 columns but where any of the first 5 columns trims to empty produces a tracing::warn (or contributes to a counter that interpret_upgrade_output checks).
+- [x] #2 The TASK-1074 / TASK-1026 fail-closed path covers 'saw_recognised_header && saw_separator && body_lines > 0 && entries == 0' so a wholesale row-shape drift surfaces as an error rather than an empty Vec.
 <!-- AC:END -->

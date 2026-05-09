@@ -3,11 +3,11 @@ id: TASK-1213
 title: >-
   READ-2: read_origin_url_from strips inline ; even inside quoted git-config
   values, truncating URLs
-status: To Do
+status: Done
 assignee:
   - TASK-1267
 created_date: '2026-05-08 08:19'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 14:47'
 labels:
   - code-review-rust
   - read
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 strip_url_key recognises a leading double-quote and returns the body up to the matching closing quote, decoding escape rules already implemented in parse_section_header. Inline comments inside a quoted value pass through unchanged.
-- [ ] #2 A new test origin_url_quoted_value_with_semicolon_round_trips writes a git-config containing a quoted URL with embedded ; and asserts read_origin_url_from returns the full URL (no truncation, no leading quote).
+- [x] #1 strip_url_key recognises a leading double-quote and returns the body up to the matching closing quote, decoding escape rules already implemented in parse_section_header. Inline comments inside a quoted value pass through unchanged.
+- [x] #2 A new test origin_url_quoted_value_with_semicolon_round_trips writes a git-config containing a quoted URL with embedded ; and asserts read_origin_url_from returns the full URL (no truncation, no leading quote).
 <!-- AC:END -->
