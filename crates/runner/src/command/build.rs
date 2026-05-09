@@ -952,40 +952,44 @@ mod tests {
     /// to exactly one canonicalize call. Pre-TASK-1095, the writer path
     /// always re-canonicalized after the read-lock miss even if a racing
     /// writer had already populated the entry — N calls instead of 1.
+    ///
+    /// TEST-15 / TASK-1173: each invocation constructs a fresh
+    /// `WorkspaceCanonicalCache` so the property is pinned at the cache
+    /// API surface rather than against the process-global
+    /// `test_default_workspace_cache()` static. A regression that broke
+    /// the runner-scoped cache could have passed under the static — now
+    /// it cannot.
+    ///
+    /// TEST-15 / TASK-1230: the previous form hardcoded `/tmp` (Unix-only)
+    /// and `sleep(20ms)` "to reach the write-lock re-check window". The
+    /// cache is a single Mutex held across the closure, so the burst-dedup
+    /// property holds for any closure runtime — racers either queue on
+    /// the mutex or arrive after population, both branches return the
+    /// cached value without re-running the closure. The `Barrier(N)` at
+    /// thread start is the only rendezvous we need; the wall-clock sleep
+    /// added flakiness without strengthening the assertion. `temp_dir()`
+    /// removes the Unix-only assumption.
     #[test]
     fn canonical_workspace_cached_collapses_burst_to_single_canonicalize() {
         use std::sync::Barrier;
 
-        // Use a path keyed by this test name + nanos so the static cache
-        // does not have a hit from a prior test run in the same process.
-        let unique = std::path::PathBuf::from(format!(
-            "/tmp/ops-task-1095-burst-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let cache = Arc::new(WorkspaceCanonicalCache::new());
+        let key = std::env::temp_dir().join("ops-task-1095-burst");
         let n = 32usize;
         let counter = Arc::new(AtomicUsize::new(0));
         let barrier = Arc::new(Barrier::new(n));
         let mut handles = Vec::with_capacity(n);
         let expected = std::path::PathBuf::from("/expected/canonical");
         for _ in 0..n {
+            let cache = Arc::clone(&cache);
             let counter = Arc::clone(&counter);
             let barrier = Arc::clone(&barrier);
-            let key = unique.clone();
+            let key = key.clone();
             let expected = expected.clone();
             handles.push(std::thread::spawn(move || {
                 barrier.wait();
-                canonical_workspace_cached_with(test_default_workspace_cache(), &key, |_p| {
+                canonical_workspace_cached_with(&cache, &key, |_p| {
                     counter.fetch_add(1, Ordering::SeqCst);
-                    // Sleep briefly so concurrent callers reliably reach the
-                    // write-lock re-check window before we return; without
-                    // this the first writer can finish so fast that the
-                    // others hit the read-lock fast path and the test does
-                    // not exercise the double-check at all.
-                    std::thread::sleep(std::time::Duration::from_millis(20));
                     Ok(expected.clone())
                 })
             }));
@@ -997,7 +1001,7 @@ mod tests {
         assert_eq!(
             counter.load(Ordering::SeqCst),
             1,
-            "double-checked locking must collapse N concurrent first-callers to a single canonicalize syscall"
+            "mutex-guarded get_or_compute must collapse N concurrent first-callers to a single canonicalize"
         );
     }
 

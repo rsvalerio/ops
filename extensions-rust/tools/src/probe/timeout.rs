@@ -55,20 +55,43 @@ pub(super) fn run_probe_with_timeout(
 mod tests {
     use super::*;
 
+    /// TEST-18 / TASK-1154: run `body` with the env var `key` set to
+    /// `value`, restoring the prior value (or unset) on return. Wrap calls
+    /// at the top of an env-mutating test that is also `#[serial_test::serial]`
+    /// to keep the unsafe set/restore dance from drifting between sites.
+    /// Local to this module — broader cross-crate sharing belongs in
+    /// `ops_core::subprocess` if/when a fourth caller appears.
+    fn with_env_var<R>(key: &str, value: &str, body: impl FnOnce() -> R) -> R {
+        let prev = std::env::var_os(key);
+        // SAFETY: callers must hold #[serial_test::serial], guaranteeing
+        // no other test thread reads/writes env concurrently.
+        unsafe { std::env::set_var(key, value) };
+        let result = body();
+        match prev {
+            Some(v) => unsafe { std::env::set_var(key, v) },
+            None => unsafe { std::env::remove_var(key) },
+        }
+        result
+    }
+
     /// ASYNC-6 / TASK-0914: prove that `run_probe_with_timeout` actually
     /// honours the deadline rather than blocking on the child.
+    ///
+    /// TEST-18 / TASK-1154: serialised because the body mutates
+    /// `OPS_SUBPROCESS_TIMEOUT_SECS`, matching the precedent in
+    /// `tools/tests.rs` and `deps/tests.rs` where every env-mutating test
+    /// is `#[serial_test::serial]`-guarded. Without this, parallel test
+    /// threads racing on the same env var produce flaky timeouts here and
+    /// in any other test that reads the variable.
     #[test]
+    #[serial_test::serial]
     fn timeout_returns_none_quickly() {
         let mut cmd = Command::new("sh");
         cmd.args(["-c", "sleep 30"]);
         let start = std::time::Instant::now();
-        let prev = std::env::var_os(ops_core::subprocess::TIMEOUT_ENV);
-        unsafe { std::env::set_var(ops_core::subprocess::TIMEOUT_ENV, "1") };
-        let result = run_probe_with_timeout(&mut cmd, "sleep test");
-        match prev {
-            Some(v) => unsafe { std::env::set_var(ops_core::subprocess::TIMEOUT_ENV, v) },
-            None => unsafe { std::env::remove_var(ops_core::subprocess::TIMEOUT_ENV) },
-        }
+        let result = with_env_var(ops_core::subprocess::TIMEOUT_ENV, "1", || {
+            run_probe_with_timeout(&mut cmd, "sleep test")
+        });
         assert!(result.is_none(), "timeout must surface as None");
         assert!(
             start.elapsed() < std::time::Duration::from_secs(10),

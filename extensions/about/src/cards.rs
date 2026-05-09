@@ -369,9 +369,15 @@ mod tests {
     /// TASK-1044: the previous form asserted an absolute wall-clock budget
     /// (`elapsed < 250ms`) which is flaky on shared / coverage / sanitiser
     /// runners. Replaced with a ratio check that compares 50-card and
-    /// 500-card runs — a 10x larger workspace must take less than ~50x as
+    /// 500-card runs — a 10x larger workspace must take less than ~20x as
     /// long. The constant factor cancels so the bound holds across noisy
     /// CI runners as well as fast developer laptops.
+    ///
+    /// TASK-1152: previous bound of 50x masked 2-3x regressions (e.g.
+    /// PERF-3 per-cell-clone drift). Tightened to 20x — still ample margin
+    /// for shared-runner jitter when combined with the min-of-3 timing
+    /// below, but small enough that a real-world 2-3x slowdown trips the
+    /// assertion.
     #[test]
     fn layout_cards_handles_large_workspace() {
         fn build_cards(n: usize) -> Vec<Vec<String>> {
@@ -400,10 +406,11 @@ mod tests {
         let large = time_layout(&large_cards).max(std::time::Duration::from_micros(1));
         let ratio = large.as_nanos() as f64 / small.as_nanos() as f64;
         assert!(
-            ratio < 50.0,
+            ratio < 20.0,
             "layout_cards_in_grid_with_width should be O(N): 10x workspace \
              took {ratio:.1}x time (small={small:?}, large={large:?}); a \
-             per-cell-clone regression would push this well past linear"
+             per-cell-clone regression would push this well past linear. \
+             Bound tightened from 50x in TASK-1152 to catch 2-3x linear regressions."
         );
     }
 

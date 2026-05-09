@@ -157,14 +157,6 @@ mod tests {
         assert_eq!(compute_module_count(None, Some(&m)), Some(3));
     }
 
-    #[test]
-    fn name_from_module_path() {
-        assert_eq!(
-            "github.com/openbao/openbao".rsplit('/').next().unwrap(),
-            "openbao"
-        );
-    }
-
     // --- provider tests ---
 
     #[test]

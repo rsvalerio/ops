@@ -987,10 +987,20 @@ mod tests {
         let mut ctx = Context::test_context(dir.path().to_path_buf());
         let first = load_workspace_manifest(&mut ctx).expect("load1");
 
-        // Bump the mtime by rewriting (with a sleep buffer so filesystems
-        // with second-resolution mtimes (HFS+, ext3) advance it).
-        std::thread::sleep(std::time::Duration::from_millis(1100));
+        // TEST-15 / TASK-1159: bump mtime explicitly via
+        // `File::set_modified` instead of sleeping for >1s to outrun
+        // second-resolution filesystems (HFS+, ext3). Wall-clock sleep
+        // adds ~1.1s to every CI run and is unreliable on filesystems
+        // with even-coarser resolution (NFS); an explicit timestamp two
+        // seconds in the future is deterministic in microseconds.
         std::fs::write(&manifest_path, "[package]\nname=\"y\"\nversion=\"0.2.0\"\n").unwrap();
+        let bumped = std::time::SystemTime::now() + std::time::Duration::from_secs(2);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&manifest_path)
+            .expect("open for set_modified")
+            .set_modified(bumped)
+            .expect("set mtime");
 
         let second = load_workspace_manifest(&mut ctx).expect("load2");
         assert!(

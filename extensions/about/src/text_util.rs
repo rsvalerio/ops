@@ -309,10 +309,16 @@ mod tests {
     /// TASK-1044: the previous form asserted an absolute wall-clock budget
     /// (`elapsed < 250ms`) which is flaky under coverage / sanitiser /
     /// shared-runner builds. Replaced with a ratio check: a 10x larger
-    /// input must take less than ~50x as long. A quadratic regression
+    /// input must take less than ~20x as long. A quadratic regression
     /// would blow this by ~100x; a linear implementation lands well below
     /// it. The constant factor cancels so noisy CI runners — including
     /// debug, valgrind, miri, and qemu — converge on the same ratio.
+    ///
+    /// TASK-1152: previous bound of 50x masked 2-3x regressions (e.g.
+    /// PERF-3-class per-cell-clone drift). Tightened to 20x — still ample
+    /// margin for shared-runner jitter when combined with the min-of-3
+    /// timing below, but small enough that a real-world 2-3x slowdown
+    /// trips the assertion.
     #[test]
     fn wrap_text_handles_very_long_input_in_linear_time() {
         // Helper that times a wrap of `n` repeated tokens. Run each size
@@ -338,10 +344,11 @@ mod tests {
         let large = time_wrap(10_000).max(std::time::Duration::from_micros(1));
         let ratio = large.as_nanos() as f64 / small.as_nanos() as f64;
         assert!(
-            ratio < 50.0,
+            ratio < 20.0,
             "wrap_text should be O(N): 10x input took {ratio:.1}x time \
              (small={small:?}, large={large:?}); a quadratic regression \
-             would put this near 100x"
+             would put this near 100x. Bound tightened from 50x in TASK-1152 \
+             to catch 2-3x linear regressions."
         );
     }
 

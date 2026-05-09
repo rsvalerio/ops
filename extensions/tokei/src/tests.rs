@@ -1,4 +1,15 @@
 //! Tests for the tokei extension.
+//!
+//! ## Test isolation policy (TEST-17/TEST-18)
+//!
+//! Tests that scan the live workspace via `env!("CARGO_MANIFEST_DIR")` are
+//! non-deterministic (file counts depend on the working tree) and slow.
+//! Any such test MUST be gated behind
+//! `#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]`,
+//! matching the precedent set by `tokei_provider_returns_valid_json_on_real_project`.
+//! Prefer `tempfile::tempdir()` plus canned fixture files for default `cargo test`
+//! coverage; ignored tests remain available for ad-hoc smoke runs via
+//! `cargo test -- --ignored`.
 
 use super::*;
 use ops_duckdb::{init_schema, DataIngestor, DuckDb};
@@ -188,6 +199,7 @@ fn flatten_tokei_empty_languages() {
 }
 
 #[test]
+#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
 fn flatten_tokei_real_project_structure() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut languages = Languages::new();
@@ -221,6 +233,7 @@ fn flatten_tokei_real_project_structure() {
 }
 
 #[test]
+#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
 fn flatten_tokei_strips_workspace_prefix() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut languages = Languages::new();
@@ -244,6 +257,7 @@ fn flatten_tokei_strips_workspace_prefix() {
 // -- collect_tokei tests --
 
 #[test]
+#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
 fn collect_tokei_on_real_project() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let result = collect_tokei(&manifest_dir).expect("collect_tokei should succeed");
@@ -262,6 +276,7 @@ fn collect_tokei_on_empty_dir() {
 // -- DuckDB integration tests --
 
 #[test]
+#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
 fn tokei_collect_and_load_cycle() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let data_dir = tempfile::tempdir().expect("tempdir");
