@@ -3,11 +3,11 @@ id: TASK-1121
 title: >-
   ARCH-1: deps/src/parse.rs mixes cargo-upgrade and cargo-deny parsing in 748
   production lines
-status: To Do
+status: Done
 assignee:
   - TASK-1264
 created_date: '2026-05-08 07:27'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 12:08'
 labels:
   - code-review-rust
   - structure
@@ -27,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Split parse.rs into per-tool modules (e.g. parse/upgrade.rs and parse/deny.rs) keeping the existing public API surface
-- [ ] #2 Each new module is under ~400 lines and owns its own constants, types, and helpers
-- [ ] #3 tests/parse_upgrade.rs and tests/parse_deny.rs (or equivalent) move alongside their parser
+- [x] #1 Split parse.rs into per-tool modules (e.g. parse/upgrade.rs and parse/deny.rs) keeping the existing public API surface
+- [x] #2 Each new module is under ~400 lines and owns its own constants, types, and helpers
+- [x] #3 tests/parse_upgrade.rs and tests/parse_deny.rs (or equivalent) move alongside their parser
 <!-- AC:END -->

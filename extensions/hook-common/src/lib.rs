@@ -11,6 +11,7 @@
 
 pub mod config;
 pub mod git;
+pub mod git_state;
 pub mod install;
 pub(crate) mod paths;
 

@@ -8,6 +8,7 @@
 //! manifest does not silently look like a missing one (TASK-0394).
 
 mod go_mod;
+mod go_syntax;
 mod go_work;
 mod modules;
 

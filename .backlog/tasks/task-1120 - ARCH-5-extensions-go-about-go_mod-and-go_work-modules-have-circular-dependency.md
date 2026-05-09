@@ -3,11 +3,11 @@ id: TASK-1120
 title: >-
   ARCH-5: extensions-go/about go_mod and go_work modules have circular
   dependency
-status: To Do
+status: Done
 assignee:
   - TASK-1264
 created_date: '2026-05-08 07:26'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 12:05'
 labels:
   - code-review-rust
   - structure
@@ -29,6 +29,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Circular dependency between go_mod and go_work eliminated
-- [ ] #2 Shared Go-syntax helpers live in a single module both depend on
+- [x] #1 Circular dependency between go_mod and go_work eliminated
+- [x] #2 Shared Go-syntax helpers live in a single module both depend on
 <!-- AC:END -->

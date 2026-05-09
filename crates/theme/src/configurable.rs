@@ -24,6 +24,16 @@ const BOX_STEP_RESERVE: u16 = 7;
 /// indent that aligns error-block glyphs under the step label column.
 const BOX_FRAME_BARS: usize = 2;
 
+/// FN-1 / TASK-1192: columns the rail prefix occupies *after* the rail
+/// glyph itself when computing the boxed error-block gutter offset.
+///
+/// The rail glyph (`config.error_block.rail`) is rendered immediately
+/// after the left frame; the boxed layout then reserves three additional
+/// columns before the error icon: the post-rail space, the step-cell
+/// alignment column, and the inter-column gutter. Naming the constant
+/// keeps the offset traceable instead of looking like a bare `+ 3`.
+const BOX_RAIL_PREFIX_PADDING: usize = 3;
+
 /// A theme backed by a [`ThemeConfig`].
 ///
 /// TASK-0747: SGR prefixes are precomputed at construction so the per-step
@@ -169,17 +179,7 @@ impl ConfigurableTheme {
         if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
             return lines;
         }
-        // Boxed: align the mid column under the step label column and close the
-        // right frame border. The rail char already matches the frame's left
-        // border; we just need extra indent after it so `top`/`mid`/`bottom`
-        // land in the same column as the step icon.
-        let rail_width = display_width(&self.config.error_block.rail);
-        // Subtract the two frame bars (left/right `│`) from the box reserve
-        // so `target_gutter` covers only the interior (cell + spacing + step
-        // indent) that the error glyph must line up with.
-        let target_gutter =
-            BOX_STEP_RESERVE as usize - BOX_FRAME_BARS + display_width(self.step_indent());
-        let extra_indent = target_gutter.saturating_sub(rail_width + 3);
+        let extra_indent = self.boxed_error_indent_columns();
         let inject = " ".repeat(extra_indent);
         let pad = self.left_pad_str();
         let prefix_with_rail = format!("{}{}", pad, self.config.error_block.rail);
@@ -193,6 +193,22 @@ impl ConfigurableTheme {
                 right_pad_with_border(reindented, right_target)
             })
             .collect()
+    }
+
+    /// FN-1 / TASK-1192: columns of extra indent to inject after the rail
+    /// glyph so boxed-layout `top`/`mid`/`bottom` lines align under the
+    /// step icon column.
+    ///
+    /// Subtract the two frame bars (`│ … │`) from `BOX_STEP_RESERVE` so
+    /// `target_gutter` covers only the interior (cell + spacing + step
+    /// indent) that the error glyph must line up with, then back off by
+    /// the rail width plus the named [`BOX_RAIL_PREFIX_PADDING`] columns
+    /// the rail prefix already occupies.
+    fn boxed_error_indent_columns(&self) -> usize {
+        let rail_width = display_width(&self.config.error_block.rail);
+        let target_gutter =
+            BOX_STEP_RESERVE as usize - BOX_FRAME_BARS + display_width(self.step_indent());
+        target_gutter.saturating_sub(rail_width + BOX_RAIL_PREFIX_PADDING)
     }
 
     pub fn step_column_reserve(&self) -> u16 {

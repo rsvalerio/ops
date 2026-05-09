@@ -1,11 +1,11 @@
 ---
 id: TASK-1158
 title: 'ARCH-1: extensions-rust/tools/src/probe.rs is 677 lines mixing five concerns'
-status: To Do
+status: Done
 assignee:
   - TASK-1264
 created_date: '2026-05-08 07:44'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 12:22'
 labels:
   - code-review-rust
   - ARCH
@@ -25,7 +25,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Split into probe/path.rs, probe/cargo.rs, probe/rustup.rs, probe/timeout.rs leaving probe/mod.rs as a ≤100 line dispatcher
-- [ ] #2 Each submodule ≤300 lines
-- [ ] #3 check_tool_status_with stays the public composition point
+- [x] #1 Split into probe/path.rs, probe/cargo.rs, probe/rustup.rs, probe/timeout.rs leaving probe/mod.rs as a ≤100 line dispatcher
+- [x] #2 Each submodule ≤300 lines
+- [x] #3 check_tool_status_with stays the public composition point
 <!-- AC:END -->

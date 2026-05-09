@@ -8,6 +8,8 @@
 
 use std::path::Path;
 
+use crate::go_syntax::{is_block_opener, strip_line_comment};
+
 #[derive(Debug, Default)]
 pub(crate) struct GoMod {
     pub(crate) module: Option<String>,
@@ -41,7 +43,7 @@ pub(crate) fn parse(dir: &Path) -> Option<GoMod> {
             out.module = Some(rest.trim().to_string());
         } else if let Some(rest) = line.strip_prefix("go ") {
             out.go_version = Some(rest.trim().to_string());
-        } else if crate::go_work::is_block_opener(line, "replace") {
+        } else if is_block_opener(line, "replace") {
             in_replace_block = true;
         } else if let Some(rest) = line.strip_prefix("replace ") {
             if let Some(target) = parse_replace_directive(rest) {
@@ -51,29 +53,6 @@ pub(crate) fn parse(dir: &Path) -> Option<GoMod> {
     }
 
     Some(out)
-}
-
-/// Strip a trailing `// ...` line comment. Shared by the `go.mod` and
-/// `go.work` parsers; both follow the same Go syntax for trailing comments.
-///
-/// PATTERN-1 / TASK-1107: Go's own `cmd/go` lexer treats `//` as a comment
-/// delimiter only when it follows whitespace or starts the line. A bare
-/// `line.find("//")` truncates module paths or replace targets that contain
-/// a literal `//` (e.g. `module example.com/foo//bar`).
-pub(crate) fn strip_line_comment(line: &str) -> &str {
-    let bytes = line.as_bytes();
-    let mut i = 0;
-    while i + 1 < bytes.len() {
-        if bytes[i] == b'/' && bytes[i + 1] == b'/' {
-            // `//` qualifies as a comment delimiter only at start-of-line or
-            // when the preceding byte is ASCII whitespace.
-            if i == 0 || bytes[i - 1].is_ascii_whitespace() {
-                return &line[..i];
-            }
-        }
-        i += 1;
-    }
-    line
 }
 
 fn parse_replace_directive(rest: &str) -> Option<String> {
@@ -378,36 +357,6 @@ mod tests {
         std::fs::write(dir.path().join("go.mod"), "module example.com/foo//bar\n").unwrap();
         let m = parse(dir.path()).unwrap();
         assert_eq!(m.module.as_deref(), Some("example.com/foo//bar"));
-    }
-
-    /// PATTERN-1 / TASK-1107: unit-level coverage for the strip helper —
-    /// `//` only delimits a trailing comment at start-of-line or after
-    /// whitespace; it must pass through when embedded mid-token.
-    #[test]
-    fn strip_line_comment_only_fires_on_whitespace_or_sol() {
-        // start-of-line
-        assert_eq!(strip_line_comment("// just a comment"), "");
-        // preceded by whitespace
-        assert_eq!(
-            strip_line_comment("module example.com/m // trailing"),
-            "module example.com/m ",
-        );
-        // embedded `//` in a token must NOT trigger
-        assert_eq!(
-            strip_line_comment("module example.com/foo//bar"),
-            "module example.com/foo//bar",
-        );
-        assert_eq!(
-            strip_line_comment("replace ex.com/m => ./has//double-slash"),
-            "replace ex.com/m => ./has//double-slash",
-        );
-        // mixed: embedded then real trailing comment
-        assert_eq!(
-            strip_line_comment("module example.com/foo//bar // note"),
-            "module example.com/foo//bar ",
-        );
-        // no comment
-        assert_eq!(strip_line_comment("go 1.22"), "go 1.22");
     }
 
     #[test]

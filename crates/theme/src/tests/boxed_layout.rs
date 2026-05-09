@@ -182,6 +182,52 @@ fn boxed_error_detail_aligns_mid_with_label_column() {
     );
 }
 
+/// FN-1 / TASK-1192 AC#2: pin gutter alignment for two step_indent widths
+/// (0 and 2) so a future refactor of `boxed_error_indent_columns` cannot
+/// silently mis-align the error glyph column.
+#[test]
+fn boxed_error_indent_tracks_step_indent_width() {
+    fn theme_with_step_indent(step_indent: &str) -> ConfigurableTheme {
+        ConfigurableTheme::new(ThemeConfig {
+            layout_kind: LayoutKind::Boxed,
+            left_pad: 0,
+            step_indent: step_indent.to_string(),
+            error_block: ops_core::config::theme_types::ErrorBlockChars {
+                top: "├─".into(),
+                mid: "│".into(),
+                bottom: "└─".into(),
+                rail: "│".into(),
+                color: String::new(),
+            },
+            ..ThemeConfig::compact()
+        })
+    }
+    let detail = ErrorDetail::new("exit status: 1".to_string(), vec![]);
+
+    // step_indent width 0 (existing baseline).
+    let theme0 = theme_with_step_indent("");
+    let plain0 = strip_ansi(&theme0.render_error_detail(&detail, 80)[0]);
+    let count0 = plain0
+        .strip_prefix('│')
+        .and_then(|s| s.find('├'))
+        .expect("├ glyph in output");
+
+    // step_indent width 2: gutter must shift right by exactly 2 columns.
+    let theme2 = theme_with_step_indent("  ");
+    let plain2 = strip_ansi(&theme2.render_error_detail(&detail, 80)[0]);
+    let count2 = plain2
+        .strip_prefix('│')
+        .and_then(|s| s.find('├'))
+        .expect("├ glyph in output");
+
+    assert_eq!(
+        count2,
+        count0 + 2,
+        "step_indent width 2 must shift the error glyph by 2 columns; \
+         baseline={plain0:?} shifted={plain2:?}"
+    );
+}
+
 /// PERF-3 / TASK-1130: pin the no-extra-allocation contract on the hot path.
 /// `wrap_step_line` must not allocate an intermediate `" ".repeat(n)` String
 /// per call and `render_separator` must not call `sep.to_string().repeat(n)` —

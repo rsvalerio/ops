@@ -3,11 +3,11 @@ id: TASK-1192
 title: >-
   FN-1: ConfigurableTheme::render_error_detail mixes layout math, gutter
   injection, magic offset
-status: To Do
+status: Done
 assignee:
   - TASK-1264
 created_date: '2026-05-08 08:12'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 12:27'
 labels:
   - code-review-rust
   - fn
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The boxed-layout branch is extracted into a helper (e.g. boxed_error_indent_columns) whose return value is the documented gutter offset, and the magic + 3 is replaced with a named constant.
-- [ ] #2 A test pins the gutter alignment for at least two step_indent widths (0 and 2) so a future refactor does not silently mis-align the error glyph column.
+- [x] #1 The boxed-layout branch is extracted into a helper (e.g. boxed_error_indent_columns) whose return value is the documented gutter offset, and the magic + 3 is replaced with a named constant.
+- [x] #2 A test pins the gutter alignment for at least two step_indent widths (0 and 2) so a future refactor does not silently mis-align the error glyph column.
 <!-- AC:END -->

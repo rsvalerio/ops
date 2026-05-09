@@ -3,11 +3,11 @@ id: TASK-1185
 title: >-
   ARCH-1: stack.rs spans 280 production lines mixing Stack enum, detect,
   embedded TOML, defaults
-status: To Do
+status: Done
 assignee:
   - TASK-1264
 created_date: '2026-05-08 08:11'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 12:25'
 labels:
   - code-review-rust
   - arch
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 stack.rs is split into at least two modules (e.g. stack/mod.rs enum + stack/detect.rs walk + stack/metadata.rs embedded-TOML table) so adding a new stack touches only metadata.
-- [ ] #2 Public API (Stack::resolve, Stack::detect, Stack::default_commands, Stack::manifest_files, Stack::ACCEPTED_NAMES) preserved; existing tests pass unchanged.
+- [x] #1 stack.rs is split into at least two modules (e.g. stack/mod.rs enum + stack/detect.rs walk + stack/metadata.rs embedded-TOML table) so adding a new stack touches only metadata.
+- [x] #2 Public API (Stack::resolve, Stack::detect, Stack::default_commands, Stack::manifest_files, Stack::ACCEPTED_NAMES) preserved; existing tests pass unchanged.
 <!-- AC:END -->

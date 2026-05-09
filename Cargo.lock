@@ -2316,9 +2316,11 @@ dependencies = [
  "ops-core",
  "serial_test",
  "tempfile",
+ "thiserror 2.0.18",
  "toml_edit 0.25.11+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
+ "wait-timeout",
 ]
 
 [[package]]
@@ -2347,10 +2349,8 @@ dependencies = [
  "ops-hook-common",
  "serial_test",
  "tempfile",
- "thiserror 2.0.18",
  "tracing",
  "tracing-subscriber",
- "wait-timeout",
 ]
 
 [[package]]

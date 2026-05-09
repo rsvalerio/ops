@@ -10,28 +10,8 @@ use crate::config::{CommandSpec, Config};
 use indexmap::IndexMap;
 use std::path::Path;
 
-/// SEC-25: probe a manifest path with `try_exists` so transient errors are
-/// logged rather than silently swallowed by `Path::exists`. Permission errors
-/// or other I/O failures are treated as "not found" for detection purposes
-/// (a wrong stack default for one CLI invocation is acceptable), but they are
-/// surfaced via `tracing::debug` so a user investigating mis-detection has a
-/// breadcrumb to follow.
-fn manifest_present(path: &Path) -> bool {
-    match path.try_exists() {
-        Ok(present) => present,
-        Err(err) => {
-            // ERR-7 (TASK-0945): Debug-format path/error so a CWD-relative
-            // ancestor probe path containing newlines / ANSI escapes cannot
-            // forge log records. Aligns with the TASK-0818 sweep policy.
-            tracing::debug!(
-                path = ?path.display(),
-                error = ?err,
-                "stack manifest probe failed; treating as not present",
-            );
-            false
-        }
-    }
-}
+mod detect;
+mod metadata;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumString, strum::IntoStaticStr)]
 #[strum(serialize_all = "lowercase")]
@@ -55,57 +35,7 @@ impl Stack {
     }
 
     pub fn manifest_files(&self) -> &[&str] {
-        self.metadata().0
-    }
-
-    /// File extensions used for extension-based detection (in addition to exact manifest files).
-    fn manifest_extensions(&self) -> &[&str] {
-        match self {
-            Stack::Terraform => &["tf"],
-            _ => &[],
-        }
-    }
-
-    /// Whether this stack has a manifest (exact filename or extension match) in `dir`.
-    fn has_manifest_in_dir(&self, dir: &Path) -> bool {
-        if self
-            .manifest_files()
-            .iter()
-            .any(|f| manifest_present(&dir.join(f)))
-        {
-            return true;
-        }
-        let extensions = self.manifest_extensions();
-        if !extensions.is_empty() {
-            if let Ok(entries) = dir.read_dir() {
-                // ERR-1 (TASK-0935): replace `entries.flatten()` with an
-                // explicit match so a per-entry IO error (EACCES on a sibling
-                // child, EIO, ENAMETOOLONG, ...) leaves a `tracing::debug`
-                // breadcrumb instead of silently making the manifest "not
-                // found" and falling through to the next stack. Detection
-                // still treats the failure as "no match" (monotonic with the
-                // prior best-effort behavior). Mirrors TASK-0517 / TASK-0556.
-                for entry in entries {
-                    let entry = match entry {
-                        Ok(e) => e,
-                        Err(e) => {
-                            tracing::debug!(
-                                parent = ?dir.display(),
-                                error = ?e,
-                                "stack manifest extension probe: read_dir entry failed; skipping",
-                            );
-                            continue;
-                        }
-                    };
-                    if let Some(ext) = entry.path().extension() {
-                        if extensions.iter().any(|e| ext == *e) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        false
+        metadata::metadata(*self).0
     }
 
     /// DUP-001: Resolve stack from config override or auto-detection.
@@ -163,96 +93,12 @@ impl Stack {
     pub const MAX_DETECT_DEPTH: usize = 64;
 
     pub fn detect(start: &Path) -> Option<Self> {
-        // Priority order for detection (Generic is excluded — no manifest files).
-        const DETECT_ORDER: &[Stack] = &[
-            Stack::Rust,
-            Stack::Node,
-            Stack::Go,
-            Stack::Python,
-            Stack::Terraform,
-            Stack::Ansible,
-            Stack::JavaGradle,
-            Stack::JavaMaven,
-        ];
-
-        // SEC-25 / TASK-0902: canonicalize once so the `pop()` walk operates
-        // on the resolved chain. Reaching the cwd through a symlink would
-        // otherwise let lexical `..` traversal yield ancestors outside the
-        // canonical workspace, picking up a sibling project's manifests.
-        // If canonicalization fails (missing dir, EACCES on a parent), fall
-        // back to the lexical walk and leave a debug breadcrumb so an
-        // operator chasing odd detection can correlate.
-        let mut current = match std::fs::canonicalize(start) {
-            Ok(p) => p,
-            Err(e) => {
-                // ERR-7 (TASK-0945): Debug-format path/error so a
-                // CWD-derived start path with control characters cannot
-                // forge log records.
-                tracing::debug!(
-                    path = ?start.display(),
-                    error = ?e,
-                    "Stack::detect could not canonicalize start; falling back to lexical walk"
-                );
-                start.to_path_buf()
-            }
-        };
-        for _ in 0..Self::MAX_DETECT_DEPTH {
-            if let Some(&stack) = DETECT_ORDER
-                .iter()
-                .find(|s| s.has_manifest_in_dir(&current))
-            {
-                return Some(stack);
-            }
-            if !current.pop() {
-                return None;
-            }
-        }
-        None
+        detect::detect(start)
     }
 
     /// Embedded TOML content for this stack's default commands, or None for Generic.
     fn default_commands_toml(&self) -> Option<&'static str> {
-        self.metadata().1
-    }
-
-    /// Single source of truth for per-stack metadata: (manifest_files, default_commands_toml).
-    ///
-    /// Consolidates two parallel match blocks (CD-11) so that adding a new stack
-    /// requires updating exactly one match arm.
-    fn metadata(&self) -> (&[&str], Option<&'static str>) {
-        // Reduces the include_str!(concat!(env!(...), "/src/", file)) boilerplate to one line per arm.
-        macro_rules! meta {
-            ($files:expr, $toml:literal) => {
-                (
-                    $files as &[&str],
-                    Some(include_str!(concat!(
-                        env!("CARGO_MANIFEST_DIR"),
-                        "/src/",
-                        $toml
-                    ))),
-                )
-            };
-        }
-        match self {
-            Stack::Rust => meta!(&["Cargo.toml"], ".default.rust.ops.toml"),
-            Stack::Node => meta!(&["package.json"], ".default.node.ops.toml"),
-            Stack::Go => meta!(&["go.mod"], ".default.go.ops.toml"),
-            Stack::Python => meta!(
-                &["pyproject.toml", "setup.py", "requirements.txt"],
-                ".default.python.ops.toml"
-            ),
-            Stack::Terraform => meta!(&["main.tf", "terraform.tf"], ".default.terraform.ops.toml"),
-            Stack::Ansible => meta!(
-                &["site.yml", "playbook.yml", "ansible.cfg"],
-                ".default.ansible.ops.toml"
-            ),
-            Stack::JavaMaven => meta!(&["pom.xml"], ".default.java-maven.ops.toml"),
-            Stack::JavaGradle => meta!(
-                &["build.gradle", "build.gradle.kts"],
-                ".default.java-gradle.ops.toml"
-            ),
-            Stack::Generic => (&[], None),
-        }
+        metadata::metadata(*self).1
     }
 
     pub fn default_commands(&self) -> IndexMap<String, CommandSpec> {

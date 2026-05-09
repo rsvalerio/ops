@@ -435,17 +435,7 @@ pub(crate) fn resolved_workspace_members(
     let mut resolved = Vec::new();
     for member in &ws.members {
         // SEC-14 / TASK-1246 AC #2: reject absolute and `..`-traversal
-        // member entries before they reach any join. The glob-expansion
-        // arm below already filters via `read_dir(prefix)` (the prefix
-        // would not be readable for `/abs` or `../escape`), but the
-        // passthrough arms — both the unsupported-glob-meta branch and
-        // the literal-member fallthrough — interpolate the value
-        // verbatim, so per-crate manifest reads downstream end up
-        // targeting filesystem locations outside the workspace root.
-        // Sister checks (`resolve_crate_display_name` /
-        // `read_crate_metadata`) also re-validate so a future caller
-        // bypassing `resolved_workspace_members` does not regress the
-        // contract.
+        // member entries before they reach any join.
         if !member_path_is_workspace_safe(member) {
             tracing::warn!(
                 member = %member,
@@ -453,91 +443,19 @@ pub(crate) fn resolved_workspace_members(
             );
             continue;
         }
-        let star_idx = member.find('*');
-        // PATTERN-1 (TASK-0803): detect glob shapes that lack `*` but still
-        // contain class/alternation metacharacters (`crates/{core,cli}`,
-        // `crates/[abc]`). Without this they would slip through as literal
-        // member paths and silently produce wrong member lists.
-        if star_idx.is_none() && contains_unsupported_glob_meta(member) {
-            tracing::warn!(
-                pattern = %member,
-                "workspace member glob shape not supported by ops about; passing through unchanged"
-            );
-            resolved.push(member.clone());
-            continue;
-        }
-        if let Some(idx) = star_idx {
-            if is_unsupported_glob(member, idx) {
+        match classify_member(member) {
+            MemberShape::Literal => resolved.push(member.clone()),
+            MemberShape::Unsupported => {
                 tracing::warn!(
                     pattern = %member,
                     "workspace member glob shape not supported by ops about; passing through unchanged"
                 );
                 resolved.push(member.clone());
-                continue;
             }
-            let prefix = &member[..idx];
-            let parent = workspace_root.join(prefix);
-            // ERR-1: log read_dir failures at warn (matching the
-            // unsupported-glob warn above) so a permission-denied / EIO on
-            // crates/* does not silently produce empty about/units/coverage
-            // views. Mirrors the sibling `resolve_member_globs` arm.
-            match std::fs::read_dir(&parent) {
-                Ok(entries) => {
-                    for entry in entries {
-                        match entry {
-                            Ok(entry) => {
-                                let path = entry.path();
-                                if path.is_dir() && path.join("Cargo.toml").exists() {
-                                    if let Ok(rel) = path.strip_prefix(workspace_root) {
-                                        // READ-5 (TASK-0946): non-UTF-8
-                                        // member paths must not be lossily
-                                        // collapsed to U+FFFD (which would
-                                        // alias two distinct members into
-                                        // the same dedup key). Skip + warn
-                                        // matches the `resolve_spec_cwd`
-                                        // policy from TASK-0900.
-                                        match rel.to_str() {
-                                            Some(s) => resolved.push(s.to_string()),
-                                            None => {
-                                                tracing::warn!(
-                                                    parent = ?parent.display(),
-                                                    relpath = ?rel,
-                                                    "workspace glob member relpath is not valid UTF-8; skipping"
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                // ERR-7 (TASK-0941): Debug-format path/error
-                                // so attacker-controlled member paths from a
-                                // cloned repo's Cargo.toml cannot forge log
-                                // records.
-                                tracing::warn!(
-                                    parent = ?parent.display(),
-                                    error = ?e,
-                                    "workspace glob entry unreadable; skipped"
-                                );
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    // ERR-7 (TASK-0941): Debug-format pattern / parent /
-                    // error so embedded newlines / ANSI escapes in
-                    // attacker-controlled `[workspace].members` entries
-                    // cannot forge log records.
-                    tracing::warn!(
-                        pattern = ?member,
-                        parent = ?parent.display(),
-                        error = ?e,
-                        "workspace glob prefix unreadable; member skipped"
-                    );
-                }
+            MemberShape::Glob { prefix } => {
+                let parent = workspace_root.join(prefix);
+                resolved.extend(expand_member_glob(member, &parent, workspace_root));
             }
-        } else {
-            resolved.push(member.clone());
         }
     }
 
@@ -551,6 +469,97 @@ pub(crate) fn resolved_workspace_members(
     // in the units / coverage providers, diverging from `cargo metadata`.
     resolved.dedup();
     resolved
+}
+
+/// FN-1 / TASK-1156: classified shape of one `[workspace].members` entry,
+/// dispatched as a state machine in [`resolved_workspace_members`].
+enum MemberShape<'a> {
+    /// Pass through verbatim (no glob characters).
+    Literal,
+    /// Pass through verbatim and emit a warn — shape isn't supported.
+    Unsupported,
+    /// Expand via `read_dir(workspace_root.join(prefix))`.
+    Glob { prefix: &'a str },
+}
+
+/// Classify a `[workspace].members` entry into a [`MemberShape`]. Centralises
+/// the metacharacter scan so [`resolved_workspace_members`] reads as a flat
+/// dispatch instead of a nested-if state machine.
+fn classify_member(member: &str) -> MemberShape<'_> {
+    let star_idx = member.find('*');
+    // PATTERN-1 (TASK-0803): detect glob shapes that lack `*` but still
+    // contain class/alternation metacharacters (`crates/{core,cli}`,
+    // `crates/[abc]`).
+    if star_idx.is_none() {
+        if contains_unsupported_glob_meta(member) {
+            return MemberShape::Unsupported;
+        }
+        return MemberShape::Literal;
+    }
+    let idx = star_idx.expect("star_idx checked above");
+    if is_unsupported_glob(member, idx) {
+        return MemberShape::Unsupported;
+    }
+    MemberShape::Glob {
+        prefix: &member[..idx],
+    }
+}
+
+/// Expand a `prefix/*` glob by walking `parent` and returning UTF-8
+/// workspace-relative paths to each subdirectory containing a `Cargo.toml`.
+/// FN-1 / TASK-1156: extracted from [`resolved_workspace_members`] so the
+/// orchestrator stays at the dispatch level and the read_dir + per-entry
+/// boundary handling sits in one place.
+fn expand_member_glob(member: &str, parent: &Path, workspace_root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let entries = match std::fs::read_dir(parent) {
+        Ok(entries) => entries,
+        Err(e) => {
+            // ERR-7 (TASK-0941): Debug-format pattern / parent / error so
+            // embedded newlines / ANSI escapes in attacker-controlled
+            // `[workspace].members` entries cannot forge log records.
+            tracing::warn!(
+                pattern = ?member,
+                parent = ?parent.display(),
+                error = ?e,
+                "workspace glob prefix unreadable; member skipped"
+            );
+            return out;
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!(
+                    parent = ?parent.display(),
+                    error = ?e,
+                    "workspace glob entry unreadable; skipped"
+                );
+                continue;
+            }
+        };
+        let path = entry.path();
+        if !(path.is_dir() && path.join("Cargo.toml").exists()) {
+            continue;
+        }
+        let Ok(rel) = path.strip_prefix(workspace_root) else {
+            continue;
+        };
+        // READ-5 (TASK-0946): non-UTF-8 member paths must not be lossily
+        // collapsed to U+FFFD.
+        match rel.to_str() {
+            Some(s) => out.push(s.to_string()),
+            None => {
+                tracing::warn!(
+                    parent = ?parent.display(),
+                    relpath = ?rel,
+                    "workspace glob member relpath is not valid UTF-8; skipping"
+                );
+            }
+        }
+    }
+    out
 }
 
 /// Returns true if the glob shape goes beyond a single trailing `*` after

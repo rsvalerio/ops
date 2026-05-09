@@ -3,11 +3,11 @@ id: TASK-1146
 title: >-
   ARCH-1: extensions/duckdb/src/sql/ingest.rs is 1401 lines mixing five distinct
   concerns
-status: To Do
+status: Done
 assignee:
   - TASK-1264
 created_date: '2026-05-08 07:42'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 12:14'
 labels:
   - code-review-rust
   - ARCH
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Split into ingest/sidecar.rs, ingest/orchestrator.rs, ingest/sql.rs, ingest/dir.rs
-- [ ] #2 Keep sql/mod.rs's pub use surface identical so downstream callers see no churn
+- [x] #1 Split into ingest/sidecar.rs, ingest/orchestrator.rs, ingest/sql.rs, ingest/dir.rs
+- [x] #2 Keep sql/mod.rs's pub use surface identical so downstream callers see no churn
 <!-- AC:END -->

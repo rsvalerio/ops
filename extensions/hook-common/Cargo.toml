@@ -13,8 +13,10 @@ ops-core = { workspace = true }
 # on a fixed sibling name (`.<hook>.ops-tmp`) and clobber each other's
 # mid-write payload.
 tempfile = { workspace = true }
+thiserror = { workspace = true }
 toml_edit = { workspace = true }
 tracing = { workspace = true }
+wait-timeout = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

@@ -6,6 +6,8 @@
 
 use std::path::Path;
 
+use crate::go_syntax::{is_block_opener, strip_line_comment};
+
 pub(crate) fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
     let path = root.join("go.work");
     let content = ops_about::manifest_io::read_optional_text(&path, "go.work")?;
@@ -26,12 +28,12 @@ pub(crate) fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
             if line.is_empty() || line.starts_with("//") {
                 continue;
             }
-            let stripped = crate::go_mod::strip_line_comment(line).trim();
+            let stripped = strip_line_comment(line).trim();
             if !stripped.is_empty() {
                 dirs.push(stripped.to_string());
             }
         } else if let Some(rest) = line.strip_prefix("use ") {
-            let dir = crate::go_mod::strip_line_comment(rest.trim()).trim();
+            let dir = strip_line_comment(rest.trim()).trim();
             if !dir.is_empty() && !dir.starts_with('(') {
                 dirs.push(dir.to_string());
             }
@@ -43,21 +45,6 @@ pub(crate) fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
     } else {
         Some(dirs)
     }
-}
-
-/// Match the Go-mod-style `<keyword> (` block opener with optional whitespace
-/// between the keyword and the opening paren. Both `use (` and `use(` are
-/// accepted by cmd/go; the parser must accept either to avoid silently
-/// skipping block-form entries.
-pub(crate) fn is_block_opener(line: &str, keyword: &str) -> bool {
-    let Some(rest) = line.strip_prefix(keyword) else {
-        return false;
-    };
-    // TASK-0994: cmd/go accepts a trailing line comment on the block opener
-    // itself (e.g. `use ( // members`). Strip it before the equality check so
-    // we don't silently treat the entire block as if the opener were absent.
-    let rest = crate::go_mod::strip_line_comment(rest).trim();
-    rest == "("
 }
 
 #[cfg(test)]

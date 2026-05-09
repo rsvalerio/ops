@@ -1,11 +1,11 @@
 ---
 id: TASK-1156
 title: 'FN-1: resolved_workspace_members is 110 lines with 5-deep nesting'
-status: To Do
+status: Done
 assignee:
   - TASK-1264
 created_date: '2026-05-08 07:44'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-09 12:20'
 labels:
   - code-review-rust
   - FN
@@ -25,7 +25,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract expand_member_glob(prefix, parent, root) -> Vec<String> covering the read_dir walk and per-entry boundary checks
-- [ ] #2 Extract classify_member(spec) -> MemberShape::Literal | Glob | Unsupported so dispatch reads as a state machine
-- [ ] #3 Top-level fn at orchestration: classify → expand → exclude/sort/dedup; cyclomatic complexity ≤10
+- [x] #1 Extract expand_member_glob(prefix, parent, root) -> Vec<String> covering the read_dir walk and per-entry boundary checks
+- [x] #2 Extract classify_member(spec) -> MemberShape::Literal | Glob | Unsupported so dispatch reads as a state machine
+- [x] #3 Top-level fn at orchestration: classify → expand → exclude/sort/dedup; cyclomatic complexity ≤10
 <!-- AC:END -->
