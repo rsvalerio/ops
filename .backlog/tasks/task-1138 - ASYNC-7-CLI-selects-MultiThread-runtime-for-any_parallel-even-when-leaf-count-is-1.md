@@ -3,11 +3,11 @@ id: TASK-1138
 title: >-
   ASYNC-7: CLI selects MultiThread runtime for any_parallel even when leaf count
   is 1
-status: To Do
+status: Done
 assignee:
   - TASK-1271
 created_date: '2026-05-08 07:40'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 07:45'
 labels:
   - code-review-rust
   - ASYNC

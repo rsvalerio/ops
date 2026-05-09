@@ -3,11 +3,11 @@ id: TASK-1219
 title: >-
   READ-5: OutputConfig::default uses terminal-dependent default_columns making
   config deserialization non-deterministic
-status: To Do
+status: Done
 assignee:
   - TASK-1271
 created_date: '2026-05-08 12:56'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 07:49'
 labels:
   - code-review-rust
   - readability

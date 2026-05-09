@@ -278,7 +278,7 @@ impl Default for OutputConfig {
     fn default() -> Self {
         Self {
             theme: default_theme(),
-            columns: default_columns(),
+            columns: AUTO_COLUMNS,
             show_error_detail: true,
             stderr_tail_lines: default_stderr_tail_lines(),
             category_order: Vec::new(),
@@ -290,14 +290,18 @@ fn default_theme() -> String {
     "classic".into()
 }
 
-/// Fixed default used by the serde skip predicate so serialization is deterministic
-/// regardless of terminal width. Runtime display uses terminal-responsive `default_columns()`.
-const SERIALIZATION_DEFAULT_COLUMNS: u16 = 80;
+/// READ-5 / TASK-1219: deserialising `[output]` must produce a deterministic
+/// `Config` regardless of the calling terminal. Use `0` as an "auto" sentinel
+/// for the serde default; terminal-aware width is resolved at render time via
+/// [`OutputConfig::resolve_columns`].
+pub(crate) const AUTO_COLUMNS: u16 = 0;
+
+/// Fallback used when no terminal is attached (CI, piped output) and the user
+/// did not pin `columns` in `.ops.toml`.
+const FALLBACK_COLUMNS: u16 = 80;
 
 fn default_columns() -> u16 {
-    terminal_size::terminal_size()
-        .map(|(w, _)| scale_columns(w.0))
-        .unwrap_or(SERIALIZATION_DEFAULT_COLUMNS)
+    AUTO_COLUMNS
 }
 
 /// Compute 90% of the reported terminal width without wrapping u16.
@@ -309,7 +313,23 @@ fn scale_columns(width: u16) -> u16 {
 }
 
 fn is_default_columns(v: &u16) -> bool {
-    *v == SERIALIZATION_DEFAULT_COLUMNS
+    *v == AUTO_COLUMNS
+}
+
+impl OutputConfig {
+    /// Effective column width for rendering. When `columns` is the auto
+    /// sentinel (`0`), probe the terminal at call time; otherwise honour the
+    /// pinned config value. READ-5 / TASK-1219.
+    #[must_use]
+    pub fn resolve_columns(&self) -> u16 {
+        if self.columns == AUTO_COLUMNS {
+            terminal_size::terminal_size()
+                .map(|(w, _)| scale_columns(w.0))
+                .unwrap_or(FALLBACK_COLUMNS)
+        } else {
+            self.columns
+        }
+    }
 }
 
 fn default_stderr_tail_lines() -> usize {

@@ -3,11 +3,11 @@ id: TASK-1187
 title: >-
   READ-5: format_language_breakdown uses byte-len for column padding instead of
   display-width
-status: To Do
+status: Done
 assignee:
   - TASK-1271
 created_date: '2026-05-08 08:11'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 07:48'
 labels:
   - code-review-rust
   - read

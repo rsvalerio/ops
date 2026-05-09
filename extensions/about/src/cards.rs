@@ -7,8 +7,10 @@ use ops_core::output::display_width;
 use ops_core::project_identity::ProjectUnit;
 use ops_core::style::{cyan, dim, grey, white};
 
+#[cfg(test)]
+use crate::text_util::get_terminal_width;
 use crate::text_util::{
-    format_number, get_terminal_width, pad_to_width_plain, truncate_to_width, tty_style, wrap_text,
+    format_number, pad_to_width_plain, truncate_to_width, tty_style, wrap_text,
 };
 
 /// Layout constants for about pages.
@@ -162,7 +164,8 @@ pub fn render_card(unit: &ProjectUnit, is_tty: bool) -> Vec<String> {
 /// direct stdout renders. Buffer-writing callers must use
 /// [`layout_cards_in_grid_with_width`] and supply a width that reflects the
 /// destination they are rendering into.
-pub fn layout_cards_in_grid(cards: &[Vec<String>]) -> Vec<String> {
+#[cfg(test)]
+pub(crate) fn layout_cards_in_grid(cards: &[Vec<String>]) -> Vec<String> {
     layout_cards_in_grid_with_width(cards, get_terminal_width())
 }
 

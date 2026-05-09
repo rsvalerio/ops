@@ -4,6 +4,7 @@ use super::format::{
     compose_codebase_value, compose_project_value, compose_stack_value, field_emoji,
 };
 use super::ProjectIdentity;
+use crate::output::display_width;
 use crate::style::dim_gated;
 use crate::text::format_number;
 
@@ -144,7 +145,16 @@ impl AboutCard {
             if !lines.is_empty() {
                 lines.push(String::new());
             }
-            let max_key_len = self.fields.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+            // PERF-3 / TASK-1220: align by display width, not byte length, so
+            // multi-byte keys do not shift the value column by one cell per
+            // non-ASCII char. Mirrors the format_language_breakdown / theme_cmd
+            // alignment pattern.
+            let max_key_len = self
+                .fields
+                .iter()
+                .map(|(k, _)| display_width(k))
+                .max()
+                .unwrap_or(0);
             let cont_indent = continuation_indent(max_key_len);
             for (key, value) in &self.fields {
                 lines.extend(render_field(key, value, max_key_len, &cont_indent, is_tty));
@@ -207,15 +217,45 @@ fn render_field(
     let emoji = field_emoji(key, value);
     let mut value_lines = value.split('\n');
     let first = value_lines.next().unwrap_or("");
-    let mut out = vec![format!(
-        "  {} {:<width$} {}",
-        emoji,
-        key,
-        styled(first),
-        width = max_key_len + 2
-    )];
+    let pad = (max_key_len + 2).saturating_sub(display_width(key));
+    let mut padded_key = String::from(key);
+    for _ in 0..pad {
+        padded_key.push(' ');
+    }
+    let mut out = vec![format!("  {} {} {}", emoji, padded_key, styled(first))];
     for cont in value_lines {
         out.push(format!("{}{}", cont_indent, styled(cont)));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// PERF-3 / TASK-1220: a multi-byte key must not shift the value column
+    /// by one cell per non-ASCII char. The value should start at the same
+    /// display column as it would for an ASCII-only key of equal width.
+    #[test]
+    fn render_field_aligns_multi_byte_key_by_display_width() {
+        let card = AboutCardBuilder::default()
+            .fields(vec![
+                ("name".to_string(), "alpha".to_string()),
+                ("名前".to_string(), "beta".to_string()),
+            ])
+            .build();
+        let rendered = card.render(false);
+        let lines: Vec<&str> = rendered.lines().collect();
+        let name_line = lines.iter().find(|l| l.contains("alpha")).unwrap();
+        let cjk_line = lines.iter().find(|l| l.contains("beta")).unwrap();
+        let value_col = |line: &str, value: &str| -> usize {
+            let idx = line.find(value).unwrap();
+            display_width(&line[..idx])
+        };
+        assert_eq!(
+            value_col(name_line, "alpha"),
+            value_col(cjk_line, "beta"),
+            "value column must align by display width"
+        );
+    }
 }

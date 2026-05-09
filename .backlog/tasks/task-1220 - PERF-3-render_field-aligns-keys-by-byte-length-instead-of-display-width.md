@@ -1,11 +1,11 @@
 ---
 id: TASK-1220
 title: 'PERF-3: render_field aligns keys by byte length instead of display width'
-status: To Do
+status: Done
 assignee:
   - TASK-1271
 created_date: '2026-05-08 12:56'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 07:50'
 labels:
   - code-review-rust
   - performance

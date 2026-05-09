@@ -3,11 +3,11 @@ id: TASK-1153
 title: >-
   READ-5: layout_cards_in_grid public entry silently picks 120-col fallback on
   non-TTY callers
-status: To Do
+status: Done
 assignee:
   - TASK-1271
 created_date: '2026-05-08 07:43'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 07:46'
 labels:
   - code-review-rust
   - READ

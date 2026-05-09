@@ -142,7 +142,7 @@ impl ProgressDisplay {
         Ok(Self {
             render: RenderConfig {
                 theme: resolved_theme,
-                columns: output.columns,
+                columns: output.resolve_columns(),
                 is_tty,
                 show_error_detail: output.show_error_detail,
                 stderr_tail,

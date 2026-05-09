@@ -4,6 +4,7 @@
 //! text blocks used by [`super::AboutCard`].
 
 use super::{LanguageStat, ProjectIdentity};
+use crate::output::display_width;
 use crate::text::format_number;
 
 /// Map a field (key, value) pair to its emoji prefix. The `stack` field is
@@ -111,10 +112,14 @@ fn format_language_breakdown(
     if langs.is_empty() {
         return Vec::new();
     }
+    // READ-5 (TASK-1187): align by display width, not byte length —
+    // `short_language_name` falls back to the original name verbatim, so a
+    // future non-ASCII LanguageStat would otherwise misalign the column.
+    // Pattern mirrors theme_cmd / tools_cmd / help.rs.
     let name_width = langs
         .iter()
         .take(top_n)
-        .map(|l| short_language_name(&l.name).len())
+        .map(|l| display_width(short_language_name(&l.name)))
         .max()
         .unwrap_or(0);
     let value_width = langs
@@ -127,13 +132,18 @@ fn format_language_breakdown(
         .iter()
         .take(top_n)
         .map(|l| {
+            let short = short_language_name(&l.name);
+            let pad = name_width.saturating_sub(display_width(short));
+            let mut padded_name = String::from(short);
+            for _ in 0..pad {
+                padded_name.push(' ');
+            }
             format!(
-                "  {} {:<name_w$}  {:>val_w$} ({:.1}%)",
+                "  {} {}  {:>val_w$} ({:.1}%)",
                 language_emoji(&l.name),
-                short_language_name(&l.name),
+                padded_name,
                 format_number(value_fn(l)),
                 pct_fn(l),
-                name_w = name_width,
                 val_w = value_width,
             )
         })
@@ -258,5 +268,29 @@ mod tests {
         assert_eq!(stack_emoji("Brainfuck"), "\u{1f4da}");
         // Generic codebase: 📄 (plain document)
         assert_eq!(language_emoji("Brainfuck"), "\u{1f4c4}");
+    }
+
+    /// READ-5 / TASK-1187: language column must align by display width, so a
+    /// non-ASCII fallback name lines up under an ASCII sibling at the same
+    /// terminal column.
+    #[test]
+    fn language_breakdown_aligns_non_ascii_names_by_display_width() {
+        let langs = vec![
+            LanguageStat::new("日本語", 100, 1, 50.0, 50.0),
+            LanguageStat::new("Rust", 100, 1, 50.0, 50.0),
+        ];
+        let lines = format_language_breakdown(&langs, 5, |l| l.loc, |l| l.loc_pct);
+        assert_eq!(lines.len(), 2);
+
+        // The numeric value column starts after "  <emoji> <name><pad>  "; using
+        // display_width on the prefix preceding the value gives the column
+        // position. Both rows must put "100" at the same column.
+        let col = |line: &str| -> usize {
+            let idx = line
+                .find(|c: char| c.is_ascii_digit())
+                .expect("value digit present");
+            display_width(&line[..idx])
+        };
+        assert_eq!(col(&lines[0]), col(&lines[1]));
     }
 }

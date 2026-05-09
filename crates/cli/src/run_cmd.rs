@@ -227,7 +227,11 @@ fn run_commands_with_display(
     ))?;
 
     let _echo_guard = EchoGuard::disable_echo();
-    let kind = if plan.any_parallel {
+    // ASYNC-7 / TASK-1138: parallel orchestration only pays off with >=2 leaves;
+    // a 1-leaf plan with `parallel = true` shortcuts to `run_plan` in
+    // `run_plan_parallel` (parallel.rs), so picking MultiThread here would
+    // pay worker-thread spin-up for nothing. Mirror that threshold.
+    let kind = if plan.any_parallel && plan.leaf_ids.len() > 1 {
         RuntimeKind::MultiThread
     } else {
         RuntimeKind::Sequential
