@@ -26,6 +26,20 @@ pub fn parse_terminal_width(raw: Option<&str>) -> usize {
     raw.and_then(|s| s.parse().ok()).unwrap_or(120)
 }
 
+/// Trim an `Option<String>`'s body and drop empty results.
+///
+/// DUP-3 / TASK-1258: about-node and about-python both reimplemented this
+/// helper verbatim (their per-site copies cite ERR-2 / TASK-0563 and
+/// TASK-0566). Lifting it onto `ops_about` collapses the three drift surfaces
+/// onto one policy — tightening the trim semantics (e.g. dropping
+/// whitespace-only Unicode controls) lands once.
+#[must_use]
+pub fn trim_nonempty(value: Option<String>) -> Option<String> {
+    value
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 pub fn char_display_width(c: char) -> usize {
     unicode_width::UnicodeWidthChar::width(c).unwrap_or(0)
 }

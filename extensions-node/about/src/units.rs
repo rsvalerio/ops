@@ -93,7 +93,7 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
     // the per-process manifest cache. Each consumer still parses its own
     // typed projection (`RawRoot` here, `RawPackage` for identity) — only
     // the IO + UTF-8 validation is deduplicated, no Value tree clone.
-    if let Some(content) = crate::manifest_cache::package_json_text(root) {
+    if let Some(content) = ops_about::manifest_cache::for_filename("package.json").read(root) {
         match serde_json::from_str::<RawRoot>(&content) {
             Ok(raw) => {
                 if let Some(ws) = raw.workspaces {

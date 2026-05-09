@@ -9,7 +9,6 @@
 //! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
 //! manifest does not silently look like a missing one (TASK-0394).
 
-mod manifest_cache;
 mod units;
 
 use std::path::Path;
@@ -175,7 +174,7 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
     // toml::from_str project straight into RawPyproject — avoids the prior
     // `(*value).clone().try_into()` which materialised a fresh 2-10 KB
     // toml::Value tree per provider call.
-    let text = manifest_cache::pyproject_text(project_root)?;
+    let text = ops_about::manifest_cache::for_filename("pyproject.toml").read(project_root)?;
     let raw: RawPyproject = match toml::from_str(&text) {
         Ok(r) => r,
         Err(e) => {
@@ -341,24 +340,22 @@ fn pick_url(
     normalized: &std::collections::HashMap<String, &String>,
     keys: &[&str],
 ) -> Option<String> {
-    keys.iter()
-        .find_map(|target| {
-            let target_norm = normalize_url_key(target);
-            normalized.get(&target_norm).map(|v| (*v).clone())
-        })
-        // TASK-0964: align with the workspace-wide ERR-2 / TASK-0704 trim+drop
-        // policy so a whitespace-only URL renders as "no homepage" instead of
-        // an empty About bullet.
-        .map(|s| s.trim().to_string())
-        // SEC-2 / TASK-1207: a `[project.urls]` value containing any control
-        // byte (C0 / DEL / Unicode `is_control`) is dropped entirely, mirroring
-        // the SEC-2 / TASK-1165 policy in
-        // `extensions-node/about::repo_url::normalize_repo_url`. Stripping
-        // would silently concatenate the attacker-controlled tail
-        // (`https://demo.dev\nINJECT` → `https://demo.devINJECT`) into a
-        // clickable URL pointing at an attacker-chosen path; dropping
-        // surfaces the field as missing in About cards / markdown / HTML.
-        .filter(|s| !s.is_empty() && !contains_control_chars(s))
+    let raw = keys.iter().find_map(|target| {
+        let target_norm = normalize_url_key(target);
+        normalized.get(&target_norm).map(|v| (*v).clone())
+    });
+    // DUP-3 / TASK-1258: route through the shared trim+drop helper rather
+    // than reimplement the chain inline. TASK-0964 / ERR-2 / TASK-0704
+    // semantics are preserved: a whitespace-only URL renders as "no
+    // homepage" instead of an empty About bullet.
+    //
+    // SEC-2 / TASK-1207: any control byte (C0 / DEL / Unicode `is_control`)
+    // drops the field entirely, mirroring the SEC-2 / TASK-1165 policy in
+    // `extensions-node/about::repo_url::normalize_repo_url`. Stripping would
+    // silently concatenate the attacker-controlled tail
+    // (`https://demo.dev\nINJECT` → `https://demo.devINJECT`) into a
+    // clickable URL; dropping surfaces the field as missing.
+    trim_nonempty(raw).filter(|s| !contains_control_chars(s))
 }
 
 /// SEC-2 / TASK-1207: detect ASCII / Unicode control characters (C0:
@@ -376,11 +373,10 @@ fn normalize_url_key(key: &str) -> String {
     key.trim().to_ascii_lowercase().replace('-', " ")
 }
 
-fn trim_nonempty(value: Option<String>) -> Option<String> {
-    value
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
+/// DUP-3 / TASK-1258: route through the shared
+/// [`ops_about::text_util::trim_nonempty`] so the about-python and
+/// about-node ERR-2 contracts are pinned at the same source location.
+use ops_about::text_util::trim_nonempty;
 
 #[cfg(test)]
 mod tests {

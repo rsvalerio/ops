@@ -187,29 +187,9 @@ impl DataProvider for RustCoverageProvider {
 #[cfg(test)]
 mod cache_tests {
     use super::cached_query_project_coverage;
+    use ops_about::test_support::TracingBuf;
     use ops_duckdb::DuckDb;
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
-
-    #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-
-    impl std::io::Write for BufWriter {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
+    use std::sync::Arc;
 
     /// DUP-1 / TASK-1079: the identity-metrics and coverage providers used
     /// to dispatch their own `query_project_coverage` against the same
@@ -241,10 +221,9 @@ mod cache_tests {
             .expect("seed broken-schema coverage_files");
         }
 
-        let buf = BufWriter::default();
-        let captured = buf.0.clone();
+        let buf = TracingBuf::default();
         let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
+            .with_writer(buf.clone())
             .with_max_level(tracing::Level::WARN)
             .with_ansi(false)
             .finish();
@@ -264,7 +243,7 @@ mod cache_tests {
         assert!(first.is_none(), "first call must hit fallback");
         assert!(second.is_none(), "second call must hit cached fallback");
 
-        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        let logs = buf.captured();
         let warn_count = logs.matches("query_project_coverage").count();
         assert_eq!(
             warn_count, 1,
@@ -298,11 +277,11 @@ mod cache_tests {
             .expect("seed broken-schema coverage_files");
         }
 
-        let captured = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let captured = TracingBuf::default();
 
         let make_subscriber = || {
             tracing_subscriber::fmt()
-                .with_writer(BufWriter(Arc::clone(&captured)))
+                .with_writer(captured.clone())
                 .with_max_level(tracing::Level::WARN)
                 .with_ansi(false)
                 .finish()
@@ -332,7 +311,7 @@ mod cache_tests {
         });
         let _ = h_a.join().unwrap();
         let _ = h_b.join().unwrap();
-        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        let logs = captured.captured();
 
         let warn_count = logs.matches("query_project_coverage").count();
         assert_eq!(

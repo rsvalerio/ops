@@ -10,13 +10,13 @@
 //! workspace globs with the static expander below. `MetadataProvider` is used
 //! by `deps_provider` where dependency graph data is unavoidable.
 
+use ops_about::lru::{next_lru_tick, LruVictimQueue};
 use ops_cargo_toml::{
     find_workspace_root_strict, CargoToml, CargoTomlProvider, FindWorkspaceRootError,
 };
 use ops_extension::{Context, DataProviderError};
 use serde::Deserialize;
-use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -28,16 +28,6 @@ use std::time::SystemTime;
 /// per cwd indefinitely. When the cap is hit on insert we evict the
 /// least-recently-used entry (LRU) so steady-state hits remain warm.
 const MAX_TYPED_MANIFEST_CACHE_ENTRIES: usize = 64;
-
-/// CONC-2 / TASK-1023: monotonic tick stamped on every cache hit / insert.
-/// The lowest tick is the least-recently-used entry and is evicted when
-/// the cap is hit. Using `AtomicU64::Relaxed` is sufficient: ordering
-/// across threads is irrelevant for victim selection — we only need each
-/// access to receive a strictly increasing stamp under the cache lock.
-fn next_lru_tick() -> u64 {
-    static LRU_TICK: AtomicU64 = AtomicU64::new(0);
-    LRU_TICK.fetch_add(1, Ordering::Relaxed)
-}
 
 /// CONC-2 / TASK-0843: cache entry pairs the parsed manifest with the
 /// `Cargo.toml` mtime captured at parse time. On every cache lookup we
@@ -77,28 +67,24 @@ struct TypedManifestEntry {
 /// module-level lockstep contract.
 struct TypedManifestCache {
     map: HashMap<PathBuf, TypedManifestEntry>,
-    victim_heap: BinaryHeap<Reverse<(u64, PathBuf)>>,
+    victim_queue: LruVictimQueue<PathBuf>,
 }
 
 impl TypedManifestCache {
     fn new() -> Self {
         Self {
             map: HashMap::new(),
-            victim_heap: BinaryHeap::new(),
+            victim_queue: LruVictimQueue::new(),
         }
     }
 
     fn evict_lru(&mut self) -> Option<PathBuf> {
-        while let Some(Reverse((tick, path))) = self.victim_heap.pop() {
-            match self.map.get(&path) {
-                Some(entry) if entry.last_accessed == tick => {
-                    self.map.remove(&path);
-                    return Some(path);
-                }
-                _ => continue,
-            }
-        }
-        None
+        let map = &mut self.map;
+        let victim = self
+            .victim_queue
+            .pop_lru(|path, tick| map.get(path).is_some_and(|e| e.last_accessed == tick))?;
+        map.remove(&victim);
+        Some(victim)
     }
 }
 
@@ -326,7 +312,7 @@ pub(crate) fn load_workspace_manifest(
                 let tick = next_lru_tick();
                 entry.last_accessed = tick;
                 let loaded = entry.loaded.clone();
-                guard.victim_heap.push(Reverse((tick, cwd.clone())));
+                guard.victim_queue.push(tick, cwd.clone());
                 return Ok(loaded);
             }
         }
@@ -401,7 +387,7 @@ pub(crate) fn load_workspace_manifest(
             let _ = guard.evict_lru();
         }
         let tick = next_lru_tick();
-        guard.victim_heap.push(Reverse((tick, cwd.clone())));
+        guard.victim_queue.push(tick, cwd.clone());
         guard.map.insert(
             cwd,
             TypedManifestEntry {
@@ -827,32 +813,37 @@ mod tests {
         evict_cache_for(&path);
     }
 
-    /// ERR-1 / TASK-0844: a poisoned cache mutex (caused by a panic in
-    /// another provider while it held the lock) must NOT silently degrade
-    /// the cache to "always-miss". load_workspace_manifest must recover via
-    /// PoisonError::into_inner and emit a one-shot warn so operators see the
-    /// signal instead of paying a silent perf cliff.
-    #[serial_test::serial(typed_manifest_cache)]
-    #[test]
-    fn typed_manifest_cache_recovers_from_poison_with_warn() {
-        use std::sync::{Arc as StdArc, Mutex as StdMutex};
-        use tracing_subscriber::fmt::MakeWriter;
-
-        // TASK-0962: poison-recovery now logs every cycle (with a monotonic
-        // recovery_count) instead of one-shot via OnceLock, so the warn is
-        // always observable here regardless of sibling-test ordering.
+    /// TEST-12 / TASK-1162: shared body for the poison-recovery tests below.
+    /// `n_cycles` poison-and-recover iterations: each cycle panics inside a
+    /// held lock on a sibling thread, then drives `load_workspace_manifest`
+    /// to observe the recovery warn. Returns the captured WARN-level logs
+    /// emitted during the FINAL recovery so each caller can assert against
+    /// its own contract (one-cycle vs. second-cycle wording).
+    fn assert_poison_warn_after(n_cycles: usize, manifest_name: &str) -> String {
+        assert!(n_cycles >= 1, "at least one poison cycle required");
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("Cargo.toml"),
-            "[package]\nname=\"poisoned\"\nversion=\"0.1.0\"\n",
+            format!("[package]\nname=\"{manifest_name}\"\nversion=\"0.1.0\"\n"),
         )
         .unwrap();
         evict_cache_for(dir.path());
 
-        // Poison the mutex by panicking inside a held lock on another thread.
+        // Drive the first n-1 poison-recover cycles untraced.
+        for _ in 0..(n_cycles - 1) {
+            let _ = std::thread::spawn(|| {
+                let _g = typed_manifest_cache().lock().unwrap();
+                panic!("poison cycle (warmup)");
+            })
+            .join();
+            let mut ctx = Context::test_context(dir.path().to_path_buf());
+            let _ = load_workspace_manifest(&mut ctx).expect("warmup recovery");
+        }
+
+        // Poison once more and capture this cycle's warn.
         let cache = typed_manifest_cache();
         let _ = std::thread::spawn(|| {
-            let _guard = typed_manifest_cache().lock().unwrap();
+            let _g = typed_manifest_cache().lock().unwrap();
             panic!("intentional poison for test");
         })
         .join();
@@ -861,28 +852,9 @@ mod tests {
             "mutex must be poisoned for the test premise"
         );
 
-        #[derive(Clone, Default)]
-        struct BufWriter(StdArc<StdMutex<Vec<u8>>>);
-        impl std::io::Write for BufWriter {
-            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(b);
-                Ok(b.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriter;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
-        let buf = BufWriter::default();
-        let captured = buf.0.clone();
+        let buf = ops_about::test_support::TracingBuf::default();
         let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
+            .with_writer(buf.clone())
             .with_max_level(tracing::Level::WARN)
             .with_ansi(false)
             .finish();
@@ -892,10 +864,30 @@ mod tests {
             tracing::subscriber::with_default(subscriber, || load_workspace_manifest(&mut ctx));
         assert!(result.is_ok(), "poisoned cache must recover, not propagate");
 
-        // TASK-0962: every recovery emits a warn carrying recovery_count, so
-        // the buffer is always populated regardless of which other test
-        // already poisoned this static.
-        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        // After recovery the cache itself is no longer poisoned-blocking
+        // (clear_poison + into_inner cleared the sticky flag).
+        assert!(
+            cache.lock().is_ok(),
+            "cache must be unpoisoned after into_inner recovery"
+        );
+
+        let logs = buf.captured();
+        evict_cache_for(dir.path());
+        logs
+    }
+
+    /// ERR-1 / TASK-0844: a poisoned cache mutex (caused by a panic in
+    /// another provider while it held the lock) must NOT silently degrade
+    /// the cache to "always-miss". load_workspace_manifest must recover via
+    /// PoisonError::into_inner and emit a warn so operators see the signal
+    /// instead of paying a silent perf cliff.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn typed_manifest_cache_recovers_from_poison_with_warn() {
+        // TASK-0962: poison-recovery now logs every cycle (with a monotonic
+        // recovery_count) instead of one-shot via OnceLock, so the warn is
+        // always observable here regardless of sibling-test ordering.
+        let logs = assert_poison_warn_after(1, "poisoned");
         assert!(
             logs.contains("poisoned"),
             "poison warn must mention poisoning, got: {logs}"
@@ -904,15 +896,6 @@ mod tests {
             logs.contains("recovery_count"),
             "poison warn must include monotonic recovery_count, got: {logs}"
         );
-
-        // After recovery the cache itself is no longer poisoned-blocking
-        // (we used into_inner, so the poison flag is cleared).
-        assert!(
-            cache.lock().is_ok(),
-            "cache must be unpoisoned after into_inner recovery"
-        );
-
-        evict_cache_for(dir.path());
     }
 
     /// TASK-0962: a *second* poison cycle (panic in a different provider
@@ -922,71 +905,11 @@ mod tests {
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn typed_manifest_cache_second_poison_still_logs() {
-        use std::sync::{Arc as StdArc, Mutex as StdMutex};
-        use tracing_subscriber::fmt::MakeWriter;
-
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("Cargo.toml"),
-            "[package]\nname=\"poisoned-twice\"\nversion=\"0.1.0\"\n",
-        )
-        .unwrap();
-        evict_cache_for(dir.path());
-
-        // First poison + recovery: triggered via load_workspace_manifest so
-        // the OnceLock-or-counter path runs at least once before our
-        // observation window opens.
-        let _ = std::thread::spawn(|| {
-            let _g = typed_manifest_cache().lock().unwrap();
-            panic!("first poison");
-        })
-        .join();
-        let mut ctx = Context::test_context(dir.path().to_path_buf());
-        let _ = load_workspace_manifest(&mut ctx).expect("first recovery");
-
-        // Re-poison and capture the SECOND warn.
-        let _ = std::thread::spawn(|| {
-            let _g = typed_manifest_cache().lock().unwrap();
-            panic!("second poison");
-        })
-        .join();
-
-        #[derive(Clone, Default)]
-        struct BufWriter(StdArc<StdMutex<Vec<u8>>>);
-        impl std::io::Write for BufWriter {
-            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(b);
-                Ok(b.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriter;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-        let buf = BufWriter::default();
-        let captured = buf.0.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
-        let result =
-            tracing::subscriber::with_default(subscriber, || load_workspace_manifest(&mut ctx));
-        assert!(result.is_ok(), "second poison must also recover");
-
-        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        let logs = assert_poison_warn_after(2, "poisoned-twice");
         assert!(
             logs.contains("poisoned") && logs.contains("recovery_count"),
             "second poison cycle must still emit a warn with recovery_count, got: {logs}"
         );
-
-        evict_cache_for(dir.path());
     }
 
     /// CONC-2 / TASK-1198: two writes inside the same mtime tick (HFS+,
@@ -1093,7 +1016,7 @@ mod tests {
         {
             let mut guard = cache.lock().unwrap();
             guard.map.clear();
-            guard.victim_heap.clear();
+            guard.victim_queue.clear();
         }
         for i in 0..(MAX_TYPED_MANIFEST_CACHE_ENTRIES + 10) {
             let cwd = dir.path().join(format!("ws-{i}"));
@@ -1114,7 +1037,7 @@ mod tests {
         // Cleanup so we don't pollute later tests in the same process.
         let mut g = cache.lock().unwrap();
         g.map.clear();
-        g.victim_heap.clear();
+        g.victim_queue.clear();
     }
 
     /// CONC-2 / TASK-1023: eviction must pick the least-recently-used entry,
@@ -1130,7 +1053,7 @@ mod tests {
         {
             let mut guard = cache.lock().unwrap();
             guard.map.clear();
-            guard.victim_heap.clear();
+            guard.victim_queue.clear();
         }
 
         // Fill the cache to MAX with a deterministic insertion order.
@@ -1198,7 +1121,7 @@ mod tests {
 
         let mut g = cache.lock().unwrap();
         g.map.clear();
-        g.victim_heap.clear();
+        g.victim_queue.clear();
     }
 
     fn manifest_with_members(members: &[&str]) -> CargoToml {

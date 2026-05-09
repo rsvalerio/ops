@@ -190,10 +190,24 @@ impl<'a> IntoIterator for &'a CommandRegistry {
 }
 
 impl FromIterator<(CommandId, CommandSpec)> for CommandRegistry {
+    /// DUP-3 / TASK-1225: drain the audit trail emitted by [`Self::insert`]
+    /// and surface duplicates via `tracing::warn!` here, since
+    /// `collect()` / `from_iter()` consumers don't see the
+    /// `duplicate_inserts` Vec the per-extension registration path drains
+    /// explicitly. Without this, building a registry through
+    /// `iter.collect()` silently lost the warning signal that ERR-2 /
+    /// TASK-0579 hardened the `.insert()` path to preserve.
     fn from_iter<I: IntoIterator<Item = (CommandId, CommandSpec)>>(iter: I) -> Self {
         let mut reg = Self::new();
         for (id, spec) in iter {
             reg.insert(id, spec);
+        }
+        for dup in reg.take_duplicate_inserts() {
+            tracing::warn!(
+                command_id = %dup.as_str(),
+                "CommandRegistry::from_iter: duplicate command id; later spec overrode earlier — \
+                 collect/from_iter drained audit trail in place of explicit insert callers"
+            );
         }
         reg
     }

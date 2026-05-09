@@ -1,5 +1,5 @@
 use super::*;
-use ops_core::config::{CommandSpec, ExecCommandSpec};
+use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -604,6 +604,45 @@ fn data_registry_default() {
 /// extension that builds a provider name from external data containing
 /// newlines or ANSI sequences cannot forge log entries through the
 /// duplicate-insert breadcrumb. Pin the value-level escape directly,
+/// DUP-3 / TASK-1225: building a `CommandRegistry` via `collect()` /
+/// `from_iter()` must NOT silently drop the duplicate-insert audit
+/// trail. The implementation drains `duplicate_inserts` and surfaces
+/// each duplicate via `tracing::warn!`, so the audit signal that
+/// ERR-2 / TASK-0579 hardened the `.insert()` path to preserve also
+/// reaches `collect()` consumers.
+#[test]
+fn command_registry_from_iter_drains_duplicate_audit_trail() {
+    let id = CommandId::new("dup");
+    let entries: Vec<(CommandId, CommandSpec)> = vec![
+        (
+            id.clone(),
+            CommandSpec::Exec(ExecCommandSpec::new("a", ["x"])),
+        ),
+        (
+            id.clone(),
+            CommandSpec::Exec(ExecCommandSpec::new("b", ["y"])),
+        ),
+    ];
+
+    let mut reg: CommandRegistry = entries.into_iter().collect();
+
+    // CommandRegistry::insert is last-write-wins (extension overrides
+    // are intentional); the audit trail surfaces the override regardless.
+    if let Some(CommandSpec::Exec(e)) = reg.get(&id) {
+        assert_eq!(e.program, "b");
+    } else {
+        panic!("unexpected spec variant");
+    }
+
+    // FromIterator drained the audit trail itself; subsequent callers
+    // observe an empty Vec — exactly the contract the implementation
+    // promises (no silent loss; warnings already emitted).
+    assert!(
+        reg.take_duplicate_inserts().is_empty(),
+        "FromIterator must drain the duplicate audit trail in place of the caller"
+    );
+}
+
 /// mirroring `program_field_debug_escapes_control_characters`
 /// (TASK-1127) and the broader workspace policy.
 #[test]

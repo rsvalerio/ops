@@ -54,7 +54,7 @@ fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
     // re-parsing the same `pyproject.toml`.
     // PERF-3 / TASK-0854: parse directly from the cached raw text into
     // the workspace shape, skipping the toml::Value intermediate clone.
-    let Some(text) = crate::manifest_cache::pyproject_text(root) else {
+    let Some(text) = ops_about::manifest_cache::for_filename("pyproject.toml").read(root) else {
         return Vec::new();
     };
     let raw: RawRoot = match toml::from_str(&text) {

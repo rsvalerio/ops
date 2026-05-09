@@ -11,7 +11,7 @@ duckdb = ["dep:ops-duckdb", "ops-extension/duckdb"]
 # DUP-3 / TASK-0985: shared `assert_debug_escapes_control_chars` helper for
 # the ERR-7 sweep regression tests in the about extensions. Enabled only by
 # dev-dependencies; production code never sees it.
-test-support = []
+test-support = ["dep:tracing-subscriber"]
 
 [dependencies]
 ops-core = { workspace = true }
@@ -23,6 +23,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
 unicode-width = { workspace = true }
 
 [dev-dependencies]

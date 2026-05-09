@@ -28,9 +28,8 @@ fn run_tools_list_to(config: &Config, w: &mut dyn Write) -> anyhow::Result<()> {
 
     writeln!(w, "Tools configured: {}\n", tools.len())?;
 
-    // TASK-0758: display-width measurement + manual space-pad mirrors
-    // help.rs render_grouped_sections — `String::len` undercounts CJK/wide
-    // chars and mis-aligns the description column.
+    // DUP-3 / TASK-1235: column padding routes through the shared
+    // [`ops_core::output::pad_to_display_width`] helper.
     let max_name_width = tools
         .iter()
         .map(|t| display_width(&t.name))
@@ -54,12 +53,7 @@ fn run_tools_list_to(config: &Config, w: &mut dyn Write) -> anyhow::Result<()> {
             ),
         };
 
-        let name_width = display_width(&tool.name);
-        let pad = max_name_width.saturating_sub(name_width);
-        let mut padded_name = tool.name.clone();
-        for _ in 0..pad {
-            padded_name.push(' ');
-        }
+        let padded_name = ops_core::output::pad_to_display_width(&tool.name, max_name_width);
         writeln!(
             w,
             "  {} {}  {}{}",

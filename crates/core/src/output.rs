@@ -9,6 +9,34 @@ pub fn display_width(s: &str) -> usize {
     s.width()
 }
 
+/// Append spaces to `name` until its display width reaches `target_cols`.
+///
+/// DUP-3 / TASK-1235: `help.rs::render_grouped_sections`,
+/// `tools_cmd.rs::run_tools_list_to`, and `theme_cmd.rs::run_theme_list_to`
+/// each implemented the same `display_width` measure + manual space-pad
+/// loop. Centralising here ensures any future tightening (e.g. tab
+/// expansion, ZWJ-emoji handling) lands once and the three list views stay
+/// column-aligned together.
+///
+/// Returns `name` unchanged when it already meets or exceeds `target_cols`,
+/// avoiding spurious allocations on the no-pad fast path. The padding
+/// counts in display columns (terminal cells) rather than `char` count, so
+/// CJK / wide emoji align with ASCII names in the same column.
+#[must_use]
+pub fn pad_to_display_width(name: &str, target_cols: usize) -> String {
+    let cols = display_width(name);
+    if cols >= target_cols {
+        return name.to_string();
+    }
+    let pad = target_cols - cols;
+    let mut out = String::with_capacity(name.len() + pad);
+    out.push_str(name);
+    for _ in 0..pad {
+        out.push(' ');
+    }
+    out
+}
+
 /// Live terminal width in columns reported by the OS (`ioctl(TIOCGWINSZ)` or
 /// the Windows console handle), or `None` when no terminal is attached.
 ///

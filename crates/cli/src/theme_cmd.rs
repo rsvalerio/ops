@@ -95,12 +95,7 @@ fn run_theme_list_to(config: &config::Config, w: &mut dyn Write) -> anyhow::Resu
 
     for option in options {
         let marker = if option.is_custom { " (custom)" } else { "" };
-        let name_width = display_width(&option.name);
-        let pad = max_name_width.saturating_sub(name_width);
-        let mut padded_name = option.name.clone();
-        for _ in 0..pad {
-            padded_name.push(' ');
-        }
+        let padded_name = ops_core::output::pad_to_display_width(&option.name, max_name_width);
         if is_tty {
             writeln!(
                 w,

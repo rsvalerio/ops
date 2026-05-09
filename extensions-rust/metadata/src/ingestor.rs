@@ -389,8 +389,7 @@ mod tests {
     /// array element) and assert the warn fires.
     #[test]
     fn metadata_load_warns_when_metadata_raw_has_multiple_rows() {
-        use std::sync::{Arc as StdArc, Mutex as StdMutex};
-        use tracing_subscriber::fmt::MakeWriter;
+        use ops_about::test_support::TracingBuf;
 
         fn sample_obj(workspace_root: &str) -> serde_json::Value {
             serde_json::json!({
@@ -441,28 +440,9 @@ mod tests {
         )
         .unwrap();
 
-        #[derive(Clone, Default)]
-        struct BufWriter(StdArc<StdMutex<Vec<u8>>>);
-        impl std::io::Write for BufWriter {
-            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(b);
-                Ok(b.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriter;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
-        let buf = BufWriter::default();
-        let captured = buf.0.clone();
+        let buf = TracingBuf::default();
         let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
+            .with_writer(buf.clone())
             .with_max_level(tracing::Level::WARN)
             .with_ansi(false)
             .finish();
@@ -473,7 +453,7 @@ mod tests {
             tracing::subscriber::with_default(subscriber, || ingestor.load(data_dir.path(), &db));
         assert!(result.is_ok(), "load should succeed (warn-only path)");
 
-        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        let logs = buf.captured();
         assert!(
             logs.contains("multiple workspace_root rows"),
             "expected warn about multiple workspace_root rows, got: {logs}"

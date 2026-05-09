@@ -162,12 +162,8 @@ pub(crate) fn ssh_to_https(rest: &str) -> String {
 /// every component is filtered out, the directory suffix is omitted and the
 /// base URL is returned unchanged.
 pub(crate) fn append_tree_directory(base: &str, directory: &str) -> String {
-    let normalized = directory.trim().trim_start_matches("./").replace('\\', "/");
-    let cleaned = normalized
-        .split('/')
-        .filter(|seg| !seg.is_empty() && *seg != "." && *seg != "..")
-        .collect::<Vec<_>>()
-        .join("/");
+    let normalized = directory.trim().trim_start_matches("./");
+    let cleaned = scrub_path_segments(normalized);
     if cleaned.is_empty() {
         return base.to_string();
     }
@@ -533,6 +529,20 @@ mod tests {
         let out = normalize_repo_url("git+https://github.com/o/../../etc/passwd.git");
         assert!(!out.contains(".."), "url still contains ..: {out}");
         assert_eq!(out, "https://github.com/o/etc/passwd");
+    }
+
+    /// DUP-3 / TASK-1122: both `normalize_repo_url`'s shorthand branch and
+    /// `append_tree_directory` route segment scrubbing through
+    /// [`scrub_path_segments`], so a future tightening of the SEC-14 filter
+    /// (Unicode bidi controls, encoded `..`, etc.) only needs to land in
+    /// one place. Pin equivalence on a `..`-laden input.
+    #[test]
+    fn append_tree_directory_and_shorthand_share_segment_filter() {
+        // Both entry points must drop `..` and `.` segments identically.
+        let tree = append_tree_directory("https://github.com/o/r", "a/../b/./c");
+        assert_eq!(tree, "https://github.com/o/r/tree/HEAD/a/b/c");
+        let shorthand = normalize_repo_url("github:a/../b/./c");
+        assert_eq!(shorthand, "https://github.com/a/b/c");
     }
 
     /// SEC-2 / TASK-1080: a debug-log of the normalised URL must remain

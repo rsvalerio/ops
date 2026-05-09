@@ -8,12 +8,31 @@
 use std::io::IsTerminal;
 use std::sync::OnceLock;
 
-fn color_enabled() -> bool {
-    static IS_TTY: OnceLock<bool> = OnceLock::new();
-    *IS_TTY.get_or_init(|| std::io::stdout().is_terminal()) && !no_color_env()
+/// DUP-3 / TASK-1188: shared color-enablement resolver. Both
+/// `core::style::cyan` (stdout-bound) and `theme::style::sgr::apply_style`
+/// (stderr-bound) used to compute their own `OnceLock<bool>` cache against
+/// different streams, so a terminal where stdout is a TTY but stderr is
+/// piped (or vice versa) silently disagreed on whether to emit SGR codes.
+/// The shared resolver caches `is_terminal()` for **both** streams once per
+/// process and enables color when **either** is a TTY (and `NO_COLOR` is
+/// unset). Either stream being a real terminal means there is a human
+/// reader who benefits from styling; emitting SGR into the other stream is
+/// the same risk the per-stream-only gate already accepted on the styled
+/// branch.
+#[must_use]
+pub fn color_enabled() -> bool {
+    static STDOUT_TTY: OnceLock<bool> = OnceLock::new();
+    static STDERR_TTY: OnceLock<bool> = OnceLock::new();
+    let stdout = *STDOUT_TTY.get_or_init(|| std::io::stdout().is_terminal());
+    let stderr = *STDERR_TTY.get_or_init(|| std::io::stderr().is_terminal());
+    (stdout || stderr) && !no_color_env()
 }
 
-fn no_color_env() -> bool {
+/// True if `NO_COLOR` is set to any non-empty value (per
+/// <https://no-color.org/>). Public so the theme crate's SGR application
+/// can route through the same env probe.
+#[must_use]
+pub fn no_color_env() -> bool {
     std::env::var_os("NO_COLOR")
         .map(|v| !v.is_empty())
         .unwrap_or(false)

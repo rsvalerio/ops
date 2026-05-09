@@ -2087,6 +2087,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
+ "tracing-subscriber",
  "unicode-width",
 ]
 
@@ -2330,6 +2331,7 @@ dependencies = [
  "anyhow",
  "duckdb",
  "linkme",
+ "ops-about",
  "ops-core",
  "ops-duckdb",
  "ops-extension",

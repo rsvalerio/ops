@@ -10,8 +10,6 @@
 //! misconfigured themes degrade gracefully to plain text.
 
 use std::borrow::Cow;
-use std::io::IsTerminal;
-use std::sync::OnceLock;
 
 /// Wrap `text` in ANSI SGR codes derived from `spec`, if stderr is a TTY
 /// (and `NO_COLOR` is unset) and the spec contains any recognized tokens.
@@ -27,16 +25,13 @@ pub fn apply_style<'a>(text: &'a str, spec: &str) -> Cow<'a, str> {
     apply_style_gated(text, spec, color_enabled())
 }
 
+/// DUP-3 / TASK-1188: routes through the shared
+/// [`ops_core::style::color_enabled`] resolver so both color subsystems
+/// agree under the same NO_COLOR / TTY conditions. The previous per-module
+/// `OnceLock<bool>` looked at a different stream than `core::style` and
+/// could silently disagree (stdout-only TTY etc.).
 fn color_enabled() -> bool {
-    static IS_TTY: OnceLock<bool> = OnceLock::new();
-    *IS_TTY.get_or_init(|| std::io::stderr().is_terminal()) && !no_color_env()
-}
-
-/// True if `NO_COLOR` is set to any non-empty value.
-fn no_color_env() -> bool {
-    std::env::var_os("NO_COLOR")
-        .map(|v| !v.is_empty())
-        .unwrap_or(false)
+    ops_core::style::color_enabled()
 }
 
 /// Same as [`apply_style`] but with explicit TTY gating — used in tests.
@@ -155,6 +150,26 @@ mod tests {
         let out = apply_style_gated("y", "nope zzz", true);
         assert_eq!(out, "y");
         assert!(matches!(out, Cow::Borrowed(_)));
+    }
+
+    /// DUP-3 / TASK-1188: both color subsystems must agree on enablement
+    /// under the same NO_COLOR / TTY conditions. Pinning equivalence
+    /// directly via `apply_style_gated` and `cyan_gated` (the explicit-
+    /// override variants) ensures the styled branches produce parallel
+    /// output for the same `enabled` boolean — i.e. neither subsystem
+    /// silently emits codes the other skips.
+    #[test]
+    fn core_and_theme_color_subsystems_agree_on_enablement() {
+        // When disabled, both must return plain text.
+        let theme_off = apply_style_gated("hi", "cyan", false);
+        let core_off = ops_core::style::cyan_gated("hi", false);
+        assert_eq!(theme_off, "hi");
+        assert_eq!(core_off, "hi");
+        // When enabled, both must emit cyan SGR around the same text.
+        let theme_on = apply_style_gated("hi", "cyan", true);
+        let core_on = ops_core::style::cyan_gated("hi", true);
+        assert_eq!(theme_on, "\x1b[36mhi\x1b[0m");
+        assert_eq!(core_on, "\x1b[36mhi\x1b[0m");
     }
 
     #[test]

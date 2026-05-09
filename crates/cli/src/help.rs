@@ -142,35 +142,34 @@ pub(crate) fn sort_entries_by_category(entries: &mut [CmdEntry], category_order:
 /// Render sorted command entries into a grouped-sections string suitable for
 /// insertion into the help output.
 pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
-    use ops_core::output::display_width;
+    use ops_core::output::{display_width, pad_to_display_width};
     // READ-2 / TASK-0734: width must be measured in display columns, not
     // bytes — `String::len` undercounts CJK / wide / combining characters
     // and mis-aligns the column when extension-supplied command names
     // contain non-ASCII text. Pair this with a manual space-pad below so
     // `{:<width$}` (which sizes in `char` count, not display width) cannot
     // re-introduce the same drift.
-    // PERF-3 / TASK-1186: walk the entries once to compute each name's
-    // display width, then derive `max` from that vector. The previous shape
-    // measured every name twice (once for the max, once again per row),
-    // doubling the unicode-width walk for every `ops --help` invocation.
-    let name_widths: Vec<usize> = entries.iter().map(|e| display_width(&e.name)).collect();
-    let max_name_width = name_widths.iter().copied().max().unwrap_or(0);
+    // DUP-3 / TASK-1235: column padding routes through the shared
+    // [`ops_core::output::pad_to_display_width`] helper that the tools_cmd
+    // and theme_cmd list views also use, so the three help-style tables
+    // can't drift on the unicode-width measurement (CJK / wide emoji).
+    let max_name_width = entries
+        .iter()
+        .map(|e| display_width(&e.name))
+        .max()
+        .unwrap_or(0);
     let mut grouped = String::new();
     let mut current_category: Option<Option<&str>> = None;
 
-    for (entry, name_cols) in entries.iter().zip(name_widths.iter().copied()) {
+    for entry in entries {
         let cat = entry.category.as_deref();
         if current_category.as_ref() != Some(&cat) {
             let heading = cat.unwrap_or("Commands");
             grouped.push_str(&format!("\n{heading}:\n"));
             current_category = Some(cat);
         }
-        let pad = max_name_width.saturating_sub(name_cols);
         grouped.push_str("  ");
-        grouped.push_str(&entry.name);
-        for _ in 0..pad {
-            grouped.push(' ');
-        }
+        grouped.push_str(&pad_to_display_width(&entry.name, max_name_width));
         grouped.push_str("  ");
         grouped.push_str(&entry.about);
         grouped.push('\n');

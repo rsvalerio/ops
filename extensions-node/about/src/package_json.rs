@@ -81,7 +81,7 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
     // re-parse on the same `package.json`. Mirrors the Python
     // manifest_cache pattern (TASK-0816).
     let path = project_root.join("package.json");
-    let content = crate::manifest_cache::package_json_text(project_root)?;
+    let content = ops_about::manifest_cache::for_filename("package.json").read(project_root)?;
     let raw: RawPackage = match serde_json::from_str(&content) {
         Ok(r) => r,
         Err(e) => {
@@ -149,15 +149,12 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
     })
 }
 
-/// ERR-2 (TASK-0563): trim then drop empties, mirroring how `description`
-/// has been normalised since the field landed. Used for `name`, `version`,
-/// `homepage` so `package.json` with whitespace-only fields falls through to
-/// the dir-name fallback rather than rendering blank About cards.
-pub(crate) fn trim_nonempty(value: Option<String>) -> Option<String> {
-    value
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
+/// DUP-3 / TASK-1258: re-export of the shared
+/// [`ops_about::text_util::trim_nonempty`] so existing call sites keep their
+/// short name. Both about-node and about-python previously redefined this
+/// helper verbatim; the shared definition is the single drift surface for
+/// future tightening of ERR-2 trim semantics.
+pub(crate) use ops_about::text_util::trim_nonempty;
 
 fn format_person(p: PersonField) -> Option<String> {
     // ERR-2 (TASK-0566): trim and re-check empty so whitespace-only authors do

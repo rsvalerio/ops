@@ -24,27 +24,17 @@
 //! watchers) re-entering paths at a steady rate paid the full re-read cost
 //! in unison after each eviction storm.
 //!
-//! This LRU policy is kept in lockstep with the sibling `typed_manifest_cache`
-//! in `extensions-rust/about/src/query.rs` (TASK-1023). Any change to the
-//! eviction policy here MUST also be applied there, or the two caches will
-//! silently drift.
+//! DUP-1 / TASK-1145: the LRU bookkeeping (monotonic tick + min-heap victim
+//! queue with lazy invalidation) is shared with the sibling
+//! `typed_manifest_cache` in `extensions-rust/about/src/query.rs` via
+//! [`crate::lru`]. Both caches still own their own value type and cap, but
+//! the eviction *policy shape* lives in one source location so a future
+//! tweak cannot drift between them.
 
-use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
+use crate::lru::{next_lru_tick, LruVictimQueue};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-
-/// ARCH-1 / TASK-1106: monotonic tick stamped on every cache hit / insert,
-/// mirroring TASK-1023's `next_lru_tick` in the typed-manifest cache. The
-/// lowest tick is the least-recently-used entry and is evicted when the cap
-/// is hit. `AtomicU64::Relaxed` is sufficient: cross-thread ordering is
-/// irrelevant for victim selection — we only need each access to receive a
-/// strictly increasing stamp under the cache lock.
-fn next_lru_tick() -> u64 {
-    static LRU_TICK: AtomicU64 = AtomicU64::new(0);
-    LRU_TICK.fetch_add(1, Ordering::Relaxed)
-}
 
 /// Cache entry pairing a per-key `OnceLock` with an LRU access tick.
 ///
@@ -74,16 +64,14 @@ pub struct CacheEntry {
 /// tick against `map[path].last_accessed` before removing.
 pub struct CacheMap {
     map: HashMap<PathBuf, CacheEntry>,
-    /// Min-heap of (last_accessed_tick, path). `Reverse` flips `BinaryHeap`'s
-    /// max-heap default into a min-heap.
-    victim_heap: BinaryHeap<Reverse<(u64, PathBuf)>>,
+    victim_queue: LruVictimQueue<PathBuf>,
 }
 
 impl CacheMap {
     fn new() -> Self {
         Self {
             map: HashMap::new(),
-            victim_heap: BinaryHeap::new(),
+            victim_queue: LruVictimQueue::new(),
         }
     }
 
@@ -91,21 +79,16 @@ impl CacheMap {
         self.map.len()
     }
 
-    /// Pop the LRU victim by lazily skipping stale heap entries whose
-    /// `last_accessed` no longer matches the value recorded in `map`.
+    /// Pop the LRU victim. Stale heap heads (whose tick no longer matches
+    /// the live `map[path].last_accessed`) are skipped by the shared
+    /// [`LruVictimQueue`].
     fn evict_lru(&mut self) -> Option<PathBuf> {
-        while let Some(Reverse((tick, path))) = self.victim_heap.pop() {
-            match self.map.get(&path) {
-                Some(entry) if entry.last_accessed == tick => {
-                    self.map.remove(&path);
-                    return Some(path);
-                }
-                // Stale: the entry was bumped on a later access and a fresh
-                // (higher-tick, path) heap entry exists; discard.
-                _ => continue,
-            }
-        }
-        None
+        let map = &mut self.map;
+        let victim = self
+            .victim_queue
+            .pop_lru(|path, tick| map.get(path).is_some_and(|e| e.last_accessed == tick))?;
+        map.remove(&victim);
+        Some(victim)
     }
 }
 
@@ -177,7 +160,7 @@ impl ArcTextCache {
                 let tick = next_lru_tick();
                 entry.last_accessed = tick;
                 let arc = Arc::clone(&entry.text);
-                guard.victim_heap.push(Reverse((tick, path.clone())));
+                guard.victim_queue.push(tick, path.clone());
                 arc
             } else {
                 // ARCH-1 / TASK-1106: cap-eviction picks the entry with
@@ -210,7 +193,7 @@ impl ArcTextCache {
                         last_accessed: tick,
                     },
                 );
-                guard.victim_heap.push(Reverse((tick, path.clone())));
+                guard.victim_queue.push(tick, path.clone());
                 debug_assert!(
                     guard.len() <= CACHE_MAX_ENTRIES,
                     "manifest cache exceeded cap of {CACHE_MAX_ENTRIES}"
@@ -234,6 +217,37 @@ impl ArcTextCache {
     pub fn raw_mutex(&self) -> Option<&Mutex<CacheMap>> {
         self.cache.get()
     }
+}
+
+/// DUP-3 / TASK-1166: per-process accessor returning the cached text for
+/// `<root>/<filename>`. Lifts the per-stack `manifest_cache.rs` wrappers
+/// (`package_json_text`, `pyproject_text`) onto a single entry point so a
+/// future stack (e.g. `go.mod`) doesn't grow a third byte-equivalent
+/// shim. The static `OnceLock` map is keyed by `&'static str` filename, so
+/// every consumer naming the same filename shares the same `ArcTextCache`
+/// — preserving the per-process Arc dedup contract that PERF-3 / TASK-0854
+/// relies on.
+///
+/// The two extant filenames (`package.json`, `pyproject.toml`) bind eagerly
+/// at first call; subsequent calls reuse the same `ArcTextCache` instance.
+#[must_use]
+pub fn for_filename(filename: &'static str) -> &'static ArcTextCache {
+    use std::collections::HashMap as StdHashMap;
+    static REGISTRY: OnceLock<Mutex<StdHashMap<&'static str, &'static ArcTextCache>>> =
+        OnceLock::new();
+    let registry = REGISTRY.get_or_init(|| Mutex::new(StdHashMap::new()));
+    let mut guard = registry
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(cache) = guard.get(filename) {
+        return cache;
+    }
+    // Leak is intentional: per-process `ArcTextCache` instances are the
+    // analogue of a `static`, just dynamically registered. The set of
+    // filenames is bounded by the number of stacks ops supports.
+    let leaked: &'static ArcTextCache = Box::leak(Box::new(ArcTextCache::new(filename)));
+    guard.insert(filename, leaked);
+    leaked
 }
 
 #[cfg(test)]
