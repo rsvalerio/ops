@@ -3,11 +3,11 @@ id: TASK-1190
 title: >-
   PERF-3: collect_theme_options re-parses the embedded default config on every
   call
-status: To Do
+status: Done
 assignee:
   - TASK-1262
 created_date: '2026-05-08 08:12'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 15:39'
 labels:
   - code-review-rust
   - perf

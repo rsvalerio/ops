@@ -3,11 +3,11 @@ id: TASK-1195
 title: >-
   PERF-1: CargoTomlProvider round-trips parsed CargoToml through serde_json on
   every typed-cache miss
-status: To Do
+status: Done
 assignee:
   - TASK-1262
 created_date: '2026-05-08 08:14'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 15:40'
 labels:
   - code-review-rust
   - perf

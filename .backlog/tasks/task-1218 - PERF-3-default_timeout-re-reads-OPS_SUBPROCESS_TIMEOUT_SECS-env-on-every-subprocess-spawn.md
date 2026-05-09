@@ -3,11 +3,11 @@ id: TASK-1218
 title: >-
   PERF-3: default_timeout re-reads OPS_SUBPROCESS_TIMEOUT_SECS env on every
   subprocess spawn
-status: To Do
+status: Done
 assignee:
   - TASK-1262
 created_date: '2026-05-08 12:56'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 15:41'
 labels:
   - code-review-rust
   - perf

@@ -3,11 +3,11 @@ id: TASK-1247
 title: >-
   ARCH-9: metadata payload byte cap split between configurable env and hardcoded
   DuckDB JSON option
-status: To Do
+status: Done
 assignee:
   - TASK-1262
 created_date: '2026-05-08 13:00'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 15:43'
 labels:
   - code-review-rust
   - architecture

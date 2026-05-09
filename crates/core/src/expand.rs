@@ -4,10 +4,11 @@
 //! built-in variables and environment fallback via `shellexpand`.
 
 use std::borrow::Cow;
+use std::collections::hash_map::Entry as HashMapEntry;
 use std::collections::HashMap;
 use std::fmt;
-use std::path::Path;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 /// ERR-1 / TASK-0450: a non-recoverable variable expansion failure.
 ///
@@ -87,6 +88,45 @@ pub struct Variables {
 /// and the `tmpdir_swap_after_from_env_is_not_observed` regression test).
 static TMPDIR_DISPLAY: std::sync::OnceLock<Arc<str>> = std::sync::OnceLock::new();
 
+/// PERF-3 / TASK-1183: per-`ops_root` cache for the rendered `OPS_ROOT`
+/// value so repeat `from_env` calls hand out an `Arc::clone` instead of
+/// re-allocating the rendered `String` and a fresh `Arc<str>` inner.
+/// `from_env` is invoked from hooks (`run-before-commit`,
+/// `run-before-push`), about-card refreshes, and dry-run.
+///
+/// Stored as a `HashMap` rather than an LRU-of-1 so concurrent callers
+/// using different `ops_root` paths (notably tests running in parallel) do
+/// not evict each other and force allocation churn. In production the
+/// dominant pattern is a single stable root per process, so the map stays
+/// at one entry; embedders that legitimately switch roots get their
+/// rendered values memoised independently.
+fn ops_root_cache() -> &'static Mutex<HashMap<PathBuf, Arc<str>>> {
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<PathBuf, Arc<str>>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cached_ops_root_arc(ops_root: &Path) -> Arc<str> {
+    // CONC-1 / TASK-1183: lock contention is negligible because `from_env`
+    // is not called from the parallel exec hot loop (that path constructs
+    // `Variables` once and clones the Arc from the runner).
+    let cache = ops_root_cache();
+    let mut guard = cache.lock().unwrap_or_else(|e| {
+        // CONC-9 / TASK-1183: lock poisoning here is recoverable — the
+        // protected map's every state is valid. Clear and continue.
+        cache.clear_poison();
+        e.into_inner()
+    });
+    match guard.entry(ops_root.to_path_buf()) {
+        HashMapEntry::Occupied(occ) => Arc::clone(occ.get()),
+        HashMapEntry::Vacant(vac) => {
+            let arc = Arc::<str>::from(ops_root.display().to_string());
+            vac.insert(Arc::clone(&arc));
+            arc
+        }
+    }
+}
+
 impl Variables {
     /// Build from environment and workspace root.
     ///
@@ -98,7 +138,7 @@ impl Variables {
     /// process.
     pub fn from_env(ops_root: &Path) -> Self {
         let mut builtins: HashMap<&'static str, Arc<str>> = HashMap::with_capacity(2);
-        builtins.insert("OPS_ROOT", Arc::<str>::from(ops_root.display().to_string()));
+        builtins.insert("OPS_ROOT", cached_ops_root_arc(ops_root));
         let tmpdir = TMPDIR_DISPLAY
             .get_or_init(|| Arc::<str>::from(std::env::temp_dir().display().to_string()))
             .clone();
@@ -202,6 +242,23 @@ mod tests {
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap();
         assert_eq!(result, format!("{}/.config", home));
+    }
+
+    /// PERF-3 / TASK-1183: two `from_env` calls with the same `ops_root`
+    /// must hand out the same `Arc<str>` for `OPS_ROOT` (LRU-of-1 cache),
+    /// mirroring the TMPDIR amortisation invariant captured below.
+    #[test]
+    #[serial_test::serial(ops_root_cache)]
+    fn from_env_reuses_cached_ops_root_arc() {
+        let root = PathBuf::from("/test/project/lru-pinned");
+        let v1 = Variables::from_env(&root);
+        let v2 = Variables::from_env(&root);
+        let a = v1.builtins.get("OPS_ROOT").expect("OPS_ROOT populated");
+        let b = v2.builtins.get("OPS_ROOT").expect("OPS_ROOT populated");
+        assert!(
+            Arc::ptr_eq(a, b),
+            "OPS_ROOT must be the same Arc across from_env calls with the same root"
+        );
     }
 
     /// PERF-3 / TASK-0967: every `Variables::from_env` call must reuse the

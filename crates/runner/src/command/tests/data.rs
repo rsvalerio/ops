@@ -162,6 +162,42 @@ fn query_data_shares_inner_cache_across_outer_calls() {
     );
 }
 
+/// ARCH-9 / TASK-1128: register P1 -> query_data("x") -> register P2 with a
+/// different impl of "x" -> query_data("x") must return P2's value, not the
+/// cached value produced by P1. Prior to TASK-1128 the runner replaced the
+/// `DataRegistry` but left `data_context.data_cache` populated, so the
+/// second call returned P1's stale `Arc<serde_json::Value>`.
+#[test]
+fn re_registering_providers_invalidates_cache() {
+    let mut registry_a = DataRegistry::new();
+    registry_a.register(
+        "x",
+        Box::new(FixedProvider {
+            value: serde_json::json!("from-a"),
+        }),
+    );
+    let mut runner = test_runner(HashMap::new());
+    runner.register_data_providers(registry_a);
+    let v_a = runner.query_data("x").expect("first query");
+    assert_eq!(*v_a, serde_json::json!("from-a"));
+
+    let mut registry_b = DataRegistry::new();
+    registry_b.register(
+        "x",
+        Box::new(FixedProvider {
+            value: serde_json::json!("from-b"),
+        }),
+    );
+    runner.register_data_providers(registry_b);
+
+    let v_b = runner.query_data("x").expect("second query");
+    assert_eq!(
+        *v_b,
+        serde_json::json!("from-b"),
+        "post-swap query_data must observe the new registry, not the cached value"
+    );
+}
+
 /// PERF-3 / TASK-0890: capture the cwd `Arc<PathBuf>` inside a provider
 /// and assert its strong_count climbs above 1 — proof that `query_data`
 /// hands out shared `Arc::clone`s instead of deep-cloning the inner path.

@@ -14,6 +14,7 @@ use ops_core::expand::Variables;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::Id as TaskId;
@@ -46,6 +47,15 @@ pub(crate) const MAX_PARALLEL_CEILING: usize = 1024;
 /// rationale as [`MAX_PARALLEL_CEILING`].
 const MAX_EVENT_BUDGET_CEILING: usize = 65_536;
 
+/// PERF-3 / TASK-1171: cache the resolved (clamped, validated) values
+/// behind `OnceLock<usize>` so repeated parallel-plan dispatches do not
+/// re-acquire the global env lock, re-`String`-allocate the raw value, and
+/// re-emit the warn-on-fallback diagnostic. Both env knobs are documented
+/// as process-global; this mirrors the OnceLock discipline already used by
+/// `output_byte_cap` (results.rs) and `manifest_max_bytes` (text.rs).
+static MAX_PARALLEL_CACHED: OnceLock<usize> = OnceLock::new();
+static EVENT_BUDGET_CACHED: OnceLock<usize> = OnceLock::new();
+
 /// Resolve [`DEFAULT_MAX_PARALLEL`] honoring `OPS_MAX_PARALLEL`. Invalid,
 /// zero, or above-ceiling values fall back to the default with a
 /// `tracing::warn!` so misconfiguration is visible.
@@ -54,20 +64,32 @@ const MAX_EVENT_BUDGET_CEILING: usize = 65_536;
 /// `output_byte_cap` peak-RSS warning is computed against the same
 /// (clamped, validated) value the orchestrator actually uses, instead of
 /// silently re-parsing the raw env var with different fallback rules.
+///
+/// PERF-3 / TASK-1171: memoised for the lifetime of the process. The first
+/// call parses and clamps; subsequent calls return the cached value
+/// without re-reading `std::env`. Tests exercising the parse/clamp matrix
+/// must call [`resolve_env_usize`] directly (the pure helper) to bypass
+/// the cache.
 pub(crate) fn resolve_max_parallel() -> usize {
-    resolve_env_usize(
-        "OPS_MAX_PARALLEL",
-        DEFAULT_MAX_PARALLEL,
-        MAX_PARALLEL_CEILING,
-    )
+    *MAX_PARALLEL_CACHED.get_or_init(|| {
+        resolve_env_usize(
+            "OPS_MAX_PARALLEL",
+            DEFAULT_MAX_PARALLEL,
+            MAX_PARALLEL_CEILING,
+        )
+    })
 }
 
+/// PERF-3 / TASK-1171: memoised sibling of [`resolve_max_parallel`]. Same
+/// caching contract.
 fn resolve_event_budget() -> usize {
-    resolve_env_usize(
-        "OPS_PARALLEL_EVENT_BUDGET",
-        DEFAULT_PARALLEL_EVENT_BUDGET_PER_TASK,
-        MAX_EVENT_BUDGET_CEILING,
-    )
+    *EVENT_BUDGET_CACHED.get_or_init(|| {
+        resolve_env_usize(
+            "OPS_PARALLEL_EVENT_BUDGET",
+            DEFAULT_PARALLEL_EVENT_BUDGET_PER_TASK,
+            MAX_EVENT_BUDGET_CEILING,
+        )
+    })
 }
 
 /// ERR-1 / TASK-1092: the warn-message text emitted when `OPS_MAX_PARALLEL`
@@ -534,6 +556,10 @@ mod resolve_tests {
     /// warning (which now reuses this resolver) is computed against the
     /// same clamped value the orchestrator actually uses, not against the
     /// raw env var.
+    ///
+    /// PERF-3 / TASK-1171: exercises the pure [`resolve_env_usize`] helper
+    /// directly because the public `resolve_max_parallel` now memoises and
+    /// would observe whichever value was cached by the first caller.
     #[serial_test::serial(env_max_parallel)]
     #[test]
     fn resolve_max_parallel_clamps_above_ceiling() {
@@ -541,7 +567,11 @@ mod resolve_tests {
         // SAFETY: tests serialised via `serial_test` so other threads
         // cannot read the env mid-mutation.
         unsafe { std::env::set_var("OPS_MAX_PARALLEL", "5000") };
-        let resolved = resolve_max_parallel();
+        let resolved = resolve_env_usize(
+            "OPS_MAX_PARALLEL",
+            DEFAULT_MAX_PARALLEL,
+            MAX_PARALLEL_CEILING,
+        );
         match prev {
             Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
             None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },
@@ -557,15 +587,48 @@ mod resolve_tests {
     fn resolve_max_parallel_falls_back_on_zero_or_unparseable() {
         let prev = std::env::var_os("OPS_MAX_PARALLEL");
         unsafe { std::env::set_var("OPS_MAX_PARALLEL", "junk") };
-        let resolved_junk = resolve_max_parallel();
+        let resolved_junk = resolve_env_usize(
+            "OPS_MAX_PARALLEL",
+            DEFAULT_MAX_PARALLEL,
+            MAX_PARALLEL_CEILING,
+        );
         unsafe { std::env::set_var("OPS_MAX_PARALLEL", "0") };
-        let resolved_zero = resolve_max_parallel();
+        let resolved_zero = resolve_env_usize(
+            "OPS_MAX_PARALLEL",
+            DEFAULT_MAX_PARALLEL,
+            MAX_PARALLEL_CEILING,
+        );
         match prev {
             Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
             None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },
         }
         assert_eq!(resolved_junk, DEFAULT_MAX_PARALLEL);
         assert_eq!(resolved_zero, DEFAULT_MAX_PARALLEL);
+    }
+
+    /// PERF-3 / TASK-1171 AC #2: mutating the env between two
+    /// `resolve_max_parallel()` calls must NOT change the second result —
+    /// it observes the value snapshotted by the OnceLock initialiser.
+    /// Runs in its own serial group so the cache snapshot is captured
+    /// before any other test in this binary mutates `OPS_MAX_PARALLEL`
+    /// without serial coordination.
+    #[serial_test::serial(env_max_parallel)]
+    #[test]
+    fn resolve_max_parallel_is_memoised_across_env_mutation() {
+        let prev = std::env::var_os("OPS_MAX_PARALLEL");
+        // SAFETY: tests serialised via `serial_test`.
+        unsafe { std::env::remove_var("OPS_MAX_PARALLEL") };
+        let first = resolve_max_parallel();
+        unsafe { std::env::set_var("OPS_MAX_PARALLEL", "1") };
+        let second = resolve_max_parallel();
+        match prev {
+            Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
+            None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },
+        }
+        assert_eq!(
+            first, second,
+            "second resolve_max_parallel must observe the memoised first-call value, ignoring the post-cache env mutation"
+        );
     }
 
     /// ERR-1 / TASK-1092 AC-1, AC-3: pin the operator-facing warn message
@@ -599,7 +662,14 @@ mod resolve_tests {
         let prev = std::env::var_os("OPS_MAX_PARALLEL");
         // SAFETY: tests serialised via `serial_test`.
         unsafe { std::env::set_var("OPS_MAX_PARALLEL", "") };
-        let resolved = resolve_max_parallel();
+        // PERF-3 / TASK-1171: bypass the memoising public resolver — the
+        // OnceLock cache may have been populated by an earlier test before
+        // this one set the empty value.
+        let resolved = resolve_env_usize(
+            "OPS_MAX_PARALLEL",
+            DEFAULT_MAX_PARALLEL,
+            MAX_PARALLEL_CEILING,
+        );
         match prev {
             Some(v) => unsafe { std::env::set_var("OPS_MAX_PARALLEL", v) },
             None => unsafe { std::env::remove_var("OPS_MAX_PARALLEL") },

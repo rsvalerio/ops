@@ -44,12 +44,21 @@ pub const METADATA_MAX_BYTES_ENV: &str = "OPS_METADATA_MAX_BYTES";
 
 /// Resolved metadata payload byte cap. Non-numeric or zero values fall
 /// back to [`METADATA_MAX_BYTES_DEFAULT`].
-fn metadata_max_bytes() -> u64 {
-    std::env::var(METADATA_MAX_BYTES_ENV)
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|v| *v > 0)
-        .unwrap_or(METADATA_MAX_BYTES_DEFAULT)
+///
+/// PERF-3 / TASK-1248: cached behind `OnceLock<u64>` to mirror the
+/// `manifest_max_bytes` / `output_byte_cap` discipline; the env knob is
+/// process-global so re-reading on every `provide_from_db` was wasted
+/// work.
+pub(crate) fn metadata_max_bytes() -> u64 {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<u64> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        std::env::var(METADATA_MAX_BYTES_ENV)
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(METADATA_MAX_BYTES_DEFAULT)
+    })
 }
 
 /// Run `cargo metadata --format-version 1 --locked`.

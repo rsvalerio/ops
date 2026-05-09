@@ -216,22 +216,17 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn read_ops_toml_rejects_oversized_payload() {
-        use super::super::loader::OPS_TOML_MAX_BYTES_ENV;
-
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".ops.toml");
         std::fs::write(&path, "x".repeat(4096)).unwrap();
 
-        // SAFETY: serial-marked; restore prior value at end.
-        let saved = std::env::var(OPS_TOML_MAX_BYTES_ENV).ok();
-        unsafe { std::env::set_var(OPS_TOML_MAX_BYTES_ENV, "64") };
-        let result = read_ops_toml(&path);
-        unsafe {
-            match saved {
-                Some(v) => std::env::set_var(OPS_TOML_MAX_BYTES_ENV, v),
-                None => std::env::remove_var(OPS_TOML_MAX_BYTES_ENV),
-            }
-        }
+        // READ-5 / TASK-1129: `ops_toml_max_bytes` is `OnceLock`-cached,
+        // so an env-var dance here would observe whichever value an earlier
+        // test happened to populate. Drive the cap-rejection branch via the
+        // pure inner helper instead. `read_ops_toml` itself is a thin shell
+        // around `read_capped_toml_file`; the bail message we pin is the
+        // same.
+        let result = super::super::loader::read_capped_toml_file_with(&path, 64);
 
         let err = result.expect_err("oversized .ops.toml must error");
         let msg = format!("{err:#}");

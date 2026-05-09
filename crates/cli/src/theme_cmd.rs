@@ -1,7 +1,9 @@
 //! `cargo ops theme` - theme management commands.
 
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use anyhow::Context;
 use ops_core::config;
@@ -13,38 +15,54 @@ fn parse_default_config() -> Result<ops_core::config::Config, anyhow::Error> {
         .context("failed to parse default config")
 }
 
-/// DUP-005: Extracted helper to collect theme options from config.
+/// PERF-3 / TASK-1190: cache the set of built-in theme names parsed from
+/// the embedded default config. The previous shape rebuilt the entire
+/// `Config` on every `collect_theme_options` call (twice — once each from
+/// `run_theme_list` and `run_theme_select`) only to compute a `contains_key`
+/// boolean. Aligned with the OnceLock discipline used by
+/// `crates/core/src/expand.rs::TMPDIR_DISPLAY` and
+/// `crates/core/src/text.rs::MANIFEST_MAX_BYTES`.
 ///
-/// Used by both `run_theme_list` and `run_theme_select` to avoid duplication.
-fn collect_theme_options(config: &ops_core::config::Config) -> Vec<ThemeOption> {
-    let default_config = match parse_default_config() {
-        Ok(c) => Some(c),
+/// The leak into `&'static str` is bounded — the embedded default config
+/// declares a finite, compile-time-fixed set of theme names — and the
+/// allocations live for the lifetime the cache itself would (process
+/// lifetime).
+static BUILTIN_THEME_NAMES: OnceLock<HashSet<&'static str>> = OnceLock::new();
+
+fn builtin_theme_names() -> &'static HashSet<&'static str> {
+    BUILTIN_THEME_NAMES.get_or_init(|| match parse_default_config() {
+        Ok(c) => c
+            .themes
+            .into_keys()
+            .map(|name| -> &'static str { Box::leak(name.into_boxed_str()) })
+            .collect(),
         Err(e) => {
             tracing::warn!(
                 error = %e,
                 "failed to parse embedded default config; built-in themes will be labelled (custom)",
             );
-            None
+            HashSet::new()
         }
-    };
+    })
+}
+
+/// DUP-005: Extracted helper to collect theme options from config.
+///
+/// Used by both `run_theme_list` and `run_theme_select` to avoid duplication.
+fn collect_theme_options(config: &ops_core::config::Config) -> Vec<ThemeOption> {
+    let builtins = builtin_theme_names();
 
     let mut options: Vec<ThemeOption> = config
         .themes
         .iter()
-        .map(|(name, theme_config)| {
-            let is_default = default_config
-                .as_ref()
-                .map(|dc| dc.themes.contains_key(name))
-                .unwrap_or(false);
-            ThemeOption {
-                name: name.clone(),
-                description: theme_config
-                    .description
-                    .as_deref()
-                    .unwrap_or("Custom theme")
-                    .to_string(),
-                is_custom: !is_default,
-            }
+        .map(|(name, theme_config)| ThemeOption {
+            name: name.clone(),
+            description: theme_config
+                .description
+                .as_deref()
+                .unwrap_or("Custom theme")
+                .to_string(),
+            is_custom: !builtins.contains(name.as_str()),
         })
         .collect();
 
@@ -425,6 +443,24 @@ theme = "compact"
             );
             let custom = options.iter().find(|o| o.name == "my-custom").unwrap();
             assert!(custom.is_custom, "custom theme should be marked as custom");
+        }
+
+        /// PERF-3 / TASK-1190 AC #2: the built-in theme name set is parsed
+        /// at most once across N calls. Asserted indirectly by checking
+        /// that two `builtin_theme_names()` calls return the *same*
+        /// `&'static HashSet` reference (the `OnceLock` initialiser fired
+        /// exactly once); a re-parse would have to rebuild a different
+        /// `HashSet` to allocate fresh leaked strings.
+        #[test]
+        fn builtin_theme_names_parser_runs_at_most_once() {
+            let a = builtin_theme_names();
+            let b = builtin_theme_names();
+            assert!(
+                std::ptr::eq(a, b),
+                "OnceLock must hand out the same set reference across calls"
+            );
+            assert!(a.contains("classic"));
+            assert!(a.contains("compact"));
         }
 
         #[test]

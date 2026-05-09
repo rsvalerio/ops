@@ -3,11 +3,11 @@ id: TASK-1129
 title: >-
   READ-5: ops_toml_max_bytes re-reads env per call, inconsistent with
   manifest_max_bytes OnceLock cache
-status: To Do
+status: Done
 assignee:
   - TASK-1262
 created_date: '2026-05-08 07:39'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 15:35'
 labels:
   - code-review-rust
   - READ

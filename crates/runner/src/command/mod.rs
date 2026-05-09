@@ -320,8 +320,17 @@ impl CommandRunner {
     }
 
     /// Replace the internal data registry (e.g. with one populated by extensions).
+    ///
+    /// ARCH-9 / TASK-1128: also drops every entry the runner's
+    /// `data_context` cached against the previous registry. Without this
+    /// invalidation, a later [`Self::query_data`] for a key whose provider
+    /// has been replaced or removed would still hand back the stale
+    /// `Arc<serde_json::Value>` populated by the prior registry. Re-running
+    /// `register_data_providers` is the operator's signal to rebuild the
+    /// data view; the cache must follow it.
     pub fn register_data_providers(&mut self, registry: DataRegistry) {
         self.data_registry = registry;
+        self.data_context.clear_provider_results();
     }
 
     /// Query cached data or compute via provider.

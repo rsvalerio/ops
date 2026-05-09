@@ -25,31 +25,62 @@ pub const MANIFEST_MAX_BYTES_ENV: &str = "OPS_MANIFEST_MAX_BYTES";
 /// `crates/runner/src/command/results.rs::output_byte_cap` (TASK-0542).
 static MANIFEST_MAX_BYTES: OnceLock<u64> = OnceLock::new();
 
-/// ERR-2 / TASK-0840 (mirrored for TASK-1055): pure parser for the
-/// `OPS_MAX_MANIFEST_BYTES` env value. Returns the resolved cap and, when
-/// the input was present-but-unusable, a human message describing the
-/// fallback so the caller can emit a `tracing::warn!` outside the
-/// unit-test path. Factored out so the fallback semantics are
-/// unit-testable without poking the process-global `OnceLock`.
-fn parse_manifest_max_bytes(raw: Option<&str>) -> (u64, Option<String>) {
+/// ERR-2 / TASK-0840 (mirrored for TASK-1055): pure parser for a positive
+/// "byte cap from env" value. Returns the resolved cap and, when the input
+/// was present-but-unusable, a human message describing the fallback so the
+/// caller can emit a `tracing::warn!` outside the unit-test path. Factored
+/// out so the fallback semantics are unit-testable without poking the
+/// process-global `OnceLock`.
+///
+/// ARCH-9 / TASK-1228: shared with [`cached_byte_cap_env`]. Both
+/// `manifest_max_bytes` and `ops_toml_max_bytes` route through this so the
+/// "unset / unparseable / zero / valid" matrix has one implementation.
+pub(crate) fn parse_byte_cap_env(
+    env_var: &str,
+    raw: Option<&str>,
+    default: u64,
+) -> (u64, Option<String>) {
     match raw {
-        None => (MANIFEST_MAX_BYTES_DEFAULT, None),
+        None => (default, None),
         Some(s) => match s.parse::<u64>() {
             Ok(n) if n > 0 => (n, None),
             Ok(_) => (
-                MANIFEST_MAX_BYTES_DEFAULT,
+                default,
                 Some(format!(
-                    "{MANIFEST_MAX_BYTES_ENV}={s:?} is not a positive integer; using default {MANIFEST_MAX_BYTES_DEFAULT}"
+                    "{env_var}={s:?} is not a positive integer; using default {default}"
                 )),
             ),
             Err(e) => (
-                MANIFEST_MAX_BYTES_DEFAULT,
+                default,
                 Some(format!(
-                    "{MANIFEST_MAX_BYTES_ENV}={s:?} failed to parse as u64 ({e}); using default {MANIFEST_MAX_BYTES_DEFAULT}"
+                    "{env_var}={s:?} failed to parse as u64 ({e}); using default {default}"
                 )),
             ),
         },
     }
+}
+
+/// ARCH-9 / TASK-1228: resolve a positive byte-cap-from-env value once per
+/// process. Both [`manifest_max_bytes`] and
+/// [`crate::config::loader::ops_toml_max_bytes`] (and any future sibling
+/// caps) route through this so the cache discipline, fallback semantics,
+/// and one-shot warn diagnostic stay aligned across the codebase. The
+/// shared shape mirrors `crates/runner/src/command/results.rs::output_byte_cap`
+/// (TASK-0542).
+///
+/// Unset / zero / unparseable values fall back to `default` with a one-shot
+/// `tracing::warn!` emitted from the `OnceLock` initialiser. Tests that
+/// need to override the cap must set the env var before the first
+/// resolver call; later changes are ignored.
+pub fn cached_byte_cap_env(slot: &OnceLock<u64>, env_var: &'static str, default: u64) -> u64 {
+    *slot.get_or_init(|| {
+        let raw = std::env::var(env_var).ok();
+        let (cap, warn_msg) = parse_byte_cap_env(env_var, raw.as_deref(), default);
+        if let Some(msg) = warn_msg {
+            tracing::warn!(env_var = env_var, "{msg}");
+        }
+        cap
+    })
 }
 
 /// Effective manifest read cap. Resolved from the env knob on the first
@@ -61,14 +92,11 @@ fn parse_manifest_max_bytes(raw: Option<&str>) -> (u64, Option<String>) {
 /// Unparseable / zero values fall back to [`MANIFEST_MAX_BYTES_DEFAULT`]
 /// with a one-shot `tracing::warn!` from the `OnceLock` initialiser.
 pub fn manifest_max_bytes() -> u64 {
-    *MANIFEST_MAX_BYTES.get_or_init(|| {
-        let raw = std::env::var(MANIFEST_MAX_BYTES_ENV).ok();
-        let (cap, warn_msg) = parse_manifest_max_bytes(raw.as_deref());
-        if let Some(msg) = warn_msg {
-            tracing::warn!(env_var = MANIFEST_MAX_BYTES_ENV, "{msg}");
-        }
-        cap
-    })
+    cached_byte_cap_env(
+        &MANIFEST_MAX_BYTES,
+        MANIFEST_MAX_BYTES_ENV,
+        MANIFEST_MAX_BYTES_DEFAULT,
+    )
 }
 
 /// Read `path` to a `String`, capped at [`manifest_max_bytes`] bytes.
@@ -353,6 +381,38 @@ mod tests {
         let err =
             read_capped_to_string(&dir.path().join("nope")).expect_err("missing should error");
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    /// ARCH-9 / TASK-1228: pin the parse_byte_cap_env shared parser across
+    /// the unset / zero / unparseable / valid matrix. Both
+    /// `manifest_max_bytes` and `ops_toml_max_bytes` route through this so
+    /// fixing the matrix here pins both surfaces.
+    #[test]
+    fn parse_byte_cap_env_unset_returns_default_no_warn() {
+        let (cap, warn) = parse_byte_cap_env("X", None, 100);
+        assert_eq!(cap, 100);
+        assert!(warn.is_none());
+    }
+
+    #[test]
+    fn parse_byte_cap_env_zero_falls_back_with_warn() {
+        let (cap, warn) = parse_byte_cap_env("X", Some("0"), 100);
+        assert_eq!(cap, 100);
+        assert!(warn.is_some());
+    }
+
+    #[test]
+    fn parse_byte_cap_env_unparseable_falls_back_with_warn() {
+        let (cap, warn) = parse_byte_cap_env("X", Some("not-a-number"), 100);
+        assert_eq!(cap, 100);
+        assert!(warn.is_some());
+    }
+
+    #[test]
+    fn parse_byte_cap_env_valid_returns_value_no_warn() {
+        let (cap, warn) = parse_byte_cap_env("X", Some("42"), 100);
+        assert_eq!(cap, 42);
+        assert!(warn.is_none());
     }
 
     #[test]

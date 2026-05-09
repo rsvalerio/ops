@@ -210,12 +210,15 @@ impl Default for CargoTomlProvider {
     }
 }
 
-impl DataProvider for CargoTomlProvider {
-    fn name(&self) -> &'static str {
-        DATA_PROVIDER_NAME
-    }
-
-    fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+impl CargoTomlProvider {
+    /// PERF-1 / TASK-1195: produce the typed `CargoToml` directly, skipping
+    /// the [`DataProvider::provide`] serialisation through `serde_json::Value`.
+    /// In-process consumers that hold a typed cache (e.g. about's
+    /// `typed_manifest_cache` via `load_workspace_manifest`) can call this
+    /// to avoid the TOML→typed → JSON-Value → typed round-trip on every
+    /// cache miss. The `provide()` JSON path remains for cross-extension
+    /// consumers that read via `Context::cached` / `query_data`.
+    pub fn provide_typed(&self, ctx: &mut Context) -> Result<CargoToml, DataProviderError> {
         let root = self.resolve_root(&ctx.working_directory)?;
         let cargo_toml = root.join("Cargo.toml");
 
@@ -233,6 +236,17 @@ impl DataProvider for CargoTomlProvider {
 
         manifest.resolve_package_inheritance();
 
+        Ok(manifest)
+    }
+}
+
+impl DataProvider for CargoTomlProvider {
+    fn name(&self) -> &'static str {
+        DATA_PROVIDER_NAME
+    }
+
+    fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+        let manifest = self.provide_typed(ctx)?;
         Ok(serde_json::to_value(&manifest)?)
     }
 

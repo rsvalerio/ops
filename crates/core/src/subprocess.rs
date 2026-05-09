@@ -235,6 +235,39 @@ fn read_capped<R: Read>(mut reader: R, buf: &mut Vec<u8>, cap: usize) -> (u64, O
     }
 }
 
+/// PERF-3 / TASK-1218: pure parser for the `OPS_SUBPROCESS_TIMEOUT_SECS`
+/// raw value. Returns `Some(secs)` (clamped to [`MAX_TIMEOUT_SECS`]) when
+/// the input is a positive `u64`, `None` otherwise so the caller falls
+/// back to the operation-specific default. Factored out so the
+/// clamp/zero/unset matrix is unit-testable without poking the
+/// process-global `OnceLock`.
+fn parse_subprocess_timeout(raw: Option<&str>) -> Option<u64> {
+    let parsed = raw?.parse::<u64>().ok().filter(|&s| s > 0)?;
+    if parsed > MAX_TIMEOUT_SECS {
+        tracing::warn!(
+            requested = parsed,
+            clamped_to = MAX_TIMEOUT_SECS,
+            env = TIMEOUT_ENV,
+            "ASYNC-6: clamping subprocess timeout to upper bound; bounded execution is the helper's contract"
+        );
+        Some(MAX_TIMEOUT_SECS)
+    } else {
+        Some(parsed)
+    }
+}
+
+/// PERF-3 / TASK-1218: cache the resolved `OPS_SUBPROCESS_TIMEOUT_SECS`
+/// value behind a `OnceLock<Option<u64>>` so each subprocess spawn does
+/// not re-acquire the global env lock and re-allocate the raw `String`.
+/// `None` means "env unset / zero / unparseable — fall back to
+/// op_default"; `Some(secs)` is the already-clamped override (the warn
+/// fires once at cache init). Mirrors the `output_byte_cap` discipline
+/// one function above.
+fn cached_subprocess_timeout() -> Option<u64> {
+    static CACHED: OnceLock<Option<u64>> = OnceLock::new();
+    *CACHED.get_or_init(|| parse_subprocess_timeout(std::env::var(TIMEOUT_ENV).ok().as_deref()))
+}
+
 /// Resolve an effective timeout: `OPS_SUBPROCESS_TIMEOUT_SECS` overrides the
 /// caller-provided default if present and parses to a non-zero u64; otherwise
 /// the operation-specific default is returned unchanged.
@@ -243,25 +276,17 @@ fn read_capped<R: Read>(mut reader: R, buf: &mut Vec<u8>, cap: usize) -> (u64, O
 /// emits a warning when it had to be clamped, so an accidental
 /// `OPS_SUBPROCESS_TIMEOUT_SECS=18446744073709551615` does not silently
 /// disable the helper's bounded-wait contract.
+///
+/// PERF-3 / TASK-1218: the env knob is resolved at most once per process
+/// via [`cached_subprocess_timeout`]. Tests that exercise the parse/clamp
+/// matrix should call [`parse_subprocess_timeout`] directly to bypass the
+/// cache.
 #[must_use]
 pub fn default_timeout(op_default: Duration) -> Duration {
-    let Some(raw) = std::env::var(TIMEOUT_ENV)
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .filter(|&s| s > 0)
-    else {
-        return op_default;
-    };
-    if raw > MAX_TIMEOUT_SECS {
-        tracing::warn!(
-            requested = raw,
-            clamped_to = MAX_TIMEOUT_SECS,
-            env = TIMEOUT_ENV,
-            "ASYNC-6: clamping subprocess timeout to upper bound; bounded execution is the helper's contract"
-        );
-        return Duration::from_secs(MAX_TIMEOUT_SECS);
+    match cached_subprocess_timeout() {
+        Some(secs) => Duration::from_secs(secs),
+        None => op_default,
     }
-    Duration::from_secs(raw)
 }
 
 /// Run `cmd` with stdout/stderr captured, returning its [`Output`]. Kills
@@ -504,60 +529,46 @@ pub fn resolve_rustup_bin() -> std::ffi::OsString {
 mod tests {
     use super::*;
 
-    /// ASYNC-6 / TASK-0304. `default_timeout` reads a process-wide env var,
-    /// so timeout-clamp tests must serialize against any other test that
-    /// also touches `OPS_SUBPROCESS_TIMEOUT_SECS` (or the raw env). The
-    /// `serial_test::serial` attribute below provides that ordering.
+    /// ASYNC-6 / TASK-0304 + PERF-3 / TASK-1218: the matrix tests now
+    /// exercise the pure [`parse_subprocess_timeout`] helper directly. The
+    /// public [`default_timeout`] memoises via `cached_subprocess_timeout`,
+    /// so a serial-mutating test would either be the first to populate the
+    /// cache (winning) or observe a stale snapshot, depending on test
+    /// ordering — exactly the surprise the cache is meant to remove.
     mod env_override {
         use super::*;
-        use serial_test::serial;
-        use std::time::Duration;
 
-        fn op_default() -> Duration {
-            Duration::from_secs(60)
-        }
-
-        // SAFETY (UNSAFE-8 / TEST-19): set_var/remove_var become unsafe in
-        // edition 2024. The mutation race they guard against is process-wide
-        // env state being read concurrently from another thread. These tests
-        // are gated on `#[serial]` so no other test in the same binary mutates
-        // env at the same time, and no application code reads `TIMEOUT_ENV`
-        // from a background thread during the test body — the only reader is
-        // `default_timeout` invoked synchronously below. Wrapped in `unsafe`
-        // pre-emptively so the upcoming edition migration is a no-op.
         #[test]
-        #[serial]
         fn clamps_huge_value_to_max() {
-            unsafe { std::env::set_var(TIMEOUT_ENV, u64::MAX.to_string()) };
-            let got = default_timeout(op_default());
-            unsafe { std::env::remove_var(TIMEOUT_ENV) };
-            assert_eq!(got, Duration::from_secs(MAX_TIMEOUT_SECS));
+            let secs = parse_subprocess_timeout(Some(&u64::MAX.to_string()))
+                .expect("huge value clamps but is still Some");
+            assert_eq!(secs, MAX_TIMEOUT_SECS);
         }
 
         #[test]
-        #[serial]
         fn zero_value_falls_back_to_op_default() {
-            unsafe { std::env::set_var(TIMEOUT_ENV, "0") };
-            let got = default_timeout(op_default());
-            unsafe { std::env::remove_var(TIMEOUT_ENV) };
-            assert_eq!(got, op_default());
+            assert!(
+                parse_subprocess_timeout(Some("0")).is_none(),
+                "zero must fall back so default_timeout returns op_default"
+            );
         }
 
         #[test]
-        #[serial]
         fn unset_returns_op_default() {
-            unsafe { std::env::remove_var(TIMEOUT_ENV) };
-            let got = default_timeout(op_default());
-            assert_eq!(got, op_default());
+            assert!(
+                parse_subprocess_timeout(None).is_none(),
+                "unset must fall back so default_timeout returns op_default"
+            );
         }
 
         #[test]
-        #[serial]
         fn within_bounds_is_honored() {
-            unsafe { std::env::set_var(TIMEOUT_ENV, "30") };
-            let got = default_timeout(op_default());
-            unsafe { std::env::remove_var(TIMEOUT_ENV) };
-            assert_eq!(got, Duration::from_secs(30));
+            assert_eq!(parse_subprocess_timeout(Some("30")), Some(30));
+        }
+
+        #[test]
+        fn unparseable_falls_back() {
+            assert!(parse_subprocess_timeout(Some("not-a-number")).is_none());
         }
     }
 

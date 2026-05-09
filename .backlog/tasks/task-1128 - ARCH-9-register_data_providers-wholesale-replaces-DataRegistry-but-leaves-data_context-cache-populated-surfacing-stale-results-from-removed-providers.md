@@ -3,11 +3,11 @@ id: TASK-1128
 title: >-
   ARCH-9: register_data_providers wholesale-replaces DataRegistry but leaves
   data_context cache populated, surfacing stale results from removed providers
-status: To Do
+status: Done
 assignee:
   - TASK-1262
 created_date: '2026-05-08 07:30'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 15:33'
 labels:
   - code-review-rust
   - architecture

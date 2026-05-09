@@ -472,6 +472,19 @@ fn package_no_bench_targets() {
 mod metadata_edge_case_tests {
     use super::*;
 
+    /// PERF-3 / TASK-1248 AC #3: two consecutive `metadata_max_bytes()`
+    /// calls return the same value — the OnceLock-snapshotted cap stays
+    /// stable for the rest of the process.
+    #[test]
+    fn metadata_max_bytes_is_memoised() {
+        let a = crate::metadata_max_bytes();
+        let b = crate::metadata_max_bytes();
+        assert_eq!(
+            a, b,
+            "cached metadata_max_bytes must not drift between calls"
+        );
+    }
+
     #[test]
     fn metadata_build_directory_none_when_missing() {
         let m = Metadata::from_value(serde_json::json!({

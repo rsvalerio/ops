@@ -3,11 +3,11 @@ id: TASK-1248
 title: >-
   PERF-3: metadata_max_bytes re-reads OPS_METADATA_MAX_BYTES env on every call
   without OnceLock cache
-status: To Do
+status: Done
 assignee:
   - TASK-1262
 created_date: '2026-05-08 13:00'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 15:43'
 labels:
   - code-review-rust
   - performance

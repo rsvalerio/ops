@@ -12,6 +12,7 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use anyhow::Context;
 use config as config_crate;
@@ -19,6 +20,7 @@ use tracing::{debug, instrument};
 
 use super::merge::merge_config;
 use super::{default_ops_toml, Config, ConfigOverlay};
+use crate::text::cached_byte_cap_env;
 
 /// SEC-33 / TASK-0943: default cap on `.ops.toml` (and `.ops.d/*.toml`,
 /// global config) reads. Real-world ops configs are well under 256 KiB,
@@ -37,14 +39,25 @@ const _: () = assert!(DEFAULT_OPS_TOML_MAX_BYTES >= 256 * 1024);
 /// A value of `0` or an unparseable value falls back to the default.
 pub const OPS_TOML_MAX_BYTES_ENV: &str = "OPS_TOML_MAX_BYTES";
 
+/// READ-5 / TASK-1129 + ARCH-9 / TASK-1228: cache the resolved cap behind a
+/// `OnceLock<u64>` and emit a one-shot warn on unparseable values. Mirrors
+/// `crates/core/src/text.rs::manifest_max_bytes`.
+static OPS_TOML_MAX_BYTES: OnceLock<u64> = OnceLock::new();
+
 /// Resolve the current `.ops.toml` byte cap, honouring the
 /// [`OPS_TOML_MAX_BYTES_ENV`] override.
+///
+/// READ-5 / TASK-1129: cached behind a `OnceLock<u64>`. The env knob is
+/// process-global; subsequent calls do not touch `std::env`. Unparseable or
+/// zero values fall back to [`DEFAULT_OPS_TOML_MAX_BYTES`] with a one-shot
+/// `tracing::warn!`. Tests that need to override the cap must set the env
+/// var before the first call (directly or via [`read_capped_toml_file`]).
 pub fn ops_toml_max_bytes() -> u64 {
-    std::env::var(OPS_TOML_MAX_BYTES_ENV)
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or(DEFAULT_OPS_TOML_MAX_BYTES)
+    cached_byte_cap_env(
+        &OPS_TOML_MAX_BYTES,
+        OPS_TOML_MAX_BYTES_ENV,
+        DEFAULT_OPS_TOML_MAX_BYTES,
+    )
 }
 
 /// Read a `.ops.toml`-style file with a hard byte cap.
@@ -54,6 +67,15 @@ pub fn ops_toml_max_bytes() -> u64 {
 /// rejection — an oversized file fails with a typed message naming the
 /// cap and the override env var, rather than being slurped into memory.
 pub(crate) fn read_capped_toml_file(path: &Path) -> anyhow::Result<Option<String>> {
+    read_capped_toml_file_with(path, ops_toml_max_bytes())
+}
+
+/// READ-5 / TASK-1129: testable variant of [`read_capped_toml_file`] that
+/// takes an explicit cap. Production callers go through
+/// `read_capped_toml_file`; tests use this to bypass the
+/// `ops_toml_max_bytes` `OnceLock` (which is process-global and cannot be
+/// re-initialised once another test has populated it).
+pub(crate) fn read_capped_toml_file_with(path: &Path, cap: u64) -> anyhow::Result<Option<String>> {
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -62,7 +84,6 @@ pub(crate) fn read_capped_toml_file(path: &Path) -> anyhow::Result<Option<String
                 .with_context(|| format!("failed to open config file: {}", path.display()));
         }
     };
-    let cap = ops_toml_max_bytes();
     let limit = cap.saturating_add(1);
     let mut content = String::new();
     (&mut file)
@@ -444,16 +465,11 @@ args = ["hello"]
         // Payload well over the 64-byte cap below.
         fs::write(&path, "x".repeat(4096)).unwrap();
 
-        // SAFETY: serial-marked; restore prior value at end.
-        let saved = std::env::var(OPS_TOML_MAX_BYTES_ENV).ok();
-        unsafe { std::env::set_var(OPS_TOML_MAX_BYTES_ENV, "64") };
-        let result = read_config_file(&path);
-        unsafe {
-            match saved {
-                Some(v) => std::env::set_var(OPS_TOML_MAX_BYTES_ENV, v),
-                None => std::env::remove_var(OPS_TOML_MAX_BYTES_ENV),
-            }
-        }
+        // READ-5 / TASK-1129: `ops_toml_max_bytes` is now `OnceLock`-cached,
+        // so an env-var dance here would observe whichever value an earlier
+        // test happened to populate. Drive the cap-rejection branch via the
+        // pure helper instead — the bail message is what the test pins.
+        let result = read_capped_toml_file_with(&path, 64);
 
         let err = result.expect_err("oversized .ops.toml must error");
         let msg = format!("{err:#}");

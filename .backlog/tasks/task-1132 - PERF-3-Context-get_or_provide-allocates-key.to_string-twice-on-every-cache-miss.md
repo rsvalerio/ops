@@ -3,11 +3,11 @@ id: TASK-1132
 title: >-
   PERF-3: Context::get_or_provide allocates key.to_string() twice on every cache
   miss
-status: To Do
+status: Done
 assignee:
   - TASK-1262
 created_date: '2026-05-08 07:40'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 15:33'
 labels:
   - code-review-rust
   - PERF

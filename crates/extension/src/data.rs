@@ -377,6 +377,10 @@ impl Context {
     /// overflow. The in-flight marker is inserted before dispatching to the
     /// provider and removed regardless of success/failure so a provider
     /// that fails does not poison the cache for retry.
+    ///
+    /// PERF-3 / TASK-1132: `key.to_string()` is allocated exactly once on a
+    /// cache miss and reused for both the `in_flight` insertion and the
+    /// final `data_cache` insertion. The previous shape allocated twice.
     pub fn get_or_provide(
         &mut self,
         key: &str,
@@ -385,15 +389,30 @@ impl Context {
         if let Some(v) = self.data_cache.get(key) {
             return Ok(Arc::clone(v));
         }
-        if !self.in_flight.insert(key.to_string()) {
+        let owned_key = key.to_string();
+        if !self.in_flight.insert(owned_key) {
             return Err(DataProviderError::Cycle {
                 key: key.to_string(),
             });
         }
         let result = registry.provide(key, self);
-        self.in_flight.remove(key);
+        let owned_key = self
+            .in_flight
+            .take(key)
+            .expect("in_flight entry inserted above must still be present");
         let v = Arc::new(result?);
-        self.data_cache.insert(key.to_string(), Arc::clone(&v));
+        self.data_cache.insert(owned_key, Arc::clone(&v));
         Ok(v)
+    }
+
+    /// ARCH-9 / TASK-1128: drop every cached provider result and any
+    /// in-flight markers. The runner calls this from
+    /// `register_data_providers` so swapping in a new [`DataRegistry`] does
+    /// not leave callers reading values produced by the previous registry's
+    /// providers (or by a different implementation registered under the same
+    /// name).
+    pub fn clear_provider_results(&mut self) {
+        self.data_cache.clear();
+        self.in_flight.clear();
     }
 }

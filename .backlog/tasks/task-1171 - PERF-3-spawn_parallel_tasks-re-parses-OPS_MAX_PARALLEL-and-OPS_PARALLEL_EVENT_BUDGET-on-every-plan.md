@@ -3,11 +3,11 @@ id: TASK-1171
 title: >-
   PERF-3: spawn_parallel_tasks re-parses OPS_MAX_PARALLEL and
   OPS_PARALLEL_EVENT_BUDGET on every plan
-status: To Do
+status: Done
 assignee:
   - TASK-1262
 created_date: '2026-05-08 08:06'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 15:36'
 labels:
   - code-review-rust
   - perf

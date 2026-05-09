@@ -13,7 +13,7 @@
 use ops_cargo_toml::{
     find_workspace_root_strict, CargoToml, CargoTomlProvider, FindWorkspaceRootError,
 };
-use ops_extension::{Context, DataProvider, DataProviderError};
+use ops_extension::{Context, DataProviderError};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -295,8 +295,15 @@ pub(crate) fn load_workspace_manifest(
     // `is_manifest_missing` understands; on success we hand the resolved
     // root to `CargoTomlProvider::with_root` so the inner provider does
     // not redo discovery.
-    let value = if let Some(cached) = ctx.cached(ops_cargo_toml::DATA_PROVIDER_NAME) {
-        (**cached).clone()
+    // PERF-1 / TASK-1195: cache-miss path goes through
+    // `CargoTomlProvider::provide_typed` so the typed `CargoToml` arrives
+    // here directly — no `serde_json::Value` round-trip. The pre-existing
+    // ctx.cached fast path stays for cross-extension consumers that may
+    // have populated the JSON cache via `Context::get_or_provide`; that
+    // arm still pays one `serde_json::from_value`, but the dominant typed
+    // cache miss no longer does.
+    let manifest: CargoToml = if let Some(cached) = ctx.cached(ops_cargo_toml::DATA_PROVIDER_NAME) {
+        serde_json::from_value((**cached).clone()).map_err(DataProviderError::computation_error)?
     } else {
         let provider = match find_workspace_root_strict(&cwd) {
             Ok(root) => CargoTomlProvider::with_root(root),
@@ -309,10 +316,8 @@ pub(crate) fn load_workspace_manifest(
                 return Err(DataProviderError::from(anyhow::Error::from(err)));
             }
         };
-        provider.provide(ctx)?
+        provider.provide_typed(ctx)?
     };
-    let manifest: CargoToml =
-        serde_json::from_value(value).map_err(DataProviderError::computation_error)?;
 
     // ERR-1 / TASK-1076: resolve workspace members into a sibling field
     // instead of mutating `manifest.workspace.members` in place. The previous

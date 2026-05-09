@@ -3,11 +3,11 @@ id: TASK-1228
 title: >-
   ARCH-9: manifest_max_bytes and ops_toml_max_bytes use divergent caching
   policies for the same env-knob pattern
-status: To Do
+status: Done
 assignee:
   - TASK-1262
 created_date: '2026-05-08 12:58'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 15:35'
 labels:
   - code-review-rust
   - architecture

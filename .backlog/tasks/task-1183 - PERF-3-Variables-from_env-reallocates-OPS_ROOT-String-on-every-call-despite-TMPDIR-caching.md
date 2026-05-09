@@ -3,11 +3,11 @@ id: TASK-1183
 title: >-
   PERF-3: Variables::from_env reallocates OPS_ROOT String on every call despite
   TMPDIR caching
-status: To Do
+status: Done
 assignee:
   - TASK-1262
 created_date: '2026-05-08 08:10'
-updated_date: '2026-05-08 13:18'
+updated_date: '2026-05-08 15:37'
 labels:
   - code-review-rust
   - perf
