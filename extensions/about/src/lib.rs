@@ -149,6 +149,16 @@ fn resolve_identity(
 }
 
 /// Enrich identity with LOC/file count from DuckDB if available.
+///
+/// ERR-1 (TASK-1148, mirrors TASK-0431 in [`units::enrich_from_db`]): each of
+/// the five underlying queries acquires `db.lock()` independently, so a
+/// concurrent ingestion that runs between samples can produce an identity
+/// whose `loc`, `file_count`, `dependency_count`, `coverage_percent`, and
+/// `languages` describe different snapshots. This is accepted as a
+/// render-time visual artefact for the same reasons as the units variant:
+/// holding a single lock across all five queries would require reshaping
+/// the helper layer to take an already-held `&Connection`, and the about
+/// card re-renders on every invocation, so a stale frame is self-correcting.
 #[cfg(feature = "duckdb")]
 fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) {
     let db = match ops_duckdb::get_db(ctx) {

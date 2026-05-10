@@ -476,6 +476,89 @@ async fn exec_standalone_emits_step_output_dropped_under_burst() {
     }
 }
 
+/// ERR-1 / TASK-1174: when the outer receiver has been torn down (display
+/// shutdown race, fail_fast tear-down) before exec_standalone flushes its
+/// `StepOutputDropped` event, the count must not vanish silently. The send
+/// fails with `SendError`, and the function logs a structured `tracing::warn!`
+/// carrying both the step id and the dropped count so the count survives in
+/// the operator's logs even when the display can no longer render it.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn exec_standalone_logs_dropped_count_when_outer_receiver_closed() {
+    use std::io::Write;
+    use std::sync::{Arc as StdArc, Mutex as StdMutex};
+
+    #[derive(Clone)]
+    struct VecWriter(StdArc<StdMutex<Vec<u8>>>);
+    impl Write for VecWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().write(buf)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
+        type Writer = VecWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    use tracing::instrument::WithSubscriber;
+
+    let buf = StdArc::new(StdMutex::new(Vec::<u8>::new()));
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .with_writer(VecWriter(StdArc::clone(&buf)))
+        .with_ansi(false)
+        .finish();
+    let dispatch: tracing::Dispatch = subscriber.into();
+
+    // Outer channel capacity 1, receiver held but never read. The forwarder
+    // can deliver at most one event before parking on `outer.send` forever,
+    // letting the chatty producer flood the local 256-slot buffer and trip
+    // the `Full` drop counter. Once `dropped_outputs > 0`, dropping the rx
+    // closes the channel: the forwarder unblocks with an error and breaks
+    // out, and exec_standalone's terminal `tx.send(StepOutputDropped)` is
+    // the failing send whose warning the assertion below inspects.
+    let (tx, rx) = mpsc::channel::<RunnerEvent>(1);
+    let abort = Arc::new(AbortSignal::new());
+    let spec = Arc::new(exec_spec(
+        "sh",
+        &["-c", "for i in $(seq 1 5000); do echo line_$i; done"],
+    ));
+
+    let task = tokio::spawn(
+        exec_standalone(
+            "drop-target".into(),
+            spec,
+            ExecTaskCtx {
+                cwd: Arc::new(PathBuf::from(".")),
+                vars: Arc::new(test_vars()),
+                tx,
+                abort,
+                policy: crate::command::CwdEscapePolicy::WarnAndAllow,
+                workspace_cache: Arc::new(WorkspaceCanonicalCache::new()),
+            },
+        )
+        .with_subscriber(dispatch),
+    );
+
+    // Give the producer enough time to flood the local buffer past 256.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    drop(rx);
+
+    let _ = task.await;
+
+    let logged = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
+    assert!(
+        logged.contains("dropped-output count") && logged.contains("drop-target"),
+        "expected a tracing::warn! diagnostic naming the step id and the dropped count when \
+         the outer channel is closed; got: {logged}"
+    );
+}
+
 /// CONC-9 / TASK-0459: when the outer mpsc receiver stalls (display pump
 /// hung) and the abort flag is tripped (a sibling fail_fast'd),
 /// exec_standalone must abandon its terminal-event send instead of

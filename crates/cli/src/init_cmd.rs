@@ -84,6 +84,24 @@ fn write_init(path: &Path, bytes: &[u8], force: bool) -> std::io::Result<()> {
         // `atomic_write` without losing the `create_new` exclusion that
         // gives no-force its "do not clobber" guarantee, hence the
         // inline parent fsync mirroring config::edit::atomic_write.
+        // ERR-1 / TASK-1231: Windows `std::fs` exposes no portable
+        // directory-fsync analogue (FlushFileBuffers operates on file
+        // handles, not directory entries; the equivalent durability
+        // contract is normally obtained via the `MOVEFILE_WRITE_THROUGH`
+        // flag of MoveFileEx, which the no-force branch's `create_new`
+        // path does not exercise). Document the platform gap explicitly
+        // so operators reading the Unix branch's "may not survive a power
+        // loss" warning do not implicitly extend that guarantee to
+        // Windows. The --force branch goes through `atomic_write`, which
+        // surfaces the same Windows breadcrumb at the analogous site.
+        #[cfg(not(unix))]
+        {
+            tracing::debug!(
+                path = ?path.display(),
+                "no portable directory fsync on this platform; new .ops.toml may not \
+                 survive a power loss until the OS flushes its metadata"
+            );
+        }
         #[cfg(unix)]
         if let Some(parent) = path.parent() {
             // Empty parent path means cwd; open(".") instead.

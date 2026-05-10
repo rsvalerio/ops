@@ -108,6 +108,23 @@ pub fn read_stderr_bounded(
 /// CONC-3 / TASK-0650: stdout is routed to `/dev/null` (via `--quiet`) and
 /// stderr is drained in a worker thread, sidestepping pipe-buffer
 /// deadlocks for chatty git wrappers.
+///
+/// # Single-shot-process only
+///
+/// ERR-5 / TASK-1150: the stderr drain thread is fire-and-forget. It
+/// blocks on `read_to_end` until the kernel signals EOF on the pipe — i.e.
+/// until *every* descriptor inheriting the write end (the child and any
+/// orphan grandchild it forked) is closed. After this function returns,
+/// the thread, its accumulating `Vec<u8>`, and the pipe FD remain pinned
+/// for the lifetime of the longest-lived pipe holder.
+///
+/// In a one-shot CLI invocation the cost is bounded by process exit, so
+/// pre-commit and friends accept it. **Do not call this from a long-lived
+/// host (LSP-style daemon, `ops watch` mode, persistent runner): every
+/// hung subprocess pins one drain thread plus one pipe FD plus one
+/// unbounded buffer for the host's lifetime.** A future daemon caller
+/// must either close the pipe read end on `wait_timeout` return or move
+/// to a non-blocking drain that observes the parent's cancellation.
 pub fn has_staged_files_with_timeout(
     program: &str,
     dir: &Path,

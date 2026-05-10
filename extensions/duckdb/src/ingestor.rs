@@ -280,6 +280,18 @@ impl SidecarIngestorConfig {
     /// is left in place so `read_workspace_sidecar` can drive a clean
     /// recovery on the next run instead of failing on a missing sidecar
     /// while leftover JSON still sits on disk.
+    ///
+    /// ERR-1 / TASK-1242: every breadcrumb that references the staging
+    /// file logs *both* the original JSON path and the post-rename
+    /// effective path. The two paths diverge in the cross-device-rename
+    /// fallback (rename fails with EXDEV → `effective == original`) and
+    /// after a successful rename (`effective == original.with_extension
+    /// ("json.done")`). Emitting only one of the two collapsed those
+    /// cases together and made it ambiguous which file an operator
+    /// should be looking for after a half-cleaned crash. The dual-field
+    /// contract is shared with `cleanup_artifacts_breadcrumb_paths` so
+    /// the unit test can pin the formatting without intercepting a
+    /// tracing subscriber.
     fn cleanup_artifacts(&self, data_dir: &Path, json_path: &Path) {
         // ARCH-2 / TASK-1008 (option B): rename the staging JSON to a
         // `.done` suffix before unlinking. A `kill -9` between rename and
@@ -288,8 +300,9 @@ impl SidecarIngestorConfig {
         // flight). The rename → unlink ordering keeps the success path
         // identical (both syscalls run, file is gone) while making the
         // crash window observable rather than indistinguishable.
-        let done_path = json_path.with_extension("json.done");
-        let json_path = match std::fs::rename(json_path, &done_path) {
+        let original_json_path: &Path = json_path;
+        let done_path = original_json_path.with_extension("json.done");
+        let effective_path: &Path = match std::fs::rename(original_json_path, &done_path) {
             Ok(()) => done_path.as_path(),
             // Fall back to direct removal if the rename failed for any
             // reason (e.g. cross-device). This restores the prior
@@ -297,18 +310,21 @@ impl SidecarIngestorConfig {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                 tracing::debug!(
                     source = self.name,
-                    path = ?json_path.display(),
+                    paths = %cleanup_artifacts_breadcrumb_paths(
+                        original_json_path,
+                        original_json_path,
+                    ),
                     error = ?e,
                     "cleanup_artifacts: rename to .done failed; falling back to direct unlink"
                 );
-                json_path
+                original_json_path
             }
             // NotFound on the rename: source already absent — fall
             // through to the existing match arms below for the same
             // recovery semantics.
-            Err(_) => json_path,
+            Err(_) => original_json_path,
         };
-        match std::fs::remove_file(json_path) {
+        match std::fs::remove_file(effective_path) {
             Ok(()) => crate::sql::remove_workspace_sidecar(data_dir, self.name),
             // ARCH-2 / TASK-1005: NotFound is the operationally-rare case
             // (external scrubber, manual `rm`, mid-pipeline interruption).
@@ -321,7 +337,10 @@ impl SidecarIngestorConfig {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 tracing::debug!(
                     source = self.name,
-                    path = ?json_path.display(),
+                    paths = %cleanup_artifacts_breadcrumb_paths(
+                        original_json_path,
+                        effective_path,
+                    ),
                     "cleanup_artifacts: JSON staging file already absent before removal; removing sidecar anyway"
                 );
                 crate::sql::remove_workspace_sidecar(data_dir, self.name);
@@ -329,7 +348,10 @@ impl SidecarIngestorConfig {
             Err(err) => {
                 tracing::warn!(
                     source = self.name,
-                    path = ?json_path.display(),
+                    paths = %cleanup_artifacts_breadcrumb_paths(
+                        original_json_path,
+                        effective_path,
+                    ),
                     error = ?err,
                     "failed to remove staged JSON after ingest; \
                      leaving sidecar to drive recovery on next run"
@@ -337,6 +359,19 @@ impl SidecarIngestorConfig {
             }
         }
     }
+}
+
+/// ERR-1 / TASK-1242: format both the original JSON staging path and the
+/// post-rename effective path into a single breadcrumb field. Sharing this
+/// helper between the warn / debug call sites and the unit test pins the
+/// dual-path logging contract: an operator chasing a half-cleaned crash
+/// always sees both names, regardless of which branch the cleanup hit.
+fn cleanup_artifacts_breadcrumb_paths(original: &Path, effective: &Path) -> String {
+    format!(
+        "original={:?} effective={:?}",
+        original.display(),
+        effective.display()
+    )
 }
 
 /// Trait for data sources that collect raw data and load it into DuckDB.
@@ -385,6 +420,50 @@ mod tests {
     use super::*;
     use crate::{connection::DuckDb, error::DbError};
     use std::io::Write;
+
+    /// ERR-1 / TASK-1242: the cleanup breadcrumb must surface *both* the
+    /// original JSON staging path and the post-rename effective path.
+    /// Pinned via the shared formatter so a future refactor that drops
+    /// one of the two fields trips this test instead of silently
+    /// collapsing the cross-device-fallback diagnostic.
+    #[test]
+    fn cleanup_breadcrumb_includes_both_original_and_effective_paths() {
+        let original = Path::new("/tmp/ops-data/source.json");
+        let effective = original.with_extension("json.done");
+
+        // Successful rename: the two paths differ. Both must be visible.
+        let rendered = cleanup_artifacts_breadcrumb_paths(original, &effective);
+        assert!(
+            rendered.contains("original=") && rendered.contains("source.json"),
+            "must label and include the original JSON path: got {rendered}"
+        );
+        assert!(
+            rendered.contains("effective=") && rendered.contains("source.json.done"),
+            "must label and include the post-rename effective path: got {rendered}"
+        );
+    }
+
+    #[test]
+    fn cleanup_breadcrumb_dual_path_on_cross_device_fallback() {
+        // EXDEV cross-device fallback: rename failed, so `effective`
+        // collapses back onto `original`. The breadcrumb must still
+        // emit both labelled fields so an operator parsing structured
+        // logs sees the dual-path contract is honoured even on the
+        // fallback branch.
+        let original = Path::new("/mnt/dataA/source.json");
+        let effective = original;
+        let rendered = cleanup_artifacts_breadcrumb_paths(original, effective);
+        assert!(
+            rendered.contains("original=") && rendered.contains("effective="),
+            "fallback must still emit both labelled fields: got {rendered}"
+        );
+        // The path itself appears twice — once per field.
+        let occurrences = rendered.matches("/mnt/dataA/source.json").count();
+        assert_eq!(
+            occurrences, 2,
+            "fallback must repeat the path under both fields: got {rendered}"
+        );
+    }
 
     #[test]
     fn load_result_success() {

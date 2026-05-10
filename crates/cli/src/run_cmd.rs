@@ -147,6 +147,11 @@ fn run_commands(
     let runner = build_runner(config, verbose, cwd_escape_policy)?;
 
     if dry_run {
+        // ERR-1 / TASK-1234: extend the execute path's `emit_raw_warnings`
+        // contract to dry-run so users invoking `ops <cmd> --dry-run --raw
+        // --tap=path` see that --raw/--tap have no effect, instead of a
+        // silent override.
+        emit_dry_run_warnings(raw, tap.is_some());
         for name in names {
             run_command_dry_run(&runner, name)?;
         }
@@ -189,6 +194,38 @@ fn run_commands_raw(
         run_with_runtime(async { Ok(runner.run_plan_raw(plan.leaf_ids, plan.fail_fast).await) })?;
     log_step_results(&results);
     Ok(results)
+}
+
+/// ERR-1 / TASK-1234: messages emitted when `--dry-run` is combined with
+/// otherwise-incompatible flags. The dry-run path materialises a preview
+/// without consulting `--raw` or `--tap`; without this contract, a user
+/// invoking `ops <cmd> --dry-run --raw --tap=path` saw no indication that
+/// those flags had no effect, mirroring the silent-override bug the
+/// execute-path `emit_raw_warnings` was introduced to fix.
+///
+/// Returns the static messages a caller would log so a unit test can
+/// assert the contract without intercepting a tracing subscriber.
+fn dry_run_overrides_messages(raw: bool, has_tap: bool) -> Vec<&'static str> {
+    let mut msgs = Vec::new();
+    if raw {
+        msgs.push(
+            "--raw is ignored under --dry-run; the dry-run preview never executes children, \
+             so raw-mode stdio inheritance is not exercised",
+        );
+    }
+    if has_tap {
+        msgs.push(
+            "--tap is ignored under --dry-run; the dry-run preview never executes children, \
+             so no tap file will be written",
+        );
+    }
+    msgs
+}
+
+fn emit_dry_run_warnings(raw: bool, has_tap: bool) {
+    for m in dry_run_overrides_messages(raw, has_tap) {
+        tracing::warn!("{m}");
+    }
 }
 
 /// Warnings emitted when `--raw` is combined with otherwise-incompatible
@@ -292,6 +329,10 @@ fn run_command(
     let mut runner = build_runner(config, verbose, cwd_escape_policy)?;
 
     if dry_run {
+        // ERR-1 / TASK-1234: mirror the multi-command path so the single-
+        // command dry-run branch surfaces the same --raw/--tap override
+        // diagnostic the execute path already emits.
+        emit_dry_run_warnings(raw, tap.is_some());
         return run_command_dry_run(&runner, name);
     }
 

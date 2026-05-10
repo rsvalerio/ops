@@ -877,3 +877,46 @@ mod merge_plan_nested_aggregation_tests {
         );
     }
 }
+
+/// ERR-1 / TASK-1234: dry-run overrides --raw and --tap. The execute path's
+/// `emit_raw_warnings` already surfaces the same flag conflicts; pin the
+/// dry-run-side contract via the static-message helper so a future
+/// refactor cannot silently drop one branch.
+mod dry_run_override_warnings_tests {
+    #[test]
+    fn dry_run_overrides_messages_emits_for_raw() {
+        let msgs = super::super::dry_run_overrides_messages(true, false);
+        assert_eq!(msgs.len(), 1, "raw alone must produce exactly one message");
+        assert!(
+            msgs[0].contains("--raw is ignored under --dry-run"),
+            "raw override message missing: got {msgs:?}"
+        );
+    }
+
+    #[test]
+    fn dry_run_overrides_messages_emits_for_tap() {
+        let msgs = super::super::dry_run_overrides_messages(false, true);
+        assert_eq!(msgs.len(), 1, "tap alone must produce exactly one message");
+        assert!(
+            msgs[0].contains("--tap is ignored under --dry-run"),
+            "tap override message missing: got {msgs:?}"
+        );
+    }
+
+    #[test]
+    fn dry_run_overrides_messages_emits_for_both() {
+        let msgs = super::super::dry_run_overrides_messages(true, true);
+        assert_eq!(msgs.len(), 2, "both flags must produce both messages");
+        assert!(msgs.iter().any(|m| m.contains("--raw is ignored")));
+        assert!(msgs.iter().any(|m| m.contains("--tap is ignored")));
+    }
+
+    #[test]
+    fn dry_run_overrides_messages_silent_when_no_conflict() {
+        let msgs = super::super::dry_run_overrides_messages(false, false);
+        assert!(
+            msgs.is_empty(),
+            "no override flags must not emit any message: got {msgs:?}"
+        );
+    }
+}

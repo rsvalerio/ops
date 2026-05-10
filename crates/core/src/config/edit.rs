@@ -155,7 +155,12 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     // rename silently narrows — or, symmetrically, a 0o660 destination
     // collapses to 0o640. Apply `set_permissions` on the temp path after
     // creation so the on-disk mode is exact regardless of umask.
-    {
+    // ERR-1 / TASK-1134: clean up the temp file on any inner error
+    // (open/set_permissions/write/sync), not just on rename failure.
+    // Writing into an inner closure lets `?` propagate while the surrounding
+    // block runs `remove_file(&tmp)` before returning the original error,
+    // matching the rename-failure cleanup at the next block.
+    let write_result: std::io::Result<()> = (|| {
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create_new(true);
         #[cfg(unix)]
@@ -179,6 +184,23 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         }
         f.write_all(bytes)?;
         f.sync_all()?;
+        #[cfg(test)]
+        if tests::FAIL_AFTER_SYNC.with(|c| c.get()) {
+            return Err(std::io::Error::other("injected post-sync failure"));
+        }
+        Ok(())
+    })();
+    if let Err(e) = write_result {
+        if let Err(cleanup) = std::fs::remove_file(&tmp) {
+            if cleanup.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    tmp = %tmp.display(),
+                    error = %cleanup,
+                    "leaked atomic_write temp file after write/sync failure",
+                );
+            }
+        }
+        return Err(e);
     }
 
     if let Err(e) = std::fs::rename(&tmp, path) {
@@ -201,6 +223,20 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     // success and the calling write path has no recovery action — but it
     // is the only signal that crash-safety is currently broken, so we
     // surface it at `warn` level rather than swallowing it silently.
+    // ERR-1 / TASK-1231: Windows `std::fs` exposes no portable
+    // directory-fsync analogue (FlushFileBuffers acts on file handles, not
+    // directory entries). Document the platform gap with a tracing::debug
+    // breadcrumb so the durability policy is consistent across both this
+    // and the `init_cmd::write_init` no-force branch — operators reading
+    // the Unix branch's "may not survive a power loss" warning do not
+    // implicitly extend that guarantee to Windows.
+    #[cfg(not(unix))]
+    {
+        tracing::debug!(
+            parent = %parent.display(),
+            "no portable directory fsync on this platform; rename may not survive a power loss"
+        );
+    }
     #[cfg(unix)]
     if let Ok(dir) = std::fs::File::open(parent) {
         if let Err(e) = dir.sync_all() {
@@ -217,6 +253,15 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ERR-1 / TASK-1134: fault-injection switch consumed by `atomic_write`
+    /// to simulate a post-sync failure inside the inner write block. Only
+    /// referenced under `#[cfg(test)]` so production code is untouched.
+    /// Thread-local so concurrent atomic_write tests are not poisoned —
+    /// every test runs `atomic_write` synchronously on its own thread.
+    thread_local! {
+        pub(super) static FAIL_AFTER_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
 
     /// SEC-33 / TASK-0943: `read_ops_toml` must surface a bounded-read
     /// error when the on-disk file exceeds the configured byte cap,
@@ -301,6 +346,38 @@ mod tests {
         atomic_write(&path, b"first").unwrap();
         atomic_write(&path, b"second").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
+    }
+
+    /// ERR-1 / TASK-1134: a write/sync error inside the inner block must
+    /// remove the sibling tmp file, not just the rename-failure branch.
+    /// Without the cleanup, a series of partial writes against a flaky
+    /// disk leaves orphaned `.{name}.tmp.<pid>.<counter>.<nanos>` files.
+    #[test]
+    fn atomic_write_inner_failure_does_not_leak_tmp() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("target.toml");
+
+        FAIL_AFTER_SYNC.with(|c| c.set(true));
+        let result = atomic_write(&path, b"data");
+        FAIL_AFTER_SYNC.with(|c| c.set(false));
+
+        let err = result.expect_err("expected injected failure to propagate");
+        assert_eq!(err.to_string(), "injected post-sync failure");
+
+        assert!(!path.exists(), "target should not exist on inner failure");
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| {
+                let n = e.file_name();
+                let s = n.to_string_lossy();
+                s.starts_with(".target.tmp.")
+            })
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "expected tmp cleanup on inner failure, leftovers: {leftovers:?}"
+        );
     }
 
     #[test]

@@ -7,7 +7,13 @@ use thiserror::Error;
 #[allow(dead_code)]
 #[non_exhaustive]
 pub enum DbError {
-    #[error("database mutex poisoned: {0}")]
+    /// ERR-5 / TASK-1214: PoisonError's Display embeds the panic payload from
+    /// arbitrary user-supplied callbacks, which can contain newlines, ANSI
+    /// escapes, or other operator-controlled bytes. Rendering via `{0:?}`
+    /// (Debug) escapes control characters (`\n`, `\u{1b}`, …) so the captured
+    /// string can flow safely to logs, JSON error responses, and anyhow
+    /// `.context()` chains without log-injection / payload-tampering risk.
+    #[error("database mutex poisoned: {0:?}")]
     MutexPoisoned(String),
 
     #[error("database error: {0}")]
@@ -83,6 +89,36 @@ mod tests {
         let err = DbError::MutexPoisoned("test panic".to_string());
         assert!(err.to_string().contains("mutex poisoned"));
         assert!(err.to_string().contains("test panic"));
+    }
+
+    /// ERR-5 / TASK-1214: a poisoned-mutex payload containing newlines and
+    /// ANSI escapes (i.e. arbitrary user-supplied panic content) must not
+    /// be forwarded verbatim into the Display body. Debug-formatting the
+    /// captured string escapes the control bytes so the rendered error is
+    /// safe to log without log-injection / payload-tampering risk.
+    #[test]
+    fn db_error_mutex_poisoned_escapes_control_bytes() {
+        let payload = "panic at line 42\n\u{1b}[31mFAKE ERROR\u{1b}[0m";
+        let err = DbError::MutexPoisoned(payload.to_string());
+        let rendered = err.to_string();
+        assert!(
+            !rendered.contains('\n'),
+            "rendered Display must not contain raw newline; got: {rendered:?}"
+        );
+        assert!(
+            !rendered.contains('\u{1b}'),
+            "rendered Display must not contain raw ESC byte; got: {rendered:?}"
+        );
+        // Escaped form should still carry the original substrings so the
+        // operator can recover the panic payload by reading the log.
+        assert!(
+            rendered.contains("\\n"),
+            "expected escaped newline; got: {rendered:?}"
+        );
+        assert!(
+            rendered.contains("FAKE ERROR"),
+            "payload text preserved; got: {rendered:?}"
+        );
     }
 
     #[test]

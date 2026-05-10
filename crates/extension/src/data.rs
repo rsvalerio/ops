@@ -381,13 +381,24 @@ impl Context {
     /// PERF-3 / TASK-1132: `key.to_string()` is allocated exactly once on a
     /// cache miss and reused for both the `in_flight` insertion and the
     /// final `data_cache` insertion. The previous shape allocated twice.
+    ///
+    /// ERR-1 / TASK-1170: when `self.refresh` is true the cache fast-path is
+    /// bypassed and the provider is re-invoked, then the fresh value
+    /// overwrites the cached entry. Without this, `Context::with_refresh()`
+    /// (and any caller setting `refresh = true`) would silently serve stale
+    /// cached values for any key already populated on this context — a
+    /// regression that became user-visible once TASK-0993 folded the cache
+    /// onto the persistent runner `Context`, which lives across repeat
+    /// queries within a single runner lifetime.
     pub fn get_or_provide(
         &mut self,
         key: &str,
         registry: &DataRegistry,
     ) -> Result<Arc<serde_json::Value>, DataProviderError> {
-        if let Some(v) = self.data_cache.get(key) {
-            return Ok(Arc::clone(v));
+        if !self.refresh {
+            if let Some(v) = self.data_cache.get(key) {
+                return Ok(Arc::clone(v));
+            }
         }
         let owned_key = key.to_string();
         if !self.in_flight.insert(owned_key) {

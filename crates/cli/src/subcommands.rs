@@ -81,6 +81,22 @@ pub(crate) fn run_extension(config: &Config, action: ExtensionAction) -> anyhow:
     }
 }
 
+/// ERR-1 / TASK-1189: classify an `inquire::Confirm` prompt result so that a
+/// user-initiated cancel (Ctrl-C / Esc) is distinguishable from a real
+/// failure. Returns `Ok(Some(answer))` for a real choice, `Ok(None)` for an
+/// explicit cancel, and `Err` for any other inquire failure.
+fn classify_confirm_result(
+    res: Result<bool, inquire::InquireError>,
+) -> anyhow::Result<Option<bool>> {
+    match res {
+        Ok(b) => Ok(Some(b)),
+        Err(
+            inquire::InquireError::OperationCanceled | inquire::InquireError::OperationInterrupted,
+        ) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// Prompt the user to run `ops <hook> install` when the hook command is not configured.
 fn prompt_hook_install(config: &Config, hook_name: &str) -> anyhow::Result<ExitCode> {
     ops_core::ui::note(format!("no '{hook_name}' command configured in .ops.toml."));
@@ -96,9 +112,20 @@ fn prompt_hook_install(config: &Config, hook_name: &str) -> anyhow::Result<ExitC
         ops_core::ui::note(format!("run `ops {hook_name} install` to set it up."));
         return Ok(ExitCode::FAILURE);
     }
-    let answer = inquire::Confirm::new(&format!("Run `ops {hook_name} install` now?"))
-        .with_default(true)
-        .prompt()?;
+    let answer = match classify_confirm_result(
+        inquire::Confirm::new(&format!("Run `ops {hook_name} install` now?"))
+            .with_default(true)
+            .prompt(),
+    )? {
+        Some(b) => b,
+        None => {
+            // ERR-1 / TASK-1189: Ctrl-C / Esc at the install prompt is the
+            // user explicitly cancelling, not a CLI error. Bail clean (without
+            // the "ops: error:" framing in main) so the surrounding git
+            // operation is not blocked by an angry exit.
+            return Ok(ExitCode::from(130));
+        }
+    };
     if answer {
         match hook_name {
             "run-before-commit" => pre_hook_cmd::run_before_commit_install(config)?,
@@ -202,6 +229,36 @@ mod tests {
     /// invocation hit the parser multiple times with divergent error
     /// policies. This test pins the new contract: handler-side helpers
     /// take `&Config` and never re-invoke `load_config`.
+    /// ERR-1 / TASK-1189: a cancelled install prompt must not surface as an
+    /// anyhow error. `main` formats anyhow errors with the `ops: error:`
+    /// prefix; returning `Ok(None)` from `classify_confirm_result` lets the
+    /// caller convert cancellation into a clean exit code without that
+    /// decoration.
+    #[test]
+    fn classify_confirm_result_cancel_is_ok_none() {
+        let out = classify_confirm_result(Err(inquire::InquireError::OperationCanceled))
+            .expect("cancel must not propagate as error");
+        assert!(out.is_none(), "cancel must map to None, not a bool answer");
+
+        let out = classify_confirm_result(Err(inquire::InquireError::OperationInterrupted))
+            .expect("interrupt must not propagate as error");
+        assert!(out.is_none(), "interrupt must map to None");
+    }
+
+    #[test]
+    fn classify_confirm_result_real_error_propagates() {
+        // A non-cancel inquire error (e.g. NotTTY) must still reach `main`
+        // so the user sees the diagnostic.
+        let res = classify_confirm_result(Err(inquire::InquireError::NotTTY));
+        assert!(res.is_err(), "real prompt errors must propagate as Err");
+    }
+
+    #[test]
+    fn classify_confirm_result_answer_passes_through() {
+        assert_eq!(classify_confirm_result(Ok(true)).expect("ok"), Some(true));
+        assert_eq!(classify_confirm_result(Ok(false)).expect("ok"), Some(false));
+    }
+
     #[test]
     #[serial_test::serial]
     fn handlers_do_not_reload_config() {

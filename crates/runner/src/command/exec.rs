@@ -143,22 +143,36 @@ async fn spawn_capped(
     type DrainOutcome = Result<std::io::Result<(Vec<u8>, u64)>, tokio::task::JoinError>;
     let mut stdout_result: Option<DrainOutcome> = None;
     let mut stderr_result: Option<DrainOutcome> = None;
+    // ERR-5 / TASK-1139: encode "exactly two drains" as a logged io::Error
+    // rather than `unreachable!` / `expect`, so a refactor adding a third
+    // drain (e.g. stdin watchdog) surfaces as a StepFailed event instead of
+    // a panic-with-payload that SEC-21 / TASK-0334 redaction does not cover
+    // (that hardening only wraps the outer parallel JoinSet, not this inner
+    // one).
+    let unexpected_drain = || -> std::io::Error {
+        tracing::error!("unexpected drain id from spawn_capped JoinSet");
+        std::io::Error::other("spawn_capped: unexpected drain id")
+    };
+    let missing_drain = || -> std::io::Error {
+        tracing::error!("spawn_capped JoinSet drained without yielding both readers");
+        std::io::Error::other("spawn_capped: drain JoinSet exhausted before stdout/stderr returned")
+    };
     while stdout_result.is_none() || stderr_result.is_none() {
         match drains.join_next_with_id().await {
             Some(Ok((id, val))) if id == stdout_handle.id() => stdout_result = Some(Ok(val)),
             Some(Ok((id, val))) if id == stderr_handle.id() => stderr_result = Some(Ok(val)),
-            Some(Ok(_)) => unreachable!("only stdout/stderr drains spawned"),
+            Some(Ok(_)) => return Err(unexpected_drain()),
             Some(Err(e)) if e.id() == stdout_handle.id() => stdout_result = Some(Err(e)),
             Some(Err(e)) if e.id() == stderr_handle.id() => stderr_result = Some(Err(e)),
-            Some(Err(_)) => unreachable!("only stdout/stderr drains spawned"),
-            None => unreachable!("two drains spawned, two results expected"),
+            Some(Err(_)) => return Err(unexpected_drain()),
+            None => return Err(missing_drain()),
         }
     }
     let (stdout_bytes, stdout_dropped) = stdout_result
-        .expect("stdout drain awaited")
+        .ok_or_else(missing_drain)?
         .map_err(join_to_io)??;
     let (stderr_bytes, stderr_dropped) = stderr_result
-        .expect("stderr drain awaited")
+        .ok_or_else(missing_drain)?
         .map_err(join_to_io)??;
     Ok(CommandOutput::from_streamed(
         status,
@@ -677,13 +691,27 @@ pub async fn exec_standalone(
     // so the display renders "(N output lines dropped under load)" next
     // to the step result. Awaited send so the count itself can never be
     // silently dropped.
+    //
+    // ERR-1 / TASK-1174: a closed receiver (display has already torn down,
+    // e.g. fail_fast shutdown race) returns `Err(SendError)`. The whole
+    // point of TASK-0457 is that this count never disappears, so log a
+    // structured warning when the outer channel rejects the event — the
+    // count survives in the log instead of being silently lost.
     if dropped_outputs > 0 {
-        let _ = tx
+        if let Err(mpsc::error::SendError(_)) = tx
             .send(RunnerEvent::StepOutputDropped {
                 id: id.clone(),
                 dropped_count: dropped_outputs,
             })
-            .await;
+            .await
+        {
+            tracing::warn!(
+                step_id = %id,
+                dropped_count = dropped_outputs,
+                "outer event channel closed; dropped-output count cannot be sent to display \
+                 (recording in logs so the count survives)",
+            );
+        }
     }
     if let Some(ev) = terminal {
         forward_terminal_event_or_drop(&tx, ev, &abort, &id).await;

@@ -132,9 +132,50 @@ impl Config {
                 self.walk_composite(name, &known, &mut visiting, 0)?;
             }
         }
+
+        // ERR-1 / TASK-1181, TASK-1182: alias hygiene. The CLI's `External`
+        // dispatcher matches the literal command name first and only falls
+        // through to alias lookup when no command exists by that name, so
+        // an alias that collides with an existing command name is silently
+        // dead. Symmetrically, `resolve_alias` does an order-dependent
+        // linear scan and would invisibly shadow whichever command happens
+        // to appear later in the IndexMap when two commands declare the
+        // same alias. Catch both up-front so misconfigurations fail loud
+        // at validate time rather than as ghost behaviour at invocation.
+        let mut alias_owner: std::collections::HashMap<&str, &str> =
+            std::collections::HashMap::new();
+        for (name, spec) in &self.commands {
+            for alias in spec.aliases() {
+                let alias_str = alias.as_str();
+                if known.contains(alias_str) {
+                    anyhow::bail!(
+                        "command '{name}': alias '{alias_str}' collides with an existing \
+                         command name; the alias would be silently dead because the literal \
+                         name takes precedence at dispatch"
+                    );
+                }
+                if let Some(prior) = alias_owner.insert(alias_str, name.as_str()) {
+                    anyhow::bail!(
+                        "alias '{alias_str}' is declared by both commands '{prior}' and \
+                         '{name}'; alias resolution would silently pick whichever command \
+                         appears first in config order"
+                    );
+                }
+            }
+        }
         Ok(())
     }
 
+    /// Recursive composite walker.
+    ///
+    /// ERR-1 / TASK-1221: `visiting` must be left in a consistent state on
+    /// every exit path, including the early-`Err` short-circuits inside the
+    /// loop. The previous shape used `?` then a tail `visiting.remove(name)`
+    /// that only ran on success, so a future refactor hoisting `visiting` to
+    /// an outer scope (an obvious optimisation across sibling composite roots)
+    /// would silently produce false-positive cycle errors on re-validation.
+    /// The invariant is now: if this function inserted `name` into `visiting`,
+    /// it removes it before returning, regardless of outcome.
     fn walk_composite<'a>(
         &'a self,
         name: &'a str,
@@ -148,25 +189,38 @@ impl Config {
             );
         }
         if !visiting.insert(name) {
+            // `name` was already in the set: this is the cycle signal, and
+            // the prior insertion belongs to an ancestor frame which is
+            // responsible for removing it on its own way out.
             anyhow::bail!("command '{name}': cycle detected in composite command");
         }
+        // From here we own the `visiting` entry for `name`. Drive the body
+        // through a single result binding so the post-loop `remove` runs on
+        // every path — including unknown-ref bail and recursive Err.
+        let mut result: anyhow::Result<()> = Ok(());
         if let Some(CommandSpec::Composite(c)) = self.commands.get(name) {
             for sub in &c.commands {
                 let sub_str = sub.as_str();
                 if !known.contains(sub_str) {
-                    anyhow::bail!("command '{name}': references unknown command '{sub_str}'");
+                    result = Err(anyhow::anyhow!(
+                        "command '{name}': references unknown command '{sub_str}'"
+                    ));
+                    break;
                 }
                 // Only recurse into config-defined composites; externals are
                 // opaque from this side and may be exec or composite — their
                 // internal cycles, if any, would be caught by their own
                 // validate path, not this one.
                 if let Some(CommandSpec::Composite(_)) = self.commands.get(sub_str) {
-                    self.walk_composite(sub_str, known, visiting, depth + 1)?;
+                    if let Err(e) = self.walk_composite(sub_str, known, visiting, depth + 1) {
+                        result = Err(e);
+                        break;
+                    }
                 }
             }
         }
         visiting.remove(name);
-        Ok(())
+        result
     }
 
     /// Find the canonical command name for an alias.

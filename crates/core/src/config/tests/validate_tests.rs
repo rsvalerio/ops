@@ -304,6 +304,138 @@ fn validate_commands_accepts_diamond_dag() {
         .expect("diamond is not a cycle");
 }
 
+/// ERR-1 / TASK-1181: two commands declaring the same alias are silently
+/// resolved by `Config::resolve_alias` to whichever appears first in the
+/// IndexMap, with no diagnostic. `validate_commands` must catch this up
+/// front so the misconfiguration fails loud at config load instead of as
+/// ghost behaviour at invocation time.
+#[test]
+fn validate_commands_rejects_duplicate_alias_across_commands() {
+    let mut config = Config::default();
+    let mut a = exec_spec("echo", &["a"]);
+    a.aliases = vec!["shared".to_string()];
+    let mut b = exec_spec("echo", &["b"]);
+    b.aliases = vec!["shared".to_string()];
+    config
+        .commands
+        .insert("alpha".to_string(), CommandSpec::Exec(a));
+    config
+        .commands
+        .insert("beta".to_string(), CommandSpec::Exec(b));
+
+    let err = config
+        .validate_commands(&[])
+        .expect_err("duplicate alias must fail validation");
+    let msg = format!("{err:#}");
+    assert!(msg.contains("'shared'"), "missing alias name; got: {msg}");
+    assert!(
+        msg.contains("alpha") && msg.contains("beta"),
+        "must name both candidates; got: {msg}"
+    );
+}
+
+/// ERR-1 / TASK-1182: an alias that collides with an existing command name
+/// is silently dead because the External dispatcher matches the literal
+/// command name first. `validate_commands` must reject this so a config
+/// with `commands.build` and `commands.foo.aliases = ["build"]` fails at
+/// validate time and names both keys.
+#[test]
+fn validate_commands_rejects_alias_colliding_with_command_name() {
+    let mut config = Config::default();
+    let mut foo = exec_spec("echo", &["foo"]);
+    foo.aliases = vec!["build".to_string()];
+    config.commands.insert(
+        "build".to_string(),
+        CommandSpec::Exec(exec_spec("echo", &["b"])),
+    );
+    config
+        .commands
+        .insert("foo".to_string(), CommandSpec::Exec(foo));
+
+    let err = config
+        .validate_commands(&[])
+        .expect_err("alias-vs-command-name collision must fail validation");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("'build'"),
+        "must name the colliding alias; got: {msg}"
+    );
+    assert!(msg.contains("foo"), "must name the alias owner; got: {msg}");
+}
+
+/// TASK-1182 (also): an alias that collides with an external command name
+/// (stack default / extension command id) must also be rejected — that's
+/// the exact dispatcher precedence that makes the alias dead.
+#[test]
+fn validate_commands_rejects_alias_colliding_with_external_command() {
+    let mut config = Config::default();
+    let mut foo = exec_spec("echo", &["foo"]);
+    foo.aliases = vec!["test".to_string()];
+    config
+        .commands
+        .insert("foo".to_string(), CommandSpec::Exec(foo));
+
+    let err = config
+        .validate_commands(&["test"])
+        .expect_err("alias colliding with external must fail");
+    let msg = format!("{err:#}");
+    assert!(msg.contains("'test'"), "got: {msg}");
+}
+
+/// ERR-1 / TASK-1221: `walk_composite` must leave `visiting` empty on every
+/// exit path, including unknown-ref bail and child-error short-circuits.
+/// This test exercises the invariant directly — a future refactor that
+/// hoists `visiting` across sibling composite roots would otherwise silently
+/// produce false-positive cycle errors on re-validation.
+#[test]
+fn walk_composite_clears_visiting_on_unknown_ref_error() {
+    use crate::config::CompositeCommandSpec;
+    let mut config = Config::default();
+    // Top-level composite with an unknown sub-ref so the inner loop bails.
+    config.commands.insert(
+        "outer".to_string(),
+        CommandSpec::Composite(CompositeCommandSpec::new(["nope"])),
+    );
+    let mut visiting: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let known: std::collections::HashSet<&str> =
+        config.commands.keys().map(String::as_str).collect();
+    let err = config
+        .walk_composite("outer", &known, &mut visiting, 0)
+        .expect_err("unknown ref must error");
+    assert!(format!("{err:#}").contains("unknown command 'nope'"));
+    assert!(
+        visiting.is_empty(),
+        "visiting must be cleared after error; got: {visiting:?}"
+    );
+}
+
+#[test]
+fn walk_composite_clears_visiting_on_recursive_error() {
+    use crate::config::CompositeCommandSpec;
+    let mut config = Config::default();
+    // outer -> mid -> nope (unknown). Error surfaces from a deeper frame; the
+    // outer frame must still clear its own entry on the way out.
+    config.commands.insert(
+        "outer".to_string(),
+        CommandSpec::Composite(CompositeCommandSpec::new(["mid"])),
+    );
+    config.commands.insert(
+        "mid".to_string(),
+        CommandSpec::Composite(CompositeCommandSpec::new(["nope"])),
+    );
+    let mut visiting: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let known: std::collections::HashSet<&str> =
+        config.commands.keys().map(String::as_str).collect();
+    let err = config
+        .walk_composite("outer", &known, &mut visiting, 0)
+        .expect_err("nested unknown ref must error");
+    assert!(format!("{err:#}").contains("unknown command 'nope'"));
+    assert!(
+        visiting.is_empty(),
+        "visiting must be cleared even on recursive error; got: {visiting:?}"
+    );
+}
+
 #[test]
 fn scale_columns_handles_huge_widths_without_wrapping() {
     // SEC-15 / TASK-0344: a terminal width that would overflow `w*9` in u16

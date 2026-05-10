@@ -71,6 +71,62 @@ fn data_registry_provide_returns_value() {
     assert_eq!(value, serde_json::json!({"key": "value"}));
 }
 
+/// ERR-1 / TASK-1170: a Context built with `with_refresh()` (or any caller
+/// flipping `refresh = true`) must bypass the data_cache fast path so the
+/// provider is re-invoked. Pre-fix, `get_or_provide` returned the cached
+/// value regardless of the refresh flag, making `--refresh` a no-op for any
+/// key already populated within the runner's persistent context lifetime.
+#[test]
+fn context_get_or_provide_refresh_bypasses_cache() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingProvider {
+        calls: Arc<AtomicUsize>,
+    }
+    impl DataProvider for CountingProvider {
+        fn name(&self) -> &'static str {
+            "counter"
+        }
+        fn provide(&self, _ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            let n = self.calls.fetch_add(1, Ordering::Relaxed) + 1;
+            Ok(serde_json::json!({ "calls": n }))
+        }
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut registry = DataRegistry::new();
+    registry.register(
+        "counter",
+        Box::new(CountingProvider {
+            calls: Arc::clone(&calls),
+        }),
+    );
+
+    let mut ctx = test_context();
+    ctx.get_or_provide("counter", &registry).expect("first");
+    ctx.get_or_provide("counter", &registry).expect("cached");
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        1,
+        "second call must be cached"
+    );
+
+    let mut refreshing = test_context().with_refresh();
+    refreshing
+        .get_or_provide("counter", &registry)
+        .expect("refresh-first");
+    refreshing
+        .get_or_provide("counter", &registry)
+        .expect("refresh-second");
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        3,
+        "refresh=true must bypass the data_cache and re-invoke the provider"
+    );
+    let cached = refreshing.cached("counter").expect("refresh stores result");
+    assert_eq!(cached.as_ref(), &serde_json::json!({ "calls": 3 }));
+}
+
 #[test]
 fn context_get_or_provide_caches() {
     let mut registry = DataRegistry::new();

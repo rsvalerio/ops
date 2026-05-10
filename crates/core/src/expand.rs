@@ -5,10 +5,10 @@
 
 use std::borrow::Cow;
 use std::collections::hash_map::Entry as HashMapEntry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// ERR-1 / TASK-0450: a non-recoverable variable expansion failure.
 ///
@@ -127,6 +127,48 @@ fn cached_ops_root_arc(ops_root: &Path) -> Arc<str> {
     }
 }
 
+/// ERR-1 / TASK-1224: track the set of variable names for which
+/// [`Variables::expand`] has already surfaced a user-facing warning, so
+/// repeated failures on the same variable do not flood stderr. The
+/// underlying `tracing::warn!` continues to fire for every failure, so
+/// structured-log consumers still see the full sequence.
+fn expand_warn_seen() -> &'static Mutex<HashSet<String>> {
+    static SET: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    SET.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Returns `true` when this `var_name` had not yet emitted a user-facing
+/// warning in this process — the caller should emit `ui::warn` once. A
+/// poisoned mutex is recoverable: the protected state is a deduplication
+/// hint, not a correctness invariant.
+fn mark_expand_warn_emitted(var_name: &str) -> bool {
+    let cache = expand_warn_seen();
+    let mut seen = cache.lock().unwrap_or_else(|e| {
+        cache.clear_poison();
+        e.into_inner()
+    });
+    seen.insert(var_name.to_string())
+}
+
+#[cfg(test)]
+pub(crate) fn expand_warn_seen_count() -> usize {
+    let cache = expand_warn_seen();
+    cache
+        .lock()
+        .map(|s| s.len())
+        .unwrap_or_else(|e| e.into_inner().len())
+}
+
+#[cfg(test)]
+pub(crate) fn reset_expand_warn_seen() {
+    let cache = expand_warn_seen();
+    let mut seen = cache.lock().unwrap_or_else(|e| {
+        cache.clear_poison();
+        e.into_inner()
+    });
+    seen.clear();
+}
+
 impl Variables {
     /// Build from environment and workspace root.
     ///
@@ -163,6 +205,20 @@ impl Variables {
                     cause = %err.cause,
                     "variable expansion failed; passing input through unchanged"
                 );
+                // ERR-1 / TASK-1224: a default `OPS_LOG_LEVEL=info` filters
+                // the tracing line above, so users debugging "why does my
+                // dry-run show ${HOME} literally" never see a diagnostic.
+                // Surface the first failure per distinct variable name via
+                // the always-on user-facing channel; subsequent failures of
+                // the same variable stay structured-only so a single bad
+                // env value in a hot loop does not flood stderr.
+                if mark_expand_warn_emitted(&err.var_name) {
+                    crate::ui::warn(format!(
+                        "variable expansion failed for `${}`: {} — passing input \
+                         through unchanged",
+                        err.var_name, err.cause
+                    ));
+                }
                 Cow::Borrowed(input)
             }
         }
@@ -414,6 +470,57 @@ mod tests {
             input,
             "non-UTF-8 env value must fall back to original input"
         );
+    }
+
+    /// ERR-1 / TASK-1224: when `expand` falls back on a `VarError`, the
+    /// first failure per distinct variable name surfaces via the always-on
+    /// `crate::ui::warn` channel; subsequent failures of the same variable
+    /// must stay structured-only so a single bad env value in a hot loop
+    /// does not flood stderr. A new distinct variable must trip the
+    /// user-facing channel exactly once again.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn expand_warn_emits_once_per_distinct_var() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        super::reset_expand_warn_seen();
+        assert_eq!(super::expand_warn_seen_count(), 0, "precondition");
+
+        let key_a = "OPS_TEST_TASK1224_VAR_A";
+        let key_b = "OPS_TEST_TASK1224_VAR_B";
+        let bad: OsString = OsString::from_vec(vec![0xff, 0xfe, 0xfd]);
+        // SAFETY: test-only guard via #[serial] attribute.
+        unsafe {
+            std::env::set_var(key_a, &bad);
+            std::env::set_var(key_b, &bad);
+        }
+
+        let vars = test_vars();
+        // Two failures on the same var: ui::warn must fire only once.
+        let _ = vars.expand(&format!("${key_a}"));
+        let _ = vars.expand(&format!("${key_a}/extra"));
+        assert_eq!(
+            super::expand_warn_seen_count(),
+            1,
+            "repeated failures on the same var must dedupe"
+        );
+
+        // A new distinct var: ui::warn fires again, set grows.
+        let _ = vars.expand(&format!("${key_b}"));
+        assert_eq!(
+            super::expand_warn_seen_count(),
+            2,
+            "distinct var must surface a new ui::warn"
+        );
+
+        // SAFETY: test-only guard via #[serial] attribute.
+        unsafe {
+            std::env::remove_var(key_a);
+            std::env::remove_var(key_b);
+        }
+        super::reset_expand_warn_seen();
     }
 
     /// TASK-0450: strict `try_expand` must surface the underlying
