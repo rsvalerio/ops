@@ -3,11 +3,11 @@ id: TASK-1212
 title: >-
   PATTERN-1: parse_replace_directive accepts Windows backslash targets without
   scrubbing path-traversal segments
-status: To Do
+status: Done
 assignee:
   - TASK-1270
 created_date: '2026-05-08 08:19'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:59'
 labels:
   - code-review-rust
   - pattern

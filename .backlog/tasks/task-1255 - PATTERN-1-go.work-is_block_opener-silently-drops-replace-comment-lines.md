@@ -1,11 +1,11 @@
 ---
 id: TASK-1255
 title: 'PATTERN-1: go.work is_block_opener silently drops replace(// comment lines'
-status: To Do
+status: Done
 assignee:
   - TASK-1270
 created_date: '2026-05-08 13:01'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 17:08'
 labels:
   - code-review-rust
   - patterns

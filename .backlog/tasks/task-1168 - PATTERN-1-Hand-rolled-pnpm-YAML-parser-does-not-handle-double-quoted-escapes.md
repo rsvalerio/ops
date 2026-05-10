@@ -1,11 +1,11 @@
 ---
 id: TASK-1168
 title: 'PATTERN-1: Hand-rolled pnpm YAML parser does not handle double-quoted escapes'
-status: To Do
+status: Done
 assignee:
   - TASK-1270
 created_date: '2026-05-08 07:46'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:57'
 labels:
   - code-review-rust
   - PATTERN

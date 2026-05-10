@@ -3,11 +3,11 @@ id: TASK-1245
 title: >-
   PATTERN-1: read_gitdir_pointer matches first raw gitdir: line, no comment skip
   or whitespace trim
-status: To Do
+status: Done
 assignee:
   - TASK-1270
 created_date: '2026-05-08 13:00'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 17:07'
 labels:
   - code-review-rust
   - patterns

@@ -3,11 +3,11 @@ id: TASK-1239
 title: >-
   PATTERN-1: has_legacy_marker substring match still triggers inside quoted
   strings and here-docs
-status: To Do
+status: Done
 assignee:
   - TASK-1270
 created_date: '2026-05-08 12:59'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 17:06'
 labels:
   - code-review-rust
   - patterns

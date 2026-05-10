@@ -3,11 +3,11 @@ id: TASK-1222
 title: >-
   PATTERN-1: global_config_path silently picks XDG_CONFIG_HOME on Windows even
   when set to a Unix path
-status: To Do
+status: Done
 assignee:
   - TASK-1270
 created_date: '2026-05-08 12:57'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 17:01'
 labels:
   - code-review-rust
   - patterns

@@ -3,11 +3,11 @@ id: TASK-1178
 title: >-
   PATTERN-1: ProgressState::record_stderr does two HashMap probes on cold-id
   path
-status: To Do
+status: Done
 assignee:
   - TASK-1270
 created_date: '2026-05-08 08:09'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:58'
 labels:
   - code-review-rust
   - pattern

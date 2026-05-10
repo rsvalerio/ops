@@ -1,11 +1,11 @@
 ---
 id: TASK-1164
 title: 'PATTERN-1: Go module name strips no /vN major-version suffix'
-status: To Do
+status: Done
 assignee:
   - TASK-1270
 created_date: '2026-05-08 07:45'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:56'
 labels:
   - code-review-rust
   - PATTERN

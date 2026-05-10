@@ -3,11 +3,11 @@ id: TASK-1236
 title: >-
   PATTERN-1: spawn_parallel_tasks sizes the mpsc channel to MAX_PARALLEL ×
   event_budget regardless of steps.len()
-status: To Do
+status: Done
 assignee:
   - TASK-1270
 created_date: '2026-05-08 12:59'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 17:02'
 labels:
   - code-review-rust
   - patterns

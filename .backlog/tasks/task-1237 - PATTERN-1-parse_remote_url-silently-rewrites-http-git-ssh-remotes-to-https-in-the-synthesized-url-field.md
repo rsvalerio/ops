@@ -3,11 +3,11 @@ id: TASK-1237
 title: >-
   PATTERN-1: parse_remote_url silently rewrites http/git/ssh remotes to https in
   the synthesized url field
-status: To Do
+status: Done
 assignee:
   - TASK-1270
 created_date: '2026-05-08 12:59'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 17:05'
 labels:
   - code-review-rust
   - patterns

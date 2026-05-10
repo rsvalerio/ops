@@ -3,11 +3,11 @@ id: TASK-1216
 title: >-
   PATTERN-1: parse_use_dirs in_use_block branch silently swallows nested use(
   openers
-status: To Do
+status: Done
 assignee:
   - TASK-1270
 created_date: '2026-05-08 08:20'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 17:00'
 labels:
   - code-review-rust
   - pattern
