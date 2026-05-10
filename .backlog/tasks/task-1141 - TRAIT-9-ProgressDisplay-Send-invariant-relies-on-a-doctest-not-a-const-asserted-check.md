@@ -3,11 +3,11 @@ id: TASK-1141
 title: >-
   TRAIT-9: ProgressDisplay !Send invariant relies on a doctest, not a
   const-asserted check
-status: To Do
+status: Done
 assignee:
   - TASK-1269
 created_date: '2026-05-08 07:41'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:20'
 labels:
   - code-review-rust
   - TRAIT
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Move assert_not_send check into a const _: () block at module top level (compiled in every build)
+- [x] #1 Move assert_not_send check into a const _: () block at module top level (compiled in every build)
 - [ ] #2 Or place it in a public-doctest that runs under cargo test --doc and compile_fail
 <!-- AC:END -->

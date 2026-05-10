@@ -3,11 +3,11 @@ id: TASK-1179
 title: >-
   API-9: DataRegistry::IntoIterator surfaces internal HashMap ordering as part
   of the public contract
-status: To Do
+status: Done
 assignee:
   - TASK-1269
 created_date: '2026-05-08 08:09'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:21'
 labels:
   - code-review-rust
   - api
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 DataRegistry::IntoIterator yields entries in deterministic (insertion or sorted) order, matching the documented expectations of take_duplicate_inserts audit-trail consumers.
-- [ ] #2 Test asserts iteration order is stable across two registries built from the same insertion sequence.
+- [x] #1 DataRegistry::IntoIterator yields entries in deterministic (insertion or sorted) order, matching the documented expectations of take_duplicate_inserts audit-trail consumers.
+- [x] #2 Test asserts iteration order is stable across two registries built from the same insertion sequence.
 <!-- AC:END -->

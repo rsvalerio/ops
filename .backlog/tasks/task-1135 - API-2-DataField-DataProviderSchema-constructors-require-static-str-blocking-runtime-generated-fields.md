@@ -3,11 +3,11 @@ id: TASK-1135
 title: >-
   API-2: DataField/DataProviderSchema constructors require &'static str blocking
   runtime-generated fields
-status: To Do
+status: Done
 assignee:
   - TASK-1269
 created_date: '2026-05-08 07:40'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:19'
 labels:
   - code-review-rust
   - API
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Either document the 'static constraint with rationale, or migrate to Cow<'static, str>
-- [ ] #2 Verify data_field! macro still works against the new shape
+- [x] #1 Either document the 'static constraint with rationale, or migrate to Cow<'static, str>
+- [x] #2 Verify data_field! macro still works against the new shape
 <!-- AC:END -->

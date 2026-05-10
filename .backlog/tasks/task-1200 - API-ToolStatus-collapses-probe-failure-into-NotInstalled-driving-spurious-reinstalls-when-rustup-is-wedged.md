@@ -3,11 +3,11 @@ id: TASK-1200
 title: >-
   API: ToolStatus collapses probe failure into NotInstalled, driving spurious
   reinstalls when rustup is wedged
-status: To Do
+status: Done
 assignee:
   - TASK-1269
 created_date: '2026-05-08 08:14'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:30'
 labels:
   - code-review-rust
   - api
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ToolStatus gains an explicit ProbeFailed (or equivalent) variant; run_probe_with_timeout callers route timeout / IO-error returns through it instead of NotInstalled.
-- [ ] #2 install_tool treats ProbeFailed as 'skip with warn'; a regression test pins that a timed-out probe does NOT trigger a reinstall.
+- [x] #1 ToolStatus gains an explicit ProbeFailed (or equivalent) variant; run_probe_with_timeout callers route timeout / IO-error returns through it instead of NotInstalled.
+- [x] #2 install_tool treats ProbeFailed as 'skip with warn'; a regression test pins that a timed-out probe does NOT trigger a reinstall.
 <!-- AC:END -->

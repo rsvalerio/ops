@@ -1,11 +1,11 @@
 ---
 id: TASK-1256
 title: 'API: ssh_to_https emits https:///<path> for hostless ssh:// inputs'
-status: To Do
+status: Done
 assignee:
   - TASK-1269
 created_date: '2026-05-08 13:01'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:33'
 labels:
   - code-review-rust
   - api
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Hostless inputs return a deterministic safe shape (drop the field, or fall through to the trimmed verbatim string)
-- [ ] #2 Unit test pinning ssh_to_https("/path") and ssh_to_https("git@:foo") outputs
-- [ ] #3 About-card render path no longer surfaces https:/// URLs
+- [x] #1 Hostless inputs return a deterministic safe shape (drop the field, or fall through to the trimmed verbatim string)
+- [x] #2 Unit test pinning ssh_to_https("/path") and ssh_to_https("git@:foo") outputs
+- [x] #3 About-card render path no longer surfaces https:/// URLs
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1196
 title: >-
   API: PublishSpec::is_publishable returns true for unresolved Inherited
   workspace=true, inverting safe default
-status: To Do
+status: Done
 assignee:
   - TASK-1269
 created_date: '2026-05-08 08:14'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:23'
 labels:
   - code-review-rust
   - api
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 PublishSpec::is_publishable either returns Option<bool> (None for Inherited / pre-resolution) or is gated by a typestate so a caller cannot invoke it on an unresolved value.
-- [ ] #2 Existing call sites compile against the new signature and explicitly handle the unresolved case rather than silently treating it as publishable.
+- [x] #1 PublishSpec::is_publishable either returns Option<bool> (None for Inherited / pre-resolution) or is gated by a typestate so a caller cannot invoke it on an unresolved value.
+- [x] #2 Existing call sites compile against the new signature and explicitly handle the unresolved case rather than silently treating it as publishable.
 <!-- AC:END -->

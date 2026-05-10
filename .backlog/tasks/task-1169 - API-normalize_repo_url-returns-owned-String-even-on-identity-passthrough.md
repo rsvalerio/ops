@@ -1,11 +1,11 @@
 ---
 id: TASK-1169
 title: 'API: normalize_repo_url returns owned String even on identity passthrough'
-status: To Do
+status: Done
 assignee:
   - TASK-1269
 created_date: '2026-05-08 07:46'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:20'
 labels:
   - code-review-rust
   - API
@@ -25,7 +25,13 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 normalize_repo_url returns Cow<'_, str>; identity passthroughs return Cow::Borrowed
-- [ ] #2 Existing tests adapt by calling .as_ref() or .into_owned() at the assertion site
-- [ ] #3 No behavioural change beyond fewer allocations on the hot path
+- [x] #1 normalize_repo_url returns Cow<'_, str>; identity passthroughs return Cow::Borrowed
+- [x] #2 Existing tests adapt by calling .as_ref() or .into_owned() at the assertion site
+- [x] #3 No behavioural change beyond fewer allocations on the hot path
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Already implemented by TASK-1257 (PERF-3): normalize_repo_url returns Cow<'_, str>, the clean-https path and bare-shorthand pure-traversal path return Cow::Borrowed. Tests pin both branches. No new code change required.
+<!-- SECTION:NOTES:END -->

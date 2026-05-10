@@ -1,11 +1,11 @@
 ---
 id: TASK-1233
 title: 'API: ExecTaskCtx is pub with all-pub fields and no #[non_exhaustive]'
-status: To Do
+status: Done
 assignee:
   - TASK-1269
 created_date: '2026-05-08 12:58'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:32'
 labels:
   - code-review-rust
   - api
@@ -25,7 +25,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add #[non_exhaustive]
-- [ ] #2 Provide a new(cwd, vars, tx, abort, policy) constructor
-- [ ] #3 Document the stability contract in the type's rustdoc
+- [x] #1 Add #[non_exhaustive]
+- [x] #2 Provide a new(cwd, vars, tx, abort, policy) constructor
+- [x] #3 Document the stability contract in the type's rustdoc
 <!-- AC:END -->

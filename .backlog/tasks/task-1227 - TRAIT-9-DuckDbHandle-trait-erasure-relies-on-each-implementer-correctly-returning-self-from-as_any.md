@@ -3,11 +3,11 @@ id: TASK-1227
 title: >-
   TRAIT-9: DuckDbHandle trait erasure relies on each implementer correctly
   returning self from as_any
-status: To Do
+status: Done
 assignee:
   - TASK-1269
 created_date: '2026-05-08 12:57'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 16:31'
 labels:
   - code-review-rust
   - traits
@@ -27,7 +27,13 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Provide a default impl via a sealed extension trait pattern
+- [x] #1 Provide a default impl via a sealed extension trait pattern
 - [ ] #2 OR delete as_any in favour of an enum/typed handle since the doc admits one concrete type
-- [ ] #3 Existing downcast call sites unchanged
+- [x] #3 Existing downcast call sites unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC1 (default impl via blanket): chosen over AC2 (typed handle) because the extension framework crate cannot depend on ops_duckdb. The blanket impl over '\''static + Send + Sync compile-time-enforces the canonical 'as_any returns self' contract; implementers cannot supply a wrong body (e.g. &()). AC3: downcast call sites in ops_duckdb (downcast_duckdb / try_provide_from_db / get_db) are unchanged.
+<!-- SECTION:NOTES:END -->
