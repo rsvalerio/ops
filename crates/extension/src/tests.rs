@@ -26,6 +26,32 @@ fn data_registry_provide_unknown_returns_error() {
     assert!(result.unwrap_err().to_string().contains("not found"));
 }
 
+/// API-9 / TASK-1179: `DataRegistry::IntoIterator` must yield entries in
+/// registration order so audit-trail consumers (and any CLI wiring code
+/// that walks the registry directly) see deterministic ordering. Two
+/// registries built from the same insertion sequence iterate identically;
+/// pre-fix, hashbrown's randomised iteration order broke that pin.
+#[test]
+fn data_registry_into_iter_yields_insertion_order_and_is_stable() {
+    let names = [
+        "zeta", "alpha", "delta", "mu", "beta", "lambda", "gamma", "epsilon",
+    ];
+    let build = || {
+        let mut r = DataRegistry::new();
+        for n in names {
+            r.register(n.to_string(), Box::new(StubProvider));
+        }
+        r
+    };
+    let observed: Vec<String> = build().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(observed, names, "iteration must follow insertion order");
+    let observed_again: Vec<String> = build().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(
+        observed, observed_again,
+        "two registries built from the same insertion sequence must iterate identically",
+    );
+}
+
 #[test]
 fn data_registry_register_and_get() {
     let mut registry = DataRegistry::new();

@@ -520,13 +520,27 @@ pub async fn exec_command_raw(
 
 /// FN-9 / TASK-0778: shared infrastructure passed to every parallel task.
 ///
-/// Groups the four runner-scoped handles (`cwd`, `vars`, the outbound event
-/// `tx`, and the `abort` signal) so each parallel spawn site clones the bag
-/// once via `Clone` rather than threading four positional arguments through
+/// Groups the runner-scoped handles (`cwd`, `vars`, the outbound event
+/// `tx`, the `abort` signal, the cwd-escape policy, and the workspace
+/// canonicalize cache) so each parallel spawn site clones the bag once
+/// via `Clone` rather than threading positional arguments through
 /// `spawn_parallel_tasks`. The struct uses `Arc`/`Sender` semantics so
-/// cloning is a refcount bump per field — the parallel hot path retains the
-/// allocation profile that TASK-0462 established.
+/// cloning is a refcount bump per field — the parallel hot path retains
+/// the allocation profile that TASK-0462 established.
+///
+/// # Stability contract
+///
+/// API / TASK-1233: `ExecTaskCtx` is `#[non_exhaustive]` (matching the
+/// runner's other public bag types like `RunnerEvent` and `StepResult`)
+/// so adding a new runner-scoped handle (e.g. per-task telemetry, a
+/// cancellation token, an execution budget) is *not* a SemVer break for
+/// downstream embedders. Embedders MUST construct the struct via
+/// [`ExecTaskCtx::new`] (or `..` syntax over a value the runner
+/// provides) — the field-level public constructors stay public for
+/// ergonomic in-place mutation but struct-literal construction outside
+/// this crate is forbidden by `#[non_exhaustive]`.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct ExecTaskCtx {
     pub cwd: Arc<PathBuf>,
     pub vars: Arc<Variables>,
@@ -542,6 +556,34 @@ pub struct ExecTaskCtx {
     /// spawn path read a process-global static, which made the public
     /// invalidate API a no-op against the cache that decided escape outcomes.
     pub workspace_cache: Arc<WorkspaceCanonicalCache>,
+}
+
+#[allow(dead_code)]
+impl ExecTaskCtx {
+    /// Construct an [`ExecTaskCtx`] from its current required handles.
+    /// API / TASK-1233: prefer this over struct-literal construction so
+    /// future additive fields (per-task telemetry, cancellation token,
+    /// execution budget) can land without churning every embedder's
+    /// call site.
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        cwd: Arc<PathBuf>,
+        vars: Arc<Variables>,
+        tx: mpsc::Sender<RunnerEvent>,
+        abort: Arc<AbortSignal>,
+        policy: CwdEscapePolicy,
+        workspace_cache: Arc<WorkspaceCanonicalCache>,
+    ) -> Self {
+        Self {
+            cwd,
+            vars,
+            tx,
+            abort,
+            policy,
+            workspace_cache,
+        }
+    }
 }
 
 /// CONC-3 / CONC-6 / CONC-9: spawn the per-task event forwarder.

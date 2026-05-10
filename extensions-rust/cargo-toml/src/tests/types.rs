@@ -307,7 +307,10 @@ name = "test"
 version = "0.1.0"
 "#;
     let manifest = CargoToml::parse(toml_default).expect("should parse");
-    assert!(manifest.package.unwrap().publish.is_publishable());
+    assert_eq!(
+        manifest.package.unwrap().publish.is_publishable(),
+        Some(true)
+    );
 
     let toml_false = r#"
 [package]
@@ -316,7 +319,10 @@ version = "0.1.0"
 publish = false
 "#;
     let manifest = CargoToml::parse(toml_false).expect("should parse");
-    assert!(!manifest.package.unwrap().publish.is_publishable());
+    assert_eq!(
+        manifest.package.unwrap().publish.is_publishable(),
+        Some(false)
+    );
 
     let toml_registry = r#"
 [package]
@@ -325,7 +331,10 @@ version = "0.1.0"
 publish = ["my-registry"]
 "#;
     let manifest = CargoToml::parse(toml_registry).expect("should parse");
-    assert!(manifest.package.unwrap().publish.is_publishable());
+    assert_eq!(
+        manifest.package.unwrap().publish.is_publishable(),
+        Some(true)
+    );
 }
 
 #[test]

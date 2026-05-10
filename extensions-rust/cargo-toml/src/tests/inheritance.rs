@@ -159,7 +159,7 @@ publish = false
             .as_str(),
         Some("LICENSE.shared")
     );
-    assert!(!pkg.publish.is_publishable());
+    assert_eq!(pkg.publish.is_publishable(), Some(false));
 }
 
 #[test]

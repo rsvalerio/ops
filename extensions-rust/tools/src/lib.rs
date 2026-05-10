@@ -18,7 +18,7 @@ pub use install::{install_cargo_tool, install_rustup_component, install_tool};
 pub use probe::{
     capture_cargo_list, capture_path_index, capture_rustup_components, check_binary_installed,
     check_binary_installed_with, check_cargo_tool_installed, check_rustup_component_installed,
-    check_tool_status, check_tool_status_with, get_active_toolchain, PathIndex,
+    check_tool_status, check_tool_status_with, get_active_toolchain, PathIndex, ProbeOutcome,
 };
 pub use timeout::{run_with_timeout, DEFAULT_INSTALL_TIMEOUT};
 
@@ -54,11 +54,19 @@ ops_extension::impl_extension! {
 /// `Debug` representation.
 ///
 /// READ-7 / TASK-0992: a previous `Unknown` variant was declared but never
-/// constructed — every probe-failure branch in `probe.rs` already maps to
+/// constructed — every probe-failure branch in `probe.rs` mapped to
 /// `NotInstalled`. The dead variant misled downstream consumers into
-/// writing defensive `Unknown` arms that could never fire. The variant
-/// stays removed; `#[non_exhaustive]` keeps the API additive if a
-/// distinct probe-failed signal is wired up later.
+/// writing defensive `Unknown` arms that could never fire.
+///
+/// API / TASK-1200: a distinct [`ToolStatus::ProbeFailed`] variant now
+/// surfaces the case where the underlying probe (e.g. `rustup show
+/// active-toolchain`, `cargo --list`, `rustup component list`) timed
+/// out, failed to spawn, or exited non-zero. Previously every such
+/// failure collapsed onto `NotInstalled`, which `tools_cmd::run_install`
+/// then "fixed" by reinstalling — turning a transient probe failure
+/// into a real mutation against a perfectly working toolchain. CLI
+/// install paths filter on `NotInstalled` only, so a `ProbeFailed`
+/// entry no longer triggers a reinstall.
 ///
 /// **When adding a variant:** extend the `Display` impl below with an
 /// intentional, stable user-facing string before merging.
@@ -67,6 +75,11 @@ ops_extension::impl_extension! {
 pub enum ToolStatus {
     Installed,
     NotInstalled,
+    /// API / TASK-1200: the probe itself failed (timeout, IO error, or
+    /// non-zero exit from `rustup`/`cargo`). The tool's true install
+    /// state is unknown; callers must NOT treat this as a missing tool
+    /// to install.
+    ProbeFailed,
 }
 
 impl std::fmt::Display for ToolStatus {
@@ -74,6 +87,7 @@ impl std::fmt::Display for ToolStatus {
         let s = match self {
             ToolStatus::Installed => "installed",
             ToolStatus::NotInstalled => "not installed",
+            ToolStatus::ProbeFailed => "probe failed",
         };
         f.write_str(s)
     }
@@ -118,13 +132,25 @@ pub fn collect_tools(tools: &IndexMap<String, ToolSpec>) -> Vec<ToolInfo> {
     let needs_path_index = tools
         .values()
         .any(|s| matches!(s.source(), ToolSource::Cargo | ToolSource::System));
+    // API / TASK-1200: convert the per-sweep captures from `ProbeOutcome`
+    // to `Option<String>` for the existing `check_tool_status_with`
+    // contract. A `ProbeOutcome::Failed` here intentionally falls back
+    // to per-tool probing (`None`), where the failure surfaces as
+    // `ToolStatus::ProbeFailed` for the affected entries instead of
+    // collapsing the whole sweep.
     let cargo_list = if needs_cargo {
-        probe::capture_cargo_list()
+        match probe::capture_cargo_list() {
+            ProbeOutcome::Ok(s) => Some(s),
+            ProbeOutcome::Failed => None,
+        }
     } else {
         None
     };
     let rustup_components = if needs_rustup {
-        probe::capture_rustup_components()
+        match probe::capture_rustup_components() {
+            ProbeOutcome::Ok(s) => Some(s),
+            ProbeOutcome::Failed => None,
+        }
     } else {
         None
     };

@@ -244,8 +244,9 @@ version = "0.1.0"
 publish = []
 "#;
     let manifest = CargoToml::parse(toml).expect("should parse");
-    assert!(
-        !manifest.package.unwrap().publish.is_publishable(),
+    assert_eq!(
+        manifest.package.unwrap().publish.is_publishable(),
+        Some(false),
         "empty registries should not be publishable"
     );
 }
@@ -259,7 +260,10 @@ version = "0.1.0"
 publish = true
 "#;
     let manifest = CargoToml::parse(toml).expect("should parse");
-    assert!(manifest.package.unwrap().publish.is_publishable());
+    assert_eq!(
+        manifest.package.unwrap().publish.is_publishable(),
+        Some(true)
+    );
 }
 
 #[test]

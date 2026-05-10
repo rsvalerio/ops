@@ -60,11 +60,11 @@ pub const DESCRIPTION: &str = "Per-project DuckDB database for data collection";
 pub const SHORTNAME: &str = "db";
 pub const DATA_PROVIDER_NAME: &str = "duckdb";
 
-impl ops_extension::DuckDbHandle for DuckDb {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
+// TRAIT-9 / TASK-1227: `DuckDbHandle` now has a blanket impl over
+// `'static + Send + Sync` in `ops_extension::data`, so the explicit
+// `impl DuckDbHandle for DuckDb` block is no longer needed (and can no
+// longer customise the `as_any` body — the canonical `self` body is
+// the compile-time-enforced contract).
 
 pub struct DuckDbExtension {
     db_path: PathBuf,

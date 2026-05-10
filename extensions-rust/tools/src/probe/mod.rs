@@ -20,6 +20,7 @@ pub use path::{
 pub use rustup::{
     capture_rustup_components, check_rustup_component_installed, get_active_toolchain,
 };
+pub use timeout::ProbeOutcome;
 
 // Crate-internal re-exports for sibling modules and tests.
 pub(crate) use cargo::is_in_cargo_list;
@@ -37,6 +38,12 @@ pub fn check_tool_status(name: &str, spec: &ToolSpec) -> ToolStatus {
 /// `rustup component list --installed`, and `$PATH` index outputs, so the
 /// caller can resolve them once per probe sweep and amortise the spawn /
 /// directory-walk cost across all entries.
+/// API / TASK-1200: distinguishes a *probe-failed* outcome from a
+/// *not-installed* outcome on the rustup-component / cargo-list paths.
+/// A timed-out `rustup component list` or `cargo --list` no longer
+/// collapses onto `NotInstalled` (which `tools_cmd::run_install` then
+/// reinstalls); it surfaces as [`ToolStatus::ProbeFailed`] so the
+/// install path skips the entry.
 pub fn check_tool_status_with(
     name: &str,
     spec: &ToolSpec,
@@ -47,7 +54,10 @@ pub fn check_tool_status_with(
     if let Some(component) = spec.rustup_component() {
         let installed = match rustup_components {
             Some(s) => is_component_in_list(s, component),
-            None => check_rustup_component_installed(component),
+            None => match check_rustup_component_installed(component) {
+                ProbeOutcome::Ok(b) => b,
+                ProbeOutcome::Failed => return ToolStatus::ProbeFailed,
+            },
         };
         if !installed {
             return ToolStatus::NotInstalled;
@@ -57,7 +67,10 @@ pub fn check_tool_status_with(
     let is_installed = match spec.source() {
         ToolSource::Cargo => match cargo_list {
             Some(s) => is_in_cargo_list(s, name) || check_binary_installed_with(name, path_index),
-            None => check_cargo_tool_installed(name),
+            None => match check_cargo_tool_installed(name) {
+                ProbeOutcome::Ok(b) => b,
+                ProbeOutcome::Failed => return ToolStatus::ProbeFailed,
+            },
         },
         ToolSource::System => check_binary_installed_with(name, path_index),
     };

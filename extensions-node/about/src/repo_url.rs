@@ -137,10 +137,24 @@ fn is_bare_github_shorthand(s: &str) -> bool {
 /// whose first segment merely begins with a digit (e.g. `host:42-archive/x`)
 /// by requiring **all** characters before the next `/` to be digits — a
 /// `host:42/foo` is a port, `host:42-archive/x` is an scp-form path.
+///
+/// API / TASK-1256: a hostless input (`ssh:///path`, `ssh://git@/path`, or
+/// scp-form `git@:foo` with an empty host segment) returns an empty
+/// `String` so the caller drops the field rather than surfacing a
+/// syntactically broken `https:///<path>` URL with empty authority on
+/// the About card. The previous shape passed the hostless body through
+/// verbatim, producing a clickable but malformed link from any hostile
+/// or typoed `package.json::repository.url`. Same operator-surface
+/// concern as TASK-1080 (control chars) and TASK-1111 (traversal).
 pub(crate) fn ssh_to_https(rest: &str) -> String {
     let no_user = rest.strip_prefix("git@").unwrap_or(rest);
     let trimmed = no_user.trim_end_matches(".git");
+    // API / TASK-1256: drop hostless inputs deterministically.
+    if trimmed.is_empty() || trimmed.starts_with('/') {
+        return String::new();
+    }
     let body = match trimmed.split_once(':') {
+        Some(("", _)) => return String::new(),
         Some((host, path)) if !is_numeric_port_prefix(path) => {
             format!("{host}/{path}")
         }
@@ -274,6 +288,32 @@ mod tests {
             normalize_repo_url("ssh://git@github.com:42-archive/x.git"),
             "https://github.com/42-archive/x"
         );
+    }
+
+    /// API / TASK-1256: hostless `ssh:///path` and `ssh://git@/path`
+    /// inputs must NOT produce a syntactically broken
+    /// `https:///<path>` URL on the About card. The function now drops
+    /// the field (returns empty), and `normalize_repo_url` propagates
+    /// the empty result so `parse_package_json` treats it as missing.
+    #[test]
+    fn ssh_to_https_drops_hostless_inputs() {
+        assert_eq!(ssh_to_https("/path"), "");
+        assert_eq!(ssh_to_https("git@/path"), "");
+        assert_eq!(ssh_to_https(""), "");
+        assert_eq!(ssh_to_https("git@:foo"), "");
+        assert_eq!(ssh_to_https(":foo"), "");
+    }
+
+    /// API / TASK-1256: the `ssh://`/`git+ssh://` branch of
+    /// `normalize_repo_url` propagates the empty result from
+    /// [`ssh_to_https`], so a hostless URL never reaches the About
+    /// card as `https:///<path>`.
+    #[test]
+    fn normalize_ssh_hostless_input_drops_field() {
+        assert_eq!(normalize_repo_url("ssh:///path"), "");
+        assert_eq!(normalize_repo_url("ssh://git@/path"), "");
+        assert_eq!(normalize_repo_url("git+ssh:///path"), "");
+        assert_eq!(normalize_repo_url("ssh://git@:foo"), "");
     }
 
     #[test]

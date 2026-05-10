@@ -1,6 +1,7 @@
 //! Data provider system: DataProvider trait, DataRegistry, Context, DuckDbHandle.
 
 use crate::error::DataProviderError;
+use indexmap::IndexMap;
 use ops_core::config::Config;
 use ops_core::project_identity::AboutFieldDef;
 use std::collections::{HashMap, HashSet};
@@ -12,6 +13,28 @@ use std::sync::Arc;
 /// Marked `#[non_exhaustive]` so future fields (e.g. units, examples) can be
 /// added without breaking external extensions that construct via the
 /// [`crate::data_field!`] macro or [`DataField::new`].
+///
+/// # Why `&'static str`?
+///
+/// API-2 / TASK-1135: `name`, `type_name`, and `description` are intentionally
+/// `&'static str` rather than `String` or `Cow<'static, str>`. Field
+/// descriptors are part of an extension's *compile-time identity* — they
+/// describe a stable schema surface that tooling (`cargo ops data info`,
+/// about-card rendering) reads to document the extension. In every
+/// in-tree usage and in the [`crate::data_field!`] macro the values are
+/// string literals baked into the binary; making the type owned would
+/// imply a per-call allocation profile that does not exist in practice.
+///
+/// **For runtime-generated field descriptions**: do *not* reach for
+/// `Box::leak`. Instead, build your provider so that schemas are produced
+/// by `match`-ing over a closed enum of supported field shapes whose
+/// descriptions are static literals, or change [`DataProvider::schema`]
+/// to compute the dynamic data through a different surface (e.g. a
+/// separate `Vec<String>`-shaped accessor). If a future use case
+/// genuinely needs runtime-owned strings, migrate the type to
+/// `Cow<'static, str>` rather than leaking — but coordinate with the
+/// extension framework owner because every implementer's `data_field!`
+/// invocations and `schema()` returns must move together.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct DataField {
@@ -23,6 +46,9 @@ pub struct DataField {
 impl DataField {
     /// Construct a [`DataField`]. Preferred over struct literals because the
     /// type is `#[non_exhaustive]`.
+    ///
+    /// All three arguments are `&'static str`; see the type-level docs for
+    /// the rationale and guidance on runtime-generated descriptions.
     pub const fn new(
         name: &'static str,
         type_name: &'static str,
@@ -41,6 +67,11 @@ impl DataField {
 /// `#[non_exhaustive]`: external extensions must construct via
 /// [`DataProviderSchema::new`] / [`DataProviderSchema::default`] so new
 /// schema fields (e.g. examples, units) stay a non-breaking change.
+///
+/// API-2 / TASK-1135: `description` is `&'static str` for the same reason
+/// described on [`DataField`] — schema text is a compile-time identity for
+/// the provider. See [`DataField`]'s type-level docs for guidance when a
+/// caller needs runtime-generated text.
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct DataProviderSchema {
@@ -50,6 +81,8 @@ pub struct DataProviderSchema {
 
 impl DataProviderSchema {
     /// Construct a [`DataProviderSchema`].
+    ///
+    /// `description` is `&'static str`; see [`DataField`] for the rationale.
     pub fn new(description: &'static str, fields: Vec<DataField>) -> Self {
         Self {
             description,
@@ -126,9 +159,19 @@ pub trait DataProvider: Send + Sync {
 }
 
 /// Registry of provider name → DataProvider.
+///
+/// API-9 / TASK-1179: backed by [`IndexMap`] so iteration (including the
+/// public [`IntoIterator`] impl) yields entries in registration order. The
+/// previous `HashMap` exposed hashbrown's randomised iteration order to
+/// downstream consumers, which silently surfaced as non-deterministic
+/// warning ordering for the `take_duplicate_inserts` audit trail and
+/// non-reproducible CLI output. `provider_names` continues to return a
+/// sorted view for surfaces that prefer alphabetical ordering; the
+/// untyped iteration order is now stable and matches the
+/// insertion-order policy of [`crate::CommandRegistry`].
 #[derive(Default)]
 pub struct DataRegistry {
-    providers: HashMap<String, Box<dyn DataProvider>>,
+    providers: IndexMap<String, Box<dyn DataProvider>>,
     /// CL-5 / TASK-0756: per-instance audit trail of names that were
     /// rejected by [`DataRegistry::register`] because the registry was
     /// already first-write-wins owned. The CLI wiring layer drains this via
@@ -260,7 +303,11 @@ impl DataRegistry {
 
 impl IntoIterator for DataRegistry {
     type Item = (String, Box<dyn DataProvider>);
-    type IntoIter = std::collections::hash_map::IntoIter<String, Box<dyn DataProvider>>;
+    type IntoIter = indexmap::map::IntoIter<String, Box<dyn DataProvider>>;
+    /// API-9 / TASK-1179: yields entries in registration order, matching
+    /// the documented expectations of [`take_duplicate_inserts`]
+    /// audit-trail consumers and aligning with the insertion-order
+    /// policy of [`crate::CommandRegistry`].
     fn into_iter(self) -> Self::IntoIter {
         self.providers.into_iter()
     }
@@ -272,8 +319,7 @@ impl IntoIterator for DataRegistry {
 /// # Downcast contract
 ///
 /// The only concrete type stored behind `Arc<dyn DuckDbHandle>` in production
-/// code is `ops_duckdb::DuckDb`. Implementations therefore implement
-/// `as_any` by returning `self`. Downcast call sites should:
+/// code is `ops_duckdb::DuckDb`. Downcast call sites should:
 ///
 /// ```text
 /// let db: Option<&ops_duckdb::DuckDb> = handle
@@ -285,13 +331,32 @@ impl IntoIterator for DataRegistry {
 /// the downcast and returns `Option<&DuckDb>`. New consumers should prefer
 /// `get_db` over calling `as_any` directly to avoid coupling on the concrete
 /// trait method (FN-9).
+///
+/// # Implementing
+///
+/// TRAIT-9 / TASK-1227: a blanket impl provides the canonical `as_any`
+/// body for every `'static + Send + Sync` type, so implementers cannot
+/// accidentally (or maliciously) return a wrong reference like `&()`
+/// that would silently break every downcast. The previous shape relied
+/// on a doc-only "the implementer must return self" contract; that is
+/// now compile-time-enforced — implementers do not (and cannot) supply
+/// their own `as_any` body. Any `'static + Send + Sync` type
+/// automatically satisfies `DuckDbHandle`, no explicit `impl` block
+/// required at the call site.
 #[cfg(feature = "duckdb")]
-pub trait DuckDbHandle: Send + Sync {
+pub trait DuckDbHandle: std::any::Any + Send + Sync {
     /// Return the handle as `&dyn Any` so callers can downcast to the
-    /// concrete type. The implementer must return `self`. See trait-level
-    /// docs for the supported concrete type and the preferred typed
-    /// accessor.
+    /// concrete type. The blanket impl below supplies the canonical
+    /// body (`self`); see trait-level docs for the supported concrete
+    /// type and the preferred typed accessor.
     fn as_any(&self) -> &dyn std::any::Any;
+}
+
+#[cfg(feature = "duckdb")]
+impl<T: std::any::Any + Send + Sync> DuckDbHandle for T {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 /// Per-invocation context shared with data providers.

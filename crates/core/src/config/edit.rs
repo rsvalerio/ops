@@ -254,11 +254,11 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
-    /// ERR-1 / TASK-1134: fault-injection switch consumed by `atomic_write`
-    /// to simulate a post-sync failure inside the inner write block. Only
-    /// referenced under `#[cfg(test)]` so production code is untouched.
-    /// Thread-local so concurrent atomic_write tests are not poisoned —
-    /// every test runs `atomic_write` synchronously on its own thread.
+    // ERR-1 / TASK-1134: fault-injection switch consumed by `atomic_write`
+    // to simulate a post-sync failure inside the inner write block. Only
+    // referenced under `#[cfg(test)]` so production code is untouched.
+    // Thread-local so concurrent atomic_write tests are not poisoned —
+    // every test runs `atomic_write` synchronously on its own thread.
     thread_local! {
         pub(super) static FAIL_AFTER_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }

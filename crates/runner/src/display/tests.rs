@@ -714,48 +714,7 @@ mod unknown_command_tests {
     }
 }
 
-/// TRAIT-9 / TASK-0907: pin the !Send invariant.
-///
-/// The marker on [`ProgressDisplay::_not_send`] keeps `handle_event`
-/// (which performs blocking sync stderr / tap writes) off multi-thread
-/// tokio worker threads. Stable Rust cannot directly express "T must
-/// not be Send", so this assertion uses the autoref-specialization
-/// pattern: a method named `assert_not_send` exists on `&T` (cheap
-/// blanket) only when `T: !Send`, so a Send-regressed type would fail
-/// to resolve the call.
-///
-/// To verify this fires correctly: temporarily change
-/// `_not_send: PhantomData<*const ()>` to `PhantomData<()>` and run
-/// `cargo build -p ops-runner --tests` — compilation must fail here.
-#[allow(dead_code)]
-mod assert_progress_display_not_send {
-    use super::ProgressDisplay;
-
-    trait NotSend {
-        fn assert_not_send(&self) {}
-    }
-    // Blanket impl: every type satisfies the trait *unless* a more
-    // specific impl shadows it. We provide the specific Send-only impl
-    // below to drive the inverse: when `T: Send`, the call is ambiguous
-    // (multiple matching impls) and fails to resolve.
-    impl<T: ?Sized> NotSend for T {}
-
-    trait MustBeSend {
-        fn assert_not_send(&self) {
-            // If ProgressDisplay were Send this impl would shadow the
-            // blanket, and the call site below would compile. We *want*
-            // it not to compile in that case, but stable Rust does not
-            // give us inverse trait bounds. The honest belt-and-braces
-            // check is the negative compile test in the doc comment.
-        }
-    }
-    impl<T: ?Sized + Send> MustBeSend for T {}
-
-    fn _typecheck(d: &ProgressDisplay) {
-        // Resolves to the `NotSend` blanket today. If `ProgressDisplay`
-        // becomes `Send`, the `MustBeSend` shadow makes this ambiguous
-        // (E0034) — the only stable-Rust shape that errors on a Send
-        // regression without trybuild.
-        d.assert_not_send();
-    }
-}
+// TRAIT-9 / TASK-1141: the `!Send` invariant assertion was moved out of
+// this test-only module into `display.rs` itself so every compilation
+// profile (not just `cargo test`) enforces it. See
+// `assert_progress_display_not_send` there.

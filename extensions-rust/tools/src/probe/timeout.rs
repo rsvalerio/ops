@@ -14,39 +14,64 @@ use std::time::Duration;
 /// by [`default_timeout`].
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// API / TASK-1200: outcome of an installation probe. Carries an explicit
+/// `Failed` variant so callers can distinguish a probe that *answered*
+/// "tool is not installed" from a probe that *did not answer at all*
+/// (timeout, spawn IO failure, non-zero exit). The previous shape
+/// (`Option<Output>` mapped to `bool` in callers) collapsed both onto
+/// `NotInstalled`, which `install_tool` then re-mediated by reinstalling
+/// a perfectly working toolchain.
+#[derive(Debug, Clone, Copy)]
+pub enum ProbeOutcome<T> {
+    Ok(T),
+    Failed,
+}
+
+impl<T> ProbeOutcome<T> {
+    #[allow(dead_code)]
+    pub(crate) fn map<U>(self, f: impl FnOnce(T) -> U) -> ProbeOutcome<U> {
+        match self {
+            ProbeOutcome::Ok(t) => ProbeOutcome::Ok(f(t)),
+            ProbeOutcome::Failed => ProbeOutcome::Failed,
+        }
+    }
+}
+
 /// Run a probe Command under [`run_with_timeout`], logging timeout / IO
-/// errors at `tracing::warn` and returning `None` so the caller can map
-/// the failure to `ToolStatus::NotInstalled` without duplicating the
-/// logging pattern at every call site.
+/// errors at `tracing::warn`. Timeout / spawn / unrecognised-error
+/// returns surface as [`ProbeOutcome::Failed`] so the caller can route
+/// them through [`crate::ToolStatus::ProbeFailed`] (API / TASK-1200)
+/// instead of mis-reporting them as "not installed" and triggering a
+/// reinstall.
 pub(super) fn run_probe_with_timeout(
     cmd: &mut Command,
     label: &'static str,
-) -> Option<std::process::Output> {
+) -> ProbeOutcome<std::process::Output> {
     match run_with_timeout(cmd, default_timeout(PROBE_TIMEOUT), label) {
-        Ok(out) => Some(out),
+        Ok(out) => ProbeOutcome::Ok(out),
         Err(RunError::Timeout(e)) => {
             tracing::warn!(
                 label,
                 timeout_secs = e.timeout.as_secs(),
-                "ASYNC-6 / TASK-0914: probe timed out; reporting tool as not installed"
+                "ASYNC-6 / TASK-0914 + API / TASK-1200: probe timed out; reporting tool as ProbeFailed"
             );
-            None
+            ProbeOutcome::Failed
         }
         Err(RunError::Io(e)) => {
             tracing::warn!(
                 label,
                 error = %e,
-                "probe spawn failed; reporting tool as not installed"
+                "probe spawn failed; reporting tool as ProbeFailed"
             );
-            None
+            ProbeOutcome::Failed
         }
         Err(other) => {
             tracing::warn!(
                 label,
                 error = %other,
-                "probe failed with unrecognized error variant; reporting tool as not installed"
+                "probe failed with unrecognized error variant; reporting tool as ProbeFailed"
             );
-            None
+            ProbeOutcome::Failed
         }
     }
 }
@@ -92,7 +117,10 @@ mod tests {
         let result = with_env_var(ops_core::subprocess::TIMEOUT_ENV, "1", || {
             run_probe_with_timeout(&mut cmd, "sleep test")
         });
-        assert!(result.is_none(), "timeout must surface as None");
+        assert!(
+            matches!(result, ProbeOutcome::Failed),
+            "timeout must surface as ProbeOutcome::Failed"
+        );
         assert!(
             start.elapsed() < std::time::Duration::from_secs(10),
             "must not hang past the deadline; elapsed = {:?}",

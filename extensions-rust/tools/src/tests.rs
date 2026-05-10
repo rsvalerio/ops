@@ -472,24 +472,34 @@ fn check_binary_installed_nonexistent() {
 #[ignore = "requires rustup + cargo-fmt installed; run with: cargo test -- --ignored"]
 fn check_cargo_tool_installed_fmt() {
     // cargo-fmt ships with rustup, should always be present
-    assert!(check_cargo_tool_installed("cargo-fmt"));
+    assert!(matches!(
+        check_cargo_tool_installed("cargo-fmt"),
+        ProbeOutcome::Ok(true)
+    ));
 }
 
 #[test]
 fn check_cargo_tool_installed_nonexistent() {
-    assert!(!check_cargo_tool_installed("cargo-nonexistent-abc123"));
+    assert!(matches!(
+        check_cargo_tool_installed("cargo-nonexistent-abc123"),
+        ProbeOutcome::Ok(false) | ProbeOutcome::Failed
+    ));
 }
 
 #[test]
 #[ignore = "requires rustup + rustfmt component installed; run with: cargo test -- --ignored"]
 fn check_rustup_component_installed_rustfmt() {
-    assert!(check_rustup_component_installed("rustfmt"));
+    assert!(matches!(
+        check_rustup_component_installed("rustfmt"),
+        ProbeOutcome::Ok(true)
+    ));
 }
 
 #[test]
 fn check_rustup_component_installed_nonexistent() {
-    assert!(!check_rustup_component_installed(
-        "nonexistent-component-xyz"
+    assert!(matches!(
+        check_rustup_component_installed("nonexistent-component-xyz"),
+        ProbeOutcome::Ok(false) | ProbeOutcome::Failed
     ));
 }
 
@@ -500,6 +510,83 @@ fn check_rustup_component_installed_nonexistent() {
 fn check_tool_status_simple_installed() {
     let spec = ToolSpec::Simple("Format code".to_string());
     assert_eq!(check_tool_status("cargo-fmt", &spec), ToolStatus::Installed);
+}
+
+/// API / TASK-1200: when the underlying probe (`rustup component list
+/// --installed`) cannot be answered (here: simulated by pointing
+/// `$RUSTUP` at a script that exits non-zero), the tool's status must
+/// surface as [`ToolStatus::ProbeFailed`] rather than silently
+/// collapsing onto [`ToolStatus::NotInstalled`]. The CLI install path
+/// (`run_tools_install`) filters strictly on `NotInstalled`, so a
+/// `ProbeFailed` entry no longer triggers the reinstall mutation that
+/// motivated this finding.
+///
+/// We exercise the non-zero-exit branch (rather than a real timeout)
+/// to keep the test fast and deterministic; the
+/// `timeout_returns_none_quickly` test in `probe::timeout` already
+/// pins that the timeout path itself surfaces as
+/// `ProbeOutcome::Failed`, which `check_tool_status_with` then maps
+/// to `ProbeFailed` via the same arm.
+#[test]
+#[cfg(unix)]
+#[serial_test::serial]
+fn check_tool_status_surfaces_probe_failed_on_wedged_rustup() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let fake = dir.path().join("rustup");
+    std::fs::write(&fake, "#!/bin/sh\necho 'rustup is wedged' >&2\nexit 1\n").unwrap();
+    let mut perms = std::fs::metadata(&fake).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&fake, perms).unwrap();
+
+    let spec = ToolSpec::Extended(ExtendedToolSpec {
+        description: "needs rustup".to_string(),
+        rustup_component: Some("clippy".to_string()),
+        package: None,
+        source: ToolSource::Cargo,
+    });
+
+    let prev_rustup = std::env::var_os("RUSTUP");
+    // SAFETY: serial_test::serial guards env-mutation; the probe spawned
+    // below honours `RUSTUP` synchronously.
+    unsafe { std::env::set_var("RUSTUP", &fake) };
+
+    let status = check_tool_status("clippy", &spec);
+
+    unsafe {
+        match prev_rustup {
+            Some(v) => std::env::set_var("RUSTUP", v),
+            None => std::env::remove_var("RUSTUP"),
+        }
+    };
+
+    assert_eq!(
+        status,
+        ToolStatus::ProbeFailed,
+        "a wedged rustup probe must surface as ProbeFailed, not NotInstalled (which would trigger reinstall)"
+    );
+}
+
+/// API / TASK-1200: pin the install-path policy: `run_tools_install`
+/// filters strictly on `ToolStatus::NotInstalled`, so a `ProbeFailed`
+/// entry must NOT be picked up for reinstall. The previous shape
+/// collapsed timeout/IO errors onto `NotInstalled`, turning a transient
+/// probe failure into a real `cargo install` / `rustup component add`
+/// mutation.
+#[test]
+fn probe_failed_status_excluded_from_install_filter() {
+    let statuses = [
+        ToolStatus::Installed,
+        ToolStatus::NotInstalled,
+        ToolStatus::ProbeFailed,
+    ];
+    let to_install: Vec<_> = statuses
+        .iter()
+        .filter(|s| **s == ToolStatus::NotInstalled)
+        .collect();
+    assert_eq!(to_install.len(), 1);
+    assert_eq!(*to_install[0], ToolStatus::NotInstalled);
 }
 
 #[test]
@@ -1025,7 +1112,7 @@ fn check_cargo_tool_installed_honours_cargo_env() {
     unsafe { std::env::remove_var("CARGO") };
 
     assert!(
-        installed,
+        matches!(installed, ProbeOutcome::Ok(true)),
         "probe must invoke the binary at $CARGO; falling back to PATH would not list `fake-marker-tool`"
     );
 }

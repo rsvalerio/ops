@@ -97,10 +97,46 @@ pub struct ProgressDisplay {
     /// writer in the future, both the writer change and this marker
     /// removal need to land together.
     ///
-    /// The `static_assert_not_send` block in [`tests`] pins the
-    /// invariant: removing this marker fails compilation of the test
-    /// module so the regression cannot land silently.
+    /// The [`assert_progress_display_not_send`] module below pins the
+    /// invariant in *every* build (not gated on `#[cfg(test)]`), so a
+    /// regression cannot land silently in release builds.
     _not_send: PhantomData<*const ()>,
+}
+
+/// TRAIT-9 / TASK-0907 / TASK-1141: pin the `!Send` invariant on
+/// [`ProgressDisplay`] in every compilation profile.
+///
+/// Stable Rust cannot directly express "T must not be Send", so this
+/// uses the autoref-specialization pattern: a `NotSend` blanket impl
+/// resolves the `assert_not_send` call only when `ProgressDisplay`
+/// stays `!Send`. If a future field renames or proc-macro derive
+/// silently makes the type `Send`, the `MustBeSend` shadow impl
+/// becomes applicable and the call site below fails to resolve
+/// (E0034) at compile time.
+///
+/// Previously this assertion lived under `#[cfg(test)]` so only
+/// `cargo test` (and only after rustdoc actually ran the doctest)
+/// caught a regression. Hosting it here, ungated, makes every
+/// `cargo build` enforce the constraint that load-bears for
+/// CONC-5 / TASK-0656 (no synchronous stderr writes on multi-thread
+/// tokio worker threads).
+#[allow(dead_code)]
+mod assert_progress_display_not_send {
+    use super::ProgressDisplay;
+
+    trait NotSend {
+        fn assert_not_send(&self) {}
+    }
+    impl<T: ?Sized> NotSend for T {}
+
+    trait MustBeSend {
+        fn assert_not_send(&self) {}
+    }
+    impl<T: ?Sized + Send> MustBeSend for T {}
+
+    fn _typecheck(d: &ProgressDisplay) {
+        d.assert_not_send();
+    }
 }
 
 impl ProgressDisplay {

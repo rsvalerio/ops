@@ -224,15 +224,26 @@ pub enum PublishSpec {
 
 #[allow(dead_code)]
 impl PublishSpec {
-    /// Returns `true` if publishing is allowed (to any registry).
-    pub fn is_publishable(&self) -> bool {
+    /// Returns `Some(true)` if publishing is allowed (to any registry),
+    /// `Some(false)` if publishing is explicitly disabled, and `None` for
+    /// unresolved [`PublishSpec::Inherited`] values.
+    ///
+    /// API / TASK-1196: previously returned `bool` and matched
+    /// `Inherited { .. }` as `true`, silently flipping the safe default
+    /// for any caller that gated `cargo publish` on this method without
+    /// first running `resolve_package_inheritance`. The unresolved case
+    /// now surfaces as `None` so callers must explicitly handle the
+    /// pre-resolution shape (e.g. by treating it as "do not publish"
+    /// or by routing through the resolver first). The
+    /// [`PublishSpec::None`] variant — *no* `publish` field at all —
+    /// continues to map to `Some(true)` because that is Cargo's
+    /// documented default and requires no resolution.
+    pub fn is_publishable(&self) -> Option<bool> {
         match self {
-            PublishSpec::Bool(b) => *b,
-            PublishSpec::Registries(v) => !v.is_empty(),
-            // Conservatively report unresolved-inherited as publishable; the
-            // resolved value (after `resolve_package_inheritance`) is what
-            // callers should rely on.
-            PublishSpec::Inherited { .. } | PublishSpec::None => true,
+            PublishSpec::Bool(b) => Some(*b),
+            PublishSpec::Registries(v) => Some(!v.is_empty()),
+            PublishSpec::Inherited { .. } => None,
+            PublishSpec::None => Some(true),
         }
     }
 }

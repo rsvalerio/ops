@@ -4,14 +4,17 @@ use ops_core::output::format_error_tail;
 use ops_core::subprocess::resolve_rustup_bin;
 use std::process::Command;
 
-use super::timeout::run_probe_with_timeout;
+use super::timeout::{run_probe_with_timeout, ProbeOutcome};
 
 pub fn get_active_toolchain() -> Option<String> {
     // `--quiet` is rustup's global flag, not a subcommand option, so it
     // appears before `show`. ASYNC-6 / TASK-0914: capped at PROBE_TIMEOUT.
     let mut cmd = Command::new(resolve_rustup_bin());
     cmd.args(["--quiet", "show", "active-toolchain"]);
-    let output = run_probe_with_timeout(&mut cmd, "rustup show active-toolchain")?;
+    let output = match run_probe_with_timeout(&mut cmd, "rustup show active-toolchain") {
+        ProbeOutcome::Ok(o) => o,
+        ProbeOutcome::Failed => return None,
+    };
 
     if !output.status.success() {
         return None;
@@ -48,12 +51,17 @@ pub(crate) fn parse_active_toolchain(stdout: &str) -> Option<String> {
         })
 }
 
-pub fn check_rustup_component_installed(component: &str) -> bool {
+/// API / TASK-1200: returns [`ProbeOutcome::Failed`] when the underlying
+/// `rustup component list --installed` invocation cannot be answered
+/// (timeout / IO / non-zero exit) so callers route it to
+/// [`crate::ToolStatus::ProbeFailed`] instead of mis-reporting the
+/// component as not installed.
+pub fn check_rustup_component_installed(component: &str) -> ProbeOutcome<bool> {
     let mut cmd = Command::new(resolve_rustup_bin());
     cmd.args(["component", "list", "--installed"]);
     let output = match run_probe_with_timeout(&mut cmd, "rustup component list --installed") {
-        Some(o) => o,
-        None => return false,
+        ProbeOutcome::Ok(o) => o,
+        ProbeOutcome::Failed => return ProbeOutcome::Failed,
     };
 
     if !output.status.success() {
@@ -62,13 +70,13 @@ pub fn check_rustup_component_installed(component: &str) -> bool {
             component = component,
             code = ?output.status.code(),
             stderr = ?stderr_snippet,
-            "rustup component list exited non-zero; reporting component as not installed"
+            "rustup component list exited non-zero; reporting component as ProbeFailed"
         );
-        return false;
+        return ProbeOutcome::Failed;
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    is_component_in_list(&stdout, component)
+    ProbeOutcome::Ok(is_component_in_list(&stdout, component))
 }
 
 /// `-{arch}-` patterns used to find the component-name / target-triple
@@ -127,12 +135,15 @@ pub(crate) fn is_component_in_list(stdout: &str, component: &str) -> bool {
 }
 
 /// Capture the raw stdout of `rustup component list --installed` once.
-pub fn capture_rustup_components() -> Option<String> {
+pub fn capture_rustup_components() -> ProbeOutcome<String> {
     let mut cmd = Command::new(resolve_rustup_bin());
     cmd.args(["component", "list", "--installed"]);
-    let output = run_probe_with_timeout(&mut cmd, "rustup component list --installed")?;
+    let output = match run_probe_with_timeout(&mut cmd, "rustup component list --installed") {
+        ProbeOutcome::Ok(o) => o,
+        ProbeOutcome::Failed => return ProbeOutcome::Failed,
+    };
     if !output.status.success() {
-        return None;
+        return ProbeOutcome::Failed;
     }
-    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+    ProbeOutcome::Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
