@@ -95,28 +95,41 @@ fn handle_existing_hook(
 
 /// Match a legacy ops marker against the script body.
 ///
-/// PATTERN-1 (TASK-1072): the previous implementation used naked
-/// `content.contains(marker)`, which matched inside shell comments and
-/// quoted strings. A user-authored hook with a comment like
-/// `# legacy: ops run-before-commit (do not use)` would falsely trigger the
-/// upgrade path and have its script overwritten by the ops template.
+/// PATTERN-1 (TASK-1072 / TASK-1239): match the marker only as a **leading
+/// word** of an uncommented line — the line, after `trim_start`, must begin
+/// with either:
 ///
-/// We now scan line-by-line and skip lines whose first non-whitespace
-/// character is `#` (a shell comment). Within an uncommented line we still
-/// require the marker as a substring, but we also reject the case where
-/// the substring is preceded only by whitespace and a `#` that we missed
-/// (defence in depth: a marker on a line that is comment-only after
-/// trimming should never match).
+/// * `<marker>` (followed by whitespace or end-of-line), or
+/// * `exec <marker>` (followed by whitespace or end-of-line).
+///
+/// `trim_start` discards leading whitespace; lines whose first non-whitespace
+/// char is `#` are skipped as shell comments (TASK-1072). Earlier shapes used
+/// `trimmed.contains(marker)` so a string literal inside an `echo`, `printf`,
+/// or here-doc body that *mentioned* the marker triggered the upgrade path
+/// and clobbered a hand-written user hook (TASK-1239).
+///
+/// Note: the marker is treated as the verbatim prefix of a command line; it
+/// must end at a word boundary so `ops run-before-commit-extra` is not
+/// mis-classified for marker `ops run-before-commit`.
 fn has_legacy_marker(content: &str, config: &HookConfig) -> bool {
     content.lines().any(|line| {
         let trimmed = line.trim_start();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             return false;
         }
-        config
-            .legacy_markers
-            .iter()
-            .any(|marker| trimmed.contains(marker))
+        let after_exec = trimmed.strip_prefix("exec ").map(str::trim_start);
+        let candidates = [Some(trimmed), after_exec];
+        config.legacy_markers.iter().any(|marker| {
+            candidates.iter().flatten().any(|head| {
+                let Some(rest) = head.strip_prefix(marker) else {
+                    return false;
+                };
+                // Require word boundary after the marker: either EOL or
+                // ASCII whitespace. Anything else (e.g. `able` continuing
+                // the identifier) is not a marker hit.
+                rest.is_empty() || rest.starts_with(|c: char| c.is_ascii_whitespace())
+            })
+        })
     })
 }
 
@@ -400,6 +413,82 @@ mod tests {
             .contains("not installed by ops"));
 
         // User's hook content must be preserved verbatim.
+        assert_eq!(
+            std::fs::read_to_string(git_dir.join("hooks/pre-commit")).unwrap(),
+            user_hook
+        );
+    }
+
+    /// PATTERN-1 (TASK-1239): a user-authored hook that mentions the
+    /// marker only inside an `echo`/`printf` argument or a here-doc body
+    /// must NOT be classified as an ops legacy hook. The leading-word
+    /// contract ensures the marker is matched only when it is the head of
+    /// the command line (optionally `exec`-prefixed).
+    #[test]
+    fn has_legacy_marker_ignores_marker_inside_echo_printf_and_heredoc() {
+        let cfg = commit_config();
+
+        let echo_arg = "#!/bin/sh\necho \"Tip: run 'ops run-before-commit' manually\"\n";
+        assert!(
+            !has_legacy_marker(echo_arg, &cfg),
+            "marker inside echo argument must not match"
+        );
+
+        let printf_arg =
+            "#!/bin/sh\nprintf 'see: ops run-before-commit\\n'\nexec /usr/local/bin/my-checks\n";
+        assert!(
+            !has_legacy_marker(printf_arg, &cfg),
+            "marker inside printf argument must not match"
+        );
+
+        let heredoc = "#!/bin/sh\ncat <<'NOTE'\nrun ops run-before-commit when ready\nNOTE\n";
+        assert!(
+            !has_legacy_marker(heredoc, &cfg),
+            "marker inside here-doc body must not match"
+        );
+
+        // Word boundary: a marker followed by an identifier continuation is
+        // not a hit either.
+        let extended_word = "#!/bin/sh\nops run-before-commit-extra\n";
+        assert!(
+            !has_legacy_marker(extended_word, &cfg),
+            "marker followed by identifier continuation must not match"
+        );
+
+        // Sanity: real legacy lines still match.
+        let bare = "#!/bin/sh\nops run-before-commit\n";
+        assert!(has_legacy_marker(bare, &cfg));
+        let exec_prefixed = "#!/bin/sh\nexec ops run-before-commit\n";
+        assert!(has_legacy_marker(exec_prefixed, &cfg));
+        let with_args = "#!/bin/sh\nops run-before-commit --quiet\n";
+        assert!(has_legacy_marker(with_args, &cfg));
+    }
+
+    /// PATTERN-1 (TASK-1239): integration-level analogue of TASK-1072 — a
+    /// user-authored hook whose only mention of the marker lives inside an
+    /// `echo` argument must be refused, not silently overwritten.
+    #[test]
+    fn install_hook_refuses_user_hook_with_marker_in_echo_argument() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let user_hook = "#!/bin/sh\necho \"Tip: run 'ops run-before-commit' manually\"\n";
+        std::fs::write(git_dir.join("hooks/pre-commit"), user_hook).unwrap();
+
+        let mut buf = Vec::new();
+        let result = install_hook(&cfg, &git_dir, &mut buf);
+        assert!(
+            result.is_err(),
+            "marker inside echo arg must not trigger upgrade"
+        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not installed by ops"));
+
+        // User content preserved verbatim.
         assert_eq!(
             std::fs::read_to_string(git_dir.join("hooks/pre-commit")).unwrap(),
             user_hook

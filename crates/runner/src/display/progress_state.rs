@@ -126,11 +126,16 @@ impl ProgressState {
         if cap == 0 {
             return;
         }
-        let buf = if let Some(buf) = self.step_stderr.get_mut(id) {
-            buf
-        } else {
-            self.step_stderr.entry(id.to_string()).or_default()
-        };
+        // PATTERN-1 (TASK-1178 / TASK-0998): single Entry lookup so each call
+        // probes the map exactly once. The previous shape did two probes on
+        // the cold-id path (`get_mut` miss, then `entry(...).or_default()`),
+        // matching the dual-lookup bug TASK-0998 already cleaned up in
+        // `merge_alias_for`. The trade-off: on the hit path we now always
+        // allocate `id.to_string()` for the key. That allocation is bounded
+        // by the per-line stderr work (one short id per output line) and the
+        // pattern parity with the rest of the crate is the higher-value
+        // invariant.
+        let buf = self.step_stderr.entry(id.to_string()).or_default();
         if buf.len() == cap {
             buf.pop_front();
         }

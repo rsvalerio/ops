@@ -305,21 +305,40 @@ fn merge_conf_d(config: &mut Config) -> anyhow::Result<()> {
 /// platform path. The resolved path is logged at `tracing::debug` so the
 /// chosen base directory is visible when diagnosing "config not loading"
 /// reports.
+///
+/// PATTERN-1 (TASK-1222): the chosen *source* of the base directory (XDG vs
+/// APPDATA vs HOME) is logged at debug too, so a Windows user inheriting a
+/// Unix-style `XDG_CONFIG_HOME` (WSL leakage, dotfile sync) can spot why the
+/// documented `%APPDATA%\ops\config.toml` location is being silently bypassed.
+/// The base path is also rejected if it is empty or relative — those shapes
+/// cannot be the right config home and silently honouring them only hides the
+/// misconfiguration. Cross-platform tooling generally treats `XDG_CONFIG_HOME`
+/// as authoritative when set, so we keep that precedence; the WSL leakage
+/// edge case is documented rather than papered over.
 pub(crate) fn global_config_path() -> Option<PathBuf> {
-    let config_dir = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-        PathBuf::from(xdg)
+    let (config_dir, source) = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+        (PathBuf::from(xdg), "XDG_CONFIG_HOME")
     } else if cfg!(windows) {
         // CL-3: fall back through the shared `paths::home_dir` helper so
         // Windows-native paths use the same HOME → USERPROFILE order as the
         // rest of the crate.
-        std::env::var_os("APPDATA")
+        let dir = std::env::var_os("APPDATA")
             .map(PathBuf::from)
-            .or_else(|| crate::paths::home_dir().map(|h| h.join("AppData/Roaming")))?
+            .or_else(|| crate::paths::home_dir().map(|h| h.join("AppData/Roaming")))?;
+        (dir, "APPDATA")
     } else {
-        crate::paths::home_dir()?.join(".config")
+        (crate::paths::home_dir()?.join(".config"), "HOME")
     };
+    if config_dir.as_os_str().is_empty() || !config_dir.is_absolute() {
+        debug!(
+            source,
+            base = ?config_dir.display(),
+            "global config base path is empty or non-absolute; skipping global config"
+        );
+        return None;
+    }
     let path = config_dir.join("ops/config");
-    debug!(path = ?path.display(), "resolved global config base path");
+    debug!(source, path = ?path.display(), "resolved global config base path");
     Some(path)
 }
 

@@ -88,9 +88,43 @@ fn parse_replace_directive(rest: &str) -> Option<String> {
         || target.starts_with('/')
         || is_windows_absolute(target)
     {
+        // PATTERN-1 (TASK-1212): reject embedded `..` cancellation segments
+        // past the leading `./` / `../` prefix the matcher already accepts.
+        // Mirrors the SEC-14 scrub policy in `extensions/about/src/workspace.rs`
+        // (`resolve_member_globs`, TASK-1071) so adversarial fixtures cannot
+        // smuggle traversal through a local-replace target. The leading run
+        // of `..` segments is allowed (cmd/go accepts `../../shared`); we
+        // reject `..` only once a real path segment has appeared.
+        if has_embedded_parent_dir_segment(target) {
+            tracing::warn!(
+                target = %target,
+                "go.mod replace target contains embedded `..` traversal segment past the leading prefix; skipping"
+            );
+            return None;
+        }
         return Some(target.to_string());
     }
     None
+}
+
+/// True when `target` (split on `/` and `\\`) contains a `..` segment that
+/// appears *after* a non-dot, non-empty segment. The leading run of `.`/`..`
+/// prefix segments is allowed.
+fn has_embedded_parent_dir_segment(target: &str) -> bool {
+    let mut seen_normal = false;
+    for seg in target.split(['/', '\\']) {
+        if seg.is_empty() || seg == "." {
+            continue;
+        }
+        if seg == ".." {
+            if seen_normal {
+                return true;
+            }
+            continue;
+        }
+        seen_normal = true;
+    }
+    false
 }
 
 /// Match cmd/go's module version token shape: a leading `v` followed by an
@@ -364,6 +398,77 @@ mod tests {
         std::fs::write(dir.path().join("go.mod"), "module example.com/foo//bar\n").unwrap();
         let m = parse(dir.path()).unwrap();
         assert_eq!(m.module.as_deref(), Some("example.com/foo//bar"));
+    }
+
+    /// PATTERN-1 (TASK-1255): `replace(// note` (no whitespace before the
+    /// inline comment) is legal go.mod syntax cmd/go accepts. Both the
+    /// `replace` block opener and its contained directives must surface.
+    #[test]
+    fn replace_block_with_inline_comment_no_whitespace_populates_list() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace(//local-pins\n\texample.com/m/api => ./api\n\texample.com/m/sdk => ./sdk\n)\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.local_replaces, vec!["./api", "./sdk"]);
+    }
+
+    /// PATTERN-1 (TASK-1212): replace targets carrying embedded `..` segments
+    /// past the leading prefix (e.g. `./foo/../../etc`) are dropped from
+    /// `local_replaces` rather than flowing through verbatim.
+    #[test]
+    fn replace_target_with_embedded_parent_dir_is_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace example.com/m/api => ./foo/../../etc/passwd\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert!(
+            m.local_replaces.is_empty(),
+            "expected scrubbed/skipped, got {:?}",
+            m.local_replaces
+        );
+    }
+
+    /// PATTERN-1 (TASK-1212): a leading run of `..` segments is allowed
+    /// (cmd/go accepts `../../shared`); only `..` past a real path segment
+    /// is rejected. Pin both behaviours together.
+    #[test]
+    fn replace_target_leading_parent_dirs_still_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace example.com/m/x => ../../shared/lib\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.local_replaces, vec!["../../shared/lib"]);
+    }
+
+    /// PATTERN-1 (TASK-1212): the scrub also affects `compute_module_count`
+    /// — a sole adversarial replace yields 0 local_replaces, so the
+    /// single-module count returns None rather than `Some(2)`.
+    #[test]
+    fn compute_module_count_does_not_double_count_scrubbed_replace() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace example.com/m/api => ./foo/../../etc/passwd\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        // Single bare go.mod with no surviving local replaces ⇒ count is None.
+        assert!(m.local_replaces.is_empty());
+        let go_mod = crate::GoMod {
+            module: m.module,
+            go_version: m.go_version,
+            local_replaces: m.local_replaces,
+        };
+        assert_eq!(crate::compute_module_count(None, Some(&go_mod)), None);
     }
 
     #[test]

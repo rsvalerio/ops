@@ -63,6 +63,21 @@ fn probe_git_entry(candidate: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Resolve a `.git` pointer file (worktrees / submodules) to the real gitdir.
+///
+/// Accepted shape (PATTERN-1 / TASK-1245): a single line of the form
+/// `gitdir: <path>\n`, with no leading whitespace before the `gitdir:` token
+/// — exactly the format git itself writes. This installer is the path-
+/// resolution oracle for hook writes, so the parser must not be wider than
+/// the format git produces:
+///
+/// * Leading whitespace before `gitdir:` is rejected (an indented pointer is
+///   not legal git output).
+/// * A file with more than one `gitdir:` line is rejected (the second line
+///   is silently shadowed by the first under the previous parser; an
+///   attacker who can append to the pointer could redirect resolution).
+///
+/// Returns `None` (and emits a `tracing::debug!`) for any other shape.
 fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
     let content = match std::fs::read_to_string(file) {
         Ok(c) => c,
@@ -82,7 +97,23 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
             return None;
         }
     };
-    let rest = content.lines().find_map(|l| l.strip_prefix("gitdir:"))?;
+    // PATTERN-1 (TASK-1245): require the strict single-line shape git itself
+    // writes — no leading whitespace, no second `gitdir:` line. Trim *trailing*
+    // whitespace per line (covers `\r` from CRLF endings) but reject any line
+    // whose pre-`gitdir:` portion is non-empty.
+    let mut hits = content.lines().filter_map(|l| {
+        let trimmed_end = l.trim_end();
+        let rest = trimmed_end.strip_prefix("gitdir:")?;
+        Some(rest)
+    });
+    let rest = hits.next()?;
+    if hits.next().is_some() {
+        tracing::debug!(
+            path = ?file.display(),
+            "gitdir pointer has multiple `gitdir:` lines; refusing to disambiguate"
+        );
+        return None;
+    }
     let target = Path::new(rest.trim());
     if target.is_absolute() {
         return Some(target.to_path_buf());
@@ -371,6 +402,48 @@ mod tests {
         // No real .git anywhere up the chain — only the planted pointer. The
         // walk must reject the pointer and fall through to None.
         assert_eq!(find_git_dir(&pointer_parent), None);
+    }
+
+    /// PATTERN-1 (TASK-1245): an indented `gitdir:` line is not the shape git
+    /// writes — refuse it. Previously a leading tab/space slipped through
+    /// `strip_prefix("gitdir:")` and resolved as if the file were well-formed.
+    #[test]
+    fn read_gitdir_pointer_rejects_indented_line() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pointer = dir.path().join(".git");
+        std::fs::write(&pointer, "\tgitdir: /tmp/real\n").unwrap();
+        assert!(read_gitdir_pointer(&pointer).is_none());
+
+        let pointer2 = dir.path().join(".git2");
+        std::fs::write(&pointer2, "  gitdir: /tmp/real\n").unwrap();
+        assert!(read_gitdir_pointer(&pointer2).is_none());
+    }
+
+    /// PATTERN-1 (TASK-1245): a hand-edited pointer with multiple `gitdir:`
+    /// lines must be rejected — the previous shape returned the *first*
+    /// match, so an attacker who could append a second line could not
+    /// shadow a legitimate first line, but a hand-edit that left two
+    /// `gitdir:` lines in place would silently use one and ignore the
+    /// other. Refusing forces the operator to fix the file.
+    #[test]
+    fn read_gitdir_pointer_rejects_multiple_gitdir_lines() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pointer = dir.path().join(".git");
+        std::fs::write(&pointer, "gitdir: /attacker\ngitdir: /real\n").unwrap();
+        assert!(read_gitdir_pointer(&pointer).is_none());
+    }
+
+    /// PATTERN-1 (TASK-1245): single legitimate well-formed pointer still
+    /// resolves — the strict-shape contract did not regress the happy path.
+    #[test]
+    fn read_gitdir_pointer_accepts_single_well_formed_line() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let real = dir.path().join("real_gitdir");
+        std::fs::create_dir(&real).unwrap();
+        let pointer = dir.path().join(".git");
+        std::fs::write(&pointer, format!("gitdir: {}\n", real.display())).unwrap();
+        let resolved = read_gitdir_pointer(&pointer).expect("resolved");
+        assert!(resolved.ends_with("real_gitdir"));
     }
 
     #[test]

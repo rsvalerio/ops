@@ -301,9 +301,10 @@ mod tests {
 
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
         let v = GitInfoProvider.provide(&mut ctx).unwrap();
+        // PATTERN-1 (TASK-1237): scp-style remote synthesises ssh:// URL.
         assert_eq!(
             v.get("remote_url").and_then(|s| s.as_str()),
-            Some("https://github.com/o/r")
+            Some("ssh://github.com/o/r")
         );
         assert_eq!(v.get("host").and_then(|s| s.as_str()), Some("github.com"));
     }

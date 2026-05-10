@@ -3,6 +3,13 @@
 //! Returns the list of `use` directives (block or single-line form) verbatim
 //! from the file. Comment-only and empty lines are skipped. Returns `None` if
 //! the file is missing or no `use` entries are found.
+//!
+//! PATTERN-1 (TASK-1216): nested `use(` openers inside an already-open block
+//! are not legal go.work syntax — cmd/go itself rejects them. The parser
+//! mirrors that intent: when a `use` block is open and a fresh `use(` /
+//! `use (` line appears, it is logged at `tracing::warn!` and dropped from
+//! the directive list rather than being absorbed as a directory whose name
+//! happens to be `use(`.
 
 use std::path::Path;
 
@@ -26,6 +33,16 @@ pub(crate) fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
                 continue;
             }
             if line.is_empty() || line.starts_with("//") {
+                continue;
+            }
+            // PATTERN-1 (TASK-1216): a nested `use(` / `use (` opener is not
+            // a directory entry. Skip it with a warn so a malformed go.work
+            // does not silently surface a directive whose name is `use(`.
+            if is_block_opener(line, "use") {
+                tracing::warn!(
+                    line = %line,
+                    "go.work: nested `use(` opener inside an open block; skipping (cmd/go rejects this shape)"
+                );
                 continue;
             }
             let stripped = strip_line_comment(line).trim();
@@ -160,6 +177,43 @@ mod tests {
         .unwrap();
         let dirs = parse_use_dirs(dir.path()).unwrap();
         assert_eq!(dirs, vec!["./a", "./b"]);
+    }
+
+    /// PATTERN-1 (TASK-1255): `use(// note` (no whitespace before the
+    /// inline comment) is legal go.work syntax cmd/go accepts. The parser
+    /// must populate the use list rather than silently dropping every
+    /// member because the opener didn't match.
+    #[test]
+    fn use_block_with_inline_comment_no_whitespace_populates_list() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("go.work"),
+            "go 1.21\n\nuse(//ws-members\n\t./api\n\t./cmd\n)\n",
+        )
+        .unwrap();
+        let dirs = parse_use_dirs(dir.path()).unwrap();
+        assert_eq!(dirs, vec!["./api", "./cmd"]);
+    }
+
+    /// PATTERN-1 (TASK-1216): a nested `use (` opener inside an outer block
+    /// must be rejected with a warn, not absorbed as a directory entry whose
+    /// name is `use (`.
+    #[test]
+    fn parse_use_dirs_warns_on_nested_block_opener() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.work"),
+            "go 1.21\n\nuse (\n\t./api\n\tuse (\n\t./cmd\n)\n",
+        )
+        .unwrap();
+        let dirs = parse_use_dirs(dir.path()).unwrap();
+        assert!(
+            !dirs.iter().any(|d| d.contains("use (") || d == "use("),
+            "nested `use (` should not appear as a directive: {dirs:?}"
+        );
+        // The legitimate entries before and after the nested opener still
+        // resolve.
+        assert!(dirs.contains(&"./api".to_string()));
     }
 
     #[test]

@@ -216,7 +216,9 @@ repository = "https://example.com/manifest-wins"
         let id: ProjectIdentity =
             serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
 
-        assert_eq!(id.repository.as_deref(), Some("https://github.com/o/r"));
+        // PATTERN-1 (TASK-1237): scp-style remote synthesises ssh:// URL,
+        // not https — the original transport is preserved.
+        assert_eq!(id.repository.as_deref(), Some("ssh://github.com/o/r"));
     }
 
     #[test]

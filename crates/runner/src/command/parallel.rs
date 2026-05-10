@@ -82,6 +82,20 @@ pub(crate) fn resolve_max_parallel() -> usize {
 
 /// PERF-3 / TASK-1171: memoised sibling of [`resolve_max_parallel`]. Same
 /// caching contract.
+/// PATTERN-1 (TASK-1236): mpsc channel capacity for a parallel plan.
+/// Sized as `min(steps_len, max_parallel) × event_budget` (with a floor of
+/// `event_budget` so an empty plan still yields a non-zero capacity). The
+/// previous shape used `max_parallel × event_budget` unconditionally, which
+/// pre-allocated 32-step worth of slots even on a 2-step plan.
+pub(crate) fn compute_channel_capacity(
+    steps_len: usize,
+    max_parallel: usize,
+    event_budget: usize,
+) -> usize {
+    let live_producers = steps_len.min(max_parallel).max(1);
+    live_producers.saturating_mul(event_budget)
+}
+
 fn resolve_event_budget() -> usize {
     *EVENT_BUDGET_CACHED.get_or_init(|| {
         resolve_env_usize(
@@ -259,7 +273,20 @@ impl CommandRunner {
         // throttling we want.
         let max_parallel = resolve_max_parallel();
         let event_budget = resolve_event_budget();
-        let capacity = max_parallel.saturating_mul(event_budget);
+        // PATTERN-1 (TASK-1236): cap the live-producer count at
+        // `min(steps.len(), max_parallel)` rather than the unconditional
+        // `max_parallel`. The previous shape sized a 2-step plan's channel as
+        // if 32 producers could be active, pre-allocating ~8 KiB × event-row
+        // worth of slots that no task could ever fill. Embedders driving many
+        // small parallel plans pay the worst-case sizing per plan otherwise.
+        let capacity = compute_channel_capacity(steps.len(), max_parallel, event_budget);
+        tracing::debug!(
+            steps = steps.len(),
+            max_parallel,
+            event_budget,
+            capacity,
+            "spawn_parallel_tasks: sized mpsc channel"
+        );
         let (tx, rx) = mpsc::channel(capacity);
         let abort = Arc::new(AbortSignal::new());
         let semaphore = Arc::new(tokio::sync::Semaphore::new(max_parallel));
@@ -555,6 +582,29 @@ impl CommandRunner {
 #[cfg(test)]
 mod resolve_tests {
     use super::*;
+
+    /// PATTERN-1 (TASK-1236): a small parallel plan must size the channel
+    /// against `steps.len()`, not the raw `max_parallel`. Pin the new
+    /// sizing on a 2-step plan with `max_parallel = 32`, `event_budget = 256`.
+    #[test]
+    fn channel_capacity_clamped_to_steps_len_for_small_plan() {
+        // 2 producers max ⇒ 2 × 256 = 512, not 32 × 256 = 8192.
+        assert_eq!(compute_channel_capacity(2, 32, 256), 512);
+    }
+
+    /// PATTERN-1 (TASK-1236): when the plan has more steps than
+    /// `max_parallel`, the cap stays at `max_parallel × event_budget`.
+    #[test]
+    fn channel_capacity_capped_at_max_parallel_for_large_plan() {
+        assert_eq!(compute_channel_capacity(64, 32, 256), 32 * 256);
+    }
+
+    /// PATTERN-1 (TASK-1236): empty plan gets a non-zero floor so the
+    /// `mpsc::channel(capacity)` constructor (which panics on 0) still works.
+    #[test]
+    fn channel_capacity_empty_plan_has_floor() {
+        assert_eq!(compute_channel_capacity(0, 32, 256), 256);
+    }
 
     /// PERF-3 / TASK-0995: an out-of-range `OPS_MAX_PARALLEL` must clamp
     /// to [`MAX_PARALLEL_CEILING`] so the `output_byte_cap` peak-RSS

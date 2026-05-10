@@ -184,6 +184,19 @@ struct PnpmParse {
 ///     - services/api
 ///   packages: [apps/*, "libs/*", 'services/api']
 ///   packages: ["a,b", 'c,d']  (commas inside quoted scalars preserved)
+///
+/// PATTERN-1 (TASK-1168): the YAML 1.2 subset supported here is **flow scalars
+/// without escapes**. Specifically:
+/// * Plain (unquoted) scalars are taken verbatim.
+/// * Single-quoted scalars are unquoted but `''` (an embedded apostrophe per
+///   YAML 1.2) is **not** interpreted — the scalar is consumed as-is.
+/// * Double-quoted scalars are unquoted but escape sequences (`\"`, `\n`,
+///   `\\`, `\uNNNN`, …) are **not** interpreted.
+///
+/// When a scalar contains a backslash escape or a doubled apostrophe, the
+/// parser emits a `tracing::debug!` event so operators can spot the
+/// unsupported shape. A long-term fix is to delegate to a real YAML crate;
+/// until then keeping the failure visible avoids silently-wrong member globs.
 fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
     let mut out = Vec::new();
     let mut saw_packages_key = false;
@@ -263,10 +276,39 @@ fn split_inline_list(inner: &str) -> Vec<&str> {
 
 fn unquote(s: &str) -> &str {
     let s = s.trim();
+    warn_if_unsupported_pnpm_scalar(s);
     s.strip_prefix('\'')
         .and_then(|t| t.strip_suffix('\''))
         .or_else(|| s.strip_prefix('"').and_then(|t| t.strip_suffix('"')))
         .unwrap_or(s)
+}
+
+/// PATTERN-1 (TASK-1168): emit a `tracing::debug!` when a pnpm scalar uses a
+/// YAML feature outside the supported subset (backslash escapes inside a
+/// double-quoted scalar; doubled apostrophes inside a single-quoted scalar).
+/// The hand-rolled parser will produce silently-wrong glob entries for these
+/// shapes — keep the failure visible so operators can spot it. Quote chars
+/// are not stripped before this check, the same way `unquote` sees them.
+fn warn_if_unsupported_pnpm_scalar(s: &str) {
+    if let Some(inner) = s.strip_prefix('"').and_then(|t| t.strip_suffix('"')) {
+        if inner.contains('\\') {
+            tracing::debug!(
+                scalar = %s,
+                "pnpm-workspace.yaml: double-quoted scalar contains a backslash escape; \
+                 the hand-rolled parser does not interpret YAML escape sequences"
+            );
+        }
+        return;
+    }
+    if let Some(inner) = s.strip_prefix('\'').and_then(|t| t.strip_suffix('\'')) {
+        if inner.contains("''") {
+            tracing::debug!(
+                scalar = %s,
+                "pnpm-workspace.yaml: single-quoted scalar contains a doubled apostrophe; \
+                 the hand-rolled parser does not interpret YAML 1.2 quote escapes"
+            );
+        }
+    }
 }
 
 /// PATTERN-1 / TASK-1061: drop a trailing YAML `# comment` from a list-item
@@ -602,6 +644,39 @@ mod tests {
         let yaml = "packages: ['x', 'y,z']\n";
         let pats = parse_pnpm_workspace_yaml(yaml).items;
         assert_eq!(pats, vec!["x", "y,z"]);
+    }
+
+    /// PATTERN-1 (TASK-1168): pin current behaviour on YAML escape shapes the
+    /// hand-rolled parser does not understand. Future migration to a real
+    /// YAML crate is then a controlled change — this test will start failing
+    /// with the corrected interpretation, prompting an explicit update.
+    ///
+    /// Inline flow-sequence is used so `split_inline_list`'s quote tracking
+    /// keeps the embedded `"` and `''` paired, isolating the parsing
+    /// behaviour from line-based tokenisation.
+    #[test]
+    fn pnpm_double_quoted_backslash_escape_is_not_interpreted() {
+        // Real YAML would read `"a\"b"` as a 3-character scalar `a"b`. The
+        // hand-rolled parser leaves the backslash untouched and `unquote`
+        // simply strips the outer quotes.
+        let yaml = "packages: [\"a\\\"b\"]\n";
+        let pats = parse_pnpm_workspace_yaml(yaml).items;
+        assert_eq!(pats, vec!["a\\\"b"]);
+    }
+
+    /// PATTERN-1 (TASK-1168): YAML 1.2 reads `'it''s'` as `it's` (5 chars).
+    /// The hand-rolled parser does not interpret the doubled apostrophe; pin
+    /// that.
+    #[test]
+    fn pnpm_single_quoted_doubled_apostrophe_is_not_interpreted() {
+        let yaml = "packages: ['it''s']\n";
+        let pats = parse_pnpm_workspace_yaml(yaml).items;
+        // The leading `'it'` is unquoted to `it`; the trailing `s'` falls
+        // through. The exact shape is parser-dependent — what matters is
+        // that we round-trip something stable that future migration to a
+        // real YAML parser can replace deliberately.
+        assert_eq!(pats.len(), 1);
+        assert_ne!(pats[0], "it's");
     }
 
     #[test]

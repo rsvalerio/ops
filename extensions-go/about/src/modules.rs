@@ -4,7 +4,7 @@
 //! describing each module. LOC/file counts are enriched by the generic
 //! `ops_about::run_about_units` runner.
 
-use std::path::Path;
+use std::path::{Component, Path};
 
 use ops_about::cards::format_unit_name;
 use ops_core::project_identity::ProjectUnit;
@@ -66,15 +66,29 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
 /// `(outside project root)` members.
 fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
     let normalized = normalize_module_path(dir);
+    // PATTERN-1 (TASK-1208): also reject *absolute* and root-prefixed
+    // directives (e.g. `use /etc/secrets`, `use \\?\C:\...`). The previous
+    // shape only flagged `..`-prefixed first segments, so an absolute path
+    // sailed through `cwd.join(&normalized)` and `read_mod_info` opened
+    // whatever `go.mod`-shaped file lived at the absolute target. Treat the
+    // same threat-model as `resolve_member_globs` (SEC-14 / TASK-1071), one
+    // step stricter — RootDir / Prefix as well as ParentDir — so out-of-tree
+    // / absolute directives mark the unit out-of-tree and skip the I/O.
+    let first_component = Path::new(&normalized).components().next();
+    let out_of_tree_via_components = matches!(
+        first_component,
+        Some(Component::RootDir | Component::Prefix(_) | Component::ParentDir)
+    );
     // PATTERN-1 (TASK-1027): test the *first path component* rather than the
     // raw string. `starts_with("..")` would also flag legal directories like
     // `..staging/api` or `..backup-2025` whose first component merely begins
     // with two dots. Split on both `/` and `\\` so go.work entries authored on
     // Windows are handled too.
-    let out_of_tree = normalized
+    let out_of_tree_via_string = normalized
         .split(['/', '\\'])
         .next()
         .is_some_and(|first| first == "..");
+    let out_of_tree = out_of_tree_via_components || out_of_tree_via_string;
     if out_of_tree {
         // Out-of-tree workspace members (e.g. `use ../shared`) match no
         // `tokei_files.file` entry under cwd, so the unit would render with
@@ -87,8 +101,20 @@ fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
             "go.work `use` directive points outside the project root; LOC stats will be empty",
         );
     }
-    let mod_path = cwd.join(&normalized);
-    let (module, go_version) = read_mod_info(&mod_path);
+    // PATTERN-1 (TASK-1208): for absolute / root-prefixed directives,
+    // `cwd.join(&normalized)` returns the absolute target verbatim — we must
+    // not open whatever go.mod lives there. Skip the I/O and emit the unit
+    // with no module/version, the same shape as a missing go.mod.
+    let is_absolute_directive = matches!(
+        first_component,
+        Some(Component::RootDir | Component::Prefix(_))
+    );
+    let (module, go_version) = if is_absolute_directive {
+        (None, None)
+    } else {
+        let mod_path = cwd.join(&normalized);
+        read_mod_info(&mod_path)
+    };
     let name = last_segment(module.as_deref()).unwrap_or_else(|| format_unit_name(&normalized));
     let description = if out_of_tree {
         Some(match module {
@@ -120,10 +146,38 @@ fn normalize_module_path(dir: &str) -> String {
     }
 }
 
-fn last_segment(module: Option<&str>) -> Option<String> {
-    module
-        .and_then(|m| m.rsplit('/').next())
-        .map(|s| s.to_string())
+/// Extract the module's display name from its path.
+///
+/// Returns the last `/`-separated segment, except when that segment is a Go
+/// major-version suffix (`v\d+` for `v >= 2`). Per Go module semantics, paths
+/// like `github.com/foo/bar/v2` carry the `/vN` suffix as a versioning
+/// convention; the human-meaningful name is the *preceding* segment (`bar`).
+///
+/// PATTERN-1 (TASK-1164):
+/// - `last_segment("github.com/foo/bar/v2")` → `"bar"`
+/// - `last_segment("github.com/openbao/openbao/api/v2")` → `"api"`
+/// - `last_segment("module v2")` → `"module v2"` (no `/`, returned unchanged)
+/// - `last_segment("github.com/foo/bar")` → `"bar"`
+/// - `last_segment("foo/v")` → `"v"` (no digits, not a version suffix)
+pub(crate) fn last_segment(module: Option<&str>) -> Option<String> {
+    let m = module?;
+    let mut segments: Vec<&str> = m.split('/').collect();
+    if segments.len() >= 2 {
+        if let Some(last) = segments.last() {
+            if is_go_major_version_suffix(last) {
+                segments.pop();
+            }
+        }
+    }
+    segments.last().map(|s| (*s).to_string())
+}
+
+/// True when `s` matches `^v\d+$` (Go major-version suffix shape).
+fn is_go_major_version_suffix(s: &str) -> bool {
+    let Some(rest) = s.strip_prefix('v') else {
+        return false;
+    };
+    !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())
 }
 
 fn workspace_use_dirs(root: &Path) -> Option<Vec<String>> {
@@ -351,6 +405,89 @@ mod tests {
             .unwrap_or("")
             .contains("(outside project root)"));
         assert_eq!(warn_count.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    /// PATTERN-1 (TASK-1164): `/vN` major-version suffix must be stripped so
+    /// the rendered name is the preceding segment, not the literal `v2`.
+    #[test]
+    fn last_segment_strips_go_major_version_suffix() {
+        assert_eq!(
+            last_segment(Some("github.com/foo/bar/v2")).as_deref(),
+            Some("bar")
+        );
+        assert_eq!(
+            last_segment(Some("github.com/openbao/openbao/api/v2")).as_deref(),
+            Some("api")
+        );
+        // /v10 is also a valid Go major-version suffix.
+        assert_eq!(
+            last_segment(Some("example.com/x/v10")).as_deref(),
+            Some("x")
+        );
+    }
+
+    #[test]
+    fn last_segment_no_suffix_returns_last_path_component() {
+        assert_eq!(
+            last_segment(Some("github.com/foo/bar")).as_deref(),
+            Some("bar")
+        );
+    }
+
+    #[test]
+    fn last_segment_single_segment_unchanged() {
+        // No `/` — leave bare module strings alone, even when they happen to
+        // contain a `vN`-shaped token. AC #3.
+        assert_eq!(last_segment(Some("module")).as_deref(), Some("module"));
+        // A single segment that happens to be `v2` is not a suffix on
+        // anything; return it verbatim.
+        assert_eq!(last_segment(Some("v2")).as_deref(), Some("v2"));
+    }
+
+    #[test]
+    fn last_segment_trailing_v_without_digits_is_not_a_version() {
+        // `v` alone is not a Go major-version suffix; keep it as the name.
+        assert_eq!(last_segment(Some("foo/v")).as_deref(), Some("v"));
+    }
+
+    /// PATTERN-1 (TASK-1208): an absolute `use` directive marks the unit
+    /// out-of-tree and must not invoke `read_mod_info` on the absolute
+    /// target. Cross-stack invariant with the `resolve_member_globs` SEC-14
+    /// guard (workspace.rs).
+    #[cfg(unix)]
+    #[test]
+    fn collect_units_absolute_use_directive_is_marked_out_of_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        // Place a real go.mod at the absolute target to prove we're not
+        // reading it. If the parser ran against this file the module name
+        // would propagate into the unit description and the assertion would
+        // fail.
+        std::fs::write(
+            other.path().join("go.mod"),
+            "module example.com/should-not-be-read\n\ngo 1.21\n",
+        )
+        .unwrap();
+        let absolute = other.path().to_string_lossy().to_string();
+        std::fs::write(
+            dir.path().join("go.work"),
+            format!("go 1.21\n\nuse (\n\t{absolute}\n)\n"),
+        )
+        .unwrap();
+
+        let warn_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let subscriber = WarnCounter(warn_count.clone());
+        let units = tracing::subscriber::with_default(subscriber, || collect_units(dir.path()));
+
+        assert_eq!(units.len(), 1);
+        // Out-of-tree marker present on the description.
+        assert_eq!(
+            units[0].description.as_deref(),
+            Some("(outside project root)"),
+            "absolute directive should not have populated module via read_mod_info"
+        );
+        // The directive triggered exactly one warn.
+        assert_eq!(warn_count.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]

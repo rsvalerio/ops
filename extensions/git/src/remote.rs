@@ -13,7 +13,13 @@ use serde::Serialize;
 /// — paying complexity for no caller-side win. Revisit if a function takes
 /// multiple of these as positional arguments.
 ///
-/// Invariant for `url`: normalized https URL, no credentials, no `.git` suffix.
+/// Invariant for `url`: normalized URL preserving the original input scheme
+/// (https / http / ssh / git), no credentials, no `.git` suffix. PATTERN-1
+/// (TASK-1237): the previous shape unconditionally synthesised `https://…`,
+/// which silently rewrote `http`/`git`/`ssh` remotes to advertise TLS — a
+/// misattribution audit/policy code that distinguishes scheme can mistake for
+/// "TLS-fronted". scp-style remotes (`git@host:owner/repo`) are normalised to
+/// `ssh://…` since scp form has no syntactic equivalent in the JSON contract.
 /// Enforced inside [`parse_remote_url`]; do not construct `RemoteInfo` outside
 /// that function.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -38,7 +44,7 @@ pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
         return None;
     }
 
-    let (host, path) = split_host_and_path(raw)?;
+    let (scheme, host, path) = split_scheme_host_and_path(raw)?;
     if !is_valid_host(host) {
         return None;
     }
@@ -53,7 +59,7 @@ pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
         host: host.to_string(),
         owner: owner.to_string(),
         repo: repo.to_string(),
-        url: format!("https://{host}/{owner}/{repo}"),
+        url: format!("{scheme}://{host}/{owner}/{repo}"),
     })
 }
 
@@ -62,7 +68,11 @@ pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
 /// values from producing unsafe URLs downstream.
 const ALLOWED_SCHEMES: &[&str] = &["https", "http", "ssh", "git"];
 
-fn split_host_and_path(raw: &str) -> Option<(&str, &str)> {
+/// PATTERN-1 (TASK-1237): return the original scheme alongside the host/path
+/// split, so the synthesised `RemoteInfo.url` can preserve it. scp form has
+/// no scheme syntax — return `"ssh"` for it, matching how every Git client
+/// dispatches scp-style remotes.
+fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, &str)> {
     // scp-style: [user@]host:owner/repo (implicitly ssh). The user prefix is
     // optional — `redact_userinfo` strips it before this point on scp inputs
     // that pass through `read_origin_url_from`, so the parser must accept the
@@ -82,21 +92,19 @@ fn split_host_and_path(raw: &str) -> Option<(&str, &str)> {
         }
         let host = &after_user[..colon];
         let path = &after_user[colon + 1..];
-        return Some((host, path));
+        return Some(("ssh", host, path));
     }
 
     // URL form: scheme://[user@]host[:port]/path
     let (scheme, after_scheme) = raw.split_once("://")?;
-    if !ALLOWED_SCHEMES
+    let canonical_scheme = ALLOWED_SCHEMES
         .iter()
-        .any(|s| s.eq_ignore_ascii_case(scheme))
-    {
-        return None;
-    }
+        .find(|s| s.eq_ignore_ascii_case(scheme))
+        .copied()?;
     let (authority, path) = after_scheme.split_once('/')?;
     let host_part = authority.rsplit('@').next()?;
     let host = host_part.split(':').next()?;
-    Some((host, path))
+    Some((canonical_scheme, host, path))
 }
 
 /// Permissive RFC 3986 reg-name check: ASCII alphanumeric plus `.` and `-`.
@@ -183,11 +191,15 @@ mod tests {
     use super::*;
 
     fn info(host: &str, owner: &str, repo: &str) -> RemoteInfo {
+        info_scheme("https", host, owner, repo)
+    }
+
+    fn info_scheme(scheme: &str, host: &str, owner: &str, repo: &str) -> RemoteInfo {
         RemoteInfo {
             host: host.into(),
             owner: owner.into(),
             repo: repo.into(),
-            url: format!("https://{host}/{owner}/{repo}"),
+            url: format!("{scheme}://{host}/{owner}/{repo}"),
         }
     }
 
@@ -243,19 +255,23 @@ mod tests {
         );
     }
 
+    /// PATTERN-1 (TASK-1237): scp-style remotes synthesise an `ssh://` URL,
+    /// not `https://` — the original transport is ssh, not TLS.
     #[test]
     fn scp_style() {
         assert_eq!(
             parse_remote_url("git@github.com:openbao/openbao.git"),
-            Some(info("github.com", "openbao", "openbao")),
+            Some(info_scheme("ssh", "github.com", "openbao", "openbao")),
         );
     }
 
+    /// PATTERN-1 (TASK-1237): an explicit `ssh://` scheme round-trips into
+    /// the synthesised `RemoteInfo.url` — previously rewritten to https.
     #[test]
     fn ssh_scheme() {
         assert_eq!(
             parse_remote_url("ssh://git@github.com/o/r.git"),
-            Some(info("github.com", "o", "r")),
+            Some(info_scheme("ssh", "github.com", "o", "r")),
         );
     }
 
@@ -263,8 +279,38 @@ mod tests {
     fn ssh_scheme_with_port() {
         assert_eq!(
             parse_remote_url("ssh://git@git.example.com:2222/o/r.git"),
-            Some(info("git.example.com", "o", "r")),
+            Some(info_scheme("ssh", "git.example.com", "o", "r")),
         );
+    }
+
+    /// PATTERN-1 (TASK-1237): an `http://` remote keeps its scheme — audit
+    /// code that distinguishes TLS-fronted (`https`) from cleartext (`http`)
+    /// must not see the previous silent rewrite.
+    #[test]
+    fn http_scheme_round_trips() {
+        assert_eq!(
+            parse_remote_url("http://internal.example.com/o/r.git"),
+            Some(info_scheme("http", "internal.example.com", "o", "r")),
+        );
+    }
+
+    /// PATTERN-1 (TASK-1237): the `git://` anonymous-clone scheme is
+    /// preserved verbatim, not silently upgraded to `https`.
+    #[test]
+    fn git_scheme_round_trips() {
+        assert_eq!(
+            parse_remote_url("git://anon.example.com/o/r.git"),
+            Some(info_scheme("git", "anon.example.com", "o", "r")),
+        );
+    }
+
+    /// PATTERN-1 (TASK-1237): scheme matching is case-insensitive on input
+    /// but the synthesised scheme is normalised to lowercase, so audit code
+    /// downstream sees a canonical value.
+    #[test]
+    fn scheme_normalises_to_lowercase() {
+        let parsed = parse_remote_url("HTTPS://github.com/o/r").expect("parsed");
+        assert_eq!(parsed.url, "https://github.com/o/r");
     }
 
     #[test]
@@ -289,7 +335,7 @@ mod tests {
     fn self_hosted_host() {
         assert_eq!(
             parse_remote_url("git@git.sr.ht:~user/repo"),
-            Some(info("git.sr.ht", "~user", "repo")),
+            Some(info_scheme("ssh", "git.sr.ht", "~user", "repo")),
         );
     }
 

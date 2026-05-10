@@ -61,13 +61,13 @@ impl DataProvider for GoIdentityProvider {
             // semantic value. Use the parsed `Vec<String>` directly.
             let go_work_use_dirs = go_work::parse_use_dirs(root);
 
-            // Use last segment of module path as name,
-            // e.g. "github.com/openbao/openbao" → "openbao"
+            // Use last meaningful segment of module path as name. PATTERN-1
+            // (TASK-1164): strip a trailing `/vN` major-version suffix so e.g.
+            // `github.com/openbao/openbao/api/v2` renders as `api`, not `v2`.
             let name = go_mod
                 .as_ref()
                 .and_then(|m| m.module.as_deref())
-                .and_then(|m| m.rsplit('/').next())
-                .map(str::to_string);
+                .and_then(|m| modules::last_segment(Some(m)));
 
             let stack_detail = go_mod
                 .as_ref()
