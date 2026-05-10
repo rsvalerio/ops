@@ -1,11 +1,11 @@
 ---
 id: TASK-1189
 title: 'ERR-1: prompt_hook_install treats inquire OperationCanceled as a hard error'
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 08:12'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 06:30'
 labels:
   - code-review-rust
   - err

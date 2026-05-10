@@ -3,11 +3,11 @@ id: TASK-1231
 title: >-
   ERR-1: run_init no-force parent fsync is unix-only, leaving Windows new file
   without crash safety
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 12:58'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 06:34'
 labels:
   - code-review-rust
   - errors

@@ -3,11 +3,11 @@ id: TASK-1148
 title: >-
   ERR-1: about::lib::enrich_from_db acquires db.lock five times producing
   inconsistent identity card
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 07:42'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 17:31'
 labels:
   - code-review-rust
   - ERR
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add the same TASK-0431 doc comment to lib.rs::enrich_from_db cross-referencing the units variant
+- [x] #1 Add the same TASK-0431 doc comment to lib.rs::enrich_from_db cross-referencing the units variant
 - [ ] #2 Or refactor the helpers to take &duckdb::Connection so a single db.lock()? guard scopes all five queries
 <!-- AC:END -->

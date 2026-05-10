@@ -3,11 +3,11 @@ id: TASK-1234
 title: >-
   ERR-1: --dry-run silently ignores --raw and --tap with no warning, unlike the
   execute path
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 12:58'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 06:35'
 labels:
   - code-review-rust
   - errors

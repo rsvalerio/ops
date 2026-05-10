@@ -3,11 +3,11 @@ id: TASK-1150
 title: >-
   ERR-5: has_staged_files stderr drain thread is detached with no FD-close on
   parent return
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 07:43'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 17:32'
 labels:
   - code-review-rust
   - ERR
@@ -28,5 +28,5 @@ priority: low
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 On wait_timeout return, explicitly drop child.stderr (or close the read FD) so read_to_end on the drain side returns EOF
-- [ ] #2 Or gate function docs to single-shot-process only with a clear warning forcing a future daemon caller to revisit
+- [x] #2 Or gate function docs to single-shot-process only with a clear warning forcing a future daemon caller to revisit
 <!-- AC:END -->

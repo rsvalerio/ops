@@ -3,11 +3,11 @@ id: TASK-1181
 title: >-
   ERR-1: Config::resolve_alias silently picks first match when alias collides
   across commands
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 08:09'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 06:29'
 labels:
   - code-review-rust
   - err

@@ -3,11 +3,11 @@ id: TASK-1214
 title: >-
   ERR-5: DuckDb::lock returns DbError::MutexPoisoned(String) capturing the full
   PoisonError display
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 08:19'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 06:31'
 labels:
   - code-review-rust
   - err

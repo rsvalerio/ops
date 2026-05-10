@@ -3,11 +3,11 @@ id: TASK-1242
 title: >-
   ERR-1: cleanup_artifacts NotFound debug log names post-rename path, hiding
   which file is missing
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 12:59'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 06:37'
 labels:
   - code-review-rust
   - errors

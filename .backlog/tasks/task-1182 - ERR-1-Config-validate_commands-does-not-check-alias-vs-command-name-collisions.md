@@ -3,11 +3,11 @@ id: TASK-1182
 title: >-
   ERR-1: Config::validate_commands does not check alias-vs-command-name
   collisions
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 08:10'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 06:29'
 labels:
   - code-review-rust
   - err

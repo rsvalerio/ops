@@ -1,11 +1,11 @@
 ---
 id: TASK-1134
 title: 'ERR-1: atomic_write leaves orphaned tmp files on write/sync failure'
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 07:40'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 17:30'
 labels:
   - code-review-rust
   - ERR
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 On f.write_all / f.sync_all failure inside the inner block at lines 150-174, remove_file(&tmp) and warn on cleanup failure
-- [ ] #2 Add a regression test that injects a write failure and asserts no .tmp. leftovers persist
+- [x] #1 On f.write_all / f.sync_all failure inside the inner block at lines 150-174, remove_file(&tmp) and warn on cleanup failure
+- [x] #2 Add a regression test that injects a write failure and asserts no .tmp. leftovers persist
 <!-- AC:END -->

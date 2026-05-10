@@ -3,11 +3,11 @@ id: TASK-1224
 title: >-
   ERR-1: Variables::expand swallows ExpandError to tracing::warn losing
   user-facing diagnostic
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 12:57'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 06:33'
 labels:
   - code-review-rust
   - errors

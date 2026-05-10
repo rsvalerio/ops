@@ -3,11 +3,11 @@ id: TASK-1170
 title: >-
   ERR-1: Context::get_or_provide ignores refresh flag and serves stale cached
   values
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 08:06'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 17:33'
 labels:
   - code-review-rust
   - err
@@ -27,6 +27,6 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When ctx.refresh is true, get_or_provide bypasses the data_cache.get fast path and re-invokes registry.provide, then updates the cache.
-- [ ] #2 Regression test constructs a Context, primes a key via get_or_provide, sets refresh = true (or builds via with_refresh), and asserts the provider is invoked a second time.
+- [x] #1 When ctx.refresh is true, get_or_provide bypasses the data_cache.get fast path and re-invokes registry.provide, then updates the cache.
+- [x] #2 Regression test constructs a Context, primes a key via get_or_provide, sets refresh = true (or builds via with_refresh), and asserts the provider is invoked a second time.
 <!-- AC:END -->

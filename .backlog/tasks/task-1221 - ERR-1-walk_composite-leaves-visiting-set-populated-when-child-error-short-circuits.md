@@ -3,11 +3,11 @@ id: TASK-1221
 title: >-
   ERR-1: walk_composite leaves visiting set populated when child error
   short-circuits
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 12:57'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-10 06:32'
 labels:
   - code-review-rust
   - errors

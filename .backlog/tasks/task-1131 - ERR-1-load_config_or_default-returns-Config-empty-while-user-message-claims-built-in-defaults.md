@@ -3,11 +3,11 @@ id: TASK-1131
 title: >-
   ERR-1: load_config_or_default returns Config::empty() while user message
   claims built-in defaults
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 07:40'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 17:28'
 labels:
   - code-review-rust
   - ERR

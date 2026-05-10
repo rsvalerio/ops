@@ -3,11 +3,11 @@ id: TASK-1139
 title: >-
   ERR-5: spawn_capped uses unreachable!/expect on hand-rolled per-id JoinSet
   matching
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 07:41'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 17:30'
 labels:
   - code-review-rust
   - ERR
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace unreachable! arms with a logged-and-returned io::Error
-- [ ] #2 Drop the two expects in favour of ?/ok_or_else so a regression surfaces as StepFailed not a panic
+- [x] #1 Replace unreachable! arms with a logged-and-returned io::Error
+- [x] #2 Drop the two expects in favour of ?/ok_or_else so a regression surfaces as StepFailed not a panic
 <!-- AC:END -->

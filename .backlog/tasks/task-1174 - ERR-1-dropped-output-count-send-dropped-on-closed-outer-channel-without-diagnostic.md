@@ -3,11 +3,11 @@ id: TASK-1174
 title: >-
   ERR-1: dropped-output count send dropped on closed outer channel without
   diagnostic
-status: To Do
+status: Done
 assignee:
   - TASK-1268
 created_date: '2026-05-08 08:08'
-updated_date: '2026-05-08 13:19'
+updated_date: '2026-05-09 17:37'
 labels:
   - code-review-rust
   - err
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 tx.send(...) failure logs a tracing::warn! (or pushes to a fallback channel) so the count survives even when the outer receiver is closed.
-- [ ] #2 Regression test drops the receiver before the producer flushes its dropped-count event and asserts a diagnostic is recorded.
+- [x] #1 tx.send(...) failure logs a tracing::warn! (or pushes to a fallback channel) so the count survives even when the outer receiver is closed.
+- [x] #2 Regression test drops the receiver before the producer flushes its dropped-count event and asserts a diagnostic is recorded.
 <!-- AC:END -->
