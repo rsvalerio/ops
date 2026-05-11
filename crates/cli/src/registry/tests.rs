@@ -39,11 +39,18 @@ fn builtin_extensions_unknown_lists_available_in_sorted_order() {
     // Two consecutive invocations must yield identical messages — pinning
     // determinism, not the exact name set (which depends on which
     // extension crates are compiled into this build).
-    let err1 = builtin_extensions(&config, std::path::Path::new("."))
+    //
+    // Use a stable tempdir as workspace_root (not `Path::new(".")`): the
+    // cwd is process-global and parallel `CwdGuard`-using tests can flip
+    // the detected stack between these two calls, which would change
+    // which extensions survive stack filtering and so the "available"
+    // list — a process-level race, not a discovery-layer bug.
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let err1 = builtin_extensions(&config, workspace.path())
         .err()
         .unwrap()
         .to_string();
-    let err2 = builtin_extensions(&config, std::path::Path::new("."))
+    let err2 = builtin_extensions(&config, workspace.path())
         .err()
         .unwrap()
         .to_string();
