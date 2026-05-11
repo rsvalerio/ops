@@ -3,11 +3,11 @@ id: TASK-1300
 title: >-
   ERR-5: set_theme indexes doc["output"]["theme"] without verifying [output] is
   a table; non-table value panics in theme select
-status: To Do
+status: Done
 assignee:
   - TASK-1303
 created_date: '2026-05-11 16:36'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 17:58'
 labels:
   - code-review-rust
   - error-handling

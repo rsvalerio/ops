@@ -3,11 +3,11 @@ id: TASK-1292
 title: >-
   ERR-5: save_about_fields replaces 'fields' array wholesale, discarding
   toml_edit decor
-status: To Do
+status: Done
 assignee:
   - TASK-1303
 created_date: '2026-05-11 16:10'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 17:58'
 labels:
   - code-review-rust
   - error

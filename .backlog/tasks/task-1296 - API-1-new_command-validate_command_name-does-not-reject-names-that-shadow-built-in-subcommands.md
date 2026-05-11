@@ -3,11 +3,11 @@ id: TASK-1296
 title: >-
   API-1: new_command validate_command_name does not reject names that shadow
   built-in subcommands
-status: To Do
+status: Done
 assignee:
   - TASK-1303
 created_date: '2026-05-11 16:18'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 17:58'
 labels:
   - code-review-rust
   - api

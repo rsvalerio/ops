@@ -3,11 +3,11 @@ id: TASK-1278
 title: >-
   DUP-1: 'ensure top-level table' pattern triplicated across edit_ops_toml
   callers
-status: To Do
+status: Done
 assignee:
   - TASK-1303
 created_date: '2026-05-11 15:25'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 17:58'
 labels:
   - code-review-rust
   - duplication
