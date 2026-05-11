@@ -1,11 +1,11 @@
 ---
 id: TASK-1290
 title: 'API-1: OPS_NONINTERACTIVE/CI use var_os().is_some(), so =0 still opts in'
-status: To Do
+status: Done
 assignee:
   - TASK-1306
 created_date: '2026-05-11 16:10'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 19:10'
 labels:
   - code-review-rust
   - api
@@ -25,7 +25,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Treat empty, '0', and 'false' as off for both OPS_NONINTERACTIVE and CI
-- [ ] #2 Docstring lists the accepted truthy values
-- [ ] #3 Test covers OPS_NONINTERACTIVE=0 keeping the prompt interactive
+- [x] #1 Treat empty, '0', and 'false' as off for both OPS_NONINTERACTIVE and CI
+- [x] #2 Docstring lists the accepted truthy values
+- [x] #3 Test covers OPS_NONINTERACTIVE=0 keeping the prompt interactive
 <!-- AC:END -->

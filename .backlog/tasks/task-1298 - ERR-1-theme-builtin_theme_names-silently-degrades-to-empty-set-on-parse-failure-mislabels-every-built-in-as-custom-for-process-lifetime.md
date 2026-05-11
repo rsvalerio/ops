@@ -3,11 +3,11 @@ id: TASK-1298
 title: >-
   ERR-1: theme builtin_theme_names silently degrades to empty set on parse
   failure, mislabels every built-in as (custom) for process lifetime
-status: To Do
+status: Done
 assignee:
   - TASK-1306
 created_date: '2026-05-11 16:19'
-updated_date: '2026-05-11 16:49'
+updated_date: '2026-05-11 19:16'
 labels:
   - code-review-rust
   - err
@@ -29,6 +29,6 @@ The one-shot warn is fired before any user-visible UI runs (\`run_theme_list\` w
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 On embedded-config parse failure, either: (a) builtin_theme_names panics with expect("embedded default config must parse") so a broken default crashes startup, or (b) parse_default_config errors propagate through builtin_theme_names/collect_theme_options and run_theme_list renders a user-visible diagnostic line instead of mislabeling built-ins as (custom)
-- [ ] #2 Unit test pins the chosen behaviour (panic with named message, or propagated Err carrying the toml::de::Error context)
+- [x] #1 On embedded-config parse failure, either: (a) builtin_theme_names panics with expect("embedded default config must parse") so a broken default crashes startup, or (b) parse_default_config errors propagate through builtin_theme_names/collect_theme_options and run_theme_list renders a user-visible diagnostic line instead of mislabeling built-ins as (custom)
+- [x] #2 Unit test pins the chosen behaviour (panic with named message, or propagated Err carrying the toml::de::Error context)
 <!-- AC:END -->

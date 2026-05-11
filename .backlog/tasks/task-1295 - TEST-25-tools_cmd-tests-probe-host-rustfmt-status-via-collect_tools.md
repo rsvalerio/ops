@@ -1,11 +1,11 @@
 ---
 id: TASK-1295
 title: 'TEST-25: tools_cmd tests probe host rustfmt status via collect_tools'
-status: To Do
+status: Done
 assignee:
   - TASK-1306
 created_date: '2026-05-11 16:10'
-updated_date: '2026-05-11 16:49'
+updated_date: '2026-05-11 19:15'
 labels:
   - code-review-rust
   - tests
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Inject the ToolStatus source (trait object or fn pointer) into collect_tools so tests provide a deterministic status map
-- [ ] #2 Any remaining host-dependent test is gated behind #[ignore] or a feature with rationale
-- [ ] #3 Baseline CI image without rustfmt installed runs the cli test suite green
+- [x] #1 Inject the ToolStatus source (trait object or fn pointer) into collect_tools so tests provide a deterministic status map
+- [x] #2 Any remaining host-dependent test is gated behind #[ignore] or a feature with rationale
+- [x] #3 Baseline CI image without rustfmt installed runs the cli test suite green
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1293
 title: >-
   READ-5: main() collapses every Err into ExitCode::FAILURE, losing specific
   exit codes
-status: To Do
+status: Done
 assignee:
   - TASK-1306
 created_date: '2026-05-11 16:10'
-updated_date: '2026-05-11 16:49'
+updated_date: '2026-05-11 19:12'
 labels:
   - code-review-rust
   - readability
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Define an error sentinel (anyhow context or typed error) for 'use exit code N'
-- [ ] #2 main() extracts the requested code from the error before defaulting to FAILURE
-- [ ] #3 Ctrl-C / pipe-break paths can exit with 130 / 141 from both Ok and Err arms
+- [x] #1 Define an error sentinel (anyhow context or typed error) for 'use exit code N'
+- [x] #2 main() extracts the requested code from the error before defaulting to FAILURE
+- [x] #3 Ctrl-C / pipe-break paths can exit with 130 / 141 from both Ok and Err arms
 <!-- AC:END -->
