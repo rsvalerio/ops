@@ -28,13 +28,20 @@ where
     let (program, args) = parse_command(full_command)?;
 
     let name = inquire::Text::new("Command name:")
-        .with_help_message("the name used in [commands.<name>] and `ops <name>`")
+        .with_help_message(
+            "used in [commands.<name>] and `ops <name>`; \
+             no whitespace, control chars, '/' or '\\', and not starting with '-'",
+        )
+        .with_validator(|input: &str| {
+            Ok(match validate_command_name(input.trim()) {
+                Ok(()) => inquire::validator::Validation::Valid,
+                Err(msg) => inquire::validator::Validation::Invalid(msg.into()),
+            })
+        })
         .prompt()?;
 
     let name = name.trim().to_string();
-    if name.is_empty() {
-        anyhow::bail!("command name cannot be empty");
-    }
+    validate_command_name(&name).map_err(|e| anyhow::anyhow!(e))?;
 
     append_command_to_config(&name, &program, &args)?;
 
@@ -44,6 +51,32 @@ where
         name,
         name
     )?;
+    Ok(())
+}
+
+/// Validate that `name` is usable both as a TOML key under `[commands.<name>]`
+/// and as a `clap` subcommand name. Empty input, whitespace, control
+/// characters, path separators, and a leading `-` (which clap parses as a
+/// flag) are all rejected so the on-disk config never ends up with an entry
+/// the rest of the tool cannot reach.
+fn validate_command_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("command name cannot be empty".into());
+    }
+    if name.starts_with('-') {
+        return Err("command name cannot start with '-' (clap would parse it as a flag)".into());
+    }
+    for c in name.chars() {
+        if c.is_ascii_whitespace() {
+            return Err("command name cannot contain whitespace".into());
+        }
+        if c.is_control() {
+            return Err("command name cannot contain control characters".into());
+        }
+        if c == '/' || c == '\\' {
+            return Err("command name cannot contain path separators ('/' or '\\\\')".into());
+        }
+    }
     Ok(())
 }
 
@@ -234,6 +267,44 @@ theme = "classic"
         let result = append_command_to_config("build", "cargo", &["build".into()]);
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed);
+    }
+
+    #[test]
+    fn validate_command_name_accepts_typical_names() {
+        for name in ["build", "test-suite", "deploy_prod", "ci.smoke", "v2"] {
+            assert!(
+                validate_command_name(name).is_ok(),
+                "expected '{name}' to be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_command_name_rejects_each_pattern_and_skips_write() {
+        let cases: &[(&str, &str)] = &[
+            ("", "empty"),
+            ("build test", "whitespace"),
+            ("build\ttest", "tab"),
+            ("build\nrelease", "newline"),
+            ("bell\x07", "control character"),
+            ("--build", "leading dash"),
+            ("-x", "leading dash short"),
+            ("../escape", "path separator '/'"),
+            ("a\\b", "path separator '\\\\'"),
+        ];
+        for (bad, label) in cases {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
+
+            assert!(
+                validate_command_name(bad).is_err(),
+                "expected '{bad}' ({label}) to be rejected"
+            );
+            assert!(
+                !dir.path().join(".ops.toml").exists(),
+                "no .ops.toml should be written for rejected name '{bad}' ({label})",
+            );
+        }
     }
 
     #[test]
