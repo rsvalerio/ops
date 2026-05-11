@@ -38,6 +38,29 @@ pub fn read_ops_toml(path: &Path) -> anyhow::Result<toml_edit::DocumentMut> {
     })
 }
 
+/// DUP-1 / TASK-1278: ensure a top-level table named `key` exists in `doc`
+/// and return a mutable reference to it. If the key is absent, an empty
+/// `Table` is inserted. If the key is present but holds a non-table value
+/// (e.g. `output = "classic"`), an `anyhow::Error` is returned rather than
+/// panicking — this is the failure mode TASK-1300 hit on the
+/// `doc["output"]["theme"] = …` indexer path in `theme_cmd::set_theme`.
+///
+/// Use this anywhere `.ops.toml` writers need to land a key under a top-level
+/// section: `about_cmd`, `theme_cmd`, and `new_command_cmd` previously each
+/// open-coded the `contains_key` + insert + `as_table_mut().context(...)`
+/// idiom, and `theme_cmd` did so incorrectly.
+pub fn ensure_table<'a>(
+    doc: &'a mut toml_edit::DocumentMut,
+    key: &str,
+) -> anyhow::Result<&'a mut toml_edit::Table> {
+    if !doc.contains_key(key) {
+        doc.insert(key, toml_edit::Item::Table(toml_edit::Table::new()));
+    }
+    doc.get_mut(key)
+        .and_then(toml_edit::Item::as_table_mut)
+        .with_context(|| format!("[{key}] is not a table in .ops.toml"))
+}
+
 /// Atomically write the serialized `doc` back to `path` (sibling temp file +
 /// rename). Pair with [`read_ops_toml`] for a read / mutate / write pipeline
 /// where the caller wants to skip the write on some branches.

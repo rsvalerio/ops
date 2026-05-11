@@ -1,16 +1,15 @@
 //! `ops new-command` — interactively add a command to `.ops.toml`.
 
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::Path;
 
-use anyhow::Context;
-use ops_core::config::edit_ops_toml;
+use ops_core::config::{edit_ops_toml, ensure_table};
 
-pub fn run_new_command() -> anyhow::Result<()> {
-    run_new_command_with_tty_check(crate::tty::is_stdout_tty)
+pub fn run_new_command(workspace_root: &Path) -> anyhow::Result<()> {
+    run_new_command_with_tty_check(workspace_root, crate::tty::is_stdout_tty)
 }
 
-fn run_new_command_with_tty_check<F>(is_tty: F) -> anyhow::Result<()>
+fn run_new_command_with_tty_check<F>(workspace_root: &Path, is_tty: F) -> anyhow::Result<()>
 where
     F: FnOnce() -> bool,
 {
@@ -43,7 +42,7 @@ where
     let name = name.trim().to_string();
     validate_command_name(&name).map_err(|e| anyhow::anyhow!(e))?;
 
-    append_command_to_config(&name, &program, &args)?;
+    append_command_to_config(workspace_root, &name, &program, &args)?;
 
     writeln!(
         io::stdout(),
@@ -77,7 +76,34 @@ fn validate_command_name(name: &str) -> Result<(), String> {
             return Err("command name cannot contain path separators ('/' or '\\\\')".into());
         }
     }
+    // API-1 / TASK-1296: reject names that collide with a built-in clap
+    // subcommand. Clap matches built-ins before the `External` catch-all, so
+    // a `[commands.<name>]` entry that shadows one (e.g. `init`, `theme`,
+    // `about`) would persist successfully but never be reachable via
+    // `ops <name>`. The list is derived from clap's own registered
+    // subcommands so future additions to `CoreSubcommand` are covered
+    // without editing this function.
+    if builtin_subcommand_names().iter().any(|n| n == name) {
+        return Err(format!(
+            "command name '{name}' collides with a built-in `ops` subcommand; pick a different name"
+        ));
+    }
     Ok(())
+}
+
+/// API-1 / TASK-1296: names of every clap-registered built-in subcommand on
+/// the `Cli` definition, excluding the `External` catch-all (which is what
+/// `ops <user-command>` resolves to). Same iteration shape as
+/// `args::stack_specific_commands`: a slice-style "ask clap once, expose to
+/// callers" helper, so new variants land here automatically.
+fn builtin_subcommand_names() -> Vec<String> {
+    use clap::CommandFactory;
+    crate::args::Cli::command()
+        .get_subcommands()
+        .map(|c| c.get_name().to_string())
+        // The `External` variant is registered via `#[command(external_subcommand)]`
+        // and is not enumerated by `get_subcommands()`, so no filtering is needed.
+        .collect()
 }
 
 /// Parse a full command string into (program, args), honouring shell
@@ -98,15 +124,22 @@ fn parse_command(input: &str) -> anyhow::Result<(String, Vec<String>)> {
 }
 
 /// Append a new command entry to `.ops.toml`, creating the file if needed.
-fn append_command_to_config(name: &str, program: &str, args: &[String]) -> anyhow::Result<()> {
-    let config_path = PathBuf::from(".ops.toml");
+///
+/// PATTERN-1 / TASK-1276: anchor the write to `workspace_root` (threaded from
+/// `run()` → `dispatch()`) rather than `PathBuf::from(".ops.toml")` at the
+/// user's cwd. Mirrors the `about_cmd` (TASK-0578) and `init_cmd` (TASK-1066)
+/// fixes — running `ops new-command` from a subdirectory must update the
+/// workspace's `.ops.toml`, not split state by writing a stray file in the
+/// subdir.
+fn append_command_to_config(
+    workspace_root: &Path,
+    name: &str,
+    program: &str,
+    args: &[String],
+) -> anyhow::Result<()> {
+    let config_path = workspace_root.join(".ops.toml");
     edit_ops_toml(&config_path, |doc| {
-        if !doc.contains_key("commands") {
-            doc["commands"] = toml_edit::Item::Table(toml_edit::Table::new());
-        }
-        let commands = doc["commands"]
-            .as_table_mut()
-            .context("commands is not a table")?;
+        let commands = ensure_table(doc, "commands")?;
 
         if commands.contains_key(name) {
             anyhow::bail!(
@@ -199,10 +232,14 @@ mod tests {
     #[test]
     fn append_command_creates_file() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
-        append_command_to_config("build", "cargo", &["build".into(), "--release".into()])
-            .expect("append");
+        append_command_to_config(
+            dir.path(),
+            "build",
+            "cargo",
+            &["build".into(), "--release".into()],
+        )
+        .expect("append");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("[commands.build]"));
@@ -214,7 +251,6 @@ mod tests {
     #[test]
     fn append_command_preserves_existing() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
         std::fs::write(
             dir.path().join(".ops.toml"),
@@ -224,7 +260,7 @@ theme = "classic"
         )
         .unwrap();
 
-        append_command_to_config("test", "cargo", &["test".into()]).expect("append");
+        append_command_to_config(dir.path(), "test", "cargo", &["test".into()]).expect("append");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains(r#"theme = "classic""#));
@@ -235,10 +271,10 @@ theme = "classic"
     #[test]
     fn append_command_rejects_duplicate() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
-        append_command_to_config("build", "cargo", &["build".into()]).expect("first append");
-        let result = append_command_to_config("build", "make", &[]);
+        append_command_to_config(dir.path(), "build", "cargo", &["build".into()])
+            .expect("first append");
+        let result = append_command_to_config(dir.path(), "build", "make", &[]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
     }
@@ -246,9 +282,8 @@ theme = "classic"
     #[test]
     fn append_command_no_args() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
-        append_command_to_config("lint", "make", &[]).expect("append");
+        append_command_to_config(dir.path(), "lint", "make", &[]).expect("append");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("[commands.lint]"));
@@ -259,14 +294,34 @@ theme = "classic"
     #[test]
     fn append_command_refuses_to_overwrite_malformed_toml() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
         let path = dir.path().join(".ops.toml");
         let malformed = "not = = valid\n{{{";
         std::fs::write(&path, malformed).unwrap();
 
-        let result = append_command_to_config("build", "cargo", &["build".into()]);
+        let result = append_command_to_config(dir.path(), "build", "cargo", &["build".into()]);
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed);
+    }
+
+    /// PATTERN-1 / TASK-1276: regression — running `ops new-command` from a
+    /// subdirectory must write to `workspace_root/.ops.toml`, not into the
+    /// subdir, mirroring `save_about_fields_writes_to_workspace_root_from_subdir`.
+    #[test]
+    fn append_command_writes_to_workspace_root_from_subdir() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace_root = dir.path();
+        let subdir = workspace_root.join("nested/deeper");
+        std::fs::create_dir_all(&subdir).unwrap();
+        let _guard = crate::CwdGuard::new(&subdir).expect("CwdGuard");
+
+        append_command_to_config(workspace_root, "build", "cargo", &["build".into()])
+            .expect("append");
+
+        assert!(workspace_root.join(".ops.toml").exists());
+        assert!(
+            !subdir.join(".ops.toml").exists(),
+            "must not have written into the subdirectory cwd"
+        );
     }
 
     #[test]
@@ -294,7 +349,6 @@ theme = "classic"
         ];
         for (bad, label) in cases {
             let dir = tempfile::tempdir().expect("tempdir");
-            let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
             assert!(
                 validate_command_name(bad).is_err(),
@@ -307,9 +361,50 @@ theme = "classic"
         }
     }
 
+    /// API-1 / TASK-1296: every clap-registered built-in subcommand on the
+    /// `Cli` definition must be rejected as a command name. Driving the
+    /// iteration off `builtin_subcommand_names()` (which derives from
+    /// clap's own command tree) means future additions to `CoreSubcommand`
+    /// are covered automatically — the iteration shape mirrors
+    /// `args::stack_specific_commands` for the same reason.
+    #[test]
+    fn validate_command_name_rejects_every_builtin_subcommand() {
+        let builtins = builtin_subcommand_names();
+        assert!(
+            !builtins.is_empty(),
+            "clap must expose at least one built-in subcommand for this guard to be meaningful"
+        );
+        // Spot-check that the unconditional built-ins are present; feature
+        // flags determine the rest.
+        for required in [
+            "init",
+            "theme",
+            "extension",
+            "about",
+            "new-command",
+            "run-before-commit",
+            "run-before-push",
+        ] {
+            assert!(
+                builtins.iter().any(|n| n == required),
+                "missing required built-in {required} in {builtins:?}"
+            );
+        }
+        for name in &builtins {
+            let msg = validate_command_name(name).expect_err(&format!(
+                "built-in '{name}' must be rejected as a new-command name"
+            ));
+            assert!(
+                msg.contains(name) && msg.contains("built-in"),
+                "rejection must name the colliding built-in, got: {msg}"
+            );
+        }
+    }
+
     #[test]
     fn new_command_non_tty_returns_error() {
-        let result = run_new_command_with_tty_check(|| false);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let result = run_new_command_with_tty_check(dir.path(), || false);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()

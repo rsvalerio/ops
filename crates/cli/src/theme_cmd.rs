@@ -2,11 +2,12 @@
 
 use std::collections::HashSet;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::OnceLock;
 
 use anyhow::Context;
 use ops_core::config;
+use ops_core::config::ensure_table;
 use ops_core::output::display_width;
 use ops_core::style;
 
@@ -127,11 +128,15 @@ fn run_theme_list_to(config: &config::Config, w: &mut dyn Write) -> anyhow::Resu
 /// 1. Mock `inquire::Select` using a trait
 /// 2. Use a TTY emulation library
 /// 3. Run manual testing with `cargo ops theme select`
-pub fn run_theme_select(config: &config::Config) -> anyhow::Result<()> {
-    run_theme_select_with_tty_check(config, crate::tty::is_stdout_tty)
+pub fn run_theme_select(config: &config::Config, workspace_root: &Path) -> anyhow::Result<()> {
+    run_theme_select_with_tty_check(config, workspace_root, crate::tty::is_stdout_tty)
 }
 
-fn run_theme_select_with_tty_check<F>(config: &config::Config, is_tty: F) -> anyhow::Result<()>
+fn run_theme_select_with_tty_check<F>(
+    config: &config::Config,
+    workspace_root: &Path,
+    is_tty: F,
+) -> anyhow::Result<()>
 where
     F: FnOnce() -> bool,
 {
@@ -166,7 +171,7 @@ where
         return Ok(());
     }
 
-    update_theme_in_config(&selected.name)?;
+    update_theme_in_config(workspace_root, &selected.name)?;
 
     writeln!(std::io::stdout(), "Theme set to '{}'", selected.name)?;
     Ok(())
@@ -185,19 +190,24 @@ impl std::fmt::Display for ThemeOption {
     }
 }
 
-fn update_theme_in_config(theme_name: &str) -> anyhow::Result<()> {
-    let config_path = PathBuf::from(".ops.toml");
-    config::edit_ops_toml(&config_path, |doc| {
-        set_theme(doc, theme_name);
-        Ok(())
-    })
+/// READ-5 / TASK-1277: anchor the saved `.ops.toml` to the same root the rest
+/// of the CLI threads through (`crate::cwd()` → `Stack::resolve(...)`), so
+/// running `ops theme select` from a subdirectory writes the file alongside
+/// the loaded config rather than next to the user's cwd. Mirrors the
+/// `save_about_fields` fix under TASK-0578.
+fn update_theme_in_config(workspace_root: &Path, theme_name: &str) -> anyhow::Result<()> {
+    let config_path = workspace_root.join(".ops.toml");
+    config::edit_ops_toml(&config_path, |doc| set_theme(doc, theme_name))
 }
 
-fn set_theme(doc: &mut toml_edit::DocumentMut, theme_name: &str) {
-    if !doc.contains_key("output") {
-        doc["output"] = toml_edit::Item::Table(toml_edit::Table::new());
-    }
-    doc["output"]["theme"] = toml_edit::value(theme_name);
+/// ERR-5 / TASK-1300: route the `[output]` lookup through the shared
+/// `ensure_table` helper so a legacy/malformed `.ops.toml` containing
+/// `output = "classic"` (or any non-table value) surfaces a clean
+/// `anyhow::Error` instead of panicking inside `toml_edit`'s `IndexMut`.
+fn set_theme(doc: &mut toml_edit::DocumentMut, theme_name: &str) -> anyhow::Result<()> {
+    let output = ensure_table(doc, "output")?;
+    output.insert("theme", toml_edit::value(theme_name));
+    Ok(())
 }
 
 /// Update the theme value in TOML content, preserving formatting.
@@ -206,7 +216,7 @@ fn update_toml_theme(content: &str, theme_name: &str) -> String {
     let mut doc = content
         .parse::<toml_edit::DocumentMut>()
         .expect("test input must be valid TOML");
-    set_theme(&mut doc, theme_name);
+    set_theme(&mut doc, theme_name).expect("test input must contain a table at [output] or none");
     doc.to_string()
 }
 
@@ -301,7 +311,8 @@ build = "cargo build"
     #[test]
     fn run_theme_select_non_tty_returns_error() {
         let config = ops_core::config::Config::empty();
-        let result = run_theme_select_with_tty_check(&config, || false);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let result = run_theme_select_with_tty_check(&config, dir.path(), || false);
         assert!(result.is_err(), "run_theme_select should fail without TTY");
         assert!(result
             .unwrap_err()
@@ -334,12 +345,11 @@ theme = "compact"
     #[test]
     fn update_theme_in_config_refuses_to_overwrite_malformed_toml() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
         let path = dir.path().join(".ops.toml");
         let malformed = "not = = valid\n{{{";
         std::fs::write(&path, malformed).unwrap();
 
-        let result = update_theme_in_config("classic");
+        let result = update_theme_in_config(dir.path(), "classic");
         assert!(result.is_err(), "malformed TOML should be a hard error");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed);
     }
@@ -348,13 +358,50 @@ theme = "compact"
     fn update_theme_in_config_creates_new_file() {
         let dir = tempfile::tempdir().expect("tempdir");
         let config_path = dir.path().join(".ops.toml");
-        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
 
-        let result = update_theme_in_config("classic");
+        let result = update_theme_in_config(dir.path(), "classic");
         assert!(result.is_ok());
         assert!(config_path.exists());
         let content = std::fs::read_to_string(&config_path).unwrap();
         assert!(content.contains("theme = \"classic\""));
+    }
+
+    /// READ-5 / TASK-1277: regression — `ops theme select` from a
+    /// subdirectory must write to `workspace_root/.ops.toml`, not into the
+    /// subdir, so the persisted theme matches the config the rest of the
+    /// CLI loaded. Mirrors `save_about_fields_writes_to_workspace_root_from_subdir`.
+    #[test]
+    fn update_theme_in_config_writes_to_workspace_root_from_subdir() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace_root = dir.path();
+        let subdir = workspace_root.join("nested/deeper");
+        std::fs::create_dir_all(&subdir).unwrap();
+        let _guard = crate::CwdGuard::new(&subdir).expect("CwdGuard");
+
+        update_theme_in_config(workspace_root, "classic").expect("save");
+
+        assert!(workspace_root.join(".ops.toml").exists());
+        assert!(
+            !subdir.join(".ops.toml").exists(),
+            "must not have written into the subdirectory cwd"
+        );
+    }
+
+    /// ERR-5 / TASK-1300: when `.ops.toml` already has a non-table value at
+    /// `output` (e.g. `output = "classic"`), `set_theme` must bail with a
+    /// clear anyhow error rather than panicking inside `toml_edit`'s
+    /// `IndexMut`. The previous shape (`doc["output"]["theme"] = ...`) only
+    /// guarded against missing keys, not type mismatches.
+    #[test]
+    fn set_theme_bails_on_non_table_output() {
+        let mut doc: toml_edit::DocumentMut = "output = \"classic\"\n".parse().unwrap();
+        let result = set_theme(&mut doc, "compact");
+        let err = result.expect_err("non-table [output] must be a clean error, not a panic");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("[output] is not a table"),
+            "error must explain the type mismatch, got: {msg}"
+        );
     }
 
     mod run_theme_list_tests {

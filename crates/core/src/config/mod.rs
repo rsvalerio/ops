@@ -11,7 +11,7 @@ pub mod theme_types;
 pub mod tools;
 
 pub use commands::{CommandId, CommandSpec, CompositeCommandSpec, ExecCommandSpec};
-pub use edit::{atomic_write, edit_ops_toml, read_ops_toml, write_ops_toml};
+pub use edit::{atomic_write, edit_ops_toml, ensure_table, read_ops_toml, write_ops_toml};
 pub use overlay::{
     AboutConfigOverlay, ConfigOverlay, DataConfigOverlay, ExtensionConfigOverlay,
     OutputConfigOverlay,

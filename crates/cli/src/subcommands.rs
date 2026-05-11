@@ -68,7 +68,10 @@ pub(crate) fn run_deps(config: &Config, refresh: bool) -> anyhow::Result<()> {
 pub(crate) fn run_theme(config: &Config, action: ThemeAction) -> anyhow::Result<()> {
     match action {
         ThemeAction::List => theme_cmd::run_theme_list(config),
-        ThemeAction::Select => theme_cmd::run_theme_select(config),
+        ThemeAction::Select => {
+            let cwd = crate::cwd()?;
+            theme_cmd::run_theme_select(config, &cwd)
+        }
     }
 }
 

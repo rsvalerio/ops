@@ -186,7 +186,10 @@ fn dispatch(
         }
         Some(CoreSubcommand::Theme { action }) => run_theme(early_config, action)?,
         Some(CoreSubcommand::Extension { action }) => run_extension(early_config, action)?,
-        Some(CoreSubcommand::NewCommand) => new_command_cmd::run_new_command()?,
+        Some(CoreSubcommand::NewCommand) => {
+            let cwd = cwd()?;
+            new_command_cmd::run_new_command(&cwd)?;
+        }
         Some(CoreSubcommand::RunBeforeCommit {
             changed_only,
             action,

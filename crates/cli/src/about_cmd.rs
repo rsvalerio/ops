@@ -3,8 +3,7 @@
 use std::io::Write;
 use std::path::Path;
 
-use anyhow::Context;
-use ops_core::config::edit_ops_toml;
+use ops_core::config::{edit_ops_toml, ensure_table};
 use ops_extension::DataRegistry;
 
 use crate::tty::SelectOption;
@@ -84,17 +83,28 @@ where
 fn save_about_fields(fields: &[String], workspace_root: &Path) -> anyhow::Result<()> {
     let config_path = workspace_root.join(".ops.toml");
     edit_ops_toml(&config_path, |doc| {
-        if !doc.contains_key("about") {
-            doc["about"] = toml_edit::Item::Table(toml_edit::Table::new());
+        let about = ensure_table(doc, "about")?;
+        // ERR-5 / TASK-1292: when `fields` already exists, mutate the
+        // existing Array in place (clear + push) so the user's inline
+        // comments and trailing decor survive a re-save. The
+        // wholesale-replace path (insert) is reserved for the fresh-array
+        // case where there is no prior decor to preserve.
+        if let Some(existing) = about
+            .get_mut("fields")
+            .and_then(toml_edit::Item::as_value_mut)
+            .and_then(toml_edit::Value::as_array_mut)
+        {
+            existing.clear();
+            for f in fields {
+                existing.push(f.as_str());
+            }
+        } else {
+            let mut arr = toml_edit::Array::new();
+            for f in fields {
+                arr.push(f.as_str());
+            }
+            about.insert("fields", toml_edit::value(arr));
         }
-        let about = doc["about"]
-            .as_table_mut()
-            .context("[about] is not a table in .ops.toml")?;
-        let mut arr = toml_edit::Array::new();
-        for f in fields {
-            arr.push(f.as_str());
-        }
-        about.insert("fields", toml_edit::value(arr));
         Ok(())
     })
 }
@@ -167,6 +177,27 @@ mod tests {
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("codebase"), "got: {content}");
         assert!(content.contains("repository"), "got: {content}");
+    }
+
+    /// ERR-5 / TASK-1292: a trailing comment on the `fields` array must
+    /// survive a re-save. Pre-fix, `save_about_fields` did
+    /// `about.insert("fields", toml_edit::value(arr))`, replacing the entry
+    /// wholesale and dropping any inline comments/decor on the prior array.
+    #[test]
+    fn save_about_fields_preserves_fields_array_decor() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let existing = "[about]\nfields = [\"project\"] # keep\n";
+        std::fs::write(dir.path().join(".ops.toml"), existing).unwrap();
+
+        save_about_fields(&["project".to_string(), "codebase".to_string()], dir.path())
+            .expect("save should succeed");
+
+        let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
+        assert!(
+            content.contains("# keep"),
+            "trailing comment on fields must survive re-save: {content}"
+        );
+        assert!(content.contains("codebase"), "got: {content}");
     }
 
     #[test]
