@@ -109,6 +109,48 @@ pub fn with_temp_config(content: &str) -> (tempfile::TempDir, CwdGuard) {
     (dir, guard)
 }
 
+/// DUP-1 / TASK-1279: shared `tracing::warn!` capture helper for tests
+/// across the cli crate. Five tests in `registry/tests.rs` previously
+/// open-coded the same BufWriter + MakeWriter scaffold (~17 lines each)
+/// to read back a captured WARN buffer. The helper installs a
+/// thread-local subscriber for the duration of `f` and returns the
+/// captured text.
+#[cfg(test)]
+#[allow(dead_code)]
+pub fn capture_warnings<F: FnOnce()>(f: F) -> String {
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    struct BufWriter(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for BufWriter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    let buf = BufWriter::default();
+    let captured = buf.0.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buf)
+        .with_max_level(tracing::Level::WARN)
+        .with_ansi(false)
+        .finish();
+    tracing::subscriber::with_default(subscriber, f);
+    let bytes = captured.lock().unwrap().clone();
+    String::from_utf8(bytes).unwrap()
+}
+
 #[cfg(test)]
 mod cwd_guard_tests {
     use super::*;

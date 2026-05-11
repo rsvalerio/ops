@@ -69,64 +69,148 @@ where
     owners
 }
 
+/// DUP-2 / TASK-1297: collision-resolution policy on duplicate keys. The
+/// command path is last-write-wins; the data-provider path is
+/// first-write-wins. See module doc for the security rationale. The
+/// enum is private to this module — the public `register_extension_*`
+/// shells pick the policy.
+#[derive(Clone, Copy)]
+enum InsertPolicy {
+    LastWriteWins,
+    FirstWriteWins,
+}
+
+/// DUP-2 / TASK-1297: per-policy warn-message strings used by the shared
+/// audit pipeline. Hoisted into a single value rather than four scattered
+/// `tracing::warn!` call sites so a future audit-policy change touches one
+/// table, not two functions × four messages.
+struct AuditPolicy {
+    policy: InsertPolicy,
+    kind_field: &'static str,
+    in_ext_duplicate: &'static str,
+    cross_ext_collision: &'static str,
+    pre_existing_collision: &'static str,
+}
+
+const COMMAND_AUDIT: AuditPolicy = AuditPolicy {
+    policy: InsertPolicy::LastWriteWins,
+    kind_field: "command",
+    in_ext_duplicate:
+        "extension registered the same command id more than once; the later registration shadows the earlier within this extension",
+    cross_ext_collision:
+        "duplicate command registration; the later extension shadows the earlier one",
+    pre_existing_collision:
+        "extension command shadows an entry already present in the registry (e.g. a config-defined command)",
+};
+
+const DATA_PROVIDER_AUDIT: AuditPolicy = AuditPolicy {
+    policy: InsertPolicy::FirstWriteWins,
+    kind_field: "provider",
+    in_ext_duplicate:
+        "extension registered the same data provider name more than once; first-write-wins keeps the earlier registration within this extension and the later ones are dropped",
+    cross_ext_collision:
+        "duplicate data provider registration; first-write-wins keeps the earlier extension's provider and the later one is dropped",
+    pre_existing_collision:
+        "extension data provider would shadow an entry already present in the registry; first-write-wins keeps the existing one",
+};
+
+/// DUP-2 / TASK-1297 + FN-1 / TASK-1288: classify one (key, ext_name)
+/// against the running `owners` map and emit the matching warn under the
+/// chosen `policy`. Returns `true` if the caller should actually install
+/// the entry into the shared registry. The four collision cases that
+/// previously lived as inline match arms in two functions now live here
+/// once, parameterised by `InsertPolicy` and the per-policy message table.
+fn classify_and_warn_collision(
+    owners: &mut std::collections::HashMap<String, Owner>,
+    key: &str,
+    ext_name: &'static str,
+    audit: &AuditPolicy,
+) -> bool {
+    use std::collections::hash_map::Entry;
+    match owners.entry(key.to_string()) {
+        Entry::Vacant(vac) => {
+            vac.insert(Owner::Extension(ext_name));
+            true
+        }
+        Entry::Occupied(mut occ) => match occ.get() {
+            Owner::Extension(prev) if *prev != ext_name => {
+                tracing::warn!(
+                    target: "ops::registry",
+                    kind = %audit.kind_field,
+                    key = %key,
+                    first = %prev,
+                    second = %ext_name,
+                    "{}",
+                    audit.cross_ext_collision,
+                );
+                match audit.policy {
+                    InsertPolicy::LastWriteWins => {
+                        occ.insert(Owner::Extension(ext_name));
+                        true
+                    }
+                    InsertPolicy::FirstWriteWins => false,
+                }
+            }
+            Owner::PreExisting => {
+                tracing::warn!(
+                    target: "ops::registry",
+                    kind = %audit.kind_field,
+                    key = %key,
+                    second = %ext_name,
+                    "{}",
+                    audit.pre_existing_collision,
+                );
+                match audit.policy {
+                    InsertPolicy::LastWriteWins => {
+                        occ.insert(Owner::Extension(ext_name));
+                        true
+                    }
+                    InsertPolicy::FirstWriteWins => false,
+                }
+            }
+            Owner::Extension(_) => {
+                // Same extension — already surfaced via the in-extension
+                // duplicate drain in the caller (take_duplicate_inserts).
+                // Whether we re-register depends on policy: under last-
+                // write-wins the caller's IndexMap::insert already handled
+                // it; under first-write-wins we drop.
+                matches!(audit.policy, InsertPolicy::LastWriteWins)
+            }
+        },
+    }
+}
+
 /// Collect all commands from registered extensions into a registry —
 /// **last-write-wins** on duplicate command ids (CL-5 / TASK-0904).
 ///
 /// SEC-31 / TASK-0402 (symmetric audit story with TASK-0350 for
 /// `DataRegistry` — but with opposite resolution policy, see module doc):
 /// extensions register into a shared `CommandRegistry` via `IndexMap::insert`.
-/// We snapshot the keys after each extension's contribution so a second
-/// extension introducing a colliding command id is logged at
-/// `tracing::warn!` instead of silently shadowing the first registration.
-/// Insertion order is preserved (the late entry wins, matching the prior
-/// observable behaviour) but the collision is now visible.
+/// Collisions surface as `tracing::warn!` through the shared
+/// [`classify_and_warn_collision`] pipeline (DUP-2 / TASK-1297). The thin
+/// shell here picks the [`InsertPolicy::LastWriteWins`] policy and message
+/// table; structural duplication with [`register_extension_data_providers`]
+/// is removed.
 pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut CommandRegistry) {
-    // READ-5 / TASK-0716: typed [`Owner`] keeps the warn fields free of
-    // internal sentinel strings (`<pre-existing>` no longer leaks).
-    // PATTERN-1 / TASK-1097: snapshots the registry's *current* keys once.
-    // Cross-extension collisions are detected via the `owners.insert` check
-    // below (extension N+1 sees N's `Owner::Extension(...)` entry), not via
-    // a re-snapshot of the registry on each iteration.
-    let mut owners = snapshot_initial_owners(registry.keys().cloned());
-
+    let mut owners = snapshot_initial_owners(registry.keys().map(|k| k.to_string()));
     for ext in extensions {
         debug!(extension = ext.name(), action = "commands", "registering");
-        // PERF-1 / TASK-0512: register into a per-extension scratch registry
-        // so we can detect collisions in O(commands_this_ext) instead of
-        // snapshotting every key in the shared registry on each iteration.
         let mut local = CommandRegistry::new();
         ext.register_commands(&mut local);
-        // ERR-2 (TASK-0579): the per-extension scratch registry tracks
-        // duplicate inserts so a single extension that registers the same
-        // command id twice no longer silently drops the first version.
         for dup in local.take_duplicate_inserts() {
             tracing::warn!(
-                command = %dup,
+                target: "ops::registry",
+                kind = COMMAND_AUDIT.kind_field,
+                key = %dup,
                 extension = ext.name(),
-                "extension registered the same command id more than once; the later registration shadows the earlier within this extension"
+                "{}",
+                COMMAND_AUDIT.in_ext_duplicate,
             );
         }
         for (id, spec) in local {
-            let prev_owner = owners.insert(id.clone(), Owner::Extension(ext.name()));
-            match prev_owner {
-                Some(Owner::Extension(prev)) if prev != ext.name() => {
-                    tracing::warn!(
-                        command = %id,
-                        first = %prev,
-                        second = %ext.name(),
-                        "duplicate command registration; the later extension shadows the earlier one"
-                    );
-                }
-                Some(Owner::PreExisting) => {
-                    tracing::warn!(
-                        command = %id,
-                        second = %ext.name(),
-                        "extension command shadows an entry already present in the registry (e.g. a config-defined command)"
-                    );
-                }
-                _ => {}
+            if classify_and_warn_collision(&mut owners, id.as_ref(), ext.name(), &COMMAND_AUDIT) {
+                registry.insert(id, spec);
             }
-            registry.insert(id, spec);
         }
     }
 }
@@ -134,33 +218,15 @@ pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut
 /// Collect all data providers from registered extensions —
 /// **first-write-wins** on duplicate provider names (CL-5 / TASK-0904,
 /// opposite to [`register_extension_commands`]; see module doc for the
-/// rationale).
-///
-/// CL-5 / TASK-0756: symmetric *audit* (not policy) with
-/// [`register_extension_commands`]. Each
-/// extension registers into a per-extension scratch [`DataRegistry`] so the
-/// wiring layer can detect (a) in-extension duplicates via
-/// [`DataRegistry::take_duplicate_inserts`] and (b) cross-extension or
-/// pre-existing-owner collisions via the local `owners` map. Earlier the
-/// data-provider path was a thin pass-through with no audit at all, so a
-/// silent first-write-wins drop here was invisible to operators reading
-/// `RUST_LOG=ops=debug` even though the symmetric command-registration path
-/// already warned loudly on every collision class.
+/// rationale). Thin shell over the shared
+/// [`classify_and_warn_collision`] pipeline; the only difference from the
+/// command path is the chosen [`InsertPolicy`] and the message table.
 pub fn register_extension_data_providers(
     extensions: &[&dyn Extension],
     registry: &mut DataRegistry,
 ) {
-    // API-3 / TASK-0996: `provider_names` returns a sorted Vec — collapsed
-    // from the previous misleading `_iter` sibling. The seed is consumed
-    // once here, so the single Vec round-trip is intentional.
-    //
-    // PATTERN-1 / TASK-1097: same shape as `register_extension_commands` —
-    // this captures the registry's *initial* provider names once.
-    // Cross-extension collisions surface via the `owners.entry(...)`
-    // classification below, not via re-snapshotting the registry per loop.
     let mut owners =
         snapshot_initial_owners(registry.provider_names().into_iter().map(str::to_string));
-
     for ext in extensions {
         debug!(
             extension = ext.name(),
@@ -169,44 +235,19 @@ pub fn register_extension_data_providers(
         );
         let mut local = DataRegistry::new();
         ext.register_data_providers(&mut local);
-
-        // ERR-2: a single extension that registers the same provider name
-        // twice surfaces here via the audit trail rather than a silent drop.
         for dup in local.take_duplicate_inserts() {
             tracing::warn!(
-                provider = %dup,
+                target: "ops::registry",
+                kind = DATA_PROVIDER_AUDIT.kind_field,
+                key = %dup,
                 extension = ext.name(),
-                "extension registered the same data provider name more than once; first-write-wins keeps the earlier registration within this extension and the later ones are dropped"
+                "{}",
+                DATA_PROVIDER_AUDIT.in_ext_duplicate,
             );
         }
-
         for (name, provider) in local {
-            use std::collections::hash_map::Entry;
-            match owners.entry(name.clone()) {
-                Entry::Occupied(occ) => match occ.get() {
-                    Owner::Extension(prev) if *prev != ext.name() => {
-                        tracing::warn!(
-                            provider = %name,
-                            first = %prev,
-                            second = %ext.name(),
-                            "duplicate data provider registration; first-write-wins keeps the earlier extension's provider and the later one is dropped"
-                        );
-                    }
-                    Owner::PreExisting => {
-                        tracing::warn!(
-                            provider = %name,
-                            second = %ext.name(),
-                            "extension data provider would shadow an entry already present in the registry; first-write-wins keeps the existing one"
-                        );
-                    }
-                    Owner::Extension(_) => {
-                        // Same extension — already surfaced via take_duplicate_inserts above.
-                    }
-                },
-                Entry::Vacant(vac) => {
-                    vac.insert(Owner::Extension(ext.name()));
-                    registry.register(name, provider);
-                }
+            if classify_and_warn_collision(&mut owners, &name, ext.name(), &DATA_PROVIDER_AUDIT) {
+                registry.register(name, provider);
             }
         }
     }

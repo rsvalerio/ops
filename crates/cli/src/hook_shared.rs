@@ -56,10 +56,25 @@ pub fn run_hook_install(config: &Config, ops: &HookOps) -> anyhow::Result<()> {
             crate::registry::register_extension_commands(&ext_refs, &mut cmd_registry);
         }
         Err(e) => {
-            tracing::warn!(
-                error = %format!("{e:#}"),
-                "failed to load extensions for hook command selection; extension-provided commands will be omitted",
-            );
+            // ERR-1 / TASK-1287: surface the load failure through exactly
+            // one operator-facing channel (UI). Earlier this path
+            // double-emitted the same message via `tracing::warn!` *and*
+            // `ops_core::ui::warn`, producing two warnings for one fault
+            // for any user with `RUST_LOG=ops=warn` set.
+            //
+            // Degradation policy: continue the install with config +
+            // stack-default commands only. The selection list omits
+            // extension-provided commands; the user can still install the
+            // hook and configure commands by editing .ops.toml. If
+            // `extensions.enabled` is set explicitly we honour the
+            // assumption that misconfiguration should surface as a hard
+            // error rather than a silently-shorter list.
+            if config.extensions.enabled.is_some() {
+                anyhow::bail!(
+                    "could not load extensions for {} install: {e:#}",
+                    ops.hook_name,
+                );
+            }
             ops_core::ui::warn(format!(
                 "could not load extensions for {} install: {e:#}\n  extension-provided commands will not appear in the selection list",
                 ops.hook_name,

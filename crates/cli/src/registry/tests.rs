@@ -3,6 +3,7 @@
 //! `crate::registry::*` re-exports).
 
 use super::*;
+use crate::test_utils::capture_warnings;
 use ops_core::config::{Config, ExtensionConfig};
 use ops_extension::{CommandRegistry, DataRegistry};
 
@@ -197,8 +198,6 @@ fn register_extension_commands_detects_duplicate_command_id() {
 fn register_extension_commands_warns_on_self_shadow() {
     use ops_core::config::{CommandSpec, ExecCommandSpec};
     use ops_extension::{CommandRegistry, Extension};
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
 
     struct DoubleRegisterExt;
     impl Extension for DoubleRegisterExt {
@@ -217,40 +216,12 @@ fn register_extension_commands_warns_on_self_shadow() {
         }
     }
 
-    #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for BufWriter {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    let buf = BufWriter::default();
-    let captured = buf.0.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf)
-        .with_max_level(tracing::Level::WARN)
-        .with_ansi(false)
-        .finish();
-
     let ext = DoubleRegisterExt;
     let exts: Vec<&dyn Extension> = vec![&ext];
     let mut registry = CommandRegistry::new();
-    tracing::subscriber::with_default(subscriber, || {
+    let captured = capture_warnings(|| {
         register_extension_commands(&exts, &mut registry);
     });
-
-    let captured = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
     assert!(
         captured.contains("double_register") && captured.contains("lint"),
         "self-shadow warning must name extension and command id, got: {captured}"
@@ -266,8 +237,6 @@ fn register_extension_commands_warns_on_self_shadow() {
 fn register_extension_commands_collision_with_pre_existing_omits_sentinel() {
     use ops_core::config::{CommandSpec, ExecCommandSpec};
     use ops_extension::{CommandRegistry, Extension};
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
 
     struct ExtA;
     impl Extension for ExtA {
@@ -282,32 +251,6 @@ fn register_extension_commands_collision_with_pre_existing_omits_sentinel() {
         }
     }
 
-    #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for BufWriter {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    let buf = BufWriter::default();
-    let captured = buf.0.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf)
-        .with_max_level(tracing::Level::WARN)
-        .with_ansi(false)
-        .finish();
-
     // Pre-seed the registry as the wiring layer does for config-defined
     // commands so the first extension's contribution collides against an
     // existing entry.
@@ -319,11 +262,9 @@ fn register_extension_commands_collision_with_pre_existing_omits_sentinel() {
 
     let a = ExtA;
     let exts: Vec<&dyn Extension> = vec![&a];
-    tracing::subscriber::with_default(subscriber, || {
+    let captured = capture_warnings(|| {
         register_extension_commands(&exts, &mut registry);
     });
-
-    let captured = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
     assert!(
         captured.contains("ext_a") && captured.contains("shared"),
         "warning must still name the extension and command id, got: {captured}"
@@ -354,8 +295,6 @@ fn register_extension_data_providers_warns_on_cross_extension_collision() {
     use ops_extension::{
         CommandRegistry, Context, DataProvider, DataProviderError, DataRegistry, Extension,
     };
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
 
     struct StubProvider(&'static str);
     impl DataProvider for StubProvider {
@@ -388,41 +327,13 @@ fn register_extension_data_providers_warns_on_cross_extension_collision() {
         }
     }
 
-    #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for BufWriter {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    let buf = BufWriter::default();
-    let captured = buf.0.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf)
-        .with_max_level(tracing::Level::WARN)
-        .with_ansi(false)
-        .finish();
-
     let a = ExtA;
     let b = ExtB;
     let exts: Vec<&dyn Extension> = vec![&a, &b];
     let mut registry = DataRegistry::new();
-    tracing::subscriber::with_default(subscriber, || {
+    let logs = capture_warnings(|| {
         register_extension_data_providers(&exts, &mut registry);
     });
-
-    let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
     assert!(
         logs.contains("ext_a") && logs.contains("ext_b") && logs.contains("shared"),
         "warning must name both extensions and the provider, got: {logs}"
@@ -497,8 +408,6 @@ fn register_extension_data_providers_warns_on_in_extension_duplicate() {
     use ops_extension::{
         CommandRegistry, Context, DataProvider, DataProviderError, DataRegistry, Extension,
     };
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
 
     struct StubProvider;
     impl DataProvider for StubProvider {
@@ -522,40 +431,12 @@ fn register_extension_data_providers_warns_on_in_extension_duplicate() {
         }
     }
 
-    #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for BufWriter {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    let buf = BufWriter::default();
-    let captured = buf.0.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf)
-        .with_max_level(tracing::Level::WARN)
-        .with_ansi(false)
-        .finish();
-
     let ext = DoubleRegisterExt;
     let exts: Vec<&dyn Extension> = vec![&ext];
     let mut registry = DataRegistry::new();
-    tracing::subscriber::with_default(subscriber, || {
+    let logs = capture_warnings(|| {
         register_extension_data_providers(&exts, &mut registry);
     });
-
-    let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
     assert!(
         logs.contains("double_register") && logs.contains("provider_x"),
         "in-extension duplicate warning must name the extension and provider, got: {logs}"
@@ -566,48 +447,74 @@ fn register_extension_data_providers_warns_on_in_extension_duplicate() {
 fn register_extension_data_providers_empty_inputs() {
     let mut registry = DataRegistry::new();
     register_extension_data_providers(&[], &mut registry);
-    // DataRegistry doesn't expose a len()/is_empty(); if it ever did we'd
-    // tighten this. For now, round-trip: a subsequent `get_or_provide`
-    // miss proves the registry has no entries.
-    let _ = registry;
+    // TEST-25 / TASK-1280: assert observable emptiness via the public
+    // `provider_names()` view (which returns a sorted Vec of registered
+    // provider names). A previous shape ended with `let _ = registry`,
+    // exercising only panic-freeness — any future regression that
+    // registered a hidden default provider would slip past.
+    assert!(
+        registry.provider_names().is_empty(),
+        "registry must remain empty when no extensions register, got: {:?}",
+        registry.provider_names()
+    );
+    assert!(
+        registry.get("any_name").is_none(),
+        "an unregistered name must resolve to None"
+    );
 }
 
+/// TEST-11 / TASK-1301: pin the "aggregation does not drop entries"
+/// contract using two inline stub extensions so the assertion fires on
+/// every feature combination — including builds that compile in zero
+/// extensions. The previous shape early-returned silently when
+/// `builtin_extensions` yielded fewer than two extensions (the common
+/// `cargo test -p ops` case), reading as a coverage win in dashboards
+/// while exercising nothing. The stub pattern mirrors
+/// `register_extension_commands_detects_duplicate_command_id`.
 #[test]
 fn register_extension_commands_aggregates_across_multiple_extensions() {
-    use ops_core::config::Config;
-    let config = Config::default();
-    let exts = builtin_extensions(&config, std::path::Path::new(".")).unwrap();
-    // Skip meaningful assertion when no extensions are compiled in — the
-    // contract we want to pin is "aggregation does not drop entries",
-    // which requires ≥2 extensions to observe.
-    if exts.len() < 2 {
-        return;
+    use ops_core::config::{CommandSpec, ExecCommandSpec};
+    use ops_extension::{CommandRegistry, Extension};
+
+    struct ExtA;
+    impl Extension for ExtA {
+        fn name(&self) -> &'static str {
+            "ext_a"
+        }
+        fn register_commands(&self, registry: &mut CommandRegistry) {
+            registry.insert(
+                "a_only".into(),
+                CommandSpec::Exec(ExecCommandSpec::new("echo", ["a"])),
+            );
+        }
     }
-    let ext_refs = as_ext_refs(&exts);
+    struct ExtB;
+    impl Extension for ExtB {
+        fn name(&self) -> &'static str {
+            "ext_b"
+        }
+        fn register_commands(&self, registry: &mut CommandRegistry) {
+            registry.insert(
+                "b_only".into(),
+                CommandSpec::Exec(ExecCommandSpec::new("echo", ["b"])),
+            );
+        }
+    }
 
-    // Register each extension into its own registry to get per-ext counts.
-    let per_ext_total: usize = ext_refs
-        .iter()
-        .map(|e| {
-            let mut r = CommandRegistry::new();
-            register_extension_commands(std::slice::from_ref(e), &mut r);
-            r.len()
-        })
-        .sum();
+    let a = ExtA;
+    let b = ExtB;
+    let ext_refs: Vec<&dyn Extension> = vec![&a, &b];
 
-    // Register all at once; the combined registry may be smaller than the
-    // sum if two extensions register the same command name (last-write
-    // wins in `insert`), so use `<=` rather than `==`.
     let mut combined = CommandRegistry::new();
     register_extension_commands(&ext_refs, &mut combined);
-    assert!(
-        combined.len() <= per_ext_total,
-        "combined registry should not grow past per-extension sum"
+
+    assert_eq!(
+        combined.len(),
+        2,
+        "aggregation must preserve both non-colliding command ids"
     );
-    assert!(
-        !combined.is_empty() || per_ext_total == 0,
-        "if any extension registered commands, the combined registry has some"
-    );
+    assert!(combined.get("a_only").is_some(), "ext_a contribution kept");
+    assert!(combined.get("b_only").is_some(), "ext_b contribution kept");
 }
 
 #[test]
@@ -636,8 +543,6 @@ fn extension_types_methods_work() {
 #[test]
 fn dedup_compiled_extensions_warns_on_duplicate_config_name() {
     use ops_extension::{CommandRegistry, Extension};
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
 
     struct ExtA;
     impl Extension for ExtA {
@@ -655,39 +560,15 @@ fn dedup_compiled_extensions_warns_on_duplicate_config_name() {
         fn register_commands(&self, _registry: &mut CommandRegistry) {}
     }
 
-    #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for BufWriter {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    let buf = BufWriter::default();
-    let captured = buf.0.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf)
-        .with_max_level(tracing::Level::WARN)
-        .with_ansi(false)
-        .finish();
-
     // Two distinct extensions sharing the same config_name "shared".
     let pairs: Vec<(&'static str, Box<dyn Extension>)> =
         vec![("shared", Box::new(ExtA)), ("shared", Box::new(ExtB))];
 
-    let map = tracing::subscriber::with_default(subscriber, || {
-        super::discovery::dedup_compiled_extensions(pairs)
+    let mut map_holder = None;
+    let captured = capture_warnings(|| {
+        map_holder = Some(super::discovery::dedup_compiled_extensions(pairs));
     });
+    let map = map_holder.unwrap();
 
     // Last-write-wins: ExtB survives.
     assert_eq!(map.len(), 1, "duplicate config_name collapses to one entry");
@@ -696,8 +577,6 @@ fn dedup_compiled_extensions_warns_on_duplicate_config_name() {
         "ext_b",
         "last-write-wins: the second extension survives"
     );
-
-    let captured = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
     assert!(
         captured.contains("shared"),
         "warning must name the colliding config_name, got: {captured}"

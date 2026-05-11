@@ -102,9 +102,14 @@ fn write_extension_table(
     // run `register_commands`) and was previously called once per render
     // pass — N rows ⇒ N register_commands invocations. Compute once per
     // extension up front and feed the precomputed summary into each row.
+    //
+    // PATTERN-1 / TASK-1291: own the self-shadow dedupe set locally so the
+    // "warn once per CLI invocation" guarantee scopes to *this* handler
+    // call, not the process.
+    let mut warned: SelfShadowWarnedSet = SelfShadowWarnedSet::new();
     let summaries: Vec<(Vec<String>, Vec<String>)> = exts
         .iter()
-        .map(|(_, ext)| extension_summary(*ext))
+        .map(|(_, ext)| extension_summary(*ext, &mut warned))
         .collect();
 
     for ((config_name, ext), summary) in exts.iter().zip(summaries.iter()) {
@@ -119,29 +124,38 @@ fn write_extension_table(
 
 /// Collect extension type flags and registered command names.
 ///
+/// PATTERN-1 / TASK-1291 + TEST-1 / TASK-1289: dedupe-state for self-shadow
+/// warnings, scoped to one top-level CLI handler invocation. Owned by the
+/// caller (`run_extension_list_to` / `print_extension_details`) so two
+/// in-process invocations — or two test runs in the same binary — emit
+/// independently. Previously the dedupe set lived in a process-global
+/// `OnceLock<Mutex<HashSet>>`, which:
+///
+/// 1. coupled production logging to test isolation (TEST-1), and
+/// 2. mismatched the docstring claim that dedup is "per CLI invocation"
+///    (PATTERN-1) — the set was actually per *process*, growing unbounded
+///    over the binary's lifetime.
+///
+/// The set is an in-handler cache only; passing it explicitly lets callers
+/// construct fresh state per invocation without unsafe `reset_for_tests`
+/// dances.
+pub(crate) type SelfShadowWarnedSet = std::collections::HashSet<(String, String)>;
+
 /// PERF-1 / TASK-0513: prefer the static `command_names()` accessor (set
 /// via `impl_extension! { command_names: &[..] }`) so list/show paths do
 /// not re-run `register_commands` (which can perform I/O for some
 /// extensions). Falls back to a one-shot `register_commands` only when an
 /// extension does not expose a static list, preserving the previous
 /// behaviour for legacy extensions.
-/// PERF-1 / TASK-1142: dedupe self-shadow warnings to a single emission per
-/// `(extension, command)` pair per CLI invocation.
 ///
-/// Both the table render path (`run_extension_list`) and the per-extension
-/// detail path (`print_extension_details`) call `extension_summary`, and a
-/// future call site would compound the duplication. Track the pairs that
-/// already warned in this process so the diagnostic remains a single audit
-/// signal instead of a noisy stream.
-fn warned_self_shadow_set() -> &'static std::sync::Mutex<std::collections::HashSet<(String, String)>>
-{
-    static WARNED: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashSet<(String, String)>>,
-    > = std::sync::OnceLock::new();
-    WARNED.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
-}
-
-fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<String>) {
+/// PERF-1 / TASK-1142 + PATTERN-1 / TASK-1291: dedupe self-shadow warnings
+/// to a single emission per `(extension, command)` pair *per CLI handler
+/// invocation*. The caller owns `warned` so two in-process invocations get
+/// independent dedupe state.
+fn extension_summary(
+    ext: &dyn ops_extension::Extension,
+    warned: &mut SelfShadowWarnedSet,
+) -> (Vec<String>, Vec<String>) {
     let info = ext.info();
     let mut types = Vec::new();
     if info.types.is_datasource() {
@@ -166,7 +180,6 @@ fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<St
         // through here and a future call site would compound the warns.
         for dup in cmd_registry.take_duplicate_inserts() {
             let key = (ext.name().to_string(), dup.to_string());
-            let mut warned = warned_self_shadow_set().lock().unwrap();
             if warned.insert(key) {
                 tracing::warn!(
                     command = %dup,
@@ -293,7 +306,8 @@ fn print_extension_details(
     let info = ext.info();
     let table = OpsTable::new();
     let is_tty = table.is_tty();
-    let (types, commands) = extension_summary(ext);
+    let mut warned: SelfShadowWarnedSet = SelfShadowWarnedSet::new();
+    let (types, commands) = extension_summary(ext, &mut warned);
 
     let data_provider = info
         .data_provider_name
@@ -478,7 +492,8 @@ mod tests {
         let cwd = std::path::Path::new(".");
         let compiled = collect_compiled_extensions(&config, cwd);
         if let Some((_, ext)) = compiled.first() {
-            let (types, _commands) = extension_summary(ext.as_ref());
+            let mut warned: SelfShadowWarnedSet = SelfShadowWarnedSet::new();
+            let (types, _commands) = extension_summary(ext.as_ref(), &mut warned);
             assert!(!types.is_empty(), "extension should have at least one type");
         }
     }
@@ -543,8 +558,6 @@ enabled = []
     fn extension_summary_warns_on_self_shadow() {
         use ops_core::config::{CommandSpec, ExecCommandSpec};
         use ops_extension::{CommandRegistry, Extension};
-        use std::sync::{Arc, Mutex};
-        use tracing_subscriber::fmt::MakeWriter;
 
         struct DoubleRegisterExt;
         impl Extension for DoubleRegisterExt {
@@ -563,56 +576,31 @@ enabled = []
             }
         }
 
-        #[derive(Clone, Default)]
-        struct BufWriter(Arc<Mutex<Vec<u8>>>);
-        impl std::io::Write for BufWriter {
-            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(b);
-                Ok(b.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriter;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
-        let buf = BufWriter::default();
-        let captured = buf.0.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
         let ext = DoubleRegisterExt;
-        tracing::subscriber::with_default(subscriber, || {
-            let (_, commands) = extension_summary(&ext);
+        let captured = crate::test_utils::capture_warnings(|| {
+            let mut warned: SelfShadowWarnedSet = SelfShadowWarnedSet::new();
+            let (_, commands) = extension_summary(&ext, &mut warned);
             assert_eq!(commands, vec!["lint".to_string()]);
         });
-
-        let captured = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
         assert!(
             captured.contains("double_register_summary") && captured.contains("lint"),
             "self-shadow warning must name extension and command id, got: {captured}"
         );
     }
 
-    /// PERF-1 / TASK-1142: emit at most one self-shadow WARN per
-    /// `(extension, command)` pair per CLI invocation. Both list and show
-    /// handlers fan through `extension_summary`; a follow-up call site
-    /// would compound the warns. The dedupe set survives across calls in
-    /// the same process, mirroring a single CLI run.
+    /// PERF-1 / TASK-1142 + TEST-1 / TASK-1289 + PATTERN-1 / TASK-1291:
+    /// emit at most one self-shadow WARN per `(extension, command)` pair
+    /// per CLI handler invocation. Both list and show handlers fan
+    /// through `extension_summary`; a follow-up call site would compound
+    /// the warns. The dedupe set is now owned by the caller (one set per
+    /// handler invocation), so two distinct invocations in the same
+    /// process emit independently — the pre-fix shape relied on a
+    /// process-global `OnceLock<Mutex<HashSet>>` which made this test
+    /// order-dependent and impossible to repeat within one binary.
     #[test]
     fn extension_summary_warn_is_dedup_per_cli_invocation() {
         use ops_core::config::{CommandSpec, ExecCommandSpec};
         use ops_extension::{CommandRegistry, Extension};
-        use std::sync::{Arc, Mutex};
-        use tracing_subscriber::fmt::MakeWriter;
 
         struct DupExt;
         impl Extension for DupExt {
@@ -631,46 +619,32 @@ enabled = []
             }
         }
 
-        #[derive(Clone, Default)]
-        struct BufWriter(Arc<Mutex<Vec<u8>>>);
-        impl std::io::Write for BufWriter {
-            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(b);
-                Ok(b.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
+        fn run_one_invocation_and_count_warns(ext: &DupExt) -> usize {
+            crate::test_utils::capture_warnings(|| {
+                // Mirror `extension list` then `extension show` calling on
+                // the same compiled extension within one CLI invocation.
+                let mut warned: SelfShadowWarnedSet = SelfShadowWarnedSet::new();
+                let _ = extension_summary(ext, &mut warned);
+                let _ = extension_summary(ext, &mut warned);
+                let _ = extension_summary(ext, &mut warned);
+            })
+            .matches("dedupe_warn_ext")
+            .count()
         }
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriter;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
-        let buf = BufWriter::default();
-        let captured = buf.0.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
 
         let ext = DupExt;
-        tracing::subscriber::with_default(subscriber, || {
-            // Mirror `extension list` then `extension show` calling on the
-            // same compiled extension within one process.
-            let _ = extension_summary(&ext);
-            let _ = extension_summary(&ext);
-            let _ = extension_summary(&ext);
-        });
-
-        let captured = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
-        let warn_count = captured.matches("dedupe_warn_ext").count();
+        // First invocation: dedupe collapses three calls into one warn.
         assert_eq!(
-            warn_count, 1,
-            "self-shadow warning must be emitted exactly once per CLI invocation, got {warn_count} in: {captured}"
+            run_one_invocation_and_count_warns(&ext),
+            1,
+            "self-shadow warning must be emitted exactly once per CLI invocation"
+        );
+        // Second invocation in the same process: a fresh warned-set means
+        // the warn fires again, exactly once.
+        assert_eq!(
+            run_one_invocation_and_count_warns(&ext),
+            1,
+            "two distinct invocations must dedupe independently"
         );
     }
 
