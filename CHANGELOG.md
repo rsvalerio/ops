@@ -2,6 +2,48 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.29.1](https://github.com/rsvalerio/ops/compare/f95511b3c342c8e81d51964f293527369722d329..v0.29.1) - 2026-05-11
+#### 🐛 Bug Fixes
+- (**about/manifest-cache**) drop Mutex<HashMap> on hot path and verify mtime+len (CONC-7 CONC-2 TASK-1163 TASK-1198) - ([986911d](https://github.com/rsvalerio/ops/commit/986911d329789606f59b8bb7d5948c3ef31925ec)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) reject new_command names unusable as TOML keys or clap subcommands (TASK-1272) - ([4e978ea](https://github.com/rsvalerio/ops/commit/4e978ea9a528b598c601a95b4a6d3ef1b1a2d6fc)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) bound provide_via_ingestor reentry and cap validate_extra_opts pairs (CONC-2 SEC-33 TASK-1143 TASK-1241) - ([b7d1114](https://github.com/rsvalerio/ops/commit/b7d11140f3ce1824804221a4ee957fbfbc31feaf)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git/provider**) drop unparseable post-redaction garbage from fallback remote_url (SEC-13 TASK-1151) - ([b3d5d77](https://github.com/rsvalerio/ops/commit/b3d5d776ea45cf552bf942e8d3a777c710b9aa42)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) use randomised temp file in upgrade_legacy_hook to avoid concurrent-install races (SEC-25 TASK-1210) - ([44a5ac3](https://github.com/rsvalerio/ops/commit/44a5ac30e955823fc7db6e466c1535465e33b14e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**node/about**) scrub bare owner/repo shorthand in normalize_repo_url (SEC-14 TASK-1205) - ([c7fb986](https://github.com/rsvalerio/ops/commit/c7fb9862c6f00d92673df9682dc07134feda7a55)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) wave-77/78 command and tap hardening (CONC-3 CONC-6 CONC-7 SEC-23 ARCH-9 TASK-1126 TASK-1137 TASK-1140 TASK-1176 TASK-1177 TASK-1229) - ([cf5f73d](https://github.com/rsvalerio/ops/commit/cf5f73d9df1ac828b8b8f995d67004ab826f2811)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/about**) coverage cache key and reentrancy, units case folding (ARCH-9 CONC-2 CONC-7 CONC-1 TASK-1144 TASK-1155 TASK-1193 TASK-1249) - ([9d5590e](https://github.com/rsvalerio/ops/commit/9d5590e51075193ffa2f1101a304175831caa25f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/cargo-toml**) reject parent-traversed members in find_workspace_root_with_depth (SEC-25 TASK-1204) - ([bb52fbd](https://github.com/rsvalerio/ops/commit/bb52fbd9d74dbdc4ff49cf386a37c50fcac64942)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/metadata**) cap query_metadata_raw before materialising and reject absolute member paths (SEC-33 SEC-14 TASK-1194 TASK-1246) - ([8c98e01](https://github.com/rsvalerio/ops/commit/8c98e012aa413dfbd3bf639c42c1f211ccb35bf2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust/tools**) tighten validate_cargo_tool_arg toolchain component check (SEC-13 TASK-1199) - ([64da056](https://github.com/rsvalerio/ops/commit/64da0564f1f2aee15a163098ddc1c50416d50d22)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) wave-87 parser pattern bugs URLs/Go/Pnpm/manifests (PATTERN-1 TASK-1164 TASK-1168 TASK-1178 TASK-1208 TASK-1212 TASK-1216 TASK-1222 TASK-1236 TASK-1237 TASK-1239 TASK-1245 TASK-1255) - ([b653058](https://github.com/rsvalerio/ops/commit/b6530580142488ed402016e243f3f9cb4caa8997)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) wave-86 API/public-surface stability and trait erasure (API-2 API-9 TRAIT-9 TASK-1135 TASK-1141 TASK-1169 TASK-1179 TASK-1196 TASK-1200 TASK-1227 TASK-1233 TASK-1256) - ([6fa1c93](https://github.com/rsvalerio/ops/commit/6fa1c93f1fd81c752a7dbe36acd31e9175e04a7f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) wave-85 config/init/lock error handling (ERR-1 ERR-5 TASK-1131 TASK-1134 TASK-1139 TASK-1148 TASK-1150 TASK-1170 TASK-1174 TASK-1181 TASK-1182 TASK-1189 TASK-1214 TASK-1221 TASK-1224 TASK-1231 TASK-1234 TASK-1242) - ([fa63152](https://github.com/rsvalerio/ops/commit/fa63152e81415e82758a1f13843a2cc965fe37ca)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) wave-84 parser/git-IO error reporting fidelity (ERR-1 ERR-2 READ-2 TASK-1167 TASK-1197 TASK-1202 TASK-1203 TASK-1209 TASK-1211 TASK-1213 TASK-1215 TASK-1244 TASK-1252 TASK-1253 TASK-1254) - ([01d4f4b](https://github.com/rsvalerio/ops/commit/01d4f4befdfe6ef34fdc55cfa6d8d596b1e6b26b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) wave-88 display-width alignment and runtime-kind threshold (ASYNC-7 READ-5 PERF-3) - ([a016411](https://github.com/rsvalerio/ops/commit/a016411a66936487c8eeeef988358c12a836ec3c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) wave-76 log injection and control-byte sanitisation sweep - ([f95511b](https://github.com/rsvalerio/ops/commit/f95511b3c342c8e81d51964f293527369722d329)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**workspace**) wave-80 allocation hot-path and LRU-eviction sweep (PERF-1 PERF-3 READ-5) - ([ac66ab6](https://github.com/rsvalerio/ops/commit/ac66ab63bade762f7e8385665dbc5f6a0d0c930a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) wave-79 env-cache and allocation hot-path sweep (PERF-1 PERF-3 ARCH-9 READ-5) - ([e9b9b07](https://github.com/rsvalerio/ops/commit/e9b9b07978311d631285028ba1c0f89016a10190)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**tools**) pass explicit timeout to probe wrapper instead of mutating OPS_SUBPROCESS_TIMEOUT_SECS - ([cddbb7d](https://github.com/rsvalerio/ops/commit/cddbb7df0534f5341e8ebb57ae78f2e8e45284ef)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) wave-83 determinism & isolation (TEST-15 TEST-17 TEST-18 TEST-25) - ([74dff91](https://github.com/rsvalerio/ops/commit/74dff9199c341ba852730ce152b5894073036314)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**workspace**) wave-82 de-duplication & shared utilities (DUP-1 DUP-3 TEST-12) - ([88f5971](https://github.com/rsvalerio/ops/commit/88f5971e431eb419f1378b377f6f4d9ce7c47bf7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) wave-81 large-file decomposition (ARCH-1 ARCH-5 FN-1) - ([74e7a46](https://github.com/rsvalerio/ops/commit/74e7a46fb15bbb817d2f08013049012f30009db9)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) add wave-89..92 triage tasks and wave parent tasks - ([3a94783](https://github.com/rsvalerio/ops/commit/3a9478319a3eb335672134019dcd15a74c9a9e6f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-87 tasks Done - ([1bfe7e6](https://github.com/rsvalerio/ops/commit/1bfe7e600c0a49924547c477324006bf88a9b40f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-86 tasks Done - ([6937a6d](https://github.com/rsvalerio/ops/commit/6937a6df8487f47047cd7e9d8430ab0da0acaf59)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-85 tasks Done - ([2506a04](https://github.com/rsvalerio/ops/commit/2506a04f6674a8558042f90ee100e8e3c63285d6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-84 tasks Done - ([a628036](https://github.com/rsvalerio/ops/commit/a62803653484f62290b3f7b414c297a14197316a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-83 tasks Done - ([f151130](https://github.com/rsvalerio/ops/commit/f1511300108cb328e2e25c77d3fe6e9ca6722fbc)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-82 tasks Done - ([e60d706](https://github.com/rsvalerio/ops/commit/e60d706febfa079246cde2df42921f9d19581b36)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-77 and wave-78 tasks Done - ([2f3813a](https://github.com/rsvalerio/ops/commit/2f3813ab8f04ecac4c15a2a6c64f0ac682c83cc5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-76 tasks Done and ingest new triage findings - ([b742ae0](https://github.com/rsvalerio/ops/commit/b742ae09f2ccbeb9db5dbf5cc1e955ad6685ab1e)) - [@rsvalerio](https://github.com/rsvalerio)
+- cleanup tasks - ([a30f457](https://github.com/rsvalerio/ops/commit/a30f4574f1230dfcfe04edf2629848941d13c45c)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.29.0](https://github.com/rsvalerio/ops/compare/c25e50ef987f6dc1f82a45ffb6e8099a8f5afae1..v0.29.0) - 2026-05-08
 #### 🚀 Features
 - (**extension**) emit tracing::debug breadcrumb on DataRegistry::register duplicate drop (API-9 TASK-1067) - ([68c3df5](https://github.com/rsvalerio/ops/commit/68c3df5607d9549c81c4e138583125dddfe2f338)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
