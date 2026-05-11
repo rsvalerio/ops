@@ -2,6 +2,23 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.29.2](https://github.com/rsvalerio/ops/compare/19cf99389dac30a661598513cdeefffdf1a629c0..v0.29.2) - 2026-05-11
+#### 🐛 Bug Fixes
+- (**workspace**) wave-89 .ops.toml path/table-safety and decor (PATTERN-1 READ-5 DUP-1 ERR-5 API-1 TASK-1276 TASK-1277 TASK-1278 TASK-1292 TASK-1296 TASK-1300) - ([19cf993](https://github.com/rsvalerio/ops/commit/19cf99389dac30a661598513cdeefffdf1a629c0)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**registry**) fix builtin_extensions_unknown determinism race with tempdir - ([87eba75](https://github.com/rsvalerio/ops/commit/87eba751e3d88a03c00f3d9a6de89d3c09878a94)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**cli**) wave-92 env opt-in semantics, exit-code sentinel, tools probe injection, theme loud-fail (API-1 READ-5 TEST-25 ERR-1 TASK-1290 TASK-1293 TASK-1295 TASK-1298) - ([8593142](https://github.com/rsvalerio/ops/commit/8593142fbfc6f18811b12daddce6de9d336e218c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) wave-91 hook dispatch dedup, single composite traversal, dry-run sanitisation, plan struct (DUP-1 PATTERN-1 SEC-21 API-1 FN-3 ARCH-3 PERF-1 TEST-11 TASK-1273 TASK-1274 TASK-1275 TASK-1281 TASK-1282 TASK-1283 TASK-1284 TASK-1285 TASK-1294 TASK-1299 TASK-1302) - ([b693416](https://github.com/rsvalerio/ops/commit/b693416cc7e8b129e757798f2f58080e227939e8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) wave-90 extension registry dedup, dedupe-state scoping, test scaffolding (DUP-1 DUP-2 ERR-1 ERR-5 FN-1 PATTERN-1 TEST-1 TEST-11 TEST-25 TASK-1279 TASK-1280 TASK-1286 TASK-1287 TASK-1288 TASK-1289 TASK-1291 TASK-1297 TASK-1301) - ([7a887ae](https://github.com/rsvalerio/ops/commit/7a887ae2d16749261566a2996847b7f0088a90ad)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close wave-92 tasks Done - ([95607ee](https://github.com/rsvalerio/ops/commit/95607eeada420b6a418d03652014614293c595f1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-91 tasks Done - ([191cddc](https://github.com/rsvalerio/ops/commit/191cddc5846ce971196ca0feac812d47873d3c14)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-90 tasks Done - ([f716bc9](https://github.com/rsvalerio/ops/commit/f716bc913abb4b7d57934e913225788bc404b525)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-89 tasks Done - ([e1bbfaa](https://github.com/rsvalerio/ops/commit/e1bbfaae5a1c53dcc2370b1a23e3de031773cd92)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.29.1](https://github.com/rsvalerio/ops/compare/f95511b3c342c8e81d51964f293527369722d329..v0.29.1) - 2026-05-11
 #### 🐛 Bug Fixes
 - (**about/manifest-cache**) drop Mutex<HashMap> on hot path and verify mtime+len (CONC-7 CONC-2 TASK-1163 TASK-1198) - ([986911d](https://github.com/rsvalerio/ops/commit/986911d329789606f59b8bb7d5948c3ef31925ec)) - [@rsvalerio](https://github.com/rsvalerio)
