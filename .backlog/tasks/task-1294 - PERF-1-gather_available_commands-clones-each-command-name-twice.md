@@ -1,11 +1,11 @@
 ---
 id: TASK-1294
 title: 'PERF-1: gather_available_commands clones each command name twice'
-status: To Do
+status: Done
 assignee:
   - TASK-1305
 created_date: '2026-05-11 16:10'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:16'
 labels:
   - code-review-rust
   - performance

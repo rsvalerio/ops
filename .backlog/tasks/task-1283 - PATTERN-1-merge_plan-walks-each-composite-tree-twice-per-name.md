@@ -1,11 +1,11 @@
 ---
 id: TASK-1283
 title: 'PATTERN-1: merge_plan walks each composite tree twice per name'
-status: To Do
+status: Done
 assignee:
   - TASK-1305
 created_date: '2026-05-11 15:26'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:22'
 labels:
   - code-review-rust
   - pattern

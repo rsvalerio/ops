@@ -3,11 +3,11 @@ id: TASK-1299
 title: >-
   TEST-11: dry_run_returns_success/error/expands tests in run_cmd/tests.rs only
   assert is_ok/is_err, never inspect output
-status: To Do
+status: Done
 assignee:
   - TASK-1305
 created_date: '2026-05-11 16:20'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:24'
 labels:
   - code-review-rust
   - test

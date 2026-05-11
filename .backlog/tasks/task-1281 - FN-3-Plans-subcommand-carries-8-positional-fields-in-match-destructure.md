@@ -1,11 +1,11 @@
 ---
 id: TASK-1281
 title: 'FN-3: Plans subcommand carries 8 positional fields in match destructure'
-status: To Do
+status: Done
 assignee:
   - TASK-1305
 created_date: '2026-05-11 15:26'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:20'
 labels:
   - code-review-rust
   - function

@@ -3,11 +3,11 @@ id: TASK-1273
 title: >-
   DUP-1: gather_available_commands repeats insert/push pattern across three
   loops
-status: To Do
+status: Done
 assignee:
   - TASK-1305
 created_date: '2026-05-11 06:37'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:16'
 labels:
   - code-review-rust
   - duplication

@@ -3,11 +3,11 @@ id: TASK-1302
 title: >-
   TEST-11: log_step_results_does_not_panic and log_step_results_empty assert
   nothing beyond 'function returned'
-status: To Do
+status: Done
 assignee:
   - TASK-1305
 created_date: '2026-05-11 16:36'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:26'
 labels:
   - code-review-rust
   - tests

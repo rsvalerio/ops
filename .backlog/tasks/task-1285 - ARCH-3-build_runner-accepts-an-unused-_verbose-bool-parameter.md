@@ -1,11 +1,11 @@
 ---
 id: TASK-1285
 title: 'ARCH-3: build_runner accepts an unused _verbose: bool parameter'
-status: To Do
+status: Done
 assignee:
   - TASK-1305
 created_date: '2026-05-11 15:26'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:23'
 labels:
   - code-review-rust
   - architecture

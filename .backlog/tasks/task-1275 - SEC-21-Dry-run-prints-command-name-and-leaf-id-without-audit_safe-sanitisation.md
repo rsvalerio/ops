@@ -3,11 +3,11 @@ id: TASK-1275
 title: >-
   SEC-21: Dry-run prints command name and leaf id without audit_safe
   sanitisation
-status: To Do
+status: Done
 assignee:
   - TASK-1305
 created_date: '2026-05-11 15:25'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:18'
 labels:
   - code-review-rust
   - security

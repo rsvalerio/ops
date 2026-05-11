@@ -1,11 +1,11 @@
 ---
 id: TASK-1282
 title: 'DUP-1: run_before_commit and run_before_push duplicate dispatch shape'
-status: To Do
+status: Done
 assignee:
   - TASK-1305
 created_date: '2026-05-11 15:26'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:18'
 labels:
   - code-review-rust
   - duplication

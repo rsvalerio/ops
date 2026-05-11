@@ -1,11 +1,11 @@
 ---
 id: TASK-1274
 title: 'API-1: run-before-push silently discards --changed-only flag'
-status: To Do
+status: Done
 assignee:
   - TASK-1305
 created_date: '2026-05-11 15:24'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:18'
 labels:
   - code-review-rust
   - api

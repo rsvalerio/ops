@@ -3,11 +3,11 @@ id: TASK-1284
 title: >-
   PATTERN-1: single-command and multi-command run paths duplicate
   option-handling
-status: To Do
+status: Done
 assignee:
   - TASK-1305
 created_date: '2026-05-11 15:26'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:23'
 labels:
   - code-review-rust
   - pattern
