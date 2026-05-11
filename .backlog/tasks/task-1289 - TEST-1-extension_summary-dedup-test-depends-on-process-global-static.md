@@ -1,11 +1,11 @@
 ---
 id: TASK-1289
 title: 'TEST-1: extension_summary dedup test depends on process-global static'
-status: To Do
+status: Done
 assignee:
   - TASK-1304
 created_date: '2026-05-11 16:10'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:06'
 labels:
   - code-review-rust
   - tests

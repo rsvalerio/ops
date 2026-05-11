@@ -3,11 +3,11 @@ id: TASK-1301
 title: >-
   TEST-11: register_extension_commands_aggregates_across_multiple_extensions
   silently passes (early-return) on the common <2-extension build
-status: To Do
+status: Done
 assignee:
   - TASK-1304
 created_date: '2026-05-11 16:36'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:07'
 labels:
   - code-review-rust
   - tests

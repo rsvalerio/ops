@@ -3,11 +3,11 @@ id: TASK-1297
 title: >-
   DUP-2: register_extension_commands and register_extension_data_providers share
   80% structure with only collision policy differing
-status: To Do
+status: Done
 assignee:
   - TASK-1304
 created_date: '2026-05-11 16:19'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:06'
 labels:
   - code-review-rust
   - duplication

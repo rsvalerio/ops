@@ -1,11 +1,11 @@
 ---
 id: TASK-1280
 title: 'TEST-25: register_extension_data_providers_empty_inputs has no assertion'
-status: To Do
+status: Done
 assignee:
   - TASK-1304
 created_date: '2026-05-11 15:25'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:06'
 labels:
   - code-review-rust
   - test

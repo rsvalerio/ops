@@ -3,11 +3,11 @@ id: TASK-1279
 title: >-
   DUP-1: BufWriter + MakeWriter test scaffold duplicated 5 times in registry
   tests
-status: To Do
+status: Done
 assignee:
   - TASK-1304
 created_date: '2026-05-11 15:25'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:06'
 labels:
   - code-review-rust
   - duplication

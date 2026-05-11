@@ -3,11 +3,11 @@ id: TASK-1291
 title: >-
   PATTERN-1: warned_self_shadow_set scope mismatches 'per CLI invocation'
   docstring
-status: To Do
+status: Done
 assignee:
   - TASK-1304
 created_date: '2026-05-11 16:10'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:06'
 labels:
   - code-review-rust
   - pattern

@@ -1,11 +1,11 @@
 ---
 id: TASK-1286
 title: 'ERR-5: Mutex lock unwrap on warned_self_shadow_set dedupe state'
-status: To Do
+status: Done
 assignee:
   - TASK-1304
 created_date: '2026-05-11 15:26'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:06'
 labels:
   - code-review-rust
   - error

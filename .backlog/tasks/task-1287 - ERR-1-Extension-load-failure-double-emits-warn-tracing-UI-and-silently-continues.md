@@ -3,11 +3,11 @@ id: TASK-1287
 title: >-
   ERR-1: Extension load failure double-emits warn (tracing + UI) and silently
   continues
-status: To Do
+status: Done
 assignee:
   - TASK-1304
 created_date: '2026-05-11 15:27'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:06'
 labels:
   - code-review-rust
   - error

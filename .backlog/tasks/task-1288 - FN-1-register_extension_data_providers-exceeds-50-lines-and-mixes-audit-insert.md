@@ -3,11 +3,11 @@ id: TASK-1288
 title: >-
   FN-1: register_extension_data_providers exceeds 50 lines and mixes audit +
   insert
-status: To Do
+status: Done
 assignee:
   - TASK-1304
 created_date: '2026-05-11 15:27'
-updated_date: '2026-05-11 16:48'
+updated_date: '2026-05-11 18:06'
 labels:
   - code-review-rust
   - function
