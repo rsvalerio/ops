@@ -479,6 +479,7 @@ fn check_cargo_tool_installed_fmt() {
 }
 
 #[test]
+#[serial_test::serial]
 fn check_cargo_tool_installed_nonexistent() {
     assert!(matches!(
         check_cargo_tool_installed("cargo-nonexistent-abc123"),
@@ -496,6 +497,7 @@ fn check_rustup_component_installed_rustfmt() {
 }
 
 #[test]
+#[serial_test::serial]
 fn check_rustup_component_installed_nonexistent() {
     assert!(matches!(
         check_rustup_component_installed("nonexistent-component-xyz"),
@@ -590,6 +592,7 @@ fn probe_failed_status_excluded_from_install_filter() {
 }
 
 #[test]
+#[serial_test::serial]
 fn check_tool_status_simple_not_installed() {
     let spec = ToolSpec::Simple("desc".to_string());
     assert_eq!(
@@ -640,6 +643,7 @@ fn check_tool_status_system_missing() {
 }
 
 #[test]
+#[serial_test::serial]
 fn check_tool_status_missing_rustup_component() {
     let spec = ToolSpec::Extended(ExtendedToolSpec {
         description: "desc".to_string(),

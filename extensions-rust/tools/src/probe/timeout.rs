@@ -47,7 +47,15 @@ pub(super) fn run_probe_with_timeout(
     cmd: &mut Command,
     label: &'static str,
 ) -> ProbeOutcome<std::process::Output> {
-    match run_with_timeout(cmd, default_timeout(PROBE_TIMEOUT), label) {
+    run_probe_with_timeout_inner(cmd, default_timeout(PROBE_TIMEOUT), label)
+}
+
+fn run_probe_with_timeout_inner(
+    cmd: &mut Command,
+    timeout: Duration,
+    label: &'static str,
+) -> ProbeOutcome<std::process::Output> {
+    match run_with_timeout(cmd, timeout, label) {
         Ok(out) => ProbeOutcome::Ok(out),
         Err(RunError::Timeout(e)) => {
             tracing::warn!(
@@ -80,49 +88,24 @@ pub(super) fn run_probe_with_timeout(
 mod tests {
     use super::*;
 
-    /// TEST-18 / TASK-1154: run `body` with the env var `key` set to
-    /// `value`, restoring the prior value (or unset) on return. Wrap calls
-    /// at the top of an env-mutating test that is also `#[serial_test::serial]`
-    /// to keep the unsafe set/restore dance from drifting between sites.
-    /// Local to this module — broader cross-crate sharing belongs in
-    /// `ops_core::subprocess` if/when a fourth caller appears.
-    fn with_env_var<R>(key: &str, value: &str, body: impl FnOnce() -> R) -> R {
-        let prev = std::env::var_os(key);
-        // SAFETY: callers must hold #[serial_test::serial], guaranteeing
-        // no other test thread reads/writes env concurrently.
-        unsafe { std::env::set_var(key, value) };
-        let result = body();
-        match prev {
-            Some(v) => unsafe { std::env::set_var(key, v) },
-            None => unsafe { std::env::remove_var(key) },
-        }
-        result
-    }
-
-    /// ASYNC-6 / TASK-0914: prove that `run_probe_with_timeout` actually
-    /// honours the deadline rather than blocking on the child.
-    ///
-    /// TEST-18 / TASK-1154: serialised because the body mutates
-    /// `OPS_SUBPROCESS_TIMEOUT_SECS`, matching the precedent in
-    /// `tools/tests.rs` and `deps/tests.rs` where every env-mutating test
-    /// is `#[serial_test::serial]`-guarded. Without this, parallel test
-    /// threads racing on the same env var produce flaky timeouts here and
-    /// in any other test that reads the variable.
+    /// ASYNC-6 / TASK-0914: prove that the probe wrapper actually honours
+    /// the deadline rather than blocking on the child. Calls
+    /// `run_probe_with_timeout_inner` with an explicit 1-second timeout so
+    /// the test does not depend on `OPS_SUBPROCESS_TIMEOUT_SECS`, whose
+    /// resolution is cached process-wide via `OnceLock` and therefore
+    /// cannot be reliably mutated from a single test.
     #[test]
-    #[serial_test::serial]
     fn timeout_returns_none_quickly() {
         let mut cmd = Command::new("sh");
         cmd.args(["-c", "sleep 30"]);
         let start = std::time::Instant::now();
-        let result = with_env_var(ops_core::subprocess::TIMEOUT_ENV, "1", || {
-            run_probe_with_timeout(&mut cmd, "sleep test")
-        });
+        let result = run_probe_with_timeout_inner(&mut cmd, Duration::from_secs(1), "sleep test");
         assert!(
             matches!(result, ProbeOutcome::Failed),
             "timeout must surface as ProbeOutcome::Failed"
         );
         assert!(
-            start.elapsed() < std::time::Duration::from_secs(10),
+            start.elapsed() < Duration::from_secs(10),
             "must not hang past the deadline; elapsed = {:?}",
             start.elapsed()
         );
