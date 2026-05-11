@@ -59,12 +59,47 @@ use subcommands::{run_about, run_before_commit, run_before_push, run_extension, 
 #[cfg(feature = "stack-rust")]
 use subcommands::{run_deps, run_tools};
 
+/// READ-5 / TASK-1293: error sentinel that lets a fallible code path bubble a
+/// specific exit code through `anyhow::Error`. Attach it via
+/// `anyhow::Error::context(ExitCodeOverride(code))` (or `err.context(...)`)
+/// and `main` will surface that code instead of the generic
+/// `ExitCode::FAILURE`. Without this, e.g. an `Err(...)` that wants SIGINT
+/// semantics (130) or SIGPIPE (141) silently collapses to exit 1, which
+/// breaks shell scripts that distinguish cancellation from real failure.
+#[derive(Debug)]
+pub(crate) struct ExitCodeOverride(pub u8);
+
+impl std::fmt::Display for ExitCodeOverride {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "exit code override: {}", self.0)
+    }
+}
+
+impl std::error::Error for ExitCodeOverride {}
+
+fn extract_exit_code_override(err: &anyhow::Error) -> Option<u8> {
+    // anyhow surfaces context values via `downcast_ref` on the error itself,
+    // not via the `chain()` iterator (which only walks `std::error::Error`
+    // sources). Check the top-level error first, then walk any nested
+    // anyhow::Error sources for completeness.
+    if let Some(o) = err.downcast_ref::<ExitCodeOverride>() {
+        return Some(o.0);
+    }
+    err.chain()
+        .find_map(|cause| cause.downcast_ref::<ExitCodeOverride>())
+        .map(|o| o.0)
+}
+
+fn exit_code_for_error(err: &anyhow::Error) -> ExitCode {
+    extract_exit_code_override(err).map_or(ExitCode::FAILURE, ExitCode::from)
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
         Err(e) => {
             ops_core::ui::error(format!("{e:#}"));
-            ExitCode::FAILURE
+            exit_code_for_error(&e)
         }
     }
 }
@@ -242,6 +277,31 @@ fn dispatch(
 /// (TASK-0427) — we only need the current directory at the handler boundary.
 pub(crate) fn cwd() -> anyhow::Result<PathBuf> {
     Ok(std::env::current_dir()?)
+}
+
+#[cfg(test)]
+mod exit_code_tests {
+    use super::{extract_exit_code_override, ExitCodeOverride};
+
+    #[test]
+    fn override_surfaces_specific_code() {
+        let err = anyhow::anyhow!("cancelled").context(ExitCodeOverride(130));
+        assert_eq!(extract_exit_code_override(&err), Some(130));
+    }
+
+    #[test]
+    fn no_override_returns_none() {
+        let err = anyhow::anyhow!("boom");
+        assert_eq!(extract_exit_code_override(&err), None);
+    }
+
+    #[test]
+    fn override_works_through_nested_context() {
+        let err = anyhow::anyhow!("io")
+            .context(ExitCodeOverride(141))
+            .context("while writing output");
+        assert_eq!(extract_exit_code_override(&err), Some(141));
+    }
 }
 
 #[cfg(test)]

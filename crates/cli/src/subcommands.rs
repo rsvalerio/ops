@@ -100,6 +100,20 @@ fn classify_confirm_result(
     }
 }
 
+/// API-1 / TASK-1290: treat empty, `0`, and `false` (case-insensitive) as off
+/// for boolean opt-in env vars like `OPS_NONINTERACTIVE` and `CI`. Anything
+/// else present is on. Aligns with the `=truthy` ecosystem convention so
+/// `OPS_NONINTERACTIVE=0` and `CI=false` keep prompts interactive.
+fn env_flag_enabled(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(v) => {
+            let t = v.trim();
+            !(t.is_empty() || t.eq_ignore_ascii_case("0") || t.eq_ignore_ascii_case("false"))
+        }
+        Err(_) => false,
+    }
+}
+
 /// Prompt the user to run `ops <hook> install` when the hook command is not configured.
 fn prompt_hook_install(config: &Config, hook_name: &str) -> anyhow::Result<ExitCode> {
     ops_core::ui::note(format!("no '{hook_name}' command configured in .ops.toml."));
@@ -109,8 +123,7 @@ fn prompt_hook_install(config: &Config, hook_name: &str) -> anyhow::Result<ExitC
     // would otherwise hang waiting for `inquire::Confirm`. Honor an
     // explicit non-interactive opt-out (and the conventional `CI` flag)
     // before consulting the TTY.
-    let noninteractive =
-        std::env::var_os("OPS_NONINTERACTIVE").is_some() || std::env::var_os("CI").is_some();
+    let noninteractive = env_flag_enabled("OPS_NONINTERACTIVE") || env_flag_enabled("CI");
     if noninteractive || !crate::tty::is_stdout_tty() {
         ops_core::ui::note(format!("run `ops {hook_name} install` to set it up."));
         return Ok(ExitCode::FAILURE);
@@ -267,6 +280,30 @@ mod tests {
     fn classify_confirm_result_answer_passes_through() {
         assert_eq!(classify_confirm_result(Ok(true)).expect("ok"), Some(true));
         assert_eq!(classify_confirm_result(Ok(false)).expect("ok"), Some(false));
+    }
+
+    /// API-1 / TASK-1290: `OPS_NONINTERACTIVE=0` is the user typing "off",
+    /// so it must keep the prompt interactive. `is_some()` would have
+    /// flipped it to non-interactive — exactly the opposite intent.
+    #[test]
+    #[serial_test::serial]
+    fn env_flag_enabled_treats_falsy_as_off() {
+        for falsy in ["", "0", "false", "FALSE", "False", "  0  "] {
+            std::env::set_var("OPS_NONINTERACTIVE_TEST", falsy);
+            assert!(
+                !env_flag_enabled("OPS_NONINTERACTIVE_TEST"),
+                "{falsy:?} must be treated as off"
+            );
+        }
+        for truthy in ["1", "true", "yes", "anything"] {
+            std::env::set_var("OPS_NONINTERACTIVE_TEST", truthy);
+            assert!(
+                env_flag_enabled("OPS_NONINTERACTIVE_TEST"),
+                "{truthy:?} must be treated as on"
+            );
+        }
+        std::env::remove_var("OPS_NONINTERACTIVE_TEST");
+        assert!(!env_flag_enabled("OPS_NONINTERACTIVE_TEST"));
     }
 
     #[test]

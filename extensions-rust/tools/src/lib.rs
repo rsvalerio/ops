@@ -118,6 +118,25 @@ impl ToolInfo {
     }
 }
 
+/// TEST-25 / TASK-1295: build a `Vec<ToolInfo>` from a tool spec map using a
+/// caller-supplied probe. Tests inject a deterministic probe so the suite
+/// does not depend on whether the host (or CI image) happens to have
+/// `rustfmt` / `cargo-fmt` installed.
+pub fn collect_tools_with(
+    tools: &IndexMap<String, ToolSpec>,
+    probe: &dyn Fn(&str, &ToolSpec) -> ToolStatus,
+) -> Vec<ToolInfo> {
+    tools
+        .iter()
+        .map(|(name, spec)| ToolInfo {
+            name: name.clone(),
+            description: spec.description().to_string(),
+            status: probe(name, spec),
+            has_rustup_component: spec.rustup_component().is_some(),
+        })
+        .collect()
+}
+
 pub fn collect_tools(tools: &IndexMap<String, ToolSpec>) -> Vec<ToolInfo> {
     let needs_cargo = tools
         .values()

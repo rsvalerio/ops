@@ -19,8 +19,12 @@ pub fn run_tools_list(config: &Config) -> anyhow::Result<()> {
 }
 
 fn run_tools_list_to(config: &Config, w: &mut dyn Write) -> anyhow::Result<()> {
-    let tools = load_tools(config);
+    render_tools_list(&load_tools(config), w)
+}
 
+/// TEST-25 / TASK-1295: rendering split out so tests feed a deterministic
+/// `Vec<ToolInfo>` and avoid coupling to host rustfmt / cargo-fmt presence.
+fn render_tools_list(tools: &[ToolInfo], w: &mut dyn Write) -> anyhow::Result<()> {
     if tools.is_empty() {
         writeln!(w, "No tools configured in .ops.toml")?;
         return Ok(());
@@ -36,7 +40,7 @@ fn run_tools_list_to(config: &Config, w: &mut dyn Write) -> anyhow::Result<()> {
         .max()
         .unwrap_or(0);
 
-    for tool in &tools {
+    for tool in tools {
         // READ-7 / TASK-0896: ToolStatus is `#[non_exhaustive]`, so the
         // wildcard arm is mandatory. It renders via `Display` (a stable
         // user contract) instead of leaking `Debug` shape through the UI.
@@ -76,8 +80,14 @@ fn run_tools_check_to(
     w: &mut dyn Write,
     err: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
-    let tools = load_tools(config);
+    render_tools_check(&load_tools(config), w, err)
+}
 
+fn render_tools_check(
+    tools: &[ToolInfo],
+    w: &mut dyn Write,
+    err: &mut dyn Write,
+) -> anyhow::Result<ExitCode> {
     if tools.is_empty() {
         writeln!(w, "No tools configured")?;
         return Ok(ExitCode::SUCCESS);
@@ -343,16 +353,15 @@ cargo-nonexistent-abc123 = "Fake tool"
 
     #[test]
     fn tools_list_shows_installed_and_missing() {
-        let (_dir, _guard) = crate::test_utils::with_temp_config(
-            r#"
-[tools]
-cargo-fmt = "Format code"
-cargo-nonexistent-abc123 = "Fake tool"
-"#,
-        );
+        // TEST-25 / TASK-1295: feed render_tools_list a deterministic
+        // ToolInfo vec so the test does not depend on whether the host
+        // has rustfmt / cargo-fmt installed.
+        let tools = vec![
+            tool_info("cargo-fmt", ToolStatus::Installed, false),
+            tool_info("cargo-nonexistent-abc123", ToolStatus::NotInstalled, false),
+        ];
         let mut buf = Vec::new();
-        run_tools_list_to(&ops_core::config::load_config_or_default("test"), &mut buf)
-            .expect("run_tools_list_to");
+        render_tools_list(&tools, &mut buf).expect("render_tools_list");
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("cargo-fmt"), "should list cargo-fmt");
         assert!(
@@ -393,20 +402,10 @@ program = "echo"
 
     #[test]
     fn tools_check_all_installed() {
-        let (_dir, _guard) = crate::test_utils::with_temp_config(
-            r#"
-[tools]
-cargo-fmt = "Format code"
-"#,
-        );
+        let tools = vec![tool_info("cargo-fmt", ToolStatus::Installed, false)];
         let mut out = Vec::new();
         let mut err = Vec::new();
-        let code = run_tools_check_to(
-            &ops_core::config::load_config_or_default("test"),
-            &mut out,
-            &mut err,
-        )
-        .expect("run_tools_check_to");
+        let code = render_tools_check(&tools, &mut out, &mut err).expect("render_tools_check");
         let output = String::from_utf8(out).unwrap();
         assert_eq!(code, ExitCode::SUCCESS);
         assert!(
@@ -417,20 +416,14 @@ cargo-fmt = "Format code"
 
     #[test]
     fn tools_check_missing_returns_failure() {
-        let (_dir, _guard) = crate::test_utils::with_temp_config(
-            r#"
-[tools]
-cargo-nonexistent-abc123 = "Fake tool"
-"#,
-        );
+        let tools = vec![tool_info(
+            "cargo-nonexistent-abc123",
+            ToolStatus::NotInstalled,
+            false,
+        )];
         let mut out = Vec::new();
         let mut err = Vec::new();
-        let code = run_tools_check_to(
-            &ops_core::config::load_config_or_default("test"),
-            &mut out,
-            &mut err,
-        )
-        .expect("run_tools_check_to");
+        let code = render_tools_check(&tools, &mut out, &mut err).expect("render_tools_check");
         let err_output = String::from_utf8(err).unwrap();
         assert_eq!(code, ExitCode::FAILURE);
         assert!(
@@ -445,7 +438,13 @@ cargo-nonexistent-abc123 = "Fake tool"
 
     // -- run_tools_install_to --
 
+    // TEST-25 / TASK-1295: run_tools_install_to probes the host for
+    // cargo-fmt and would fail on a CI image without rustfmt installed.
+    // Gated behind #[ignore] until the install path supports probe
+    // injection too; the rendering/path-resolution layers are already
+    // covered by the deterministic tests above.
     #[test]
+    #[ignore = "host-dependent: requires rustfmt/cargo-fmt installed"]
     fn tools_install_all_present() {
         let (_dir, _guard) = crate::test_utils::with_temp_config(
             r#"
@@ -495,6 +494,7 @@ cargo-fmt = "Format code"
     }
 
     #[test]
+    #[ignore = "host-dependent: requires rustfmt/cargo-fmt installed"]
     fn tools_install_specific_already_installed() {
         let (_dir, _guard) = crate::test_utils::with_temp_config(
             r#"

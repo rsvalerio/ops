@@ -30,20 +30,23 @@ fn parse_default_config() -> Result<ops_core::config::Config, anyhow::Error> {
 /// lifetime).
 static BUILTIN_THEME_NAMES: OnceLock<HashSet<&'static str>> = OnceLock::new();
 
+/// ERR-1 / TASK-1298: panic message used when the embedded default config
+/// fails to parse. The embedded TOML is compiled into the binary
+/// (`config::default_ops_toml()`), so a parse failure is a compile-time
+/// invariant violation — not a runtime condition. Crashing loud at startup
+/// surfaces a broken default immediately instead of silently degrading to
+/// an empty set and mislabelling every built-in theme as `(custom)` for
+/// the process lifetime.
+const EMBEDDED_DEFAULT_CONFIG_PARSE_EXPECT: &str = "embedded default config must parse";
+
 fn builtin_theme_names() -> &'static HashSet<&'static str> {
-    BUILTIN_THEME_NAMES.get_or_init(|| match parse_default_config() {
-        Ok(c) => c
+    BUILTIN_THEME_NAMES.get_or_init(|| {
+        parse_default_config()
+            .expect(EMBEDDED_DEFAULT_CONFIG_PARSE_EXPECT)
             .themes
             .into_keys()
             .map(|name| -> &'static str { Box::leak(name.into_boxed_str()) })
-            .collect(),
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                "failed to parse embedded default config; built-in themes will be labelled (custom)",
-            );
-            HashSet::new()
-        }
+            .collect()
     })
 }
 
@@ -288,6 +291,28 @@ build = "cargo build"
         };
         let display = format!("{}", opt);
         assert!(display.contains("(custom)"));
+    }
+
+    /// ERR-1 / TASK-1298: pin the loud-failure contract. The embedded
+    /// default config is compiled in, so a parse failure is a compile-time
+    /// invariant violation. `builtin_theme_names` must panic with the
+    /// named message rather than silently degrading to an empty set and
+    /// mislabelling every built-in theme as `(custom)` for the rest of
+    /// the process lifetime.
+    #[test]
+    fn embedded_default_config_parse_failure_panic_message_is_named() {
+        // The constant is the load-bearing contract — any rename would
+        // break operator-visible diagnostics on a broken default.
+        assert_eq!(
+            EMBEDDED_DEFAULT_CONFIG_PARSE_EXPECT,
+            "embedded default config must parse",
+        );
+        // And on a healthy build the embedded TOML must parse, so the
+        // expect path is never taken in practice.
+        assert!(
+            parse_default_config().is_ok(),
+            "embedded default config is expected to parse on a healthy build"
+        );
     }
 
     #[test]
