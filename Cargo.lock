@@ -2411,6 +2411,7 @@ name = "ops-tfplan"
 version = "0.29.1"
 dependencies = [
  "anyhow",
+ "clap",
  "comfy-table",
  "ops-core",
  "serde",

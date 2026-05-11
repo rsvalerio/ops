@@ -8,6 +8,17 @@ use super::{CommandRunner, ExpandError, ResolveExecError, UnknownCommand};
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 
+/// PATTERN-1 / TASK-1283: walk state for `expand_inner`. Bundling visited /
+/// depth / aggregated flags into one struct also keeps the recursive
+/// signature within clippy's `too_many_arguments` budget.
+struct ExpandCtx<'a> {
+    visited: std::collections::HashSet<&'a str>,
+    depth: usize,
+    max_depth: usize,
+    any_parallel: bool,
+    fail_fast_disabled: bool,
+}
+
 impl CommandRunner {
     /// Iterator over all command keys across config → stack → extension.
     pub(super) fn all_command_keys(&self) -> impl Iterator<Item = &str> {
@@ -175,6 +186,22 @@ impl CommandRunner {
     ///
     /// An additional guard limits expansion to 100 levels to prevent pathological cases.
     pub fn expand_to_leaves(&self, id: &str) -> Result<Vec<CommandId>, ExpandError> {
+        let (leaves, _has_parallel, _fail_fast_disabled) = self.expand_to_leaves_with_flags(id)?;
+        Ok(leaves)
+    }
+
+    /// PATTERN-1 / TASK-1283: walk the composite tree exactly once and
+    /// return both the leaf ids and the aggregated `(any_parallel,
+    /// fail_fast_disabled)` flags. `merge_plan` (and the raw single-command
+    /// path) previously walked the same subtree twice — once via
+    /// `expand_to_leaves` to collect leaves, then again via the CLI-side
+    /// `composite_tree_flags` to recompute the flags. Two independent
+    /// traversals can drift in cycle/order semantics; folding them here
+    /// keeps the leaves and the flags in sync by construction.
+    pub fn expand_to_leaves_with_flags(
+        &self,
+        id: &str,
+    ) -> Result<(Vec<CommandId>, bool, bool), ExpandError> {
         /// CQ-012: Maximum recursion depth for composite expansion.
         ///
         /// This limit prevents stack overflow from pathological configs with deeply
@@ -183,27 +210,32 @@ impl CommandRunner {
         /// The cycle detection already catches circular references, so this is a
         /// defense against accidental deep nesting.
         const MAX_DEPTH: usize = 100;
-        let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
-        self.expand_inner(id, &mut visited, 0, MAX_DEPTH)
+        let mut ctx = ExpandCtx {
+            visited: std::collections::HashSet::new(),
+            depth: 0,
+            max_depth: MAX_DEPTH,
+            any_parallel: false,
+            fail_fast_disabled: false,
+        };
+        let leaves = self.expand_inner(id, &mut ctx)?;
+        Ok((leaves, ctx.any_parallel, ctx.fail_fast_disabled))
     }
 
     fn expand_inner<'a>(
         &'a self,
         id: &str,
-        visited: &mut std::collections::HashSet<&'a str>,
-        depth: usize,
-        max_depth: usize,
+        ctx: &mut ExpandCtx<'a>,
     ) -> Result<Vec<CommandId>, ExpandError> {
-        if depth > max_depth {
+        if ctx.depth > ctx.max_depth {
             tracing::warn!(
                 id = %id,
-                depth = depth,
-                max_depth = max_depth,
+                depth = ctx.depth,
+                max_depth = ctx.max_depth,
                 "composite expansion depth limit exceeded"
             );
             return Err(ExpandError::DepthExceeded {
                 id: id.to_string(),
-                max_depth,
+                max_depth: ctx.max_depth,
             });
         }
         // PERF-3 / TASK-0766: fold canonical_id+resolve into one traversal
@@ -223,14 +255,24 @@ impl CommandRunner {
                 // OWN-8 (TASK-0714): visited stores `&'a str` borrowed from
                 // the runner's command stores, so canonical names are not
                 // cloned per recursion.
-                if !visited.insert(canonical) {
+                if !ctx.visited.insert(canonical) {
                     return Err(ExpandError::Cycle(canonical.to_string()));
                 }
-                let mut out = Vec::new();
-                for sub in &c.commands {
-                    out.extend(self.expand_inner(sub, visited, depth + 1, max_depth)?);
+                // PATTERN-1 / TASK-1283: aggregate parallel/fail_fast flags
+                // along the same single pass that collects leaves.
+                if c.parallel {
+                    ctx.any_parallel = true;
                 }
-                visited.remove(canonical);
+                if !c.fail_fast {
+                    ctx.fail_fast_disabled = true;
+                }
+                let mut out = Vec::new();
+                ctx.depth += 1;
+                for sub in &c.commands {
+                    out.extend(self.expand_inner(sub, ctx)?);
+                }
+                ctx.depth -= 1;
+                ctx.visited.remove(canonical);
                 Ok(out)
             }
         }

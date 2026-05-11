@@ -22,6 +22,10 @@ pub struct HookOps {
     pub find_git_dir: fn(&Path) -> Option<PathBuf>,
     pub install_hook: fn(&Path, &mut dyn Write) -> anyhow::Result<PathBuf>,
     pub ensure_config_command: fn(&Path, &[String], &mut dyn Write) -> anyhow::Result<()>,
+    /// Install entry point used by `Action::Install`. DUP-1 / TASK-1282
+    /// folded the two `run_before_*_install` thin wrappers into this field
+    /// so a single dispatch helper handles both hooks.
+    pub install_fn: fn(&Config) -> anyhow::Result<()>,
     /// Env var that, when set, instructs the dispatcher to skip the hook.
     pub skip_env_var: &'static str,
     /// Returns `true` when the hook should be skipped (e.g. `skip_env_var` set).
@@ -135,46 +139,32 @@ pub fn gather_available_commands(
     cmd_registry: &ops_extension::CommandRegistry,
     exclude_name: &str,
 ) -> Vec<SelectOption> {
-    let mut seen = std::collections::HashSet::new();
-    let mut options = Vec::new();
+    let mut options: Vec<SelectOption> = Vec::new();
 
-    // Config commands first (higher priority)
-    for (name, spec) in &config.commands {
-        if name == exclude_name {
-            continue;
+    // DUP-1 / PERF-1 / TASK-1273+1294: a single helper handles the
+    // exclude/dedup/push body so the priority order (config > stack >
+    // extensions) is explicit at the call site and each name allocates
+    // exactly once (was twice — one clone into a separate `seen` HashSet,
+    // one into the SelectOption). Dedup is a linear scan over `options`,
+    // which is fine for the handful of commands a hook selection lists.
+    let mut try_push = |name: String, spec: &CommandSpec| {
+        if name == exclude_name || options.iter().any(|o| o.name == name) {
+            return;
         }
-        seen.insert(name.clone());
-        options.push(SelectOption {
-            name: name.clone(),
-            description: command_description(spec),
-        });
-    }
+        let description = command_description(spec);
+        options.push(SelectOption { name, description });
+    };
 
-    // Stack default commands (lower priority, deduped)
+    for (name, spec) in &config.commands {
+        try_push(name.clone(), spec);
+    }
     if let Some(stack) = stack {
         for (name, spec) in stack.default_commands() {
-            if name == exclude_name || seen.contains(&name) {
-                continue;
-            }
-            seen.insert(name.clone());
-            options.push(SelectOption {
-                name,
-                description: command_description(&spec),
-            });
+            try_push(name, &spec);
         }
     }
-
-    // Extension commands (lowest priority, deduped)
     for (name, spec) in cmd_registry {
-        let name_str = name.to_string();
-        if name_str == exclude_name || seen.contains(&name_str) {
-            continue;
-        }
-        seen.insert(name_str.clone());
-        options.push(SelectOption {
-            name: name_str,
-            description: command_description(spec),
-        });
+        try_push(name.to_string(), spec);
     }
 
     options

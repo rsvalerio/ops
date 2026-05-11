@@ -215,27 +215,7 @@ fn dispatch(
             }
         }
         #[cfg(feature = "stack-terraform")]
-        Some(CoreSubcommand::Plans {
-            json_file,
-            out,
-            json_out,
-            keep_plan,
-            no_color,
-            detailed_exitcode,
-            show_outputs,
-            passthrough,
-        }) => {
-            return ops_tfplan::run_plan_pipeline(ops_tfplan::PlanOptions {
-                json_file,
-                out,
-                json_out,
-                keep_plan,
-                no_color,
-                detailed_exitcode,
-                show_outputs,
-                passthrough,
-            });
-        }
+        Some(CoreSubcommand::Plans(opts)) => return ops_tfplan::run_plan_pipeline(opts),
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(
                 std::sync::Arc::clone(early_config),

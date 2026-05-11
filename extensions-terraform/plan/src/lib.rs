@@ -12,14 +12,35 @@ use anyhow::{bail, Context};
 const DEFAULT_BINARY_PLAN: &str = ".ops/tfplan.binary";
 const DEFAULT_JSON_PLAN: &str = ".ops/tfplan.json";
 
+/// FN-3 / TASK-1281: a single clap-derived struct is the canonical
+/// definition of every `ops plans` flag. The CLI variant carries one
+/// `PlanOptions` and the dispatch arm forwards it directly to
+/// `run_plan_pipeline`, so adding a new flag only edits this struct.
+#[derive(clap::Args, Debug, Clone)]
 pub struct PlanOptions {
+    /// Read plan JSON from a file instead of running terraform. Use `-` for stdin.
+    #[arg(long, value_name = "PATH")]
     pub json_file: Option<String>,
+    /// Binary plan output path (default: .ops/tfplan.binary).
+    #[arg(long, value_name = "PATH")]
     pub out: Option<String>,
+    /// JSON plan output path (default: .ops/tfplan.json).
+    #[arg(long, value_name = "PATH")]
     pub json_out: Option<String>,
+    /// Keep plan artifacts after summary.
+    #[arg(long)]
     pub keep_plan: bool,
+    /// Force non-TTY table styling.
+    #[arg(long)]
     pub no_color: bool,
+    /// Forward -detailed-exitcode to terraform plan and map exit codes.
+    #[arg(long)]
     pub detailed_exitcode: bool,
+    /// Show planned output value changes.
+    #[arg(long)]
     pub show_outputs: bool,
+    /// Arguments passed through to `terraform plan` (default mode only).
+    #[arg(last = true)]
     pub passthrough: Vec<String>,
 }
 

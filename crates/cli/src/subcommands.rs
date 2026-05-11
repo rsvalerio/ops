@@ -181,32 +181,39 @@ fn run_hook_dispatch(
     )
 }
 
+/// DUP-1 / TASK-1282: collapse the two `run_before_*` wrappers into one.
+/// `is_install` toggles Install vs dispatch so the shape (action, changed_only,
+/// hook descriptor) is described once. API-1 / TASK-1274: changed_only is
+/// forwarded for both hooks (was silently dropped for run-before-push).
+fn run_hook_action(
+    config: std::sync::Arc<Config>,
+    hook: &crate::hook_shared::HookOps,
+    is_install: bool,
+    changed_only: bool,
+) -> anyhow::Result<ExitCode> {
+    if is_install {
+        (hook.install_fn)(&config)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    run_hook_dispatch(config, hook, changed_only)
+}
+
 pub(crate) fn run_before_commit(
     config: std::sync::Arc<Config>,
     action: Option<RunBeforeCommitAction>,
     changed_only: bool,
 ) -> anyhow::Result<ExitCode> {
-    match action {
-        Some(RunBeforeCommitAction::Install) => {
-            pre_hook_cmd::run_before_commit_install(&config)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        None => run_hook_dispatch(config, &pre_hook_cmd::COMMIT_OPS, changed_only),
-    }
+    let is_install = matches!(action, Some(RunBeforeCommitAction::Install));
+    run_hook_action(config, &pre_hook_cmd::COMMIT_OPS, is_install, changed_only)
 }
 
 pub(crate) fn run_before_push(
     config: std::sync::Arc<Config>,
     action: Option<RunBeforePushAction>,
-    _changed_only: bool,
+    changed_only: bool,
 ) -> anyhow::Result<ExitCode> {
-    match action {
-        Some(RunBeforePushAction::Install) => {
-            pre_hook_cmd::run_before_push_install(&config)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        None => run_hook_dispatch(config, &pre_hook_cmd::PUSH_OPS, false),
-    }
+    let is_install = matches!(action, Some(RunBeforePushAction::Install));
+    run_hook_action(config, &pre_hook_cmd::PUSH_OPS, is_install, changed_only)
 }
 
 #[cfg(feature = "stack-rust")]

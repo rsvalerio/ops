@@ -333,19 +333,86 @@ args = ["test"]
 
 // -- log_step_results --
 
-#[test]
-fn log_step_results_does_not_panic() {
-    let results = vec![StepResult::success_with_stdout(
-        "test",
-        std::time::Duration::from_millis(100),
-        "output".to_string(),
-    )];
-    log_step_results(&results);
-}
+mod log_step_results_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
 
-#[test]
-fn log_step_results_empty() {
-    log_step_results(&[]);
+    #[derive(Clone, Default)]
+    struct BufWriter(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for BufWriter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    fn capture_debug<F: FnOnce()>(f: F) -> String {
+        let buf = BufWriter::default();
+        let captured = buf.0.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf)
+            .with_max_level(tracing::Level::DEBUG)
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, f);
+        let bytes = captured.lock().unwrap().clone();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    /// TEST-11 / TASK-1302: previously asserted only that the function
+    /// didn't panic. Capture the tracing debug events so a mutation that
+    /// dropped or swapped any of the per-step fields (id, success,
+    /// duration_ms, stdout_len, stderr_len) is caught.
+    #[test]
+    fn log_step_results_emits_one_debug_event_per_step_with_fields() {
+        let results = vec![
+            StepResult::success_with_stdout(
+                "build",
+                std::time::Duration::from_millis(123),
+                "hello".to_string(),
+            ),
+            StepResult::success_with_stdout(
+                "test",
+                std::time::Duration::from_millis(7),
+                "ok".to_string(),
+            ),
+        ];
+        let logs = capture_debug(|| log_step_results(&results));
+
+        assert!(logs.contains("step result"), "got: {logs}");
+        assert_eq!(
+            logs.matches("step result").count(),
+            2,
+            "expected one debug event per step result: {logs}"
+        );
+        assert!(logs.contains("id=build"), "got: {logs}");
+        assert!(logs.contains("id=test"), "got: {logs}");
+        assert!(logs.contains("duration_ms=123"), "got: {logs}");
+        assert!(logs.contains("duration_ms=7"), "got: {logs}");
+        assert!(logs.contains("success=true"), "got: {logs}");
+        assert!(logs.contains("stdout_len=5"), "got: {logs}");
+        assert!(logs.contains("stdout_len=2"), "got: {logs}");
+    }
+
+    /// TEST-11 / TASK-1302: an empty slice must emit zero events.
+    #[test]
+    fn log_step_results_empty_emits_no_events() {
+        let logs = capture_debug(|| log_step_results(&[]));
+        assert!(
+            !logs.contains("step result"),
+            "no `step result` event expected for empty slice: {logs}"
+        );
+    }
 }
 
 mod run_command_dry_run_tests {
@@ -365,26 +432,63 @@ mod run_command_dry_run_tests {
         ops_runner::command::CommandRunner::new(config, PathBuf::from("."))
     }
 
+    /// TEST-11 / TASK-1299: assert against captured dry-run output, not
+    /// just `is_ok`. A mutation that emptied `run_command_dry_run_to`
+    /// after leaf-id resolution would otherwise still pass these tests.
     #[test]
     fn dry_run_returns_success_for_known_command() {
         let runner = build_test_runner();
-        let result = run_command_dry_run(&runner, "build");
+        let mut buf = Vec::new();
+        let result = run_command_dry_run_to(&runner, "build", &mut buf);
         assert!(result.is_ok(), "dry_run should succeed for known command");
         assert_eq!(result.unwrap(), ExitCode::SUCCESS);
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("program: cargo"),
+            "expected resolved program in dry-run output: {output}"
+        );
+        assert!(
+            output.contains("build --all"),
+            "expected resolved args in dry-run output: {output}"
+        );
     }
 
+    /// TEST-11 / TASK-1299: verify the error message names the missing
+    /// command, so a mutation that swallowed the unknown-command label
+    /// no longer slips past `is_err()`.
     #[test]
     fn dry_run_returns_error_for_unknown_command() {
         let runner = build_test_runner();
         let result = run_command_dry_run(&runner, "nonexistent");
-        assert!(result.is_err(), "dry_run should fail for unknown command");
+        let err = result.expect_err("dry_run should fail for unknown command");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("nonexistent"),
+            "error must name the missing command: {msg}"
+        );
     }
 
+    /// TEST-11 / TASK-1299: the test name claims composites are expanded,
+    /// so assert the rendered preview actually lists each leaf step.
     #[test]
     fn dry_run_expands_composite_commands() {
         let runner = build_test_runner();
-        let result = run_command_dry_run(&runner, "verify");
+        let mut buf = Vec::new();
+        let result = run_command_dry_run_to(&runner, "verify", &mut buf);
         assert!(result.is_ok());
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("Resolved to 2 step(s)"),
+            "expected composite to expand into 2 leaves: {output}"
+        );
+        assert!(
+            output.contains("[1] build"),
+            "expected first leaf labelled `build`: {output}"
+        );
+        assert!(
+            output.contains("[2] test"),
+            "expected second leaf labelled `test`: {output}"
+        );
     }
 
     #[test]
@@ -629,6 +733,32 @@ mod run_command_dry_run_tests {
         assert!(
             output.contains("\\x1b"),
             "expected escaped \\x1b form in: {output:?}"
+        );
+    }
+
+    /// SEC-21 / TASK-1275: the command name and resolved leaf id printed
+    /// by `run_command_dry_run_to` come from `.ops.toml` keys (which TOML
+    /// allows to be arbitrary Unicode). They must be routed through
+    /// `audit_safe` like program/args/env/cwd so an adversarial config
+    /// key like `"evil\x1b[2J"` cannot repaint the operator's terminal.
+    #[test]
+    fn dry_run_escapes_ansi_in_command_name_and_id() {
+        let name = "evil\u{1b}[2J";
+        let spec = ops_core::config::ExecCommandSpec::new("true", Vec::<String>::new());
+        let config = TestConfigBuilder::new()
+            .command(name, ops_core::config::CommandSpec::Exec(spec))
+            .build();
+        let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+        let mut buf = Vec::new();
+        run_command_dry_run_to(&runner, name, &mut buf).expect("dry-run");
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            !output.contains('\u{1b}'),
+            "raw ESC byte must not survive in dry-run name/id: {output:?}"
+        );
+        assert!(
+            output.contains("\\x1b"),
+            "expected escaped \\x1b form for name/id in: {output:?}"
         );
     }
 }

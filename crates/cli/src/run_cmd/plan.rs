@@ -31,13 +31,18 @@ pub(crate) fn merge_plan(
              upstream filtering bug)"
         );
     }
+    // PATTERN-1 / TASK-1283: a single traversal per name returns both the
+    // leaf ids and the (any_parallel, fail_fast_disabled) flags, so the
+    // executed leaf set and the plan flags are derived from the same walk
+    // (no risk of independent walks drifting in cycle/ordering semantics).
     let mut all_leaf_ids = Vec::new();
     let mut any_parallel = false;
     let mut fail_fast = true;
     for name in names {
-        let leaf_ids = runner.expand_to_leaves(name).map_err(anyhow::Error::from)?;
+        let (leaf_ids, has_parallel, fail_fast_disabled) = runner
+            .expand_to_leaves_with_flags(name)
+            .map_err(anyhow::Error::from)?;
         all_leaf_ids.extend(leaf_ids);
-        let (has_parallel, fail_fast_disabled) = super::composite_tree_flags(runner, name);
         if has_parallel {
             any_parallel = true;
         }

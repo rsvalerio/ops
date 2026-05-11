@@ -127,33 +127,13 @@ pub enum CoreSubcommand {
         action: ToolsAction,
     },
     /// Summarized Terraform plans as two tables (actions + resource changes).
+    ///
+    /// FN-3 / TASK-1281: the variant embeds a single clap-derived
+    /// `PlanOptions` (defined in `ops_tfplan`) so a new plan flag is
+    /// added in exactly one place rather than copied across the variant,
+    /// the dispatch destructure, and the `PlanOptions` repack.
     #[cfg(feature = "stack-terraform")]
-    Plans {
-        /// Read plan JSON from a file instead of running terraform. Use `-` for stdin.
-        #[arg(long, value_name = "PATH")]
-        json_file: Option<String>,
-        /// Binary plan output path (default: .ops/tfplan.binary).
-        #[arg(long, value_name = "PATH")]
-        out: Option<String>,
-        /// JSON plan output path (default: .ops/tfplan.json).
-        #[arg(long, value_name = "PATH")]
-        json_out: Option<String>,
-        /// Keep plan artifacts after summary.
-        #[arg(long)]
-        keep_plan: bool,
-        /// Force non-TTY table styling.
-        #[arg(long)]
-        no_color: bool,
-        /// Forward -detailed-exitcode to terraform plan and map exit codes.
-        #[arg(long)]
-        detailed_exitcode: bool,
-        /// Show planned output value changes.
-        #[arg(long)]
-        show_outputs: bool,
-        /// Arguments passed through to `terraform plan` (default mode only).
-        #[arg(last = true)]
-        passthrough: Vec<String>,
-    },
+    Plans(ops_tfplan::PlanOptions),
     /// Catch-all for dynamic config-defined commands (e.g. `ops verify`).
     #[command(external_subcommand)]
     External(Vec<OsString>),
@@ -534,6 +514,25 @@ mod tests {
                 assert!(action.is_none());
             }
             other => panic!("expected RunBeforeCommit, got {:?}", other),
+        }
+    }
+
+    /// API-1 / TASK-1274: run-before-push must accept --changed-only the
+    /// same way run-before-commit does. Earlier, the flag parsed but the
+    /// handler accepted it as `_changed_only` and hard-coded `false`,
+    /// silently discarding it.
+    #[test]
+    fn parse_run_before_push_with_changed_only() {
+        let cli = Cli::parse_from(["ops", "run-before-push", "--changed-only"]);
+        match cli.subcommand {
+            Some(CoreSubcommand::RunBeforePush {
+                changed_only,
+                action,
+            }) => {
+                assert!(changed_only);
+                assert!(action.is_none());
+            }
+            other => panic!("expected RunBeforePush, got {:?}", other),
         }
     }
 

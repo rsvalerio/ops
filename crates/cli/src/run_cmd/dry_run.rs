@@ -39,11 +39,17 @@ pub(crate) fn run_command_dry_run_to(
 ) -> anyhow::Result<ExitCode> {
     let leaf_ids = runner.expand_to_leaves(name).map_err(anyhow::Error::from)?;
 
-    writeln!(w, "Command: {}", name)?;
+    // SEC-21 / TASK-1275: the command name and resolved leaf ids both
+    // originate from `.ops.toml` keys (TOML quoted keys permit arbitrary
+    // Unicode, including ESC/NUL/CR), so route them through `audit_safe`
+    // before writing to the operator's audit channel. Without this an
+    // attacker-controlled `.ops.toml` key like `"build[2J"` could repaint
+    // the terminal during `ops --dry-run`.
+    writeln!(w, "Command: {}", audit_safe(name))?;
     writeln!(w, "Resolved to {} step(s):", leaf_ids.len())?;
 
     for (i, id) in leaf_ids.iter().enumerate() {
-        writeln!(w, "\n  [{}] {}", i + 1, id)?;
+        writeln!(w, "\n  [{}] {}", i + 1, audit_safe(id))?;
         match runner.resolve(id) {
             Some(CommandSpec::Exec(e)) => print_exec_spec(w, e, runner.variables())?,
             Some(CommandSpec::Composite(_)) => {

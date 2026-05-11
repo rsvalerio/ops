@@ -63,9 +63,10 @@ pub(crate) fn run_external_command(
     if names.is_empty() {
         anyhow::bail!("missing command name");
     }
-    if names.len() == 1 {
-        return run_command(config, names[0], opts);
-    }
+    // PATTERN-1 / TASK-1284: single- and multi-command invocations share
+    // `run_commands` with a one-element slice. Earlier the two had
+    // independent destructure/build_runner/dry-run/raw branches that drifted
+    // (see CL-5/TASK-0755 for the tap-warning drift that prompted this).
     run_commands(config, &names, opts)
 }
 
@@ -75,9 +76,12 @@ pub(crate) fn run_external_command(
 /// `IndexMap`, `String`, theme block is allocated exactly once per CLI run.
 fn build_runner(
     config: std::sync::Arc<ops_core::config::Config>,
-    _verbose: bool,
     cwd_escape_policy: ops_runner::command::CwdEscapePolicy,
 ) -> anyhow::Result<ops_runner::command::CommandRunner> {
+    // ARCH-3 / TASK-1285: build_runner used to accept a `verbose: bool`
+    // that it never read (verbose is owned by ProgressDisplay downstream).
+    // The slot was a swap-bug footgun adjacent to other bools that
+    // RunOptions/PlanShape were introduced to eliminate.
     let cwd = crate::cwd()?;
     let mut runner = ops_runner::command::CommandRunner::from_arc_config(config, cwd);
     runner.set_cwd_escape_policy(cwd_escape_policy);
@@ -144,7 +148,7 @@ fn run_commands(
         raw,
         cwd_escape_policy,
     } = opts;
-    let runner = build_runner(config, verbose, cwd_escape_policy)?;
+    let runner = build_runner(config, cwd_escape_policy)?;
 
     if dry_run {
         // ERR-1 / TASK-1234: extend the execute path's `emit_raw_warnings`
@@ -313,42 +317,24 @@ fn setup_extensions(runner: &mut ops_runner::command::CommandRunner) -> anyhow::
     Ok(())
 }
 
-#[tracing::instrument(skip_all, fields(command = %name))]
+/// PATTERN-1 / TASK-1284: thin wrapper that delegates to `run_commands`
+/// with a one-element slice so dry-run/raw/display branching lives in
+/// exactly one place. Was previously a parallel implementation of the
+/// same shape that drifted from the multi-command path (see CL-5/
+/// TASK-0755 for the tap-warning drift this prevents).
+#[cfg(test)]
 fn run_command(
     config: std::sync::Arc<ops_core::config::Config>,
     name: &str,
     opts: RunOptions,
 ) -> anyhow::Result<ExitCode> {
-    let RunOptions {
-        dry_run,
-        verbose,
-        tap,
-        raw,
-        cwd_escape_policy,
-    } = opts;
-    let mut runner = build_runner(config, verbose, cwd_escape_policy)?;
-
-    if dry_run {
-        // ERR-1 / TASK-1234: mirror the multi-command path so the single-
-        // command dry-run branch surfaces the same --raw/--tap override
-        // diagnostic the execute path already emits.
-        emit_dry_run_warnings(raw, tap.is_some());
-        return run_command_dry_run(&runner, name);
-    }
-
-    let success = if raw {
-        run_command_raw(&runner, name, tap.is_some())?
-    } else {
-        run_command_cli(&mut runner, name, tap, verbose)?
-    };
-
-    Ok(if success {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    })
+    run_commands(config, &[name], opts)
 }
 
+/// Test-only helper retained so the raw-mode parallel-warning tests can
+/// exercise the single-leaf path in isolation. Production code goes
+/// through `run_commands_raw` via the `run_commands` shared core.
+#[cfg(test)]
 fn run_command_raw(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
@@ -364,6 +350,7 @@ fn run_command_raw(
     Ok(results.iter().all(|r| r.success))
 }
 
+#[cfg(test)]
 pub(super) fn composite_tree_has_parallel(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
@@ -378,6 +365,7 @@ pub(super) fn composite_tree_has_parallel(
 /// raw single-command path already walked the tree for its `parallel`
 /// warning; callers that need the same semantics for `fail_fast` use the
 /// second tuple element.
+#[cfg(test)]
 pub(super) fn composite_tree_flags(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
@@ -408,38 +396,4 @@ pub(super) fn composite_tree_flags(
         }
     }
     (has_parallel, fail_fast_disabled)
-}
-
-fn run_command_cli(
-    runner: &mut ops_runner::command::CommandRunner,
-    name: &str,
-    tap: Option<PathBuf>,
-    verbose: bool,
-) -> anyhow::Result<bool> {
-    // ERR-10: surface the specific expansion failure (unknown/cycle/
-    // depth-exceeded) via the typed `ExpandError`, instead of rewriting
-    // every case to "unknown command".
-    let leaf_ids = runner.expand_to_leaves(name).map_err(anyhow::Error::from)?;
-
-    let display_map = build_display_map(runner, &leaf_ids);
-
-    let mut display = ProgressDisplay::new(DisplayOptions::new(
-        runner.output_config(),
-        display_map,
-        &runner.config().themes,
-        tap,
-        verbose,
-    ))?;
-
-    let _echo_guard = EchoGuard::disable_echo();
-    let results: Vec<StepResult> = run_with_runtime(async {
-        runner
-            .run(name, &mut |event| display.handle_event(event))
-            .await
-    })?;
-    drop(_echo_guard);
-    log_step_results(&results);
-
-    let success = results.iter().all(|r| r.success);
-    Ok(success)
 }
