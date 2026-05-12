@@ -22,5 +22,6 @@ mod tests;
 pub use discovery::collect_extension_info;
 pub use discovery::{as_ext_refs, builtin_extensions, collect_compiled_extensions};
 pub use registration::{
-    build_data_registry, register_extension_commands, register_extension_data_providers,
+    build_data_registry, build_data_registry_from, register_extension_commands,
+    register_extension_data_providers,
 };

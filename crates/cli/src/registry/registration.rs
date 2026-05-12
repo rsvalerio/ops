@@ -28,7 +28,7 @@
 //! and `register_*_data_providers` should also read the corresponding
 //! function rustdoc to pick the correct semantics.
 
-use super::discovery::{as_ext_refs, builtin_extensions};
+use super::discovery::{as_ext_refs, builtin_extensions, builtin_extensions_from};
 use ops_core::config::Config;
 use ops_extension::{CommandRegistry, DataRegistry, Extension};
 use std::path::Path;
@@ -126,26 +126,26 @@ fn classify_and_warn_collision(
     ext_name: &'static str,
     audit: &AuditPolicy,
 ) -> bool {
-    use std::collections::hash_map::Entry;
-    match owners.entry(key.to_string()) {
-        Entry::Vacant(vac) => {
-            vac.insert(Owner::Extension(ext_name));
-            true
-        }
-        Entry::Occupied(mut occ) => match occ.get() {
-            Owner::Extension(prev) if *prev != ext_name => {
+    // PERF-3 / TASK-1349: lookup before allocating the owned key. The
+    // common path is a fresh key per extension; only on the genuine-miss
+    // branch do we materialise a `String` for `HashMap::insert`. This
+    // avoids `key.to_string()` on every Occupied hit (the warning paths)
+    // which dominated registration when an extension registers many ids.
+    if let Some(prev) = owners.get_mut(key) {
+        match prev {
+            Owner::Extension(prev_name) if *prev_name != ext_name => {
                 tracing::warn!(
                     target: "ops::registry",
                     kind = %audit.kind_field,
                     key = %key,
-                    first = %prev,
+                    first = %prev_name,
                     second = %ext_name,
                     "{}",
                     audit.cross_ext_collision,
                 );
                 match audit.policy {
                     InsertPolicy::LastWriteWins => {
-                        occ.insert(Owner::Extension(ext_name));
+                        *prev = Owner::Extension(ext_name);
                         true
                     }
                     InsertPolicy::FirstWriteWins => false,
@@ -162,21 +162,52 @@ fn classify_and_warn_collision(
                 );
                 match audit.policy {
                     InsertPolicy::LastWriteWins => {
-                        occ.insert(Owner::Extension(ext_name));
+                        *prev = Owner::Extension(ext_name);
                         true
                     }
                     InsertPolicy::FirstWriteWins => false,
                 }
             }
             Owner::Extension(_) => {
-                // Same extension — already surfaced via the in-extension
-                // duplicate drain in the caller (take_duplicate_inserts).
-                // Whether we re-register depends on policy: under last-
-                // write-wins the caller's IndexMap::insert already handled
-                // it; under first-write-wins we drop.
+                // PATTERN-1 / TASK-1350: same-extension duplicates are
+                // drained upstream by `take_duplicate_inserts` before this
+                // loop ever sees them, so each id in `local` is unique per
+                // extension. If the invariant ever breaks, the debug build
+                // surfaces it loudly; release builds preserve the previous
+                // policy-dependent return for safety.
+                debug_assert!(
+                    false,
+                    "in-extension duplicates must be drained upstream via take_duplicate_inserts (kind={}, key={}, extension={})",
+                    audit.kind_field, key, ext_name,
+                );
                 matches!(audit.policy, InsertPolicy::LastWriteWins)
             }
-        },
+        }
+    } else {
+        owners.insert(key.to_string(), Owner::Extension(ext_name));
+        true
+    }
+}
+
+/// DUP-3 / TASK-1371: shared in-extension duplicate-warn loop. Both the
+/// command and data-provider registration paths drain the per-extension
+/// `take_duplicate_inserts` audit; collapsing the warn template into one
+/// helper keeps the structured-log shape (target, kind, key, extension)
+/// and message phrasing in lockstep with the cross-extension audit.
+fn warn_in_extension_duplicates<I, T>(duplicates: I, ext_name: &'static str, audit: &AuditPolicy)
+where
+    I: IntoIterator<Item = T>,
+    T: std::fmt::Display,
+{
+    for dup in duplicates {
+        tracing::warn!(
+            target: "ops::registry",
+            kind = %audit.kind_field,
+            key = %dup,
+            extension = ext_name,
+            "{}",
+            audit.in_ext_duplicate,
+        );
     }
 }
 
@@ -197,16 +228,7 @@ pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut
         debug!(extension = ext.name(), action = "commands", "registering");
         let mut local = CommandRegistry::new();
         ext.register_commands(&mut local);
-        for dup in local.take_duplicate_inserts() {
-            tracing::warn!(
-                target: "ops::registry",
-                kind = COMMAND_AUDIT.kind_field,
-                key = %dup,
-                extension = ext.name(),
-                "{}",
-                COMMAND_AUDIT.in_ext_duplicate,
-            );
-        }
+        warn_in_extension_duplicates(local.take_duplicate_inserts(), ext.name(), &COMMAND_AUDIT);
         for (id, spec) in local {
             if classify_and_warn_collision(&mut owners, id.as_ref(), ext.name(), &COMMAND_AUDIT) {
                 registry.insert(id, spec);
@@ -235,16 +257,11 @@ pub fn register_extension_data_providers(
         );
         let mut local = DataRegistry::new();
         ext.register_data_providers(&mut local);
-        for dup in local.take_duplicate_inserts() {
-            tracing::warn!(
-                target: "ops::registry",
-                kind = DATA_PROVIDER_AUDIT.kind_field,
-                key = %dup,
-                extension = ext.name(),
-                "{}",
-                DATA_PROVIDER_AUDIT.in_ext_duplicate,
-            );
-        }
+        warn_in_extension_duplicates(
+            local.take_duplicate_inserts(),
+            ext.name(),
+            &DATA_PROVIDER_AUDIT,
+        );
         for (name, provider) in local {
             if classify_and_warn_collision(&mut owners, &name, ext.name(), &DATA_PROVIDER_AUDIT) {
                 registry.register(name, provider);
@@ -258,6 +275,20 @@ pub fn register_extension_data_providers(
 /// Reduces the 4-line boilerplate of builtin_extensions + ext_refs + new registry + register.
 pub fn build_data_registry(config: &Config, workspace_root: &Path) -> anyhow::Result<DataRegistry> {
     let exts = builtin_extensions(config, workspace_root)?;
+    let mut registry = DataRegistry::new();
+    register_extension_data_providers(&as_ext_refs(&exts), &mut registry);
+    Ok(registry)
+}
+
+/// PERF-1 / TASK-1380: same as [`build_data_registry`] but consumes a
+/// pre-collected `compiled` vector so the show path can build the
+/// schema-lookup registry without re-walking `EXTENSION_REGISTRY`.
+pub fn build_data_registry_from(
+    compiled: Vec<(&'static str, Box<dyn Extension>)>,
+    config: &Config,
+    workspace_root: &Path,
+) -> anyhow::Result<DataRegistry> {
+    let exts = builtin_extensions_from(compiled, config, workspace_root)?;
     let mut registry = DataRegistry::new();
     register_extension_data_providers(&as_ext_refs(&exts), &mut registry);
     Ok(registry)

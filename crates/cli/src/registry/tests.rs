@@ -97,20 +97,36 @@ fn builtin_extensions_none_enabled_loads_all() {
     assert!(result.is_ok());
 }
 
+/// TEST-11 / TASK-1314: assert a behavioural property that holds for any
+/// feature set — `collect_compiled_extensions` must not panic on
+/// `Config::default()` and the names it returns must be non-empty AND
+/// pairwise unique. Pre-fix the `for ext in &compiled` body executed
+/// zero iterations under default features, masking any regression that
+/// returned duplicate or empty names.
 #[test]
 fn collect_compiled_extensions_returns_entries() {
     let config = Config::default();
     let compiled = collect_compiled_extensions(&config, std::path::Path::new("."));
-    // All entries should have non-empty names
+    let mut seen: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
     for (name, ext) in &compiled {
-        assert!(!name.is_empty());
-        assert!(!ext.name().is_empty());
+        assert!(!name.is_empty(), "config_name must not be empty");
+        assert!(!ext.name().is_empty(), "ext.name() must not be empty");
+        assert!(
+            seen.insert(name),
+            "config_names must be unique across compiled-in extensions; saw {name:?} twice"
+        );
     }
 }
 
+/// TEST-25 / TASK-1315: actually exercise the "unfiltered by enabled"
+/// invariant. The pre-fix body discarded `compiled` via `let _ = compiled`
+/// and only asserted on `filtered`, so a regression that taught
+/// `collect_compiled_extensions` to honour `extensions.enabled` would
+/// still pass. We pin the unfiltered-superset shape: every name in the
+/// filtered set must appear in the unfiltered one, and `compiled.len()
+/// >= filtered.len()`.
 #[test]
 fn collect_compiled_extensions_unfiltered_by_config() {
-    // Even with an empty enabled list, collect_compiled_extensions returns all compiled-in
     let config = Config {
         extensions: ExtensionConfig {
             enabled: Some(vec![]),
@@ -118,22 +134,58 @@ fn collect_compiled_extensions_unfiltered_by_config() {
         ..Default::default()
     };
     let compiled = collect_compiled_extensions(&config, std::path::Path::new("."));
-    // builtin_extensions would return 0, but collect returns all compiled-in
     let filtered = builtin_extensions(&config, std::path::Path::new(".")).unwrap();
-    assert!(filtered.is_empty());
-    // compiled may or may not be empty depending on features, but the key point
-    // is that it's not filtered by the enabled list
-    let _ = compiled;
+    assert!(filtered.is_empty(), "empty enabled list filters everything");
+    assert!(
+        compiled.len() >= filtered.len(),
+        "compiled (unfiltered) must be a superset of filtered"
+    );
+    let compiled_names: std::collections::HashSet<&'static str> =
+        compiled.iter().map(|(n, _)| *n).collect();
+    for ext in &filtered {
+        assert!(
+            compiled_names.contains(ext.name()),
+            "every filtered name must appear in compiled (unfiltered)"
+        );
+    }
 }
 
+/// TEST-25 / TASK-1309: exercise `collect_extension_info` regardless of
+/// feature flags by routing inline stub extensions through it. Pre-fix
+/// the `for info in &infos` loop ran zero iterations under default
+/// features, so a regression that dropped `collect_extension_info`
+/// entries silently passed.
 #[test]
 fn extension_info_provides_metadata() {
-    let config = Config::default();
-    let exts = builtin_extensions(&config, std::path::Path::new(".")).unwrap();
-    let infos = collect_extension_info(&as_ext_refs(&exts));
+    use ops_extension::{CommandRegistry, Extension, ExtensionInfo, ExtensionType};
 
-    // This test only validates extension info format when extensions are available.
-    // Extensions are only compiled in when a stack feature is enabled.
+    struct StubExt {
+        name: &'static str,
+    }
+    impl Extension for StubExt {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+        fn register_commands(&self, _registry: &mut CommandRegistry) {}
+        fn info(&self) -> ExtensionInfo {
+            let mut info = ExtensionInfo::new(self.name);
+            info.shortname = self.name;
+            info.description = "stub";
+            info.types = ExtensionType::COMMAND;
+            info
+        }
+    }
+
+    let a = StubExt { name: "stub_a" };
+    let b = StubExt { name: "stub_b" };
+    let exts: Vec<&dyn Extension> = vec![&a, &b];
+    let infos = collect_extension_info(&exts);
+
+    assert!(
+        !infos.is_empty(),
+        "precondition: collect_extension_info must yield entries for the stubs"
+    );
+    assert_eq!(infos.len(), 2, "one ExtensionInfo per stub");
     for info in &infos {
         assert!(!info.name.is_empty(), "name should not be empty");
         assert!(!info.shortname.is_empty(), "shortname should not be empty");
@@ -447,6 +499,19 @@ fn register_extension_data_providers_warns_on_in_extension_duplicate() {
     assert!(
         logs.contains("double_register") && logs.contains("provider_x"),
         "in-extension duplicate warning must name the extension and provider, got: {logs}"
+    );
+    // TEST-25 / TASK-1366: pin first-write-wins on the data-provider
+    // path. Without asserting the registry's post-state, a future
+    // regression that warned but corrupted the registry (kept both,
+    // kept neither, last-write-wins) would still pass.
+    assert_eq!(
+        registry.provider_names(),
+        vec!["provider_x".to_string()],
+        "registry must contain exactly the surviving provider"
+    );
+    assert!(
+        registry.get("provider_x").is_some(),
+        "first-write-wins must keep the first registration"
     );
 }
 

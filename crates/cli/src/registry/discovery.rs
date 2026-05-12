@@ -91,17 +91,26 @@ pub fn builtin_extensions(
     config: &Config,
     workspace_root: &Path,
 ) -> anyhow::Result<Vec<Box<dyn Extension>>> {
-    let stack = resolve_stack(config, workspace_root);
     let compiled = collect_compiled_extensions(config, workspace_root);
+    builtin_extensions_from(compiled, config, workspace_root)
+}
 
-    let stack_filtered: Vec<(&'static str, Box<dyn Extension>)> = compiled
-        .into_iter()
-        .filter(|(_, ext)| match ext.stack() {
-            None => true,
-            Some(ext_stack) => stack == Some(ext_stack),
-        })
-        .collect();
-    let mut available = dedup_compiled_extensions(stack_filtered);
+/// PERF-1 / TASK-1380: same as [`builtin_extensions`] but consumes a
+/// pre-collected `compiled` vector so callers that already walked
+/// `EXTENSION_REGISTRY` (e.g. `run_extension_show_to`) do not pay the
+/// factory probes twice. Public surface is unchanged: [`builtin_extensions`]
+/// still owns the collection step for callers that don't already hold the
+/// pairs.
+pub fn builtin_extensions_from(
+    compiled: Vec<(&'static str, Box<dyn Extension>)>,
+    config: &Config,
+    workspace_root: &Path,
+) -> anyhow::Result<Vec<Box<dyn Extension>>> {
+    let stack = resolve_stack(config, workspace_root);
+    let compiled_names: std::collections::BTreeSet<&'static str> =
+        compiled.iter().map(|(n, _)| *n).collect();
+    let stack_filtered = filter_by_stack(compiled, stack);
+    let available = dedup_compiled_extensions(stack_filtered);
 
     if let Some(s) = stack {
         debug!(stack = ?s, "stack resolved");
@@ -109,26 +118,86 @@ pub fn builtin_extensions(
         debug!("no stack detected, loading generic extensions only");
     }
 
-    let Some(enabled) = &config.extensions.enabled else {
+    select_enabled(
+        available,
+        &compiled_names,
+        stack,
+        config.extensions.enabled.as_deref(),
+    )
+}
+
+/// FN-1 / TASK-1348: stack-filter pass extracted from `builtin_extensions`
+/// so the policy is independently testable. Generic extensions
+/// (`stack() == None`) always pass; stack-specific extensions only when
+/// `ext.stack() == detected`.
+fn filter_by_stack(
+    compiled: Vec<(&'static str, Box<dyn Extension>)>,
+    detected: Option<Stack>,
+) -> Vec<(&'static str, Box<dyn Extension>)> {
+    compiled
+        .into_iter()
+        .filter(|(_, ext)| match ext.stack() {
+            None => true,
+            Some(ext_stack) => detected == Some(ext_stack),
+        })
+        .collect()
+}
+
+/// FN-1 / TASK-1348: enabled-validation + ordering pass extracted from
+/// `builtin_extensions`. Aggregates every missing entry into one error
+/// (API-1 / TASK-1328) and distinguishes "compiled in but stack-filtered"
+/// from "not compiled in" using the unfiltered `compiled_names` set
+/// (API-1 / TASK-1327).
+fn select_enabled(
+    mut available: std::collections::BTreeMap<&'static str, Box<dyn Extension>>,
+    compiled_names: &std::collections::BTreeSet<&'static str>,
+    detected_stack: Option<Stack>,
+    enabled: Option<&[String]>,
+) -> anyhow::Result<Vec<Box<dyn Extension>>> {
+    let Some(enabled) = enabled else {
         let exts: Vec<Box<dyn Extension>> = available.into_values().collect();
         debug!(count = exts.len(), "stack-filtered extensions loaded");
         return Ok(exts);
     };
 
+    let mut missing_not_compiled: Vec<&str> = Vec::new();
+    let mut missing_stack_filtered: Vec<&str> = Vec::new();
     for name in enabled {
         if !available.contains_key(name.as_str()) {
-            // PATTERN-1 / TASK-0990: HashMap iteration order is randomised
-            // per process; render a sorted list so the message is
-            // deterministic, snapshot-friendly, and skim-able by operators
-            // copy-pasting into bug reports.
-            let mut available_names: Vec<&'static str> = available.keys().copied().collect();
-            available_names.sort_unstable();
-            anyhow::bail!(
-                "extension '{}' enabled in config but not compiled in; available: {}",
-                name,
-                available_names.join(", ")
-            );
+            if compiled_names.contains(name.as_str()) {
+                missing_stack_filtered.push(name.as_str());
+            } else {
+                missing_not_compiled.push(name.as_str());
+            }
         }
+    }
+    if !missing_not_compiled.is_empty() || !missing_stack_filtered.is_empty() {
+        // PATTERN-1 / TASK-0990: sort `available` so the rendered list is
+        // deterministic across processes and snapshot-friendly.
+        let mut available_names: Vec<&'static str> = available.keys().copied().collect();
+        available_names.sort_unstable();
+        let stack_label = detected_stack.map_or_else(
+            || "no stack detected".to_string(),
+            |s| s.as_str().to_string(),
+        );
+        let mut parts: Vec<String> = Vec::new();
+        if !missing_not_compiled.is_empty() {
+            parts.push(format!(
+                "not compiled in: {}",
+                missing_not_compiled.join(", ")
+            ));
+        }
+        if !missing_stack_filtered.is_empty() {
+            parts.push(format!(
+                "compiled in but disabled for the current stack ({stack_label}): {}",
+                missing_stack_filtered.join(", ")
+            ));
+        }
+        anyhow::bail!(
+            "extensions enabled in config but unavailable — {}; available: {}",
+            parts.join("; "),
+            available_names.join(", ")
+        );
     }
     let exts: Vec<Box<dyn Extension>> = enabled
         .iter()
