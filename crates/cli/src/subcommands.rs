@@ -105,15 +105,24 @@ fn classify_confirm_result(
     }
 }
 
-/// API-1 / TASK-1290: treat empty, `0`, and `false` (case-insensitive) as off
-/// for boolean opt-in env vars like `OPS_NONINTERACTIVE` and `CI`. Anything
-/// else present is on. Aligns with the `=truthy` ecosystem convention so
-/// `OPS_NONINTERACTIVE=0` and `CI=false` keep prompts interactive.
+/// API-1 / TASK-1290: treat empty, `0`, `false`, `no`, `off`, and `n`
+/// (case-insensitive, surrounding whitespace trimmed) as off for boolean
+/// opt-in env vars like `OPS_NONINTERACTIVE` and `CI`. Anything else present
+/// is on. Aligns with the `=truthy` ecosystem convention so
+/// `OPS_NONINTERACTIVE=0`, `CI=false`, and `OPS_NONINTERACTIVE=no` all keep
+/// prompts interactive.
+///
+/// READ-5 / TASK-1333: the `no` / `off` / `n` synonyms were added so an
+/// operator typing `OPS_NONINTERACTIVE=no` to disable noninteractive mode is
+/// not silently flipped into the opposite state — bash/systemd/`bool` parsers
+/// across the ecosystem accept those, and the previous "anything-but-0/false"
+/// rule produced exactly that inversion.
 fn env_flag_enabled(name: &str) -> bool {
+    const FALSY: &[&str] = &["", "0", "false", "no", "off", "n"];
     match std::env::var(name) {
         Ok(v) => {
             let t = v.trim();
-            !(t.is_empty() || t.eq_ignore_ascii_case("0") || t.eq_ignore_ascii_case("false"))
+            !FALSY.iter().any(|f| t.eq_ignore_ascii_case(f))
         }
         Err(_) => false,
     }
@@ -370,7 +379,13 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn env_flag_enabled_treats_falsy_as_off() {
-        for falsy in ["", "0", "false", "FALSE", "False", "  0  "] {
+        // READ-5 / TASK-1333: `no`, `off`, `n` join the canonical falsy set
+        // so the bash/systemd convention does not silently flip operators
+        // into the opposite state.
+        for falsy in [
+            "", "0", "false", "FALSE", "False", "  0  ", "no", "NO", "No", "  no  ", "off", "OFF",
+            "n", "N",
+        ] {
             std::env::set_var("OPS_NONINTERACTIVE_TEST", falsy);
             assert!(
                 !env_flag_enabled("OPS_NONINTERACTIVE_TEST"),
@@ -388,9 +403,12 @@ mod tests {
         assert!(!env_flag_enabled("OPS_NONINTERACTIVE_TEST"));
     }
 
+    /// TEST-25 / TASK-1312: split out of the previous combined
+    /// `handlers_do_not_reload_config` test so each assertion is paired
+    /// with a branch that actually invokes the named code path.
     #[test]
     #[serial_test::serial]
-    fn handlers_do_not_reload_config() {
+    fn cli_data_context_does_not_reload_config() {
         let (_dir, _guard) = crate::test_utils::with_temp_config(
             r#"
 [commands.echo_test]
@@ -399,7 +417,6 @@ args = ["hi"]
 "#,
         );
 
-        // Simulate the early `run()` load.
         ops_core::config::reset_load_config_call_count();
         let config = ops_core::config::load_config_or_default("test-early");
         assert_eq!(
@@ -408,8 +425,6 @@ args = ["hi"]
             "early load should be the only load_config call so far"
         );
 
-        // Each handler-side helper that previously re-loaded `.ops.toml`
-        // is now expected to consult the threaded `&Config`.
         let _ = cli_data_context(&config).expect("cli_data_context");
 
         assert_eq!(
@@ -417,26 +432,81 @@ args = ["hi"]
             1,
             "cli_data_context must not reload .ops.toml"
         );
+    }
 
-        // run_hook_dispatch's config-presence check used to load_config
-        // independently; verify the threaded config now drives that path.
-        // The test config has no `run-before-commit` command, so this
-        // dispatch falls into `prompt_hook_install`. Force the
-        // non-interactive bail path so a tty-attached `cargo test` run
-        // does not block on `inquire::Confirm`.
-        // #[serial] guards this from clobbering other tests.
-        std::env::set_var("OPS_NONINTERACTIVE", "1");
-        let _ = run_hook_dispatch(
+    /// TEST-25 / TASK-1312: pin the load-count invariant on the dispatch
+    /// branch that actually routes through `run_external_command`. The
+    /// previous combined test configured no `run-before-commit` command,
+    /// so the dispatch short-circuited into `prompt_hook_install` and the
+    /// assertion below could not have caught a regression that re-loaded
+    /// `.ops.toml` inside the configured-command path.
+    #[test]
+    #[serial_test::serial]
+    fn run_hook_dispatch_does_not_reload_config() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config(
+            r#"
+[commands.run-before-commit]
+program = "true"
+"#,
+        );
+
+        ops_core::config::reset_load_config_call_count();
+        let config = ops_core::config::load_config_or_default("test-early");
+        assert_eq!(
+            ops_core::config::load_config_call_count(),
+            1,
+            "early load should be the only load_config call so far"
+        );
+        assert!(
+            config.commands.contains_key("run-before-commit"),
+            "fixture must configure run-before-commit so dispatch enters the run_external_command branch"
+        );
+
+        // SKIP_OPS_RUN_BEFORE_COMMIT and OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS
+        // must not be set from the ambient env, or the should_skip branch
+        // would short-circuit before the run_external_command path.
+        let _skip_guard = EnvVarGuard::unset("SKIP_OPS_RUN_BEFORE_COMMIT");
+
+        let res = run_hook_dispatch(
             std::sync::Arc::new(config),
             &pre_hook_cmd::COMMIT_OPS,
             false,
         );
-        std::env::remove_var("OPS_NONINTERACTIVE");
+        // `true` exits 0, but propagate any spawn error so a CI environment
+        // without `/usr/bin/true` surfaces a clear failure instead of a
+        // confusing load-count mismatch.
+        res.expect("run_hook_dispatch over configured `true` command must succeed");
+
         assert_eq!(
             ops_core::config::load_config_call_count(),
             1,
-            "run_hook_dispatch must not reload .ops.toml"
+            "run_hook_dispatch must not reload .ops.toml on the configured-command (run_external_command) branch"
         );
+    }
+
+    /// RAII helper: remove an env var for the scope of a test and restore
+    /// the original value on drop. Local to this test module so the broader
+    /// test_utils surface does not grow another env-guard variant.
+    struct EnvVarGuard {
+        name: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn unset(name: &'static str) -> Self {
+            let original = std::env::var_os(name);
+            std::env::remove_var(name);
+            Self { name, original }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match self.original.take() {
+                Some(v) => std::env::set_var(self.name, v),
+                None => std::env::remove_var(self.name),
+            }
+        }
     }
 
     /// API-1 / TASK-1307: `--changed-only` against a hook with no preflight

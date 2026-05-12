@@ -113,7 +113,12 @@ fn parse_log_level<W: io::Write>(
     raw: Option<&str>,
     warn: &mut W,
 ) -> tracing_subscriber::filter::Directive {
-    let Some(v) = raw else {
+    // READ-7 / TASK-1379: treat unset and empty/whitespace-only the same.
+    // `OPS_LOG_LEVEL=` (e.g. `${LEVEL:-}` with `LEVEL` unset) maps to
+    // `Ok("")`, which would otherwise trip the directive parser and print a
+    // spurious "invalid OPS_LOG_LEVEL=''" warning on every CI run. Mirrors
+    // the empty-string handling in `env_flag_enabled` (subcommands.rs).
+    let Some(v) = raw.filter(|s| !s.trim().is_empty()) else {
         return tracing_subscriber::filter::LevelFilter::INFO.into();
     };
     // Bare `info`/`debug`/etc. is the documented form. Anything else (target
@@ -279,8 +284,46 @@ fn dispatch(
 
 /// CLI-level cwd lookup. The pre-resolved `Config` is threaded by the caller
 /// (TASK-0427) — we only need the current directory at the handler boundary.
+///
+/// ERR-9 / TASK-1369: attach an anyhow context so a failing `current_dir()`
+/// (deleted cwd, permission denied on a parent component, very long path)
+/// surfaces with the operation name rather than a bare
+/// `No such file or directory (os error 2)`. This helper is routed through
+/// by every CLI subcommand that needs cwd, so the context applies workspace-
+/// wide.
 pub(crate) fn cwd() -> anyhow::Result<PathBuf> {
-    Ok(std::env::current_dir()?)
+    use anyhow::Context as _;
+    std::env::current_dir().context("failed to read current working directory")
+}
+
+#[cfg(test)]
+mod cwd_tests {
+    use super::cwd;
+
+    /// ERR-9 / TASK-1369: when `std::env::current_dir()` fails, the error
+    /// surfaced to the user must carry the `failed to read current working
+    /// directory` context rather than a bare `No such file or directory (os
+    /// error 2)`. Reproduce a failing current_dir() by cwd'ing into a tempdir
+    /// and removing it from under ourselves. Linux/macOS only — Windows does
+    /// not let you remove the active cwd, so the failure mode does not exist
+    /// in the form ERR-9 documents.
+    #[cfg(unix)]
+    #[test]
+    fn cwd_attaches_context_when_current_dir_fails() {
+        // Acquire the process-wide CWD mutex via CwdGuard so this test does
+        // not race with other CWD-dependent tests; the guard's drop restores
+        // a valid cwd even though we delete the tempdir mid-test.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _guard = crate::CwdGuard::new(dir.path()).expect("CwdGuard");
+        std::fs::remove_dir(dir.path()).expect("remove cwd");
+
+        let err = cwd().expect_err("current_dir() must fail when cwd is gone");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("failed to read current working directory"),
+            "error must carry the cwd context, got: {msg}"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -334,6 +377,44 @@ mod log_level_tests {
         let mut buf: Vec<u8> = Vec::new();
         let _ = parse_log_level(None, &mut buf);
         assert!(buf.is_empty(), "no warning when unset");
+    }
+
+    /// READ-7 / TASK-1379: `OPS_LOG_LEVEL=` (set to empty) and
+    /// `OPS_LOG_LEVEL="   "` (whitespace only) must be treated the same as
+    /// unset. Without this, a CI matrix that uses `${LEVEL:-}` prints
+    /// `ops: warning: invalid OPS_LOG_LEVEL=''` on every invocation, drowning
+    /// real typos in the same channel.
+    #[test]
+    fn empty_string_writes_nothing() {
+        let mut buf: Vec<u8> = Vec::new();
+        let _ = parse_log_level(Some(""), &mut buf);
+        assert!(
+            buf.is_empty(),
+            "no warning for empty OPS_LOG_LEVEL, got: {buf:?}"
+        );
+    }
+
+    #[test]
+    fn whitespace_only_writes_nothing() {
+        let mut buf: Vec<u8> = Vec::new();
+        let _ = parse_log_level(Some("   "), &mut buf);
+        assert!(
+            buf.is_empty(),
+            "no warning for whitespace-only OPS_LOG_LEVEL, got: {buf:?}"
+        );
+    }
+
+    #[test]
+    fn empty_and_whitespace_return_info_default() {
+        for v in [Some(""), Some("   "), Some("\t\n"), None] {
+            let mut buf: Vec<u8> = Vec::new();
+            let directive = parse_log_level(v, &mut buf);
+            let s = format!("{directive}");
+            assert!(
+                s.contains("info"),
+                "{v:?} must yield INFO default, got: {s}"
+            );
+        }
     }
 
     #[test]

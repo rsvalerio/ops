@@ -36,6 +36,12 @@ fn run_init_to(
                 path = ?path.display(),
                 "ops.toml already exists; not overwriting (use --force to overwrite)"
             );
+            // API-1 / TASK-1326: mirror the warn through the same user-facing
+            // writer the success branch uses, so a no-op `ops init` reports
+            // its outcome on stdout. Without this the user only sees a
+            // tracing::warn line on stderr — invisible under `2>/dev/null` and
+            // asymmetric with the `--force` path that does write to stdout.
+            writeln!(w, ".ops.toml already exists; pass --force to overwrite")?;
             return Ok(());
         }
         Err(e) => return Err(e.into()),
@@ -71,76 +77,81 @@ fn run_init_to(
 ///   `ops_core::config::atomic_write` so the staged-temp + `rename(2)` +
 ///   parent-dir fsync hardening stays in one place.
 fn write_init(path: &Path, bytes: &[u8], force: bool) -> std::io::Result<()> {
-    if !force {
-        let mut f = OpenOptions::new().write(true).create_new(true).open(path)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        // SEC-25 (TASK-0730): persist the new directory entry so a crash
-        // between this return and the next sync(2) does not lose the
-        // `.ops.toml` link on ext4/xfs. The --force branch already gets
-        // this via `atomic_write`'s parent fsync (TASK-0340); the no-force
-        // path is the common case (first run in a clean repo), so the
-        // asymmetry was the loud bug. We cannot fold this branch into
-        // `atomic_write` without losing the `create_new` exclusion that
-        // gives no-force its "do not clobber" guarantee, hence the
-        // inline parent fsync mirroring config::edit::atomic_write.
-        // ERR-1 / TASK-1231: Windows `std::fs` exposes no portable
-        // directory-fsync analogue (FlushFileBuffers operates on file
-        // handles, not directory entries; the equivalent durability
-        // contract is normally obtained via the `MOVEFILE_WRITE_THROUGH`
-        // flag of MoveFileEx, which the no-force branch's `create_new`
-        // path does not exercise). Document the platform gap explicitly
-        // so operators reading the Unix branch's "may not survive a power
-        // loss" warning do not implicitly extend that guarantee to
-        // Windows. The --force branch goes through `atomic_write`, which
-        // surfaces the same Windows breadcrumb at the analogous site.
-        #[cfg(not(unix))]
-        {
-            tracing::debug!(
-                path = ?path.display(),
-                "no portable directory fsync on this platform; new .ops.toml may not \
-                 survive a power loss until the OS flushes its metadata"
-            );
-        }
-        #[cfg(unix)]
-        if let Some(parent) = path.parent() {
-            // Empty parent path means cwd; open(".") instead.
-            let parent = if parent.as_os_str().is_empty() {
-                Path::new(".")
-            } else {
-                parent
-            };
-            // ERR-1 / TASK-1096: mirror edit::atomic_write's TASK-0899 fix —
-            // a failing parent fsync (ENOSPC, EIO) is non-fatal because the
-            // file write has already returned success, but it is the only
-            // signal that crash-safety is currently broken. Warn rather than
-            // swallow. The parent open failure is also surfaced for the same
-            // reason: silently skipping the fsync hides the regression.
-            match std::fs::File::open(parent) {
-                Ok(dir) => {
-                    if let Err(e) = dir.sync_all() {
-                        // ERR-7 / TASK-1191: Debug-format the parent path so
-                        // a hostile cwd cannot forge log records.
-                        tracing::warn!(
-                            parent = ?parent.display(),
-                            error = %e,
-                            "directory fsync after .ops.toml create failed; new file may not survive a power loss"
-                        );
-                    }
-                }
-                Err(e) => {
-                    // ERR-7 / TASK-1191: Debug-format the parent path.
-                    tracing::warn!(
-                        parent = ?parent.display(),
-                        error = %e,
-                        "could not open parent directory to fsync after .ops.toml create; new file may not survive a power loss"
-                    );
-                }
+    if force {
+        return atomic_write(path, bytes);
+    }
+    let mut f = OpenOptions::new().write(true).create_new(true).open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    parent_fsync_after_create(path);
+    Ok(())
+}
+
+/// FN-1 / TASK-1320: parent-directory fsync after `create_new`, extracted out
+/// of `write_init` so the orchestrator reads as force-vs-no-force branching
+/// only. The unix branch mirrors `edit::atomic_write`'s open-or-warn /
+/// sync-or-warn ladder (TASK-0899 / TASK-1096); the non-unix branch documents
+/// the Windows portability gap (TASK-1231).
+///
+/// SEC-25 (TASK-0730): persist the new directory entry so a crash between the
+/// file-fsync above and the next sync(2) does not lose the `.ops.toml` link on
+/// ext4/xfs. The --force branch already gets this via `atomic_write`'s parent
+/// fsync (TASK-0340); the no-force path is the common case (first run in a
+/// clean repo), so the asymmetry was the loud bug. We cannot fold this branch
+/// into `atomic_write` without losing the `create_new` exclusion that gives
+/// no-force its "do not clobber" guarantee, hence the helper.
+#[cfg(unix)]
+fn parent_fsync_after_create(path: &Path) {
+    let Some(parent) = path.parent() else { return };
+    // Empty parent path means cwd; open(".") instead.
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    // ERR-1 / TASK-1096: a failing parent fsync (ENOSPC, EIO) is non-fatal
+    // because the file write has already returned success, but it is the only
+    // signal that crash-safety is currently broken. Warn rather than swallow.
+    // The parent open failure is also surfaced for the same reason: silently
+    // skipping the fsync hides the regression.
+    match std::fs::File::open(parent) {
+        Ok(dir) => {
+            if let Err(e) = dir.sync_all() {
+                // ERR-7 / TASK-1191: Debug-format the parent path so a hostile
+                // cwd cannot forge log records.
+                tracing::warn!(
+                    parent = ?parent.display(),
+                    error = %e,
+                    "directory fsync after .ops.toml create failed; new file may not survive a power loss"
+                );
             }
         }
-        return Ok(());
+        Err(e) => {
+            tracing::warn!(
+                parent = ?parent.display(),
+                error = %e,
+                "could not open parent directory to fsync after .ops.toml create; new file may not survive a power loss"
+            );
+        }
     }
-    atomic_write(path, bytes)
+}
+
+/// ERR-1 / TASK-1231: Windows `std::fs` exposes no portable directory-fsync
+/// analogue (FlushFileBuffers operates on file handles, not directory entries;
+/// the equivalent durability contract is normally obtained via the
+/// `MOVEFILE_WRITE_THROUGH` flag of MoveFileEx, which the no-force branch's
+/// `create_new` path does not exercise). Document the platform gap explicitly
+/// so operators reading the Unix branch's "may not survive a power loss"
+/// warning do not implicitly extend that guarantee to Windows. The --force
+/// branch goes through `atomic_write`, which surfaces the same Windows
+/// breadcrumb at the analogous site.
+#[cfg(not(unix))]
+fn parent_fsync_after_create(path: &Path) {
+    tracing::debug!(
+        path = ?path.display(),
+        "no portable directory fsync on this platform; new .ops.toml may not \
+         survive a power loss until the OS flushes its metadata"
+    );
 }
 
 #[cfg(test)]
@@ -330,6 +341,45 @@ mod tests {
         assert!(!rendered.contains('\n'));
         assert!(!rendered.contains('\u{1b}'));
         assert!(rendered.contains("\\n"));
+    }
+
+    /// API-1 / TASK-1326: `ops init` over an existing `.ops.toml` must write a
+    /// visible "already exists; pass --force" line through the test-injectable
+    /// writer, not only via tracing. Previously the AlreadyExists arm emitted a
+    /// `tracing::warn!` and returned `Ok(())` with no stdout output, so users
+    /// scripting `ops init 2>/dev/null` saw nothing at all and reasonably
+    /// concluded the file had been created.
+    #[test]
+    fn run_init_to_already_exists_writes_hint_to_writer() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config("existing");
+        let mut buf = Vec::new();
+        run_init_to(false, default_sections(), &mut buf)
+            .expect("run_init_to (already-exists noop)");
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("already exists"),
+            "AlreadyExists arm must mirror the warn through the writer, got: {output:?}"
+        );
+        assert!(
+            output.contains("--force"),
+            "hint must mention the --force escape hatch, got: {output:?}"
+        );
+    }
+
+    /// FN-1 / TASK-1320: smoke test for the extracted `parent_fsync_after_create`
+    /// helper. Direct fault injection (ENOSPC/EIO) is impractical from a test;
+    /// pin that the helper runs cleanly for an existing parent on both unix
+    /// and non-unix builds (the non-unix branch is a tracing breadcrumb-only
+    /// no-op). The orchestrator-level symmetry is covered by
+    /// `write_init_force_and_no_force_produce_identical_bytes`.
+    #[test]
+    fn parent_fsync_after_create_runs_for_existing_parent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join(".ops.toml");
+        std::fs::write(&file, b"x").expect("seed");
+        // Must not panic and must not return — the helper swallows errors as
+        // tracing warnings by contract.
+        parent_fsync_after_create(&file);
     }
 
     #[test]
