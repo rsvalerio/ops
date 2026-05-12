@@ -1,5 +1,6 @@
 //! `ops about setup` — interactively choose about card fields.
 
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::Path;
 
@@ -17,6 +18,7 @@ pub fn run_about_setup(
         config,
         data_registry,
         workspace_root,
+        &mut std::io::stdout(),
         crate::tty::is_stdout_tty,
     )
 }
@@ -25,6 +27,7 @@ fn run_about_setup_with<F>(
     config: &ops_core::config::Config,
     data_registry: &DataRegistry,
     workspace_root: &Path,
+    w: &mut dyn Write,
     is_tty: F,
 ) -> anyhow::Result<()>
 where
@@ -50,12 +53,19 @@ where
         })
         .collect();
 
+    // PERF-3 / TASK-1332: probe the set of currently-enabled field ids in
+    // O(1) per candidate instead of an O(N*M) `Vec::any` scan; field
+    // counts grow with extension count and this path is hit on every render
+    // / re-configure.
+    let enabled_set: Option<HashSet<&str>> =
+        currently_enabled.map(|fields| fields.iter().map(String::as_str).collect());
+
     let defaults: Vec<usize> = about_fields
         .iter()
         .enumerate()
-        .filter(|(_, f)| match currently_enabled {
+        .filter(|(_, f)| match &enabled_set {
             None => true,
-            Some(fields) => fields.iter().any(|enabled| enabled == f.id),
+            Some(set) => set.contains(f.id),
         })
         .map(|(i, _)| i)
         .collect();
@@ -68,11 +78,14 @@ where
 
     save_about_fields(&field_ids, workspace_root)?;
 
-    writeln!(
-        std::io::stdout(),
-        "About card will show: {}",
-        field_ids.join(", ")
-    )?;
+    write_about_setup_confirmation(w, &field_ids)
+}
+
+/// TASK-1343 / READ-5: post-prompt confirmation rendering split out so unit
+/// tests can drive the message text against a `Vec<u8>` without a TTY. The
+/// public entry threads `std::io::stdout()` through; tests buffer-capture.
+fn write_about_setup_confirmation(w: &mut dyn Write, field_ids: &[String]) -> anyhow::Result<()> {
+    writeln!(w, "About card will show: {}", field_ids.join(", "))?;
     Ok(())
 }
 
@@ -118,12 +131,30 @@ mod tests {
         let registry = DataRegistry::new();
         let config = ops_core::config::Config::empty();
         let dir = tempfile::tempdir().expect("tempdir");
-        let result = run_about_setup_with(&config, &registry, dir.path(), || false);
+        let mut buf = Vec::new();
+        let result = run_about_setup_with(&config, &registry, dir.path(), &mut buf, || false);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
             .contains("interactive terminal"));
+        assert!(buf.is_empty(), "non-TTY path must not write anything");
+    }
+
+    /// TASK-1343 / READ-5: pin the post-prompt confirmation message. The
+    /// `inquire::MultiSelect` picker requires a TTY, but the confirmation
+    /// rendering is deterministic format-and-write — exercising
+    /// `write_about_setup_confirmation` directly covers the happy-path
+    /// message without emulating a terminal.
+    #[test]
+    fn write_about_setup_confirmation_renders_joined_fields() {
+        let mut buf = Vec::new();
+        write_about_setup_confirmation(&mut buf, &["project".to_string(), "codebase".to_string()])
+            .expect("write_about_setup_confirmation");
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "About card will show: project, codebase\n"
+        );
     }
 
     #[test]

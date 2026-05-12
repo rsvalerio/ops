@@ -35,6 +35,7 @@ mod init_cmd;
 mod new_command_cmd;
 mod pre_hook_cmd;
 mod registry;
+mod row;
 mod run_cmd;
 mod subcommands;
 mod theme_cmd;

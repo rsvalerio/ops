@@ -9,7 +9,6 @@ use anyhow::Context;
 use ops_core::config;
 use ops_core::config::ensure_table;
 use ops_core::output::display_width;
-use ops_core::style;
 
 fn parse_default_config() -> Result<ops_core::config::Config, anyhow::Error> {
     toml::from_str::<ops_core::config::Config>(config::default_ops_toml())
@@ -23,12 +22,7 @@ fn parse_default_config() -> Result<ops_core::config::Config, anyhow::Error> {
 /// boolean. Aligned with the OnceLock discipline used by
 /// `crates/core/src/expand.rs::TMPDIR_DISPLAY` and
 /// `crates/core/src/text.rs::MANIFEST_MAX_BYTES`.
-///
-/// The leak into `&'static str` is bounded — the embedded default config
-/// declares a finite, compile-time-fixed set of theme names — and the
-/// allocations live for the lifetime the cache itself would (process
-/// lifetime).
-static BUILTIN_THEME_NAMES: OnceLock<HashSet<&'static str>> = OnceLock::new();
+static BUILTIN_THEME_NAMES: OnceLock<HashSet<String>> = OnceLock::new();
 
 /// ERR-1 / TASK-1298: panic message used when the embedded default config
 /// fails to parse. The embedded TOML is compiled into the binary
@@ -39,13 +33,12 @@ static BUILTIN_THEME_NAMES: OnceLock<HashSet<&'static str>> = OnceLock::new();
 /// the process lifetime.
 const EMBEDDED_DEFAULT_CONFIG_PARSE_EXPECT: &str = "embedded default config must parse";
 
-fn builtin_theme_names() -> &'static HashSet<&'static str> {
+fn builtin_theme_names() -> &'static HashSet<String> {
     BUILTIN_THEME_NAMES.get_or_init(|| {
         parse_default_config()
             .expect(EMBEDDED_DEFAULT_CONFIG_PARSE_EXPECT)
             .themes
             .into_keys()
-            .map(|name| -> &'static str { Box::leak(name.into_boxed_str()) })
             .collect()
     })
 }
@@ -66,7 +59,7 @@ fn collect_theme_options(config: &ops_core::config::Config) -> Vec<ThemeOption> 
                 .as_deref()
                 .unwrap_or("Custom theme")
                 .to_string(),
-            is_custom: !builtins.contains(name.as_str()),
+            is_custom: !builtins.contains(name),
         })
         .collect();
 
@@ -82,15 +75,16 @@ pub fn run_theme_list(config: &config::Config) -> anyhow::Result<()> {
 }
 
 fn run_theme_list_to(config: &config::Config, w: &mut dyn Write) -> anyhow::Result<()> {
-    let is_tty = crate::tty::is_stdout_tty();
-
     let options = collect_theme_options(config);
 
     // READ-2 (TASK-0936): theme names are user-supplied via `[themes.<name>]`
     // and may contain CJK / emoji / combining marks. Mirror the
     // tools_cmd / help.rs alignment pattern (TASK-0758 / TASK-0734): measure
-    // by `display_width` and emit padding via a manual space-pad loop instead
-    // of the `{:width$}` format spec (which counts chars, not display cells).
+    // by `display_width` so wide characters and emoji align with ASCII names
+    // in the same column. DUP-3 / TASK-1335: row styling (cyan name, dim
+    // description + marker, padded to `max_name_width`) routes through
+    // [`crate::row::write_list_row`] so the `theme list` and `tools list`
+    // surfaces share a single colour / padding policy.
     let max_name_width = options
         .iter()
         .map(|o| display_width(&o.name))
@@ -98,19 +92,18 @@ fn run_theme_list_to(config: &config::Config, w: &mut dyn Write) -> anyhow::Resu
         .unwrap_or(0);
 
     for option in options {
-        let marker = if option.is_custom { " (custom)" } else { "" };
-        let padded_name = ops_core::output::pad_to_display_width(&option.name, max_name_width);
-        if is_tty {
-            writeln!(
-                w,
-                "  {}   {}{}",
-                style::cyan(&padded_name),
-                style::dim(&option.description),
-                style::dim(marker),
-            )?;
-        } else {
-            writeln!(w, "{}   {}{}", padded_name, option.description, marker)?;
-        }
+        let marker = theme_custom_marker(option.is_custom);
+        crate::row::write_list_row(
+            w,
+            crate::row::ListRow {
+                leading: "  ",
+                name: &option.name,
+                name_width: max_name_width,
+                gap: "   ",
+                description: &option.description,
+                suffix: marker,
+            },
+        )?;
     }
 
     Ok(())
@@ -132,12 +125,18 @@ fn run_theme_list_to(config: &config::Config, w: &mut dyn Write) -> anyhow::Resu
 /// 2. Use a TTY emulation library
 /// 3. Run manual testing with `cargo ops theme select`
 pub fn run_theme_select(config: &config::Config, workspace_root: &Path) -> anyhow::Result<()> {
-    run_theme_select_with_tty_check(config, workspace_root, crate::tty::is_stdout_tty)
+    run_theme_select_with_tty_check(
+        config,
+        workspace_root,
+        &mut std::io::stdout(),
+        crate::tty::is_stdout_tty,
+    )
 }
 
 fn run_theme_select_with_tty_check<F>(
     config: &config::Config,
     workspace_root: &Path,
+    w: &mut dyn Write,
     is_tty: F,
 ) -> anyhow::Result<()>
 where
@@ -165,18 +164,26 @@ where
         .with_starting_cursor(starting_cursor)
         .prompt()?;
 
-    if selected.name == *current_theme {
-        writeln!(
-            std::io::stdout(),
-            "Theme already set to '{}'",
-            selected.name
-        )?;
+    write_theme_select_result(w, &selected.name, current_theme, workspace_root)
+}
+
+/// TASK-1321 / READ-5: post-prompt result rendering split out so unit tests
+/// can drive the happy-path message text (both "already set" and "set to")
+/// against a `Vec<u8>` buffer without spinning up a TTY for the picker.
+fn write_theme_select_result(
+    w: &mut dyn Write,
+    selected_name: &str,
+    current_theme: &str,
+    workspace_root: &Path,
+) -> anyhow::Result<()> {
+    if selected_name == current_theme {
+        writeln!(w, "Theme already set to '{}'", selected_name)?;
         return Ok(());
     }
 
-    update_theme_in_config(workspace_root, &selected.name)?;
+    update_theme_in_config(workspace_root, selected_name)?;
 
-    writeln!(std::io::stdout(), "Theme set to '{}'", selected.name)?;
+    writeln!(w, "Theme set to '{}'", selected_name)?;
     Ok(())
 }
 
@@ -186,10 +193,32 @@ struct ThemeOption {
     is_custom: bool,
 }
 
+/// READ-2 / TASK-1346: shared "(custom)" suffix used by both surfaces that
+/// render `ThemeOption` — the `theme list` table (`run_theme_list_to`) and the
+/// `theme select` picker (`Display`). Centralising prevents the two surfaces
+/// from drifting on marker text / position.
+fn theme_custom_marker(is_custom: bool) -> &'static str {
+    if is_custom {
+        " (custom)"
+    } else {
+        ""
+    }
+}
+
 impl std::fmt::Display for ThemeOption {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let marker = if self.is_custom { " (custom)" } else { "" };
-        write!(f, "{}{} - {}", self.name, marker, self.description)
+        // READ-2 / TASK-1346: mirror the `theme list` row order
+        // (`name   description{marker}`) so a user running both surfaces sees
+        // the same shape (sans column padding / colour) — the list adds
+        // alignment padding around `name` and TTY colour, the picker omits
+        // both since inquire's prompt does its own selection-cursor styling.
+        write!(
+            f,
+            "{}   {}{}",
+            self.name,
+            self.description,
+            theme_custom_marker(self.is_custom),
+        )
     }
 }
 
@@ -227,16 +256,40 @@ fn update_toml_theme(content: &str, theme_name: &str) -> String {
 mod tests {
     use super::*;
 
+    /// TEST-25 / TASK-1363: the injection-defence contract is that a
+    /// malicious theme name cannot break out of its string-value slot and
+    /// inject new TOML structure. Pin three observable properties:
+    ///   1. surrounding `[output]` keys survive unchanged,
+    ///   2. the rewritten document parses without errors,
+    ///   3. `[output]` contains only the expected keys — no payload-leaked
+    ///      sibling entries from a successful injection.
+    /// A regression that pasted the raw payload byte-for-byte (breaking
+    /// neighbour keys) would have silently passed the prior round-trip-only
+    /// assertion.
     #[test]
     fn update_toml_theme_injection_prevention() {
         let input = r#"[output]
 theme = "compact"
+columns = 80
 "#;
         let malicious = r#"malicious"theme"#;
         let result = update_toml_theme(input, malicious);
-        // Verify the output is valid TOML that round-trips correctly
-        let doc: toml_edit::DocumentMut = result.parse().expect("valid TOML");
+        let doc: toml_edit::DocumentMut = result.parse().expect("rewritten TOML must parse");
         assert_eq!(doc["output"]["theme"].as_str().unwrap(), malicious);
+        assert_eq!(
+            doc["output"]["columns"].as_integer().unwrap(),
+            80,
+            "sibling key under [output] must survive the rewrite unchanged"
+        );
+        let output_table = doc["output"]
+            .as_table()
+            .expect("[output] must remain a table");
+        let keys: Vec<&str> = output_table.iter().map(|(k, _)| k).collect();
+        assert_eq!(
+            keys,
+            vec!["theme", "columns"],
+            "[output] must contain only the expected keys — no payload-leaked siblings"
+        );
     }
 
     #[test]
@@ -293,6 +346,49 @@ build = "cargo build"
         assert!(display.contains("(custom)"));
     }
 
+    /// READ-2 / TASK-1346: the `theme list` row and the `theme select` picker
+    /// (Display) render `ThemeOption` with the same shape — `name`, then
+    /// description, then `(custom)` marker. List adds column padding and TTY
+    /// colour around the name; the picker omits both. The (name, description,
+    /// marker) ordering and the `   ` separator are the shared contract that
+    /// keeps the two operator-facing surfaces from drifting.
+    #[test]
+    fn theme_option_display_matches_list_row_shape() {
+        let mut config = ops_core::config::Config::empty();
+        config.themes.insert(
+            "my-theme".to_string(),
+            ops_core::config::theme_types::ThemeConfig {
+                description: Some("Custom theme".to_string()),
+                ..ops_core::config::theme_types::ThemeConfig::classic()
+            },
+        );
+
+        let mut buf = Vec::new();
+        run_theme_list_to(&config, &mut buf).expect("run_theme_list_to");
+        let list_output = String::from_utf8(buf).unwrap();
+
+        let opt = ThemeOption {
+            name: "my-theme".to_string(),
+            description: "Custom theme".to_string(),
+            is_custom: true,
+        };
+        let display = format!("{}", opt);
+
+        // Both surfaces produce the same `name   description (custom)` ordering.
+        assert_eq!(display, "my-theme   Custom theme (custom)");
+        let list_line = list_output
+            .lines()
+            .find(|l| l.contains("my-theme"))
+            .expect("my-theme row in list output");
+        // List row carries the same suffix order: description before marker.
+        let desc_idx = list_line.find("Custom theme").expect("description");
+        let marker_idx = list_line.find("(custom)").expect("marker");
+        assert!(
+            marker_idx > desc_idx,
+            "list row must render description before the (custom) marker like Display: {list_line}"
+        );
+    }
+
     /// ERR-1 / TASK-1298: pin the loud-failure contract. The embedded
     /// default config is compiled in, so a parse failure is a compile-time
     /// invariant violation. `builtin_theme_names` must panic with the
@@ -337,12 +433,45 @@ build = "cargo build"
     fn run_theme_select_non_tty_returns_error() {
         let config = ops_core::config::Config::empty();
         let dir = tempfile::tempdir().expect("tempdir");
-        let result = run_theme_select_with_tty_check(&config, dir.path(), || false);
+        let mut buf = Vec::new();
+        let result = run_theme_select_with_tty_check(&config, dir.path(), &mut buf, || false);
         assert!(result.is_err(), "run_theme_select should fail without TTY");
         assert!(result
             .unwrap_err()
             .to_string()
             .contains("interactive terminal"));
+        assert!(buf.is_empty(), "non-TTY path must not write anything");
+    }
+
+    /// TASK-1321 / READ-5: pin the happy-path message text against an
+    /// in-memory buffer. The picker itself still requires a TTY, but the
+    /// post-prompt rendering is deterministic format-and-write — exercising
+    /// `write_theme_select_result` directly covers both branches without
+    /// emulating a terminal.
+    #[test]
+    fn write_theme_select_result_already_set_message() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut buf = Vec::new();
+        write_theme_select_result(&mut buf, "classic", "classic", dir.path())
+            .expect("write_theme_select_result");
+        let out = String::from_utf8(buf).unwrap();
+        assert_eq!(out, "Theme already set to 'classic'\n");
+        assert!(
+            !dir.path().join(".ops.toml").exists(),
+            "no-op path must not touch .ops.toml"
+        );
+    }
+
+    #[test]
+    fn write_theme_select_result_set_to_message() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut buf = Vec::new();
+        write_theme_select_result(&mut buf, "compact", "classic", dir.path())
+            .expect("write_theme_select_result");
+        let out = String::from_utf8(buf).unwrap();
+        assert_eq!(out, "Theme set to 'compact'\n");
+        let written = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
+        assert!(written.contains("theme = \"compact\""), "got: {written}");
     }
 
     #[test]

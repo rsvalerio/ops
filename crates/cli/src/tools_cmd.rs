@@ -1,6 +1,5 @@
 //! CLI handler for `cargo ops tools` subcommands.
 
-use indexmap::IndexMap;
 use std::borrow::Cow;
 use std::io::Write;
 use std::process::ExitCode;
@@ -8,7 +7,11 @@ use std::process::ExitCode;
 use ops_core::config::Config;
 use ops_core::output::display_width;
 use ops_core::style::{cyan, dim, green, red};
-use ops_tools::{collect_tools, install_tool, ToolInfo, ToolSource, ToolSpec, ToolStatus};
+
+use crate::row::{write_list_row, ListRow};
+use ops_tools::{
+    collect_tool_one, collect_tools, install_tool, ToolInfo, ToolSource, ToolSpec, ToolStatus,
+};
 
 fn load_tools(config: &Config) -> Vec<ToolInfo> {
     collect_tools(&config.tools)
@@ -33,7 +36,10 @@ fn render_tools_list(tools: &[ToolInfo], w: &mut dyn Write) -> anyhow::Result<()
     writeln!(w, "Tools configured: {}\n", tools.len())?;
 
     // DUP-3 / TASK-1235: column padding routes through the shared
-    // [`ops_core::output::pad_to_display_width`] helper.
+    // [`ops_core::output::pad_to_display_width`] helper. DUP-3 / TASK-1335:
+    // styled row rendering (cyan name, dim description + status text) routes
+    // through [`crate::row::write_list_row`] so this surface shares its
+    // colour / padding policy with `theme list`.
     let max_name_width = tools
         .iter()
         .map(|t| display_width(&t.name))
@@ -57,14 +63,17 @@ fn render_tools_list(tools: &[ToolInfo], w: &mut dyn Write) -> anyhow::Result<()
             ),
         };
 
-        let padded_name = ops_core::output::pad_to_display_width(&tool.name, max_name_width);
-        writeln!(
+        let leading = format!("  {status_icon} ");
+        write_list_row(
             w,
-            "  {} {}  {}{}",
-            status_icon,
-            cyan(&padded_name),
-            dim(&tool.description),
-            dim(&status_text)
+            ListRow {
+                leading: &leading,
+                name: &tool.name,
+                name_width: max_name_width,
+                gap: "  ",
+                description: &tool.description,
+                suffix: &status_text,
+            },
         )?;
     }
 
@@ -140,24 +149,25 @@ fn run_tools_install_to(
     w: &mut dyn Write,
     err: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
-    // Named path constructs a single-entry map because `collect_tools` /
-    // `install_missing_tools` consume `&IndexMap<String, ToolSpec>` keyed by
-    // the tool name; the unnamed path borrows `config.tools` directly so we
-    // skip the deep-clone of every ToolSpec on the install hot path.
-    let single_entry: Option<IndexMap<String, ToolSpec>> = if let Some(tool_name) = name {
+    // PATTERN-1 / TASK-1345: borrow the spec(s) directly from `config.tools`
+    // instead of materialising a single-entry `IndexMap` by cloning. Both
+    // paths now thread the same `(name, spec)` slice into `install_missing`,
+    // so the named-install hot path is allocation-free.
+    let named_spec: Option<(&str, &ToolSpec)> = if let Some(tool_name) = name {
         let spec = config
             .tools
             .get(tool_name)
-            .cloned()
             .ok_or_else(|| anyhow::anyhow!("tool not found: {}", tool_name))?;
-        Some([(tool_name.to_string(), spec)].into_iter().collect())
+        Some((tool_name, spec))
     } else {
         None
     };
-    let tools_to_install: &IndexMap<String, ToolSpec> =
-        single_entry.as_ref().unwrap_or(&config.tools);
 
-    let tools = collect_tools(tools_to_install);
+    let tools: Vec<ToolInfo> = if let Some((tool_name, spec)) = named_spec {
+        vec![collect_tool_one(tool_name, spec)]
+    } else {
+        collect_tools(&config.tools)
+    };
 
     let missing: Vec<&ToolInfo> = tools
         .iter()
@@ -171,7 +181,15 @@ fn run_tools_install_to(
 
     writeln!(w, "Installing {} missing tool(s)...\n", missing.len())?;
 
-    let (installed, failed) = install_missing_tools(&missing, tools_to_install, w, err)?;
+    let spec_for = |n: &str| -> Option<&ToolSpec> {
+        match &named_spec {
+            Some((named, spec)) if *named == n => Some(*spec),
+            Some(_) => None,
+            None => config.tools.get(n),
+        }
+    };
+
+    let (installed, failed) = install_missing_tools(&missing, spec_for, w, err)?;
 
     writeln!(w)?;
     let already_present = tools.len() - missing.len();
@@ -192,17 +210,20 @@ fn run_tools_install_to(
     }
 }
 
-fn install_missing_tools(
+fn install_missing_tools<'a, F>(
     missing: &[&ToolInfo],
-    specs: &IndexMap<String, ToolSpec>,
+    spec_for: F,
     w: &mut dyn Write,
     err: &mut dyn Write,
-) -> anyhow::Result<(usize, usize)> {
+) -> anyhow::Result<(usize, usize)>
+where
+    F: Fn(&str) -> Option<&'a ToolSpec>,
+{
     let mut installed = 0;
     let mut failed = 0;
 
     for tool in missing {
-        let Some(spec) = specs.get(&tool.name) else {
+        let Some(spec) = spec_for(&tool.name) else {
             writeln!(
                 err,
                 "  {} internal error: spec not found for {}",

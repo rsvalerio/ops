@@ -137,6 +137,24 @@ pub fn collect_tools_with(
         .collect()
 }
 
+/// PATTERN-1 / TASK-1345: probe a single tool without first allocating a
+/// single-entry `IndexMap`. The CLI's named-install path (`ops tools install
+/// <name>`) consumes the only tool in `config.tools.get(name)` by reference;
+/// the prior shape cloned the `ToolSpec` into a one-entry map purely to fit
+/// the `collect_tools(&IndexMap)` signature. This helper skips the clone and
+/// the global cargo-list / rustup-components / PATH index captures —
+/// `check_tool_status` already falls back to per-tool probing when those are
+/// `None`, which is the right policy for a single-tool query.
+#[must_use]
+pub fn collect_tool_one(name: &str, spec: &ToolSpec) -> ToolInfo {
+    ToolInfo {
+        name: name.to_string(),
+        description: spec.description().to_string(),
+        status: probe::check_tool_status(name, spec),
+        has_rustup_component: spec.rustup_component().is_some(),
+    }
+}
+
 pub fn collect_tools(tools: &IndexMap<String, ToolSpec>) -> Vec<ToolInfo> {
     let needs_cargo = tools
         .values()

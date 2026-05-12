@@ -38,11 +38,7 @@ pub(crate) fn run_about(
         Some(AboutAction::Setup) => about_cmd::run_about_setup(config, &registry, &cwd),
         #[cfg(feature = "duckdb")]
         Some(AboutAction::Code) => ops_about::run_about_code(&registry),
-        #[cfg(not(feature = "duckdb"))]
-        Some(AboutAction::Code) => {
-            anyhow::bail!("about code requires the duckdb feature");
-        }
-        Some(AboutAction::Crates | AboutAction::Modules) => ops_about::run_about_units(&registry),
+        Some(AboutAction::Crates) => ops_about::run_about_units(&registry),
         Some(AboutAction::Coverage) => ops_about::run_about_coverage(&registry),
         Some(AboutAction::Dependencies) => ops_about::run_about_deps(&registry),
         None => {

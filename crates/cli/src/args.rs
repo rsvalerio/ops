@@ -159,14 +159,23 @@ pub enum AboutAction {
     Setup,
     /// Display detailed test coverage table.
     Coverage,
+    /// API-1 / TASK-1381: `about code` renders DuckDB-backed code statistics
+    /// (LOC by language). Gating the variant under the `duckdb` feature
+    /// keeps the CLI surface honest — without DuckDB the binary has no way
+    /// to compute the stats, so the subcommand simply doesn't exist in help
+    /// / parse / tab completion instead of bailing at runtime after a
+    /// successful parse.
+    #[cfg(feature = "duckdb")]
     /// Display code statistics (lines of code, languages).
     Code,
     /// Display dependency tree.
     Dependencies,
-    /// Display crate cards.
+    /// API-1 / TASK-1373: `crates` and `modules` render the same stack-aware
+    /// project-units view via `ops_about::run_about_units`; the alias keeps
+    /// the Go-idiomatic name working without duplicating dispatch.
+    #[command(alias = "modules")]
+    /// Display project units — crates (Rust) or modules (Go).
     Crates,
-    /// Display workspace modules (go.work / go.mod).
-    Modules,
 }
 
 /// Extension management subcommands.
@@ -482,6 +491,58 @@ mod tests {
             }
             other => panic!("expected About with refresh, got {:?}", other),
         }
+    }
+
+    /// API-1 / TASK-1373: `ops about modules` must continue to parse — it is
+    /// the Go-idiomatic alias for the stack-aware project-units view
+    /// (`AboutAction::Crates`).
+    #[test]
+    fn parse_about_modules_aliases_crates() {
+        let cli = Cli::parse_from(["ops", "about", "modules"]);
+        match cli.subcommand {
+            Some(CoreSubcommand::About { action, .. }) => {
+                assert!(matches!(action, Some(AboutAction::Crates)));
+            }
+            other => panic!("expected About::Crates via modules alias, got {:?}", other),
+        }
+    }
+
+    /// API-1 / TASK-1381: under a build without the `duckdb` feature the
+    /// `about code` subcommand must not appear in `about`'s help output —
+    /// the binary cannot compute the stats so the CLI surface must reflect
+    /// that. Mirrors the `Tools` gating already in place.
+    #[cfg(not(feature = "duckdb"))]
+    #[test]
+    fn about_code_not_in_help_without_duckdb_feature() {
+        let cmd = Cli::command();
+        let about = cmd
+            .find_subcommand("about")
+            .expect("about subcommand must exist");
+        let names: Vec<&str> = about
+            .get_subcommands()
+            .map(clap::Command::get_name)
+            .collect();
+        assert!(
+            !names.contains(&"code"),
+            "about subcommands without duckdb must not include `code`: {names:?}"
+        );
+    }
+
+    #[cfg(feature = "duckdb")]
+    #[test]
+    fn about_code_in_help_with_duckdb_feature() {
+        let cmd = Cli::command();
+        let about = cmd
+            .find_subcommand("about")
+            .expect("about subcommand must exist");
+        let names: Vec<&str> = about
+            .get_subcommands()
+            .map(clap::Command::get_name)
+            .collect();
+        assert!(
+            names.contains(&"code"),
+            "about subcommands with duckdb must include `code`: {names:?}"
+        );
     }
 
     #[test]

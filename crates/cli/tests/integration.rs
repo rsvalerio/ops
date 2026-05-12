@@ -626,20 +626,81 @@ timeout_secs = 5
 
 // -- About smoke tests (require stack-rust; run with --features stack-rust) --
 
+/// TEST-11 / TASK-1367: pin a stable about-card marker rather than the
+/// near-tautological binary name "ops" (which also appears in help, errors,
+/// and version banners on any successful run). The `project` field label is
+/// part of the rendered about-card contract — a regression where the about
+/// header silently fails to render would no longer satisfy this assertion.
 #[test]
 #[cfg_attr(not(feature = "stack-rust"), ignore)]
 fn cli_about_shows_header() {
+    let dir = temp_dir();
+    write_ops_toml(
+        dir.path(),
+        r#"
+[output]
+theme = "classic"
+
+[about]
+fields = ["project"]
+"#,
+    );
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .expect("write Cargo.toml");
     ops()
         .arg("about")
+        .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("ops"));
+        .stdout(predicate::str::contains("project"))
+        .stdout(predicate::str::contains("demo"));
 }
 
+/// TEST-25 / TASK-1364: assert that `about --refresh` actually exercises the
+/// live about-render path (project_identity provider + card render). The
+/// previous assertion-only-on-`.success()` shape would have passed a
+/// regression that silently ignored `--refresh` and emitted nothing; pin
+/// the rendered card content via the same stable `project` marker that
+/// `cli_about_shows_header` uses, and seed `.ops.toml` with `[about].fields`
+/// so the field-filter does not erase the marker.
 #[test]
 #[cfg_attr(not(feature = "stack-rust"), ignore)]
 fn cli_about_refresh_flag() {
-    ops().arg("about").arg("--refresh").assert().success();
+    let dir = temp_dir();
+    write_ops_toml(
+        dir.path(),
+        r#"
+[output]
+theme = "classic"
+
+[about]
+fields = ["project"]
+"#,
+    );
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .expect("write Cargo.toml");
+    ops()
+        .arg("about")
+        .arg("--refresh")
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("project"))
+        .stdout(predicate::str::contains("demo"));
 }
 
 // -- TQ-017: Malformed .ops.d/ handling --

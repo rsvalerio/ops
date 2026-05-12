@@ -801,13 +801,13 @@ mod raw_warnings_tests {
 
     #[test]
     fn raw_with_tap_emits_warning() {
-        let logs = capture(|| emit_raw_warnings(false, true));
+        let logs = capture(|| emit_raw_warnings(false, true, false));
         assert!(logs.contains("--tap is ignored under --raw"), "got: {logs}");
     }
 
     #[test]
     fn raw_with_parallel_emits_warning() {
-        let logs = capture(|| emit_raw_warnings(true, false));
+        let logs = capture(|| emit_raw_warnings(true, false, false));
         assert!(
             logs.contains("--raw forces sequential execution"),
             "got: {logs}"
@@ -816,15 +816,44 @@ mod raw_warnings_tests {
 
     #[test]
     fn raw_with_both_emits_two_warnings() {
-        let logs = capture(|| emit_raw_warnings(true, true));
+        let logs = capture(|| emit_raw_warnings(true, true, false));
         assert!(logs.contains("--tap is ignored"), "got: {logs}");
         assert!(logs.contains("--raw forces sequential"), "got: {logs}");
     }
 
     #[test]
     fn raw_clean_emits_nothing() {
-        let logs = capture(|| emit_raw_warnings(false, false));
+        let logs = capture(|| emit_raw_warnings(false, false, false));
         assert!(logs.is_empty(), "unexpected output: {logs}");
+    }
+
+    /// ERR-1 / TASK-1376: `--raw -v` previously emitted nothing — raw mode
+    /// inherits child stdio directly so the verbose stderr-tail policy has
+    /// nothing to act on, and the user spent minutes wondering why `-v` had
+    /// no effect. Mirrors the existing parallel/tap warning shape.
+    #[test]
+    fn raw_with_verbose_emits_warning() {
+        let logs = capture(|| emit_raw_warnings(false, false, true));
+        assert!(
+            logs.contains("--verbose is ignored under --raw"),
+            "got: {logs}"
+        );
+    }
+
+    /// ERR-1 / TASK-1376: dry-run gets the symmetric `--verbose` warning —
+    /// dry-run never executes children, so the stderr-tail policy is
+    /// equally a no-op there.
+    #[test]
+    fn dry_run_with_verbose_emits_warning() {
+        let logs = capture(|| {
+            for m in super::dry_run_overrides_messages(false, false, true) {
+                tracing::warn!("{m}");
+            }
+        });
+        assert!(
+            logs.contains("--verbose is ignored under --dry-run"),
+            "got: {logs}"
+        );
     }
 
     /// CL-5 / TASK-0755: the single-command `--raw` path used to inline its
@@ -841,7 +870,7 @@ mod raw_warnings_tests {
             .build();
         let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
         let logs = capture(|| {
-            let _ = run_command_raw(&runner, "echo_one", true);
+            let _ = run_command_raw(&runner, "echo_one", true, false);
         });
         let tap_warnings = logs.matches("--tap is ignored").count();
         assert_eq!(
@@ -1015,7 +1044,7 @@ mod merge_plan_nested_aggregation_tests {
 mod dry_run_override_warnings_tests {
     #[test]
     fn dry_run_overrides_messages_emits_for_raw() {
-        let msgs = super::super::dry_run_overrides_messages(true, false);
+        let msgs = super::super::dry_run_overrides_messages(true, false, false);
         assert_eq!(msgs.len(), 1, "raw alone must produce exactly one message");
         assert!(
             msgs[0].contains("--raw is ignored under --dry-run"),
@@ -1025,7 +1054,7 @@ mod dry_run_override_warnings_tests {
 
     #[test]
     fn dry_run_overrides_messages_emits_for_tap() {
-        let msgs = super::super::dry_run_overrides_messages(false, true);
+        let msgs = super::super::dry_run_overrides_messages(false, true, false);
         assert_eq!(msgs.len(), 1, "tap alone must produce exactly one message");
         assert!(
             msgs[0].contains("--tap is ignored under --dry-run"),
@@ -1035,7 +1064,7 @@ mod dry_run_override_warnings_tests {
 
     #[test]
     fn dry_run_overrides_messages_emits_for_both() {
-        let msgs = super::super::dry_run_overrides_messages(true, true);
+        let msgs = super::super::dry_run_overrides_messages(true, true, false);
         assert_eq!(msgs.len(), 2, "both flags must produce both messages");
         assert!(msgs.iter().any(|m| m.contains("--raw is ignored")));
         assert!(msgs.iter().any(|m| m.contains("--tap is ignored")));
@@ -1043,10 +1072,27 @@ mod dry_run_override_warnings_tests {
 
     #[test]
     fn dry_run_overrides_messages_silent_when_no_conflict() {
-        let msgs = super::super::dry_run_overrides_messages(false, false);
+        let msgs = super::super::dry_run_overrides_messages(false, false, false);
         assert!(
             msgs.is_empty(),
             "no override flags must not emit any message: got {msgs:?}"
+        );
+    }
+
+    /// ERR-1 / TASK-1376: dry-run picks up the symmetric `--verbose`
+    /// override branch — dry-run never executes children, so the verbose
+    /// stderr-tail policy has nothing to act on.
+    #[test]
+    fn dry_run_overrides_messages_emits_for_verbose() {
+        let msgs = super::super::dry_run_overrides_messages(false, false, true);
+        assert_eq!(
+            msgs.len(),
+            1,
+            "verbose alone must produce exactly one message"
+        );
+        assert!(
+            msgs[0].contains("--verbose is ignored under --dry-run"),
+            "verbose override message missing: got {msgs:?}"
         );
     }
 }

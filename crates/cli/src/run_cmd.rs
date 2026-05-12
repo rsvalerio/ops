@@ -155,7 +155,7 @@ fn run_commands(
         // contract to dry-run so users invoking `ops <cmd> --dry-run --raw
         // --tap=path` see that --raw/--tap have no effect, instead of a
         // silent override.
-        emit_dry_run_warnings(raw, tap.is_some());
+        emit_dry_run_warnings(raw, tap.is_some(), verbose);
         for name in names {
             run_command_dry_run(&runner, name)?;
         }
@@ -170,7 +170,7 @@ fn run_commands(
     };
 
     let results = if raw {
-        run_commands_raw(&runner, plan, tap.as_ref())?
+        run_commands_raw(&runner, plan, tap.as_ref(), verbose)?
     } else {
         run_commands_with_display(&runner, plan, tap, verbose)?
     };
@@ -192,8 +192,9 @@ fn run_commands_raw(
     runner: &ops_runner::command::CommandRunner,
     plan: PlanShape<'_>,
     tap: Option<&PathBuf>,
+    verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
-    emit_raw_warnings(plan.any_parallel, tap.is_some());
+    emit_raw_warnings(plan.any_parallel, tap.is_some(), verbose);
     let results: Vec<StepResult> =
         run_with_runtime(async { Ok(runner.run_plan_raw(plan.leaf_ids, plan.fail_fast).await) })?;
     log_step_results(&results);
@@ -209,7 +210,7 @@ fn run_commands_raw(
 ///
 /// Returns the static messages a caller would log so a unit test can
 /// assert the contract without intercepting a tracing subscriber.
-fn dry_run_overrides_messages(raw: bool, has_tap: bool) -> Vec<&'static str> {
+fn dry_run_overrides_messages(raw: bool, has_tap: bool, verbose: bool) -> Vec<&'static str> {
     let mut msgs = Vec::new();
     if raw {
         msgs.push(
@@ -223,11 +224,24 @@ fn dry_run_overrides_messages(raw: bool, has_tap: bool) -> Vec<&'static str> {
              so no tap file will be written",
         );
     }
+    // ERR-1 / TASK-1376: `--verbose` documents itself as "Show full stderr
+    // output on failure (overrides stderr_tail_lines config)". Dry-run never
+    // executes children, so there is no stderr to enhance — silently
+    // ignoring the flag mirrors the same trust-eroding shape that
+    // `emit_raw_warnings` covers for the execute path. Warn so the user
+    // sees that combining the flags is a no-op rather than wondering for
+    // minutes why `-v` had no effect.
+    if verbose {
+        msgs.push(
+            "--verbose is ignored under --dry-run; the dry-run preview never executes children, \
+             so there is no stderr tail to enhance",
+        );
+    }
     msgs
 }
 
-fn emit_dry_run_warnings(raw: bool, has_tap: bool) {
-    for m in dry_run_overrides_messages(raw, has_tap) {
+fn emit_dry_run_warnings(raw: bool, has_tap: bool, verbose: bool) {
+    for m in dry_run_overrides_messages(raw, has_tap, verbose) {
         tracing::warn!("{m}");
     }
 }
@@ -235,7 +249,7 @@ fn emit_dry_run_warnings(raw: bool, has_tap: bool) {
 /// Warnings emitted when `--raw` is combined with otherwise-incompatible
 /// flags. Extracted from `run_commands_raw` so the warning logic itself can
 /// be unit-tested without spinning up a full runner.
-fn emit_raw_warnings(any_parallel: bool, has_tap: bool) {
+fn emit_raw_warnings(any_parallel: bool, has_tap: bool, verbose: bool) {
     // Raw mode forces sequential execution; `parallel = true` composites
     // are ignored.
     if any_parallel {
@@ -248,6 +262,17 @@ fn emit_raw_warnings(any_parallel: bool, has_tap: bool) {
     if has_tap {
         tracing::warn!(
             "--tap is ignored under --raw because raw mode inherits child stdio; no tap file will be written"
+        );
+    }
+    // ERR-1 / TASK-1376: `--verbose` controls the stderr-tail rendering on
+    // failure (see `args.rs::Cli::verbose` documentation). Raw mode
+    // inherits child stdio directly and never buffers stderr, so the flag
+    // has nothing to act on. Warn for parity with the `--tap`/`--parallel`
+    // branches above so the user is not left guessing why `-v` was a no-op.
+    if verbose {
+        tracing::warn!(
+            "--verbose is ignored under --raw because raw mode inherits child stdio directly; \
+             there is no buffered stderr tail to expand"
         );
     }
 }
@@ -339,12 +364,13 @@ fn run_command_raw(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
     has_tap: bool,
+    verbose: bool,
 ) -> anyhow::Result<bool> {
     // CL-5 / TASK-0755: route both raw-mode warnings through
     // `emit_raw_warnings` so the message strings live in exactly one place.
     // Earlier the tap warning was inlined here while parallel-detection went
     // through a separate helper, leaving the two raw paths free to drift.
-    emit_raw_warnings(composite_tree_has_parallel(runner, name), has_tap);
+    emit_raw_warnings(composite_tree_has_parallel(runner, name), has_tap, verbose);
     let results: Vec<StepResult> = run_with_runtime(async { runner.run_raw(name).await })?;
     log_step_results(&results);
     Ok(results.iter().all(|r| r.success))
