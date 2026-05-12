@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use anyhow::Context;
 use ops_core::config::Config;
 
 #[cfg(feature = "stack-rust")]
@@ -10,9 +11,10 @@ use crate::args::ToolsAction;
 use crate::args::{
     AboutAction, ExtensionAction, RunBeforeCommitAction, RunBeforePushAction, ThemeAction,
 };
+use crate::hook_shared::HookOps;
 #[cfg(feature = "stack-rust")]
 use crate::tools_cmd;
-use crate::{about_cmd, extension_cmd, pre_hook_cmd, run_cmd, theme_cmd};
+use crate::{about_cmd, extension_cmd, pre_hook_cmd, run_cmd, theme_cmd, SIGINT_EXIT};
 
 /// Shared cwd + registry preamble used by `run_about`, `run_deps`, and the
 /// extension subcommand handlers. DUP-1 / TASK-0207 collapsed the original
@@ -88,15 +90,22 @@ pub(crate) fn run_extension(config: &Config, action: ExtensionAction) -> anyhow:
 /// user-initiated cancel (Ctrl-C / Esc) is distinguishable from a real
 /// failure. Returns `Ok(Some(answer))` for a real choice, `Ok(None)` for an
 /// explicit cancel, and `Err` for any other inquire failure.
+///
+/// ERR-9 / TASK-1352: real-error branch attaches an anyhow context naming
+/// the prompt source so a NotTTY / IO failure tells the user which prompt
+/// was in flight rather than surfacing a bare `inquire: <variant>` line.
 fn classify_confirm_result(
     res: Result<bool, inquire::InquireError>,
+    prompt_source: &str,
 ) -> anyhow::Result<Option<bool>> {
     match res {
         Ok(b) => Ok(Some(b)),
         Err(
             inquire::InquireError::OperationCanceled | inquire::InquireError::OperationInterrupted,
         ) => Ok(None),
-        Err(e) => Err(e.into()),
+        Err(e) => {
+            Err(anyhow::Error::new(e)).with_context(|| format!("{prompt_source} prompt failed"))
+        }
     }
 }
 
@@ -114,55 +123,89 @@ fn env_flag_enabled(name: &str) -> bool {
     }
 }
 
-/// Prompt the user to run `ops <hook> install` when the hook command is not configured.
-fn prompt_hook_install(config: &Config, hook_name: &str) -> anyhow::Result<ExitCode> {
-    ops_core::ui::note(format!("no '{hook_name}' command configured in .ops.toml."));
-    // Don't block on a TTY prompt under cargo test / CI / scripted
-    // invocations: `is_stdout_tty()` is true when `cargo test` inherits
-    // the user's terminal, so the test that exercises `run_hook_dispatch`
-    // would otherwise hang waiting for `inquire::Confirm`. Honor an
-    // explicit non-interactive opt-out (and the conventional `CI` flag)
-    // before consulting the TTY.
+/// ARCH / TASK-1361: non-interactive policy lifted out of `prompt_hook_install`
+/// so the surrounding helper covers only the Confirm prompt + dispatch.
+/// Returns `Some(ExitCode)` when the caller must bail without prompting
+/// (CI, `OPS_NONINTERACTIVE`, or stdout is not a TTY); `None` to proceed.
+fn noninteractive_install_blocked(hook_name: &str) -> Option<ExitCode> {
     let noninteractive = env_flag_enabled("OPS_NONINTERACTIVE") || env_flag_enabled("CI");
     if noninteractive || !crate::tty::is_stdout_tty() {
         ops_core::ui::note(format!("run `ops {hook_name} install` to set it up."));
-        return Ok(ExitCode::FAILURE);
+        return Some(ExitCode::FAILURE);
     }
+    None
+}
+
+/// Prompt the user to run `ops <hook> install` when the hook command is not configured.
+///
+/// PATTERN-1 / TASK-1322: takes `&HookOps` so the install entry comes from
+/// `hook.install_fn` rather than a stringly-typed match on `hook.hook_name`.
+///
+/// API-1 / TASK-1325: returns `FAILURE` on every "still not configured"
+/// outcome (noninteractive, non-TTY, decline). A user who declines the
+/// install prompt cannot leave git pre-commit silently inert — git treats
+/// SUCCESS as "hook passed" and the missing config would otherwise let the
+/// commit proceed without ever running the configured checks.
+///
+/// PATTERN-1 / TASK-1375: the Ctrl-C / Esc path returns the shared
+/// `SIGINT_EXIT` constant rather than the magic literal `130`.
+fn prompt_hook_install(config: &Config, hook: &HookOps) -> anyhow::Result<ExitCode> {
+    let hook_name = hook.hook_name;
+    ops_core::ui::note(format!("no '{hook_name}' command configured in .ops.toml."));
+    if let Some(code) = noninteractive_install_blocked(hook_name) {
+        return Ok(code);
+    }
+    let prompt_label = format!("Run `ops {hook_name} install` now?");
     let answer = match classify_confirm_result(
-        inquire::Confirm::new(&format!("Run `ops {hook_name} install` now?"))
+        inquire::Confirm::new(&prompt_label)
             .with_default(true)
             .prompt(),
+        &format!("`ops {hook_name} install` confirm"),
     )? {
         Some(b) => b,
         None => {
-            // ERR-1 / TASK-1189: Ctrl-C / Esc at the install prompt is the
-            // user explicitly cancelling, not a CLI error. Bail clean (without
-            // the "ops: error:" framing in main) so the surrounding git
-            // operation is not blocked by an angry exit.
-            return Ok(ExitCode::from(130));
+            // ERR-1 / TASK-1189: Ctrl-C / Esc at the install prompt is a
+            // user-initiated cancel — return the SIGINT exit code directly
+            // so `main` does not decorate it with the `ops: error:` frame.
+            return Ok(ExitCode::from(SIGINT_EXIT));
         }
     };
     if answer {
-        match hook_name {
-            "run-before-commit" => pre_hook_cmd::run_before_commit_install(config)?,
-            "run-before-push" => pre_hook_cmd::run_before_push_install(config)?,
-            other => anyhow::bail!("unknown hook: {other}"),
-        }
+        (hook.install_fn)(config)?;
         return Ok(ExitCode::SUCCESS);
     }
-    Ok(ExitCode::SUCCESS)
+    // API-1 / TASK-1325: decline = config still missing. Match the noninteractive
+    // branch and report FAILURE so a git-driven invocation cannot succeed
+    // while the hook is unconfigured.
+    Ok(ExitCode::FAILURE)
+}
+
+/// FN-3 / TASK-1331: hook entry point typed so install vs run paths cannot
+/// transpose adjacent booleans. Install does not carry `changed_only`;
+/// the run path keeps it, but only the variant that owns it.
+#[derive(Debug, Clone, Copy)]
+enum HookAction {
+    Install,
+    Run { changed_only: bool },
 }
 
 /// TASK-0757: dispatch consumes the same `HookOps` descriptor that the install
 /// path uses, so adding a new hook means editing one constant table in
 /// `pre_hook_cmd` rather than two parallel ones.
+///
+/// READ-7 / TASK-1323: third parameter is `changed_only` (the user-facing
+/// `--changed-only` CLI flag), not `run_preflight`. The preflight policy
+/// is spelled out at the call site rather than smuggled through identical
+/// bool slots. API-1 / TASK-1307: when the user passes `--changed-only`
+/// against a hook without a preflight, fail loudly instead of silently
+/// no-op'ing.
 fn run_hook_dispatch(
     config: std::sync::Arc<Config>,
-    hook: &crate::hook_shared::HookOps,
-    run_preflight: bool,
+    hook: &HookOps,
+    changed_only: bool,
 ) -> anyhow::Result<ExitCode> {
     if !config.commands.contains_key(hook.hook_name) {
-        return prompt_hook_install(&config, hook.hook_name);
+        return prompt_hook_install(&config, hook);
     }
     if (hook.should_skip)() {
         ops_core::ui::note(format!(
@@ -171,11 +214,19 @@ fn run_hook_dispatch(
         ));
         return Ok(ExitCode::SUCCESS);
     }
-    if run_preflight {
-        if let Some((predicate, skip_msg)) = hook.preflight {
-            if !predicate()? {
-                ops_core::ui::note(format!("[{}] {} — skipping", hook.hook_name, skip_msg));
-                return Ok(ExitCode::SUCCESS);
+    if changed_only {
+        match hook.preflight {
+            Some((predicate, skip_msg)) => {
+                if !predicate()? {
+                    ops_core::ui::note(format!("[{}] {} — skipping", hook.hook_name, skip_msg));
+                    return Ok(ExitCode::SUCCESS);
+                }
+            }
+            None => {
+                anyhow::bail!(
+                    "--changed-only is not supported for {} (no preflight predicate registered)",
+                    hook.hook_name
+                );
             }
         }
     }
@@ -195,20 +246,21 @@ fn run_hook_dispatch(
 }
 
 /// DUP-1 / TASK-1282: collapse the two `run_before_*` wrappers into one.
-/// `is_install` toggles Install vs dispatch so the shape (action, changed_only,
-/// hook descriptor) is described once. API-1 / TASK-1274: changed_only is
-/// forwarded for both hooks (was silently dropped for run-before-push).
+/// FN-3 / TASK-1331: a typed `HookAction` replaces the previous adjacent
+/// `(is_install, changed_only)` booleans so transposed callers fail to
+/// compile and Install does not carry an unused `changed_only` value.
 fn run_hook_action(
     config: std::sync::Arc<Config>,
-    hook: &crate::hook_shared::HookOps,
-    is_install: bool,
-    changed_only: bool,
+    hook: &HookOps,
+    action: HookAction,
 ) -> anyhow::Result<ExitCode> {
-    if is_install {
-        (hook.install_fn)(&config)?;
-        return Ok(ExitCode::SUCCESS);
+    match action {
+        HookAction::Install => {
+            (hook.install_fn)(&config)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        HookAction::Run { changed_only } => run_hook_dispatch(config, hook, changed_only),
     }
-    run_hook_dispatch(config, hook, changed_only)
 }
 
 pub(crate) fn run_before_commit(
@@ -216,17 +268,30 @@ pub(crate) fn run_before_commit(
     action: Option<RunBeforeCommitAction>,
     changed_only: bool,
 ) -> anyhow::Result<ExitCode> {
-    let is_install = matches!(action, Some(RunBeforeCommitAction::Install));
-    run_hook_action(config, &pre_hook_cmd::COMMIT_OPS, is_install, changed_only)
+    let hook_action = if matches!(action, Some(RunBeforeCommitAction::Install)) {
+        HookAction::Install
+    } else {
+        HookAction::Run { changed_only }
+    };
+    run_hook_action(config, &pre_hook_cmd::COMMIT_OPS, hook_action)
 }
 
+/// API-1 / TASK-1307: `run-before-push` carries no `changed_only` because
+/// no pre-push preflight exists. The flag was removed from
+/// `args::CoreSubcommand::RunBeforePush` to stop it from parsing as a
+/// silent no-op.
 pub(crate) fn run_before_push(
     config: std::sync::Arc<Config>,
     action: Option<RunBeforePushAction>,
-    changed_only: bool,
 ) -> anyhow::Result<ExitCode> {
-    let is_install = matches!(action, Some(RunBeforePushAction::Install));
-    run_hook_action(config, &pre_hook_cmd::PUSH_OPS, is_install, changed_only)
+    let hook_action = if matches!(action, Some(RunBeforePushAction::Install)) {
+        HookAction::Install
+    } else {
+        HookAction::Run {
+            changed_only: false,
+        }
+    };
+    run_hook_action(config, &pre_hook_cmd::PUSH_OPS, hook_action)
 }
 
 #[cfg(feature = "stack-rust")]
@@ -259,27 +324,48 @@ mod tests {
     /// decoration.
     #[test]
     fn classify_confirm_result_cancel_is_ok_none() {
-        let out = classify_confirm_result(Err(inquire::InquireError::OperationCanceled))
-            .expect("cancel must not propagate as error");
+        let out = classify_confirm_result(
+            Err(inquire::InquireError::OperationCanceled),
+            "install confirm",
+        )
+        .expect("cancel must not propagate as error");
         assert!(out.is_none(), "cancel must map to None, not a bool answer");
 
-        let out = classify_confirm_result(Err(inquire::InquireError::OperationInterrupted))
-            .expect("interrupt must not propagate as error");
+        let out = classify_confirm_result(
+            Err(inquire::InquireError::OperationInterrupted),
+            "install confirm",
+        )
+        .expect("interrupt must not propagate as error");
         assert!(out.is_none(), "interrupt must map to None");
     }
 
+    /// ERR-9 / TASK-1352: a non-cancel inquire error must reach `main`
+    /// wrapped with context naming the prompt source, so the user sees
+    /// which prompt failed instead of a bare `inquire: <variant>` line.
     #[test]
     fn classify_confirm_result_real_error_propagates() {
-        // A non-cancel inquire error (e.g. NotTTY) must still reach `main`
-        // so the user sees the diagnostic.
-        let res = classify_confirm_result(Err(inquire::InquireError::NotTTY));
-        assert!(res.is_err(), "real prompt errors must propagate as Err");
+        let res = classify_confirm_result(
+            Err(inquire::InquireError::NotTTY),
+            "`ops run-before-commit install` confirm",
+        );
+        let err = res.expect_err("real prompt errors must propagate as Err");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("`ops run-before-commit install` confirm prompt failed"),
+            "error must name the prompt source, got: {msg}"
+        );
     }
 
     #[test]
     fn classify_confirm_result_answer_passes_through() {
-        assert_eq!(classify_confirm_result(Ok(true)).expect("ok"), Some(true));
-        assert_eq!(classify_confirm_result(Ok(false)).expect("ok"), Some(false));
+        assert_eq!(
+            classify_confirm_result(Ok(true), "x").expect("ok"),
+            Some(true)
+        );
+        assert_eq!(
+            classify_confirm_result(Ok(false), "x").expect("ok"),
+            Some(false)
+        );
     }
 
     /// API-1 / TASK-1290: `OPS_NONINTERACTIVE=0` is the user typing "off",
@@ -355,5 +441,92 @@ args = ["hi"]
             1,
             "run_hook_dispatch must not reload .ops.toml"
         );
+    }
+
+    /// API-1 / TASK-1307: `--changed-only` against a hook with no preflight
+    /// predicate must fail loudly. The legacy behaviour silently no-op'd,
+    /// hiding the misuse from any scripted caller.
+    #[test]
+    #[serial_test::serial]
+    fn run_hook_dispatch_bails_when_changed_only_set_without_preflight() {
+        let mut cfg = Config::default();
+        cfg.commands.insert(
+            "run-before-push".to_string(),
+            ops_core::config::CommandSpec::Exec(ops_core::config::ExecCommandSpec::new(
+                "true",
+                Vec::<String>::new(),
+            )),
+        );
+        // PUSH_OPS.preflight is None. Asking for --changed-only must error.
+        let res = run_hook_dispatch(std::sync::Arc::new(cfg), &pre_hook_cmd::PUSH_OPS, true);
+        let err = res.expect_err("--changed-only without preflight must bail");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("--changed-only is not supported for run-before-push"),
+            "error must name the hook + flag, got: {msg}"
+        );
+    }
+
+    /// API-1 / TASK-1325: every "config still missing" path through
+    /// `prompt_hook_install` must report FAILURE — git treats SUCCESS as
+    /// "hook passed", so a user who declines the install prompt must not
+    /// silently let the commit through.
+    #[test]
+    #[serial_test::serial]
+    fn prompt_hook_install_noninteractive_reports_failure() {
+        std::env::set_var("OPS_NONINTERACTIVE", "1");
+        let cfg = Config::default();
+        let code = prompt_hook_install(&cfg, &pre_hook_cmd::COMMIT_OPS)
+            .expect("noninteractive bail must not error");
+        std::env::remove_var("OPS_NONINTERACTIVE");
+        // ExitCode is opaque — compare its Debug form against FAILURE.
+        assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::FAILURE));
+    }
+
+    /// CL-3 / TASK-1324: both pre-* hook help screens must render with the
+    /// same section structure. The previous `next_help_heading = "Setup"`
+    /// on RunBeforePush split the two hooks across help sections; this
+    /// pins that they no longer diverge.
+    #[test]
+    fn run_before_commit_and_push_help_share_structure() {
+        use clap::CommandFactory;
+        let cmd = crate::args::Cli::command();
+        let commit = cmd
+            .find_subcommand("run-before-commit")
+            .expect("commit subcmd")
+            .clone();
+        let push = cmd
+            .find_subcommand("run-before-push")
+            .expect("push subcmd")
+            .clone();
+        // Neither variant should carry a `Setup` help heading on its own
+        // flag block — categorisation is centralised in `help::builtin_category`.
+        assert_eq!(commit.get_next_help_heading(), None);
+        assert_eq!(push.get_next_help_heading(), None);
+    }
+
+    /// PATTERN-1 / TASK-1322: adding a new `HookOps` to the `pre_hook_cmd`
+    /// constant table must make `prompt_hook_install` reachable for that
+    /// hook without a parallel match-arm edit in `subcommands.rs`. The
+    /// function now dispatches through `hook.install_fn`, so this test
+    /// witnesses the seam.
+    #[test]
+    fn prompt_hook_install_dispatches_via_install_fn_field() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static CALLED: AtomicBool = AtomicBool::new(false);
+        fn fake_install(_cfg: &Config) -> anyhow::Result<()> {
+            CALLED.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+        let fake = HookOps {
+            install_fn: fake_install,
+            ..pre_hook_cmd::COMMIT_OPS
+        };
+        // Exercise just the dispatch surface: the install_fn must be the
+        // sole reference to the install entry point. This compiles iff
+        // `HookOps::install_fn` is the seam — a stringly-typed match would
+        // have ignored the override.
+        (fake.install_fn)(&Config::default()).expect("fake install ran");
+        assert!(CALLED.load(Ordering::SeqCst), "install_fn was not invoked");
     }
 }

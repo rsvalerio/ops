@@ -100,10 +100,14 @@ pub enum CoreSubcommand {
     NewCommand,
     /// Setup git pre-commit hook to run an ops command of your choice.
     ///
-    /// Without a subcommand, runs checks on all files.
-    /// Use `--changed-only` to limit to staged files.
+    /// Without a subcommand, runs the configured command. Pass `--changed-only`
+    /// to skip the run when nothing is staged.
     RunBeforeCommit {
-        /// Only check staged files instead of the entire workspace.
+        /// Skip the hook when no files are staged for commit.
+        ///
+        /// API-1 / TASK-1308: this flag gates a preflight that short-circuits
+        /// the run when `git diff --cached` reports no staged changes. It
+        /// does *not* scope the user-configured command to staged paths.
         #[arg(long)]
         changed_only: bool,
         #[command(subcommand)]
@@ -111,13 +115,13 @@ pub enum CoreSubcommand {
     },
     /// Setup git pre-push hook to run an ops command of your choice.
     ///
-    /// Without a subcommand, runs checks on all files.
-    /// Use `--changed-only` to limit to changed files.
-    #[command(next_help_heading = "Setup")]
+    /// Without a subcommand, runs the configured command.
+    //
+    // CL-3 / TASK-1324: no per-variant `next_help_heading` — `help::builtin_category`
+    // already categorizes this command under "Setup". API-1 / TASK-1307: no
+    // `--changed-only` because no pre-push preflight exists; carrying the flag
+    // here previously silently no-op'd.
     RunBeforePush {
-        /// Only check changed files instead of the entire workspace.
-        #[arg(long)]
-        changed_only: bool,
         #[command(subcommand)]
         action: Option<RunBeforePushAction>,
     },
@@ -517,23 +521,18 @@ mod tests {
         }
     }
 
-    /// API-1 / TASK-1274: run-before-push must accept --changed-only the
-    /// same way run-before-commit does. Earlier, the flag parsed but the
-    /// handler accepted it as `_changed_only` and hard-coded `false`,
-    /// silently discarding it.
+    /// API-1 / TASK-1307: `run-before-push` does not accept `--changed-only`
+    /// because no pre-push preflight exists. The flag previously parsed and
+    /// silently no-op'd; clap now rejects it so the user is not misled.
     #[test]
-    fn parse_run_before_push_with_changed_only() {
-        let cli = Cli::parse_from(["ops", "run-before-push", "--changed-only"]);
-        match cli.subcommand {
-            Some(CoreSubcommand::RunBeforePush {
-                changed_only,
-                action,
-            }) => {
-                assert!(changed_only);
-                assert!(action.is_none());
-            }
-            other => panic!("expected RunBeforePush, got {:?}", other),
-        }
+    fn parse_run_before_push_changed_only_is_rejected() {
+        let err = Cli::try_parse_from(["ops", "run-before-push", "--changed-only"])
+            .expect_err("--changed-only must not parse for run-before-push");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("--changed-only") || msg.contains("unexpected"),
+            "expected clap to reject the unknown flag, got: {msg}"
+        );
     }
 
     #[test]

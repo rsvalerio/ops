@@ -66,6 +66,10 @@ use subcommands::{run_deps, run_tools};
 /// `ExitCode::FAILURE`. Without this, e.g. an `Err(...)` that wants SIGINT
 /// semantics (130) or SIGPIPE (141) silently collapses to exit 1, which
 /// breaks shell scripts that distinguish cancellation from real failure.
+/// PATTERN-1 / TASK-1375: named constant for the SIGINT exit convention so
+/// the literal `130` is not repeated at user-cancel call sites.
+pub(crate) const SIGINT_EXIT: u8 = 130;
+
 #[derive(Debug)]
 pub(crate) struct ExitCodeOverride(pub u8);
 
@@ -229,10 +233,9 @@ fn dispatch(
             changed_only,
             action,
         }) => return run_before_commit(std::sync::Arc::clone(early_config), action, changed_only),
-        Some(CoreSubcommand::RunBeforePush {
-            changed_only,
-            action,
-        }) => return run_before_push(std::sync::Arc::clone(early_config), action, changed_only),
+        Some(CoreSubcommand::RunBeforePush { action }) => {
+            return run_before_push(std::sync::Arc::clone(early_config), action);
+        }
         Some(CoreSubcommand::About { refresh, action }) => {
             run_about(early_config, refresh, action)?
         }

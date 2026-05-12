@@ -28,11 +28,21 @@ pub const PUSH_OPS: HookOps = HookOps {
 };
 
 pub fn run_before_commit_install(config: &ops_core::config::Config) -> anyhow::Result<()> {
-    hook_shared::run_hook_install(config, &COMMIT_OPS)
+    hook_shared::run_hook_install(
+        config,
+        &COMMIT_OPS,
+        hook_shared::CommandSelector::Interactive,
+        &mut std::io::stdout(),
+    )
 }
 
 pub fn run_before_push_install(config: &ops_core::config::Config) -> anyhow::Result<()> {
-    hook_shared::run_hook_install(config, &PUSH_OPS)
+    hook_shared::run_hook_install(
+        config,
+        &PUSH_OPS,
+        hook_shared::CommandSelector::Interactive,
+        &mut std::io::stdout(),
+    )
 }
 
 #[cfg(test)]
@@ -54,7 +64,14 @@ mod tests {
 
         let selected = vec!["verify".to_string()];
         let mut buf = Vec::new();
-        hook_shared::run_hook_install_with(ops, &selected, &mut buf).expect("install");
+        let config = ops_core::config::Config::default();
+        hook_shared::run_hook_install(
+            &config,
+            ops,
+            hook_shared::CommandSelector::Fixed(&selected),
+            &mut buf,
+        )
+        .expect("install");
 
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("Installed hook"));
@@ -62,9 +79,9 @@ mod tests {
 
         assert!(dir.path().join(".git/hooks").join(hook_filename).exists());
 
-        let config = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert!(config.contains(&format!("[commands.{}]", ops.hook_name)));
-        assert!(config.contains("verify"));
+        let written = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
+        assert!(written.contains(&format!("[commands.{}]", ops.hook_name)));
+        assert!(written.contains("verify"));
     }
 
     fn install_with_empty_selection_skips_config(ops: &HookOps, hook_filename: &str) {
@@ -72,7 +89,14 @@ mod tests {
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
 
         let mut buf = Vec::new();
-        hook_shared::run_hook_install_with(ops, &[], &mut buf).expect("install");
+        let config = ops_core::config::Config::default();
+        hook_shared::run_hook_install(
+            &config,
+            ops,
+            hook_shared::CommandSelector::Fixed(&[]),
+            &mut buf,
+        )
+        .expect("install");
 
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("Installed hook"));
@@ -87,7 +111,13 @@ mod tests {
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
 
         let mut buf = Vec::new();
-        let result = hook_shared::run_hook_install_with(ops, &[], &mut buf);
+        let config = ops_core::config::Config::default();
+        let result = hook_shared::run_hook_install(
+            &config,
+            ops,
+            hook_shared::CommandSelector::Fixed(&[]),
+            &mut buf,
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not inside a git"));
     }

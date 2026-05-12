@@ -1,12 +1,14 @@
 //! Shared logic for git hook install commands (run-before-commit, run-before-push).
 
-use std::io::{self, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use ops_core::config::{CommandSpec, Config};
 use ops_core::stack::Stack;
 
 use crate::tty::SelectOption;
+use crate::{ExitCodeOverride, SIGINT_EXIT};
 
 /// Optional pre-flight predicate paired with the message used when it returns
 /// `Ok(false)`. Lifted out of `HookOps` to satisfy `clippy::type_complexity`.
@@ -35,90 +37,125 @@ pub struct HookOps {
     pub preflight: Option<HookPreflight>,
 }
 
-/// Shared interactive install orchestration for all hook types.
+/// Source of the command list to install in the hook config.
 ///
-/// TASK-0427: takes the pre-resolved CLI config so the install path does
-/// not re-parse `.ops.toml` after `run()` already loaded it.
-pub fn run_hook_install(config: &Config, ops: &HookOps) -> anyhow::Result<()> {
-    crate::tty::require_tty(&format!("{} install", ops.hook_name))?;
+/// READ-5 / TASK-1354: collapses the previous split between the production
+/// `run_hook_install` (hard-coded `io::stdout()` + `inquire::MultiSelect`)
+/// and the test-only `run_hook_install_with` (capturing buffer + fixed
+/// list) into one orchestration with a single selection-source seam.
+pub enum CommandSelector<'a> {
+    /// Production path: present an `inquire::MultiSelect` of available
+    /// commands. Requires a TTY.
+    Interactive,
+    /// Bypass the prompt and use these names verbatim. Only constructed
+    /// from tests today, but the variant is part of the public seam so
+    /// future scripted callers (a `--commands=…` non-interactive install
+    /// flag, for instance) can land without a second entry point.
+    #[allow(dead_code)]
+    Fixed(&'a [String]),
+}
 
-    let cwd = std::env::current_dir()?;
-    let git_dir = (ops.find_git_dir)(&cwd)
-        .ok_or_else(|| anyhow::anyhow!("not inside a git repository (no .git found)"))?;
-
-    let stack = Stack::resolve(config.stack.as_deref(), &cwd);
-
-    // ARCH-2 / TASK-0719: build the extension `CommandRegistry` once here
-    // (matching the runner-wiring path in `run_cmd::setup_extensions`) and
-    // pass it down. Previously `gather_available_commands` re-instantiated
-    // every compiled-in extension internally on each call, duplicating
-    // factory I/O and re-emitting collision warnings.
+/// FN-1 / TASK-1317: extension-load degradation policy lifted out of
+/// `run_hook_install` so the orchestration body covers only the install
+/// flow. Hard error if the user opted in to extensions explicitly
+/// (`config.extensions.enabled = Some(_)`); soft UI warn otherwise.
+fn load_hook_extensions(
+    config: &Config,
+    cwd: &Path,
+    hook_name: &str,
+) -> anyhow::Result<ops_extension::CommandRegistry> {
     let mut cmd_registry = ops_extension::CommandRegistry::new();
-    match crate::registry::builtin_extensions(config, &cwd) {
+    match crate::registry::builtin_extensions(config, cwd) {
         Ok(exts) => {
             let ext_refs = crate::registry::as_ext_refs(&exts);
             crate::registry::register_extension_commands(&ext_refs, &mut cmd_registry);
+            Ok(cmd_registry)
         }
         Err(e) => {
             // ERR-1 / TASK-1287: surface the load failure through exactly
-            // one operator-facing channel (UI). Earlier this path
-            // double-emitted the same message via `tracing::warn!` *and*
-            // `ops_core::ui::warn`, producing two warnings for one fault
-            // for any user with `RUST_LOG=ops=warn` set.
-            //
-            // Degradation policy: continue the install with config +
-            // stack-default commands only. The selection list omits
-            // extension-provided commands; the user can still install the
-            // hook and configure commands by editing .ops.toml. If
-            // `extensions.enabled` is set explicitly we honour the
-            // assumption that misconfiguration should surface as a hard
-            // error rather than a silently-shorter list.
+            // one operator-facing channel (UI) — earlier this path
+            // double-emitted via `tracing::warn!` *and* `ops_core::ui::warn`.
             if config.extensions.enabled.is_some() {
-                anyhow::bail!(
-                    "could not load extensions for {} install: {e:#}",
-                    ops.hook_name,
-                );
+                anyhow::bail!("could not load extensions for {hook_name} install: {e:#}");
             }
             ops_core::ui::warn(format!(
-                "could not load extensions for {} install: {e:#}\n  extension-provided commands will not appear in the selection list",
-                ops.hook_name,
+                "could not load extensions for {hook_name} install: {e:#}\n  extension-provided commands will not appear in the selection list",
             ));
+            Ok(cmd_registry)
         }
     }
-
-    let options = gather_available_commands(config, stack, &cmd_registry, ops.hook_name);
-
-    let selected = if options.is_empty() {
-        ops_core::ui::note(
-            "no commands found. Install the hook anyway; configure commands in .ops.toml later.",
-        );
-        vec![]
-    } else {
-        let prompt = format!("Select commands to run in {} hook:", ops.hook_name);
-        let selections = inquire::MultiSelect::new(&prompt, options).prompt()?;
-        selections.into_iter().map(|o| o.name).collect()
-    };
-
-    let mut w = io::stdout();
-    (ops.install_hook)(&git_dir, &mut w)?;
-    (ops.ensure_config_command)(&cwd, &selected, &mut w)?;
-
-    Ok(())
 }
 
-/// Non-interactive install with explicit command list (for testing).
-#[cfg(test)]
-pub fn run_hook_install_with(
+/// Shared install orchestration for all hook types.
+///
+/// TASK-0427: takes the pre-resolved CLI config so the install path does
+/// not re-parse `.ops.toml` after `run()` already loaded it.
+///
+/// READ-5 / TASK-1354: takes `w: &mut dyn Write` so the production happy-path
+/// messages are observable from tests, and a `CommandSelector` so the same
+/// entry point covers both interactive and scripted callers.
+pub fn run_hook_install(
+    config: &Config,
     ops: &HookOps,
-    selected_commands: &[String],
+    selector: CommandSelector<'_>,
     w: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let cwd = std::env::current_dir()?;
+    // ERR-9 / TASK-1347: surface which path operation failed when the
+    // process cannot resolve its cwd (EACCES, ENOENT on a deleted dir).
+    let cwd = std::env::current_dir().with_context(|| {
+        format!(
+            "could not determine working directory while installing {} hook",
+            ops.hook_name
+        )
+    })?;
     let git_dir = (ops.find_git_dir)(&cwd)
         .ok_or_else(|| anyhow::anyhow!("not inside a git repository (no .git found)"))?;
 
+    let selected = match selector {
+        CommandSelector::Fixed(s) => s.to_vec(),
+        CommandSelector::Interactive => {
+            crate::tty::require_tty(&format!("{} install", ops.hook_name))?;
+            let stack = Stack::resolve(config.stack.as_deref(), &cwd);
+            // ARCH-2 / TASK-0719: build the extension registry once here so
+            // `gather_available_commands` stays a pure data-shaper.
+            let cmd_registry = load_hook_extensions(config, &cwd, ops.hook_name)?;
+            let options = gather_available_commands(config, stack, &cmd_registry, ops.hook_name);
+
+            if options.is_empty() {
+                ops_core::ui::note(
+                    "no commands found. Install the hook anyway; configure commands in .ops.toml later.",
+                );
+                Vec::new()
+            } else {
+                let prompt = format!("Select commands to run in {} hook:", ops.hook_name);
+                match inquire::MultiSelect::new(&prompt, options).prompt() {
+                    Ok(selections) => selections.into_iter().map(|o| o.name).collect(),
+                    // ERR-9 / TASK-1347: Ctrl-C / Esc at the selection
+                    // prompt is the user cancelling — bubble a SIGINT exit
+                    // via the `ExitCodeOverride` sentinel instead of a
+                    // generic anyhow chain.
+                    Err(
+                        inquire::InquireError::OperationCanceled
+                        | inquire::InquireError::OperationInterrupted,
+                    ) => {
+                        return Err(anyhow::anyhow!("{} install cancelled", ops.hook_name)
+                            .context(ExitCodeOverride(SIGINT_EXIT)));
+                    }
+                    Err(e) => {
+                        return Err(anyhow::Error::new(e)).with_context(|| {
+                            format!(
+                                "command selection prompt for {} install failed",
+                                ops.hook_name
+                            )
+                        });
+                    }
+                }
+            }
+        }
+    };
+
     (ops.install_hook)(&git_dir, w)?;
-    (ops.ensure_config_command)(&cwd, selected_commands, w)?;
+    (ops.ensure_config_command)(&cwd, &selected, w)?;
 
     Ok(())
 }
