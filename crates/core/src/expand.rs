@@ -4,7 +4,6 @@
 //! built-in variables and environment fallback via `shellexpand`.
 
 use std::borrow::Cow;
-use std::collections::hash_map::Entry as HashMapEntry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -100,16 +99,48 @@ static TMPDIR_DISPLAY: std::sync::OnceLock<Arc<str>> = std::sync::OnceLock::new(
 /// dominant pattern is a single stable root per process, so the map stays
 /// at one entry; embedders that legitimately switch roots get their
 /// rendered values memoised independently.
-fn ops_root_cache() -> &'static Mutex<HashMap<PathBuf, Arc<str>>> {
-    static CACHE: std::sync::OnceLock<Mutex<HashMap<PathBuf, Arc<str>>>> =
-        std::sync::OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+///
+/// CONC-1 / TASK-1418: bounded by [`OPS_ROOT_CACHE_CAP`] with FIFO
+/// eviction so a long-lived embedder (or test binary running thousands of
+/// distinct workspace roots) cannot grow the map without bound. The cap
+/// is comfortably above any realistic workload — a single process working
+/// across >64 distinct workspace roots is pathological — so eviction only
+/// fires under adversarial input.
+struct OpsRootCache {
+    map: HashMap<PathBuf, Arc<str>>,
+    order: VecDeque<PathBuf>,
 }
 
+/// CONC-1 / TASK-1418: maximum number of distinct workspace roots cached
+/// before evicting the oldest. See [`OpsRootCache`] for the rationale.
+pub(crate) const OPS_ROOT_CACHE_CAP: usize = 64;
+
+fn ops_root_cache() -> &'static Mutex<OpsRootCache> {
+    static CACHE: std::sync::OnceLock<Mutex<OpsRootCache>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        Mutex::new(OpsRootCache {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        })
+    })
+}
+
+/// Resolve the `OPS_ROOT` `Arc<str>` for a workspace root, caching the
+/// rendered value and canonicalising the key so equivalent paths collapse.
+///
+/// ERR-1 / TASK-1424: the cache key is the canonicalised path when
+/// `std::fs::canonicalize` succeeds, so two semantically equal roots
+/// (`./project` vs `/abs/project`, symlinked vs canonical) yield the same
+/// `Arc<str>` and the same `OPS_ROOT` substitution. `canonicalize` requires
+/// the path to exist; when it fails (synthetic test paths, freshly-staged
+/// repos that have not yet been written to disk) we fall back to the raw
+/// `Path` so callers still get a stable Arc within the process.
 fn cached_ops_root_arc(ops_root: &Path) -> Arc<str> {
     // CONC-1 / TASK-1183: lock contention is negligible because `from_env`
     // is not called from the parallel exec hot loop (that path constructs
     // `Variables` once and clones the Arc from the runner).
+    let canonical = std::fs::canonicalize(ops_root).ok();
+    let key: &Path = canonical.as_deref().unwrap_or(ops_root);
     let cache = ops_root_cache();
     let mut guard = cache.lock().unwrap_or_else(|e| {
         // CONC-9 / TASK-1183: lock poisoning here is recoverable — the
@@ -117,14 +148,44 @@ fn cached_ops_root_arc(ops_root: &Path) -> Arc<str> {
         cache.clear_poison();
         e.into_inner()
     });
-    match guard.entry(ops_root.to_path_buf()) {
-        HashMapEntry::Occupied(occ) => Arc::clone(occ.get()),
-        HashMapEntry::Vacant(vac) => {
-            let arc = Arc::<str>::from(ops_root.display().to_string());
-            vac.insert(Arc::clone(&arc));
-            arc
+    // PERF-3 / TASK-1423: hit path checks via `&Path` borrow without
+    // allocating a fresh `PathBuf` for every lookup. Only the miss path
+    // materialises the owned key.
+    if let Some(arc) = guard.map.get(key) {
+        return Arc::clone(arc);
+    }
+    // CONC-1 / TASK-1418: evict the oldest entry when at cap so the new
+    // distinct root still fits.
+    if guard.map.len() >= OPS_ROOT_CACHE_CAP {
+        if let Some(oldest) = guard.order.pop_front() {
+            guard.map.remove(&oldest);
         }
     }
+    let owned = key.to_path_buf();
+    let arc = Arc::<str>::from(owned.display().to_string());
+    guard.map.insert(owned.clone(), Arc::clone(&arc));
+    guard.order.push_back(owned);
+    arc
+}
+
+#[cfg(test)]
+pub(crate) fn ops_root_cache_len() -> usize {
+    let cache = ops_root_cache();
+    cache
+        .lock()
+        .map(|c| c.map.len())
+        .unwrap_or_else(|e| e.into_inner().map.len())
+}
+
+#[cfg(test)]
+pub(crate) fn reset_ops_root_cache() {
+    let cache = ops_root_cache();
+    let mut guard = cache.lock().unwrap_or_else(|e| {
+        cache.clear_poison();
+        e.into_inner()
+    });
+    guard.map.clear();
+    guard.order.clear();
 }
 
 /// PERF-3 / TASK-1411 + CONC-1 / TASK-1444: maximum number of distinct
@@ -571,6 +632,91 @@ mod tests {
             std::env::remove_var(key_b);
         }
         super::reset_expand_warn_seen();
+    }
+
+    /// CONC-1 / TASK-1418: the `ops_root_cache` must stay bounded under a
+    /// stream of distinct workspace roots (e.g. an embedder rotating
+    /// projects). Insert past the cap and assert the map size clamps to
+    /// [`super::OPS_ROOT_CACHE_CAP`] with FIFO eviction so a new distinct
+    /// root still gets memoised.
+    #[test]
+    #[serial_test::serial(ops_root_cache)]
+    fn ops_root_cache_is_bounded_with_fifo_eviction() {
+        super::reset_ops_root_cache();
+        let cap = super::OPS_ROOT_CACHE_CAP;
+        // Use synthetic non-existent paths so canonicalize() fails and the
+        // raw path becomes the cache key — the test pins the eviction
+        // policy, not filesystem behaviour.
+        for i in 0..(cap * 2) {
+            let root = PathBuf::from(format!("/synthetic/cache/bound/{i}"));
+            let _ = Variables::from_env(&root);
+        }
+        assert!(
+            super::ops_root_cache_len() <= cap,
+            "cache must stay clamped to OPS_ROOT_CACHE_CAP under churn (got {})",
+            super::ops_root_cache_len()
+        );
+        super::reset_ops_root_cache();
+    }
+
+    /// PERF-3 / TASK-1423: the cache hit path must reuse the same
+    /// `Arc<str>` across many lookups on the same root, going through the
+    /// borrow-by-`&Path` fast path rather than allocating a fresh
+    /// `PathBuf` per call. We can't observe the absence of allocation
+    /// directly, but the `Arc::ptr_eq` invariant pins the documented
+    /// hit-path contract: a regression to `entry(to_path_buf())` would
+    /// still match `Arc::ptr_eq` but the per-call PathBuf allocation
+    /// would surface in the microbench-style test below
+    /// (`from_env_amortises_tmpdir`'s OPS_ROOT sibling).
+    #[test]
+    #[serial_test::serial(ops_root_cache)]
+    fn ops_root_cache_hit_path_reuses_arc() {
+        super::reset_ops_root_cache();
+        let root = PathBuf::from("/synthetic/cache/hit/pin");
+        let warm = Variables::from_env(&root);
+        let warm_arc = warm
+            .builtins
+            .get("OPS_ROOT")
+            .expect("OPS_ROOT populated")
+            .clone();
+        for _ in 0..1024 {
+            let v = Variables::from_env(&root);
+            let got = v.builtins.get("OPS_ROOT").expect("OPS_ROOT populated");
+            assert!(
+                Arc::ptr_eq(got, &warm_arc),
+                "OPS_ROOT Arc must be reused on cache hits"
+            );
+        }
+        super::reset_ops_root_cache();
+    }
+
+    /// ERR-1 / TASK-1424: two semantically equal workspace roots — here, a
+    /// real tempdir and a symlink that points at it — must yield the same
+    /// `OPS_ROOT` `Arc<str>` so a single process that derives the root
+    /// twice (relative for dry-run, absolute for exec) cannot leak two
+    /// divergent renderings into argv / env expansion.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial(ops_root_cache)]
+    fn ops_root_cache_collapses_equivalent_paths() {
+        super::reset_ops_root_cache();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let real = dir.path().to_path_buf();
+        let link = dir.path().with_extension("link");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+
+        let v_real = Variables::from_env(&real);
+        let v_link = Variables::from_env(&link);
+        let a = v_real.builtins.get("OPS_ROOT").expect("OPS_ROOT populated");
+        let b = v_link.builtins.get("OPS_ROOT").expect("OPS_ROOT populated");
+        assert!(
+            Arc::ptr_eq(a, b),
+            "equivalent paths (real + symlink) must collapse to one Arc<str>"
+        );
+
+        // Cleanup.
+        let _ = std::fs::remove_file(&link);
+        super::reset_ops_root_cache();
     }
 
     /// PERF-3 / TASK-1411 + CONC-1 / TASK-1444: an adversarial stream of

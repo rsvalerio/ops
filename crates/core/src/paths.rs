@@ -11,10 +11,26 @@
 //! - **Windows / non-Unix:** `HOME` first (set by Git Bash / WSL / MSYS),
 //!   then `USERPROFILE` (`C:\Users\X`) as the Windows-native fallback.
 //!
+//! READ-1 / TASK-1434: the **HOME-first precedence on non-Unix is
+//! deliberate**. Cross-platform tooling that ops users typically already
+//! have installed (Git Bash, WSL, MSYS, Cygwin) sets `HOME` to a Unix-style
+//! path that points at the user's *intended* home for tooling — e.g.
+//! `/c/Users/X` rather than `C:\Users\X`. Honouring that first keeps `~`
+//! expansion consistent across the user's bash and PowerShell sessions.
+//! `USERPROFILE` is the Windows-native fallback for the rare native-only
+//! shell that has not been touched by any cross-platform tooling. The
+//! WSL/MSYS leakage trade-off (a process inheriting Unix-style `HOME` from
+//! a polluted parent shell) is the same one
+//! [`crate::config::loader::global_config_path`] documents for
+//! `XDG_CONFIG_HOME`; both surfaces accept the same trade-off so a user
+//! moving between shells does not see config silently load from one
+//! directory and `~` expand to another.
+//!
 //! This is the *user home* directory. Code that wants the *config base*
 //! (XDG / `%APPDATA%` / `$HOME/.config`) should use
 //! `config::loader::global_config_path` instead, which layers platform
-//! conventions on top of `home_dir`.
+//! conventions on top of `home_dir` — so the HOME-vs-USERPROFILE precedence
+//! defined here is the single source of truth shared by both surfaces.
 //!
 //! CL-3 (TASK-0752): consolidates two divergent inline implementations that
 //! lived in `expand.rs` (HOME → USERPROFILE) and `config/loader.rs` (HOME-only

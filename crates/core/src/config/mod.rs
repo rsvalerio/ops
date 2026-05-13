@@ -18,7 +18,7 @@ pub use overlay::{
 };
 
 #[cfg(test)]
-pub(crate) use loader::global_config_path;
+pub(crate) use loader::{global_config_path, resolve_global_config_path};
 pub use loader::{
     load_config, load_config_at, load_config_or_default, load_config_or_default_at,
     read_config_file,

@@ -118,7 +118,10 @@ fn global_config_path_uses_xdg_config_home() {
         "XDG_CONFIG_HOME",
         temp_dir.path().to_string_lossy().as_ref(),
     );
-    let path = global_config_path();
+    // PERF-3 / TASK-1419: `global_config_path` is OnceLock-cached for
+    // process-lifetime perf; tests that drive the env-precedence matrix
+    // call the underlying resolver to bypass the cache.
+    let path = resolve_global_config_path();
     assert!(path.is_some());
     let path = path.unwrap();
     assert!(path.starts_with(temp_dir.path()));
@@ -134,7 +137,10 @@ fn global_config_path_falls_back_to_home_config() {
     let _home_guard = EnvGuard::set("HOME", temp_dir.path().to_string_lossy().as_ref());
     let _userprofile_guard = EnvGuard::remove("USERPROFILE");
 
-    let path = global_config_path();
+    // PERF-3 / TASK-1419: `global_config_path` is OnceLock-cached for
+    // process-lifetime perf; tests that drive the env-precedence matrix
+    // call the underlying resolver to bypass the cache.
+    let path = resolve_global_config_path();
 
     assert!(path.is_some());
     let path = path.unwrap();
@@ -153,7 +159,9 @@ fn global_config_path_uses_appdata_on_windows() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     let _appdata_guard = EnvGuard::set("APPDATA", temp_dir.path().to_string_lossy().as_ref());
 
-    let path = global_config_path().expect("path resolves");
+    // PERF-3 / TASK-1419: bypass the OnceLock so the env knob under test
+    // is actually observed (see XDG test above).
+    let path = resolve_global_config_path().expect("path resolves");
 
     assert!(
         path.starts_with(temp_dir.path()),

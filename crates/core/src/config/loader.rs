@@ -420,13 +420,46 @@ fn merge_conf_d(config: &mut Config, workspace_root: &Path) -> anyhow::Result<()
 /// misconfiguration. Cross-platform tooling generally treats `XDG_CONFIG_HOME`
 /// as authoritative when set, so we keep that precedence; the WSL leakage
 /// edge case is documented rather than papered over.
+/// PERF-3 / TASK-1419: cache the resolved global config path behind a
+/// `OnceLock<Option<PathBuf>>` so the env lookups (`XDG_CONFIG_HOME`,
+/// `APPDATA`, `HOME`/`USERPROFILE`) and source-of-base-dir `tracing::debug`
+/// fire at most once per process.
+///
+/// **Process-lifetime contract** (mirrors
+/// [`crate::expand::Variables::from_env`]'s `TMPDIR_DISPLAY`): the resolved
+/// path is captured on the first [`global_config_path`] call and never
+/// refreshed. Setting `XDG_CONFIG_HOME` / `APPDATA` / `HOME` via
+/// `std::env::set_var` after the first call will **not** be observed by
+/// subsequent callers. Tests that need a specific base directory MUST set
+/// the relevant env var before any code path that triggers
+/// `load_config` / `load_config_at` / `load_config_or_default*` runs.
+static GLOBAL_CONFIG_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+
 pub(crate) fn global_config_path() -> Option<PathBuf> {
+    GLOBAL_CONFIG_PATH
+        .get_or_init(resolve_global_config_path)
+        .clone()
+}
+
+/// Inner resolver invoked exactly once by the [`GLOBAL_CONFIG_PATH`]
+/// `OnceLock` initialiser. Splitting the resolution out keeps the env
+/// lookups and the one-shot `tracing::debug` source breadcrumb co-located
+/// while letting the caller hand back an `Option<PathBuf>` clone on every
+/// hit.
+///
+/// Exposed `pub(crate)` so tests that need to drive the env-precedence
+/// matrix (XDG vs HOME vs APPDATA) can bypass the
+/// [`GLOBAL_CONFIG_PATH`] `OnceLock` — production callers should always go
+/// through [`global_config_path`] so the cache discipline holds.
+pub(crate) fn resolve_global_config_path() -> Option<PathBuf> {
     let (config_dir, source) = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         (PathBuf::from(xdg), "XDG_CONFIG_HOME")
     } else if cfg!(windows) {
         // CL-3: fall back through the shared `paths::home_dir` helper so
         // Windows-native paths use the same HOME → USERPROFILE order as the
-        // rest of the crate.
+        // rest of the crate. READ-1 / TASK-1434: `home_dir` is the single
+        // source of truth for the HOME-vs-USERPROFILE precedence policy on
+        // non-Unix targets; documented there.
         let dir = std::env::var_os("APPDATA")
             .map(PathBuf::from)
             .or_else(|| crate::paths::home_dir().map(|h| h.join("AppData/Roaming")))?;
