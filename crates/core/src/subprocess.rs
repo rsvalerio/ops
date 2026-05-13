@@ -214,6 +214,16 @@ fn read_capped<R: Read>(mut reader: R, buf: &mut Vec<u8>, cap: usize) -> (u64, O
     // `read_to_end` uses internally; large enough that the syscall overhead
     // is amortised, small enough that the sink path stays cheap.
     let mut chunk = [0u8; 8 * 1024];
+    // PERF-3 / TASK-1425: pre-size the capture buffer so multi-MiB streams
+    // (cargo metadata, large stdout) skip the O(log N) Vec-doubling chain
+    // from empty. Bounded by `cap` so a tiny cap doesn't over-reserve, and
+    // by 64 KiB so a huge cap (256 MiB default) doesn't allocate up-front
+    // memory for streams that turn out to be empty.
+    const INITIAL_CAP: usize = 64 * 1024;
+    let want = cap.min(INITIAL_CAP);
+    if buf.capacity() < want {
+        buf.reserve(want - buf.len());
+    }
     let mut dropped: u64 = 0;
     loop {
         match reader.read(&mut chunk) {
@@ -740,6 +750,42 @@ mod tests {
         assert!(err.is_none());
         assert_eq!(dropped, 0);
         assert_eq!(buf, input);
+    }
+
+    /// PERF-3 / TASK-1425: a large-cap drain should pre-allocate ~64 KiB
+    /// up-front rather than doubling from 0 → 8 → 16 → 32 → 64. Starting
+    /// from `Vec::new()` (capacity 0), the post-call capacity must be at
+    /// least 64 KiB, proving the reservation actually happened.
+    #[test]
+    fn read_capped_pre_sizes_buffer_for_large_cap() {
+        let mut buf = Vec::new();
+        // 1 MiB of synthetic stdout to exercise the multi-chunk path.
+        let input: Vec<u8> = vec![b'x'; 1024 * 1024];
+        let (dropped, err) = read_capped(std::io::Cursor::new(&input), &mut buf, 4 * 1024 * 1024);
+        assert!(err.is_none());
+        assert_eq!(dropped, 0);
+        assert_eq!(buf.len(), input.len());
+        assert!(
+            buf.capacity() >= 64 * 1024,
+            "expected pre-sized capacity >= 64 KiB, got {}",
+            buf.capacity()
+        );
+    }
+
+    /// PERF-3 / TASK-1425: a tiny cap must NOT over-reserve. With cap=128
+    /// and an empty stream, the buffer capacity must stay bounded by the
+    /// cap (not 64 KiB).
+    #[test]
+    fn read_capped_pre_size_respects_small_cap() {
+        let mut buf = Vec::new();
+        let input: &[u8] = b"";
+        let (_dropped, err) = read_capped(input, &mut buf, 128);
+        assert!(err.is_none());
+        assert!(
+            buf.capacity() <= 128,
+            "small-cap reservation must not over-allocate, got {}",
+            buf.capacity()
+        );
     }
 
     #[test]

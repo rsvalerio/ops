@@ -115,17 +115,45 @@ pub fn read_capped_to_string(path: &Path) -> std::io::Result<String> {
 /// Used by unit tests to exercise the cap-handling behaviour without
 /// depending on the process-global memoised [`manifest_max_bytes`] value.
 fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> {
-    let mut file = std::fs::File::open(path)?;
+    // SEC-25 / TASK-1442: refuse to follow symlinks at manifest paths.
+    // `ops` is invoked on third-party repos; an adversarial repo can plant
+    // `package.json -> /etc/passwd` (or any privileged file the invoking
+    // user can read) and leak its contents through diagnostics. Probe with
+    // `symlink_metadata` and bail before opening if the entry is a symlink.
+    // NotFound and other probe errors fall through to `File::open`, which
+    // produces the same diagnostic the caller would have seen pre-fix.
+    if let Ok(meta) = std::fs::symlink_metadata(path) {
+        if meta.file_type().is_symlink() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("refusing to follow symlink at {}", path.display()),
+            ));
+        }
+    }
+    // ERR-4 / TASK-1393: attach the path to io::Error propagation so a
+    // bare `PermissionDenied`/`NotFound`/`IsADirectory` surfaces with the
+    // file name, matching the oversize InvalidData branch below.
+    let mut file = std::fs::File::open(path).map_err(|e| with_path(e, path))?;
     let mut buf = String::new();
     let limit = cap.saturating_add(1);
-    (&mut file).take(limit).read_to_string(&mut buf)?;
+    (&mut file)
+        .take(limit)
+        .read_to_string(&mut buf)
+        .map_err(|e| with_path(e, path))?;
     if buf.len() as u64 > cap {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("file exceeds {cap}-byte cap (override via {MANIFEST_MAX_BYTES_ENV})"),
+            format!(
+                "file exceeds {cap}-byte cap at {} (override via {MANIFEST_MAX_BYTES_ENV})",
+                path.display()
+            ),
         ));
     }
     Ok(buf)
+}
+
+fn with_path(e: std::io::Error, path: &Path) -> std::io::Error {
+    std::io::Error::new(e.kind(), format!("{}: {e}", path.display()))
 }
 
 /// Capitalize the first character of a string.
@@ -381,6 +409,60 @@ mod tests {
         let err =
             read_capped_to_string(&dir.path().join("nope")).expect_err("missing should error");
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    /// SEC-25 / TASK-1442: a symlink at a manifest path must not be
+    /// followed — even if the link target is readable — because an
+    /// adversarial repo can plant `package.json -> /etc/passwd` to leak
+    /// privileged file contents through diagnostics.
+    #[cfg(unix)]
+    #[test]
+    fn read_capped_to_string_refuses_to_follow_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real.txt");
+        std::fs::write(&target, b"secret").unwrap();
+        let link = dir.path().join("manifest.toml");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let err = read_capped_to_string_with(&link, 1024).expect_err("symlink must be rejected");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(
+            err.to_string().contains("symlink"),
+            "error should mention symlink, got {err}"
+        );
+        assert!(
+            err.to_string().contains("manifest.toml"),
+            "error should name the offending path, got {err}"
+        );
+    }
+
+    /// ERR-4 / TASK-1393: PermissionDenied (and other propagated io
+    /// errors) must include the path in the message so callers that
+    /// surface the bare error to users still get a useful diagnostic.
+    #[cfg(unix)]
+    #[test]
+    fn read_capped_to_string_permission_denied_includes_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("locked.toml");
+        std::fs::write(&path, b"data").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let err = read_capped_to_string_with(&path, 1024);
+
+        // Restore perms before asserting so a failure doesn't leak an
+        // unreadable file into the tempdir teardown.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+        // Root (e.g. some CI sandboxes) bypasses the perm check, so only
+        // assert path context when the open actually failed.
+        if let Err(e) = err {
+            assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied);
+            assert!(
+                e.to_string().contains("locked.toml"),
+                "PermissionDenied error must name the path, got {e}"
+            );
+        }
     }
 
     /// ARCH-9 / TASK-1228: pin the parse_byte_cap_env shared parser across

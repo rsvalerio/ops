@@ -106,16 +106,34 @@ where
 /// `ops_core::subprocess::run_with_timeout`. The same applies to
 /// [`write_ops_toml`] and [`edit_ops_toml`], which delegate here.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    let (parent, file_name) = resolve_parent_and_filename(path)?;
+    let tmp = parent.join(build_tmp_basename(file_name));
 
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    if let Err(e) = write_tmp_and_sync(&tmp, path, bytes) {
+        cleanup_tmp(
+            &tmp,
+            false,
+            "leaked atomic_write temp file after write/sync failure",
+        );
+        return Err(e);
+    }
 
-    // ERR-1 / TASK-1040: `Path::parent()` returns `Some("")` — not `None` —
-    // for a bare filename like `Path::new("foo.toml")`. The empty path
-    // silently fails to open in the parent-fsync block below (ENOENT),
-    // skipping the crash-safety guarantee. Remap empty to "." so the fsync
-    // codepath actually runs against the cwd.
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        cleanup_tmp(
+            &tmp,
+            true,
+            "leaked atomic_write temp file after rename failure",
+        );
+        return Err(e);
+    }
+
+    sync_parent_dir(parent);
+    Ok(())
+}
+
+// ERR-1 / TASK-1040: `Path::parent()` returns `Some("")` — not `None` —
+// for a bare filename. Remap empty to "." so the parent fsync runs.
+fn resolve_parent_and_filename(path: &Path) -> std::io::Result<(&Path, &OsStr)> {
     let parent = match path.parent() {
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => Path::new("."),
@@ -123,6 +141,18 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let file_name = path.file_name().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no file name")
     })?;
+    Ok((parent, file_name))
+}
+
+// SEC-25 / TASK-0837: build the tmp basename from raw OsStr bytes so two
+// non-UTF-8 siblings whose lossy renders collide do not race on the same
+// tmp. READ-5 / TASK-0908: strip a leading dot so `.ops.toml` does not
+// produce a double-dot `..ops.toml.tmp.…` shape.
+fn build_tmp_basename(file_name: &OsStr) -> OsString {
+    use std::fmt::Write as _;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     let pid = std::process::id();
     let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -130,129 +160,77 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
 
-    // SEC-25 / TASK-0837: build the tmp basename from raw OsStr bytes
-    // rather than via to_string_lossy, so that two distinct non-UTF-8
-    // siblings whose lossy-rendered names collide on `?`/U+FFFD do not
-    // race on the same tmp basename.
-    //
-    // READ-5 / TASK-0908: strip a leading dot before composing the tmp
-    // basename. Without this, a target like `.ops.toml` produced
-    // `..ops.toml.tmp.…`, a double-dot shape that confuses cleanup
-    // scripts and editor swap-file detectors and slips past grep-based
-    // crash-recovery audits.
     let name_bytes = file_name.as_encoded_bytes();
     let stem_bytes = name_bytes.strip_prefix(b".").unwrap_or(name_bytes);
-    // SAFETY: stem_bytes is the original OsStr-encoded byte slice with at
-    // most one leading ASCII '.' removed. OsStr::as_encoded_bytes documents
-    // that ASCII bytes can be removed from either end without producing
-    // an invalid OsStr encoding.
+    // SAFETY: at most one leading ASCII '.' removed from a valid OsStr
+    // encoding; OsStr::as_encoded_bytes documents this is safe.
     let stem = unsafe { OsStr::from_encoded_bytes_unchecked(stem_bytes) };
 
-    // PERF-3 / TASK-1223: build the suffix in a single reusable `String`
-    // (which the `OsString::push` then borrows as a UTF-8 slice) instead
-    // of `format!()` allocating a fresh `String` per atomic write. One
-    // allocation for the suffix, one for the OsString — down from two
-    // independent allocations every time a `.ops.toml` is edited.
+    // PERF-3 / TASK-1223: one allocation for the suffix, one for the OsString.
     let mut suffix = String::with_capacity(48);
-    use std::fmt::Write as _;
     let _ = write!(suffix, ".tmp.{pid}.{counter}.{nanos}");
     let mut tmp_name = OsString::with_capacity(name_bytes.len() + suffix.len() + 1);
     tmp_name.push(".");
     tmp_name.push(stem);
     tmp_name.push(&suffix);
-    let tmp = parent.join(tmp_name);
+    tmp_name
+}
 
-    // SEC-25 / TASK-0898: preserve restrictive permissions across
-    // atomic-replace. Without this, the tmp file inherits the process
-    // umask (typically yielding 0644) and the rename silently widens any
-    // 0600/0640 ACL the user had on the destination. On Unix we stat the
-    // destination and apply the same mode bits to the temp file; if the
-    // destination doesn't exist we default to 0o600 rather than letting
-    // umask leak. On non-Unix platforms we keep the previous behaviour
-    // (no per-file mode set; relies on filesystem ACL inheritance).
-    //
-    // SEC-25 / TASK-1086: `OpenOptions::mode()` is passed through to
-    // `open(2)`, which masks the requested mode by the process umask
-    // (`mode & ~umask`). For a non-default umask (e.g. 0o077) a
-    // destination requested at 0o644 lands at 0o600 on disk and the
-    // rename silently narrows — or, symmetrically, a 0o660 destination
-    // collapses to 0o640. Apply `set_permissions` on the temp path after
-    // creation so the on-disk mode is exact regardless of umask.
-    // ERR-1 / TASK-1134: clean up the temp file on any inner error
-    // (open/set_permissions/write/sync), not just on rename failure.
-    // Writing into an inner closure lets `?` propagate while the surrounding
-    // block runs `remove_file(&tmp)` before returning the original error,
-    // matching the rename-failure cleanup at the next block.
-    let write_result: std::io::Result<()> = (|| {
-        let mut opts = std::fs::OpenOptions::new();
-        opts.write(true).create_new(true);
-        #[cfg(unix)]
-        let requested_mode: u32 = {
-            use std::os::unix::fs::OpenOptionsExt;
-            let mode = std::fs::metadata(path)
-                .ok()
-                .map(|m| std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o7777)
-                .unwrap_or(0o600);
-            opts.mode(mode);
-            mode
-        };
-        let mut f = opts.open(&tmp)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            // fchmod via set_permissions overrides the umask-masked mode
-            // that open(2) actually applied, so the on-disk bits match
-            // what the caller requested.
-            f.set_permissions(std::fs::Permissions::from_mode(requested_mode))?;
+// ERR-1 / TASK-1134: cleanup-on-error path shared by the write/sync and
+// rename failure arms. NotFound from the write/sync arm is expected when
+// `open` itself failed, so do not warn on it; the rename arm always warns
+// because the tmp existed at that point.
+fn cleanup_tmp(tmp: &Path, warn_on_not_found: bool, msg: &'static str) {
+    if let Err(e) = std::fs::remove_file(tmp) {
+        if warn_on_not_found || e.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!(tmp = %tmp.display(), error = %e, "{msg}");
         }
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        #[cfg(test)]
-        if tests::FAIL_AFTER_SYNC.with(|c| c.get()) {
-            return Err(std::io::Error::other("injected post-sync failure"));
-        }
-        Ok(())
-    })();
-    if let Err(e) = write_result {
-        if let Err(cleanup) = std::fs::remove_file(&tmp) {
-            if cleanup.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!(
-                    tmp = %tmp.display(),
-                    error = %cleanup,
-                    "leaked atomic_write temp file after write/sync failure",
-                );
-            }
-        }
-        return Err(e);
     }
+}
 
-    if let Err(e) = std::fs::rename(&tmp, path) {
-        if let Err(cleanup) = std::fs::remove_file(&tmp) {
-            tracing::warn!(
-                tmp = %tmp.display(),
-                error = %cleanup,
-                "leaked atomic_write temp file after rename failure",
-            );
-        }
-        return Err(e);
+// SEC-25 / TASK-0898 + TASK-1086 + TASK-1388: preserve restrictive perms
+// across atomic-replace. Probe via symlink_metadata so a symlink at `path`
+// does not let the link target's mode drive the new file's perms; fall
+// back to 0o600 for new files, non-regular entries, or non-Unix.
+// `set_permissions` after open overrides the umask-masked mode that
+// `open(2)` actually applied.
+fn write_tmp_and_sync(tmp: &Path, dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    let requested_mode: u32 = {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mode = std::fs::symlink_metadata(dest)
+            .ok()
+            .filter(|m| m.file_type().is_file())
+            .map(|m| std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o7777)
+            .unwrap_or(0o600);
+        opts.mode(mode);
+        mode
+    };
+    #[cfg(not(unix))]
+    let _ = dest;
+    let mut f = opts.open(tmp)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        f.set_permissions(std::fs::Permissions::from_mode(requested_mode))?;
     }
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    #[cfg(test)]
+    if tests::FAIL_AFTER_SYNC.with(|c| c.get()) {
+        return Err(std::io::Error::other("injected post-sync failure"));
+    }
+    Ok(())
+}
 
-    // Persist the new directory entry so a crash after rename still finds the
-    // updated file. macOS does not require this for crash safety in practice,
-    // but Linux ext4 does, and it is cheap.
-    //
-    // ERR-1 / TASK-0899: a failing directory fsync (ENOSPC, EIO, full
-    // disk) is treated as non-fatal — the rename has already returned
-    // success and the calling write path has no recovery action — but it
-    // is the only signal that crash-safety is currently broken, so we
-    // surface it at `warn` level rather than swallowing it silently.
-    // ERR-1 / TASK-1231: Windows `std::fs` exposes no portable
-    // directory-fsync analogue (FlushFileBuffers acts on file handles, not
-    // directory entries). Document the platform gap with a tracing::debug
-    // breadcrumb so the durability policy is consistent across both this
-    // and the `init_cmd::write_init` no-force branch — operators reading
-    // the Unix branch's "may not survive a power loss" warning do not
-    // implicitly extend that guarantee to Windows.
+// ERR-1 / TASK-0899 + TASK-1231: a failing directory fsync is non-fatal
+// (the rename already succeeded) but it is the only signal that crash
+// safety is broken, so we warn rather than swallow. Windows has no
+// portable directory-fsync analogue; emit a debug breadcrumb so the
+// platform gap is visible in logs.
+fn sync_parent_dir(parent: &Path) {
     #[cfg(not(unix))]
     {
         tracing::debug!(
@@ -270,7 +248,6 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
             );
         }
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -485,6 +462,48 @@ mod tests {
             mode, 0o600,
             "expected 0o600 default for new file, got {mode:o}"
         );
+    }
+
+    /// SEC-25 / TASK-1388: if the destination is a symlink, the mode probe
+    /// must come from the link entry itself (via `symlink_metadata`), not
+    /// from the link target. Otherwise an attacker who can plant a symlink
+    /// at the destination can broaden the new file's perms to the target's
+    /// mode. `atomic_write` should fall back to the 0o600 default and the
+    /// pre-existing target file must be left untouched.
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_symlink_destination_defaults_to_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("world_readable.txt");
+        std::fs::write(&target, b"do not touch").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let link = dir.path().join("ops.toml");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        atomic_write(&link, b"fresh").unwrap();
+
+        let written = std::fs::symlink_metadata(&link).unwrap();
+        assert!(
+            written.file_type().is_file(),
+            "atomic_write should have replaced the symlink with a regular file"
+        );
+        let mode = written.permissions().mode() & 0o7777;
+        assert_eq!(
+            mode, 0o600,
+            "expected 0o600 default when destination was a symlink, got {mode:o}"
+        );
+        assert_eq!(std::fs::read(&link).unwrap(), b"fresh");
+
+        let target_meta = std::fs::symlink_metadata(&target).unwrap();
+        assert!(target_meta.file_type().is_file());
+        assert_eq!(
+            target_meta.permissions().mode() & 0o7777,
+            0o644,
+            "prior symlink target must be untouched"
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"do not touch");
     }
 
     /// SEC-25 / TASK-1086: `OpenOptions::mode()` is masked by the process
