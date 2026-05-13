@@ -3,11 +3,11 @@ id: TASK-1423
 title: >-
   PERF-3: cached_ops_root_arc allocates PathBuf on every cache lookup (incl.
   hits) while holding global mutex
-status: To Do
+status: Done
 assignee:
   - TASK-1455
 created_date: '2026-05-13 18:22'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 22:59'
 labels:
   - code-review-rust
   - PERF
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Use guard.get(ops_root) first; only fall through to entry(to_path_buf()) on a miss
-- [ ] #2 Microbench or test pinning that the hit path does not allocate a PathBuf
+- [x] #1 Use guard.get(ops_root) first; only fall through to entry(to_path_buf()) on a miss
+- [x] #2 Microbench or test pinning that the hit path does not allocate a PathBuf
 <!-- AC:END -->

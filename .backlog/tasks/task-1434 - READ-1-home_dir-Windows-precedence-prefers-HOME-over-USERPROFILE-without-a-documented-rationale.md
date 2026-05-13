@@ -3,11 +3,11 @@ id: TASK-1434
 title: >-
   READ-1: home_dir Windows precedence prefers HOME over USERPROFILE without a
   documented rationale
-status: To Do
+status: Done
 assignee:
   - TASK-1455
 created_date: '2026-05-13 18:23'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 22:59'
 labels:
   - code-review-rust
   - READ
@@ -28,6 +28,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Decide and document the Windows precedence policy (HOME-first vs USERPROFILE-first) with explicit rationale
-- [ ] #2 global_config_path and home_dir use the same precedence
+- [x] #1 Decide and document the Windows precedence policy (HOME-first vs USERPROFILE-first) with explicit rationale
+- [x] #2 global_config_path and home_dir use the same precedence
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1419
 title: >-
   PERF-3: global_config_path re-reads XDG_CONFIG_HOME/APPDATA/HOME on every
   load_config call
-status: To Do
+status: Done
 assignee:
   - TASK-1455
 created_date: '2026-05-13 18:17'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 22:59'
 labels:
   - code-review-rust
   - perf
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 memoize global_config_path result behind a OnceLock so env reads happen at most once
-- [ ] #2 preserve existing source-of-base-dir tracing::debug on first resolution only
-- [ ] #3 document process-lifetime contract alongside TMPDIR_DISPLAY equivalent
+- [x] #1 memoize global_config_path result behind a OnceLock so env reads happen at most once
+- [x] #2 preserve existing source-of-base-dir tracing::debug on first resolution only
+- [x] #3 document process-lifetime contract alongside TMPDIR_DISPLAY equivalent
 <!-- AC:END -->

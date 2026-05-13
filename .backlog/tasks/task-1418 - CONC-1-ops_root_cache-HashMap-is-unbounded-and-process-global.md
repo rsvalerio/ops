@@ -1,11 +1,11 @@
 ---
 id: TASK-1418
 title: 'CONC-1: ops_root_cache HashMap is unbounded and process-global'
-status: To Do
+status: Done
 assignee:
   - TASK-1455
 created_date: '2026-05-13 18:17'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 22:59'
 labels:
   - code-review-rust
   - conc
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 cap ops_root_cache size with LRU eviction
-- [ ] #2 the test serial-locked region continues to observe Arc::ptr_eq for the same root within the cap window
-- [ ] #3 regression test inserts >cap distinct roots and asserts the cache stays bounded
+- [x] #1 cap ops_root_cache size with LRU eviction
+- [x] #2 the test serial-locked region continues to observe Arc::ptr_eq for the same root within the cap window
+- [x] #3 regression test inserts >cap distinct roots and asserts the cache stays bounded
 <!-- AC:END -->

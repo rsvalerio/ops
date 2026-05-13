@@ -3,11 +3,11 @@ id: TASK-1424
 title: >-
   ERR-1: cached_ops_root_arc keyed by raw input path; equivalent paths produce
   divergent OPS_ROOT renderings
-status: To Do
+status: Done
 assignee:
   - TASK-1455
 created_date: '2026-05-13 18:22'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 22:59'
 labels:
   - code-review-rust
   - ERR
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Document the canonicalisation contract at the call site, or canonicalise before insertion
-- [ ] #2 Regression test: two equivalent paths (relative + absolute, symlinked) yield the same Arc<str>
+- [x] #1 Document the canonicalisation contract at the call site, or canonicalise before insertion
+- [x] #2 Regression test: two equivalent paths (relative + absolute, symlinked) yield the same Arc<str>
 <!-- AC:END -->
