@@ -3,11 +3,11 @@ id: TASK-1310
 title: >-
   TEST-1: cli_run_before_commit_with_malformed_toml_fails asserts only non-zero
   exit
-status: To Do
+status: Done
 assignee:
   - TASK-1387
 created_date: '2026-05-11 19:58'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-13 06:20'
 labels:
   - code-review-rust
   - test-quality

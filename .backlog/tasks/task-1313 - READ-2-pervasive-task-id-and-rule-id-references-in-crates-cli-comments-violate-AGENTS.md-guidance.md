@@ -3,11 +3,11 @@ id: TASK-1313
 title: >-
   READ-2: pervasive task-id and rule-id references in crates/cli comments
   violate AGENTS.md guidance
-status: To Do
+status: Done
 assignee:
   - TASK-1387
 created_date: '2026-05-11 20:25'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-13 07:58'
 labels:
   - code-review-rust
   - readability

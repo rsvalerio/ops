@@ -3,11 +3,11 @@ id: TASK-1334
 title: >-
   READ-2: render_grouped_sections uses Option<Option<&str>> sentinel for
   unset-vs-None heading state
-status: To Do
+status: Done
 assignee:
   - TASK-1387
 created_date: '2026-05-12 16:27'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-13 07:59'
 labels:
   - code-review-rust
   - readability

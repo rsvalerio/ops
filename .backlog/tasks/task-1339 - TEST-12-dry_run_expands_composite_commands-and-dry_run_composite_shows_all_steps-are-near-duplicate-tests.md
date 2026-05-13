@@ -3,11 +3,11 @@ id: TASK-1339
 title: >-
   TEST-12: dry_run_expands_composite_commands and
   dry_run_composite_shows_all_steps are near-duplicate tests
-status: To Do
+status: Done
 assignee:
   - TASK-1387
 created_date: '2026-05-12 16:27'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-13 07:59'
 labels:
   - code-review-rust
   - tests

@@ -3,11 +3,11 @@ id: TASK-1372
 title: >-
   TEST-1: cli_run_echo_success asserts stderr timing suffix but never observes
   echo output reaching stdout
-status: To Do
+status: Done
 assignee:
   - TASK-1387
 created_date: '2026-05-12 21:42'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-13 08:39'
 labels:
   - code-review-rust
   - test
