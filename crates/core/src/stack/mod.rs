@@ -8,12 +8,33 @@
 
 use crate::config::{CommandSpec, Config};
 use indexmap::IndexMap;
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
+use strum::{IntoEnumIterator, VariantNames};
 
 mod detect;
 mod metadata;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumString, strum::IntoStaticStr)]
+/// READ-6 (TASK-1404): the enum is the single source of truth for both the
+/// list of stacks accepted in `config.stack` overrides (`Stack::VARIANTS`,
+/// derived by `strum::VariantNames`) and the priority order used by
+/// `Stack::detect` (declaration order, iterated via `strum::EnumIter`).
+/// Variant order matters: detection probes earlier variants first, so
+/// `JavaGradle` is declared before `JavaMaven` to win on mixed Gradle/Maven
+/// workspaces (see `gradle_prioritized_over_maven` test).
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    strum::EnumString,
+    strum::IntoStaticStr,
+    strum::EnumIter,
+    strum::VariantNames,
+)]
 #[strum(serialize_all = "lowercase")]
 pub enum Stack {
     Rust,
@@ -22,10 +43,10 @@ pub enum Stack {
     Python,
     Terraform,
     Ansible,
-    #[strum(serialize = "java-maven")]
-    JavaMaven,
     #[strum(serialize = "java-gradle")]
     JavaGradle,
+    #[strum(serialize = "java-maven")]
+    JavaMaven,
     Generic,
 }
 
@@ -53,7 +74,7 @@ impl Stack {
             match raw.parse::<Self>() {
                 Ok(stack) => return Some(stack),
                 Err(_) => {
-                    let accepted = Self::ACCEPTED_NAMES.join(", ");
+                    let accepted = Self::VARIANTS.join(", ");
                     tracing::warn!(
                         value = raw,
                         accepted = %accepted,
@@ -67,20 +88,6 @@ impl Stack {
         }
         Self::detect(workspace_root)
     }
-
-    /// Stack names accepted in `config.stack` overrides, used in diagnostics
-    /// when an unrecognised value is rejected.
-    const ACCEPTED_NAMES: &'static [&'static str] = &[
-        "rust",
-        "node",
-        "go",
-        "python",
-        "terraform",
-        "ansible",
-        "java-maven",
-        "java-gradle",
-        "generic",
-    ];
 
     /// Maximum number of parent directories `detect` walks before giving up.
     ///
@@ -101,28 +108,72 @@ impl Stack {
         metadata::metadata(*self).1
     }
 
+    /// PERF-3 (TASK-1409): the parsed default-commands map is memoized
+    /// per-process. First call eagerly parses every variant's embedded
+    /// TOML once; subsequent calls clone from the cache (`IndexMap<String,
+    /// CommandSpec>` clone is O(n) on entries, but avoids re-running the
+    /// TOML parser on every `ops <cmd>` dispatch).
     pub fn default_commands(&self) -> IndexMap<String, CommandSpec> {
-        let toml = match self.default_commands_toml() {
-            Some(t) => t,
-            None => return IndexMap::new(),
-        };
-        // `.default.<stack>.ops.toml` is `include_str!`-embedded at compile
-        // time and validated by [`tests::all_embedded_default_tomls_parse`].
-        // A parse failure here means the CI gate was skipped. Log at warn
-        // instead of panicking so a bad default TOML degrades gracefully
-        // (empty command map) rather than aborting the process.
-        let config: Config = match toml::from_str(toml) {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!(
-                    stack = ?self,
-                    error = %e,
-                    "embedded default commands TOML failed to parse; returning empty command map"
-                );
-                return IndexMap::new();
-            }
-        };
-        config.commands
+        Self::default_commands_cache()
+            .get(self)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn default_commands_cache() -> &'static HashMap<Stack, IndexMap<String, CommandSpec>> {
+        static CACHE: OnceLock<HashMap<Stack, IndexMap<String, CommandSpec>>> = OnceLock::new();
+        CACHE.get_or_init(|| {
+            Self::iter()
+                .map(|stack| {
+                    let commands = match stack.default_commands_toml() {
+                        Some(toml) => {
+                            parse_default_commands(stack, toml, &mut std::io::stderr().lock())
+                        }
+                        None => IndexMap::new(),
+                    };
+                    (stack, commands)
+                })
+                .collect()
+        })
+    }
+}
+
+/// Parse an embedded `.default.<stack>.ops.toml` payload, falling back to an
+/// empty `IndexMap` on parse failure.
+///
+/// ERR-1 (TASK-1413): the embedded TOML is validated by
+/// [`tests::all_embedded_default_tomls_parse`]; reaching the failure branch
+/// at runtime means the CI gate was bypassed and the next `ops init` would
+/// otherwise scaffold an empty command section with no operator-visible
+/// signal. Emit both a structured `tracing::warn` (for logs / debugging) and
+/// a `crate::ui::warn` so the user sees the failure on stderr regardless of
+/// `OPS_LOG_LEVEL`. The `ui_writer` parameter is the test seam: production
+/// routes through stderr, tests pass a `Vec<u8>` and assert the captured
+/// output.
+fn parse_default_commands<W: std::io::Write>(
+    stack: Stack,
+    toml: &str,
+    ui_writer: &mut W,
+) -> IndexMap<String, CommandSpec> {
+    match toml::from_str::<Config>(toml) {
+        Ok(c) => c.commands,
+        Err(e) => {
+            tracing::warn!(
+                stack = ?stack,
+                error = %e,
+                "embedded default commands TOML failed to parse; returning empty command map"
+            );
+            crate::ui::emit_to(
+                "warning",
+                &format!(
+                    "embedded default commands TOML for stack `{}` failed to parse: {e}; \
+                     `ops init` will scaffold an empty command section",
+                    stack.as_str()
+                ),
+                ui_writer,
+            );
+            IndexMap::new()
+        }
     }
 }
 
@@ -647,6 +698,61 @@ mod tests {
             cmds.contains_key("lint"),
             "python must define `lint` composite"
         );
+    }
+
+    /// PERF-3 (TASK-1409): two back-to-back calls must return equal-content
+    /// maps, exercising the OnceLock-cached parse path on the second call.
+    /// PERF-3 (TASK-1410): repeat `detect()` calls with the same start
+    /// path must not re-issue `std::fs::canonicalize`. Asserted via the
+    /// `canonicalize_cache_contains` test seam: the cache is empty for the
+    /// (unique tempdir) start before the first call, populated after.
+    #[test]
+    fn detect_canonicalize_memoized_per_start_path() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("Cargo.toml"), "").expect("write");
+        assert!(
+            !super::detect::canonicalize_cache_contains(dir.path()),
+            "fresh tempdir must not be cached yet"
+        );
+        let first = Stack::detect(dir.path());
+        assert!(
+            super::detect::canonicalize_cache_contains(dir.path()),
+            "first detect must populate the canonicalize cache for this start"
+        );
+        let second = Stack::detect(dir.path());
+        assert_eq!(first, Some(Stack::Rust));
+        assert_eq!(second, Some(Stack::Rust));
+    }
+
+    #[test]
+    fn default_commands_memoized_returns_stable_content() {
+        let first = Stack::Rust.default_commands();
+        let second = Stack::Rust.default_commands();
+        assert_eq!(first.len(), second.len());
+        for (k, v) in &first {
+            assert_eq!(
+                second.get(k).map(|s| s.display_cmd_fallback()),
+                Some(v.display_cmd_fallback()),
+                "memoized default_commands diverged at key {k}"
+            );
+        }
+    }
+
+    /// ERR-1 (TASK-1413): when the embedded TOML fails to parse, the
+    /// helper must emit a `ui::warn` message that names the stack and the
+    /// parser error. Test exercises the `ui_writer` seam with a synthetic
+    /// broken TOML payload.
+    #[test]
+    fn parse_default_commands_emits_ui_warn_on_parse_failure() {
+        let mut buf: Vec<u8> = Vec::new();
+        let map = super::parse_default_commands(Stack::Rust, "not [valid toml", &mut buf);
+        assert!(map.is_empty(), "parse failure must degrade to empty map");
+        let out = String::from_utf8(buf).expect("utf8");
+        assert!(
+            out.starts_with("ops: warning:"),
+            "expected ui::warn prefix, got: {out}"
+        );
+        assert!(out.contains("rust"), "warn must name the stack, got: {out}");
     }
 
     #[test]

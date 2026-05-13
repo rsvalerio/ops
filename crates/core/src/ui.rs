@@ -47,7 +47,7 @@ fn emit(level: &str, message: &str) {
 /// split + sanitise pipeline into `w`. Production callers pass a locked stderr
 /// handle; tests pass a `Vec<u8>` so they can assert on the exact bytes the
 /// production pipeline produces (DUP-1 TASK-1031).
-fn emit_to<W: Write>(level: &str, message: &str, w: &mut W) {
+pub(crate) fn emit_to<W: Write>(level: &str, message: &str, w: &mut W) {
     // SEC-21 (TASK-0981): split on `\n` so a multi-line anyhow chain renders
     // as continuation lines indented under the prefix, and an attacker-
     // injected `\n` cannot forge a top-level `ops: <level>:` line. Each

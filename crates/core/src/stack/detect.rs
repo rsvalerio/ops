@@ -4,9 +4,65 @@
 //! ancestor-walk and per-extension probe code lives separately from the
 //! enum + embedded TOML metadata table.
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use strum::IntoEnumIterator;
 
 use super::Stack;
+
+/// PERF-3 (TASK-1410): canonicalize is one stat per path component plus a
+/// symlink dereference each level. `Stack::detect` runs once per CLI
+/// dispatch and on a deep cwd / NFS / FUSE mount the syscall fan-out shows
+/// up on the critical-path. Cache the resolved `(start -> canonical)`
+/// mapping per process so repeat invocations from the same start path
+/// skip the syscalls entirely. Fallback behaviour (lexical walk + tracing
+/// debug breadcrumb on error) is preserved on the first miss; subsequent
+/// hits replay the cached resolution.
+static CANONICALIZE_CACHE: OnceLock<Mutex<HashMap<PathBuf, PathBuf>>> = OnceLock::new();
+
+fn canonicalize_cached(start: &Path) -> PathBuf {
+    let cache = CANONICALIZE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(p) = cache
+        .lock()
+        .expect("canonicalize cache poisoned")
+        .get(start)
+    {
+        return p.clone();
+    }
+    let resolved = match std::fs::canonicalize(start) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::debug!(
+                path = ?start.display(),
+                error = ?e,
+                "Stack::detect could not canonicalize start; falling back to lexical walk"
+            );
+            start.to_path_buf()
+        }
+    };
+    cache
+        .lock()
+        .expect("canonicalize cache poisoned")
+        .insert(start.to_path_buf(), resolved.clone());
+    resolved
+}
+
+/// Test seam (PERF-3 / TASK-1410 AC#3): returns `true` once `start` has
+/// been resolved and cached by [`canonicalize_cached`]. The previous
+/// counter-based seam was racy under parallel tests; querying the cache
+/// directly is per-path and unaffected by other tests' detect() calls.
+#[cfg(test)]
+pub(super) fn canonicalize_cache_contains(start: &Path) -> bool {
+    CANONICALIZE_CACHE
+        .get()
+        .map(|c| {
+            c.lock()
+                .expect("canonicalize cache poisoned")
+                .contains_key(start)
+        })
+        .unwrap_or(false)
+}
 
 /// SEC-25: probe a manifest path with `try_exists` so transient errors are
 /// logged rather than silently swallowed by `Path::exists`.
@@ -80,33 +136,14 @@ pub(super) fn has_manifest_in_dir(stack: Stack, dir: &Path) -> bool {
 /// let lexical `..` traversal yield ancestors outside the canonical
 /// workspace, picking up a sibling project's manifests.
 pub(super) fn detect(start: &Path) -> Option<Stack> {
-    // Priority order for detection (Generic is excluded — no manifest files).
-    const DETECT_ORDER: &[Stack] = &[
-        Stack::Rust,
-        Stack::Node,
-        Stack::Go,
-        Stack::Python,
-        Stack::Terraform,
-        Stack::Ansible,
-        Stack::JavaGradle,
-        Stack::JavaMaven,
-    ];
-
-    let mut current = match std::fs::canonicalize(start) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::debug!(
-                path = ?start.display(),
-                error = ?e,
-                "Stack::detect could not canonicalize start; falling back to lexical walk"
-            );
-            start.to_path_buf()
-        }
-    };
+    let mut current = canonicalize_cached(start);
+    // READ-6 (TASK-1404): detection priority follows the `Stack` variant
+    // declaration order; `Generic` has no manifest and is skipped via
+    // `manifest_files().is_empty()`.
     for _ in 0..Stack::MAX_DETECT_DEPTH {
-        if let Some(&stack) = DETECT_ORDER
-            .iter()
-            .find(|s| has_manifest_in_dir(**s, &current))
+        if let Some(stack) = Stack::iter()
+            .filter(|s| !s.manifest_files().is_empty())
+            .find(|s| has_manifest_in_dir(*s, &current))
         {
             return Some(stack);
         }
