@@ -292,7 +292,11 @@ impl ProjectDependencies {
 }
 
 /// Metadata for a field that can appear on the about card.
-#[derive(Clone)]
+///
+/// TRAIT-1 / TASK-1437: derives `Debug` alongside `Clone` so extension authors
+/// can `tracing::debug!(?defs)` over a `Vec<AboutFieldDef>` without hand-rolling
+/// a formatter (C-DEBUG).
+#[derive(Debug, Clone)]
 pub struct AboutFieldDef {
     /// Identifier used in config (e.g. "project", "code").
     pub id: &'static str,
@@ -302,40 +306,49 @@ pub struct AboutFieldDef {
     pub description: &'static str,
 }
 
+impl AboutFieldDef {
+    /// Const constructor so [`BASE_ABOUT_FIELDS`] can be expressed as a named
+    /// slice of `AboutFieldDef` rather than a positional `(&str, &str, &str)`
+    /// tuple (API-1 / TASK-1408).
+    #[must_use]
+    pub const fn new(id: &'static str, label: &'static str, description: &'static str) -> Self {
+        Self {
+            id,
+            label,
+            description,
+        }
+    }
+}
+
 /// Common about-field definitions shared by all stack identity providers.
 ///
-/// Each tuple is `(id, label, description)`. Stack-specific providers can call
-/// [`base_about_fields`] to get these as `Vec<AboutFieldDef>` and append any
-/// extras (e.g. Rust adds `homepage`, `msrv`, `dependencies`).
-pub const BASE_ABOUT_FIELDS: &[(&str, &str, &str)] = &[
-    (
+/// API-1 / TASK-1408: exposed as `&[AboutFieldDef]` so consumers read named
+/// fields instead of remembering positional `(id, label, description)` slot
+/// order. Stack-specific providers can call [`base_about_fields`] to get an
+/// owned `Vec<AboutFieldDef>` and append any extras (e.g. Rust adds
+/// `homepage`, `msrv`, `dependencies`).
+pub const BASE_ABOUT_FIELDS: &[AboutFieldDef] = &[
+    AboutFieldDef::new(
         "stack",
         "Stack",
         "Language/stack and variant (e.g. Edition 2021)",
     ),
-    ("license", "License", "SPDX license identifier"),
-    ("project", "Project", "Project name, version, and path"),
-    ("modules", "Module count", "Number of project modules"),
-    (
+    AboutFieldDef::new("license", "License", "SPDX license identifier"),
+    AboutFieldDef::new("project", "Project", "Project name, version, and path"),
+    AboutFieldDef::new("modules", "Module count", "Number of project modules"),
+    AboutFieldDef::new(
         "codebase",
         "Codebase",
         "LOC, file count, and language mix (from tokei)",
     ),
-    ("repository", "Repository", "Repository URL"),
-    ("authors", "Authors", "Project author(s)"),
-    ("coverage", "Coverage", "Test coverage percentage"),
+    AboutFieldDef::new("repository", "Repository", "Repository URL"),
+    AboutFieldDef::new("authors", "Authors", "Project author(s)"),
+    AboutFieldDef::new("coverage", "Coverage", "Test coverage percentage"),
 ];
 
 /// Convert [`BASE_ABOUT_FIELDS`] into a `Vec<AboutFieldDef>`.
 pub fn base_about_fields() -> Vec<AboutFieldDef> {
-    BASE_ABOUT_FIELDS
-        .iter()
-        .map(|(id, label, description)| AboutFieldDef {
-            id,
-            label,
-            description,
-        })
-        .collect()
+    BASE_ABOUT_FIELDS.to_vec()
 }
 
 /// Insert a `homepage` field just before `coverage` (or at the end if `coverage`

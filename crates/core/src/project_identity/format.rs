@@ -4,8 +4,23 @@
 //! text blocks used by [`super::AboutCard`].
 
 use super::{LanguageStat, ProjectIdentity};
-use crate::output::display_width;
+use crate::output::{display_width, pad_to_display_width};
 use crate::text::format_number;
+
+/// READ-1 / TASK-1392: push `s` onto `parts` iff non-empty, so the
+/// non-empty-then-push idiom lives in one place.
+fn push_non_empty(parts: &mut Vec<String>, s: &str) {
+    if !s.is_empty() {
+        parts.push(s.to_string());
+    }
+}
+
+/// READ-1 / TASK-1392: `Option`-aware sibling of [`push_non_empty`].
+fn push_non_empty_opt(parts: &mut Vec<String>, opt: Option<&str>) {
+    if let Some(s) = opt {
+        push_non_empty(parts, s);
+    }
+}
 
 /// Map a field (key, value) pair to its emoji prefix. The `stack` field is
 /// value-aware so each language gets its own glyph.
@@ -132,12 +147,9 @@ fn format_language_breakdown(
         .iter()
         .take(top_n)
         .map(|l| {
-            let short = short_language_name(&l.name);
-            let pad = name_width.saturating_sub(display_width(short));
-            let mut padded_name = String::from(short);
-            for _ in 0..pad {
-                padded_name.push(' ');
-            }
+            // DUP-3 / TASK-1390: route through the shared pad helper so a
+            // future tightening (tab/ZWJ handling) lands once.
+            let padded_name = pad_to_display_width(short_language_name(&l.name), name_width);
             format!(
                 "  {} {}  {:>val_w$} ({:.1}%)",
                 language_emoji(&l.name),
@@ -158,18 +170,10 @@ fn format_language_breakdown(
 /// stack detail (e.g. "Edition 2021"), and optional MSRV.
 pub(super) fn compose_stack_value(id: &ProjectIdentity) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
-    if !id.stack_label.is_empty() {
-        parts.push(id.stack_label.clone());
-    }
-    if let Some(d) = &id.stack_detail {
-        if !d.is_empty() {
-            parts.push(d.clone());
-        }
-    }
-    if let Some(msrv) = &id.msrv {
-        if !msrv.is_empty() {
-            parts.push(format!("{} (msrv)", msrv));
-        }
+    push_non_empty(&mut parts, &id.stack_label);
+    push_non_empty_opt(&mut parts, id.stack_detail.as_deref());
+    if let Some(msrv) = id.msrv.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(format!("{} (msrv)", msrv));
     }
     if parts.is_empty() {
         None
@@ -182,17 +186,11 @@ pub(super) fn compose_stack_value(id: &ProjectIdentity) -> Option<String> {
 /// line, and project path.
 pub(super) fn compose_project_value(id: &ProjectIdentity) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
-    if !id.name.is_empty() {
-        parts.push(id.name.clone());
+    push_non_empty(&mut parts, &id.name);
+    if let Some(v) = id.version.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(format!("v{}", v));
     }
-    if let Some(v) = &id.version {
-        if !v.is_empty() {
-            parts.push(format!("v{}", v));
-        }
-    }
-    if !id.project_path.is_empty() {
-        parts.push(id.project_path.clone());
-    }
+    push_non_empty(&mut parts, &id.project_path);
     if parts.is_empty() {
         None
     } else {
