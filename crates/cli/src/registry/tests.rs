@@ -1,6 +1,6 @@
-//! Tests for the registry module (split per ARCH-1 / TASK-0842 — exercises
-//! both the discovery and registration submodules through the public
-//! `crate::registry::*` re-exports).
+//! Tests for the registry module — exercises both the discovery and
+//! registration submodules through the public `crate::registry::*`
+//! re-exports.
 
 use super::*;
 use crate::test_utils::capture_warnings;
@@ -22,7 +22,7 @@ fn builtin_extensions_rejects_unknown_extension() {
     assert!(err.contains("not compiled in"));
 }
 
-/// PATTERN-1 / TASK-0990: the "available extensions" list in the
+/// The "available extensions" list in the
 /// "not compiled in" error message must be sorted alphabetically and
 /// deterministic across consecutive invocations. HashMap iteration order
 /// is randomised per process, so an unsorted message would shuffle on
@@ -97,7 +97,7 @@ fn builtin_extensions_none_enabled_loads_all() {
     assert!(result.is_ok());
 }
 
-/// TEST-11 / TASK-1314: assert a behavioural property that holds for any
+/// Assert a behavioural property that holds for any
 /// feature set — `collect_compiled_extensions` must not panic on
 /// `Config::default()` and the names it returns must be non-empty AND
 /// pairwise unique. Pre-fix the `for ext in &compiled` body executed
@@ -118,7 +118,7 @@ fn collect_compiled_extensions_returns_entries() {
     }
 }
 
-/// TEST-25 / TASK-1315: actually exercise the "unfiltered by enabled"
+/// Actually exercise the "unfiltered by enabled"
 /// invariant. The pre-fix body discarded `compiled` via `let _ = compiled`
 /// and only asserted on `filtered`, so a regression that taught
 /// `collect_compiled_extensions` to honour `extensions.enabled` would
@@ -150,7 +150,7 @@ fn collect_compiled_extensions_unfiltered_by_config() {
     }
 }
 
-/// TEST-25 / TASK-1309: exercise `collect_extension_info` regardless of
+/// Exercise `collect_extension_info` regardless of
 /// feature flags by routing inline stub extensions through it. Pre-fix
 /// the `for info in &infos` loop ran zero iterations under default
 /// features, so a regression that dropped `collect_extension_info`
@@ -199,7 +199,7 @@ fn extension_info_provides_metadata() {
     }
 }
 
-/// SEC-31 / TASK-0402: when two extensions claim the same command id,
+/// When two extensions claim the same command id,
 /// the registry must observe the collision (later wins, matching prior
 /// behaviour) and the cli wiring layer must log a warning (verified by
 /// virtue of the late-write taking effect — the warning itself requires
@@ -249,7 +249,7 @@ fn register_extension_commands_detects_duplicate_command_id() {
     }
 }
 
-/// ERR-2 (TASK-0579): a single extension that calls `insert` twice for
+/// A single extension that calls `insert` twice for
 /// the same id must surface the self-shadow via a tracing warning. Prior
 /// to the fix the IndexMap silently overwrote the first registration and
 /// the cross-extension warning loop only fires for foreign owners.
@@ -288,7 +288,7 @@ fn register_extension_commands_warns_on_self_shadow() {
     assert_eq!(registry.len(), 1, "only the surviving entry remains");
 }
 
-/// READ-5 / TASK-0716: the WARN emitted on a collision against a
+/// The WARN emitted on a collision against a
 /// pre-seeded registry entry must NOT surface the internal sentinel
 /// `<pre-existing>` in any field; it is an implementation detail that
 /// leaked into the user-facing log line before the typed-enum refactor.
@@ -344,8 +344,8 @@ fn register_extension_commands_empty_inputs() {
     );
 }
 
-/// CL-5 / TASK-0756: when two extensions register the same data provider
-/// name, the wiring layer must (a) keep the first registration
+/// When two extensions register the same data provider name, the wiring
+/// layer must (a) keep the first registration
 /// (first-write-wins, the security-trusted default) and (b) emit a
 /// `tracing::warn!` that names both extensions and the provider so the
 /// collision is visible to operators.
@@ -400,7 +400,7 @@ fn register_extension_data_providers_warns_on_cross_extension_collision() {
     let kept = registry
         .get("shared")
         .expect("first-write-wins must keep the first registration");
-    // CL-5 / TASK-0904: pin which extension's provider survived. ExtA
+    // Pin which extension's provider survived. ExtA
     // registered StubProvider("a"); first-write-wins means that, not
     // StubProvider("b"), is the one we get back.
     assert_eq!(
@@ -410,7 +410,7 @@ fn register_extension_data_providers_warns_on_cross_extension_collision() {
     );
 }
 
-/// CL-5 / TASK-0904: parallel pin for the *commands* path: register two
+/// Parallel pin for the *commands* path: register two
 /// colliding command ids and verify last-write-wins (the second extension
 /// replaces the first). The asymmetric policy is documented at the module
 /// level — this test ensures a future refactor can't quietly flip it.
@@ -458,7 +458,7 @@ fn register_extension_commands_pins_last_write_wins() {
     }
 }
 
-/// CL-5 / TASK-0756: a single extension that calls `register` twice for
+/// A single extension that calls `register` twice for
 /// the same provider name must surface the duplicate via the wiring
 /// layer's audit drain (parallel to `take_duplicate_inserts` for
 /// commands), rather than silently dropping the second registration.
@@ -500,7 +500,7 @@ fn register_extension_data_providers_warns_on_in_extension_duplicate() {
         logs.contains("double_register") && logs.contains("provider_x"),
         "in-extension duplicate warning must name the extension and provider, got: {logs}"
     );
-    // TEST-25 / TASK-1366: pin first-write-wins on the data-provider
+    // Pin first-write-wins on the data-provider
     // path. Without asserting the registry's post-state, a future
     // regression that warned but corrupted the registry (kept both,
     // kept neither, last-write-wins) would still pass.
@@ -519,7 +519,7 @@ fn register_extension_data_providers_warns_on_in_extension_duplicate() {
 fn register_extension_data_providers_empty_inputs() {
     let mut registry = DataRegistry::new();
     register_extension_data_providers(&[], &mut registry);
-    // TEST-25 / TASK-1280: assert observable emptiness via the public
+    // Assert observable emptiness via the public
     // `provider_names()` view (which returns a sorted Vec of registered
     // provider names). A previous shape ended with `let _ = registry`,
     // exercising only panic-freeness — any future regression that
@@ -535,7 +535,7 @@ fn register_extension_data_providers_empty_inputs() {
     );
 }
 
-/// TEST-11 / TASK-1301: pin the "aggregation does not drop entries"
+/// Pin the "aggregation does not drop entries"
 /// contract using two inline stub extensions so the assertion fires on
 /// every feature combination — including builds that compile in zero
 /// extensions. The previous shape early-returned silently when
@@ -606,12 +606,12 @@ fn extension_types_methods_work() {
     assert!(cmd.is_command());
 }
 
-/// PATTERN-1 / TASK-1088: when two compiled-in extensions self-register
-/// under the same `config_name` (e.g. via colliding `impl_extension!`
-/// invocations), the discovery layer must not silently drop the earlier
-/// `Box<dyn Extension>` — it must emit a `tracing::warn!` audit
-/// breadcrumb naming both slots. Resolution policy: last-write-wins,
-/// matching `register_extension_commands` (CL-5 / TASK-0904).
+/// When two compiled-in extensions self-register under the same
+/// `config_name` (e.g. via colliding `impl_extension!` invocations), the
+/// discovery layer must not silently drop the earlier `Box<dyn Extension>`
+/// — it must emit a `tracing::warn!` audit breadcrumb naming both slots.
+/// Resolution policy: last-write-wins, matching
+/// `register_extension_commands`.
 #[test]
 fn dedup_compiled_extensions_warns_on_duplicate_config_name() {
     use ops_extension::{CommandRegistry, Extension};
@@ -663,12 +663,11 @@ fn dedup_compiled_extensions_warns_on_duplicate_config_name() {
     );
 }
 
-/// PATTERN-1 / TASK-1087: when `extensions.enabled` is unset, the
-/// `enabled = None` branch of `builtin_extensions` must yield extensions in a
-/// stable order so that `register_extension_commands` (last-write-wins, CL-5
-/// / TASK-0904) picks the same winner every process. Prior to TASK-1087 the
-/// branch returned a `HashMap::into_values()` iterator, randomising the
-/// command-id collision winner per process. We simulate the wiring directly
+/// When `extensions.enabled` is unset, the `enabled = None` branch of
+/// `builtin_extensions` must yield extensions in a stable order so that
+/// `register_extension_commands` (last-write-wins) picks the same winner
+/// every process. The pre-fix branch returned a `HashMap::into_values()`
+/// iterator, randomising the command-id collision winner per process. We simulate the wiring directly
 /// (`dedup_compiled_extensions` → `register_extension_commands`) so the test
 /// is hermetic — independent of which extension crates are linked into this
 /// build — and re-run it N=100 times to catch any stochastic flips.

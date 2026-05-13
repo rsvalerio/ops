@@ -17,9 +17,9 @@ use crate::tools_cmd;
 use crate::{about_cmd, extension_cmd, pre_hook_cmd, run_cmd, theme_cmd, SIGINT_EXIT};
 
 /// Shared cwd + registry preamble used by `run_about`, `run_deps`, and the
-/// extension subcommand handlers. DUP-1 / TASK-0207 collapsed the original
-/// per-handler boilerplate; TASK-0427 then threaded the pre-resolved
-/// `Config` so the helper no longer re-loads `.ops.toml`.
+/// extension subcommand handlers. Collapses the per-handler boilerplate and
+/// threads the pre-resolved `Config` so the helper no longer re-loads
+/// `.ops.toml`.
 pub(crate) fn cli_data_context(
     config: &Config,
 ) -> anyhow::Result<(PathBuf, ops_extension::DataRegistry)> {
@@ -42,7 +42,7 @@ pub(crate) fn run_about(
         Some(AboutAction::Coverage) => ops_about::run_about_coverage(&registry),
         Some(AboutAction::Dependencies) => ops_about::run_about_deps(&registry),
         None => {
-            // PERF-1 / TASK-0895: removed the misleading `from_ref` wrapper
+            // Removed the misleading `from_ref` wrapper
             // that pretended to avoid cloning while still calling `to_vec`.
             // A direct `clone()` on the (typically small) config Vec is
             // honest about the allocation cost.
@@ -82,14 +82,14 @@ pub(crate) fn run_extension(config: &Config, action: ExtensionAction) -> anyhow:
     }
 }
 
-/// ERR-1 / TASK-1189: classify an `inquire::Confirm` prompt result so that a
-/// user-initiated cancel (Ctrl-C / Esc) is distinguishable from a real
-/// failure. Returns `Ok(Some(answer))` for a real choice, `Ok(None)` for an
-/// explicit cancel, and `Err` for any other inquire failure.
+/// Classify an `inquire::Confirm` prompt result so that a user-initiated
+/// cancel (Ctrl-C / Esc) is distinguishable from a real failure. Returns
+/// `Ok(Some(answer))` for a real choice, `Ok(None)` for an explicit cancel,
+/// and `Err` for any other inquire failure.
 ///
-/// ERR-9 / TASK-1352: real-error branch attaches an anyhow context naming
-/// the prompt source so a NotTTY / IO failure tells the user which prompt
-/// was in flight rather than surfacing a bare `inquire: <variant>` line.
+/// The real-error branch attaches an anyhow context naming the prompt
+/// source so a NotTTY / IO failure tells the user which prompt was in
+/// flight rather than surfacing a bare `inquire: <variant>` line.
 fn classify_confirm_result(
     res: Result<bool, inquire::InquireError>,
     prompt_source: &str,
@@ -105,15 +105,14 @@ fn classify_confirm_result(
     }
 }
 
-/// API-1 / TASK-1290: treat empty, `0`, `false`, `no`, `off`, and `n`
-/// (case-insensitive, surrounding whitespace trimmed) as off for boolean
-/// opt-in env vars like `OPS_NONINTERACTIVE` and `CI`. Anything else present
-/// is on. Aligns with the `=truthy` ecosystem convention so
-/// `OPS_NONINTERACTIVE=0`, `CI=false`, and `OPS_NONINTERACTIVE=no` all keep
-/// prompts interactive.
+/// Treat empty, `0`, `false`, `no`, `off`, and `n` (case-insensitive,
+/// surrounding whitespace trimmed) as off for boolean opt-in env vars like
+/// `OPS_NONINTERACTIVE` and `CI`. Anything else present is on. Aligns with
+/// the `=truthy` ecosystem convention so `OPS_NONINTERACTIVE=0`,
+/// `CI=false`, and `OPS_NONINTERACTIVE=no` all keep prompts interactive.
 ///
-/// READ-5 / TASK-1333: the `no` / `off` / `n` synonyms were added so an
-/// operator typing `OPS_NONINTERACTIVE=no` to disable noninteractive mode is
+/// The `no` / `off` / `n` synonyms were added so an operator typing
+/// `OPS_NONINTERACTIVE=no` to disable noninteractive mode is
 /// not silently flipped into the opposite state — bash/systemd/`bool` parsers
 /// across the ecosystem accept those, and the previous "anything-but-0/false"
 /// rule produced exactly that inversion.
@@ -128,7 +127,7 @@ fn env_flag_enabled(name: &str) -> bool {
     }
 }
 
-/// ARCH / TASK-1361: non-interactive policy lifted out of `prompt_hook_install`
+/// Non-interactive policy lifted out of `prompt_hook_install`
 /// so the surrounding helper covers only the Confirm prompt + dispatch.
 /// Returns `Some(ExitCode)` when the caller must bail without prompting
 /// (CI, `OPS_NONINTERACTIVE`, or stdout is not a TTY); `None` to proceed.
@@ -143,17 +142,17 @@ fn noninteractive_install_blocked(hook_name: &str) -> Option<ExitCode> {
 
 /// Prompt the user to run `ops <hook> install` when the hook command is not configured.
 ///
-/// PATTERN-1 / TASK-1322: takes `&HookOps` so the install entry comes from
-/// `hook.install_fn` rather than a stringly-typed match on `hook.hook_name`.
+/// Takes `&HookOps` so the install entry comes from `hook.install_fn`
+/// rather than a stringly-typed match on `hook.hook_name`.
 ///
-/// API-1 / TASK-1325: returns `FAILURE` on every "still not configured"
-/// outcome (noninteractive, non-TTY, decline). A user who declines the
-/// install prompt cannot leave git pre-commit silently inert — git treats
-/// SUCCESS as "hook passed" and the missing config would otherwise let the
-/// commit proceed without ever running the configured checks.
+/// Returns `FAILURE` on every "still not configured" outcome
+/// (noninteractive, non-TTY, decline). A user who declines the install
+/// prompt cannot leave git pre-commit silently inert — git treats SUCCESS
+/// as "hook passed" and the missing config would otherwise let the commit
+/// proceed without ever running the configured checks.
 ///
-/// PATTERN-1 / TASK-1375: the Ctrl-C / Esc path returns the shared
-/// `SIGINT_EXIT` constant rather than the magic literal `130`.
+/// The Ctrl-C / Esc path returns the shared `SIGINT_EXIT` constant rather
+/// than the magic literal `130`.
 fn prompt_hook_install(config: &Config, hook: &HookOps) -> anyhow::Result<ExitCode> {
     let hook_name = hook.hook_name;
     ops_core::ui::note(format!("no '{hook_name}' command configured in .ops.toml."));
@@ -169,7 +168,7 @@ fn prompt_hook_install(config: &Config, hook: &HookOps) -> anyhow::Result<ExitCo
     )? {
         Some(b) => b,
         None => {
-            // ERR-1 / TASK-1189: Ctrl-C / Esc at the install prompt is a
+            // Ctrl-C / Esc at the install prompt is a
             // user-initiated cancel — return the SIGINT exit code directly
             // so `main` does not decorate it with the `ops: error:` frame.
             return Ok(ExitCode::from(SIGINT_EXIT));
@@ -179,14 +178,14 @@ fn prompt_hook_install(config: &Config, hook: &HookOps) -> anyhow::Result<ExitCo
         (hook.install_fn)(config)?;
         return Ok(ExitCode::SUCCESS);
     }
-    // API-1 / TASK-1325: decline = config still missing. Match the noninteractive
+    // Decline = config still missing. Match the noninteractive
     // branch and report FAILURE so a git-driven invocation cannot succeed
     // while the hook is unconfigured.
     Ok(ExitCode::FAILURE)
 }
 
-/// FN-3 / TASK-1331: hook entry point typed so install vs run paths cannot
-/// transpose adjacent booleans. Install does not carry `changed_only`;
+/// Hook entry point typed so install vs run paths cannot transpose
+/// adjacent booleans. Install does not carry `changed_only`;
 /// the run path keeps it, but only the variant that owns it.
 #[derive(Debug, Clone, Copy)]
 enum HookAction {
@@ -194,16 +193,15 @@ enum HookAction {
     Run { changed_only: bool },
 }
 
-/// TASK-0757: dispatch consumes the same `HookOps` descriptor that the install
-/// path uses, so adding a new hook means editing one constant table in
+/// Dispatch consumes the same `HookOps` descriptor that the install path
+/// uses, so adding a new hook means editing one constant table in
 /// `pre_hook_cmd` rather than two parallel ones.
 ///
-/// READ-7 / TASK-1323: third parameter is `changed_only` (the user-facing
-/// `--changed-only` CLI flag), not `run_preflight`. The preflight policy
-/// is spelled out at the call site rather than smuggled through identical
-/// bool slots. API-1 / TASK-1307: when the user passes `--changed-only`
-/// against a hook without a preflight, fail loudly instead of silently
-/// no-op'ing.
+/// Third parameter is `changed_only` (the user-facing `--changed-only` CLI
+/// flag), not `run_preflight`. The preflight policy is spelled out at the
+/// call site rather than smuggled through identical bool slots. When the
+/// user passes `--changed-only` against a hook without a preflight, fail
+/// loudly instead of silently no-op'ing.
 fn run_hook_dispatch(
     config: std::sync::Arc<Config>,
     hook: &HookOps,
@@ -236,7 +234,7 @@ fn run_hook_dispatch(
         }
     }
     let args = vec![std::ffi::OsString::from(hook.hook_name)];
-    // SEC-14 / TASK-0886: a `.ops.toml` landed by a coworker PR is the
+    // A `.ops.toml` landed by a coworker PR is the
     // documented threat model for the hook path. Refuse to spawn when the
     // spec's cwd escapes the workspace, instead of the interactive
     // `WarnAndAllow` default that only logs.
@@ -250,10 +248,10 @@ fn run_hook_dispatch(
     )
 }
 
-/// DUP-1 / TASK-1282: collapse the two `run_before_*` wrappers into one.
-/// FN-3 / TASK-1331: a typed `HookAction` replaces the previous adjacent
-/// `(is_install, changed_only)` booleans so transposed callers fail to
-/// compile and Install does not carry an unused `changed_only` value.
+/// Collapse the two `run_before_*` wrappers into one. A typed `HookAction`
+/// replaces the previous adjacent `(is_install, changed_only)` booleans so
+/// transposed callers fail to compile and Install does not carry an unused
+/// `changed_only` value.
 fn run_hook_action(
     config: std::sync::Arc<Config>,
     hook: &HookOps,
@@ -281,7 +279,7 @@ pub(crate) fn run_before_commit(
     run_hook_action(config, &pre_hook_cmd::COMMIT_OPS, hook_action)
 }
 
-/// API-1 / TASK-1307: `run-before-push` carries no `changed_only` because
+/// `run-before-push` carries no `changed_only` because
 /// no pre-push preflight exists. The flag was removed from
 /// `args::CoreSubcommand::RunBeforePush` to stop it from parsing as a
 /// silent no-op.
@@ -315,14 +313,15 @@ pub(crate) fn run_tools(config: &Config, action: ToolsAction) -> anyhow::Result<
 mod tests {
     use super::*;
 
-    /// ERR-1 (TASK-0427): a typical `ops <cmd>` flow must load `.ops.toml`
-    /// at most once. Previously `run()` loaded it via
-    /// `load_config_or_default("early")` and then `load_config_and_cwd` /
-    /// `load_config()` re-loaded inside each handler, so a single CLI
-    /// invocation hit the parser multiple times with divergent error
-    /// policies. This test pins the new contract: handler-side helpers
-    /// take `&Config` and never re-invoke `load_config`.
-    /// ERR-1 / TASK-1189: a cancelled install prompt must not surface as an
+    /// A typical `ops <cmd>` flow must load `.ops.toml` at most once.
+    /// Previously `run()` loaded it via `load_config_or_default("early")`
+    /// and then `load_config_and_cwd` / `load_config()` re-loaded inside
+    /// each handler, so a single CLI invocation hit the parser multiple
+    /// times with divergent error policies. This test pins the new
+    /// contract: handler-side helpers take `&Config` and never re-invoke
+    /// `load_config`.
+    ///
+    /// A cancelled install prompt must not surface as an
     /// anyhow error. `main` formats anyhow errors with the `ops: error:`
     /// prefix; returning `Ok(None)` from `classify_confirm_result` lets the
     /// caller convert cancellation into a clean exit code without that
@@ -344,7 +343,7 @@ mod tests {
         assert!(out.is_none(), "interrupt must map to None");
     }
 
-    /// ERR-9 / TASK-1352: a non-cancel inquire error must reach `main`
+    /// A non-cancel inquire error must reach `main`
     /// wrapped with context naming the prompt source, so the user sees
     /// which prompt failed instead of a bare `inquire: <variant>` line.
     #[test]
@@ -373,13 +372,13 @@ mod tests {
         );
     }
 
-    /// API-1 / TASK-1290: `OPS_NONINTERACTIVE=0` is the user typing "off",
+    /// `OPS_NONINTERACTIVE=0` is the user typing "off",
     /// so it must keep the prompt interactive. `is_some()` would have
     /// flipped it to non-interactive — exactly the opposite intent.
     #[test]
     #[serial_test::serial]
     fn env_flag_enabled_treats_falsy_as_off() {
-        // READ-5 / TASK-1333: `no`, `off`, `n` join the canonical falsy set
+        // `no`, `off`, `n` join the canonical falsy set
         // so the bash/systemd convention does not silently flip operators
         // into the opposite state.
         for falsy in [
@@ -403,9 +402,9 @@ mod tests {
         assert!(!env_flag_enabled("OPS_NONINTERACTIVE_TEST"));
     }
 
-    /// TEST-25 / TASK-1312: split out of the previous combined
-    /// `handlers_do_not_reload_config` test so each assertion is paired
-    /// with a branch that actually invokes the named code path.
+    /// Split out of the previous combined `handlers_do_not_reload_config`
+    /// test so each assertion is paired with a branch that actually
+    /// invokes the named code path.
     #[test]
     #[serial_test::serial]
     fn cli_data_context_does_not_reload_config() {
@@ -434,7 +433,7 @@ args = ["hi"]
         );
     }
 
-    /// TEST-25 / TASK-1312: pin the load-count invariant on the dispatch
+    /// Pin the load-count invariant on the dispatch
     /// branch that actually routes through `run_external_command`. The
     /// previous combined test configured no `run-before-commit` command,
     /// so the dispatch short-circuited into `prompt_hook_install` and the
@@ -509,7 +508,7 @@ program = "true"
         }
     }
 
-    /// API-1 / TASK-1307: `--changed-only` against a hook with no preflight
+    /// `--changed-only` against a hook with no preflight
     /// predicate must fail loudly. The legacy behaviour silently no-op'd,
     /// hiding the misuse from any scripted caller.
     #[test]
@@ -533,7 +532,7 @@ program = "true"
         );
     }
 
-    /// API-1 / TASK-1325: every "config still missing" path through
+    /// Every "config still missing" path through
     /// `prompt_hook_install` must report FAILURE — git treats SUCCESS as
     /// "hook passed", so a user who declines the install prompt must not
     /// silently let the commit through.
@@ -549,7 +548,7 @@ program = "true"
         assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::FAILURE));
     }
 
-    /// CL-3 / TASK-1324: both pre-* hook help screens must render with the
+    /// Both pre-* hook help screens must render with the
     /// same section structure. The previous `next_help_heading = "Setup"`
     /// on RunBeforePush split the two hooks across help sections; this
     /// pins that they no longer diverge.
@@ -571,7 +570,7 @@ program = "true"
         assert_eq!(push.get_next_help_heading(), None);
     }
 
-    /// PATTERN-1 / TASK-1322: adding a new `HookOps` to the `pre_hook_cmd`
+    /// Adding a new `HookOps` to the `pre_hook_cmd`
     /// constant table must make `prompt_hook_install` reachable for that
     /// hook without a parallel match-arm edit in `subcommands.rs`. The
     /// function now dispatches through `hook.install_fn`, so this test

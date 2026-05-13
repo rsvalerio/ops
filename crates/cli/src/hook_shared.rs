@@ -16,7 +16,7 @@ pub type HookPreflight = (fn() -> anyhow::Result<bool>, &'static str);
 
 /// Hook-specific operations provided by each extension crate.
 ///
-/// TASK-0757 collapsed the parallel `HookDispatch` descriptor that lived in
+/// Collapses the parallel `HookDispatch` descriptor that previously lived in
 /// `subcommands` into this single struct so adding a new hook means editing
 /// one constant table, not two.
 pub struct HookOps {
@@ -24,9 +24,9 @@ pub struct HookOps {
     pub find_git_dir: fn(&Path) -> Option<PathBuf>,
     pub install_hook: fn(&Path, &mut dyn Write) -> anyhow::Result<PathBuf>,
     pub ensure_config_command: fn(&Path, &[String], &mut dyn Write) -> anyhow::Result<()>,
-    /// Install entry point used by `Action::Install`. DUP-1 / TASK-1282
-    /// folded the two `run_before_*_install` thin wrappers into this field
-    /// so a single dispatch helper handles both hooks.
+    /// Install entry point used by `Action::Install`. Folds the two
+    /// `run_before_*_install` thin wrappers into this field so a single
+    /// dispatch helper handles both hooks.
     pub install_fn: fn(&Config) -> anyhow::Result<()>,
     /// Env var that, when set, instructs the dispatcher to skip the hook.
     pub skip_env_var: &'static str,
@@ -39,10 +39,10 @@ pub struct HookOps {
 
 /// Source of the command list to install in the hook config.
 ///
-/// READ-5 / TASK-1354: collapses the previous split between the production
-/// `run_hook_install` (hard-coded `io::stdout()` + `inquire::MultiSelect`)
-/// and the test-only `run_hook_install_with` (capturing buffer + fixed
-/// list) into one orchestration with a single selection-source seam.
+/// Collapses the previous split between the production `run_hook_install`
+/// (hard-coded `io::stdout()` + `inquire::MultiSelect`) and the test-only
+/// `run_hook_install_with` (capturing buffer + fixed list) into one
+/// orchestration with a single selection-source seam.
 pub enum CommandSelector<'a> {
     /// Production path: present an `inquire::MultiSelect` of available
     /// commands. Requires a TTY.
@@ -55,9 +55,9 @@ pub enum CommandSelector<'a> {
     Fixed(&'a [String]),
 }
 
-/// FN-1 / TASK-1317: extension-load degradation policy lifted out of
-/// `run_hook_install` so the orchestration body covers only the install
-/// flow. Hard error if the user opted in to extensions explicitly
+/// Extension-load degradation policy lifted out of `run_hook_install` so
+/// the orchestration body covers only the install flow. Hard error if the
+/// user opted in to extensions explicitly
 /// (`config.extensions.enabled = Some(_)`); soft UI warn otherwise.
 fn load_hook_extensions(
     config: &Config,
@@ -72,9 +72,9 @@ fn load_hook_extensions(
             Ok(cmd_registry)
         }
         Err(e) => {
-            // ERR-1 / TASK-1287: surface the load failure through exactly
-            // one operator-facing channel (UI) — earlier this path
-            // double-emitted via `tracing::warn!` *and* `ops_core::ui::warn`.
+            // Surface the load failure through exactly one operator-facing
+            // channel (UI) — earlier this path double-emitted via
+            // `tracing::warn!` *and* `ops_core::ui::warn`.
             if config.extensions.enabled.is_some() {
                 anyhow::bail!("could not load extensions for {hook_name} install: {e:#}");
             }
@@ -88,20 +88,20 @@ fn load_hook_extensions(
 
 /// Shared install orchestration for all hook types.
 ///
-/// TASK-0427: takes the pre-resolved CLI config so the install path does
-/// not re-parse `.ops.toml` after `run()` already loaded it.
+/// Takes the pre-resolved CLI config so the install path does not re-parse
+/// `.ops.toml` after `run()` already loaded it.
 ///
-/// READ-5 / TASK-1354: takes `w: &mut dyn Write` so the production happy-path
-/// messages are observable from tests, and a `CommandSelector` so the same
-/// entry point covers both interactive and scripted callers.
+/// Takes `w: &mut dyn Write` so the production happy-path messages are
+/// observable from tests, and a `CommandSelector` so the same entry point
+/// covers both interactive and scripted callers.
 pub fn run_hook_install(
     config: &Config,
     ops: &HookOps,
     selector: CommandSelector<'_>,
     w: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    // ERR-9 / TASK-1347: surface which path operation failed when the
-    // process cannot resolve its cwd (EACCES, ENOENT on a deleted dir).
+    // Surface which path operation failed when the process cannot resolve
+    // its cwd (EACCES, ENOENT on a deleted dir).
     let cwd = std::env::current_dir().with_context(|| {
         format!(
             "could not determine working directory while installing {} hook",
@@ -116,7 +116,7 @@ pub fn run_hook_install(
         CommandSelector::Interactive => {
             crate::tty::require_tty(&format!("{} install", ops.hook_name))?;
             let stack = Stack::resolve(config.stack.as_deref(), &cwd);
-            // ARCH-2 / TASK-0719: build the extension registry once here so
+            // Build the extension registry once here so
             // `gather_available_commands` stays a pure data-shaper.
             let cmd_registry = load_hook_extensions(config, &cwd, ops.hook_name)?;
             let options = gather_available_commands(config, stack, &cmd_registry, ops.hook_name);
@@ -130,10 +130,10 @@ pub fn run_hook_install(
                 let prompt = format!("Select commands to run in {} hook:", ops.hook_name);
                 match inquire::MultiSelect::new(&prompt, options).prompt() {
                     Ok(selections) => selections.into_iter().map(|o| o.name).collect(),
-                    // ERR-9 / TASK-1347: Ctrl-C / Esc at the selection
-                    // prompt is the user cancelling — bubble a SIGINT exit
-                    // via the `ExitCodeOverride` sentinel instead of a
-                    // generic anyhow chain.
+                    // Ctrl-C / Esc at the selection prompt is the user
+                    // cancelling — bubble a SIGINT exit via the
+                    // `ExitCodeOverride` sentinel instead of a generic
+                    // anyhow chain.
                     Err(
                         inquire::InquireError::OperationCanceled
                         | inquire::InquireError::OperationInterrupted,
@@ -165,10 +165,10 @@ pub fn run_hook_install(
 /// Sources are checked in priority order: config > stack defaults > extension commands.
 /// Later sources are deduped against earlier ones.
 ///
-/// ARCH-2 / TASK-0719: takes a pre-built `CommandRegistry` so the helper
-/// stays a synchronous data-shaping function — no factory probes, no
-/// extension I/O, no re-emitted collision warnings on repeated calls. The
-/// caller (`run_hook_install`) builds the registry once via
+/// Takes a pre-built `CommandRegistry` so the helper stays a synchronous
+/// data-shaping function — no factory probes, no extension I/O, no
+/// re-emitted collision warnings on repeated calls. The caller
+/// (`run_hook_install`) builds the registry once via
 /// `register_extension_commands` and passes it down.
 pub fn gather_available_commands(
     config: &Config,
@@ -178,12 +178,12 @@ pub fn gather_available_commands(
 ) -> Vec<SelectOption> {
     let mut options: Vec<SelectOption> = Vec::new();
 
-    // DUP-1 / PERF-1 / TASK-1273+1294: a single helper handles the
-    // exclude/dedup/push body so the priority order (config > stack >
-    // extensions) is explicit at the call site and each name allocates
-    // exactly once (was twice — one clone into a separate `seen` HashSet,
-    // one into the SelectOption). Dedup is a linear scan over `options`,
-    // which is fine for the handful of commands a hook selection lists.
+    // A single helper handles the exclude/dedup/push body so the priority
+    // order (config > stack > extensions) is explicit at the call site and
+    // each name allocates exactly once (was twice — one clone into a
+    // separate `seen` HashSet, one into the SelectOption). Dedup is a
+    // linear scan over `options`, which is fine for the handful of
+    // commands a hook selection lists.
     let mut try_push = |name: String, spec: &CommandSpec| {
         if name == exclude_name || options.iter().any(|o| o.name == name) {
             return;
@@ -296,9 +296,9 @@ mod tests {
         assert!(names.contains(&"verify"));
     }
 
-    /// ARCH-2 / TASK-0719: gather_available_commands is now a pure data
-    /// reshape — it accepts a pre-built CommandRegistry, so callers can
-    /// inject a mock registry without compiling-in any extension state.
+    /// gather_available_commands is a pure data reshape — it accepts a
+    /// pre-built CommandRegistry, so callers can inject a mock registry
+    /// without compiling-in any extension state.
     #[test]
     fn gather_includes_injected_registry_commands() {
         let config = Config::default();

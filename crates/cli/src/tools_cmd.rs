@@ -25,8 +25,8 @@ fn run_tools_list_to(config: &Config, w: &mut dyn Write) -> anyhow::Result<()> {
     render_tools_list(&load_tools(config), w)
 }
 
-/// TEST-25 / TASK-1295: rendering split out so tests feed a deterministic
-/// `Vec<ToolInfo>` and avoid coupling to host rustfmt / cargo-fmt presence.
+/// Rendering split out so tests feed a deterministic `Vec<ToolInfo>` and
+/// avoid coupling to host rustfmt / cargo-fmt presence.
 fn render_tools_list(tools: &[ToolInfo], w: &mut dyn Write) -> anyhow::Result<()> {
     if tools.is_empty() {
         writeln!(w, "No tools configured in .ops.toml")?;
@@ -35,11 +35,11 @@ fn render_tools_list(tools: &[ToolInfo], w: &mut dyn Write) -> anyhow::Result<()
 
     writeln!(w, "Tools configured: {}\n", tools.len())?;
 
-    // DUP-3 / TASK-1235: column padding routes through the shared
-    // [`ops_core::output::pad_to_display_width`] helper. DUP-3 / TASK-1335:
-    // styled row rendering (cyan name, dim description + status text) routes
-    // through [`crate::row::write_list_row`] so this surface shares its
-    // colour / padding policy with `theme list`.
+    // Column padding routes through the shared
+    // [`ops_core::output::pad_to_display_width`] helper. Styled row
+    // rendering (cyan name, dim description + status text) routes through
+    // [`crate::row::write_list_row`] so this surface shares its colour /
+    // padding policy with `theme list`.
     let max_name_width = tools
         .iter()
         .map(|t| display_width(&t.name))
@@ -47,16 +47,16 @@ fn render_tools_list(tools: &[ToolInfo], w: &mut dyn Write) -> anyhow::Result<()
         .unwrap_or(0);
 
     for tool in tools {
-        // READ-7 / TASK-0896: ToolStatus is `#[non_exhaustive]`, so the
+        // ToolStatus is `#[non_exhaustive]`, so the
         // wildcard arm is mandatory. It renders via `Display` (a stable
         // user contract) instead of leaking `Debug` shape through the UI.
         let (status_icon, status_text): (String, Cow<'static, str>) = match tool.status {
             ToolStatus::Installed => (green("✓"), Cow::Borrowed("")),
             ToolStatus::NotInstalled => (red("✗"), Cow::Borrowed(" (NOT INSTALLED)")),
-            // TASK-0992: ToolStatus::Unknown was removed — it was declared
-            // but never constructed. The wildcard below keeps the match
-            // exhaustive over `#[non_exhaustive]` if a distinct
-            // probe-failed signal is added later.
+            // ToolStatus::Unknown was removed — it was declared but never
+            // constructed. The wildcard below keeps the match exhaustive
+            // over `#[non_exhaustive]` if a distinct probe-failed signal
+            // is added later.
             other => (
                 dim("?"),
                 Cow::Owned(format!(" ({})", other.to_string().to_uppercase())),
@@ -149,8 +149,8 @@ fn run_tools_install_to(
     w: &mut dyn Write,
     err: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
-    // PATTERN-1 / TASK-1345: borrow the spec(s) directly from `config.tools`
-    // instead of materialising a single-entry `IndexMap` by cloning. Both
+    // Borrow the spec(s) directly from `config.tools` instead of
+    // materialising a single-entry `IndexMap` by cloning. Both
     // paths now thread the same `(name, spec)` slice into `install_missing`,
     // so the named-install hot path is allocation-free.
     let named_spec: Option<(&str, &ToolSpec)> = if let Some(tool_name) = name {
@@ -374,9 +374,9 @@ cargo-nonexistent-abc123 = "Fake tool"
 
     #[test]
     fn tools_list_shows_installed_and_missing() {
-        // TEST-25 / TASK-1295: feed render_tools_list a deterministic
-        // ToolInfo vec so the test does not depend on whether the host
-        // has rustfmt / cargo-fmt installed.
+        // Feed render_tools_list a deterministic ToolInfo vec so the test
+        // does not depend on whether the host has rustfmt / cargo-fmt
+        // installed.
         let tools = vec![
             tool_info("cargo-fmt", ToolStatus::Installed, false),
             tool_info("cargo-nonexistent-abc123", ToolStatus::NotInstalled, false),
@@ -459,8 +459,8 @@ program = "echo"
 
     // -- run_tools_install_to --
 
-    // TEST-25 / TASK-1295: run_tools_install_to probes the host for
-    // cargo-fmt and would fail on a CI image without rustfmt installed.
+    // run_tools_install_to probes the host for cargo-fmt and would fail
+    // on a CI image without rustfmt installed.
     // Gated behind #[ignore] until the install path supports probe
     // injection too; the rendering/path-resolution layers are already
     // covered by the deterministic tests above.
@@ -540,7 +540,7 @@ cargo-fmt = "Format code"
         );
     }
 
-    /// TASK-0758: non-ASCII tool names must be aligned by display width, not
+    /// Non-ASCII tool names must be aligned by display width, not
     /// byte length. A width-2 character plus an ASCII name should still produce
     /// a properly aligned description column.
     #[test]

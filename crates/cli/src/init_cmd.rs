@@ -18,7 +18,7 @@ fn run_init_to(
     sections: ops_core::config::InitSections,
     w: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    // PATTERN-1 / TASK-1066: capture cwd once and join to an absolute path so
+    // Capture cwd once and join to an absolute path so
     // the create and the parent fsync target the same directory even if cwd
     // changes mid-call (signal handler, threaded init template). Using a
     // relative ".ops.toml" while reading current_dir separately leaves a
@@ -29,14 +29,13 @@ fn run_init_to(
     match write_init(&path, content.as_bytes(), force) {
         Ok(()) => {}
         Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-            // ERR-7 / TASK-1191: Debug-format the path so newlines / ANSI in
-            // a hostile cwd cannot forge log records. Mirrors the manifest-
-            // probe sweep (TASK-0944 / TASK-0945).
+            // Debug-format the path so newlines / ANSI in a hostile cwd
+            // cannot forge log records. Mirrors the manifest-probe sweep.
             tracing::warn!(
                 path = ?path.display(),
                 "ops.toml already exists; not overwriting (use --force to overwrite)"
             );
-            // API-1 / TASK-1326: mirror the warn through the same user-facing
+            // Mirror the warn through the same user-facing
             // writer the success branch uses, so a no-op `ops init` reports
             // its outcome on stdout. Without this the user only sees a
             // tracing::warn line on stderr — invisible under `2>/dev/null` and
@@ -46,7 +45,7 @@ fn run_init_to(
         }
         Err(e) => return Err(e.into()),
     }
-    // ERR-7 / TASK-1191: Debug-format the path on the success info event too
+    // Debug-format the path on the success info event too
     // so a hostile cwd cannot smuggle newlines / ANSI into the structured-log
     // pipeline through the same field.
     tracing::info!(path = ?path.display(), "created .ops.toml");
@@ -66,8 +65,8 @@ fn run_init_to(
     Ok(())
 }
 
-/// SEC-25 / TASK-0409: collapse the prior `path.exists()` + `fs::write`
-/// pair into atomic primitives.
+/// Collapse the prior `path.exists()` + `fs::write` pair into atomic
+/// primitives.
 ///
 /// - Without `--force`, `OpenOptions::create_new` fails with
 ///   `AlreadyExists` if the target is present, so an attacker (or a racing
@@ -87,17 +86,16 @@ fn write_init(path: &Path, bytes: &[u8], force: bool) -> std::io::Result<()> {
     Ok(())
 }
 
-/// FN-1 / TASK-1320: parent-directory fsync after `create_new`, extracted out
-/// of `write_init` so the orchestrator reads as force-vs-no-force branching
-/// only. The unix branch mirrors `edit::atomic_write`'s open-or-warn /
-/// sync-or-warn ladder (TASK-0899 / TASK-1096); the non-unix branch documents
-/// the Windows portability gap (TASK-1231).
+/// Parent-directory fsync after `create_new`, extracted out of `write_init`
+/// so the orchestrator reads as force-vs-no-force branching only. The unix
+/// branch mirrors `edit::atomic_write`'s open-or-warn / sync-or-warn ladder;
+/// the non-unix branch documents the Windows portability gap.
 ///
-/// SEC-25 (TASK-0730): persist the new directory entry so a crash between the
-/// file-fsync above and the next sync(2) does not lose the `.ops.toml` link on
-/// ext4/xfs. The --force branch already gets this via `atomic_write`'s parent
-/// fsync (TASK-0340); the no-force path is the common case (first run in a
-/// clean repo), so the asymmetry was the loud bug. We cannot fold this branch
+/// Persist the new directory entry so a crash between the file-fsync above
+/// and the next sync(2) does not lose the `.ops.toml` link on ext4/xfs. The
+/// --force branch already gets this via `atomic_write`'s parent fsync; the
+/// no-force path is the common case (first run in a clean repo), so the
+/// asymmetry was the loud bug. We cannot fold this branch
 /// into `atomic_write` without losing the `create_new` exclusion that gives
 /// no-force its "do not clobber" guarantee, hence the helper.
 #[cfg(unix)]
@@ -109,7 +107,7 @@ fn parent_fsync_after_create(path: &Path) {
     } else {
         parent
     };
-    // ERR-1 / TASK-1096: a failing parent fsync (ENOSPC, EIO) is non-fatal
+    // A failing parent fsync (ENOSPC, EIO) is non-fatal
     // because the file write has already returned success, but it is the only
     // signal that crash-safety is currently broken. Warn rather than swallow.
     // The parent open failure is also surfaced for the same reason: silently
@@ -117,8 +115,8 @@ fn parent_fsync_after_create(path: &Path) {
     match std::fs::File::open(parent) {
         Ok(dir) => {
             if let Err(e) = dir.sync_all() {
-                // ERR-7 / TASK-1191: Debug-format the parent path so a hostile
-                // cwd cannot forge log records.
+                // Debug-format the parent path so a hostile cwd cannot
+                // forge log records.
                 tracing::warn!(
                     parent = ?parent.display(),
                     error = %e,
@@ -136,7 +134,7 @@ fn parent_fsync_after_create(path: &Path) {
     }
 }
 
-/// ERR-1 / TASK-1231: Windows `std::fs` exposes no portable directory-fsync
+/// Windows `std::fs` exposes no portable directory-fsync
 /// analogue (FlushFileBuffers operates on file handles, not directory entries;
 /// the equivalent durability contract is normally obtained via the
 /// `MOVEFILE_WRITE_THROUGH` flag of MoveFileEx, which the no-force branch's
@@ -218,7 +216,7 @@ mod tests {
         );
     }
 
-    /// SEC-25 (TASK-0730): both write_init branches must reach the parent
+    /// Both write_init branches must reach the parent
     /// fsync codepath and produce byte-identical output for the same input,
     /// so a crash between file-fsync and the next sync(2) is the only
     /// scenario in which the directory entry could be lost — and that
@@ -295,7 +293,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-1066: the file must land in the directory that was
+    /// The file must land in the directory that was
     /// cwd at entry, and the path used internally must be absolute (not the
     /// bare relative `".ops.toml"`). Prior to the fix, `path` was relative
     /// while `cwd` was captured separately, so a cwd change mid-call (signal
@@ -328,7 +326,7 @@ mod tests {
         );
     }
 
-    /// ERR-7 / TASK-1191: the warn / info / fsync-warn events in init_cmd
+    /// The warn / info / fsync-warn events in init_cmd
     /// format paths via the `?` (Debug) formatter so newlines / ANSI in a
     /// hostile cwd-derived path cannot forge log records. This pins the
     /// value-level escape contract directly without spinning up a tracing
@@ -343,7 +341,7 @@ mod tests {
         assert!(rendered.contains("\\n"));
     }
 
-    /// API-1 / TASK-1326: `ops init` over an existing `.ops.toml` must write a
+    /// `ops init` over an existing `.ops.toml` must write a
     /// visible "already exists; pass --force" line through the test-injectable
     /// writer, not only via tracing. Previously the AlreadyExists arm emitted a
     /// `tracing::warn!` and returned `Ok(())` with no stdout output, so users
@@ -366,7 +364,7 @@ mod tests {
         );
     }
 
-    /// FN-1 / TASK-1320: smoke test for the extracted `parent_fsync_after_create`
+    /// Smoke test for the extracted `parent_fsync_after_create`
     /// helper. Direct fault injection (ENOSPC/EIO) is impractical from a test;
     /// pin that the helper runs cleanly for an existing parent on both unix
     /// and non-unix builds (the non-unix branch is a tracing breadcrumb-only

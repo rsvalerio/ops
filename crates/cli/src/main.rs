@@ -60,15 +60,15 @@ use subcommands::{run_about, run_before_commit, run_before_push, run_extension, 
 #[cfg(feature = "stack-rust")]
 use subcommands::{run_deps, run_tools};
 
-/// READ-5 / TASK-1293: error sentinel that lets a fallible code path bubble a
-/// specific exit code through `anyhow::Error`. Attach it via
+/// Error sentinel that lets a fallible code path bubble a specific exit
+/// code through `anyhow::Error`. Attach it via
 /// `anyhow::Error::context(ExitCodeOverride(code))` (or `err.context(...)`)
 /// and `main` will surface that code instead of the generic
 /// `ExitCode::FAILURE`. Without this, e.g. an `Err(...)` that wants SIGINT
 /// semantics (130) or SIGPIPE (141) silently collapses to exit 1, which
 /// breaks shell scripts that distinguish cancellation from real failure.
-/// PATTERN-1 / TASK-1375: named constant for the SIGINT exit convention so
-/// the literal `130` is not repeated at user-cancel call sites.
+/// Named constant for the SIGINT exit convention so the literal `130` is
+/// not repeated at user-cancel call sites.
 pub(crate) const SIGINT_EXIT: u8 = 130;
 
 #[derive(Debug)]
@@ -113,7 +113,7 @@ fn parse_log_level<W: io::Write>(
     raw: Option<&str>,
     warn: &mut W,
 ) -> tracing_subscriber::filter::Directive {
-    // READ-7 / TASK-1379: treat unset and empty/whitespace-only the same.
+    // Treat unset and empty/whitespace-only the same.
     // `OPS_LOG_LEVEL=` (e.g. `${LEVEL:-}` with `LEVEL` unset) maps to
     // `Ok("")`, which would otherwise trip the directive parser and print a
     // spurious "invalid OPS_LOG_LEVEL=''" warning on every CI run. Mirrors
@@ -168,13 +168,14 @@ fn run() -> anyhow::Result<ExitCode> {
 
     // Load config early so stack detection and help output can use it.
     //
-    // ERR-4: a malformed `.ops.toml` previously degraded silently to
+    // A malformed `.ops.toml` previously degraded silently to
     // `Config::default()`, hiding the real cause behind downstream
     // "unknown command" errors. The shared helper logs to `tracing::warn!`
     // *and* surfaces a user-visible note so `ops --help` / `ops init` still
-    // work without hiding the parse diagnostic. (DUP-3 / TASK-0345)
-    // OWN-2 / TASK-0841: wrap the loaded config in an Arc once at the
-    // top-level entry so `dispatch` and the run-path (build_runner →
+    // work without hiding the parse diagnostic.
+    //
+    // Wrap the loaded config in an Arc once at the top-level entry so
+    // `dispatch` and the run-path (build_runner →
     // CommandRunner::from_arc_config) can share one allocation. Eliminates
     // the per-invocation deep clone in build_runner.
     let early_config: std::sync::Arc<ops_core::config::Config> =
@@ -213,7 +214,7 @@ fn dispatch(
     early_config: &std::sync::Arc<ops_core::config::Config>,
     detected_stack: Option<ops_core::stack::Stack>,
 ) -> anyhow::Result<ExitCode> {
-    // ERR-1 (TASK-0427): the same Config loaded once in `run()` is threaded
+    // The same Config loaded once in `run()` is threaded
     // through every handler so a single CLI invocation reads `.ops.toml`
     // exactly once. Previously dispatch -> handler -> `load_config_and_cwd`
     // re-loaded the file with a stricter (hard-error) policy than the
@@ -282,10 +283,10 @@ fn dispatch(
     Ok(ExitCode::SUCCESS)
 }
 
-/// CLI-level cwd lookup. The pre-resolved `Config` is threaded by the caller
-/// (TASK-0427) — we only need the current directory at the handler boundary.
+/// CLI-level cwd lookup. The pre-resolved `Config` is threaded by the
+/// caller — we only need the current directory at the handler boundary.
 ///
-/// ERR-9 / TASK-1369: attach an anyhow context so a failing `current_dir()`
+/// Attach an anyhow context so a failing `current_dir()`
 /// (deleted cwd, permission denied on a parent component, very long path)
 /// surfaces with the operation name rather than a bare
 /// `No such file or directory (os error 2)`. This helper is routed through
@@ -300,13 +301,13 @@ pub(crate) fn cwd() -> anyhow::Result<PathBuf> {
 mod cwd_tests {
     use super::cwd;
 
-    /// ERR-9 / TASK-1369: when `std::env::current_dir()` fails, the error
-    /// surfaced to the user must carry the `failed to read current working
-    /// directory` context rather than a bare `No such file or directory (os
-    /// error 2)`. Reproduce a failing current_dir() by cwd'ing into a tempdir
-    /// and removing it from under ourselves. Linux/macOS only — Windows does
-    /// not let you remove the active cwd, so the failure mode does not exist
-    /// in the form ERR-9 documents.
+    /// When `std::env::current_dir()` fails, the error surfaced to the
+    /// user must carry the `failed to read current working directory`
+    /// context rather than a bare `No such file or directory (os error 2)`.
+    /// Reproduce a failing current_dir() by cwd'ing into a tempdir and
+    /// removing it from under ourselves. Linux/macOS only — Windows does
+    /// not let you remove the active cwd, so the failure mode does not
+    /// exist in this form.
     #[cfg(unix)]
     #[test]
     fn cwd_attaches_context_when_current_dir_fails() {
@@ -379,7 +380,7 @@ mod log_level_tests {
         assert!(buf.is_empty(), "no warning when unset");
     }
 
-    /// READ-7 / TASK-1379: `OPS_LOG_LEVEL=` (set to empty) and
+    /// `OPS_LOG_LEVEL=` (set to empty) and
     /// `OPS_LOG_LEVEL="   "` (whitespace only) must be treated the same as
     /// unset. Without this, a CI matrix that uses `${LEVEL:-}` prints
     /// `ops: warning: invalid OPS_LOG_LEVEL=''` on every invocation, drowning

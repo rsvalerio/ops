@@ -71,8 +71,8 @@ const DESC_TRUNCATION_WIDTH: u16 = 40;
 /// Wider truncation budget for the narrower provider-field table.
 const PROVIDER_DESC_TRUNCATION_WIDTH: u16 = 50;
 
-/// DUP-3 / TASK-1118: shared helper for the "Description" column lookup used
-/// by both `write_extension_table` and `print_provider_info`.
+/// Shared helper for the "Description" column lookup used by both
+/// `write_extension_table` and `print_provider_info`.
 fn description_col(headers: &[&str]) -> usize {
     headers
         .iter()
@@ -97,15 +97,15 @@ fn write_extension_table(
     let mut table = OpsTable::new();
     table.set_header(headers.to_vec());
 
-    // PERF-1 / TASK-0859: hoist `extension_summary` out of the per-row loop.
-    // It can perform I/O (legacy extensions without static `command_names`
-    // run `register_commands`) and was previously called once per render
+    // Hoist `extension_summary` out of the per-row loop. It can perform
+    // I/O (legacy extensions without static `command_names` run
+    // `register_commands`) and was previously called once per render
     // pass — N rows ⇒ N register_commands invocations. Compute once per
     // extension up front and feed the precomputed summary into each row.
     //
-    // PATTERN-1 / TASK-1291: own the self-shadow dedupe set locally so the
-    // "warn once per CLI invocation" guarantee scopes to *this* handler
-    // call, not the process.
+    // Own the self-shadow dedupe set locally so the "warn once per CLI
+    // invocation" guarantee scopes to *this* handler call, not the
+    // process.
     let mut warned: SelfShadowWarnedSet = SelfShadowWarnedSet::new();
     let summaries: Vec<(Vec<String>, Vec<String>)> = exts
         .iter()
@@ -127,34 +127,33 @@ fn write_extension_table(
 
 /// Collect extension type flags and registered command names.
 ///
-/// PATTERN-1 / TASK-1291 + TEST-1 / TASK-1289: dedupe-state for self-shadow
-/// warnings, scoped to one top-level CLI handler invocation. Owned by the
-/// caller (`run_extension_list_to` / `print_extension_details`) so two
-/// in-process invocations — or two test runs in the same binary — emit
-/// independently. Previously the dedupe set lived in a process-global
-/// `OnceLock<Mutex<HashSet>>`, which:
+/// Dedupe-state for self-shadow warnings, scoped to one top-level CLI
+/// handler invocation. Owned by the caller (`run_extension_list_to` /
+/// `print_extension_details`) so two in-process invocations — or two test
+/// runs in the same binary — emit independently. Previously the dedupe set
+/// lived in a process-global `OnceLock<Mutex<HashSet>>`, which:
 ///
-/// 1. coupled production logging to test isolation (TEST-1), and
-/// 2. mismatched the docstring claim that dedup is "per CLI invocation"
-///    (PATTERN-1) — the set was actually per *process*, growing unbounded
-///    over the binary's lifetime.
+/// 1. coupled production logging to test isolation, and
+/// 2. mismatched the docstring claim that dedup is "per CLI invocation" —
+///    the set was actually per *process*, growing unbounded over the
+///    binary's lifetime.
 ///
 /// The set is an in-handler cache only; passing it explicitly lets callers
 /// construct fresh state per invocation without unsafe `reset_for_tests`
 /// dances.
 pub(crate) type SelfShadowWarnedSet = std::collections::HashSet<(String, String)>;
 
-/// PERF-1 / TASK-0513: prefer the static `command_names()` accessor (set
-/// via `impl_extension! { command_names: &[..] }`) so list/show paths do
-/// not re-run `register_commands` (which can perform I/O for some
-/// extensions). Falls back to a one-shot `register_commands` only when an
-/// extension does not expose a static list, preserving the previous
-/// behaviour for legacy extensions.
+/// Prefer the static `command_names()` accessor (set via
+/// `impl_extension! { command_names: &[..] }`) so list/show paths do not
+/// re-run `register_commands` (which can perform I/O for some extensions).
+/// Falls back to a one-shot `register_commands` only when an extension
+/// does not expose a static list, preserving the previous behaviour for
+/// legacy extensions.
 ///
-/// PERF-1 / TASK-1142 + PATTERN-1 / TASK-1291: dedupe self-shadow warnings
-/// to a single emission per `(extension, command)` pair *per CLI handler
-/// invocation*. The caller owns `warned` so two in-process invocations get
-/// independent dedupe state.
+/// Dedupes self-shadow warnings to a single emission per
+/// `(extension, command)` pair *per CLI handler invocation*. The caller
+/// owns `warned` so two in-process invocations get independent dedupe
+/// state.
 fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<String>) {
     let info = ext.info();
     let mut types = Vec::new();
@@ -167,10 +166,10 @@ fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<St
     let commands: Vec<String> = if info.command_names.is_empty() {
         let mut cmd_registry = CommandRegistry::new();
         ext.register_commands(&mut cmd_registry);
-        // FN-1 / TASK-1359: in-extension duplicates surface via the audit
-        // helper at the call site (`audit_command_self_shadow`); the
-        // summary stays pure so callers that just want the
-        // (types, commands) tuple don't have to thread a dedupe set.
+        // In-extension duplicates surface via the audit helper at the call
+        // site (`audit_command_self_shadow`); the summary stays pure so
+        // callers that just want the (types, commands) tuple don't have to
+        // thread a dedupe set.
         cmd_registry.keys().map(|s| s.to_string()).collect()
     } else {
         info.command_names
@@ -181,12 +180,11 @@ fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<St
     (types, commands)
 }
 
-/// FN-1 / TASK-1359 + ERR-1 / TASK-0710: drain `register_commands` for
-/// `ext`, emit one `tracing::warn!` per `(extension, command)` self-shadow
-/// pair, deduplicating against `warned` so the list and show handlers
-/// share one warning per CLI invocation (PERF-1 / TASK-1142, PATTERN-1 /
-/// TASK-1291). Kept separate from [`extension_summary`] so the summary's
-/// return contract is not coupled to the audit's side effects.
+/// Drain `register_commands` for `ext`, emit one `tracing::warn!` per
+/// `(extension, command)` self-shadow pair, deduplicating against `warned`
+/// so the list and show handlers share one warning per CLI invocation.
+/// Kept separate from [`extension_summary`] so the summary's return
+/// contract is not coupled to the audit's side effects.
 fn audit_command_self_shadow(ext: &dyn ops_extension::Extension, warned: &mut SelfShadowWarnedSet) {
     let info = ext.info();
     if !info.command_names.is_empty() {
@@ -210,9 +208,9 @@ fn audit_command_self_shadow(ext: &dyn ops_extension::Extension, warned: &mut Se
 
 /// Build a table row for a single extension.
 ///
-/// PERF-1 / TASK-0859: takes a precomputed `summary` (types + command
-/// names) so the caller hoists the potentially-I/O `extension_summary`
-/// call out of a per-row loop.
+/// Takes a precomputed `summary` (types + command names) so the caller
+/// hoists the potentially-I/O `extension_summary` call out of a per-row
+/// loop.
 fn build_extension_row(
     table: &OpsTable,
     config_name: &str,
@@ -255,8 +253,8 @@ pub fn run_extension_show(
     )
 }
 
-/// READ-5 / TASK-1353: writer-injected entry point for `ops extension show`.
-/// Delegates to [`run_extension_show_with_tty_check`] which contains the
+/// Writer-injected entry point for `ops extension show`. Delegates to
+/// [`run_extension_show_with_tty_check`] which contains the
 /// TTY/picker logic; tests construct a buffer and assert on the rendered
 /// output directly without going through `std::io::stdout()`.
 fn run_extension_show_to<F>(
@@ -281,8 +279,8 @@ where
     F: FnOnce() -> bool,
 {
     let cwd = crate::cwd()?;
-    // PERF-1 / TASK-1380: enumerate `EXTENSION_REGISTRY` exactly once per
-    // `extension show` invocation. Both the picker / lookup AND the
+    // Enumerate `EXTENSION_REGISTRY` exactly once per `extension show`
+    // invocation. Both the picker / lookup AND the
     // schema-building path consume this same `compiled` vector — the
     // latter via `build_data_registry_from`. Previously
     // `print_extension_details` re-walked the registry inside
@@ -290,7 +288,7 @@ where
     // the per-slot `tracing::debug!` decline breadcrumbs.
     let compiled = collect_compiled_extensions(config, &cwd);
 
-    // READ-7 / TASK-1351: surface "no extensions compiled in" before the
+    // Surface "no extensions compiled in" before the
     // TTY check so a binary built with no extension features reports the
     // real cause regardless of whether stdout is attached to a terminal.
     // The TTY check is a precondition for the interactive picker; the
@@ -322,7 +320,7 @@ where
         .iter()
         .position(|(config_name, _)| *config_name == resolved_name.as_str())
         .ok_or_else(|| {
-            // PATTERN-1 / TASK-1378: sort the available list so two
+            // Sort the available list so two
             // consecutive failed `show <missing>` calls produce
             // byte-identical messages. EXTENSION_REGISTRY slot order is
             // link-time-dependent; without sorting the rendered list
@@ -370,9 +368,9 @@ fn print_extension_details(
     writeln!(w, "  Data provider: {}", data_provider)?;
 
     if let Some(provider_name) = info.data_provider_name {
-        // PERF-1 / TASK-1380: build the data registry from the already-
-        // collected `compiled` vector so the registry walk happens once
-        // per invocation rather than twice.
+        // Build the data registry from the already-collected `compiled`
+        // vector so the registry walk happens once per invocation rather
+        // than twice.
         match build_data_registry_from(compiled, config, cwd) {
             Ok(registry) => {
                 if let Some(provider) = registry.get(provider_name) {
@@ -381,8 +379,8 @@ fn print_extension_details(
                 }
             }
             Err(e) => {
-                // ERR-1 / TASK-1329 + ERR-7 / TASK-1340: surface the
-                // failure on a single channel — the user-facing writer.
+                // Surface the failure on a single channel — the
+                // user-facing writer.
                 // Operators see the message inline with the other
                 // `extension show` output; structured-log readers don't
                 // see a duplicate, and we no longer pre-stringify the
@@ -400,7 +398,7 @@ fn print_extension_details(
     Ok(())
 }
 
-/// DUP-3 / TASK-1360: shared "KIND: name\ndescription\n" preamble for
+/// Shared "KIND: name\ndescription\n" preamble for
 /// [`print_extension_details`] and [`print_provider_info`]. Collapses two
 /// byte-identical 8-line blocks into one helper so future heading-style
 /// changes (e.g. bold KIND label, alignment tweak) land in one place.
@@ -522,7 +520,7 @@ mod tests {
             .contains("interactive terminal"));
     }
 
-    /// READ-7 / TASK-1351: when no extensions are compiled in, the
+    /// When no extensions are compiled in, the
     /// "no extensions compiled in" diagnosis must win over the TTY
     /// gate. Pre-fix, a non-TTY invocation got the misleading
     /// "interactive terminal" error and the operator never saw the
@@ -564,7 +562,7 @@ enabled = []
         }
     }
 
-    /// READ-5 / TASK-1353: happy-path render of `ops extension show <name>`
+    /// Happy-path render of `ops extension show <name>`
     /// must be observable through an injected writer (no stdout
     /// interception). Pre-fix, `run_extension_show_with_tty_check`
     /// constructed `let mut w = std::io::stdout()` internally so the
@@ -651,7 +649,7 @@ enabled = []
 
     #[test]
     fn print_extension_details_surfaces_registry_build_error() {
-        // ERR-1: when build_data_registry fails, the user must see a visible
+        // When build_data_registry fails, the user must see a visible
         // note instead of a debug log they will not have enabled.
         let config = ops_core::config::Config {
             extensions: ops_core::config::ExtensionConfig {
@@ -682,8 +680,8 @@ enabled = []
         );
     }
 
-    /// ERR-1 / TASK-1329 + ERR-7 / TASK-1340: the schema-build failure
-    /// is surfaced on the user-facing writer only. The structured
+    /// The schema-build failure is surfaced on the user-facing writer
+    /// only. The structured
     /// tracing channel must NOT emit a duplicate, and the user message
     /// no longer pre-stringifies the anyhow chain through
     /// `%format!("{e:#}")` — paths or stderr embedded in the chain
@@ -716,7 +714,7 @@ enabled = []
         );
     }
 
-    /// ERR-1 / TASK-0710: an extension that registers the same command id
+    /// An extension that registers the same command id
     /// twice must surface a WARN through `extension_summary`, mirroring the
     /// runner-wiring path's behaviour. Without this, the operator-facing
     /// `extension show`/`extension list` paths silently collapsed duplicate
@@ -756,8 +754,7 @@ enabled = []
         );
     }
 
-    /// PERF-1 / TASK-1142 + TEST-1 / TASK-1289 + PATTERN-1 / TASK-1291:
-    /// emit at most one self-shadow WARN per `(extension, command)` pair
+    /// Emit at most one self-shadow WARN per `(extension, command)` pair
     /// per CLI handler invocation. Both list and show handlers fan
     /// through `extension_summary`; a follow-up call site would compound
     /// the warns. The dedupe set is now owned by the caller (one set per

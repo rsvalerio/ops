@@ -15,16 +15,16 @@ fn parse_default_config() -> Result<ops_core::config::Config, anyhow::Error> {
         .context("failed to parse default config")
 }
 
-/// PERF-3 / TASK-1190: cache the set of built-in theme names parsed from
-/// the embedded default config. The previous shape rebuilt the entire
-/// `Config` on every `collect_theme_options` call (twice — once each from
-/// `run_theme_list` and `run_theme_select`) only to compute a `contains_key`
-/// boolean. Aligned with the OnceLock discipline used by
+/// Cache the set of built-in theme names parsed from the embedded default
+/// config. The previous shape rebuilt the entire `Config` on every
+/// `collect_theme_options` call (twice — once each from `run_theme_list`
+/// and `run_theme_select`) only to compute a `contains_key` boolean.
+/// Aligned with the OnceLock discipline used by
 /// `crates/core/src/expand.rs::TMPDIR_DISPLAY` and
 /// `crates/core/src/text.rs::MANIFEST_MAX_BYTES`.
 static BUILTIN_THEME_NAMES: OnceLock<HashSet<String>> = OnceLock::new();
 
-/// ERR-1 / TASK-1298: panic message used when the embedded default config
+/// Panic message used when the embedded default config
 /// fails to parse. The embedded TOML is compiled into the binary
 /// (`config::default_ops_toml()`), so a parse failure is a compile-time
 /// invariant violation — not a runtime condition. Crashing loud at startup
@@ -43,7 +43,7 @@ fn builtin_theme_names() -> &'static HashSet<String> {
     })
 }
 
-/// DUP-005: Extracted helper to collect theme options from config.
+/// Extracted helper to collect theme options from config.
 ///
 /// Used by both `run_theme_list` and `run_theme_select` to avoid duplication.
 fn collect_theme_options(config: &ops_core::config::Config) -> Vec<ThemeOption> {
@@ -77,14 +77,13 @@ pub fn run_theme_list(config: &config::Config) -> anyhow::Result<()> {
 fn run_theme_list_to(config: &config::Config, w: &mut dyn Write) -> anyhow::Result<()> {
     let options = collect_theme_options(config);
 
-    // READ-2 (TASK-0936): theme names are user-supplied via `[themes.<name>]`
-    // and may contain CJK / emoji / combining marks. Mirror the
-    // tools_cmd / help.rs alignment pattern (TASK-0758 / TASK-0734): measure
-    // by `display_width` so wide characters and emoji align with ASCII names
-    // in the same column. DUP-3 / TASK-1335: row styling (cyan name, dim
-    // description + marker, padded to `max_name_width`) routes through
-    // [`crate::row::write_list_row`] so the `theme list` and `tools list`
-    // surfaces share a single colour / padding policy.
+    // Theme names are user-supplied via `[themes.<name>]` and may contain
+    // CJK / emoji / combining marks. Mirror the tools_cmd / help.rs
+    // alignment pattern: measure by `display_width` so wide characters and
+    // emoji align with ASCII names in the same column. Row styling (cyan
+    // name, dim description + marker, padded to `max_name_width`) routes
+    // through [`crate::row::write_list_row`] so the `theme list` and
+    // `tools list` surfaces share a single colour / padding policy.
     let max_name_width = options
         .iter()
         .map(|o| display_width(&o.name))
@@ -114,7 +113,7 @@ fn run_theme_list_to(config: &config::Config, w: &mut dyn Write) -> anyhow::Resu
 /// Requires an interactive terminal. Shows a selection prompt with all
 /// available themes, then updates the config file with the chosen theme.
 ///
-/// # Testing Limitation (TQ-017)
+/// # Testing Limitation
 ///
 /// The interactive path using `inquire::Select` requires a TTY and cannot
 /// be fully tested in automated test environments. The non-TTY error path
@@ -155,7 +154,7 @@ where
             tracing::debug!(
                 current_theme = %current_theme,
                 available_themes = ?options.iter().map(|o| &o.name).collect::<Vec<_>>(),
-                "EFF-009: current theme not found in list, defaulting to first position"
+                "current theme not found in list, defaulting to first position"
             );
             0
         });
@@ -167,7 +166,7 @@ where
     write_theme_select_result(w, &selected.name, current_theme, workspace_root)
 }
 
-/// TASK-1321 / READ-5: post-prompt result rendering split out so unit tests
+/// Post-prompt result rendering split out so unit tests
 /// can drive the happy-path message text (both "already set" and "set to")
 /// against a `Vec<u8>` buffer without spinning up a TTY for the picker.
 fn write_theme_select_result(
@@ -193,7 +192,7 @@ struct ThemeOption {
     is_custom: bool,
 }
 
-/// READ-2 / TASK-1346: shared "(custom)" suffix used by both surfaces that
+/// Shared "(custom)" suffix used by both surfaces that
 /// render `ThemeOption` — the `theme list` table (`run_theme_list_to`) and the
 /// `theme select` picker (`Display`). Centralising prevents the two surfaces
 /// from drifting on marker text / position.
@@ -207,7 +206,7 @@ fn theme_custom_marker(is_custom: bool) -> &'static str {
 
 impl std::fmt::Display for ThemeOption {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // READ-2 / TASK-1346: mirror the `theme list` row order
+        // Mirror the `theme list` row order
         // (`name   description{marker}`) so a user running both surfaces sees
         // the same shape (sans column padding / colour) — the list adds
         // alignment padding around `name` and TTY colour, the picker omits
@@ -222,17 +221,17 @@ impl std::fmt::Display for ThemeOption {
     }
 }
 
-/// READ-5 / TASK-1277: anchor the saved `.ops.toml` to the same root the rest
-/// of the CLI threads through (`crate::cwd()` → `Stack::resolve(...)`), so
-/// running `ops theme select` from a subdirectory writes the file alongside
-/// the loaded config rather than next to the user's cwd. Mirrors the
-/// `save_about_fields` fix under TASK-0578.
+/// Anchor the saved `.ops.toml` to the same root the rest of the CLI
+/// threads through (`crate::cwd()` → `Stack::resolve(...)`), so running
+/// `ops theme select` from a subdirectory writes the file alongside the
+/// loaded config rather than next to the user's cwd. Mirrors the
+/// `save_about_fields` fix in about_cmd.
 fn update_theme_in_config(workspace_root: &Path, theme_name: &str) -> anyhow::Result<()> {
     let config_path = workspace_root.join(".ops.toml");
     config::edit_ops_toml(&config_path, |doc| set_theme(doc, theme_name))
 }
 
-/// ERR-5 / TASK-1300: route the `[output]` lookup through the shared
+/// Route the `[output]` lookup through the shared
 /// `ensure_table` helper so a legacy/malformed `.ops.toml` containing
 /// `output = "classic"` (or any non-table value) surfaces a clean
 /// `anyhow::Error` instead of panicking inside `toml_edit`'s `IndexMut`.
@@ -256,7 +255,7 @@ fn update_toml_theme(content: &str, theme_name: &str) -> String {
 mod tests {
     use super::*;
 
-    /// TEST-25 / TASK-1363: the injection-defence contract is that a
+    /// The injection-defence contract is that a
     /// malicious theme name cannot break out of its string-value slot and
     /// inject new TOML structure. Pin three observable properties:
     ///   1. surrounding `[output]` keys survive unchanged,
@@ -346,7 +345,7 @@ build = "cargo build"
         assert!(display.contains("(custom)"));
     }
 
-    /// READ-2 / TASK-1346: the `theme list` row and the `theme select` picker
+    /// The `theme list` row and the `theme select` picker
     /// (Display) render `ThemeOption` with the same shape — `name`, then
     /// description, then `(custom)` marker. List adds column padding and TTY
     /// colour around the name; the picker omits both. The (name, description,
@@ -389,7 +388,7 @@ build = "cargo build"
         );
     }
 
-    /// ERR-1 / TASK-1298: pin the loud-failure contract. The embedded
+    /// Pin the loud-failure contract. The embedded
     /// default config is compiled in, so a parse failure is a compile-time
     /// invariant violation. `builtin_theme_names` must panic with the
     /// named message rather than silently degrading to an empty set and
@@ -443,7 +442,7 @@ build = "cargo build"
         assert!(buf.is_empty(), "non-TTY path must not write anything");
     }
 
-    /// TASK-1321 / READ-5: pin the happy-path message text against an
+    /// Pin the happy-path message text against an
     /// in-memory buffer. The picker itself still requires a TTY, but the
     /// post-prompt rendering is deterministic format-and-write — exercising
     /// `write_theme_select_result` directly covers both branches without
@@ -520,7 +519,7 @@ theme = "compact"
         assert!(content.contains("theme = \"classic\""));
     }
 
-    /// READ-5 / TASK-1277: regression — `ops theme select` from a
+    /// Regression — `ops theme select` from a
     /// subdirectory must write to `workspace_root/.ops.toml`, not into the
     /// subdir, so the persisted theme matches the config the rest of the
     /// CLI loaded. Mirrors `save_about_fields_writes_to_workspace_root_from_subdir`.
@@ -541,7 +540,7 @@ theme = "compact"
         );
     }
 
-    /// ERR-5 / TASK-1300: when `.ops.toml` already has a non-table value at
+    /// When `.ops.toml` already has a non-table value at
     /// `output` (e.g. `output = "classic"`), `set_theme` must bail with a
     /// clear anyhow error rather than panicking inside `toml_edit`'s
     /// `IndexMut`. The previous shape (`doc["output"]["theme"] = ...`) only
@@ -573,12 +572,12 @@ theme = "compact"
             assert!(output.contains("compact"), "should list compact: {output}");
         }
 
-        /// READ-2 (TASK-0936): theme name padding is measured by display
-        /// width (not byte length / char count) so wide-character names
-        /// (CJK / emoji / combining marks) align the description column at
-        /// the same visual column as ASCII names. Mirrors the
+        /// Theme name padding is measured by display width (not byte
+        /// length / char count) so wide-character names (CJK / emoji /
+        /// combining marks) align the description column at the same
+        /// visual column as ASCII names. Mirrors the
         /// `tools_list_aligns_wide_char_names_by_display_width` test in
-        /// tools_cmd.rs (TASK-0758).
+        /// tools_cmd.rs.
         #[test]
         fn run_theme_list_aligns_wide_char_names_by_display_width() {
             // Build the config in-process: ThemeConfig has many required
@@ -641,7 +640,7 @@ theme = "compact"
             assert!(custom.is_custom, "custom theme should be marked as custom");
         }
 
-        /// PERF-3 / TASK-1190 AC #2: the built-in theme name set is parsed
+        /// The built-in theme name set is parsed
         /// at most once across N calls. Asserted indirectly by checking
         /// that two `builtin_theme_names()` calls return the *same*
         /// `&'static HashSet` reference (the `OnceLock` initialiser fired

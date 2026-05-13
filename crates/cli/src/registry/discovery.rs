@@ -1,9 +1,9 @@
 //! Compiled-in extension discovery and stack/config filtering.
 //!
-//! Split out from the parent `registry` module per ARCH-1 / TASK-0842 so
-//! the discovery surface (resolve stack, enumerate compiled-in factories,
-//! filter by stack + `extensions.enabled`) lives in one place separately
-//! from the registration audit pipeline in [`super::registration`].
+//! Split out from the parent `registry` module so the discovery surface
+//! (resolve stack, enumerate compiled-in factories, filter by stack +
+//! `extensions.enabled`) lives in one place separately from the
+//! registration audit pipeline in [`super::registration`].
 
 use ops_core::config::Config;
 use ops_core::stack::Stack;
@@ -15,7 +15,7 @@ use std::path::Path;
 use tracing::{debug, warn};
 
 /// Resolves the active stack from config override or auto-detection.
-/// DUP-001: Delegates to `Stack::resolve()` to avoid duplicating the chain.
+/// Delegates to `Stack::resolve()` to avoid duplicating the chain.
 pub fn resolve_stack(config: &Config, workspace_root: &Path) -> Option<Stack> {
     Stack::resolve(config.stack.as_deref(), workspace_root)
 }
@@ -30,7 +30,7 @@ pub fn collect_compiled_extensions(
     config: &Config,
     workspace_root: &Path,
 ) -> Vec<(&'static str, Box<dyn Extension>)> {
-    // ERR-4 (TASK-0584): factories that return None (prerequisites not met,
+    // Factories that return None (prerequisites not met,
     // e.g. wrong stack, missing tool on PATH) used to be dropped silently —
     // an extension that compiled in but quietly opts out was
     // indistinguishable from one that never linked. Emit a one-shot debug
@@ -62,7 +62,7 @@ pub fn collect_compiled_extensions(
 ///    matches the detected/configured stack are included
 /// 2. **By config**: If `extensions.enabled` is set, only those named extensions are loaded
 ///
-/// # Architecture (CQ-020)
+/// # Architecture
 ///
 /// This function uses a two-phase approach:
 /// 1. **Collection**: Build a `BTreeMap` of all compiled-in extensions
@@ -73,11 +73,11 @@ pub fn collect_compiled_extensions(
 /// - Allows efficient filtering by key removal
 /// - Yields deterministic, sorted-by-`config_name` iteration order
 ///
-/// # Ordering (PATTERN-1 / TASK-1087)
+/// # Ordering
 ///
 /// The `enabled = None` branch must return extensions in a stable order
 /// because [`super::registration::register_extension_commands`] is
-/// **last-write-wins** on duplicate command ids (CL-5 / TASK-0904). A
+/// **last-write-wins** on duplicate command ids. A
 /// `HashMap`-random iteration order would let the surviving extension for a
 /// command-id collision flip between processes — genuine functional
 /// non-determinism, not just log noise. Sorting by `config_name` (via
@@ -95,7 +95,7 @@ pub fn builtin_extensions(
     builtin_extensions_from(compiled, config, workspace_root)
 }
 
-/// PERF-1 / TASK-1380: same as [`builtin_extensions`] but consumes a
+/// Same as [`builtin_extensions`] but consumes a
 /// pre-collected `compiled` vector so callers that already walked
 /// `EXTENSION_REGISTRY` (e.g. `run_extension_show_to`) do not pay the
 /// factory probes twice. Public surface is unchanged: [`builtin_extensions`]
@@ -126,8 +126,8 @@ pub fn builtin_extensions_from(
     )
 }
 
-/// FN-1 / TASK-1348: stack-filter pass extracted from `builtin_extensions`
-/// so the policy is independently testable. Generic extensions
+/// Stack-filter pass extracted from `builtin_extensions` so the policy
+/// is independently testable. Generic extensions
 /// (`stack() == None`) always pass; stack-specific extensions only when
 /// `ext.stack() == detected`.
 fn filter_by_stack(
@@ -143,11 +143,10 @@ fn filter_by_stack(
         .collect()
 }
 
-/// FN-1 / TASK-1348: enabled-validation + ordering pass extracted from
-/// `builtin_extensions`. Aggregates every missing entry into one error
-/// (API-1 / TASK-1328) and distinguishes "compiled in but stack-filtered"
-/// from "not compiled in" using the unfiltered `compiled_names` set
-/// (API-1 / TASK-1327).
+/// Enabled-validation + ordering pass extracted from `builtin_extensions`.
+/// Aggregates every missing entry into one error and distinguishes
+/// "compiled in but stack-filtered" from "not compiled in" using the
+/// unfiltered `compiled_names` set.
 fn select_enabled(
     mut available: std::collections::BTreeMap<&'static str, Box<dyn Extension>>,
     compiled_names: &std::collections::BTreeSet<&'static str>,
@@ -172,7 +171,7 @@ fn select_enabled(
         }
     }
     if !missing_not_compiled.is_empty() || !missing_stack_filtered.is_empty() {
-        // PATTERN-1 / TASK-0990: sort `available` so the rendered list is
+        // Sort `available` so the rendered list is
         // deterministic across processes and snapshot-friendly.
         let mut available_names: Vec<&'static str> = available.keys().copied().collect();
         available_names.sort_unstable();
@@ -211,18 +210,17 @@ fn select_enabled(
 /// `tracing::warn!` audit breadcrumb for each duplicate `config_name` that
 /// would otherwise be silently dropped by `BTreeMap::insert`.
 ///
-/// PATTERN-1 / TASK-1088: the symmetric command and data-provider audit
-/// pipelines (CL-5 / TASK-0756, DUP-1 / TASK-0876) explicitly surface
-/// duplicate registrations via `take_duplicate_inserts` + `tracing::warn!`;
-/// the discovery layer regressed by collapsing the `Vec<(name, ext)>` it
-/// gets back from `collect_compiled_extensions` straight into a map,
-/// dropping the earlier `Box` for any colliding `config_name` with no
-/// breadcrumb.
+/// The symmetric command and data-provider audit pipelines explicitly
+/// surface duplicate registrations via `take_duplicate_inserts` +
+/// `tracing::warn!`; the discovery layer used to regress by collapsing the
+/// `Vec<(name, ext)>` it gets back from `collect_compiled_extensions`
+/// straight into a map, dropping the earlier `Box` for any colliding
+/// `config_name` with no breadcrumb.
 ///
 /// **Resolution policy**: last-write-wins on duplicate `config_name`,
-/// matching `register_extension_commands` (CL-5 / TASK-0904).
+/// matching `register_extension_commands`.
 ///
-/// **Iteration order** (PATTERN-1 / TASK-1087): `BTreeMap` yields entries
+/// **Iteration order**: `BTreeMap` yields entries
 /// sorted by `config_name`. The `enabled = None` branch of
 /// [`builtin_extensions`] forwards that order to
 /// `register_extension_commands`, so the last-write-wins winner of a

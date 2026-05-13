@@ -5,13 +5,13 @@ use ops_runner::command::StepResult;
 
 /// Merge leaf IDs from multiple command names into a single plan.
 ///
-/// PATTERN-1 / TASK-0754: aggregation walks each name's composite tree so a
-/// nested composite with `parallel = true` or `fail_fast = false` is
-/// honoured. The earlier shape only inspected the top-level composite for
-/// each `name`, silently dropping nested parallelism / fail-fast semantics
-/// for `umbrella = { commands = ["inner"] }` where `inner.parallel = true`.
+/// Aggregation walks each name's composite tree so a nested composite
+/// with `parallel = true` or `fail_fast = false` is honoured. The earlier
+/// shape only inspected the top-level composite for each `name`, silently
+/// dropping nested parallelism / fail-fast semantics for
+/// `umbrella = { commands = ["inner"] }` where `inner.parallel = true`.
 ///
-/// PATTERN-1 / TASK-1091: an empty `names` slice is rejected with an error.
+/// An empty `names` slice is rejected with an error.
 /// The previous shape returned `(empty_plan, any_parallel = false,
 /// fail_fast = true)`, and the executor then ran zero steps and reported
 /// success. That silent "ran nothing, success" outcome masks upstream
@@ -31,7 +31,7 @@ pub(crate) fn merge_plan(
              upstream filtering bug)"
         );
     }
-    // PATTERN-1 / TASK-1283: a single traversal per name returns both the
+    // A single traversal per name returns both the
     // leaf ids and the (any_parallel, fail_fast_disabled) flags, so the
     // executed leaf set and the plan flags are derived from the same walk
     // (no risk of independent walks drifting in cycle/ordering semantics).
@@ -54,7 +54,7 @@ pub(crate) fn merge_plan(
 }
 
 pub(crate) fn display_cmd_for(runner: &ops_runner::command::CommandRunner, id: &str) -> String {
-    // READ-7 / TASK-0903: match every CommandSpec variant explicitly so a
+    // Match every CommandSpec variant explicitly so a
     // future variant fails to compile here rather than silently falling
     // back to the bare id in plan rows. Composites surface a comma-joined
     // child list (mirrors `display_cmd_fallback`) which is what plan

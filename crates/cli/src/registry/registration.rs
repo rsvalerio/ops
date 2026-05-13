@@ -1,11 +1,11 @@
 //! Audit-tracked extension registration for commands and data providers.
 //!
-//! Split out from the parent `registry` module per ARCH-1 / TASK-0842 so
-//! the symmetric command / data-provider registration paths and their
-//! shared [`Owner`] machinery live in one place separately from the
-//! discovery/filtering surface in [`super::discovery`].
+//! Split out from the parent `registry` module so the symmetric command /
+//! data-provider registration paths and their shared [`Owner`] machinery
+//! live in one place separately from the discovery/filtering surface in
+//! [`super::discovery`].
 //!
-//! # Collision-resolution policy is asymmetric (CL-5 / TASK-0904)
+//! # Collision-resolution policy is asymmetric
 //!
 //! The two registries deliberately resolve duplicates in opposite
 //! directions:
@@ -34,11 +34,11 @@ use ops_extension::{CommandRegistry, DataRegistry, Extension};
 use std::path::Path;
 use tracing::debug;
 
-/// DUP-1 / TASK-0876: shared owner-tracking type used by the symmetric
-/// command and data-provider registration paths. Keeping the enum in one
-/// place removes the asymmetry channel that originally produced
-/// TASK-0756 (data providers had no audit, commands did) and makes any
-/// future change to the audit policy a one-touch edit.
+/// Shared owner-tracking type used by the symmetric command and
+/// data-provider registration paths. Keeping the enum in one place removes
+/// the asymmetry channel that originally produced a data-provider audit
+/// gap (data providers had no audit, commands did) and makes any future
+/// change to the audit policy a one-touch edit.
 #[derive(Clone)]
 pub(super) enum Owner {
     PreExisting,
@@ -69,7 +69,7 @@ where
     owners
 }
 
-/// DUP-2 / TASK-1297: collision-resolution policy on duplicate keys. The
+/// Collision-resolution policy on duplicate keys. The
 /// command path is last-write-wins; the data-provider path is
 /// first-write-wins. See module doc for the security rationale. The
 /// enum is private to this module — the public `register_extension_*`
@@ -80,8 +80,8 @@ enum InsertPolicy {
     FirstWriteWins,
 }
 
-/// DUP-2 / TASK-1297: per-policy warn-message strings used by the shared
-/// audit pipeline. Hoisted into a single value rather than four scattered
+/// Per-policy warn-message strings used by the shared audit pipeline.
+/// Hoisted into a single value rather than four scattered
 /// `tracing::warn!` call sites so a future audit-policy change touches one
 /// table, not two functions × four messages.
 struct AuditPolicy {
@@ -114,8 +114,8 @@ const DATA_PROVIDER_AUDIT: AuditPolicy = AuditPolicy {
         "extension data provider would shadow an entry already present in the registry; first-write-wins keeps the existing one",
 };
 
-/// DUP-2 / TASK-1297 + FN-1 / TASK-1288: classify one (key, ext_name)
-/// against the running `owners` map and emit the matching warn under the
+/// Classify one (key, ext_name) against the running `owners` map and
+/// emit the matching warn under the
 /// chosen `policy`. Returns `true` if the caller should actually install
 /// the entry into the shared registry. The four collision cases that
 /// previously lived as inline match arms in two functions now live here
@@ -126,7 +126,7 @@ fn classify_and_warn_collision(
     ext_name: &'static str,
     audit: &AuditPolicy,
 ) -> bool {
-    // PERF-3 / TASK-1349: lookup before allocating the owned key. The
+    // Lookup before allocating the owned key. The
     // common path is a fresh key per extension; only on the genuine-miss
     // branch do we materialise a `String` for `HashMap::insert`. This
     // avoids `key.to_string()` on every Occupied hit (the warning paths)
@@ -169,7 +169,7 @@ fn classify_and_warn_collision(
                 }
             }
             Owner::Extension(_) => {
-                // PATTERN-1 / TASK-1350: same-extension duplicates are
+                // Same-extension duplicates are
                 // drained upstream by `take_duplicate_inserts` before this
                 // loop ever sees them, so each id in `local` is unique per
                 // extension. If the invariant ever breaks, the debug build
@@ -189,7 +189,7 @@ fn classify_and_warn_collision(
     }
 }
 
-/// DUP-3 / TASK-1371: shared in-extension duplicate-warn loop. Both the
+/// Shared in-extension duplicate-warn loop. Both the
 /// command and data-provider registration paths drain the per-extension
 /// `take_duplicate_inserts` audit; collapsing the warn template into one
 /// helper keeps the structured-log shape (target, kind, key, extension)
@@ -212,16 +212,14 @@ where
 }
 
 /// Collect all commands from registered extensions into a registry —
-/// **last-write-wins** on duplicate command ids (CL-5 / TASK-0904).
+/// **last-write-wins** on duplicate command ids.
 ///
-/// SEC-31 / TASK-0402 (symmetric audit story with TASK-0350 for
-/// `DataRegistry` — but with opposite resolution policy, see module doc):
-/// extensions register into a shared `CommandRegistry` via `IndexMap::insert`.
-/// Collisions surface as `tracing::warn!` through the shared
-/// [`classify_and_warn_collision`] pipeline (DUP-2 / TASK-1297). The thin
-/// shell here picks the [`InsertPolicy::LastWriteWins`] policy and message
-/// table; structural duplication with [`register_extension_data_providers`]
-/// is removed.
+/// Extensions register into a shared `CommandRegistry` via
+/// `IndexMap::insert`. Collisions surface as `tracing::warn!` through the
+/// shared [`classify_and_warn_collision`] pipeline. The thin shell here
+/// picks the [`InsertPolicy::LastWriteWins`] policy and message table;
+/// structural duplication with [`register_extension_data_providers`] is
+/// removed.
 pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut CommandRegistry) {
     let mut owners = snapshot_initial_owners(registry.keys().map(|k| k.to_string()));
     for ext in extensions {
@@ -238,9 +236,8 @@ pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut
 }
 
 /// Collect all data providers from registered extensions —
-/// **first-write-wins** on duplicate provider names (CL-5 / TASK-0904,
-/// opposite to [`register_extension_commands`]; see module doc for the
-/// rationale). Thin shell over the shared
+/// **first-write-wins** on duplicate provider names (opposite to
+/// [`register_extension_commands`]; see module doc for the rationale). Thin shell over the shared
 /// [`classify_and_warn_collision`] pipeline; the only difference from the
 /// command path is the chosen [`InsertPolicy`] and the message table.
 pub fn register_extension_data_providers(
@@ -270,7 +267,7 @@ pub fn register_extension_data_providers(
     }
 }
 
-/// DUP-003: Build a DataRegistry from all enabled extensions in one call.
+/// Build a DataRegistry from all enabled extensions in one call.
 ///
 /// Reduces the 4-line boilerplate of builtin_extensions + ext_refs + new registry + register.
 pub fn build_data_registry(config: &Config, workspace_root: &Path) -> anyhow::Result<DataRegistry> {
@@ -280,7 +277,7 @@ pub fn build_data_registry(config: &Config, workspace_root: &Path) -> anyhow::Re
     Ok(registry)
 }
 
-/// PERF-1 / TASK-1380: same as [`build_data_registry`] but consumes a
+/// Same as [`build_data_registry`] but consumes a
 /// pre-collected `compiled` vector so the show path can build the
 /// schema-lookup registry without re-walking `EXTENSION_REGISTRY`.
 pub fn build_data_registry_from(

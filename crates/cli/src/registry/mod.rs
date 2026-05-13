@@ -1,7 +1,7 @@
 //! Extension glue: resolve stack, collect compiled-in extensions, register commands/data providers.
 //!
-//! ARCH-1 / TASK-0842: this module was originally an 832-line file mixing
-//! discovery, registration, and audit machinery. Split into:
+//! This module was originally an 832-line file mixing discovery,
+//! registration, and audit machinery. Split into:
 //!
 //! - [`discovery`] — stack resolution, compiled-in extension enumeration,
 //!   stack/config filtering, ref-conversion helpers.

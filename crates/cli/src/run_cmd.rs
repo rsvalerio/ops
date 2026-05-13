@@ -23,18 +23,17 @@ use dry_run::run_command_dry_run;
 use plan::{build_display_map, log_step_results, merge_plan};
 
 /// Options for a top-level `run` invocation, threaded through the
-/// `run_command` / `run_commands` helpers. FN-3 / TASK-0272: collapses five
-/// positional args (including three `bool`s) into a named struct so swap
-/// bugs like `run_command(name, true, false, …)` — was that dry_run or
-/// verbose? — become impossible at call sites.
+/// `run_command` / `run_commands` helpers. Collapses five positional args
+/// (including three `bool`s) into a named struct so swap bugs like
+/// `run_command(name, true, false, …)` — was that dry_run or verbose? —
+/// become impossible at call sites.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RunOptions {
     pub dry_run: bool,
     pub verbose: bool,
     pub tap: Option<PathBuf>,
     pub raw: bool,
-    /// SEC-14 / TASK-0886: cwd-escape policy applied to the runner this
-    /// invocation builds. Hook-triggered entry points
+    /// cwd-escape policy applied to the runner this invocation builds. Hook-triggered entry points
     /// (`run-before-commit`, `run-before-push`) set
     /// `CwdEscapePolicy::Deny` so a coworker-landed `.ops.toml` cannot
     /// escape the workspace on the next commit. Default
@@ -48,7 +47,7 @@ pub(crate) fn run_external_command(
     args: &[OsString],
     opts: RunOptions,
 ) -> anyhow::Result<ExitCode> {
-    // API-1: report non-UTF-8 argv entries explicitly. Previously a bad
+    // Report non-UTF-8 argv entries explicitly. Previously a bad
     // OsString silently vanished via `filter_map(OsStr::to_str)` and the
     // user saw a generic "missing command name" when that left zero args.
     let mut names: Vec<&str> = Vec::with_capacity(args.len());
@@ -63,25 +62,24 @@ pub(crate) fn run_external_command(
     if names.is_empty() {
         anyhow::bail!("missing command name");
     }
-    // PATTERN-1 / TASK-1284: single- and multi-command invocations share
-    // `run_commands` with a one-element slice. Earlier the two had
-    // independent destructure/build_runner/dry-run/raw branches that drifted
-    // (see CL-5/TASK-0755 for the tap-warning drift that prompted this).
+    // Single- and multi-command invocations share `run_commands` with a
+    // one-element slice. Earlier the two had independent
+    // destructure/build_runner/dry-run/raw branches that drifted.
     run_commands(config, &names, opts)
 }
 
-/// OWN-2 / TASK-0841: take an `Arc<Config>` shared with `main`/`dispatch`
-/// rather than deep-cloning the Config per invocation. The runner shares
+/// Take an `Arc<Config>` shared with `main`/`dispatch` rather than
+/// deep-cloning the Config per invocation. The runner shares
 /// the same allocation as the early-loaded config — every nested
 /// `IndexMap`, `String`, theme block is allocated exactly once per CLI run.
 fn build_runner(
     config: std::sync::Arc<ops_core::config::Config>,
     cwd_escape_policy: ops_runner::command::CwdEscapePolicy,
 ) -> anyhow::Result<ops_runner::command::CommandRunner> {
-    // ARCH-3 / TASK-1285: build_runner used to accept a `verbose: bool`
-    // that it never read (verbose is owned by ProgressDisplay downstream).
-    // The slot was a swap-bug footgun adjacent to other bools that
-    // RunOptions/PlanShape were introduced to eliminate.
+    // build_runner used to accept a `verbose: bool` that it never read
+    // (verbose is owned by ProgressDisplay downstream). The slot was a
+    // swap-bug footgun adjacent to other bools that RunOptions/PlanShape
+    // were introduced to eliminate.
     let cwd = crate::cwd()?;
     let mut runner = ops_runner::command::CommandRunner::from_arc_config(config, cwd);
     runner.set_cwd_escape_policy(cwd_escape_policy);
@@ -95,7 +93,7 @@ fn build_runner(
 /// (EMFILE, ENOMEM, epoll init errors) surface with a message explaining
 /// *why* the runtime is being started, rather than a bare
 /// `Too many open files (os error 24)` that the user cannot correlate back
-/// to `ops run …`. See ERR-1 / TASK-0160.
+/// to `ops run …`.
 fn run_with_runtime<F, T>(f: F) -> anyhow::Result<T>
 where
     F: std::future::Future<Output = anyhow::Result<T>>,
@@ -107,7 +105,7 @@ where
     run_with_runtime_kind(RuntimeKind::MultiThread, f)
 }
 
-/// ASYNC-7 / TASK-0875: which runtime flavour the run path needs.
+/// Which runtime flavour the run path needs.
 ///
 /// Sequential CLI invocations don't fan out to a worker pool, so paying
 /// to spin up `worker_thread × CPU` for a single short command is pure
@@ -151,10 +149,9 @@ fn run_commands(
     let runner = build_runner(config, cwd_escape_policy)?;
 
     if dry_run {
-        // ERR-1 / TASK-1234: extend the execute path's `emit_raw_warnings`
-        // contract to dry-run so users invoking `ops <cmd> --dry-run --raw
-        // --tap=path` see that --raw/--tap have no effect, instead of a
-        // silent override.
+        // Extend the execute path's `emit_raw_warnings` contract to dry-run
+        // so users invoking `ops <cmd> --dry-run --raw --tap=path` see that
+        // --raw/--tap have no effect, instead of a silent override.
         emit_dry_run_warnings(raw, tap.is_some(), verbose);
         for name in names {
             run_command_dry_run(&runner, name)?;
@@ -177,7 +174,7 @@ fn run_commands(
     Ok(summarize(&results))
 }
 
-/// FN-3 / TASK-0866: shape of a planned execution. Grouping the three
+/// Shape of a planned execution. Grouping the three
 /// related fields removes the adjacent `bool, bool` swap footgun from
 /// every plan-running entry point and keeps `run_commands_raw` and
 /// `run_commands_with_display` in lock-step on what a "plan" is.
@@ -201,7 +198,7 @@ fn run_commands_raw(
     Ok(results)
 }
 
-/// ERR-1 / TASK-1234: messages emitted when `--dry-run` is combined with
+/// Messages emitted when `--dry-run` is combined with
 /// otherwise-incompatible flags. The dry-run path materialises a preview
 /// without consulting `--raw` or `--tap`; without this contract, a user
 /// invoking `ops <cmd> --dry-run --raw --tap=path` saw no indication that
@@ -224,7 +221,7 @@ fn dry_run_overrides_messages(raw: bool, has_tap: bool, verbose: bool) -> Vec<&'
              so no tap file will be written",
         );
     }
-    // ERR-1 / TASK-1376: `--verbose` documents itself as "Show full stderr
+    // `--verbose` documents itself as "Show full stderr
     // output on failure (overrides stderr_tail_lines config)". Dry-run never
     // executes children, so there is no stderr to enhance — silently
     // ignoring the flag mirrors the same trust-eroding shape that
@@ -255,7 +252,7 @@ fn emit_raw_warnings(any_parallel: bool, has_tap: bool, verbose: bool) {
     if any_parallel {
         tracing::warn!("--raw forces sequential execution; composite `parallel = true` is ignored");
     }
-    // READ-10: there is no stream to tap in raw mode (child stdio is
+    // There is no stream to tap in raw mode (child stdio is
     // inherited directly). Warn so users combining the flags see the
     // contradiction rather than getting a silent no-op or an empty file
     // somewhere.
@@ -264,7 +261,7 @@ fn emit_raw_warnings(any_parallel: bool, has_tap: bool, verbose: bool) {
             "--tap is ignored under --raw because raw mode inherits child stdio; no tap file will be written"
         );
     }
-    // ERR-1 / TASK-1376: `--verbose` controls the stderr-tail rendering on
+    // `--verbose` controls the stderr-tail rendering on
     // failure (see `args.rs::Cli::verbose` documentation). Raw mode
     // inherits child stdio directly and never buffers stderr, so the flag
     // has nothing to act on. Warn for parity with the `--tap`/`--parallel`
@@ -293,7 +290,7 @@ fn run_commands_with_display(
     ))?;
 
     let _echo_guard = EchoGuard::disable_echo();
-    // ASYNC-7 / TASK-1138: parallel orchestration only pays off with >=2 leaves;
+    // Parallel orchestration only pays off with >=2 leaves;
     // a 1-leaf plan with `parallel = true` shortcuts to `run_plan` in
     // `run_plan_parallel` (parallel.rs), so picking MultiThread here would
     // pay worker-thread spin-up for nothing. Mirror that threshold.
@@ -342,11 +339,10 @@ fn setup_extensions(runner: &mut ops_runner::command::CommandRunner) -> anyhow::
     Ok(())
 }
 
-/// PATTERN-1 / TASK-1284: thin wrapper that delegates to `run_commands`
-/// with a one-element slice so dry-run/raw/display branching lives in
-/// exactly one place. Was previously a parallel implementation of the
-/// same shape that drifted from the multi-command path (see CL-5/
-/// TASK-0755 for the tap-warning drift this prevents).
+/// Thin wrapper that delegates to `run_commands` with a one-element slice
+/// so dry-run/raw/display branching lives in exactly one place. Was
+/// previously a parallel implementation of the same shape that drifted
+/// from the multi-command path.
 #[cfg(test)]
 fn run_command(
     config: std::sync::Arc<ops_core::config::Config>,
@@ -366,10 +362,10 @@ fn run_command_raw(
     has_tap: bool,
     verbose: bool,
 ) -> anyhow::Result<bool> {
-    // CL-5 / TASK-0755: route both raw-mode warnings through
-    // `emit_raw_warnings` so the message strings live in exactly one place.
-    // Earlier the tap warning was inlined here while parallel-detection went
-    // through a separate helper, leaving the two raw paths free to drift.
+    // Route both raw-mode warnings through `emit_raw_warnings` so the
+    // message strings live in exactly one place. Earlier the tap warning
+    // was inlined here while parallel-detection went through a separate
+    // helper, leaving the two raw paths free to drift.
     emit_raw_warnings(composite_tree_has_parallel(runner, name), has_tap, verbose);
     let results: Vec<StepResult> = run_with_runtime(async { runner.run_raw(name).await })?;
     log_step_results(&results);
@@ -385,7 +381,8 @@ pub(super) fn composite_tree_has_parallel(
 }
 
 /// Walk the composite tree rooted at `name` and report whether any node has
-/// `parallel = true` or `fail_fast = false`. PATTERN-1 / TASK-0754:
+/// `parallel = true` or `fail_fast = false`.
+///
 /// `merge_plan` previously inspected only the top-level composite for these
 /// flags, dropping nested parallelism / fail-fast aggregation silently. The
 /// raw single-command path already walked the tree for its `parallel`

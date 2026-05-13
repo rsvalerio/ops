@@ -76,8 +76,7 @@ fn validate_command_name(name: &str) -> Result<(), String> {
             return Err("command name cannot contain path separators ('/' or '\\\\')".into());
         }
     }
-    // API-1 / TASK-1296: reject names that collide with a built-in clap
-    // subcommand. Clap matches built-ins before the `External` catch-all, so
+    // Reject names that collide with a built-in clap subcommand. Clap matches built-ins before the `External` catch-all, so
     // a `[commands.<name>]` entry that shadows one (e.g. `init`, `theme`,
     // `about`) would persist successfully but never be reachable via
     // `ops <name>`. The list is derived from clap's own registered
@@ -91,7 +90,7 @@ fn validate_command_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// API-1 / TASK-1296: names of every clap-registered built-in subcommand on
+/// Names of every clap-registered built-in subcommand on
 /// the `Cli` definition, excluding the `External` catch-all (which is what
 /// `ops <user-command>` resolves to). Same iteration shape as
 /// `args::stack_specific_commands`: a slice-style "ask clap once, expose to
@@ -125,12 +124,11 @@ fn parse_command(input: &str) -> anyhow::Result<(String, Vec<String>)> {
 
 /// Append a new command entry to `.ops.toml`, creating the file if needed.
 ///
-/// PATTERN-1 / TASK-1276: anchor the write to `workspace_root` (threaded from
-/// `run()` → `dispatch()`) rather than `PathBuf::from(".ops.toml")` at the
-/// user's cwd. Mirrors the `about_cmd` (TASK-0578) and `init_cmd` (TASK-1066)
-/// fixes — running `ops new-command` from a subdirectory must update the
-/// workspace's `.ops.toml`, not split state by writing a stray file in the
-/// subdir.
+/// Anchor the write to `workspace_root` (threaded from `run()` →
+/// `dispatch()`) rather than `PathBuf::from(".ops.toml")` at the user's
+/// cwd. Mirrors the `about_cmd` and `init_cmd` fixes — running
+/// `ops new-command` from a subdirectory must update the workspace's
+/// `.ops.toml`, not split state by writing a stray file in the subdir.
 fn append_command_to_config(
     workspace_root: &Path,
     name: &str,
@@ -303,7 +301,7 @@ theme = "classic"
         assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed);
     }
 
-    /// PATTERN-1 / TASK-1276: regression — running `ops new-command` from a
+    /// Regression — running `ops new-command` from a
     /// subdirectory must write to `workspace_root/.ops.toml`, not into the
     /// subdir, mirroring `save_about_fields_writes_to_workspace_root_from_subdir`.
     #[test]
@@ -361,7 +359,7 @@ theme = "classic"
         }
     }
 
-    /// API-1 / TASK-1296: every clap-registered built-in subcommand on the
+    /// Every clap-registered built-in subcommand on the
     /// `Cli` definition must be rejected as a command name. Driving the
     /// iteration off `builtin_subcommand_names()` (which derives from
     /// clap's own command tree) means future additions to `CoreSubcommand`

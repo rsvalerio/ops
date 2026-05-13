@@ -40,9 +40,9 @@ where
         anyhow::bail!("no project_identity provider registered — cannot configure about fields");
     }
 
-    // ERR-5 / DUP-3 / TASK-0427: the Config is now threaded from `run()` so
-    // the warn-and-default policy applies to the whole CLI invocation,
-    // including the `about setup` save path.
+    // The Config is threaded from `run()` so the warn-and-default policy
+    // applies to the whole CLI invocation, including the `about setup`
+    // save path.
     let currently_enabled = config.about.fields.as_deref();
 
     let options: Vec<SelectOption> = about_fields
@@ -53,7 +53,7 @@ where
         })
         .collect();
 
-    // PERF-3 / TASK-1332: probe the set of currently-enabled field ids in
+    // Probe the set of currently-enabled field ids in
     // O(1) per candidate instead of an O(N*M) `Vec::any` scan; field
     // counts grow with extension count and this path is hit on every render
     // / re-configure.
@@ -81,7 +81,7 @@ where
     write_about_setup_confirmation(w, &field_ids)
 }
 
-/// TASK-1343 / READ-5: post-prompt confirmation rendering split out so unit
+/// Post-prompt confirmation rendering split out so unit
 /// tests can drive the message text against a `Vec<u8>` without a TTY. The
 /// public entry threads `std::io::stdout()` through; tests buffer-capture.
 fn write_about_setup_confirmation(w: &mut dyn Write, field_ids: &[String]) -> anyhow::Result<()> {
@@ -89,7 +89,7 @@ fn write_about_setup_confirmation(w: &mut dyn Write, field_ids: &[String]) -> an
     Ok(())
 }
 
-/// READ-5 / TASK-0578: anchor the saved `.ops.toml` to the same root the rest
+/// Anchor the saved `.ops.toml` to the same root the rest
 /// of the CLI threads through (`crate::cwd()` → `Stack::resolve(...)`), so
 /// running `ops about setup` from a subdirectory writes the file alongside
 /// the loaded config rather than next to the user's cwd.
@@ -97,7 +97,7 @@ fn save_about_fields(fields: &[String], workspace_root: &Path) -> anyhow::Result
     let config_path = workspace_root.join(".ops.toml");
     edit_ops_toml(&config_path, |doc| {
         let about = ensure_table(doc, "about")?;
-        // ERR-5 / TASK-1292: when `fields` already exists, mutate the
+        // When `fields` already exists, mutate the
         // existing Array in place (clear + push) so the user's inline
         // comments and trailing decor survive a re-save. The
         // wholesale-replace path (insert) is reserved for the fresh-array
@@ -141,7 +141,7 @@ mod tests {
         assert!(buf.is_empty(), "non-TTY path must not write anything");
     }
 
-    /// TASK-1343 / READ-5: pin the post-prompt confirmation message. The
+    /// Pin the post-prompt confirmation message. The
     /// `inquire::MultiSelect` picker requires a TTY, but the confirmation
     /// rendering is deterministic format-and-write — exercising
     /// `write_about_setup_confirmation` directly covers the happy-path
@@ -210,7 +210,7 @@ mod tests {
         assert!(content.contains("repository"), "got: {content}");
     }
 
-    /// ERR-5 / TASK-1292: a trailing comment on the `fields` array must
+    /// A trailing comment on the `fields` array must
     /// survive a re-save. Pre-fix, `save_about_fields` did
     /// `about.insert("fields", toml_edit::value(arr))`, replacing the entry
     /// wholesale and dropping any inline comments/decor on the prior array.
@@ -254,7 +254,7 @@ mod tests {
         assert!(content.contains("fields = []"), "got: {content}");
     }
 
-    /// READ-5 regression (TASK-0578): when the user runs `ops about setup`
+    /// When the user runs `ops about setup`
     /// from a subdirectory but the workspace root is one level up, the saved
     /// `.ops.toml` must land at the workspace root — not in the cwd.
     #[test]

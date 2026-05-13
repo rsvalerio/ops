@@ -7,7 +7,7 @@ use ops_core::config::CommandSpec;
 use ops_core::ui::sanitise_line;
 use ops_runner::command::{is_sensitive_env_key, looks_like_secret_value_public};
 
-/// SEC-21 / TASK-1184: route an audit-channel value through `sanitise_line`
+/// Route an audit-channel value through `sanitise_line`
 /// so ANSI clear-screen / cursor-move / NUL bytes embedded in a
 /// `.ops.toml` value (or its `${VAR}` expansion) cannot repaint the
 /// operator's terminal during `ops --dry-run`. Mirrors the stderr policy
@@ -18,7 +18,7 @@ fn audit_safe(value: &str) -> String {
     buf
 }
 
-/// SEC-001: Preview commands without executing.
+/// Preview commands without executing.
 ///
 /// Prints the resolved command(s) that would be run, including all
 /// arguments and environment variables. Used for:
@@ -39,7 +39,7 @@ pub(crate) fn run_command_dry_run_to(
 ) -> anyhow::Result<ExitCode> {
     let leaf_ids = runner.expand_to_leaves(name).map_err(anyhow::Error::from)?;
 
-    // SEC-21 / TASK-1275: the command name and resolved leaf ids both
+    // The command name and resolved leaf ids both
     // originate from `.ops.toml` keys (TOML quoted keys permit arbitrary
     // Unicode, including ESC/NUL/CR), so route them through `audit_safe`
     // before writing to the operator's audit channel. Without this an
@@ -69,7 +69,7 @@ pub(crate) fn print_exec_spec(
     e: &ops_core::config::ExecCommandSpec,
     vars: &ops_core::expand::Variables,
 ) -> anyhow::Result<()> {
-    // ERR-7 (TASK-0576): switch to strict expansion so a non-UTF-8 env var
+    // Use strict expansion so a non-UTF-8 env var
     // surfaces in the dry-run preview instead of being silently logged while
     // the literal `${VAR}` flows to display.
     writeln!(
@@ -83,8 +83,8 @@ pub(crate) fn print_exec_spec(
     if !e.env.is_empty() {
         writeln!(w, "      env:")?;
         for (k, v) in &e.env {
-            // SEC-21: previously only redacted when the *key* matched the
-            // narrow `SENSITIVE_REDACTION_PATTERNS` allowlist. Any env var
+            // Previously only redacted when the *key* matched the narrow
+            // `SENSITIVE_REDACTION_PATTERNS` allowlist. Any env var
             // with a non-matching name (DATABASE_URL, GITHUB_PAT,
             // SLACK_WEBHOOK, …) printed in cleartext to stdout — which a
             // user then copy-pasted into a bug report. Mirror the
@@ -92,11 +92,11 @@ pub(crate) fn print_exec_spec(
             // looks sensitive *or* the (expanded) value itself looks like
             // a secret per the JWT/UUID/high-entropy heuristics.
             //
-            // SEC-21 known false-negatives — values that *will* leak through
+            // Known false-negatives — values that *will* leak through
             // when the key name does not match `is_sensitive_env_key`:
             //   - Short bearer tokens (<20 chars), e.g. shortened API keys.
             //   - Lowercase-hex-only strings (git SHAs, MD5/SHA1 hashes used
-            //     as deploy tokens) — see SEC-11 in `secret_patterns`.
+            //     as deploy tokens) — see hex-only handling in `secret_patterns`.
             //   - Connection strings whose host/path is the only secret
             //     (e.g. `https://hooks.slack.com/services/T.../B.../X...`).
             //   - Base32 / non-base64 encodings (TOTP seeds).
@@ -114,7 +114,7 @@ pub(crate) fn print_exec_spec(
         }
     }
     if let Some(cwd) = &e.cwd {
-        // READ-5 (TASK-0543): Path::display() lossily replaces non-UTF-8 bytes
+        // Path::display() lossily replaces non-UTF-8 bytes
         // with U+FFFD before expansion. The actual spawn (resolve_spec_cwd)
         // uses to_string_lossy() too, so the preview is consistent — but the
         // user has no way to know the rendered path is approximate. Annotate

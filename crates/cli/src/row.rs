@@ -1,7 +1,7 @@
 //! Shared name+description row renderer for CLI list views.
 //!
-//! DUP-3 / TASK-1335: `tools_cmd::render_tools_list` and
-//! `theme_cmd::run_theme_list_to` both rendered the same shape inline — a
+//! `tools_cmd::render_tools_list` and `theme_cmd::run_theme_list_to` both
+//! rendered the same shape inline — a
 //! cyan name padded to a column width, then a dim description, then a dim
 //! trailing marker. Centralising here keeps the two list surfaces' colour /
 //! padding policy in lock-step when it tightens.

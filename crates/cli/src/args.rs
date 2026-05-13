@@ -105,9 +105,9 @@ pub enum CoreSubcommand {
     RunBeforeCommit {
         /// Skip the hook when no files are staged for commit.
         ///
-        /// API-1 / TASK-1308: this flag gates a preflight that short-circuits
-        /// the run when `git diff --cached` reports no staged changes. It
-        /// does *not* scope the user-configured command to staged paths.
+        /// This flag gates a preflight that short-circuits the run when
+        /// `git diff --cached` reports no staged changes. It does *not*
+        /// scope the user-configured command to staged paths.
         #[arg(long)]
         changed_only: bool,
         #[command(subcommand)]
@@ -117,10 +117,10 @@ pub enum CoreSubcommand {
     ///
     /// Without a subcommand, runs the configured command.
     //
-    // CL-3 / TASK-1324: no per-variant `next_help_heading` — `help::builtin_category`
-    // already categorizes this command under "Setup". API-1 / TASK-1307: no
-    // `--changed-only` because no pre-push preflight exists; carrying the flag
-    // here previously silently no-op'd.
+    // No per-variant `next_help_heading` — `help::builtin_category` already
+    // categorizes this command under "Setup". No `--changed-only` because
+    // no pre-push preflight exists; carrying the flag here previously
+    // silently no-op'd.
     RunBeforePush {
         #[command(subcommand)]
         action: Option<RunBeforePushAction>,
@@ -132,10 +132,10 @@ pub enum CoreSubcommand {
     },
     /// Summarized Terraform plans as two tables (actions + resource changes).
     ///
-    /// FN-3 / TASK-1281: the variant embeds a single clap-derived
-    /// `PlanOptions` (defined in `ops_tfplan`) so a new plan flag is
-    /// added in exactly one place rather than copied across the variant,
-    /// the dispatch destructure, and the `PlanOptions` repack.
+    /// The variant embeds a single clap-derived `PlanOptions` (defined in
+    /// `ops_tfplan`) so a new plan flag is added in exactly one place
+    /// rather than copied across the variant, the dispatch destructure,
+    /// and the `PlanOptions` repack.
     #[cfg(feature = "stack-terraform")]
     Plans(ops_tfplan::PlanOptions),
     /// Catch-all for dynamic config-defined commands (e.g. `ops verify`).
@@ -159,7 +159,7 @@ pub enum AboutAction {
     Setup,
     /// Display detailed test coverage table.
     Coverage,
-    /// API-1 / TASK-1381: `about code` renders DuckDB-backed code statistics
+    /// `about code` renders DuckDB-backed code statistics
     /// (LOC by language). Gating the variant under the `duckdb` feature
     /// keeps the CLI surface honest — without DuckDB the binary has no way
     /// to compute the stats, so the subcommand simply doesn't exist in help
@@ -170,7 +170,7 @@ pub enum AboutAction {
     Code,
     /// Display dependency tree.
     Dependencies,
-    /// API-1 / TASK-1373: `crates` and `modules` render the same stack-aware
+    /// `crates` and `modules` render the same stack-aware
     /// project-units view via `ops_about::run_about_units`; the alias keeps
     /// the Go-idiomatic name working without duplicating dispatch.
     #[command(alias = "modules")]
@@ -493,7 +493,7 @@ mod tests {
         }
     }
 
-    /// API-1 / TASK-1373: `ops about modules` must continue to parse — it is
+    /// `ops about modules` must continue to parse — it is
     /// the Go-idiomatic alias for the stack-aware project-units view
     /// (`AboutAction::Crates`).
     #[test]
@@ -507,7 +507,7 @@ mod tests {
         }
     }
 
-    /// API-1 / TASK-1381: under a build without the `duckdb` feature the
+    /// Under a build without the `duckdb` feature the
     /// `about code` subcommand must not appear in `about`'s help output —
     /// the binary cannot compute the stats so the CLI surface must reflect
     /// that. Mirrors the `Tools` gating already in place.
@@ -582,7 +582,7 @@ mod tests {
         }
     }
 
-    /// API-1 / TASK-1307: `run-before-push` does not accept `--changed-only`
+    /// `run-before-push` does not accept `--changed-only`
     /// because no pre-push preflight exists. The flag previously parsed and
     /// silently no-op'd; clap now rejects it so the user is not misled.
     #[test]
