@@ -19,7 +19,10 @@ pub use overlay::{
 
 #[cfg(test)]
 pub(crate) use loader::global_config_path;
-pub use loader::{load_config, load_config_or_default, read_config_file};
+pub use loader::{
+    load_config, load_config_at, load_config_or_default, load_config_or_default_at,
+    read_config_file,
+};
 #[cfg(any(test, feature = "test-support"))]
 pub use loader::{load_config_call_count, reset_load_config_call_count};
 pub use merge::merge_config;
@@ -31,6 +34,7 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Maximum recursion depth for composite expansion. Mirrors the runner's
 /// `MAX_DEPTH` so the same configs that are accepted at load time are also
@@ -370,16 +374,31 @@ fn is_default_columns(v: &u16) -> bool {
     *v == AUTO_COLUMNS
 }
 
+/// READ-5 / TASK-1416: process-stable cache of the auto-resolved terminal
+/// width. `terminal_size` issues a `TIOCGWINSZ` ioctl (or the Windows
+/// console-handle equivalent) on every call; rendering paths (step lines,
+/// help/about cards) call [`OutputConfig::resolve_columns`] per render, and
+/// the value is stable for the lifetime of a single `ops <cmd>` — SIGWINCH
+/// resizes within a single invocation are not observed, matching the
+/// `TMPDIR_DISPLAY` and `OPS_TOML_MAX_BYTES` `OnceLock` discipline already
+/// in use.
+static AUTO_COLUMNS_CACHE: OnceLock<u16> = OnceLock::new();
+
+fn probe_auto_columns() -> u16 {
+    terminal_size::terminal_size()
+        .map(|(w, _)| scale_columns(w.0))
+        .unwrap_or(FALLBACK_COLUMNS)
+}
+
 impl OutputConfig {
     /// Effective column width for rendering. When `columns` is the auto
-    /// sentinel (`0`), probe the terminal at call time; otherwise honour the
-    /// pinned config value. READ-5 / TASK-1219.
+    /// sentinel (`0`), probe the terminal once per process and cache the
+    /// result; otherwise honour the pinned config value. READ-5 / TASK-1219,
+    /// READ-5 / TASK-1416.
     #[must_use]
     pub fn resolve_columns(&self) -> u16 {
         if self.columns == AUTO_COLUMNS {
-            terminal_size::terminal_size()
-                .map(|(w, _)| scale_columns(w.0))
-                .unwrap_or(FALLBACK_COLUMNS)
+            *AUTO_COLUMNS_CACHE.get_or_init(probe_auto_columns)
         } else {
             self.columns
         }

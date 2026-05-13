@@ -27,28 +27,43 @@ pub(super) fn merge_indexmap<K: Eq + std::hash::Hash + std::fmt::Debug, V>(
         // every recorded key is still pre-formatted via Debug before the
         // tracing event sees it, so a subscriber that pulls the field as a
         // Display-rendered string still gets the escaped form.
-        let mut replaced: Option<Vec<String>> = None;
-        for k in items.keys() {
-            if base.contains_key(k) {
-                replaced.get_or_insert_with(Vec::new).push(format!("{k:?}"));
+        //
+        // PERF-3 / TASK-1401: gate the whole collision scan behind
+        // `event_enabled!(Level::DEBUG)`. When debug logging is off, the
+        // recorded `Vec<String>` and its `format!` allocations are pure
+        // overhead — the macro itself can't short-circuit because the format
+        // happens at the call site.
+        if tracing::event_enabled!(tracing::Level::DEBUG) {
+            let mut replaced: Option<Vec<String>> = None;
+            for k in items.keys() {
+                if base.contains_key(k) {
+                    replaced.get_or_insert_with(Vec::new).push(format!("{k:?}"));
+                }
             }
-        }
-        if let Some(replaced) = replaced {
-            tracing::debug!(
-                keys = ?replaced,
-                "config overlay shadows base entries (last-write-wins)"
-            );
+            if let Some(replaced) = replaced {
+                tracing::debug!(
+                    keys = ?replaced,
+                    "config overlay shadows base entries (last-write-wins)"
+                );
+            }
         }
         base.extend(items);
     }
 }
 
-fn merge_output(base: &mut OutputConfig, overlay: &OutputConfigOverlay) {
-    merge_field(&mut base.theme, overlay.theme.clone());
-    merge_field(&mut base.columns, overlay.columns);
-    merge_field(&mut base.show_error_detail, overlay.show_error_detail);
-    merge_field(&mut base.stderr_tail_lines, overlay.stderr_tail_lines);
-    merge_field(&mut base.category_order, overlay.category_order.clone());
+fn merge_output(base: &mut OutputConfig, overlay: OutputConfigOverlay) {
+    let OutputConfigOverlay {
+        theme,
+        columns,
+        show_error_detail,
+        stderr_tail_lines,
+        category_order,
+    } = overlay;
+    merge_field(&mut base.theme, theme);
+    merge_field(&mut base.columns, columns);
+    merge_field(&mut base.show_error_detail, show_error_detail);
+    merge_field(&mut base.stderr_tail_lines, stderr_tail_lines);
+    merge_field(&mut base.category_order, category_order);
 }
 
 /// Copy a per-field `Option<T>` overlay into a `base.field: Option<T>`.
@@ -86,7 +101,7 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
     } = overlay;
 
     if let Some(output_overlay) = output {
-        merge_output(&mut base.output, &output_overlay);
+        merge_output(&mut base.output, output_overlay);
     }
     merge_indexmap(&mut base.commands, commands);
     copy_optional_field(&mut base.data.path, data.as_ref().map(|d| &d.path));
@@ -249,7 +264,7 @@ mod tests {
             stderr_tail_lines: None,
             category_order: None,
         };
-        merge_output(&mut base, &overlay);
+        merge_output(&mut base, overlay);
         assert_eq!(base.theme, "compact");
         assert!(!base.show_error_detail);
         // Unchanged fields
@@ -267,7 +282,7 @@ mod tests {
         };
         let overlay = OutputConfigOverlay::default();
         let expected_theme = base.theme.clone();
-        merge_output(&mut base, &overlay);
+        merge_output(&mut base, overlay);
         assert_eq!(base.theme, expected_theme);
         assert_eq!(base.columns, 120);
         assert!(!base.show_error_detail);

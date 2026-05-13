@@ -163,29 +163,49 @@ pub fn reset_load_config_call_count() {
     LOAD_CONFIG_CALL_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Load the layered ops config rooted at the current process working
+/// directory.
+///
+/// READ-5 / TASK-1446: this entry point is **cwd-sensitive** — it resolves
+/// `.ops.toml` and `.ops.d/` relative to the live process cwd. Callers that
+/// need to be explicit about the workspace root (long-running daemons, code
+/// that spawns work across cwds, future async refactors) should call
+/// [`load_config_at`] with a known [`Path`] instead. The `#[serial_test::serial]`
+/// discipline on `tests/loader.rs` exists for the same reason.
 #[instrument(skip_all)]
 pub fn load_config() -> anyhow::Result<Config> {
+    let cwd = std::env::current_dir().context("resolving workspace root from current_dir")?;
+    load_config_at(&cwd)
+}
+
+/// Load the layered ops config rooted at `workspace_root`.
+///
+/// `.ops.toml` and `.ops.d/` are resolved relative to `workspace_root`;
+/// the global config and `OPS__` env overlay are independent of the
+/// workspace root. Prefer this entry point in production callers so the
+/// cwd coupling lives in the type signature rather than in
+/// `Path::new(".ops.toml")` literals deep in the loader.
+#[instrument(skip_all)]
+pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
     #[cfg(any(test, feature = "test-support"))]
     LOAD_CONFIG_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut config: Config =
         toml::from_str(default_ops_toml()).context("failed to parse internal default config")?;
     debug!("loaded internal default config");
 
-    load_global_config(&mut config)?;
+    load_global_config(&mut config).context("loading global config")?;
 
-    let local_path = PathBuf::from(".ops.toml");
-    match read_config_file(&local_path) {
-        Ok(Some(overlay)) => {
-            debug!(path = ?local_path.display(), "merging local config");
-            merge_config(&mut config, overlay);
-        }
-        Ok(None) => {}
-        Err(e) => return Err(e),
+    let local_path = workspace_root.join(".ops.toml");
+    if let Some(overlay) =
+        read_config_file(&local_path).context("loading local .ops.toml config")?
+    {
+        debug!(path = ?local_path.display(), "merging local config");
+        merge_config(&mut config, overlay);
     }
 
-    merge_conf_d(&mut config)?;
+    merge_conf_d(&mut config, workspace_root).context("loading .ops.d overlay configs")?;
 
-    merge_env_vars(&mut config)?;
+    merge_env_vars(&mut config).context("loading OPS__ environment overlay")?;
 
     config.validate()?;
 
@@ -206,8 +226,23 @@ pub fn load_config() -> anyhow::Result<Config> {
 ///
 /// DUP-3 / TASK-0345: collapses the same fallback block previously duplicated
 /// across `cli/main.rs`, `cli/about_cmd.rs`, and `cli/hook_shared.rs`.
+///
+/// READ-5 / TASK-1446: cwd-sensitive convenience that delegates to
+/// [`load_config_or_default_at`]; prefer the explicit form in production
+/// callers.
 pub fn load_config_or_default(context: &str) -> Config {
-    match load_config() {
+    load_config_or_default_with(load_config(), context)
+}
+
+/// Workspace-root-aware variant of [`load_config_or_default`]. Use this in
+/// CLI entry points and extensions where the workspace root is captured
+/// explicitly (via `std::env::current_dir()`) at the boundary.
+pub fn load_config_or_default_at(workspace_root: &Path, context: &str) -> Config {
+    load_config_or_default_with(load_config_at(workspace_root), context)
+}
+
+fn load_config_or_default_with(result: anyhow::Result<Config>, context: &str) -> Config {
+    match result {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(error = %format!("{e:#}"), %context, "failed to load config");
@@ -230,38 +265,43 @@ pub fn read_config_file(path: &Path) -> anyhow::Result<Option<ConfigOverlay>> {
     Ok(Some(overlay))
 }
 
-/// Read sorted `.toml` files from a directory, returning None if the directory
-/// doesn't exist or can't be read.
-fn read_conf_d_files(dir: &Path) -> Option<Vec<PathBuf>> {
+/// Read sorted `.toml` files from a directory.
+///
+/// Returns `Ok(None)` only when the directory itself does not exist —
+/// every other failure (permission flip, racing rename on a `DirEntry`,
+/// `read_dir` IO error) is surfaced as an `Err` so the layered-config
+/// load fails loudly. See [`merge_conf_d`] for the "loud failure"
+/// contract.
+///
+/// ERR-7 / TASK-1400: a `DirEntry` whose `?` access fails used to be
+/// dropped with a warn-and-skip; this asymmetry meant a permission flip
+/// or racing rename on a single overlay file made it disappear while
+/// the rest of the merge proceeded, producing a config that differed
+/// from what the operator authored.
+fn read_conf_d_files(dir: &Path) -> anyhow::Result<Option<Vec<PathBuf>>> {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => {
-            tracing::warn!(
-                path = %dir.display(),
-                error = %e,
-                "failed to read .ops.d directory"
-            );
-            return None;
+            return Err(e)
+                .with_context(|| format!("failed to read .ops.d directory: {}", dir.display()));
         }
     };
-    let mut files: Vec<PathBuf> = entries
-        .filter_map(|e| match e {
-            Ok(entry) => Some(entry),
-            Err(err) => {
-                tracing::warn!(
-                    path = %dir.display(),
-                    error = %err,
-                    "failed to read entry in .ops.d directory; skipping"
-                );
-                None
-            }
-        })
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == "toml"))
-        .collect();
+    let mut files: Vec<PathBuf> = Vec::new();
+    for entry in entries {
+        let entry = entry.with_context(|| {
+            format!(
+                "failed to read entry in .ops.d directory: {}",
+                dir.display()
+            )
+        })?;
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "toml") {
+            files.push(path);
+        }
+    }
     files.sort();
-    Some(files)
+    Ok(Some(files))
 }
 
 /// Merge every `.ops.d/*.toml` overlay, in sorted order.
@@ -270,8 +310,15 @@ fn read_conf_d_files(dir: &Path) -> Option<Vec<PathBuf>> {
 /// error with the offending path in context rather than being silently
 /// dropped. Users whose overlay "mysteriously does nothing" in CI should see
 /// a loud failure instead of a tracing warning that gets swallowed.
-fn merge_conf_d(config: &mut Config) -> anyhow::Result<()> {
-    let Some(files) = read_conf_d_files(Path::new(".ops.d")) else {
+///
+/// ERR-4 / TASK-1448: a `.toml` entry that resolves to a broken symlink
+/// (`DirEntry::path` exists in the listing but `File::open` reports
+/// `NotFound`) is treated as a hard error here rather than being silently
+/// mapped to `Ok(None)` by [`read_capped_toml_file`]. The listing already
+/// proved the entry existed; an unreadable target between listing and open
+/// is the "loud failure" contract, not benign absence.
+fn merge_conf_d(config: &mut Config, workspace_root: &Path) -> anyhow::Result<()> {
+    let Some(files) = read_conf_d_files(&workspace_root.join(".ops.d"))? else {
         return Ok(());
     };
     for path in files {
@@ -280,7 +327,12 @@ fn merge_conf_d(config: &mut Config) -> anyhow::Result<()> {
                 debug!(path = ?path.display(), "merging conf.d config");
                 merge_config(config, overlay);
             }
-            Ok(None) => {}
+            Ok(None) => {
+                anyhow::bail!(
+                    "config overlay listed in .ops.d disappeared or is a broken symlink: {}",
+                    path.display()
+                );
+            }
             Err(e) => return Err(e),
         }
     }
@@ -366,12 +418,22 @@ fn load_global_config(config: &mut Config) -> anyhow::Result<()> {
 
 /// Test-friendly inner: try `<base>.toml` then `<base>` (bare-extension
 /// legacy fallback). See [`load_global_config`] for the precedence contract.
+///
+/// READ-5 / TASK-1403: when both the canonical `<base>.toml` and the legacy
+/// bare-extension `<base>` exist, the bare file is shadowed. A `tracing::warn`
+/// surfaces the situation so operators who left a stale legacy file in place
+/// see a signal at the level the silent-edit-loss deserves.
 fn load_global_config_at(config: &mut Config, global_path: &Path) -> anyhow::Result<()> {
-    let to_try = [
-        global_path.with_extension("toml"),
-        global_path.to_path_buf(),
-    ];
-    for path in &to_try {
+    let toml_path = global_path.with_extension("toml");
+    let bare_path = global_path.to_path_buf();
+    if toml_path != bare_path && toml_path.exists() && bare_path.exists() {
+        tracing::warn!(
+            canonical = ?toml_path.display(),
+            legacy = ?bare_path.display(),
+            "global config: legacy bare-extension file is shadowed by canonical .toml; edits to the legacy file are ignored"
+        );
+    }
+    for path in &[toml_path, bare_path] {
         match read_config_file(path) {
             Ok(Some(overlay)) => {
                 debug!(path = ?path.display(), "merging global config");
@@ -397,7 +459,7 @@ mod tests {
         fs::write(dir.path().join("a.toml"), "").unwrap();
         fs::write(dir.path().join("readme.md"), "").unwrap();
 
-        let files = read_conf_d_files(dir.path()).unwrap();
+        let files = read_conf_d_files(dir.path()).unwrap().unwrap();
         assert_eq!(files.len(), 2);
         assert!(files[0].ends_with("a.toml"));
         assert!(files[1].ends_with("b.toml"));
@@ -428,7 +490,7 @@ mod tests {
 
     #[test]
     fn read_conf_d_files_missing_dir_returns_none() {
-        let result = read_conf_d_files(std::path::Path::new("/nonexistent/ops.d"));
+        let result = read_conf_d_files(std::path::Path::new("/nonexistent/ops.d")).unwrap();
         assert!(result.is_none());
     }
 
@@ -449,13 +511,68 @@ args = ["hello"]
         .unwrap();
 
         let mut config = Config::default();
-        // Change cwd temporarily so merge_conf_d finds our test .ops.d
-        let original = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-        merge_conf_d(&mut config).unwrap();
-        std::env::set_current_dir(original).unwrap();
+        merge_conf_d(&mut config, dir.path()).unwrap();
 
         assert!(config.commands.contains_key("extra"));
+    }
+
+    /// ERR-7 / TASK-1400: a `read_dir` failure (e.g. permission denied on
+    /// the `.ops.d` directory itself) must surface as a hard error with the
+    /// offending path attached rather than being warn-and-skipped. Mirrors
+    /// the "loud failure" contract that already governs parse errors.
+    #[cfg(unix)]
+    #[test]
+    fn read_conf_d_files_propagates_read_dir_error() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let unreadable = dir.path().join("locked");
+        fs::create_dir(&unreadable).unwrap();
+        // Strip read+execute bits so read_dir fails with EACCES.
+        let mut perms = fs::metadata(&unreadable).unwrap().permissions();
+        perms.set_mode(0o000);
+        fs::set_permissions(&unreadable, perms).unwrap();
+
+        let result = read_conf_d_files(&unreadable);
+
+        // Restore perms before asserting so tempdir cleanup succeeds.
+        let mut restore = fs::metadata(&unreadable).unwrap().permissions();
+        restore.set_mode(0o700);
+        fs::set_permissions(&unreadable, restore).ok();
+
+        let err = result.expect_err("unreadable .ops.d must error");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("locked") && msg.contains(".ops.d"),
+            "error must name the offending directory, got: {msg}"
+        );
+    }
+
+    /// ERR-4 / TASK-1448: a broken `.toml` symlink in `.ops.d` is listed by
+    /// `read_dir` but fails to open at merge time. The "loud failure"
+    /// contract on `merge_conf_d` requires this to abort the load, not to be
+    /// silently mapped to `Ok(None)` by `read_capped_toml_file`.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn merge_conf_d_rejects_broken_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let ops_d = dir.path().join(".ops.d");
+        fs::create_dir(&ops_d).unwrap();
+        std::os::unix::fs::symlink(
+            dir.path().join("does-not-exist.toml"),
+            ops_d.join("dangling.toml"),
+        )
+        .unwrap();
+
+        let mut config = Config::default();
+        let result = merge_conf_d(&mut config, dir.path());
+
+        let err = result.expect_err("broken symlink overlay must error");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("dangling.toml"),
+            "error must name the broken overlay, got: {msg}"
+        );
     }
 
     #[test]
@@ -467,10 +584,7 @@ args = ["hello"]
         fs::write(ops_d.join("broken.toml"), "not = = valid {{{").unwrap();
 
         let mut config = Config::default();
-        let original = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-        let result = merge_conf_d(&mut config);
-        std::env::set_current_dir(original).unwrap();
+        let result = merge_conf_d(&mut config, dir.path());
 
         let err = result.expect_err("parse failure should surface");
         assert!(format!("{err:#}").contains("broken.toml"));
@@ -572,6 +686,33 @@ args = ["bare"]
         assert!(
             config.commands.contains_key("from_bare"),
             "bare fallback must load when config.toml is absent"
+        );
+    }
+
+    /// ERR-1 / TASK-1421: a parse failure in any single load layer must
+    /// surface with a top-level "loading <layer> ..." breadcrumb so a
+    /// future reorder of the layer chain stays visible in error output.
+    #[test]
+    #[serial_test::serial]
+    fn load_config_local_parse_error_names_layer() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".ops.toml"), "not = = valid {{{").unwrap();
+
+        // Neutralise XDG/global config lookups so the failure pins to the
+        // local layer instead of either preceding step.
+        let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
+        std::env::set_var("XDG_CONFIG_HOME", dir.path().join("xdg-empty"));
+        let result = load_config_at(dir.path());
+        match prev_xdg {
+            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+
+        let err = result.expect_err("broken .ops.toml must error");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.starts_with("loading local .ops.toml config"),
+            "error chain must start with the layer breadcrumb, got: {msg}"
         );
     }
 

@@ -475,9 +475,7 @@ program = "echo"
                 .current_dir(path)
                 .assert()
                 .failure()
-                .stderr(predicate::str::contains(
-                    "failed to parse config file: .ops.toml",
-                ));
+                .stderr(predicate::str::contains(".ops.toml: TOML parse error"));
         },
     );
 }
@@ -497,9 +495,7 @@ program = "echo"
                 .current_dir(path)
                 .assert()
                 .failure()
-                .stderr(predicate::str::contains(
-                    "failed to parse config file: .ops.toml",
-                ));
+                .stderr(predicate::str::contains(".ops.toml: TOML parse error"));
         },
     );
 }
@@ -735,7 +731,5 @@ theme = "classic"
         .current_dir(dir.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "failed to parse config file: .ops.d/invalid.toml",
-        ));
+        .stderr(predicate::str::contains("invalid.toml: TOML parse error"));
 }

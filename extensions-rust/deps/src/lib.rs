@@ -174,8 +174,8 @@ pub fn ensure_tools() -> anyhow::Result<()> {
 /// failing the command outright — matches the "tolerate broken config"
 /// posture of `cli/main.rs::early_config`.
 pub fn build_user_context() -> anyhow::Result<Context> {
-    let config = ops_core::config::load_config_or_default("deps");
     let cwd = std::env::current_dir()?;
+    let config = ops_core::config::load_config_or_default_at(&cwd, "deps");
     Ok(Context::new(std::sync::Arc::new(config), cwd))
 }
 

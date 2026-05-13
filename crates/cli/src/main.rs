@@ -178,18 +178,18 @@ fn run() -> anyhow::Result<ExitCode> {
     // `dispatch` and the run-path (build_runner →
     // CommandRunner::from_arc_config) can share one allocation. Eliminates
     // the per-invocation deep clone in build_runner.
-    let early_config: std::sync::Arc<ops_core::config::Config> =
-        std::sync::Arc::new(ops_core::config::load_config_or_default("early"));
-    let detected_stack = {
-        let cwd = match std::env::current_dir() {
-            Ok(d) => d,
-            Err(e) => {
-                ops_core::ui::error(format!("could not determine working directory: {e}"));
-                return Ok(ExitCode::FAILURE);
-            }
-        };
-        ops_core::stack::Stack::resolve(early_config.stack.as_deref(), &cwd)
+    // READ-5 / TASK-1446: capture the workspace root at the CLI boundary so
+    // the config loader is not implicitly coupled to the live process cwd.
+    let cwd = match std::env::current_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            ops_core::ui::error(format!("could not determine working directory: {e}"));
+            return Ok(ExitCode::FAILURE);
+        }
     };
+    let early_config: std::sync::Arc<ops_core::config::Config> =
+        std::sync::Arc::new(ops_core::config::load_config_or_default_at(&cwd, "early"));
+    let detected_stack = ops_core::stack::Stack::resolve(early_config.stack.as_deref(), &cwd);
 
     // If the user asked for top-level help (`ops -h` / `ops --help`), show
     // help with dynamic commands included and exit.  We intercept before clap

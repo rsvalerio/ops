@@ -67,3 +67,37 @@ fn init_template_without_stack_omits_stack_commands() {
         "init without detected stack should have no commands"
     );
 }
+
+/// READ-5 / TASK-1416: `OutputConfig::resolve_columns` memoises the auto
+/// probe behind a `OnceLock<u16>`. Repeat calls with the AUTO sentinel
+/// must return the same width — SIGWINCH within a single `ops <cmd>` is
+/// not observed by design, matching the `TMPDIR_DISPLAY` /
+/// `OPS_TOML_MAX_BYTES` `OnceLock` discipline.
+#[test]
+fn resolve_columns_memoises_auto_probe() {
+    let cfg = OutputConfig {
+        theme: String::new(),
+        columns: AUTO_COLUMNS,
+        show_error_detail: false,
+        stderr_tail_lines: 0,
+        category_order: Vec::new(),
+    };
+    let first = cfg.resolve_columns();
+    for _ in 0..16 {
+        assert_eq!(cfg.resolve_columns(), first);
+    }
+}
+
+/// READ-5 / TASK-1416: a pinned `columns` value bypasses the cache and is
+/// returned verbatim — the memoisation only applies to the AUTO sentinel.
+#[test]
+fn resolve_columns_pinned_value_is_not_cached() {
+    let cfg = OutputConfig {
+        theme: String::new(),
+        columns: 137,
+        show_error_detail: false,
+        stderr_tail_lines: 0,
+        category_order: Vec::new(),
+    };
+    assert_eq!(cfg.resolve_columns(), 137);
+}
