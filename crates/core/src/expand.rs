@@ -5,7 +5,7 @@
 
 use std::borrow::Cow;
 use std::collections::hash_map::Entry as HashMapEntry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -127,14 +127,63 @@ fn cached_ops_root_arc(ops_root: &Path) -> Arc<str> {
     }
 }
 
-/// ERR-1 / TASK-1224: track the set of variable names for which
-/// [`Variables::expand`] has already surfaced a user-facing warning, so
-/// repeated failures on the same variable do not flood stderr. The
-/// underlying `tracing::warn!` continues to fire for every failure, so
+/// PERF-3 / TASK-1411 + CONC-1 / TASK-1444: maximum number of distinct
+/// `var_name` entries [`expand_warn_seen`] holds before evicting the
+/// oldest. The dedup contract is "warn-once-per-distinct-name", so a stream
+/// of adversarial distinct names (e.g. a CI matrix that emits
+/// `OPS__FOO_<n>` across thousands of values) cannot grow the set without
+/// bound. The cap is comfortably above any realistic command-spec workload
+/// (>= 64 distinct variable names is unrealistic) so eviction only fires
+/// under pathological input. Eviction is FIFO over insertion order — when
+/// at cap a fresh `var_name` displaces the oldest entry so the new distinct
+/// name still surfaces a single user-facing warn.
+pub(crate) const EXPAND_WARN_SEEN_CAP: usize = 256;
+
+/// ERR-1 / TASK-1224 + TASK-1411 / TASK-1444: track the set of variable
+/// names for which [`Variables::expand`] has already surfaced a user-facing
+/// warning, so repeated failures on the same variable do not flood stderr.
+/// The underlying `tracing::warn!` continues to fire for every failure, so
 /// structured-log consumers still see the full sequence.
-fn expand_warn_seen() -> &'static Mutex<HashSet<String>> {
-    static SET: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    SET.get_or_init(|| Mutex::new(HashSet::new()))
+///
+/// Bounded by [`EXPAND_WARN_SEEN_CAP`]. The `VecDeque<String>` holds
+/// insertion order so the oldest entry can be evicted in O(1) when the set
+/// is at capacity; the `HashSet` mirrors the same names for O(1) membership.
+/// Drop-on-full eviction is acceptable because the protected state is a
+/// deduplication hint, not a correctness invariant.
+struct ExpandWarnSeen {
+    set: HashSet<String>,
+    order: VecDeque<String>,
+}
+
+impl ExpandWarnSeen {
+    fn new() -> Self {
+        Self {
+            set: HashSet::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    /// Insert `var_name`; evict the oldest entry first if at capacity.
+    /// Returns `true` when the name was newly inserted (caller should emit
+    /// the one-shot user-facing warn).
+    fn insert(&mut self, var_name: &str) -> bool {
+        if self.set.contains(var_name) {
+            return false;
+        }
+        if self.set.len() >= EXPAND_WARN_SEEN_CAP {
+            if let Some(oldest) = self.order.pop_front() {
+                self.set.remove(&oldest);
+            }
+        }
+        self.set.insert(var_name.to_string());
+        self.order.push_back(var_name.to_string());
+        true
+    }
+}
+
+fn expand_warn_seen() -> &'static Mutex<ExpandWarnSeen> {
+    static SET: OnceLock<Mutex<ExpandWarnSeen>> = OnceLock::new();
+    SET.get_or_init(|| Mutex::new(ExpandWarnSeen::new()))
 }
 
 /// Returns `true` when this `var_name` had not yet emitted a user-facing
@@ -147,7 +196,7 @@ fn mark_expand_warn_emitted(var_name: &str) -> bool {
         cache.clear_poison();
         e.into_inner()
     });
-    seen.insert(var_name.to_string())
+    seen.insert(var_name)
 }
 
 #[cfg(test)]
@@ -155,8 +204,8 @@ pub(crate) fn expand_warn_seen_count() -> usize {
     let cache = expand_warn_seen();
     cache
         .lock()
-        .map(|s| s.len())
-        .unwrap_or_else(|e| e.into_inner().len())
+        .map(|s| s.set.len())
+        .unwrap_or_else(|e| e.into_inner().set.len())
 }
 
 #[cfg(test)]
@@ -166,7 +215,8 @@ pub(crate) fn reset_expand_warn_seen() {
         cache.clear_poison();
         e.into_inner()
     });
-    seen.clear();
+    seen.set.clear();
+    seen.order.clear();
 }
 
 impl Variables {
@@ -522,6 +572,56 @@ mod tests {
         }
         super::reset_expand_warn_seen();
     }
+
+    /// PERF-3 / TASK-1411 + CONC-1 / TASK-1444: an adversarial stream of
+    /// distinct variable names must not grow `expand_warn_seen` without
+    /// bound. The cap is documented at [`super::EXPAND_WARN_SEEN_CAP`];
+    /// eviction is FIFO so a new distinct name still surfaces a one-shot
+    /// user-facing warn after the set reaches capacity.
+    #[test]
+    #[serial_test::serial]
+    fn expand_warn_seen_is_bounded_with_fifo_eviction() {
+        super::reset_expand_warn_seen();
+        let cap = super::EXPAND_WARN_SEEN_CAP;
+        // Fill past the cap by 2x distinct names.
+        for i in 0..(cap * 2) {
+            let name = format!("ADVERSARIAL_VAR_{i}");
+            let first = super::mark_expand_warn_emitted(&name);
+            assert!(first, "first sighting of `{name}` must mark as new");
+        }
+        assert_eq!(
+            super::expand_warn_seen_count(),
+            cap,
+            "set size must be clamped to the documented cap"
+        );
+
+        // The very first inserted name should have been evicted; re-inserting
+        // it must again return `true` (the user-facing warn fires once more).
+        let first_name = "ADVERSARIAL_VAR_0";
+        let re_marked = super::mark_expand_warn_emitted(first_name);
+        assert!(
+            re_marked,
+            "evicted name must re-mark as new on next sighting (FIFO eviction)"
+        );
+
+        // A name still inside the window must dedupe (warn-once contract).
+        let recent_name = format!("ADVERSARIAL_VAR_{}", cap * 2 - 1);
+        let recent_dedupe = super::mark_expand_warn_emitted(&recent_name);
+        assert!(
+            !recent_dedupe,
+            "recent name must still dedupe within the capacity window"
+        );
+
+        super::reset_expand_warn_seen();
+    }
+
+    /// TASK-1444 AC#3: the bound must be large enough that realistic
+    /// command-spec workloads never evict (>= 64). Pin the documented floor
+    /// at compile time so a future tightening surfaces in build output.
+    const _: () = assert!(
+        super::EXPAND_WARN_SEEN_CAP >= 64,
+        "documented floor (TASK-1444): cap must accommodate realistic workloads"
+    );
 
     /// TASK-0450: strict `try_expand` must surface the underlying
     /// `VarError::NotUnicode` so the caller can fail the spawn instead of

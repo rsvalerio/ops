@@ -25,6 +25,19 @@ pub const MANIFEST_MAX_BYTES_ENV: &str = "OPS_MANIFEST_MAX_BYTES";
 /// `crates/runner/src/command/results.rs::output_byte_cap` (TASK-0542).
 static MANIFEST_MAX_BYTES: OnceLock<u64> = OnceLock::new();
 
+/// ERR-1 / TASK-1443: hard upper bound for any byte-cap env knob (1 GiB).
+///
+/// `parse_byte_cap_env` clamps values larger than this to the bound and emits
+/// a one-shot warn from [`cached_byte_cap_env`]. Without the clamp, a
+/// misconfigured `OPS_MANIFEST_MAX_BYTES=18446744073709551615` (`u64::MAX`)
+/// combined with `read_capped_to_string_with`'s `cap.saturating_add(1)` and
+/// `Read::take(limit)` reduces the SEC-33 cap contract to "unlimited" with
+/// no breadcrumb — the inverse of what operators set the variable for.
+/// Mirrors the clamp pattern at
+/// `crates/runner/src/subprocess.rs::parse_subprocess_timeout`'s
+/// `MAX_TIMEOUT_SECS`.
+pub const BYTE_CAP_ENV_MAX: u64 = 1024 * 1024 * 1024;
+
 /// ERR-2 / TASK-0840 (mirrored for TASK-1055): pure parser for a positive
 /// "byte cap from env" value. Returns the resolved cap and, when the input
 /// was present-but-unusable, a human message describing the fallback so the
@@ -35,6 +48,10 @@ static MANIFEST_MAX_BYTES: OnceLock<u64> = OnceLock::new();
 /// ARCH-9 / TASK-1228: shared with [`cached_byte_cap_env`]. Both
 /// `manifest_max_bytes` and `ops_toml_max_bytes` route through this so the
 /// "unset / unparseable / zero / valid" matrix has one implementation.
+///
+/// ERR-1 / TASK-1443: values above [`BYTE_CAP_ENV_MAX`] are clamped (with a
+/// one-shot warn surfaced via the returned message) so a misconfigured
+/// `u64::MAX` cannot silently defeat the cap contract.
 pub(crate) fn parse_byte_cap_env(
     env_var: &str,
     raw: Option<&str>,
@@ -43,6 +60,12 @@ pub(crate) fn parse_byte_cap_env(
     match raw {
         None => (default, None),
         Some(s) => match s.parse::<u64>() {
+            Ok(n) if n > BYTE_CAP_ENV_MAX => (
+                BYTE_CAP_ENV_MAX,
+                Some(format!(
+                    "{env_var}={s:?} exceeds upper bound; clamped to {BYTE_CAP_ENV_MAX} bytes"
+                )),
+            ),
             Ok(n) if n > 0 => (n, None),
             Ok(_) => (
                 default,
@@ -494,6 +517,34 @@ mod tests {
     fn parse_byte_cap_env_valid_returns_value_no_warn() {
         let (cap, warn) = parse_byte_cap_env("X", Some("42"), 100);
         assert_eq!(cap, 42);
+        assert!(warn.is_none());
+    }
+
+    /// ERR-1 / TASK-1443: an oversized cap (here, `u64::MAX`) must clamp to
+    /// [`BYTE_CAP_ENV_MAX`] and surface a one-shot warn message so a
+    /// misconfigured `OPS_MANIFEST_MAX_BYTES=18446744073709551615` cannot
+    /// silently defeat the SEC-33 cap contract.
+    #[test]
+    fn parse_byte_cap_env_u64_max_clamps_with_warn() {
+        let (cap, warn) = parse_byte_cap_env("X", Some(&u64::MAX.to_string()), 100);
+        assert_eq!(cap, BYTE_CAP_ENV_MAX);
+        let msg = warn.expect("clamp must surface a warn message");
+        assert!(
+            msg.contains("exceeds upper bound"),
+            "warn must explain clamp: {msg}"
+        );
+        assert!(
+            msg.contains(&BYTE_CAP_ENV_MAX.to_string()),
+            "warn must name the bound: {msg}"
+        );
+    }
+
+    /// ERR-1 / TASK-1443: a value exactly at [`BYTE_CAP_ENV_MAX`] is the
+    /// boundary — accept it unchanged with no warn.
+    #[test]
+    fn parse_byte_cap_env_at_bound_is_accepted() {
+        let (cap, warn) = parse_byte_cap_env("X", Some(&BYTE_CAP_ENV_MAX.to_string()), 100);
+        assert_eq!(cap, BYTE_CAP_ENV_MAX);
         assert!(warn.is_none());
     }
 
