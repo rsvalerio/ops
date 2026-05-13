@@ -1,11 +1,11 @@
 ---
 id: TASK-1410
 title: 'PERF-3: Stack::detect canonicalizes start path on every CLI invocation'
-status: To Do
+status: Done
 assignee:
   - TASK-1451
 created_date: '2026-05-13 18:17'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:01'
 labels:
   - code-review-rust
   - perf
@@ -25,7 +25,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 memoize canonicalized start path so detect's canonicalize fires at most once per (process, start) pair
-- [ ] #2 preserve fallback-to-lexical-walk behaviour when canonicalize errors, matching the existing tracing::debug breadcrumb
-- [ ] #3 add a regression test or counter pinning that repeat detect() calls do not re-issue canonicalize
+- [x] #1 memoize canonicalized start path so detect's canonicalize fires at most once per (process, start) pair
+- [x] #2 preserve fallback-to-lexical-walk behaviour when canonicalize errors, matching the existing tracing::debug breadcrumb
+- [x] #3 add a regression test or counter pinning that repeat detect() calls do not re-issue canonicalize
 <!-- AC:END -->

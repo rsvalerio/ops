@@ -1,11 +1,11 @@
 ---
 id: TASK-1409
 title: 'PERF-3: Stack::default_commands re-parses embedded TOML on every call'
-status: To Do
+status: Done
 assignee:
   - TASK-1451
 created_date: '2026-05-13 18:17'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 19:23'
 labels:
   - code-review-rust
   - perf
@@ -25,7 +25,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 memoize parsed IndexMap behind a per-variant OnceLock so repeated default_commands calls are O(1) after first
-- [ ] #2 parse failure still degrades to empty IndexMap with one-shot tracing::warn, preserving current contract
-- [ ] #3 add a regression test asserting two back-to-back default_commands() calls return equal-content IndexMaps
+- [x] #1 memoize parsed IndexMap behind a per-variant OnceLock so repeated default_commands calls are O(1) after first
+- [x] #2 parse failure still degrades to empty IndexMap with one-shot tracing::warn, preserving current contract
+- [x] #3 add a regression test asserting two back-to-back default_commands() calls return equal-content IndexMaps
 <!-- AC:END -->

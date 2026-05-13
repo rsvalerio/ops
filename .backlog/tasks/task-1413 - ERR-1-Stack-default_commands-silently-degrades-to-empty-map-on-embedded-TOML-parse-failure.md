@@ -3,11 +3,11 @@ id: TASK-1413
 title: >-
   ERR-1: Stack::default_commands silently degrades to empty map on embedded-TOML
   parse failure
-status: To Do
+status: Done
 assignee:
   - TASK-1451
 created_date: '2026-05-13 18:17'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 19:23'
 labels:
   - code-review-rust
   - err
@@ -27,7 +27,7 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 emit crate::ui::warn in addition to tracing when embedded default TOML fails to parse
-- [ ] #2 include stack name and parse error in the user-facing message
-- [ ] #3 test asserts that ui::warn fires when a synthetic parse failure is injected via a test-only seam, or document the panic policy
+- [x] #1 emit crate::ui::warn in addition to tracing when embedded default TOML fails to parse
+- [x] #2 include stack name and parse error in the user-facing message
+- [x] #3 test asserts that ui::warn fires when a synthetic parse failure is injected via a test-only seam, or document the panic policy
 <!-- AC:END -->

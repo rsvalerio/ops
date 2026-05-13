@@ -3,11 +3,11 @@ id: TASK-1404
 title: >-
   READ-6: Stack enum, ACCEPTED_NAMES, DETECT_ORDER, and metadata match are four
   parallel lists
-status: To Do
+status: Done
 assignee:
   - TASK-1451
 created_date: '2026-05-13 18:10'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 19:19'
 labels:
   - code-review-rust
   - READ
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Adding a new Stack variant requires editing one location, not four
-- [ ] #2 ACCEPTED_NAMES is derived from the enum at compile time
+- [x] #1 Adding a new Stack variant requires editing one location, not four
+- [x] #2 ACCEPTED_NAMES is derived from the enum at compile time
 <!-- AC:END -->
