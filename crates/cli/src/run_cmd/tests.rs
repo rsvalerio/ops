@@ -22,7 +22,7 @@ fn display_cmd_for_unknown_returns_id() {
     assert_eq!(display_cmd_for(&runner, "missing"), "missing");
 }
 
-/// READ-7 / TASK-0903: composites now render as their child list rather
+/// Composites render as their child list rather
 /// than the bare id, so plan rows surface a useful label instead of an
 /// internal identifier.
 #[test]
@@ -34,7 +34,7 @@ fn display_cmd_for_composite_returns_child_list() {
     assert_eq!(display_cmd_for(&runner, "verify"), "build, test");
 }
 
-/// TQ-007: Full lifecycle integration test.
+/// Full lifecycle integration test.
 ///
 /// This test validates the complete command execution path:
 /// - Config loading
@@ -54,7 +54,7 @@ fn display_cmd_for_composite_returns_child_list() {
 ///
 /// **Tracking:** Run periodically in CI to validate full integration.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "TQ-007: spawns real subprocesses; run with --ignored. Validates full CLI lifecycle."]
+#[ignore = "spawns real subprocesses; run with --ignored. Validates full CLI lifecycle."]
 async fn run_command_cli_full_lifecycle() {
     let (_dir, _guard) = crate::test_utils::with_temp_config(
         r#"
@@ -335,44 +335,12 @@ args = ["test"]
 
 mod log_step_results_tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
+    use crate::test_utils::capture_debug;
 
-    #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for BufWriter {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    fn capture_debug<F: FnOnce()>(f: F) -> String {
-        let buf = BufWriter::default();
-        let captured = buf.0.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
-            .with_max_level(tracing::Level::DEBUG)
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::with_default(subscriber, f);
-        let bytes = captured.lock().unwrap().clone();
-        String::from_utf8(bytes).unwrap()
-    }
-
-    /// TEST-11 / TASK-1302: previously asserted only that the function
-    /// didn't panic. Capture the tracing debug events so a mutation that
-    /// dropped or swapped any of the per-step fields (id, success,
-    /// duration_ms, stdout_len, stderr_len) is caught.
+    /// Previously asserted only that the function didn't panic. Capture
+    /// the tracing debug events so a mutation that dropped or swapped any
+    /// of the per-step fields (id, success, duration_ms, stdout_len,
+    /// stderr_len) is caught.
     #[test]
     fn log_step_results_emits_one_debug_event_per_step_with_fields() {
         let results = vec![
@@ -404,7 +372,7 @@ mod log_step_results_tests {
         assert!(logs.contains("stdout_len=2"), "got: {logs}");
     }
 
-    /// TEST-11 / TASK-1302: an empty slice must emit zero events.
+    /// An empty slice must emit zero events.
     #[test]
     fn log_step_results_empty_emits_no_events() {
         let logs = capture_debug(|| log_step_results(&[]));
@@ -432,7 +400,7 @@ mod run_command_dry_run_tests {
         ops_runner::command::CommandRunner::new(config, PathBuf::from("."))
     }
 
-    /// TEST-11 / TASK-1299: assert against captured dry-run output, not
+    /// Assert against captured dry-run output, not
     /// just `is_ok`. A mutation that emptied `run_command_dry_run_to`
     /// after leaf-id resolution would otherwise still pass these tests.
     #[test]
@@ -453,7 +421,7 @@ mod run_command_dry_run_tests {
         );
     }
 
-    /// TEST-11 / TASK-1299: verify the error message names the missing
+    /// Verify the error message names the missing
     /// command, so a mutation that swallowed the unknown-command label
     /// no longer slips past `is_err()`.
     #[test]
@@ -468,8 +436,8 @@ mod run_command_dry_run_tests {
         );
     }
 
-    /// TEST-11 / TASK-1299: the test name claims composites are expanded,
-    /// so assert the rendered preview actually lists each leaf step.
+    /// Composites are expanded: the rendered preview lists each leaf step
+    /// with its program, under a header naming the composite command.
     #[test]
     fn dry_run_expands_composite_commands() {
         let runner = build_test_runner();
@@ -477,6 +445,7 @@ mod run_command_dry_run_tests {
         let result = run_command_dry_run_to(&runner, "verify", &mut buf);
         assert!(result.is_ok());
         let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("Command: verify"), "got: {output}");
         assert!(
             output.contains("Resolved to 2 step(s)"),
             "expected composite to expand into 2 leaves: {output}"
@@ -489,6 +458,7 @@ mod run_command_dry_run_tests {
             output.contains("[2] test"),
             "expected second leaf labelled `test`: {output}"
         );
+        assert!(output.contains("program: cargo"), "got: {output}");
     }
 
     #[test]
@@ -552,7 +522,7 @@ mod run_command_dry_run_tests {
         );
     }
 
-    /// SEC-21 AC #1: an env entry whose name matches a sensitive prefix is
+    /// An env entry whose name matches a sensitive prefix is
     /// redacted regardless of whether the value trips the heuristic. Uses
     /// values that are deliberately innocuous (short, lowercase-only, no mixed
     /// case) so they would *not* be flagged by `looks_like_secret_value` —
@@ -623,20 +593,6 @@ mod run_command_dry_run_tests {
     }
 
     #[test]
-    fn dry_run_composite_shows_all_steps() {
-        let runner = build_test_runner();
-        let mut buf = Vec::new();
-        let result = run_command_dry_run_to(&runner, "verify", &mut buf);
-        assert!(result.is_ok());
-        let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("Command: verify"), "got: {output}");
-        assert!(output.contains("Resolved to 2 step(s)"), "got: {output}");
-        assert!(output.contains("[1] build"), "got: {output}");
-        assert!(output.contains("[2] test"), "got: {output}");
-        assert!(output.contains("program: cargo"), "got: {output}");
-    }
-
-    #[test]
     fn dry_run_no_args_omits_args_line() {
         let config = TestConfigBuilder::new().exec("simple", "echo", &[]).build();
         let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
@@ -647,7 +603,7 @@ mod run_command_dry_run_tests {
         assert!(!output.contains("args:"), "should omit args line: {output}");
     }
 
-    /// ERR-7 (TASK-0576): when an env var referenced in argv is non-UTF-8,
+    /// When an env var referenced in argv is non-UTF-8,
     /// dry-run must surface the failure to the user via a returned error
     /// rather than silently rendering the literal `${VAR}` and only logging.
     #[cfg(unix)]
@@ -678,7 +634,7 @@ mod run_command_dry_run_tests {
         );
     }
 
-    /// READ-5 (TASK-0543): a non-UTF-8 cwd PathBuf is rendered through a
+    /// A non-UTF-8 cwd PathBuf is rendered through a
     /// lossy conversion in the dry-run preview. Annotate explicitly so the
     /// user can tell the printed path is approximate, not byte-exact.
     #[cfg(unix)]
@@ -703,7 +659,7 @@ mod run_command_dry_run_tests {
         );
     }
 
-    /// SEC-21 / TASK-1184: print_exec_spec routes program / args / env
+    /// print_exec_spec routes program / args / env
     /// values / cwd through `sanitise_line` so an adversarial `.ops.toml`
     /// (or `${VAR}` expansion) carrying ANSI clear-screen / cursor-move
     /// bytes cannot repaint the operator's terminal during dry-run.
@@ -736,7 +692,7 @@ mod run_command_dry_run_tests {
         );
     }
 
-    /// SEC-21 / TASK-1275: the command name and resolved leaf id printed
+    /// The command name and resolved leaf id printed
     /// by `run_command_dry_run_to` come from `.ops.toml` keys (which TOML
     /// allows to be arbitrary Unicode). They must be routed through
     /// `audit_safe` like program/args/env/cwd so an adversarial config
@@ -765,39 +721,7 @@ mod run_command_dry_run_tests {
 
 mod raw_warnings_tests {
     use crate::run_cmd::emit_raw_warnings;
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
-
-    #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for BufWriter {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    fn capture<F: FnOnce()>(f: F) -> String {
-        let buf = BufWriter::default();
-        let captured = buf.0.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::with_default(subscriber, f);
-        let bytes = captured.lock().unwrap().clone();
-        String::from_utf8(bytes).unwrap()
-    }
+    use crate::test_utils::capture_warnings as capture;
 
     #[test]
     fn raw_with_tap_emits_warning() {
@@ -827,7 +751,7 @@ mod raw_warnings_tests {
         assert!(logs.is_empty(), "unexpected output: {logs}");
     }
 
-    /// ERR-1 / TASK-1376: `--raw -v` previously emitted nothing — raw mode
+    /// `--raw -v` previously emitted nothing — raw mode
     /// inherits child stdio directly so the verbose stderr-tail policy has
     /// nothing to act on, and the user spent minutes wondering why `-v` had
     /// no effect. Mirrors the existing parallel/tap warning shape.
@@ -840,7 +764,7 @@ mod raw_warnings_tests {
         );
     }
 
-    /// ERR-1 / TASK-1376: dry-run gets the symmetric `--verbose` warning —
+    /// Dry-run gets the symmetric `--verbose` warning —
     /// dry-run never executes children, so the stderr-tail policy is
     /// equally a no-op there.
     #[test]
@@ -856,7 +780,7 @@ mod raw_warnings_tests {
         );
     }
 
-    /// CL-5 / TASK-0755: the single-command `--raw` path used to inline its
+    /// The single-command `--raw` path used to inline its
     /// own copy of the tap-warning string; route it through
     /// `emit_raw_warnings` so the message lives in one place and never fires
     /// twice for the same invocation.
@@ -961,7 +885,7 @@ mod nested_parallel_detection_tests {
     }
 }
 
-/// PATTERN-1 / TASK-0754: `merge_plan` aggregates `parallel` / `fail_fast`
+/// `merge_plan` aggregates `parallel` / `fail_fast`
 /// flags by walking the composite tree, so an outer composite that wraps a
 /// parallel inner composite still surfaces `any_parallel = true` and a
 /// nested `fail_fast = false` propagates upward.
@@ -1019,7 +943,7 @@ mod merge_plan_nested_aggregation_tests {
         );
     }
 
-    /// PATTERN-1 / TASK-1091: `merge_plan` rejects an empty `names` slice
+    /// `merge_plan` rejects an empty `names` slice
     /// rather than returning `(empty_plan, false, true)` and letting the
     /// executor run zero steps under a silent success. The single
     /// production caller (`run_external_command`) already rejects empty
@@ -1037,7 +961,7 @@ mod merge_plan_nested_aggregation_tests {
     }
 }
 
-/// ERR-1 / TASK-1234: dry-run overrides --raw and --tap. The execute path's
+/// Dry-run overrides --raw and --tap. The execute path's
 /// `emit_raw_warnings` already surfaces the same flag conflicts; pin the
 /// dry-run-side contract via the static-message helper so a future
 /// refactor cannot silently drop one branch.
@@ -1079,7 +1003,7 @@ mod dry_run_override_warnings_tests {
         );
     }
 
-    /// ERR-1 / TASK-1376: dry-run picks up the symmetric `--verbose`
+    /// Dry-run picks up the symmetric `--verbose`
     /// override branch — dry-run never executes children, so the verbose
     /// stderr-tail policy has nothing to act on.
     #[test]

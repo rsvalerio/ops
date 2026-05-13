@@ -82,7 +82,7 @@ pub fn test_context(path: std::path::PathBuf) -> ops_extension::Context {
     ops_extension::Context::new(Arc::new(ops_core::config::Config::empty()), path)
 }
 
-/// DUP-006: Register an extension and return both registries.
+/// Register an extension and return both registries.
 ///
 /// This helper reduces boilerplate in tests that need to set up extensions.
 #[cfg(test)]
@@ -97,7 +97,7 @@ pub fn register_extension(
     (cmd_registry, data_registry)
 }
 
-/// DUP-013: Helper to create a temp directory with .ops.toml content.
+/// Helper to create a temp directory with .ops.toml content.
 ///
 /// Returns the temp directory (for cleanup) and the CwdGuard.
 #[cfg(test)]
@@ -109,15 +109,12 @@ pub fn with_temp_config(content: &str) -> (tempfile::TempDir, CwdGuard) {
     (dir, guard)
 }
 
-/// DUP-1 / TASK-1279: shared `tracing::warn!` capture helper for tests
-/// across the cli crate. Five tests in `registry/tests.rs` previously
-/// open-coded the same BufWriter + MakeWriter scaffold (~17 lines each)
-/// to read back a captured WARN buffer. The helper installs a
-/// thread-local subscriber for the duration of `f` and returns the
-/// captured text.
+/// Shared tracing-event capture helper for tests across the cli crate.
+/// Installs a thread-local subscriber at `level` for the duration of `f`
+/// and returns the captured text.
 #[cfg(test)]
 #[allow(dead_code)]
-pub fn capture_warnings<F: FnOnce()>(f: F) -> String {
+pub fn capture_tracing<F: FnOnce()>(level: tracing::Level, f: F) -> String {
     use std::sync::{Arc, Mutex};
     use tracing_subscriber::fmt::MakeWriter;
 
@@ -143,12 +140,24 @@ pub fn capture_warnings<F: FnOnce()>(f: F) -> String {
     let captured = buf.0.clone();
     let subscriber = tracing_subscriber::fmt()
         .with_writer(buf)
-        .with_max_level(tracing::Level::WARN)
+        .with_max_level(level)
         .with_ansi(false)
         .finish();
     tracing::subscriber::with_default(subscriber, f);
     let bytes = captured.lock().unwrap().clone();
     String::from_utf8(bytes).unwrap()
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+pub fn capture_warnings<F: FnOnce()>(f: F) -> String {
+    capture_tracing(tracing::Level::WARN, f)
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+pub fn capture_debug<F: FnOnce()>(f: F) -> String {
+    capture_tracing(tracing::Level::DEBUG, f)
 }
 
 #[cfg(test)]
