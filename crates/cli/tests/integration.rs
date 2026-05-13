@@ -237,7 +237,12 @@ args = ["hello"]
 }
 
 #[test]
-fn cli_run_echo_success() {
+fn cli_run_echo_reports_resolved_command_and_timing_in_stderr() {
+    // The runner consumes the child's stdout, so we cannot observe the
+    // echoed payload here. Instead pin the user-visible status output:
+    // the resolved command line (program + arg) and the timing suffix
+    // appear on stderr, which is what would regress if the runner were
+    // wired to a no-op driver or the wrong program resolved.
     with_ops_toml(
         r#"
 [commands.echo_test]
@@ -250,6 +255,7 @@ args = ["integration_test_output"]
                 .current_dir(path)
                 .assert()
                 .success()
+                .stderr(predicate::str::contains("echo integration_test_output"))
                 .stderr(predicate::str::contains(" in "));
         },
     );
@@ -490,7 +496,10 @@ program = "echo"
                 .arg("run-before-commit")
                 .current_dir(path)
                 .assert()
-                .failure();
+                .failure()
+                .stderr(predicate::str::contains(
+                    "failed to parse config file: .ops.toml",
+                ));
         },
     );
 }
