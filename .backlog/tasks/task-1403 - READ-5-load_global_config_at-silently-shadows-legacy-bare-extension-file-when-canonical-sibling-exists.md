@@ -3,11 +3,11 @@ id: TASK-1403
 title: >-
   READ-5: load_global_config_at silently shadows legacy bare-extension file when
   canonical sibling exists
-status: To Do
+status: Done
 assignee:
   - TASK-1453
 created_date: '2026-05-13 18:10'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:41'
 labels:
   - code-review-rust
   - READ

@@ -3,11 +3,11 @@ id: TASK-1416
 title: >-
   READ-5: OutputConfig::resolve_columns re-probes terminal_size on every call
   without caching
-status: To Do
+status: Done
 assignee:
   - TASK-1453
 created_date: '2026-05-13 18:17'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:42'
 labels:
   - code-review-rust
   - read

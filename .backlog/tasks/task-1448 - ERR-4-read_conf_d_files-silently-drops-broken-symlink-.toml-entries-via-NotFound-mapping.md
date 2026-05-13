@@ -3,11 +3,11 @@ id: TASK-1448
 title: >-
   ERR-4: read_conf_d_files silently drops broken-symlink .toml entries via
   NotFound mapping
-status: To Do
+status: Done
 assignee:
   - TASK-1453
 created_date: '2026-05-13 18:45'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:40'
 labels:
   - code-review-rust
   - error-handling

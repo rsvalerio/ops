@@ -3,11 +3,11 @@ id: TASK-1421
 title: >-
   ERR-1: load_config does not record which source's parse failure caused the
   abort
-status: To Do
+status: Done
 assignee:
   - TASK-1453
 created_date: '2026-05-13 18:18'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:43'
 labels:
   - code-review-rust
   - err

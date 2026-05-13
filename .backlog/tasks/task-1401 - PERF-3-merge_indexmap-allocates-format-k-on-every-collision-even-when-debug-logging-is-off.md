@@ -3,11 +3,11 @@ id: TASK-1401
 title: >-
   PERF-3: merge_indexmap allocates format!("{k:?}") on every collision even when
   debug logging is off
-status: To Do
+status: Done
 assignee:
   - TASK-1453
 created_date: '2026-05-13 18:09'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:39'
 labels:
   - code-review-rust
   - PERF

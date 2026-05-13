@@ -3,11 +3,11 @@ id: TASK-1400
 title: >-
   ERR-7: read_conf_d_files silently skips unreadable DirEntry, contradicting
   loud-failure contract
-status: To Do
+status: Done
 assignee:
   - TASK-1453
 created_date: '2026-05-13 18:09'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:40'
 labels:
   - code-review-rust
   - ERR
