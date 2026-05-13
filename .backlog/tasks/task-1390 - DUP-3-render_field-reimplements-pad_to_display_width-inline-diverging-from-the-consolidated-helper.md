@@ -3,11 +3,11 @@ id: TASK-1390
 title: >-
   DUP-3: render_field reimplements pad_to_display_width inline, diverging from
   the consolidated helper
-status: To Do
+status: Done
 assignee:
   - TASK-1452
 created_date: '2026-05-13 18:03'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:35'
 labels:
   - code-review-rust
   - duplication

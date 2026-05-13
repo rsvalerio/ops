@@ -3,11 +3,11 @@ id: TASK-1437
 title: >-
   TRAIT-1: AboutFieldDef in project_identity.rs derives only Clone — public type
   missing Debug
-status: To Do
+status: Done
 assignee:
   - TASK-1452
 created_date: '2026-05-13 18:33'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:35'
 labels:
   - code-review-rust
   - trait

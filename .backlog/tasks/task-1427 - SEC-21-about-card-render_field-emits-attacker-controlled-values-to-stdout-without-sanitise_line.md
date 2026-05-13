@@ -3,11 +3,11 @@ id: TASK-1427
 title: >-
   SEC-21: about-card render_field emits attacker-controlled values to stdout
   without sanitise_line
-status: To Do
+status: Done
 assignee:
   - TASK-1452
 created_date: '2026-05-13 18:22'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:35'
 labels:
   - code-review-rust
   - SEC

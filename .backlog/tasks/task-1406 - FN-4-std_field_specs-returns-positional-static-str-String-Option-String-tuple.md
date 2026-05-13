@@ -3,11 +3,11 @@ id: TASK-1406
 title: >-
   FN-4: std_field_specs returns positional (&'static str, String,
   Option<String>) tuple
-status: To Do
+status: Done
 assignee:
   - TASK-1452
 created_date: '2026-05-13 18:10'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:35'
 labels:
   - code-review-rust
   - FN

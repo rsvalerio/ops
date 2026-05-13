@@ -3,11 +3,11 @@ id: TASK-1417
 title: >-
   PERF-3: std_field_specs allocates 9-element Vec even when most fields are
   filtered out
-status: To Do
+status: Done
 assignee:
   - TASK-1452
 created_date: '2026-05-13 18:17'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:35'
 labels:
   - code-review-rust
   - perf

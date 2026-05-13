@@ -3,11 +3,11 @@ id: TASK-1420
 title: >-
   PERF-3: push_special_fields scans visible_fields linearly per field via
   repeated .iter().any()
-status: To Do
+status: Done
 assignee:
   - TASK-1452
 created_date: '2026-05-13 18:18'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:35'
 labels:
   - code-review-rust
   - perf

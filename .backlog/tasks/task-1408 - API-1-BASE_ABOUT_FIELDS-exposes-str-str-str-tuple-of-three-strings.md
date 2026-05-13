@@ -1,11 +1,11 @@
 ---
 id: TASK-1408
 title: 'API-1: BASE_ABOUT_FIELDS exposes &[(&str, &str, &str)] tuple-of-three-strings'
-status: To Do
+status: Done
 assignee:
   - TASK-1452
 created_date: '2026-05-13 18:10'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:35'
 labels:
   - code-review-rust
   - API

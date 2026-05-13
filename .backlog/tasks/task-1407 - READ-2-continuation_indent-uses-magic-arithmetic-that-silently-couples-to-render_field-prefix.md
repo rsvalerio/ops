@@ -3,11 +3,11 @@ id: TASK-1407
 title: >-
   READ-2: continuation_indent uses magic arithmetic that silently couples to
   render_field prefix
-status: To Do
+status: Done
 assignee:
   - TASK-1452
 created_date: '2026-05-13 18:10'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 20:35'
 labels:
   - code-review-rust
   - READ
