@@ -3,11 +3,11 @@ id: TASK-1411
 title: >-
   PERF-3: Variables::expand_warn_seen HashSet grows unbounded on adversarial
   input
-status: To Do
+status: Done
 assignee:
   - TASK-1454
 created_date: '2026-05-13 18:17'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 21:48'
 labels:
   - code-review-rust
   - perf
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 cap expand_warn_seen size (e.g. 256 distinct names) and document the cap in the dedup contract
-- [ ] #2 evict oldest entries when at cap so new distinct vars still surface a single user-facing warn
-- [ ] #3 regression test inserting >cap distinct names asserts memory stays bounded and warn-once-per-distinct holds within the cap window
+- [x] #1 cap expand_warn_seen size (e.g. 256 distinct names) and document the cap in the dedup contract
+- [x] #2 evict oldest entries when at cap so new distinct vars still surface a single user-facing warn
+- [x] #3 regression test inserting >cap distinct names asserts memory stays bounded and warn-once-per-distinct holds within the cap window
 <!-- AC:END -->

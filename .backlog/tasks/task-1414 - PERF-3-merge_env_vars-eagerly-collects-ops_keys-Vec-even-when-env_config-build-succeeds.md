@@ -3,11 +3,11 @@ id: TASK-1414
 title: >-
   PERF-3: merge_env_vars eagerly collects ops_keys Vec even when env_config
   build succeeds
-status: To Do
+status: Done
 assignee:
   - TASK-1454
 created_date: '2026-05-13 18:17'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 21:48'
 labels:
   - code-review-rust
   - perf
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 defer ops_keys collection so the success path does not allocate the Vec
-- [ ] #2 error paths still produce the same keys: [...] context formatting
-- [ ] #3 regression test pins that the no-OPS__-env shortcut path remains allocation-free for the keys Vec
+- [x] #1 defer ops_keys collection so the success path does not allocate the Vec
+- [x] #2 error paths still produce the same keys: [...] context formatting
+- [x] #3 regression test pins that the no-OPS__-env shortcut path remains allocation-free for the keys Vec
 <!-- AC:END -->

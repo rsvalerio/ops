@@ -3,11 +3,11 @@ id: TASK-1389
 title: >-
   ERR-1: merge_env_vars silently drops non-UTF-8 OPS__ env keys via
   into_string().ok() filter
-status: To Do
+status: Done
 assignee:
   - TASK-1454
 created_date: '2026-05-13 18:03'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 21:48'
 labels:
   - code-review-rust
   - error-handling
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace the filter_map silent-drop at loader.rs:113 with an iteration that counts non-UTF-8 OPS__* keys separately
-- [ ] #2 Emit a single tracing::warn! with count when any non-UTF-8 OPS__ keys are observed, so operators see exactly one breadcrumb rather than nothing
-- [ ] #3 Add a test (gated #[cfg(unix)] where OsString from raw bytes is straightforward) asserting the warn fires when a non-UTF-8 OPS__* key is present, and does not fire otherwise
+- [x] #1 Replace the filter_map silent-drop at loader.rs:113 with an iteration that counts non-UTF-8 OPS__* keys separately
+- [x] #2 Emit a single tracing::warn! with count when any non-UTF-8 OPS__ keys are observed, so operators see exactly one breadcrumb rather than nothing
+- [x] #3 Add a test (gated #[cfg(unix)] where OsString from raw bytes is straightforward) asserting the warn fires when a non-UTF-8 OPS__* key is present, and does not fire otherwise
 <!-- AC:END -->

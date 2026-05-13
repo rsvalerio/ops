@@ -3,11 +3,11 @@ id: TASK-1443
 title: >-
   ERR-1: parse_byte_cap_env accepts u64::MAX and silently defeats the SEC-33 cap
   contract
-status: To Do
+status: Done
 assignee:
   - TASK-1454
 created_date: '2026-05-13 18:44'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 21:48'
 labels:
   - code-review-rust
   - error-handling
@@ -27,7 +27,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_byte_cap_env clamps to a documented upper bound (e.g. 1 GiB) and emits a one-shot warn when clamped
-- [ ] #2 Unit test for u64::MAX input clamps and returns/logs a warn message
-- [ ] #3 Cross-reference to subprocess::parse_subprocess_timeout in the doc comment
+- [x] #1 parse_byte_cap_env clamps to a documented upper bound (e.g. 1 GiB) and emits a one-shot warn when clamped
+- [x] #2 Unit test for u64::MAX input clamps and returns/logs a warn message
+- [x] #3 Cross-reference to subprocess::parse_subprocess_timeout in the doc comment
 <!-- AC:END -->

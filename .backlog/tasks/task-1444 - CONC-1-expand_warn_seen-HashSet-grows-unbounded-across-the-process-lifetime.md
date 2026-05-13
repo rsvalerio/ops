@@ -1,11 +1,11 @@
 ---
 id: TASK-1444
 title: 'CONC-1: expand_warn_seen HashSet grows unbounded across the process lifetime'
-status: To Do
+status: Done
 assignee:
   - TASK-1454
 created_date: '2026-05-13 18:44'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-13 21:48'
 labels:
   - code-review-rust
   - concurrency
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 expand_warn_seen is bounded (e.g. capacity 256) with a documented drop-on-full policy
-- [ ] #2 A regression test inserts > capacity distinct var names and asserts the set stays bounded
-- [ ] #3 The bound is large enough that realistic command-spec workloads never evict (>= 64)
+- [x] #1 expand_warn_seen is bounded (e.g. capacity 256) with a documented drop-on-full policy
+- [x] #2 A regression test inserts > capacity distinct var names and asserts the set stays bounded
+- [x] #3 The bound is large enough that realistic command-spec workloads never evict (>= 64)
 <!-- AC:END -->
