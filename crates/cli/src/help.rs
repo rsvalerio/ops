@@ -139,17 +139,27 @@ pub(crate) fn sort_entries_by_category(entries: &mut [CmdEntry], category_order:
     });
 }
 
+enum HeadingState<'a> {
+    Unset,
+    Last(Option<&'a str>),
+}
+
+impl<'a> HeadingState<'a> {
+    fn matches(&self, cat: Option<&'a str>) -> bool {
+        matches!(self, Self::Last(last) if *last == cat)
+    }
+}
+
 /// Render sorted command entries into a grouped-sections string suitable for
 /// insertion into the help output.
 pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
     use ops_core::output::{display_width, pad_to_display_width};
-    // READ-2 / TASK-0734: width must be measured in display columns, not
-    // bytes — `String::len` undercounts CJK / wide / combining characters
-    // and mis-aligns the column when extension-supplied command names
-    // contain non-ASCII text. Pair this with a manual space-pad below so
-    // `{:<width$}` (which sizes in `char` count, not display width) cannot
-    // re-introduce the same drift.
-    // DUP-3 / TASK-1235: column padding routes through the shared
+    // Width must be measured in display columns, not bytes — `String::len`
+    // undercounts CJK / wide / combining characters and mis-aligns the
+    // column when extension-supplied command names contain non-ASCII text.
+    // Pair this with a manual space-pad below so `{:<width$}` (which sizes
+    // in `char` count, not display width) cannot re-introduce the same
+    // drift. Column padding routes through the shared
     // [`ops_core::output::pad_to_display_width`] helper that the tools_cmd
     // and theme_cmd list views also use, so the three help-style tables
     // can't drift on the unicode-width measurement (CJK / wide emoji).
@@ -159,14 +169,14 @@ pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
         .max()
         .unwrap_or(0);
     let mut grouped = String::new();
-    let mut current_category: Option<Option<&str>> = None;
+    let mut heading_state = HeadingState::Unset;
 
     for entry in entries {
         let cat = entry.category.as_deref();
-        if current_category.as_ref() != Some(&cat) {
+        if !heading_state.matches(cat) {
             let heading = cat.unwrap_or("Commands");
             grouped.push_str(&format!("\n{heading}:\n"));
-            current_category = Some(cat);
+            heading_state = HeadingState::Last(cat);
         }
         grouped.push_str("  ");
         grouped.push_str(&pad_to_display_width(&entry.name, max_name_width));
@@ -213,7 +223,7 @@ pub(crate) fn render_categorized_help(
 
 fn splice_grouped_into_help(help_str: &str, grouped: &str) -> String {
     let mut out = String::with_capacity(help_str.len() + grouped.len());
-    // CL-3 / TASK-0708: anchor on the blank line + heading-at-column-0 form
+    // Anchor on the blank line + heading-at-column-0 form
     // (`\n\nOptions:`) so a subcommand `about` that itself contains the
     // substring "Options:" cannot win the search and have the grouped
     // section spliced into the middle of an unrelated help line. clap
@@ -234,7 +244,7 @@ fn splice_grouped_into_help(help_str: &str, grouped: &str) -> String {
 
 /// Render categorized help and write it to `writer`. Extracted from
 /// [`print_categorized_help`] so the write path can be exercised against a
-/// failing writer (ERR-1 / TASK-0760) without needing to redirect stdout.
+/// failing writer without needing to redirect stdout.
 pub(crate) fn write_categorized_help(
     writer: &mut dyn Write,
     cmd: clap::Command,
@@ -253,8 +263,8 @@ pub(crate) fn print_categorized_help(
     stack: Option<ops_core::stack::Stack>,
     long: bool,
 ) {
-    // ERR-1 / TASK-0760: mirrors the parse_log_level rationale at
-    // main.rs:89-93 — if stdout has gone away (closed pipe like
+    // Mirrors the parse_log_level rationale in main.rs — if stdout has
+    // gone away (closed pipe like
     // `ops --help | head -5`, or a consumer that exited mid-write), the
     // user has already lost the channel we would report the error on.
     // Surfacing the error here would only turn a benign EPIPE into a
@@ -309,7 +319,7 @@ mod tests {
 
     #[test]
     fn is_toplevel_help_double_dash_separator_not_toplevel() {
-        // PATTERN-1 / TASK-0514: `--` is clap's end-of-options marker, so
+        // `--` is clap's end-of-options marker, so
         // anything after it must reach the subcommand catch-all unchanged.
         assert!(!is_toplevel_help(&os(&["ops", "--", "--help"])));
         assert!(!is_toplevel_help(&os(&["ops", "--"])));
@@ -434,7 +444,7 @@ mod tests {
 
     #[test]
     fn render_grouped_sections_aligns_wide_command_names_by_display_width() {
-        // READ-2 / TASK-0734: extension- and config-defined command names
+        // Extension- and config-defined command names
         // are unrestricted, so a name like `ビルド` (display width 6, byte
         // length 9) or `🚀deploy` (wide emoji + ASCII) must not skew the
         // column padding. Pre-fix this used `String::len` (bytes) and
@@ -477,7 +487,7 @@ mod tests {
         assert!(output.contains("\nCommands:\n"));
     }
 
-    /// PERF-3 / TASK-1186: pin the no-double-walk contract. The pre-fix shape
+    /// Pin the no-double-walk contract. The pre-fix shape
     /// measured every name twice (once for the max, once for per-row pad).
     /// We exercise a deliberately wide set of names with non-ASCII glyphs so
     /// any future refactor that re-introduces per-row `display_width(&name)`
@@ -608,7 +618,7 @@ mod tests {
 
     #[test]
     fn splice_grouped_into_help_ignores_options_substring_in_subcommand_about() {
-        // CL-3 / TASK-0708: prior to the line-anchored find, a subcommand
+        // Prior to the line-anchored find, a subcommand
         // whose `about` text contained the substring "Options:" (e.g.
         // "Override CLI options:") would match before the real section
         // heading and the grouped section would land in the middle of the
@@ -651,7 +661,7 @@ mod tests {
         assert!(out.starts_with("usage: ops"));
     }
 
-    /// ERR-1 / TASK-0760: a writer that fails (e.g. closed pipe) must
+    /// A writer that fails (e.g. closed pipe) must
     /// surface the error from `write_categorized_help` instead of being
     /// silently dropped. The print wrapper is the only place that swallows
     /// it, with a documented rationale.
