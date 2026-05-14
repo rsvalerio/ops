@@ -3,11 +3,11 @@ id: TASK-1433
 title: >-
   READ-3: test_utils.rs (531 lines, test-support feature) lacks a module-level
   surface index
-status: To Do
+status: Done
 assignee:
   - TASK-1460
 created_date: '2026-05-13 18:23'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 09:10'
 labels:
   - code-review-rust
   - READ

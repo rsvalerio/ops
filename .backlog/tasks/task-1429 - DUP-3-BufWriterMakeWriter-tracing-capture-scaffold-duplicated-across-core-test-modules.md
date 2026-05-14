@@ -3,11 +3,11 @@ id: TASK-1429
 title: >-
   DUP-3: BufWriter+MakeWriter tracing-capture scaffold duplicated across core
   test modules
-status: To Do
+status: Done
 assignee:
   - TASK-1460
 created_date: '2026-05-13 18:23'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 09:08'
 labels:
   - code-review-rust
   - DUP

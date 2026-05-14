@@ -3,11 +3,11 @@ id: TASK-1438
 title: >-
   TRAIT-1: test-support public types (TestConfigBuilder, ConfigOverlayBuilder,
   EnvGuard) lack Debug derive
-status: To Do
+status: Done
 assignee:
   - TASK-1460
 created_date: '2026-05-13 18:33'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 09:09'
 labels:
   - code-review-rust
   - trait
