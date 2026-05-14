@@ -3,11 +3,11 @@ id: TASK-1428
 title: >-
   PERF-3: format_error_tail_with_stats allocates VecDeque per call for typical
   n<=20
-status: To Do
+status: Done
 assignee:
   - TASK-1458
 created_date: '2026-05-13 18:23'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:25'
 labels:
   - code-review-rust
   - PERF
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Replace VecDeque with a stack-backed structure for typical small n
+- [x] #1 Replace VecDeque with a stack-backed structure for typical small n
 - [ ] #2 Bench shows no regression at the largest config-allowed n
 <!-- AC:END -->

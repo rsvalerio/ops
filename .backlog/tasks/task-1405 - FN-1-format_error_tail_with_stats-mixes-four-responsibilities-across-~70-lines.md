@@ -3,11 +3,11 @@ id: TASK-1405
 title: >-
   FN-1: format_error_tail_with_stats mixes four responsibilities across ~70
   lines
-status: To Do
+status: Done
 assignee:
   - TASK-1458
 created_date: '2026-05-13 18:10'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:25'
 labels:
   - code-review-rust
   - FN
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 format_error_tail_with_stats decomposes into helpers each under 30 lines
+- [x] #1 format_error_tail_with_stats decomposes into helpers each under 30 lines
 - [ ] #2 Existing tail-formatting tests continue to pass without modification
 <!-- AC:END -->

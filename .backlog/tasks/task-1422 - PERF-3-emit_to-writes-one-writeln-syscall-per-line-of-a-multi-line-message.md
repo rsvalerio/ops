@@ -1,11 +1,11 @@
 ---
 id: TASK-1422
 title: 'PERF-3: emit_to writes one writeln! syscall per line of a multi-line message'
-status: To Do
+status: Done
 assignee:
   - TASK-1458
 created_date: '2026-05-13 18:18'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:25'
 labels:
   - code-review-rust
   - perf
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 render full output to a single buffer and write once to the writer
+- [x] #1 render full output to a single buffer and write once to the writer
 - [ ] #2 continuation-line indentation and SEC-21 sanitisation behaviour unchanged
 - [ ] #3 existing ui::warn / ui::error tests pin output byte-for-byte
 <!-- AC:END -->

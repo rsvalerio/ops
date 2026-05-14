@@ -1,11 +1,11 @@
 ---
 id: TASK-1397
 title: 'PERF-5: style_gated always allocates String when color disabled'
-status: To Do
+status: Done
 assignee:
   - TASK-1458
 created_date: '2026-05-13 18:09'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:25'
 labels:
   - code-review-rust
   - PERF
@@ -25,6 +25,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 style_gated avoids allocating when ANSI color is disabled
+- [x] #1 style_gated avoids allocating when ANSI color is disabled
 - [ ] #2 All callers compile and behave identically with the new return type
 <!-- AC:END -->

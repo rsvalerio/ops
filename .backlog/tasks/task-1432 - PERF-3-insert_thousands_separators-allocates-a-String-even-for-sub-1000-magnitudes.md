@@ -3,11 +3,11 @@ id: TASK-1432
 title: >-
   PERF-3: insert_thousands_separators allocates a String even for sub-1000
   magnitudes
-status: To Do
+status: Done
 assignee:
   - TASK-1458
 created_date: '2026-05-13 18:23'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:25'
 labels:
   - code-review-rust
   - PERF
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Return Cow<'_, str> from insert_thousands_separators (or equivalent zero-alloc fast path)
+- [x] #1 Return Cow<'_, str> from insert_thousands_separators (or equivalent zero-alloc fast path)
 - [ ] #2 Call sites adapted; no string copy on inputs with len <= 3
 <!-- AC:END -->

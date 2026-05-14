@@ -1,11 +1,11 @@
 ---
 id: TASK-1398
 title: 'READ-6: ansi_style! macro generates broken Self:: intra-doc link for free fns'
-status: To Do
+status: Done
 assignee:
   - TASK-1458
 created_date: '2026-05-13 18:09'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:25'
 labels:
   - code-review-rust
   - READ
@@ -25,5 +25,5 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Macro-generated doc links resolve under broken-intra-doc-links lint
+- [x] #1 Macro-generated doc links resolve under broken-intra-doc-links lint
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1441
 title: >-
   PERF-3: format_error_tail CR-rewrite double-allocates per line via
   String::replace after from_utf8_lossy
-status: To Do
+status: Done
 assignee:
   - TASK-1458
 created_date: '2026-05-13 18:40'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:25'
 labels:
   - code-review-rust
   - perf
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Push the decoded bytes into the output buffer once, substituting \r -> \n inline (e.g. for c in decoded.chars()), with no intermediate String::replace allocation
+- [x] #1 Push the decoded bytes into the output buffer once, substituting \r -> \n inline (e.g. for c in decoded.chars()), with no intermediate String::replace allocation
 - [ ] #2 Existing CR-rewrite tests still pass; new test confirms a buffer of N CR-only lines produces at most one extra allocation beyond the result String
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1396
 title: >-
   PERF-1: format_language_breakdown pads names one space at a time in a per-row
   loop
-status: To Do
+status: Done
 assignee:
   - TASK-1458
 created_date: '2026-05-13 18:06'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:25'
 labels:
   - code-review-rust
   - performance
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Per-character push loop replaced with a bulk pad (format width specifier or extend) producing identical output
+- [x] #1 Per-character push loop replaced with a bulk pad (format width specifier or extend) producing identical output
 - [ ] #2 project_identity format tests pass unchanged
 <!-- AC:END -->
