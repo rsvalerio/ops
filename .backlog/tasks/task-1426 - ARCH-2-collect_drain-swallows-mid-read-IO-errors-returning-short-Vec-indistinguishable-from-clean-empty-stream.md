@@ -3,11 +3,11 @@ id: TASK-1426
 title: >-
   ARCH-2: collect_drain swallows mid-read IO errors, returning short Vec
   indistinguishable from clean empty stream
-status: To Do
+status: Done
 assignee:
   - TASK-1457
 created_date: '2026-05-13 18:22'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:00'
 labels:
   - code-review-rust
   - ARCH

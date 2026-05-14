@@ -3,11 +3,11 @@ id: TASK-1399
 title: >-
   DUP-4: subprocess.rs duplicates stdout/stderr drain-thread spawn block
   verbatim
-status: To Do
+status: Done
 assignee:
   - TASK-1457
 created_date: '2026-05-13 18:09'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 07:58'
 labels:
   - code-review-rust
   - DUP

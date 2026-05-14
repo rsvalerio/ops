@@ -3,11 +3,11 @@ id: TASK-1449
 title: >-
   DUP-1: run_extension_show_to is a pure passthrough wrapper around
   run_extension_show_with_tty_check
-status: To Do
+status: Done
 assignee:
   - TASK-1457
 created_date: '2026-05-13 19:04'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:02'
 labels:
   - code-review-rust
   - duplication

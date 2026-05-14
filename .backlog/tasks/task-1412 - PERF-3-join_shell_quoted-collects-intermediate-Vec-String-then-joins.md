@@ -1,11 +1,11 @@
 ---
 id: TASK-1412
 title: 'PERF-3: join_shell_quoted collects intermediate Vec<String> then joins'
-status: To Do
+status: Done
 assignee:
   - TASK-1457
 created_date: '2026-05-13 18:17'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:00'
 labels:
   - code-review-rust
   - perf
