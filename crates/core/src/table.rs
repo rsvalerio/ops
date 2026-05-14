@@ -1,7 +1,6 @@
 //! Centralized table rendering via `OpsTable` wrapper around comfy_table.
 
 use std::fmt;
-use std::io::IsTerminal;
 
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, ColumnConstraint, ContentArrangement, Table,
@@ -11,6 +10,7 @@ use comfy_table::{
 pub use comfy_table::{Cell, Color};
 
 /// A TTY-aware table that centralizes styling and coloring decisions.
+#[derive(Debug)]
 pub struct OpsTable {
     inner: Table,
     is_tty: bool,
@@ -24,8 +24,13 @@ impl Default for OpsTable {
 
 impl OpsTable {
     /// Create a new table, auto-detecting TTY from stdout.
+    ///
+    /// PERF-3 / TASK-1439: TTY probe routes through the shared
+    /// `style::stdout_is_terminal` cache so repeated constructions reuse
+    /// a single `isatty` syscall per process and cannot disagree with
+    /// `style::color_enabled` mid-render after a redirect.
     pub fn new() -> Self {
-        Self::with_tty(std::io::stdout().is_terminal())
+        Self::with_tty(crate::style::stdout_is_terminal())
     }
 
     /// Create a new table with explicit TTY control (useful for tests).
@@ -151,6 +156,25 @@ mod tests {
         table.set_max_width(99, 20);
         let after = table.to_string();
         assert_eq!(before, after);
+    }
+
+    /// PERF-3 / TASK-1439: repeated `OpsTable::new` calls must not re-invoke
+    /// `stdout().is_terminal()`. We assert the probe counter advances by at
+    /// most one across N constructions: zero when the OnceLock was already
+    /// primed by another test in the same process, one when this test
+    /// happens to be the first to call it.
+    #[test]
+    fn new_memoises_is_terminal_probe() {
+        let before = crate::style::stdout_is_terminal_probe_count();
+        for _ in 0..16 {
+            let _ = OpsTable::new();
+        }
+        let after = crate::style::stdout_is_terminal_probe_count();
+        assert!(
+            after - before <= 1,
+            "stdout is_terminal probed {} times across 16 constructions; expected ≤1",
+            after - before
+        );
     }
 
     #[test]

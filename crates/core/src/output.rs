@@ -48,7 +48,28 @@ pub fn pad_to_display_width(name: &str, target_cols: usize) -> String {
 /// not a TTY.
 #[must_use]
 pub fn detect_terminal_width() -> Option<usize> {
-    terminal_size::terminal_size().map(|(w, _)| usize::from(w.0))
+    static WIDTH: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    *WIDTH.get_or_init(|| {
+        TERMINAL_WIDTH_PROBES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        terminal_size::terminal_size().map(|(w, _)| usize::from(w.0))
+    })
+}
+
+/// PERF-3 / TASK-1440: per-process counter for `terminal_size` ioctl
+/// invocations issued by [`detect_terminal_width`]. Incremented exactly
+/// once inside the `OnceLock::get_or_init` closure. The cached width is
+/// stable across a single command run: callers (step-line, about-card,
+/// table-sizing) used to fire a fresh `ioctl(TIOCGWINSZ)` per emitted row,
+/// which is wasteful when existing column-resolution paths already assume
+/// a stable width per command. Interactive resize during a single command
+/// is intentionally not observed mid-render.
+static TERMINAL_WIDTH_PROBES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[must_use]
+#[doc(hidden)]
+pub fn detect_terminal_width_probe_count() -> usize {
+    TERMINAL_WIDTH_PROBES.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Return the last `n` lines from a slice, or all lines if fewer than `n`.
@@ -407,6 +428,24 @@ mod tests {
     }
 
     // -- Tests for format_error_tail --
+
+    /// PERF-3 / TASK-1440: repeated `detect_terminal_width` calls must not
+    /// re-invoke the underlying `terminal_size` ioctl. Probe counter
+    /// advances by at most one across N calls (zero when another test in
+    /// the process already primed the OnceLock, one when this is first).
+    #[test]
+    fn detect_terminal_width_memoises_probe() {
+        let before = detect_terminal_width_probe_count();
+        for _ in 0..32 {
+            let _ = detect_terminal_width();
+        }
+        let after = detect_terminal_width_probe_count();
+        assert!(
+            after - before <= 1,
+            "terminal_size probed {} times across 32 calls; expected ≤1",
+            after - before
+        );
+    }
 
     #[test]
     fn format_error_tail_returns_last_n_lines() {

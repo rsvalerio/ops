@@ -848,11 +848,7 @@ mod tests {
     #[test]
     fn collect_drain_empty_with_error_surfaces_io_error() {
         let handle = thread::spawn(|| -> DrainResult {
-            (
-                Vec::new(),
-                0,
-                Some(io::Error::new(io::ErrorKind::Other, "synthetic EIO")),
-            )
+            (Vec::new(), 0, Some(io::Error::other("synthetic EIO")))
         });
         let err = collect_drain(Some(handle), "arch-2 test", "stdout")
             .expect_err("empty-buf + Some(err) must propagate as RunError::Io");
@@ -881,10 +877,7 @@ mod tests {
             (
                 b"partial".to_vec(),
                 0,
-                Some(io::Error::new(
-                    io::ErrorKind::Other,
-                    "synthetic mid-read EIO",
-                )),
+                Some(io::Error::other("synthetic mid-read EIO")),
             )
         });
         let buf = collect_drain(Some(handle), "arch-2 test", "stdout")

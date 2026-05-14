@@ -22,11 +22,44 @@ use std::sync::OnceLock;
 /// branch.
 #[must_use]
 pub fn color_enabled() -> bool {
+    (stdout_is_terminal() || stderr_is_terminal()) && !no_color_env()
+}
+
+/// PERF-3 / TASK-1439: shared, memoised `stdout().is_terminal()` probe.
+/// `OpsTable::new` and the legacy `color_enabled` resolver share this cache
+/// so the `isatty` syscall fires once per process regardless of how many
+/// tables (or styled lines) are emitted, and the two subsystems cannot
+/// disagree mid-render after a redirect. The probe counter is incremented
+/// inside `get_or_init` so a test can assert the syscall happens exactly
+/// once across N constructions.
+#[must_use]
+pub fn stdout_is_terminal() -> bool {
     static STDOUT_TTY: OnceLock<bool> = OnceLock::new();
+    *STDOUT_TTY.get_or_init(|| {
+        STDOUT_PROBES.fetch_add(1, Ordering::Relaxed);
+        std::io::stdout().is_terminal()
+    })
+}
+
+/// Shared memoised `stderr().is_terminal()` probe, paired with
+/// [`stdout_is_terminal`]. Same single-source-of-truth contract.
+#[must_use]
+pub fn stderr_is_terminal() -> bool {
     static STDERR_TTY: OnceLock<bool> = OnceLock::new();
-    let stdout = *STDOUT_TTY.get_or_init(|| std::io::stdout().is_terminal());
-    let stderr = *STDERR_TTY.get_or_init(|| std::io::stderr().is_terminal());
-    (stdout || stderr) && !no_color_env()
+    *STDERR_TTY.get_or_init(|| std::io::stderr().is_terminal())
+}
+
+/// TASK-1439: probe counter for the stdout TTY cache. Incremented exactly
+/// once per process (inside the `OnceLock::get_or_init` closure). Exposed
+/// for the regression test that asserts repeated `OpsTable::new` calls do
+/// not re-invoke `is_terminal`.
+static STDOUT_PROBES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+use std::sync::atomic::Ordering;
+
+#[must_use]
+#[doc(hidden)]
+pub fn stdout_is_terminal_probe_count() -> usize {
+    STDOUT_PROBES.load(Ordering::Relaxed)
 }
 
 /// True if `NO_COLOR` is set to any non-empty value (per
