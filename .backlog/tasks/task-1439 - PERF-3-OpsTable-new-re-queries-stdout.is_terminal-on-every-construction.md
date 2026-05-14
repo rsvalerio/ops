@@ -1,11 +1,11 @@
 ---
 id: TASK-1439
 title: 'PERF-3: OpsTable::new re-queries stdout().is_terminal() on every construction'
-status: To Do
+status: Done
 assignee:
   - TASK-1459
 created_date: '2026-05-13 18:40'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:35'
 labels:
   - code-review-rust
   - perf

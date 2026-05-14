@@ -3,11 +3,11 @@ id: TASK-1440
 title: >-
   PERF-3: detect_terminal_width invokes terminal_size ioctl on every call
   without caching
-status: To Do
+status: Done
 assignee:
   - TASK-1459
 created_date: '2026-05-13 18:40'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:36'
 labels:
   - code-review-rust
   - perf

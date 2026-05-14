@@ -3,11 +3,11 @@ id: TASK-1436
 title: >-
   TRAIT-1: OpsTable in core/src/table.rs lacks Debug derive despite all fields
   being Debug
-status: To Do
+status: Done
 assignee:
   - TASK-1459
 created_date: '2026-05-13 18:33'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 08:34'
 labels:
   - code-review-rust
   - trait
