@@ -190,58 +190,30 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn merge_indexmap_collision_log_escapes_control_characters_in_keys() {
-        use std::io::Write;
-        use std::sync::{Arc, Mutex};
-
-        #[derive(Clone)]
-        struct VecWriter(Arc<Mutex<Vec<u8>>>);
-        impl Write for VecWriter {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().write(buf)
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
-            type Writer = VecWriter;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
-        let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
-        let subscriber = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .with_writer(VecWriter(Arc::clone(&buf)))
-            .with_ansi(false)
-            .finish();
-
         let injected = "foo\n2026-01-01T00:00:00Z ERROR forged log line".to_string();
-        tracing::subscriber::with_default(subscriber, || {
+        let (logged, ()) = crate::test_utils::capture_tracing(tracing::Level::DEBUG, || {
             let mut base: IndexMap<String, i32> = IndexMap::new();
             base.insert(injected.clone(), 1);
             let overlay = IndexMap::from([(injected.clone(), 99)]);
             merge_indexmap(&mut base, Some(overlay));
-
-            let logged = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
-            assert!(
-                logged.contains("config overlay shadows base entries"),
-                "expected debug log, got: {logged}"
-            );
-            // The forged tail must not appear as the start of a physical line —
-            // the escaping turns the embedded \n into the two characters `\n`.
-            for line in logged.lines() {
-                assert!(
-                    !line.starts_with("2026-01-01"),
-                    "control-char in key forged a log line: {logged}"
-                );
-            }
-            assert!(
-                logged.contains("\\n"),
-                "expected escaped \\n in captured output: {logged}"
-            );
         });
+
+        assert!(
+            logged.contains("config overlay shadows base entries"),
+            "expected debug log, got: {logged}"
+        );
+        // The forged tail must not appear as the start of a physical line —
+        // the escaping turns the embedded \n into the two characters `\n`.
+        for line in logged.lines() {
+            assert!(
+                !line.starts_with("2026-01-01"),
+                "control-char in key forged a log line: {logged}"
+            );
+        }
+        assert!(
+            logged.contains("\\n"),
+            "expected escaped \\n in captured output: {logged}"
+        );
     }
 
     #[test]

@@ -1,4 +1,64 @@
 //! Shared test utilities for ops unit tests.
+//!
+//! # Surface index (READ-3)
+//!
+//! This module is compiled under `#[cfg(any(test, feature = "test-support"))]`
+//! and re-exported to downstream crates via the `test-support` feature. The
+//! sections below enumerate the public surface and what each item guarantees;
+//! anything not listed is internal and may move or change without notice.
+//!
+//! ## Stability contract
+//!
+//! - **Test-only API.** Nothing here is part of `ops-core`'s production
+//!   surface. Items may evolve faster than the main API and are not bound
+//!   by the crate's semver promises.
+//! - **Cross-crate consumers** (e.g. `ops-cli`, `ops-runner`) bind to the
+//!   public-under-feature surface enumerated below.
+//! - **`#[cfg(test)]` helpers** (currently only [`capture_tracing`]) are
+//!   compile-gated to `cargo test` of this crate and are not visible to
+//!   downstream `test-support` consumers; mark anything new the same way
+//!   when it depends on dev-only deps (e.g. `tracing-subscriber`).
+//!
+//! ## `CommandSpec` / `ExecCommandSpec` constructors (public-under-feature)
+//!
+//! - [`exec_spec`], [`exec_spec_with_cwd`] — build an [`ExecCommandSpec`].
+//! - [`platform_exec_spec`] — pick between Unix and Windows invocation forms.
+//! - [`echo_cmd`], [`true_cmd`], [`false_cmd`], [`sleep_cmd`] — common
+//!   cross-platform stand-ins for shell builtins.
+//! - [`composite_cmd`], [`parallel_cmd`] — build a [`CompositeCommandSpec`]
+//!   (sequential / parallel respectively).
+//! - [`make_test_output`] — synthesize a [`std::process::Output`] with a
+//!   given exit code and stdio bytes; abstracts the per-platform
+//!   `ExitStatusExt::from_raw` quirk.
+//!
+//! ## Config builders (public-under-feature)
+//!
+//! - [`TestConfigBuilder`] — fluent builder for [`Config`]. See its rustdoc
+//!   for the kept-in-parity method list with [`ConfigOverlayBuilder`].
+//! - [`ConfigOverlayBuilder`] — fluent builder for [`ConfigOverlay`].
+//! - [`test_config_with_commands`] — one-shot [`Config`] from a command map.
+//!
+//! ## Environment / runtime helpers (public-under-feature)
+//!
+//! - [`EnvGuard`] — RAII guard that restores an env var on drop. Requires
+//!   `#[serial]` from `serial_test` on the test; see the struct rustdoc.
+//! - [`is_root_euid`] — true on Unix when EUID is 0; tests that depend on
+//!   DAC-permission denial must `return` early when this is true (see
+//!   TEST-19 in the function rustdoc).
+//!
+//! ## Internal helpers (not part of the surface contract)
+//!
+//! - `capture_tracing` (test-only) — used by in-crate tests to drive a
+//!   thread-local `tracing-subscriber` and capture its output. Not exposed
+//!   under the `test-support` feature because `tracing-subscriber` is a
+//!   dev-dependency here.
+//! - `proptest_strategies` (test-only) — proptest generators used by this
+//!   crate's property tests only.
+//!
+//! [`Config`]: crate::config::Config
+//! [`ConfigOverlay`]: crate::config::ConfigOverlay
+//! [`ExecCommandSpec`]: crate::config::ExecCommandSpec
+//! [`CompositeCommandSpec`]: crate::config::CompositeCommandSpec
 
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -102,6 +162,7 @@ pub fn parallel_cmd(commands: &[&str]) -> CompositeCommandSpec {
 /// 2. The pattern is simple enough that maintenance burden is low
 /// 3. A trait would require associated types and make the API less ergonomic
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct TestConfigBuilder {
     output: OutputConfig,
     commands: IndexMap<String, CommandSpec>,
@@ -198,6 +259,7 @@ impl Default for TestConfigBuilder {
 /// Reduces boilerplate in config tests by providing a fluent API
 /// for constructing overlays with only the fields needed.
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct ConfigOverlayBuilder {
     output: Option<OutputConfigOverlay>,
     commands: Option<IndexMap<String, CommandSpec>>,
@@ -387,6 +449,19 @@ pub struct EnvGuard {
     original: Option<String>,
 }
 
+// TRAIT-1: manual Debug impl redacts the captured original value. Env
+// vars frequently hold credentials (DATABASE_URL, AWS_SECRET_ACCESS_KEY,
+// API tokens); leaking them via a `{:?}` print in a downstream test
+// fixture would defeat the point of capturing them privately.
+impl std::fmt::Debug for EnvGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnvGuard")
+            .field("key", &self.key)
+            .field("original", &self.original.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
+}
+
 #[allow(dead_code, unused_unsafe)]
 impl EnvGuard {
     /// Set an environment variable, returning a guard that restores it on drop.
@@ -447,6 +522,50 @@ pub fn is_root_euid() -> bool {
 #[cfg(not(unix))]
 pub fn is_root_euid() -> bool {
     false
+}
+
+/// Shared tracing-event capture helper for tests across the core crate.
+/// Installs a thread-local subscriber at `level` for the duration of `f`,
+/// captures the formatted output (ANSI off) and returns it alongside `f`'s
+/// return value. Consolidates DUP-3: every in-process tracing-capture test
+/// in core was open-coding the same `BufWriter` + `MakeWriter` scaffold.
+#[cfg(test)]
+pub fn capture_tracing<F, R>(level: tracing::Level, f: F) -> (String, R)
+where
+    F: FnOnce() -> R,
+{
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    struct BufWriter(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for BufWriter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().expect("lock").extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    let buf = BufWriter::default();
+    let captured = buf.0.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buf)
+        .with_max_level(level)
+        .with_ansi(false)
+        .finish();
+    let value = tracing::subscriber::with_default(subscriber, f);
+    let bytes = captured.lock().expect("lock").clone();
+    let text = String::from_utf8(bytes).expect("utf8");
+    (text, value)
 }
 
 impl Drop for EnvGuard {

@@ -235,29 +235,9 @@ mod tests {
     #[test]
     fn extension_walk_per_entry_error_logs_debug_breadcrumb() {
         use std::os::unix::fs::PermissionsExt;
-        use std::sync::{Arc, Mutex};
-        use tracing_subscriber::fmt::MakeWriter;
 
         if crate::test_utils::is_root_euid() {
             return;
-        }
-
-        #[derive(Clone, Default)]
-        struct BufWriter(Arc<Mutex<Vec<u8>>>);
-        impl std::io::Write for BufWriter {
-            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().expect("lock").extend_from_slice(b);
-                Ok(b.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriter;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
         }
 
         // Drop a `.tf` file inside a 0o000 dir: read_dir on the *parent*
@@ -277,13 +257,8 @@ mod tests {
         perms.set_mode(0o000);
         std::fs::set_permissions(&locked, perms).unwrap();
 
-        let buf = BufWriter::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
-            .with_max_level(tracing::Level::DEBUG)
-            .with_ansi(false)
-            .finish();
-        let detected = tracing::subscriber::with_default(subscriber, || Stack::detect(dir.path()));
+        let (_log, detected) =
+            crate::test_utils::capture_tracing(tracing::Level::DEBUG, || Stack::detect(dir.path()));
 
         // Restore permissions for tempdir cleanup.
         let mut restore = std::fs::metadata(&locked).unwrap().permissions();
@@ -320,41 +295,11 @@ mod tests {
     /// list of accepted names appears.
     #[test]
     fn resolve_unknown_config_override_emits_tracing_warning() {
-        use std::sync::{Arc, Mutex};
-        use tracing_subscriber::fmt::MakeWriter;
-
-        #[derive(Clone, Default)]
-        struct BufWriter(Arc<Mutex<Vec<u8>>>);
-        impl std::io::Write for BufWriter {
-            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().expect("lock").extend_from_slice(b);
-                Ok(b.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriter;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
-        let buf = BufWriter::default();
-        let captured = buf.0.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
         let dir = tempfile::tempdir().expect("tempdir");
-        tracing::subscriber::with_default(subscriber, || {
+        let (captured, ()) = crate::test_utils::capture_tracing(tracing::Level::WARN, || {
             let _ = Stack::resolve(Some("not-a-stack"), dir.path());
         });
 
-        let captured = String::from_utf8(captured.lock().expect("lock").clone()).expect("utf8");
         assert!(
             captured.contains("not-a-stack"),
             "warning must include offending value, got: {captured}"
@@ -368,40 +313,11 @@ mod tests {
     /// Companion to the typo case: an accepted value must not emit a warning.
     #[test]
     fn resolve_known_config_override_silent() {
-        use std::sync::{Arc, Mutex};
-        use tracing_subscriber::fmt::MakeWriter;
-
-        #[derive(Clone, Default)]
-        struct BufWriter(Arc<Mutex<Vec<u8>>>);
-        impl std::io::Write for BufWriter {
-            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().expect("lock").extend_from_slice(b);
-                Ok(b.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriter;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
-        let buf = BufWriter::default();
-        let captured = buf.0.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
         let dir = tempfile::tempdir().expect("tempdir");
-        tracing::subscriber::with_default(subscriber, || {
+        let (captured, ()) = crate::test_utils::capture_tracing(tracing::Level::WARN, || {
             let _ = Stack::resolve(Some("rust"), dir.path());
         });
-        assert!(captured.lock().expect("lock").is_empty());
+        assert!(captured.is_empty());
     }
 
     #[test]
