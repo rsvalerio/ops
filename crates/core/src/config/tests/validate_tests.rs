@@ -58,6 +58,97 @@ fn exec_spec_display_cmd_quotes_metacharacters() {
     );
 }
 
+/// TASK-1431: `cwd` containing `..` must be rejected at load time so a
+/// hostile workspace config can't silently escape the workspace at exec.
+#[test]
+fn exec_spec_validate_rejects_cwd_with_parent_dir() {
+    let mut e = exec_spec("echo", &["hi"]);
+    e.cwd = Some(std::path::PathBuf::from("../../etc"));
+    let err = e.validate("bad").unwrap_err().to_string();
+    assert!(err.contains("cwd"), "expected cwd error, got: {err}");
+    assert!(err.contains(".."), "expected '..' mention, got: {err}");
+}
+
+/// TASK-1445: NUL or other C0 control characters in program/args/cwd
+/// must fail at validate-time with a named error rather than at spawn.
+#[test]
+fn exec_spec_validate_rejects_nul_in_program() {
+    let e = exec_spec("ec\u{0}ho", &["hi"]);
+    let err = e.validate("bad").unwrap_err().to_string();
+    assert!(err.contains("program"), "expected program error: {err}");
+    assert!(
+        err.contains("control character"),
+        "expected control char mention: {err}"
+    );
+}
+
+#[test]
+fn exec_spec_validate_rejects_newline_in_args() {
+    let e = exec_spec("echo", &["bad\narg"]);
+    let err = e.validate("bad").unwrap_err().to_string();
+    assert!(err.contains("args[0]"), "expected args[0] error: {err}");
+}
+
+#[test]
+fn exec_spec_validate_rejects_control_in_cwd() {
+    let mut e = exec_spec("echo", &[]);
+    e.cwd = Some(std::path::PathBuf::from("dir\u{0}sub"));
+    let err = e.validate("bad").unwrap_err().to_string();
+    assert!(err.contains("cwd"), "expected cwd error: {err}");
+}
+
+/// TASK-1445: tab is explicitly allowed (common in legitimate args).
+#[test]
+fn exec_spec_validate_allows_tab() {
+    let e = exec_spec("echo", &["a\tb"]);
+    assert!(e.validate("ok").is_ok());
+}
+
+/// TASK-1430: typo of the `program` field reports the Exec error, not
+/// the misleading Composite "missing field `commands`".
+#[test]
+fn command_spec_typo_in_exec_reports_exec_error() {
+    let toml_str = r#"
+[commands.build]
+progam = "cargo"
+"#;
+    let err = toml::from_str::<crate::config::Config>(toml_str)
+        .expect_err("typo'd program field must not parse");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("progam") || msg.contains("unknown field"),
+        "expected Exec-side error mentioning typo'd field, got: {msg}"
+    );
+    assert!(
+        !msg.contains("missing field `commands`"),
+        "must not report misleading Composite error, got: {msg}"
+    );
+}
+
+/// TASK-1430: typo on Composite side reports the Composite error.
+#[test]
+fn command_spec_typo_in_composite_reports_composite_error() {
+    let toml_str = r#"
+[commands.ci]
+commands = ["build", "test"]
+parralel = true
+"#;
+    let err = toml::from_str::<crate::config::Config>(toml_str)
+        .expect_err("typo'd parallel field must not parse");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("parralel") || msg.contains("unknown field"),
+        "expected Composite-side error, got: {msg}"
+    );
+}
+
+/// TASK-1402: `CommandId` is parseable via the standard `str::parse` path.
+#[test]
+fn command_id_from_str() {
+    let id: crate::config::CommandId = "build".parse().expect("infallible");
+    assert_eq!(id.as_str(), "build");
+}
+
 #[test]
 fn read_config_file_valid_toml() {
     let dir = tempfile::tempdir().expect("tempdir");

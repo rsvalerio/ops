@@ -14,36 +14,91 @@ use serde::{Deserialize, Serialize};
 use crate::serde_defaults;
 
 /// Command definition: either a single exec or a composite of multiple commands.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+///
+/// Custom `Deserialize` (ERR-1 / TASK-1430): picks the variant from the
+/// presence of `program` (Exec) or `commands` (Composite) before delegating,
+/// so a typo like `progam = "echo"` surfaces as the *Exec* error
+/// ("unknown field `progam`") instead of the misleading Composite
+/// ("missing field `commands`") that `#[serde(untagged)]` produced.
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum CommandSpec {
     Exec(ExecCommandSpec),
     Composite(CompositeCommandSpec),
 }
 
+impl<'de> Deserialize<'de> for CommandSpec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        use serde::de::{Error, IntoDeserializer};
+        let value = toml::Value::deserialize(deserializer)?;
+        let table = value
+            .as_table()
+            .ok_or_else(|| D::Error::custom("command spec must be a table"))?;
+        let has_program = table.contains_key("program");
+        let has_commands = table.contains_key("commands");
+        if has_program && has_commands {
+            return Err(D::Error::custom(
+                "command spec has both `program` (Exec) and `commands` (Composite); pick one",
+            ));
+        }
+        // Classify by which variant's exclusive fields appear most often.
+        // When neither variant's discriminating key is present (e.g. a typo
+        // like `progam` instead of `program`) we still need to pick a
+        // variant so the user sees an Exec/Composite-specific error
+        // ("unknown field `progam`") rather than the misleading
+        // "missing field `commands`" that `#[serde(untagged)]` produced.
+        const COMPOSITE_KEYS: &[&str] = &["commands", "parallel", "fail_fast"];
+        let composite_score = COMPOSITE_KEYS
+            .iter()
+            .filter(|k| table.contains_key(**k))
+            .count();
+        let pick_composite = has_commands || (!has_program && composite_score > 0);
+        if pick_composite {
+            CompositeCommandSpec::deserialize(value.into_deserializer())
+                .map(CommandSpec::Composite)
+                .map_err(D::Error::custom)
+        } else {
+            ExecCommandSpec::deserialize(value.into_deserializer())
+                .map(CommandSpec::Exec)
+                .map_err(D::Error::custom)
+        }
+    }
+}
+
+/// Shared metadata accessors implemented by every [`CommandSpec`] variant
+/// (`ExecCommandSpec`, `CompositeCommandSpec`). Lets [`CommandSpec`] dispatch
+/// `help` / `category` / `aliases` without one match arm per variant per
+/// accessor — adding a variant only requires implementing this trait.
+pub trait CommandMeta {
+    fn help(&self) -> Option<&str>;
+    fn category(&self) -> Option<&str>;
+    fn aliases(&self) -> &[String];
+}
+
 impl CommandSpec {
+    fn meta(&self) -> &dyn CommandMeta {
+        match self {
+            CommandSpec::Exec(e) => e,
+            CommandSpec::Composite(c) => c,
+        }
+    }
+
     /// Return the help text for this command, if any.
     pub fn help(&self) -> Option<&str> {
-        match self {
-            CommandSpec::Exec(e) => e.help.as_deref(),
-            CommandSpec::Composite(c) => c.help.as_deref(),
-        }
+        self.meta().help()
     }
 
     /// Return the category for this command, if any.
     pub fn category(&self) -> Option<&str> {
-        match self {
-            CommandSpec::Exec(e) => e.category.as_deref(),
-            CommandSpec::Composite(c) => c.category.as_deref(),
-        }
+        self.meta().category()
     }
 
     /// Return the aliases for this command.
     pub fn aliases(&self) -> &[String] {
-        match self {
-            CommandSpec::Exec(e) => &e.aliases,
-            CommandSpec::Composite(c) => &c.aliases,
-        }
+        self.meta().aliases()
     }
 
     /// Fallback description when no `help` text is set.
@@ -81,6 +136,18 @@ pub struct ExecCommandSpec {
     pub category: Option<String>,
 }
 
+impl CommandMeta for ExecCommandSpec {
+    fn help(&self) -> Option<&str> {
+        self.help.as_deref()
+    }
+    fn category(&self) -> Option<&str> {
+        self.category.as_deref()
+    }
+    fn aliases(&self) -> &[String] {
+        &self.aliases
+    }
+}
+
 impl ExecCommandSpec {
     /// Build a minimal [`ExecCommandSpec`] from `program` and `args`.
     ///
@@ -102,6 +169,15 @@ impl ExecCommandSpec {
     }
 
     /// Validate fields that would cause confusing errors at execution time.
+    ///
+    /// ERR-1 (TASK-1445): rejects NUL and other control characters
+    /// (`< 0x20` except `\t`) in `program`, every `args` element, and `cwd`
+    /// so a bad config fails at load with a named error instead of a
+    /// cryptic `EINVAL` at spawn time.
+    ///
+    /// ERR-1 / SEC (TASK-1431): rejects relative `cwd` containing `..`
+    /// components — the symmetric SEC-25 hardening for `ops run <cmd>`
+    /// under a hostile workspace config.
     pub fn validate(&self, name: &str) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.program.is_empty(),
@@ -109,6 +185,22 @@ impl ExecCommandSpec {
         );
         if let Some(0) = self.timeout_secs {
             anyhow::bail!("command '{name}': timeout_secs must be greater than 0");
+        }
+        check_control_chars(name, "program", &self.program)?;
+        for (idx, arg) in self.args.iter().enumerate() {
+            check_control_chars(name, &format!("args[{idx}]"), arg)?;
+        }
+        if let Some(cwd) = &self.cwd {
+            let cwd_str = cwd.to_string_lossy();
+            check_control_chars(name, "cwd", &cwd_str)?;
+            if cwd
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                anyhow::bail!(
+                    "command '{name}': cwd must not contain '..' components (got {cwd_str:?})"
+                );
+            }
         }
         Ok(())
     }
@@ -197,6 +289,24 @@ pub(crate) fn shell_quote(value: &str) -> Cow<'_, str> {
     }
 }
 
+/// ERR-1 (TASK-1445): reject embedded NUL or any C0 control byte
+/// (`< 0x20`) other than horizontal tab. Catches typos like
+/// `program = "\u{0}"`, embedded newlines, and CR/LF smuggling at load
+/// time with a named field rather than a `EINVAL` at spawn.
+fn check_control_chars(name: &str, field: &str, value: &str) -> anyhow::Result<()> {
+    if let Some((idx, ch)) = value
+        .chars()
+        .enumerate()
+        .find(|(_, c)| (*c as u32) < 0x20 && *c != '\t')
+    {
+        anyhow::bail!(
+            "command '{name}': {field} contains control character U+{code:04X} at position {idx}",
+            code = ch as u32,
+        );
+    }
+    Ok(())
+}
+
 fn join_shell_quoted(parts: &[String]) -> String {
     parts
         .iter()
@@ -225,6 +335,18 @@ pub struct CompositeCommandSpec {
     /// Category for grouping in help output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+}
+
+impl CommandMeta for CompositeCommandSpec {
+    fn help(&self) -> Option<&str> {
+        self.help.as_deref()
+    }
+    fn category(&self) -> Option<&str> {
+        self.category.as_deref()
+    }
+    fn aliases(&self) -> &[String] {
+        &self.aliases
+    }
 }
 
 impl CompositeCommandSpec {
@@ -301,6 +423,13 @@ impl From<String> for CommandId {
 impl From<&str> for CommandId {
     fn from(s: &str) -> Self {
         Self(s.to_string())
+    }
+}
+
+impl std::str::FromStr for CommandId {
+    type Err = std::convert::Infallible;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.to_string()))
     }
 }
 

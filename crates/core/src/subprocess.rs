@@ -138,6 +138,12 @@ impl std::error::Error for SpawnError {
 
 /// Error returned by [`run_with_timeout`]: either spawn failed, post-spawn
 /// IO failed, or the child outran the deadline.
+///
+/// TRAIT-1 (TASK-1447): `From` is implemented uniformly for all three
+/// underlying error types so `?` propagation works the same way at every
+/// variant. Without this, `From<io::Error>` alone leaves callers thinking
+/// `?` will propagate every `RunError`, when in practice it only works for
+/// `Io`.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RunError {
@@ -169,6 +175,18 @@ impl std::error::Error for RunError {
 impl From<io::Error> for RunError {
     fn from(e: io::Error) -> Self {
         RunError::Io(e)
+    }
+}
+
+impl From<SpawnError> for RunError {
+    fn from(e: SpawnError) -> Self {
+        RunError::Spawn(e)
+    }
+}
+
+impl From<TimeoutError> for RunError {
+    fn from(e: TimeoutError) -> Self {
+        RunError::Timeout(e)
     }
 }
 
