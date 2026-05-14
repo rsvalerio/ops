@@ -253,23 +253,13 @@ pub fn run_extension_show(
     )
 }
 
-/// Writer-injected entry point for `ops extension show`. Delegates to
-/// [`run_extension_show_with_tty_check`] which contains the
-/// TTY/picker logic; tests construct a buffer and assert on the rendered
-/// output directly without going through `std::io::stdout()`.
+/// DUP-1 / TASK-1449: writer-injected entry point for `ops extension show`.
+/// Contains the TTY / picker logic; tests construct a buffer and assert on
+/// the rendered output directly without going through `std::io::stdout()`.
+/// Previously this was a one-line passthrough into
+/// `run_extension_show_to`; the two are now collapsed into a
+/// single function so the call graph mirrors the doc.
 fn run_extension_show_to<F>(
-    w: &mut dyn Write,
-    config: &ops_core::config::Config,
-    name: Option<&str>,
-    is_tty: F,
-) -> anyhow::Result<()>
-where
-    F: FnOnce() -> bool,
-{
-    run_extension_show_with_tty_check(w, config, name, is_tty)
-}
-
-fn run_extension_show_with_tty_check<F>(
     w: &mut dyn Write,
     config: &ops_core::config::Config,
     name: Option<&str>,
@@ -509,7 +499,7 @@ mod tests {
 
         let config = ops_core::config::load_config_or_default("test");
         let mut buf = Vec::new();
-        let result = run_extension_show_with_tty_check(&mut buf, &config, None, || false);
+        let result = run_extension_show_to(&mut buf, &config, None, || false);
         assert!(
             result.is_err(),
             "run_extension_show should fail without TTY when no name given"
@@ -541,7 +531,7 @@ enabled = []
         // compiled in, so this test instead asserts that the no-TTY
         // path does NOT erroneously claim "no extensions compiled in"
         // when extensions actually are compiled in.
-        let result = run_extension_show_with_tty_check(&mut buf, &config, None, || false);
+        let result = run_extension_show_to(&mut buf, &config, None, || false);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         // When extensions ARE compiled in, the TTY error is the right
@@ -564,7 +554,7 @@ enabled = []
 
     /// Happy-path render of `ops extension show <name>`
     /// must be observable through an injected writer (no stdout
-    /// interception). Pre-fix, `run_extension_show_with_tty_check`
+    /// interception). Pre-fix, `run_extension_show_to`
     /// constructed `let mut w = std::io::stdout()` internally so the
     /// EXTENSION header / field rows could not be asserted from tests.
     #[test]

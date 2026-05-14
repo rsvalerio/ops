@@ -258,10 +258,12 @@ mod tests {
     /// The injection-defence contract is that a
     /// malicious theme name cannot break out of its string-value slot and
     /// inject new TOML structure. Pin three observable properties:
+    ///
     ///   1. surrounding `[output]` keys survive unchanged,
     ///   2. the rewritten document parses without errors,
     ///   3. `[output]` contains only the expected keys — no payload-leaked
     ///      sibling entries from a successful injection.
+    ///
     /// A regression that pasted the raw payload byte-for-byte (breaking
     /// neighbour keys) would have silently passed the prior round-trip-only
     /// assertion.

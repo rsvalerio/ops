@@ -307,12 +307,25 @@ fn check_control_chars(name: &str, field: &str, value: &str) -> anyhow::Result<(
     Ok(())
 }
 
+/// PERF-3 / TASK-1412: render each arg via [`shell_quote`] and join with
+/// spaces directly into a single pre-sized `String`, so the safe-arg fast
+/// path can stay borrowed from [`shell_quote`]'s `Cow::Borrowed` instead
+/// of paying for an intermediate `Vec<String>` plus per-arg
+/// `Cow::into_owned()`.
 fn join_shell_quoted(parts: &[String]) -> String {
-    parts
-        .iter()
-        .map(|p| shell_quote(p).into_owned())
-        .collect::<Vec<_>>()
-        .join(" ")
+    // Lower-bound capacity: every part contributes at least its raw bytes
+    // plus a separating space. The unsafe-quoting path pushes a few more
+    // bytes; treating that as a rare overflow keeps the common dry-run
+    // render to a single allocation.
+    let cap = parts.iter().map(|p| p.len() + 1).sum::<usize>();
+    let mut out = String::with_capacity(cap);
+    for (i, part) in parts.iter().enumerate() {
+        if i > 0 {
+            out.push(' ');
+        }
+        out.push_str(&shell_quote(part));
+    }
+    out
 }
 
 /// Composite command: runs multiple commands (sequential or parallel).

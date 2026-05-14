@@ -345,6 +345,11 @@ pub fn default_timeout(op_default: Duration) -> Duration {
 /// - A drain thread that fails its `read_to_end` mid-read still returns
 ///   the bytes captured before the error, with a `tracing::warn!`
 ///   breadcrumb (ERR-1 / TASK-0694).
+/// - A drain thread that fails *before any byte is captured* is propagated
+///   as [`RunError::Io`] rather than `Ok(Vec::new())` (ARCH-2 / TASK-1426).
+///   This preserves the "empty means the child produced no output" half of
+///   the contract — a zero-byte EIO would otherwise round-trip as a clean
+///   empty stream.
 /// - `Output.stdout` / `Output.stderr` therefore mean exactly "what the
 ///   child wrote and the kernel handed us"; an empty value here always
 ///   means the child produced no output, never that we lost it.
@@ -390,20 +395,8 @@ fn run_with_timeout_inner(
     // cap are still read off the pipe (so the child does not block on a
     // full pipe and we don't false-positive into a timeout) but discarded;
     // the count is reported by `collect_drain` via `tracing::warn!`.
-    let stdout_handle = child.stdout.take().map(|mut s| {
-        thread::spawn(move || -> DrainResult {
-            let mut buf = Vec::new();
-            let (dropped, err) = read_capped(&mut s, &mut buf, cap);
-            (buf, dropped, err)
-        })
-    });
-    let stderr_handle = child.stderr.take().map(|mut s| {
-        thread::spawn(move || -> DrainResult {
-            let mut buf = Vec::new();
-            let (dropped, err) = read_capped(&mut s, &mut buf, cap);
-            (buf, dropped, err)
-        })
-    });
+    let stdout_handle = spawn_drain(child.stdout.take(), cap);
+    let stderr_handle = spawn_drain(child.stderr.take(), cap);
 
     // TASK-0451: single OS-level wait, no polling loop. Returns Ok(None)
     // on timeout, Ok(Some(status)) on exit; the underlying syscall sleeps
@@ -431,6 +424,23 @@ fn run_with_timeout_inner(
         status,
         stdout,
         stderr,
+    })
+}
+
+/// DUP-4 / TASK-1399: shared helper for spawning a drain thread that
+/// captures the bytes a child wrote to one pipe, bounded by `cap`. Both
+/// stdout and stderr go through this one entry point so the two halves
+/// cannot diverge on the next change to read-cap or panic semantics.
+fn spawn_drain<R>(pipe: Option<R>, cap: usize) -> Option<thread::JoinHandle<DrainResult>>
+where
+    R: Read + Send + 'static,
+{
+    pipe.map(|mut s| {
+        thread::spawn(move || -> DrainResult {
+            let mut buf = Vec::new();
+            let (dropped, err) = read_capped(&mut s, &mut buf, cap);
+            (buf, dropped, err)
+        })
     })
 }
 
@@ -475,6 +485,29 @@ fn collect_drain(
             Ok(buf)
         }
         Ok((buf, dropped, Some(err))) => {
+            // ARCH-2 / TASK-1426: a mid-read IO failure that captured *zero*
+            // bytes is indistinguishable from a clean empty stream once we
+            // drop the error, which contradicts the panic-handling contract
+            // ("an empty value here always means the child produced no
+            // output, never that we lost it"). Surface RunError::Io so
+            // downstream cargo parsers don't silently drive decisions off
+            // an authoritatively-empty buffer that was actually an EIO.
+            //
+            // Partial reads (buf non-empty) keep the existing
+            // truncated-with-breadcrumb behaviour: the bytes captured before
+            // the failure are real and callers have historically used them.
+            if buf.is_empty() {
+                tracing::warn!(
+                    label,
+                    stream,
+                    bytes_dropped = dropped,
+                    error = %err,
+                    "subprocess pipe drain failed with no bytes captured; surfacing as RunError::Io"
+                );
+                return Err(RunError::Io(io::Error::other(format!(
+                    "subprocess `{label}` {stream} drain failed before any bytes were captured: {err}"
+                ))));
+            }
             tracing::warn!(
                 label,
                 stream,
@@ -804,6 +837,59 @@ mod tests {
             "small-cap reservation must not over-allocate, got {}",
             buf.capacity()
         );
+    }
+
+    /// ARCH-2 / TASK-1426: when `read_capped` returns an `io::Error` and the
+    /// captured buffer is empty, `collect_drain` must surface a
+    /// `RunError::Io` rather than `Ok(Vec::new())`. Returning `Ok` here
+    /// would make a mid-read EIO indistinguishable from a clean empty
+    /// stream — the same hazard the panic-handling contract closes for
+    /// drain-thread panics.
+    #[test]
+    fn collect_drain_empty_with_error_surfaces_io_error() {
+        let handle = thread::spawn(|| -> DrainResult {
+            (
+                Vec::new(),
+                0,
+                Some(io::Error::new(io::ErrorKind::Other, "synthetic EIO")),
+            )
+        });
+        let err = collect_drain(Some(handle), "arch-2 test", "stdout")
+            .expect_err("empty-buf + Some(err) must propagate as RunError::Io");
+        match err {
+            RunError::Io(e) => {
+                let s = e.to_string();
+                assert!(
+                    s.contains("arch-2 test") && s.contains("stdout"),
+                    "rendered error {s:?} should name label and stream"
+                );
+                assert!(
+                    s.contains("synthetic EIO"),
+                    "rendered error {s:?} should chain the underlying io error"
+                );
+            }
+            other => panic!("expected RunError::Io, got {other:?}"),
+        }
+    }
+
+    /// ARCH-2 / TASK-1426: partial reads (buf non-empty + Some(err)) keep
+    /// the existing truncated-with-breadcrumb contract — bytes captured
+    /// before the failure are real and historically consumed by callers.
+    #[test]
+    fn collect_drain_partial_read_with_error_returns_captured_bytes() {
+        let handle = thread::spawn(|| -> DrainResult {
+            (
+                b"partial".to_vec(),
+                0,
+                Some(io::Error::new(
+                    io::ErrorKind::Other,
+                    "synthetic mid-read EIO",
+                )),
+            )
+        });
+        let buf = collect_drain(Some(handle), "arch-2 test", "stdout")
+            .expect("non-empty buf + Some(err) must keep the truncated-Ok contract");
+        assert_eq!(buf, b"partial");
     }
 
     #[test]
