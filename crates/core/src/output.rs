@@ -29,11 +29,12 @@ pub fn pad_to_display_width(name: &str, target_cols: usize) -> String {
         return name.to_string();
     }
     let pad = target_cols - cols;
+    // PERF-1 / TASK-1396: bulk extend replaces the per-char push loop;
+    // `String::extend` over `repeat(' ').take(pad)` lowers to a single
+    // reserve + memset rather than `pad` separate push branches.
     let mut out = String::with_capacity(name.len() + pad);
     out.push_str(name);
-    for _ in 0..pad {
-        out.push(' ');
-    }
+    out.extend(std::iter::repeat_n(' ', pad));
     out
 }
 
@@ -86,10 +87,24 @@ fn format_error_tail_with_stats(stderr: &[u8], n: usize) -> (String, usize) {
     if n == 0 || stderr.is_empty() {
         return (String::new(), 0);
     }
+    // FN-1 / TASK-1405: each phase (trim, collect, decode) is now an
+    // isolated helper so its byte/line invariants can be read in isolation.
+    let trimmed_end = trim_trailing_terminator(stderr);
+    let buf = &stderr[..trimmed_end];
+    let mut ranges = TailRanges::new(n);
+    let line_scans = collect_tail_ranges(buf, n, &mut ranges);
+    if ranges.is_empty() {
+        return (String::new(), line_scans);
+    }
+    let out = decode_with_cr_normalisation(buf, &ranges);
+    (out, line_scans)
+}
 
-    // Trim a single trailing line terminator. Recognise CRLF, LF, and bare
-    // CR so a stray `\r` at end-of-buffer does not survive into the
-    // rendered tail (PATTERN-1 / TASK-1094).
+/// PATTERN-1 / TASK-1094: trim a single trailing line terminator (CRLF, LF,
+/// or bare CR). Returns the new logical end index of `stderr`. A stray `\r`
+/// at end-of-buffer would otherwise survive into the rendered tail and
+/// render as a cursor-control byte in operator terminals.
+fn trim_trailing_terminator(stderr: &[u8]) -> usize {
     let mut end = stderr.len();
     match stderr.last().copied() {
         Some(b'\n') => {
@@ -98,60 +113,122 @@ fn format_error_tail_with_stats(stderr: &[u8], n: usize) -> (String, usize) {
                 end -= 1;
             }
         }
-        Some(b'\r') => {
-            end -= 1;
-        }
+        Some(b'\r') => end -= 1,
         _ => {}
     }
+    end
+}
 
-    // Walk backwards collecting up to `n` line ranges. Each range stops at
-    // the byte after the preceding `\n` (or 0 for the first line).
-    let buf = &stderr[..end];
-    let mut ranges: std::collections::VecDeque<(usize, usize)> =
-        std::collections::VecDeque::with_capacity(n);
+/// PERF-3 / TASK-1428: collect up to `n` tail line ranges, walking backwards
+/// from the end of `buf`. Returns the number of backwards line scans
+/// performed (asserted by the structural PERF-1 regression test).
+fn collect_tail_ranges(buf: &[u8], n: usize, ranges: &mut TailRanges) -> usize {
     let mut tail_end = buf.len();
     let mut line_scans = 0usize;
     while tail_end > 0 && ranges.len() < n {
         line_scans += 1;
-        let start = match buf[..tail_end].iter().rposition(|b| *b == b'\n') {
-            Some(idx) => idx + 1,
-            None => 0,
-        };
+        let start = buf[..tail_end]
+            .iter()
+            .rposition(|b| *b == b'\n')
+            .map_or(0, |idx| idx + 1);
         // Strip a trailing CR so CRLF-terminated lines render cleanly.
         let mut line_end = tail_end;
         if line_end > start && buf[line_end - 1] == b'\r' {
             line_end -= 1;
         }
-        ranges.push_front((start, line_end));
+        ranges.push_oldest_front((start, line_end));
         tail_end = start.saturating_sub(1);
         if start == 0 {
             break;
         }
     }
+    line_scans
+}
 
-    if ranges.is_empty() {
-        return (String::new(), line_scans);
-    }
-
-    // Decode only the tail segments, joining without an intermediate Vec.
-    // Replace any embedded bare CR bytes with `\n` so they cannot render as
-    // cursor-control sequences in operator terminals (PATTERN-1 / TASK-1094).
-    let mut out =
-        String::with_capacity(ranges.iter().map(|(s, e)| e - s).sum::<usize>() + ranges.len());
+/// PATTERN-1 / TASK-1094 + PERF-3 / TASK-1441: decode the collected ranges
+/// into a single `String`, substituting embedded bare CR with `\n` inline so
+/// progress-bar-style stderr cannot move the cursor in operator terminals.
+/// The inline substitution replaces the previous
+/// `from_utf8_lossy(..).replace('\r', "\n")` pair (two allocations per
+/// CR-bearing line) with a single push pass into the output buffer.
+fn decode_with_cr_normalisation(buf: &[u8], ranges: &TailRanges) -> String {
+    let total_len: usize = ranges.iter().map(|(s, e)| e - s).sum();
+    let mut out = String::with_capacity(total_len + ranges.len());
     let mut first = true;
-    for (s, e) in ranges {
+    for &(s, e) in ranges.iter() {
         if !first {
             out.push('\n');
         }
         first = false;
         let decoded = String::from_utf8_lossy(&buf[s..e]);
-        if decoded.contains('\r') {
-            out.push_str(&decoded.replace('\r', "\n"));
-        } else {
-            out.push_str(&decoded);
+        for ch in decoded.chars() {
+            out.push(if ch == '\r' { '\n' } else { ch });
         }
     }
-    (out, line_scans)
+    out
+}
+
+/// PERF-3 / TASK-1428: stack-backed ring for tail line ranges. The error-tail
+/// formatter is invoked per failed step with `n` config-bounded to a small
+/// value (5 by default; the largest external caller passes 10). A
+/// `[(usize, usize); STACK_CAP]` inline buffer covers the dominant path
+/// with zero heap allocations; for the rare oversized `n` we spill into an
+/// owned `Vec` only on overflow, keeping the inline buffer cold.
+const TAIL_STACK_CAP: usize = 32;
+
+struct TailRanges {
+    stack: [(usize, usize); TAIL_STACK_CAP],
+    stack_len: usize,
+    // Spill: populated only when `n > TAIL_STACK_CAP`. Holds the oldest
+    // ranges; the stack array then holds the newest `TAIL_STACK_CAP` entries.
+    // For the typical small-n path this stays `Vec::new()` (no allocation).
+    spill: Vec<(usize, usize)>,
+}
+
+impl TailRanges {
+    fn new(n: usize) -> Self {
+        let spill = if n > TAIL_STACK_CAP {
+            Vec::with_capacity(n - TAIL_STACK_CAP)
+        } else {
+            Vec::new()
+        };
+        Self {
+            stack: [(0, 0); TAIL_STACK_CAP],
+            stack_len: 0,
+            spill,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.stack_len + self.spill.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.stack_len == 0 && self.spill.is_empty()
+    }
+
+    /// Insert `range` as the new oldest entry. Backward walking emits the
+    /// most-recent line first, so each successive push lands in front of all
+    /// previously collected ranges and the iterator emits them in buffer
+    /// order.
+    fn push_oldest_front(&mut self, range: (usize, usize)) {
+        if self.stack_len < TAIL_STACK_CAP {
+            self.stack.copy_within(0..self.stack_len, 1);
+            self.stack[0] = range;
+            self.stack_len += 1;
+        } else {
+            // Stack is full: the existing oldest entry rolls over into the
+            // spill (front of spill = absolute oldest).
+            let overflow = self.stack[TAIL_STACK_CAP - 1];
+            self.stack.copy_within(0..TAIL_STACK_CAP - 1, 1);
+            self.stack[0] = range;
+            self.spill.insert(0, overflow);
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &(usize, usize)> {
+        self.spill.iter().chain(self.stack[..self.stack_len].iter())
+    }
 }
 
 /// Logical status of a step for step-line rendering.

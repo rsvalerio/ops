@@ -50,7 +50,7 @@ fn render_tools_list(tools: &[ToolInfo], w: &mut dyn Write) -> anyhow::Result<()
         // ToolStatus is `#[non_exhaustive]`, so the
         // wildcard arm is mandatory. It renders via `Display` (a stable
         // user contract) instead of leaking `Debug` shape through the UI.
-        let (status_icon, status_text): (String, Cow<'static, str>) = match tool.status {
+        let (status_icon, status_text): (Cow<'static, str>, Cow<'static, str>) = match tool.status {
             ToolStatus::Installed => (green("✓"), Cow::Borrowed("")),
             ToolStatus::NotInstalled => (red("✗"), Cow::Borrowed(" (NOT INSTALLED)")),
             // ToolStatus::Unknown was removed — it was declared but never

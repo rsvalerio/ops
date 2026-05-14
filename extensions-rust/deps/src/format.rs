@@ -64,6 +64,7 @@ impl SeverityClass {
             Self::Warning => yellow(text),
             Self::Info => dim(text),
         }
+        .into_owned()
     }
 }
 
@@ -305,30 +306,39 @@ fn format_bans_summary(out: &mut String, bans: &[BanEntry]) {
         }
     }
 
-    let mut parts = Vec::new();
+    let mut parts: Vec<String> = Vec::new();
     if errors > 0 {
-        parts.push(red(&format!(
-            "{} error{}",
-            errors,
-            if errors == 1 { "" } else { "s" }
-        )));
+        parts.push(
+            red(&format!(
+                "{} error{}",
+                errors,
+                if errors == 1 { "" } else { "s" }
+            ))
+            .into_owned(),
+        );
     }
     if warnings > 0 {
-        parts.push(yellow(&format!(
-            "{} warning{}",
-            warnings,
-            if warnings == 1 { "" } else { "s" }
-        )));
+        parts.push(
+            yellow(&format!(
+                "{} warning{}",
+                warnings,
+                if warnings == 1 { "" } else { "s" }
+            ))
+            .into_owned(),
+        );
     }
     if infos > 0 {
-        parts.push(dim(&format!("{infos} info")));
+        parts.push(dim(&format!("{infos} info")).into_owned());
     }
     if unknowns > 0 {
-        parts.push(red(&format!(
-            "{} unknown severit{}",
-            unknowns,
-            if unknowns == 1 { "y" } else { "ies" }
-        )));
+        parts.push(
+            red(&format!(
+                "{} unknown severit{}",
+                unknowns,
+                if unknowns == 1 { "y" } else { "ies" }
+            ))
+            .into_owned(),
+        );
     }
 
     let _ = writeln!(
@@ -485,7 +495,7 @@ mod helper_tests {
         // for unknown advisory severities.
         let red_unknown = red("2 unknown severities");
         assert!(
-            out.contains(&red_unknown),
+            out.contains(red_unknown.as_ref()),
             "unknown-severity counter must render in red, not dim: {out}"
         );
     }

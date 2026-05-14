@@ -52,15 +52,21 @@ pub(crate) fn emit_to<W: Write>(level: &str, message: &str, w: &mut W) {
     // as continuation lines indented under the prefix, and an attacker-
     // injected `\n` cannot forge a top-level `ops: <level>:` line. Each
     // physical line is then sanitised to neutralise ANSI / control bytes.
+    //
+    // PERF-3 / TASK-1422: render the full output into a single buffer and
+    // emit it with one `write_all`. Stderr is unbuffered when piped (the
+    // typical CI / capture path), so a writeln-per-line loop issued N
+    // separate syscalls and risked interleaving with parallel writers.
     let mut buf = String::with_capacity(message.len() + level.len() + 8);
     let mut first = true;
     for line in message.split('\n') {
-        buf.clear();
-        sanitise_line(line, &mut buf);
         let prefix = if first { "" } else { "  " };
-        let _ = writeln!(w, "ops: {level}: {prefix}{buf}");
+        let _ = write!(buf, "ops: {level}: {prefix}");
+        sanitise_line(line, &mut buf);
+        buf.push('\n');
         first = false;
     }
+    let _ = w.write_all(buf.as_bytes());
 }
 
 /// Print an informational note, e.g. `ops: note: ...`.

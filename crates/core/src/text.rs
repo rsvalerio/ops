@@ -1,5 +1,6 @@
 //! Shared text utilities.
 
+use std::borrow::Cow;
 use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -199,7 +200,14 @@ pub fn format_number(n: i64) -> String {
         };
         return format!("-{}", insert_thousands_separators(&magnitude));
     }
-    insert_thousands_separators(&n.to_string())
+    // PERF-3 / TASK-1432: sub-1000 magnitudes (the dominant case in
+    // language-breakdown / about-card rendering) reuse the digit string
+    // directly instead of paying a second allocation via `to_string()`.
+    let digits = n.to_string();
+    match insert_thousands_separators(&digits) {
+        Cow::Borrowed(_) => digits,
+        Cow::Owned(owned) => owned,
+    }
 }
 
 /// PERF-3 (TASK-1065): single forward pass over ASCII digits, no second
@@ -214,12 +222,14 @@ pub fn format_number(n: i64) -> String {
 /// remaining 3-digit group push a separator followed by the group. The fast
 /// path for fewer than four digits returns the input unchanged with no comma
 /// allocation overhead beyond the single output `String`.
-fn insert_thousands_separators(digits: &str) -> String {
+fn insert_thousands_separators(digits: &str) -> Cow<'_, str> {
     let bytes = digits.as_bytes();
     let len = bytes.len();
     if len <= 3 {
-        // Zero-comma fast path: no separator needed for `n.abs() < 1000`.
-        return digits.to_string();
+        // PERF-3 / TASK-1432: zero-comma fast path returns the input
+        // verbatim — callers (`format_number`) can reuse the digit string
+        // they already own without a second allocation.
+        return Cow::Borrowed(digits);
     }
     let mut result = String::with_capacity(len + (len - 1) / 3);
     let head = match len % 3 {
@@ -235,7 +245,7 @@ fn insert_thousands_separators(digits: &str) -> String {
         result.push_str(&digits[i..i + 3]);
         i += 3;
     }
-    result
+    Cow::Owned(result)
 }
 
 /// Extract the last path component as a project name, falling back to `"project"`.

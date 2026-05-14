@@ -5,6 +5,7 @@
 //! captured test buffers) stays plain text. Mirrors the gating in
 //! `theme::style::sgr::color_enabled` so the two color subsystems agree.
 
+use std::borrow::Cow;
 use std::io::IsTerminal;
 use std::sync::OnceLock;
 
@@ -41,25 +42,28 @@ pub fn no_color_env() -> bool {
 macro_rules! ansi_style {
     ($(#[$meta:meta])* $name:ident, $gated_name:ident, $code:expr) => {
         $(#[$meta])*
-        pub fn $name(s: &str) -> String {
+        pub fn $name(s: &str) -> Cow<'_, str> {
             style_gated(s, $code, color_enabled())
         }
 
-        /// Same as [`Self::$name`] but with an explicit color-enabled
-        /// override — used by callers that compute their own TTY state
-        /// (e.g. against an injected writer) and tests that need to
-        /// observe the styled-branch output regardless of process stdout.
-        pub fn $gated_name(s: &str, enabled: bool) -> String {
+        /// Same as [`$name`] but with an explicit color-enabled override —
+        /// used by callers that compute their own TTY state (e.g. against
+        /// an injected writer) and tests that need to observe the styled-
+        /// branch output regardless of process stdout.
+        pub fn $gated_name(s: &str, enabled: bool) -> Cow<'_, str> {
             style_gated(s, $code, enabled)
         }
     };
 }
 
-fn style_gated(s: &str, code: u8, enabled: bool) -> String {
+// PERF-5 / TASK-1397: color-disabled output is the dominant CI / piped case;
+// returning `Cow::Borrowed` then skips the per-call heap allocation that
+// `s.to_string()` previously forced on every `cyan`/`grey`/`dim` invocation.
+fn style_gated(s: &str, code: u8, enabled: bool) -> Cow<'_, str> {
     if enabled {
-        format!("\x1b[{code}m{s}\x1b[0m")
+        Cow::Owned(format!("\x1b[{code}m{s}\x1b[0m"))
     } else {
-        s.to_string()
+        Cow::Borrowed(s)
     }
 }
 
@@ -78,7 +82,9 @@ mod tests {
 
     #[test]
     fn gated_disabled_returns_plain() {
-        assert_eq!(style_gated("hi", 36, false), "hi");
+        let out = style_gated("hi", 36, false);
+        assert_eq!(out, "hi");
+        assert!(matches!(out, Cow::Borrowed(_)));
     }
 
     #[test]

@@ -399,15 +399,7 @@ fn write_object_header(
     description: &str,
     is_tty: bool,
 ) -> anyhow::Result<()> {
-    writeln!(
-        w,
-        "{kind}: {}",
-        if is_tty {
-            style::cyan(name)
-        } else {
-            name.to_string()
-        }
-    )?;
+    writeln!(w, "{kind}: {}", style::cyan_gated(name, is_tty))?;
     writeln!(w, "{description}")?;
     writeln!(w)?;
     Ok(())

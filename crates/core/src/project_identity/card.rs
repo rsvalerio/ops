@@ -292,7 +292,7 @@ fn render_field(
     cont_indent: &str,
     is_tty: bool,
 ) -> Vec<String> {
-    let styled = |s: &str| dim_gated(s, is_tty);
+    let styled = |s: &str| dim_gated(s, is_tty).into_owned();
     let emoji = field_emoji(key, value);
     let mut value_lines = value.split('\n');
     let first = value_lines.next().unwrap_or("");
