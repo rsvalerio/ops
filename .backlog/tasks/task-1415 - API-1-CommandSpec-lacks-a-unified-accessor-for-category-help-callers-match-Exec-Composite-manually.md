@@ -3,11 +3,11 @@ id: TASK-1415
 title: >-
   API-1: CommandSpec lacks a unified accessor for category/help; callers match
   Exec/Composite manually
-status: To Do
+status: Done
 assignee:
   - TASK-1456
 created_date: '2026-05-13 18:17'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 07:39'
 labels:
   - code-review-rust
   - api

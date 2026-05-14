@@ -3,11 +3,11 @@ id: TASK-1430
 title: >-
   API-1: CommandSpec untagged+deny_unknown_fields produces misleading 'missing
   field' errors on Exec-side typos
-status: To Do
+status: Done
 assignee:
   - TASK-1456
 created_date: '2026-05-13 18:23'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 07:40'
 labels:
   - code-review-rust
   - API

@@ -3,11 +3,11 @@ id: TASK-1447
 title: >-
   TRAIT-1: RunError From impls are asymmetric — From<io::Error> exists but not
   for SpawnError/TimeoutError
-status: To Do
+status: Done
 assignee:
   - TASK-1456
 created_date: '2026-05-13 18:45'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 07:42'
 labels:
   - code-review-rust
   - traits

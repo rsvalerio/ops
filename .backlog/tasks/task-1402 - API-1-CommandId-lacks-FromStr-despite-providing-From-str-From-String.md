@@ -1,11 +1,11 @@
 ---
 id: TASK-1402
 title: 'API-1: CommandId lacks FromStr despite providing From<&str> / From<String>'
-status: To Do
+status: Done
 assignee:
   - TASK-1456
 created_date: '2026-05-13 18:10'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 07:39'
 labels:
   - code-review-rust
   - API

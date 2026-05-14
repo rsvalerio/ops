@@ -3,11 +3,11 @@ id: TASK-1431
 title: >-
   ERR-1: ExecCommandSpec::validate accepts cwd containing '..' that escapes the
   workspace
-status: To Do
+status: Done
 assignee:
   - TASK-1456
 created_date: '2026-05-13 18:23'
-updated_date: '2026-05-13 19:09'
+updated_date: '2026-05-14 07:41'
 labels:
   - code-review-rust
   - ERR
