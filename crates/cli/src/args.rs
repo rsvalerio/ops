@@ -251,9 +251,10 @@ pub(crate) fn hide_irrelevant_commands(
 
 pub(crate) fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
     if args.len() > 1 && args[1] == "ops" {
-        std::iter::once(args[0].clone())
-            .chain(args.into_iter().skip(2))
-            .collect()
+        let mut it = args.into_iter();
+        let program = it.next().expect("len > 1 implies a program arg");
+        let _ops_prefix = it.next();
+        std::iter::once(program).chain(it).collect()
     } else {
         args
     }

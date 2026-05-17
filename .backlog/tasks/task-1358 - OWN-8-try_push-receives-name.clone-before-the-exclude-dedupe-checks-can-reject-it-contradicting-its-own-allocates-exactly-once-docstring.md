@@ -3,11 +3,11 @@ id: TASK-1358
 title: >-
   OWN-8: try_push receives name.clone() before the exclude/dedupe checks can
   reject it, contradicting its own 'allocates exactly once' docstring
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 21:28'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:16'
 labels:
   - code-review-rust
   - ownership
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Change try_push to take name: &str and clone only on the insert success branch
-- [ ] #2 Update the function-level doc to state 'surviving names allocate exactly once; rejected names never allocate' and add a regression test asserting no allocation on the exclude path (or document why a test is impractical)
+- [x] #1 Change try_push to take name: &str and clone only on the insert success branch
+- [x] #2 Update the function-level doc to state 'surviving names allocate exactly once; rejected names never allocate' and add a regression test asserting no allocation on the exclude path (or document why a test is impractical)
 <!-- AC:END -->

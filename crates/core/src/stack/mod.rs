@@ -113,11 +113,28 @@ impl Stack {
     /// TOML once; subsequent calls clone from the cache (`IndexMap<String,
     /// CommandSpec>` clone is O(n) on entries, but avoids re-running the
     /// TOML parser on every `ops <cmd>` dispatch).
+    ///
+    /// OWN-8 (TASK-1469): prefer [`Self::default_commands_ref`] for
+    /// read-only callers; this owning form exists for callers that need
+    /// to move the map into a mutable target (e.g. `ops init` scaffolds
+    /// the result into a writable [`Config`]).
     pub fn default_commands(&self) -> IndexMap<String, CommandSpec> {
+        self.default_commands_ref().clone()
+    }
+
+    /// OWN-8 (TASK-1469): borrowing accessor over the memoized
+    /// default-commands map. Returns a `'static` reference into the
+    /// process-wide cache so repeat calls allocate zero `CommandSpec`
+    /// contents.
+    ///
+    /// `default_commands_cache` populates an entry for every `Stack`
+    /// variant during `OnceLock` initialisation (via `Self::iter`), so the
+    /// `expect` is a documented invariant violation rather than a runtime
+    /// concern.
+    pub fn default_commands_ref(&self) -> &'static IndexMap<String, CommandSpec> {
         Self::default_commands_cache()
             .get(self)
-            .cloned()
-            .unwrap_or_default()
+            .expect("default_commands_cache must contain an entry for every Stack variant")
     }
 
     fn default_commands_cache() -> &'static HashMap<Stack, IndexMap<String, CommandSpec>> {
@@ -345,7 +362,7 @@ mod tests {
 
     #[test]
     fn rust_has_default_commands() {
-        let cmds = Stack::Rust.default_commands();
+        let cmds = Stack::Rust.default_commands_ref();
         assert!(cmds.contains_key("build"));
         assert!(cmds.contains_key("test"));
         assert!(cmds.contains_key("verify"));
@@ -353,7 +370,7 @@ mod tests {
 
     #[test]
     fn generic_has_no_default_commands() {
-        let cmds = Stack::Generic.default_commands();
+        let cmds = Stack::Generic.default_commands_ref();
         assert!(cmds.is_empty());
     }
 
@@ -565,7 +582,7 @@ mod tests {
             Stack::JavaMaven,
             Stack::JavaGradle,
         ] {
-            let cmds = stack.default_commands();
+            let cmds = stack.default_commands_ref();
             assert!(
                 cmds.contains_key("verify"),
                 "stack {} default TOML must define verify",
@@ -581,7 +598,7 @@ mod tests {
 
     #[test]
     fn rust_clippy_aliased_to_lint() {
-        let cmds = Stack::Rust.default_commands();
+        let cmds = Stack::Rust.default_commands_ref();
         let clippy = cmds.get("clippy").expect("clippy must exist");
         assert!(
             clippy.aliases().iter().any(|a| a == "lint"),
@@ -595,7 +612,7 @@ mod tests {
 
     #[test]
     fn go_vet_aliased_to_lint() {
-        let cmds = Stack::Go.default_commands();
+        let cmds = Stack::Go.default_commands_ref();
         let vet = cmds.get("vet").expect("vet must exist");
         assert!(
             vet.aliases().iter().any(|a| a == "lint"),
@@ -609,7 +626,7 @@ mod tests {
 
     #[test]
     fn python_defines_lint_composite() {
-        let cmds = Stack::Python.default_commands();
+        let cmds = Stack::Python.default_commands_ref();
         assert!(
             cmds.contains_key("lint"),
             "python must define `lint` composite"
@@ -652,6 +669,16 @@ mod tests {
                 "memoized default_commands diverged at key {k}"
             );
         }
+    }
+
+    /// OWN-8 (TASK-1469): `default_commands_ref` must hand out a stable
+    /// pointer into the process-wide cache so read-only callers do not
+    /// deep-clone the `IndexMap`/`CommandSpec` payload on every dispatch.
+    #[test]
+    fn default_commands_ref_returns_identical_pointer_across_calls() {
+        let a: *const IndexMap<String, CommandSpec> = Stack::Rust.default_commands_ref();
+        let b: *const IndexMap<String, CommandSpec> = Stack::Rust.default_commands_ref();
+        assert_eq!(a, b, "cached default_commands_ref must not reallocate");
     }
 
     /// ERR-1 (TASK-1413): when the embedded TOML fails to parse, the

@@ -179,29 +179,35 @@ pub fn gather_available_commands(
     let mut options: Vec<SelectOption> = Vec::new();
 
     // A single helper handles the exclude/dedup/push body so the priority
-    // order (config > stack > extensions) is explicit at the call site and
-    // each name allocates exactly once (was twice — one clone into a
-    // separate `seen` HashSet, one into the SelectOption). Dedup is a
+    // order (config > stack > extensions) is explicit at the call site.
+    //
+    // OWN-8 (TASK-1358): `try_push` borrows the name and clones only on
+    // the surviving-insert branch. Surviving names allocate exactly once
+    // (into the `SelectOption`); names that match `exclude_name` or
+    // collide with an already-collected option never allocate. Dedup is a
     // linear scan over `options`, which is fine for the handful of
     // commands a hook selection lists.
-    let mut try_push = |name: String, spec: &CommandSpec| {
+    let mut try_push = |name: &str, spec: &CommandSpec| {
         if name == exclude_name || options.iter().any(|o| o.name == name) {
             return;
         }
         let description = command_description(spec);
-        options.push(SelectOption { name, description });
+        options.push(SelectOption {
+            name: name.to_string(),
+            description,
+        });
     };
 
     for (name, spec) in &config.commands {
-        try_push(name.clone(), spec);
+        try_push(name, spec);
     }
     if let Some(stack) = stack {
-        for (name, spec) in stack.default_commands() {
-            try_push(name, &spec);
+        for (name, spec) in stack.default_commands_ref() {
+            try_push(name, spec);
         }
     }
     for (name, spec) in cmd_registry {
-        try_push(name.to_string(), spec);
+        try_push(name.as_ref(), spec);
     }
 
     options
@@ -313,6 +319,40 @@ mod tests {
         assert!(
             names.contains(&"deploy"),
             "extension-provided commands should appear in the selection list: {names:?}"
+        );
+    }
+
+    /// OWN-8 (TASK-1358): excluded and duplicate names must not be
+    /// pushed into `options`. Asserting *zero allocation* on the reject
+    /// path would require a custom global allocator and is not worth the
+    /// fixture cost; this test pins the observable behaviour instead —
+    /// the hook name is never offered for selection and the same name
+    /// appearing in multiple sources surfaces exactly once.
+    #[test]
+    fn gather_skips_excluded_and_duplicate_names() {
+        let mut config = Config::default();
+        config.commands.insert(
+            "run-before-commit".to_string(),
+            CommandSpec::Composite(CompositeCommandSpec::new(["verify"])),
+        );
+        config.commands.insert(
+            "build".to_string(),
+            CommandSpec::Exec(ExecCommandSpec::new("cargo", ["build"])),
+        );
+
+        let empty = ops_extension::CommandRegistry::new();
+        let options =
+            gather_available_commands(&config, Some(Stack::Rust), &empty, "run-before-commit");
+        let names: Vec<&str> = options.iter().map(|o| o.name.as_str()).collect();
+
+        assert!(
+            !names.contains(&"run-before-commit"),
+            "excluded hook command leaked into options: {names:?}"
+        );
+        let build_count = names.iter().filter(|n| **n == "build").count();
+        assert_eq!(
+            build_count, 1,
+            "config 'build' and stack 'build' must dedupe to a single entry: {names:?}"
         );
     }
 

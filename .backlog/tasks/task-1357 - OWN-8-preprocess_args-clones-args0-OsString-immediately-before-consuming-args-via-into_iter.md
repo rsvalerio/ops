@@ -3,11 +3,11 @@ id: TASK-1357
 title: >-
   OWN-8: preprocess_args clones args[0] (OsString) immediately before consuming
   args via into_iter
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 21:28'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:14'
 labels:
   - code-review-rust
   - ownership
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Rewrite preprocess_args so args[0] is moved out via .next() instead of cloned
-- [ ] #2 args::tests pass unchanged; no new clippy::redundant_clone or clippy::needless_collect warnings
+- [x] #1 Rewrite preprocess_args so args[0] is moved out via .next() instead of cloned
+- [x] #2 args::tests pass unchanged; no new clippy::redundant_clone or clippy::needless_collect warnings
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-1469
 title: 'OWN-8: Stack::default_commands clones cached IndexMap on every call'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-16 10:05'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 09:13'
 labels:
   - code-review-rust
   - performance
@@ -24,7 +24,7 @@ priority: high
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add a borrowing accessor default_commands_ref(&self) -> &'static IndexMap<String, CommandSpec> (or Arc<IndexMap<...>>); keep the owning default_commands for callers that mutate
-- [ ] #2 Migrate read-only callers to the borrowed form
-- [ ] #3 Benchmark or assert via Arc::ptr_eq/identity that repeat calls do not allocate CommandSpec contents
+- [x] #1 Add a borrowing accessor default_commands_ref(&self) -> &'static IndexMap<String, CommandSpec> (or Arc<IndexMap<...>>); keep the owning default_commands for callers that mutate
+- [x] #2 Migrate read-only callers to the borrowed form
+- [x] #3 Benchmark or assert via Arc::ptr_eq/identity that repeat calls do not allocate CommandSpec contents
 <!-- AC:END -->
