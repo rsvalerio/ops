@@ -3,11 +3,11 @@ id: TASK-1474
 title: >-
   ERR-1: expand.rs test-helpers swallow Mutex poison and return a count without
   surfacing it
-status: To Do
+status: Done
 assignee:
   - TASK-1480
 created_date: '2026-05-16 10:06'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 07:57'
 labels:
   - code-review-rust
   - tests

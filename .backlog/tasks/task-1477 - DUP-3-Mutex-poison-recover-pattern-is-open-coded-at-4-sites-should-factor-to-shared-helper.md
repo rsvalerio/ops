@@ -3,11 +3,11 @@ id: TASK-1477
 title: >-
   DUP-3: Mutex poison-recover pattern is open-coded at 4+ sites; should factor
   to shared helper
-status: To Do
+status: Done
 assignee:
   - TASK-1480
 created_date: '2026-05-16 10:06'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 07:56'
 labels:
   - code-review-rust
   - duplication

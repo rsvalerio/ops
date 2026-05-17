@@ -3,11 +3,11 @@ id: TASK-1470
 title: >-
   ERR-5: stack/detect.rs uses .expect on Mutex lock instead of poison-recover
   policy
-status: To Do
+status: Done
 assignee:
   - TASK-1480
 created_date: '2026-05-16 10:06'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 07:56'
 labels:
   - code-review-rust
   - error-handling
