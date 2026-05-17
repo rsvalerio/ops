@@ -10,7 +10,7 @@ mod plan;
 mod tests;
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use ops_runner::command::StepResult;
@@ -167,9 +167,9 @@ fn run_commands(
     };
 
     let results = if raw {
-        run_commands_raw(&runner, plan, tap.as_ref(), verbose)?
+        run_commands_raw(&runner, plan, tap.as_deref(), verbose)?
     } else {
-        run_commands_with_display(&runner, plan, tap, verbose)?
+        run_commands_with_display(&runner, plan, tap.as_deref(), verbose)?
     };
     Ok(summarize(&results))
 }
@@ -188,7 +188,7 @@ struct PlanShape<'a> {
 fn run_commands_raw(
     runner: &ops_runner::command::CommandRunner,
     plan: PlanShape<'_>,
-    tap: Option<&PathBuf>,
+    tap: Option<&Path>,
     verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
     emit_raw_warnings(plan.any_parallel, tap.is_some(), verbose);
@@ -277,7 +277,7 @@ fn emit_raw_warnings(any_parallel: bool, has_tap: bool, verbose: bool) {
 fn run_commands_with_display(
     runner: &ops_runner::command::CommandRunner,
     plan: PlanShape<'_>,
-    tap: Option<PathBuf>,
+    tap: Option<&Path>,
     verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
     let display_map = build_display_map(runner, plan.leaf_ids);
@@ -285,7 +285,7 @@ fn run_commands_with_display(
         runner.output_config(),
         display_map,
         &runner.config().themes,
-        tap,
+        tap.map(PathBuf::from),
         verbose,
     ))?;
 
