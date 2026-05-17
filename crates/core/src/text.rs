@@ -123,6 +123,58 @@ pub fn manifest_max_bytes() -> u64 {
     )
 }
 
+/// Open `path` for reading while atomically refusing to follow symlinks.
+///
+/// SEC-25 (TASK-1442 / TASK-1461 / TASK-1468): `ops` is invoked on
+/// third-party repos; an adversarial repo can plant
+/// `package.json -> /etc/passwd` (or `.ops.toml -> /etc/shadow`) and leak
+/// privileged file contents through diagnostics. Refusing symlinks at the
+/// kernel level via `O_NOFOLLOW` on Unix closes the TOCTOU race between a
+/// `symlink_metadata` probe and `File::open` (which follows symlinks).
+///
+/// On Unix the open fails with `ELOOP` when the final path component is a
+/// symlink; that is remapped to `ErrorKind::InvalidInput` with a stable
+/// `refusing to follow symlink at <path>` message so SEC-25 tests pin a
+/// single surface across libc variants (Linux returns `ELOOP`; some BSDs
+/// return `EMLINK`). On non-Unix targets the helper falls back to a
+/// `symlink_metadata` probe — TOCTOU-prone but acceptable since the
+/// adversarial-repo threat model is exercised on Unix.
+pub(crate) fn open_refusing_symlinks(path: &Path) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        match std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+        {
+            Ok(f) => Ok(f),
+            Err(e) if is_symlink_refusal(&e) => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("refusing to follow symlink at {:?}", path.display()),
+            )),
+            Err(e) => Err(e),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        if let Ok(meta) = std::fs::symlink_metadata(path) {
+            if meta.file_type().is_symlink() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("refusing to follow symlink at {:?}", path.display()),
+                ));
+            }
+        }
+        std::fs::File::open(path)
+    }
+}
+
+#[cfg(unix)]
+fn is_symlink_refusal(e: &std::io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(libc::ELOOP) | Some(libc::EMLINK))
+}
+
 /// Read `path` to a `String`, capped at [`manifest_max_bytes`] bytes.
 ///
 /// On a file larger than the cap, returns `Err` with `ErrorKind::InvalidData`
@@ -139,25 +191,10 @@ pub fn read_capped_to_string(path: &Path) -> std::io::Result<String> {
 /// Used by unit tests to exercise the cap-handling behaviour without
 /// depending on the process-global memoised [`manifest_max_bytes`] value.
 fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> {
-    // SEC-25 / TASK-1442: refuse to follow symlinks at manifest paths.
-    // `ops` is invoked on third-party repos; an adversarial repo can plant
-    // `package.json -> /etc/passwd` (or any privileged file the invoking
-    // user can read) and leak its contents through diagnostics. Probe with
-    // `symlink_metadata` and bail before opening if the entry is a symlink.
-    // NotFound and other probe errors fall through to `File::open`, which
-    // produces the same diagnostic the caller would have seen pre-fix.
-    if let Ok(meta) = std::fs::symlink_metadata(path) {
-        if meta.file_type().is_symlink() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("refusing to follow symlink at {}", path.display()),
-            ));
-        }
-    }
     // ERR-4 / TASK-1393: attach the path to io::Error propagation so a
     // bare `PermissionDenied`/`NotFound`/`IsADirectory` surfaces with the
     // file name, matching the oversize InvalidData branch below.
-    let mut file = std::fs::File::open(path).map_err(|e| with_path(e, path))?;
+    let mut file = open_refusing_symlinks(path).map_err(|e| with_path(e, path))?;
     let mut buf = String::new();
     let limit = cap.saturating_add(1);
     (&mut file)

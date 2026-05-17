@@ -23,6 +23,9 @@ terminal_size = { workspace = true }
 shellexpand = { workspace = true }
 wait-timeout = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 proptest = { workspace = true }

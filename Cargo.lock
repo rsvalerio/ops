@@ -2230,6 +2230,7 @@ dependencies = [
  "comfy-table",
  "config",
  "indexmap",
+ "libc",
  "proptest",
  "serde",
  "serial_test",

@@ -20,7 +20,7 @@ use tracing::{debug, instrument};
 
 use super::merge::merge_config;
 use super::{default_ops_toml, Config, ConfigOverlay};
-use crate::text::cached_byte_cap_env;
+use crate::text::{cached_byte_cap_env, open_refusing_symlinks};
 
 /// SEC-33 / TASK-0943: default cap on `.ops.toml` (and `.ops.d/*.toml`,
 /// global config) reads. Real-world ops configs are well under 256 KiB,
@@ -76,12 +76,22 @@ pub(crate) fn read_capped_toml_file(path: &Path) -> anyhow::Result<Option<String
 /// `ops_toml_max_bytes` `OnceLock` (which is process-global and cannot be
 /// re-initialised once another test has populated it).
 pub(crate) fn read_capped_toml_file_with(path: &Path, cap: u64) -> anyhow::Result<Option<String>> {
-    let mut file = match std::fs::File::open(path) {
+    // SEC-25 (TASK-1468): refuse to follow symlinks at config paths. An
+    // adversarial repo planting `.ops.toml -> /etc/shadow` would otherwise
+    // be slurped into the TOML parser and echoed back through diagnostics.
+    // Shared with `text::read_capped_to_string_with` so the two read_capped_*
+    // entry points cannot diverge again.
+    let mut file = match open_refusing_symlinks(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => {
+            // SEC-21 (TASK-1472): Debug-format the path so a user-controlled
+            // cwd containing newlines / ANSI escapes cannot forge log lines
+            // through `tracing::warn!` consumers of this anyhow chain (e.g.
+            // `load_config_or_default_with`). Matches the policy at
+            // `text.rs::for_each_trimmed_line_with` and `stack/detect.rs`.
             return Err(e)
-                .with_context(|| format!("failed to open config file: {}", path.display()));
+                .with_context(|| format!("failed to open config file: {:?}", path.display()));
         }
     };
     let limit = cap.saturating_add(1);
@@ -89,10 +99,12 @@ pub(crate) fn read_capped_toml_file_with(path: &Path, cap: u64) -> anyhow::Resul
     (&mut file)
         .take(limit)
         .read_to_string(&mut content)
-        .with_context(|| format!("failed to read config file: {}", path.display()))?;
+        .with_context(|| format!("failed to read config file: {:?}", path.display()))?;
     if content.len() as u64 > cap {
+        // SEC-21 (TASK-1472): same Debug-format policy for the bounded-read
+        // bail. The `?` debug repr keeps newlines / ANSI escapes inert.
         anyhow::bail!(
-            "config file at {} exceeds {cap} bytes (override via {OPS_TOML_MAX_BYTES_ENV})",
+            "config file at {:?} exceeds {cap} bytes (override via {OPS_TOML_MAX_BYTES_ENV})",
             path.display()
         );
     }
@@ -314,7 +326,7 @@ pub fn read_config_file(path: &Path) -> anyhow::Result<Option<ConfigOverlay>> {
         return Ok(None);
     };
     let overlay = toml::from_str(&s)
-        .with_context(|| format!("failed to parse config file: {}", path.display()))?;
+        .with_context(|| format!("failed to parse config file: {:?}", path.display()))?;
     Ok(Some(overlay))
 }
 
@@ -337,14 +349,14 @@ fn read_conf_d_files(dir: &Path) -> anyhow::Result<Option<Vec<PathBuf>>> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => {
             return Err(e)
-                .with_context(|| format!("failed to read .ops.d directory: {}", dir.display()));
+                .with_context(|| format!("failed to read .ops.d directory: {:?}", dir.display()));
         }
     };
     let mut files: Vec<PathBuf> = Vec::new();
     for entry in entries {
         let entry = entry.with_context(|| {
             format!(
-                "failed to read entry in .ops.d directory: {}",
+                "failed to read entry in .ops.d directory: {:?}",
                 dir.display()
             )
         })?;
@@ -382,7 +394,7 @@ fn merge_conf_d(config: &mut Config, workspace_root: &Path) -> anyhow::Result<()
             }
             Ok(None) => {
                 anyhow::bail!(
-                    "config overlay listed in .ops.d disappeared or is a broken symlink: {}",
+                    "config overlay listed in .ops.d disappeared or is a broken symlink: {:?}",
                     path.display()
                 );
             }
@@ -703,6 +715,64 @@ args = ["hello"]
         assert!(
             msg.contains(OPS_TOML_MAX_BYTES_ENV),
             "error must name the override env var, got: {msg}"
+        );
+    }
+
+    /// SEC-25 / TASK-1468: a planted `.ops.toml -> /etc/passwd` (or any
+    /// other privileged target) must be rejected by `read_capped_toml_file`
+    /// before `File::open` follows the symlink. The shared
+    /// `text::open_refusing_symlinks` helper applies `O_NOFOLLOW` so the
+    /// kernel atomically refuses to dereference the link — closing the
+    /// TOCTOU race that a `symlink_metadata` pre-probe would have left open.
+    #[cfg(unix)]
+    #[test]
+    fn read_capped_toml_file_refuses_to_follow_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("secret.toml");
+        fs::write(&target, b"[secret]\nkey = \"sentinel-must-not-leak\"\n").unwrap();
+        let link = dir.path().join(".ops.toml");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let err = read_capped_toml_file_with(&link, 1024)
+            .expect_err("symlinked .ops.toml must be rejected");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("symlink"),
+            "error should mention symlink, got: {msg}"
+        );
+        assert!(
+            !msg.contains("sentinel-must-not-leak"),
+            "target contents must not leak through the error, got: {msg}"
+        );
+    }
+
+    /// SEC-21 / TASK-1472: when a `.ops.toml` path contains a newline / ANSI
+    /// escape, the bounded-read `bail!` and the open/read `with_context`
+    /// formatters must render the path through Debug so consumers that emit
+    /// the anyhow chain via `tracing::warn!` cannot be tricked into forged
+    /// log lines. We exercise the bail branch (oversize) — it goes through
+    /// the same Debug-format policy as the open/read branches just above.
+    #[cfg(unix)]
+    #[test]
+    fn read_capped_toml_file_error_debug_escapes_control_characters() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("evil\n\u{1b}[31m.ops.toml");
+        fs::write(&path, "x".repeat(256)).unwrap();
+
+        let err = read_capped_toml_file_with(&path, 16)
+            .expect_err("oversize payload must error so we see the bail!");
+        let msg = format!("{err:#}");
+        assert!(
+            !msg.contains('\n'),
+            "raw newline must be Debug-escaped, got: {msg}"
+        );
+        assert!(
+            !msg.contains('\u{1b}'),
+            "ANSI escape must be Debug-escaped, got: {msg}"
+        );
+        assert!(
+            msg.contains("\\n"),
+            "newline must render as escape sequence, got: {msg}"
         );
     }
 

@@ -31,8 +31,11 @@ use anyhow::Context;
 pub fn read_ops_toml(path: &Path) -> anyhow::Result<toml_edit::DocumentMut> {
     let content = super::loader::read_capped_toml_file(path)?.unwrap_or_default();
     content.parse::<toml_edit::DocumentMut>().with_context(|| {
+        // SEC-21 (TASK-1472): Debug-format the path so a `.ops.toml` whose
+        // path contains newlines / ANSI escapes cannot forge log lines via
+        // anyhow consumers that render the chain through `tracing::warn!`.
         format!(
-            "failed to parse {} as TOML; refusing to overwrite to avoid data loss",
+            "failed to parse {:?} as TOML; refusing to overwrite to avoid data loss",
             path.display()
         )
     })
@@ -66,7 +69,7 @@ pub fn ensure_table<'a>(
 /// where the caller wants to skip the write on some branches.
 pub fn write_ops_toml(path: &Path, doc: &toml_edit::DocumentMut) -> anyhow::Result<()> {
     atomic_write(path, doc.to_string().as_bytes())
-        .with_context(|| format!("failed to write {}", path.display()))
+        .with_context(|| format!("failed to write {:?}", path.display()))
 }
 
 /// Load `.ops.toml` at `path` (missing → empty), apply `mutate`, then write
