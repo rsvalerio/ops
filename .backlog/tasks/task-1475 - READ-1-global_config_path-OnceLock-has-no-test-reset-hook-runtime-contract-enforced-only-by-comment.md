@@ -3,11 +3,11 @@ id: TASK-1475
 title: >-
   READ-1: global_config_path OnceLock has no test reset hook; runtime contract
   enforced only by comment
-status: To Do
+status: Done
 assignee:
   - TASK-1481
 created_date: '2026-05-16 10:06'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 08:17'
 labels:
   - code-review-rust
   - readability

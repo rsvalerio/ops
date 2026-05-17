@@ -3,11 +3,11 @@ id: TASK-1462
 title: >-
   ERR-1: cached_ops_root_arc renders OPS_ROOT via lossy Path::display, defeating
   strict-expand contract
-status: To Do
+status: Done
 assignee:
   - TASK-1481
 created_date: '2026-05-15 18:50'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 08:15'
 labels:
   - code-review-rust
   - error-handling

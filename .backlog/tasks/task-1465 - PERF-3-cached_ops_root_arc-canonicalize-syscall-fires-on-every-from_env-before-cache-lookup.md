@@ -3,11 +3,11 @@ id: TASK-1465
 title: >-
   PERF-3: cached_ops_root_arc canonicalize syscall fires on every from_env
   before cache lookup
-status: To Do
+status: Done
 assignee:
   - TASK-1481
 created_date: '2026-05-15 18:50'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 08:15'
 labels:
   - code-review-rust
   - performance
