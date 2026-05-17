@@ -415,49 +415,66 @@ mod tests {
         }
     }
 
+    /// TEST-11 (TASK-1362): pin the visibility of every name returned
+    /// by `stack_specific_commands()` under a chosen `Option<Stack>`. The
+    /// previous trio of tests open-coded `name == "deps" || name ==
+    /// "tools"`; under a feature combo that drops both, the loop body
+    /// never executed and the test passed without checking anything.
+    /// Sourcing the expected names from `stack_specific_commands()` covers
+    /// future additions automatically and the up-front presence check
+    /// fails loudly when no stack-specific subcommand is registered at
+    /// all.
+    #[cfg(feature = "stack-rust")]
+    fn assert_stack_specific_visibility(stack: Option<Stack>) {
+        let expected = stack_specific_commands();
+        assert!(
+            !expected.is_empty(),
+            "stack_specific_commands() must register at least one entry under this feature set; nothing to check otherwise"
+        );
+
+        let result = hide_irrelevant_commands(Cli::command(), stack);
+        let subcommand_names: std::collections::HashSet<String> = result
+            .get_subcommands()
+            .map(|s| s.get_name().to_string())
+            .collect();
+        for (name, _) in expected {
+            assert!(
+                subcommand_names.contains(*name),
+                "stack-specific subcommand {name:?} must be registered in the clap tree for this test to be meaningful: {subcommand_names:?}"
+            );
+        }
+
+        for sub in result.get_subcommands() {
+            let name = sub.get_name();
+            let Some(&(_, required_stack)) = expected.iter().find(|(n, _)| *n == name) else {
+                continue;
+            };
+            let should_be_visible = matches!(stack, Some(s) if s == required_stack);
+            assert_eq!(
+                sub.is_hide_set(),
+                !should_be_visible,
+                "{name} expected hide={} for stack={stack:?} (required={required_stack:?})",
+                !should_be_visible
+            );
+        }
+    }
+
     #[cfg(feature = "stack-rust")]
     #[test]
     fn hide_irrelevant_commands_no_stack_hides_stack_specific() {
-        let cmd = Cli::command();
-        let hidden_cmd = hide_irrelevant_commands(cmd, None);
-        for sub in hidden_cmd.get_subcommands() {
-            let name = sub.get_name();
-            if name == "deps" || name == "tools" {
-                assert!(
-                    sub.is_hide_set(),
-                    "{name} should be hidden when no stack detected"
-                );
-            }
-        }
+        assert_stack_specific_visibility(None);
     }
 
     #[cfg(feature = "stack-rust")]
     #[test]
     fn hide_irrelevant_commands_matching_stack_shows() {
-        let cmd = Cli::command();
-        let visible_cmd = hide_irrelevant_commands(cmd, Some(Stack::Rust));
-        for sub in visible_cmd.get_subcommands() {
-            let name = sub.get_name();
-            if name == "deps" || name == "tools" {
-                assert!(
-                    !sub.is_hide_set(),
-                    "{name} should be visible for Rust stack"
-                );
-            }
-        }
+        assert_stack_specific_visibility(Some(Stack::Rust));
     }
 
     #[cfg(feature = "stack-rust")]
     #[test]
     fn hide_irrelevant_commands_wrong_stack_hides() {
-        let cmd = Cli::command();
-        let hidden_cmd = hide_irrelevant_commands(cmd, Some(Stack::Go));
-        for sub in hidden_cmd.get_subcommands() {
-            let name = sub.get_name();
-            if name == "deps" || name == "tools" {
-                assert!(sub.is_hide_set(), "{name} should be hidden for Go stack");
-            }
-        }
+        assert_stack_specific_visibility(Some(Stack::Go));
     }
 
     // -- parse subcommand edge cases --

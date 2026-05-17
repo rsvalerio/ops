@@ -3,11 +3,11 @@ id: TASK-1338
 title: >-
   TEST-11: builtin_extensions_none_enabled_loads_all asserts only is_ok() —
   vacuous under no stack features
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 16:27'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:32'
 labels:
   - code-review-rust
   - tests
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Under at least one stack-feature cfg gate, the test asserts !exts.is_empty() and a known extension name appears.
-- [ ] #2 Under the no-stack-feature path, the test either skips or explicitly asserts exts.is_empty().
+- [x] #1 Under at least one stack-feature cfg gate, the test asserts !exts.is_empty() and a known extension name appears.
+- [x] #2 Under the no-stack-feature path, the test either skips or explicitly asserts exts.is_empty().
 <!-- AC:END -->

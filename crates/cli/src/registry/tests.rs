@@ -90,11 +90,58 @@ fn builtin_extensions_empty_enabled_list() {
     );
 }
 
+/// TEST-11 (TASK-1338): when `extensions.enabled` is absent, the
+/// loader returns every compiled-in extension. Under default features
+/// the previous assertion (`result.is_ok()`) was vacuous: it accepted
+/// the empty vec a no-features build legitimately produces *and* the
+/// populated vec a stack-feature build produces. Split the property
+/// against the actual compile-time feature set so both halves of the
+/// "loads all" contract are exercised by the build that runs them.
 #[test]
 fn builtin_extensions_none_enabled_loads_all() {
     let config = Config::default();
-    let result = builtin_extensions(&config, std::path::Path::new("."));
-    assert!(result.is_ok());
+    let exts = builtin_extensions(&config, std::path::Path::new("."))
+        .expect("builtin_extensions must succeed for Config::default()");
+
+    #[cfg(any(
+        feature = "stack-rust",
+        feature = "stack-node",
+        feature = "stack-go",
+        feature = "stack-python",
+        feature = "stack-terraform",
+        feature = "stack-java-maven",
+        feature = "stack-java-gradle",
+    ))]
+    {
+        assert!(
+            !exts.is_empty(),
+            "at least one stack feature is enabled; loader must return its extensions"
+        );
+        let names: Vec<&'static str> = exts.iter().map(|e| e.name()).collect();
+        for n in &names {
+            assert!(!n.is_empty(), "ext.name() must not be empty: {names:?}");
+        }
+        let unique: std::collections::HashSet<&&'static str> = names.iter().collect();
+        assert_eq!(
+            unique.len(),
+            names.len(),
+            "loaded extension names must be pairwise unique: {names:?}"
+        );
+    }
+
+    #[cfg(not(any(
+        feature = "stack-rust",
+        feature = "stack-node",
+        feature = "stack-go",
+        feature = "stack-python",
+        feature = "stack-terraform",
+        feature = "stack-java-maven",
+        feature = "stack-java-gradle",
+    )))]
+    assert!(
+        exts.is_empty(),
+        "no stack feature is enabled; loader must return an empty vec"
+    );
 }
 
 /// Assert a behavioural property that holds for any
@@ -334,14 +381,41 @@ fn register_extension_commands_collision_with_pre_existing_omits_sentinel() {
     );
 }
 
+/// TEST-11 (TASK-1365): the previous body passed `&[]` to a
+/// pre-empty registry and asserted `is_empty()` — a tautology provable
+/// at the type level (zero extensions cannot mutate the registry). The
+/// real invariant we care about is *preservation*: a zero-extension
+/// call must leave any pre-seeded entries exactly as they were.
 #[test]
-fn register_extension_commands_empty_inputs() {
+fn register_extension_commands_zero_extensions_preserves_existing_entries() {
+    use ops_core::config::{CommandSpec, ExecCommandSpec};
+
     let mut registry = CommandRegistry::new();
-    register_extension_commands(&[], &mut registry);
-    assert!(
-        registry.is_empty(),
-        "no extensions → no commands registered"
+    registry.insert(
+        "seed_a".into(),
+        CommandSpec::Exec(ExecCommandSpec::new("echo", ["a"])),
     );
+    registry.insert(
+        "seed_b".into(),
+        CommandSpec::Exec(ExecCommandSpec::new("echo", ["b"])),
+    );
+    let before_len = registry.len();
+
+    register_extension_commands(&[], &mut registry);
+
+    assert_eq!(
+        registry.len(),
+        before_len,
+        "zero extensions must not change registry length"
+    );
+    match registry.get("seed_a") {
+        Some(CommandSpec::Exec(e)) => assert_eq!(e.args, vec!["a".to_string()]),
+        other => panic!("seed_a must survive untouched, got {other:?}"),
+    }
+    match registry.get("seed_b") {
+        Some(CommandSpec::Exec(e)) => assert_eq!(e.args, vec!["b".to_string()]),
+        other => panic!("seed_b must survive untouched, got {other:?}"),
+    }
 }
 
 /// When two extensions register the same data provider name, the wiring

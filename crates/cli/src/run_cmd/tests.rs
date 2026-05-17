@@ -117,14 +117,16 @@ args = ["test"]
 "#,
         );
 
-        let result = run_command(
+        let err = run_command(
             std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
             "nonexistent",
             RunOptions::default(),
-        );
+        )
+        .expect_err("run_command should return error for unknown command");
+        let msg = format!("{err:#}");
         assert!(
-            result.is_err(),
-            "run_command should return error for unknown command"
+            msg.contains("nonexistent"),
+            "error chain must name the missing command: {msg}"
         );
     }
 
@@ -190,12 +192,17 @@ commands = ["a"]
 "#,
         );
 
-        let result = run_command(
+        let err = run_command(
             std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
             "a",
             RunOptions::default(),
+        )
+        .expect_err("run_command should return error for cycle");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.to_ascii_lowercase().contains("cycle"),
+            "error chain must identify the dependency cycle: {msg}"
         );
-        assert!(result.is_err(), "run_command should return error for cycle");
     }
 }
 
@@ -322,12 +329,17 @@ args = ["test"]
     fn run_external_command_single_unknown_errors() {
         let (_dir, _guard) = crate::test_utils::with_temp_config("");
         let args: Vec<OsString> = vec![OsString::from("nonexistent")];
-        let result = run_external_command(
+        let err = run_external_command(
             std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
             &args,
             RunOptions::default(),
+        )
+        .expect_err("run_external_command should fail for unknown command");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("nonexistent"),
+            "error chain must name the missing command: {msg}"
         );
-        assert!(result.is_err());
     }
 }
 

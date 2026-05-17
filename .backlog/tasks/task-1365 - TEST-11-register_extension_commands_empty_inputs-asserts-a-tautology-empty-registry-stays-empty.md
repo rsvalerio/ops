@@ -3,11 +3,11 @@ id: TASK-1365
 title: >-
   TEST-11: register_extension_commands_empty_inputs asserts a tautology (empty
   &[] -> registry stays empty)
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 21:29'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:33'
 labels:
   - code-review-rust
   - tests
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Drop the test, or replace it with a check that pre-populates the registry and verifies entries survive untouched after a zero-extension call
+- [x] #1 Drop the test, or replace it with a check that pre-populates the registry and verifies entries survive untouched after a zero-extension call
 - [ ] #2 Add a panic-on-empty smoke (one-liner) if keeping the call site exercised — but only if it's not already covered elsewhere
 <!-- AC:END -->

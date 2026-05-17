@@ -3,11 +3,11 @@ id: TASK-1362
 title: >-
   TEST-11: hide_irrelevant_commands_* trio is vacuous when neither 'deps' nor
   'tools' subcommand is registered
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 21:29'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:33'
 labels:
   - code-review-rust
   - tests
@@ -29,6 +29,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Pre-assert the expected stack-specific subcommand name set exists before iterating; tests fail loudly if neither 'deps' nor 'tools' is present
-- [ ] #2 Consolidate the three sibling tests through a table or helper sourcing the expected names from stack_specific_commands()
+- [x] #1 Pre-assert the expected stack-specific subcommand name set exists before iterating; tests fail loudly if neither 'deps' nor 'tools' is present
+- [x] #2 Consolidate the three sibling tests through a table or helper sourcing the expected names from stack_specific_commands()
 <!-- AC:END -->

@@ -1,11 +1,11 @@
 ---
 id: TASK-1336
 title: 'TEST-11: run_command_returns_error_for_unknown_command asserts only is_err()'
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 16:27'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:31'
 labels:
   - code-review-rust
   - tests
@@ -25,6 +25,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_command_returns_error_for_unknown_command asserts the error chain contains the missing command name (e.g. "nonexistent").
-- [ ] #2 Same fix applied to run_command_returns_error_for_cycle (assert cycle-related substring).
+- [x] #1 run_command_returns_error_for_unknown_command asserts the error chain contains the missing command name (e.g. "nonexistent").
+- [x] #2 Same fix applied to run_command_returns_error_for_cycle (assert cycle-related substring).
 <!-- AC:END -->
