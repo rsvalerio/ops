@@ -3,11 +3,11 @@ id: TASK-1368
 title: >-
   PERF-1: Cli::command() invoked up to 3 times per CLI invocation in main.rs
   run()/dispatch()
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 21:34'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:25'
 labels:
   - code-review-rust
   - performance
@@ -34,6 +34,6 @@ Note: this is distinct from TASK-1318 (which is about `validate_command_name` re
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cli::command() is invoked at most once per CLI invocation (or the cost is documented and benchmarked)
-- [ ] #2 the three call sites in run()/dispatch() share a single built tree, or each call site uses a cached/cloned Command
+- [x] #1 Cli::command() is invoked at most once per CLI invocation (or the cost is documented and benchmarked)
+- [x] #2 the three call sites in run()/dispatch() share a single built tree, or each call site uses a cached/cloned Command
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1318
 title: >-
   PERF-1: validate_command_name rebuilds clap command tree per keystroke via
   builtin_subcommand_names()
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-11 20:34'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:23'
 labels:
   - code-review-rust
   - PERF
@@ -31,7 +31,7 @@ The fix is the same pattern `theme_cmd::BUILTIN_THEME_NAMES` already uses (lines
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 builtin_subcommand_names() (or its result) is cached for the process lifetime, so a 40-character paste into the inquire prompt does not trigger 40 calls to clap::CommandFactory::command()
-- [ ] #2 The cache pattern matches the existing theme_cmd::BUILTIN_THEME_NAMES OnceLock idiom (same crate)
-- [ ] #3 All existing tests still pass and validate_command_name continues to reject every clap-registered built-in
+- [x] #1 builtin_subcommand_names() (or its result) is cached for the process lifetime, so a 40-character paste into the inquire prompt does not trigger 40 calls to clap::CommandFactory::command()
+- [x] #2 The cache pattern matches the existing theme_cmd::BUILTIN_THEME_NAMES OnceLock idiom (same crate)
+- [x] #3 All existing tests still pass and validate_command_name continues to reject every clap-registered built-in
 <!-- AC:END -->

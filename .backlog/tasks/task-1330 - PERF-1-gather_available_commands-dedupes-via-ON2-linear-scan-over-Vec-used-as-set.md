@@ -3,11 +3,11 @@ id: TASK-1330
 title: >-
   PERF-1: gather_available_commands dedupes via O(N^2) linear scan over Vec used
   as set
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 16:26'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:23'
 labels:
   - code-review-rust
   - performance
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Membership check during option construction is O(1) (HashSet-backed).
-- [ ] #2 Existing hook selection tests pass; option ordering preserved.
+- [x] #1 Membership check during option construction is O(1) (HashSet-backed).
+- [x] #2 Existing hook selection tests pass; option ordering preserved.
 <!-- AC:END -->

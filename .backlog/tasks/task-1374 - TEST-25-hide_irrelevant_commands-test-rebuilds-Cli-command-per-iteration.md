@@ -1,11 +1,11 @@
 ---
 id: TASK-1374
 title: 'TEST-25: hide_irrelevant_commands test rebuilds Cli::command() per iteration'
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 21:46'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:25'
 labels:
   - code-review-rust
   - test-quality
@@ -25,7 +25,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cli::command() is invoked at most once in hide_irrelevant_commands_preserves_non_stack_commands
-- [ ] #2 The was_hidden lookup uses a precomputed set keyed by name rather than a per-iteration linear scan over a rebuilt command tree
-- [ ] #3 Test assertion shape is unchanged (still asserts non-stack-specific previously-visible subcommands stay visible)
+- [x] #1 Cli::command() is invoked at most once in hide_irrelevant_commands_preserves_non_stack_commands
+- [x] #2 The was_hidden lookup uses a precomputed set keyed by name rather than a per-iteration linear scan over a rebuilt command tree
+- [x] #3 Test assertion shape is unchanged (still asserts non-stack-specific previously-visible subcommands stay visible)
 <!-- AC:END -->

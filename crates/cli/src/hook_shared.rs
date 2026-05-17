@@ -1,5 +1,6 @@
 //! Shared logic for git hook install commands (run-before-commit, run-before-push).
 
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -177,23 +178,29 @@ pub fn gather_available_commands(
     exclude_name: &str,
 ) -> Vec<SelectOption> {
     let mut options: Vec<SelectOption> = Vec::new();
+    // PERF-1 (TASK-1330): O(1) dedupe set alongside `options` instead of
+    // an O(N) linear scan per push. Insertion order (config > stack >
+    // extensions) is preserved by appending to `options` only on the
+    // surviving-insert branch.
+    let mut seen: HashSet<String> = HashSet::new();
 
     // A single helper handles the exclude/dedup/push body so the priority
     // order (config > stack > extensions) is explicit at the call site.
     //
     // OWN-8 (TASK-1358): `try_push` borrows the name and clones only on
     // the surviving-insert branch. Surviving names allocate exactly once
-    // (into the `SelectOption`); names that match `exclude_name` or
-    // collide with an already-collected option never allocate. Dedup is a
-    // linear scan over `options`, which is fine for the handful of
-    // commands a hook selection lists.
+    // (into both `seen` and the `SelectOption`); names that match
+    // `exclude_name` or collide with an already-collected option never
+    // allocate.
     let mut try_push = |name: &str, spec: &CommandSpec| {
-        if name == exclude_name || options.iter().any(|o| o.name == name) {
+        if name == exclude_name || seen.contains(name) {
             return;
         }
         let description = command_description(spec);
+        let owned = name.to_string();
+        seen.insert(owned.clone());
         options.push(SelectOption {
-            name: name.to_string(),
+            name: owned,
             description,
         });
     };

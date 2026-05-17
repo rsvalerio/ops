@@ -380,8 +380,17 @@ mod tests {
 
     #[test]
     fn hide_irrelevant_commands_preserves_non_stack_commands() {
-        let cmd = Cli::command();
-        let result = hide_irrelevant_commands(cmd, None);
+        // TEST-25 (TASK-1374): build the clap command tree exactly once and
+        // pre-compute the set of originally-hidden subcommand names instead
+        // of calling `Cli::command()` inside the loop, which would
+        // re-walk the entire derive metadata on every iteration.
+        let original = Cli::command();
+        let originally_hidden: std::collections::HashSet<String> = original
+            .get_subcommands()
+            .filter(|s| s.is_hide_set())
+            .map(|s| s.get_name().to_string())
+            .collect();
+        let result = hide_irrelevant_commands(original.clone(), None);
         // Compute the set of stack-specific subcommand names once, then assert
         // that every *other* visible, non-hidden subcommand remains visible —
         // future non-stack built-ins are covered automatically without having
@@ -396,12 +405,7 @@ mod tests {
             // Skip subcommands that were already hidden before our call (clap
             // may ship internal hidden helpers); we only guarantee we don't
             // flip a previously-visible non-stack command to hidden.
-            let original = Cli::command();
-            let was_hidden = original
-                .get_subcommands()
-                .find(|s| s.get_name() == name)
-                .is_some_and(clap::Command::is_hide_set);
-            if was_hidden {
+            if originally_hidden.contains(name) {
                 continue;
             }
             assert!(

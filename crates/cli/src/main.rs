@@ -191,28 +191,36 @@ fn run() -> anyhow::Result<ExitCode> {
         std::sync::Arc::new(ops_core::config::load_config_or_default_at(&cwd, "early"));
     let detected_stack = ops_core::stack::Stack::resolve(early_config.stack.as_deref(), &cwd);
 
+    // PERF-1 (TASK-1368): `Cli::command()` walks the full derive metadata
+    // and rebuilds the clap command tree from scratch on every call.
+    // Build it exactly once for this invocation; cheap `clap::Command::clone`
+    // covers the rare case where both `run()` and `dispatch()` need a
+    // consumed copy (parse path followed by a `None`-subcommand help
+    // render).
+    let built_cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
+
     // If the user asked for top-level help (`ops -h` / `ops --help`), show
     // help with dynamic commands included and exit.  We intercept before clap
     // parsing because dynamic subcommands cannot be registered at parse time
     // (they would shadow the `External` catch-all).
     if is_toplevel_help(&effective_args) {
-        let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
         let long = effective_args.iter().any(|a| a == "--help");
-        print_categorized_help(cmd, &early_config, detected_stack, long);
+        print_categorized_help(built_cmd, &early_config, detected_stack, long);
         return Ok(ExitCode::SUCCESS);
     }
 
-    let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
-    let mut matches = cmd.get_matches_from(effective_args);
+    let parse_cmd = built_cmd.clone();
+    let mut matches = parse_cmd.get_matches_from(effective_args);
     let cli = Cli::from_arg_matches_mut(&mut matches).unwrap_or_else(|e: clap::Error| e.exit());
 
-    dispatch(cli, &early_config, detected_stack)
+    dispatch(cli, &early_config, detected_stack, built_cmd)
 }
 
 fn dispatch(
     cli: Cli,
     early_config: &std::sync::Arc<ops_core::config::Config>,
     detected_stack: Option<ops_core::stack::Stack>,
+    built_cmd: clap::Command,
 ) -> anyhow::Result<ExitCode> {
     // The same Config loaded once in `run()` is threaded
     // through every handler so a single CLI invocation reads `.ops.toml`
@@ -275,8 +283,9 @@ fn dispatch(
             )
         }
         None => {
-            let cmd = hide_irrelevant_commands(Cli::command(), detected_stack);
-            print_categorized_help(cmd, early_config, detected_stack, false);
+            // PERF-1 (TASK-1368): reuse the pre-built command tree from
+            // `run()` instead of re-walking the clap derive metadata.
+            print_categorized_help(built_cmd, early_config, detected_stack, false);
         }
     }
 

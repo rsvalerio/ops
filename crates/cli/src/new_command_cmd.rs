@@ -1,7 +1,9 @@
 //! `ops new-command` — interactively add a command to `.ops.toml`.
 
+use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::OnceLock;
 
 use ops_core::config::{edit_ops_toml, ensure_table};
 
@@ -82,7 +84,7 @@ fn validate_command_name(name: &str) -> Result<(), String> {
     // `ops <name>`. The list is derived from clap's own registered
     // subcommands so future additions to `CoreSubcommand` are covered
     // without editing this function.
-    if builtin_subcommand_names().iter().any(|n| n == name) {
+    if builtin_subcommand_names().contains(name) {
         return Err(format!(
             "command name '{name}' collides with a built-in `ops` subcommand; pick a different name"
         ));
@@ -90,19 +92,27 @@ fn validate_command_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// PERF-1 (TASK-1318): cache the set of clap-registered built-in
+/// subcommand names for the process lifetime. The previous shape rebuilt
+/// the entire derived clap command tree on every `validate_command_name`
+/// call — including from `inquire::Text::with_validator`, which fires on
+/// every keystroke at the `new-command` prompt. Aligned with the
+/// `theme_cmd::BUILTIN_THEME_NAMES` OnceLock idiom in the same crate.
+static BUILTIN_SUBCOMMAND_NAMES: OnceLock<HashSet<String>> = OnceLock::new();
+
 /// Names of every clap-registered built-in subcommand on
 /// the `Cli` definition, excluding the `External` catch-all (which is what
-/// `ops <user-command>` resolves to). Same iteration shape as
-/// `args::stack_specific_commands`: a slice-style "ask clap once, expose to
-/// callers" helper, so new variants land here automatically.
-fn builtin_subcommand_names() -> Vec<String> {
-    use clap::CommandFactory;
-    crate::args::Cli::command()
-        .get_subcommands()
-        .map(|c| c.get_name().to_string())
-        // The `External` variant is registered via `#[command(external_subcommand)]`
-        // and is not enumerated by `get_subcommands()`, so no filtering is needed.
-        .collect()
+/// `ops <user-command>` resolves to). The `External` variant is registered
+/// via `#[command(external_subcommand)]` and is not enumerated by
+/// `get_subcommands()`, so no filtering is needed.
+fn builtin_subcommand_names() -> &'static HashSet<String> {
+    BUILTIN_SUBCOMMAND_NAMES.get_or_init(|| {
+        use clap::CommandFactory;
+        crate::args::Cli::command()
+            .get_subcommands()
+            .map(|c| c.get_name().to_string())
+            .collect()
+    })
 }
 
 /// Parse a full command string into (program, args), honouring shell
@@ -388,7 +398,7 @@ theme = "classic"
                 "missing required built-in {required} in {builtins:?}"
             );
         }
-        for name in &builtins {
+        for name in builtins {
             let msg = validate_command_name(name).expect_err(&format!(
                 "built-in '{name}' must be rejected as a new-command name"
             ));
