@@ -135,24 +135,57 @@ fn ops_root_cache() -> &'static Mutex<OpsRootCache> {
 /// the path to exist; when it fails (synthetic test paths, freshly-staged
 /// repos that have not yet been written to disk) we fall back to the raw
 /// `Path` so callers still get a stable Arc within the process.
-fn cached_ops_root_arc(ops_root: &Path) -> Arc<str> {
+fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
     // CONC-1 / TASK-1183: lock contention is negligible because `from_env`
     // is not called from the parallel exec hot loop (that path constructs
     // `Variables` once and clones the Arc from the runner).
-    let canonical = std::fs::canonicalize(ops_root).ok();
-    let key: &Path = canonical.as_deref().unwrap_or(ops_root);
+    //
+    // PERF-3 / TASK-1465: probe the cache by raw `&Path` first; the
+    // canonicalize syscall now runs **only on miss** to install the alias
+    // entry. The hit path therefore costs one lock + hashmap lookup with no
+    // `realpath(2)` traversal — relevant for hook callers
+    // (`run-before-commit`/`run-before-push`) and dry-run that invoke
+    // `from_env` repeatedly on the same workspace root.
     let cache = ops_root_cache();
     // CONC-9 / TASK-1183 + DUP-3 / TASK-1477: lock poisoning here is
     // recoverable — every state of the protected map is valid. Centralised
     // in `sync::lock_recover` so the policy stays uniform across the four
     // expand/detect sites that share it.
-    let mut guard = crate::sync::lock_recover(cache);
-    // PERF-3 / TASK-1423: hit path checks via `&Path` borrow without
-    // allocating a fresh `PathBuf` for every lookup. Only the miss path
-    // materialises the owned key.
-    if let Some(arc) = guard.map.get(key) {
-        return Arc::clone(arc);
+    let guard = crate::sync::lock_recover(cache);
+    if let Some(arc) = guard.map.get(ops_root) {
+        return Ok(Arc::clone(arc));
     }
+    // Miss: now pay the canonicalize syscall (so symlink + raw paths still
+    // collapse onto a single cached value) and install both keys.
+    drop(guard);
+    let canonical = std::fs::canonicalize(ops_root).ok();
+    let key: &Path = canonical.as_deref().unwrap_or(ops_root);
+    // ERR-1 / TASK-1462: refuse to lossy-render a non-UTF-8 workspace
+    // root through `Path::display()` — that path silently substitutes
+    // U+FFFD and the resulting `Arc<str>` flows into argv/cwd/env through
+    // `try_expand`, defeating the strict-expand contract (TASK-0450).
+    // Surface as `ExpandError::NotUnicode` so callers see the failure
+    // instead of materialising a corrupt OPS_ROOT.
+    let rendered = key.to_str().ok_or_else(|| ExpandError {
+        var_name: "OPS_ROOT".to_string(),
+        cause: std::env::VarError::NotUnicode(key.as_os_str().to_owned()),
+    })?;
+    let mut guard = crate::sync::lock_recover(cache);
+    // Re-check after the syscall window — another thread may have
+    // populated the entry under the same raw key.
+    if let Some(existing) = guard.map.get(ops_root) {
+        return Ok(Arc::clone(existing));
+    }
+    // ERR-1 / TASK-1424: if the canonical form already lives in the cache
+    // (the alias-by-canonical scenario — e.g. a previous call resolved
+    // the real path directly), reuse that `Arc<str>` so a real + symlink
+    // pair collapses to one rendering. Without this branch the new entry
+    // would shadow the existing one and break `Arc::ptr_eq`.
+    let arc = if let Some(existing) = guard.map.get(key) {
+        Arc::clone(existing)
+    } else {
+        Arc::<str>::from(rendered)
+    };
     // CONC-1 / TASK-1418: evict the oldest entry when at cap so the new
     // distinct root still fits.
     if guard.map.len() >= OPS_ROOT_CACHE_CAP {
@@ -160,11 +193,22 @@ fn cached_ops_root_arc(ops_root: &Path) -> Arc<str> {
             guard.map.remove(&oldest);
         }
     }
-    let owned = key.to_path_buf();
-    let arc = Arc::<str>::from(owned.display().to_string());
-    guard.map.insert(owned.clone(), Arc::clone(&arc));
-    guard.order.push_back(owned);
-    arc
+    let raw_owned = ops_root.to_path_buf();
+    guard.map.insert(raw_owned.clone(), Arc::clone(&arc));
+    guard.order.push_back(raw_owned);
+    // Also install the canonical key (when distinct) so the next caller
+    // that hands us the canonical form hits without re-canonicalising.
+    let canon_owned = key.to_path_buf();
+    if canon_owned != ops_root && !guard.map.contains_key(&canon_owned) {
+        if guard.map.len() >= OPS_ROOT_CACHE_CAP {
+            if let Some(oldest) = guard.order.pop_front() {
+                guard.map.remove(&oldest);
+            }
+        }
+        guard.map.insert(canon_owned.clone(), Arc::clone(&arc));
+        guard.order.push_back(canon_owned);
+    }
+    Ok(arc)
 }
 
 #[cfg(test)]
@@ -280,6 +324,19 @@ pub(crate) fn reset_expand_warn_seen() {
 }
 
 impl Variables {
+    /// Construct a `Variables` with no builtins populated. Used by
+    /// fallback paths (e.g. `CommandRunner::from_arc_config` when
+    /// `from_env` surfaces a non-UTF-8 workspace root via
+    /// `ExpandError::NotUnicode`) so downstream `try_expand` calls fail
+    /// loud on the missing variable rather than panicking at runner
+    /// construction time. ERR-1 / TASK-1462.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            builtins: HashMap::new(),
+        }
+    }
+
     /// Build from environment and workspace root.
     ///
     /// READ-5 / TASK-1068: `TMPDIR` is read from the process environment at
@@ -288,14 +345,19 @@ impl Variables {
     /// **not** be observed by later callers. If a test needs a specific
     /// `TMPDIR`, set it before any `Variables::from_env` runs in that
     /// process.
-    pub fn from_env(ops_root: &Path) -> Self {
+    pub fn from_env(ops_root: &Path) -> Result<Self, ExpandError> {
         let mut builtins: HashMap<&'static str, Arc<str>> = HashMap::with_capacity(2);
-        builtins.insert("OPS_ROOT", cached_ops_root_arc(ops_root));
+        // ERR-1 / TASK-1462: surface a non-UTF-8 workspace root as a
+        // typed `ExpandError::NotUnicode` instead of lossy-rendering
+        // through `Path::display()`. Strict callers (the command-build
+        // path) propagate this so a corrupt OPS_ROOT cannot silently
+        // flow into spawned subprocess argv / cwd / env.
+        builtins.insert("OPS_ROOT", cached_ops_root_arc(ops_root)?);
         let tmpdir = TMPDIR_DISPLAY
             .get_or_init(|| Arc::<str>::from(std::env::temp_dir().display().to_string()))
             .clone();
         builtins.insert("TMPDIR", tmpdir);
-        Self { builtins }
+        Ok(Self { builtins })
     }
 
     /// Expand `$VAR`, `${VAR}`, `${VAR:-default}`, and `~` in the input string.
@@ -376,6 +438,7 @@ mod tests {
 
     fn test_vars() -> Variables {
         Variables::from_env(&PathBuf::from("/test/project"))
+            .expect("UTF-8 test path; from_env must succeed")
     }
 
     /// ERR-1 / TASK-1474: when the OPS_ROOT cache mutex is poisoned (a
@@ -403,7 +466,7 @@ mod tests {
         );
 
         let (logs, len) =
-            crate::test_utils::capture_tracing(tracing::Level::WARN, || ops_root_cache_len());
+            crate::test_utils::capture_tracing(tracing::Level::WARN, ops_root_cache_len);
 
         // Reset state so the rest of the test suite sees a clean cache.
         reset_ops_root_cache();
@@ -461,8 +524,8 @@ mod tests {
     #[serial_test::serial(ops_root_cache)]
     fn from_env_reuses_cached_ops_root_arc() {
         let root = PathBuf::from("/test/project/lru-pinned");
-        let v1 = Variables::from_env(&root);
-        let v2 = Variables::from_env(&root);
+        let v1 = Variables::from_env(&root).expect("UTF-8 path");
+        let v2 = Variables::from_env(&root).expect("UTF-8 path");
         let a = v1.builtins.get("OPS_ROOT").expect("OPS_ROOT populated");
         let b = v2.builtins.get("OPS_ROOT").expect("OPS_ROOT populated");
         assert!(
@@ -692,7 +755,7 @@ mod tests {
         // policy, not filesystem behaviour.
         for i in 0..(cap * 2) {
             let root = PathBuf::from(format!("/synthetic/cache/bound/{i}"));
-            let _ = Variables::from_env(&root);
+            let _ = Variables::from_env(&root).expect("UTF-8 path");
         }
         assert!(
             super::ops_root_cache_len() <= cap,
@@ -716,20 +779,82 @@ mod tests {
     fn ops_root_cache_hit_path_reuses_arc() {
         super::reset_ops_root_cache();
         let root = PathBuf::from("/synthetic/cache/hit/pin");
-        let warm = Variables::from_env(&root);
+        let warm = Variables::from_env(&root).expect("UTF-8 path");
         let warm_arc = warm
             .builtins
             .get("OPS_ROOT")
             .expect("OPS_ROOT populated")
             .clone();
         for _ in 0..1024 {
-            let v = Variables::from_env(&root);
+            let v = Variables::from_env(&root).expect("UTF-8 path");
             let got = v.builtins.get("OPS_ROOT").expect("OPS_ROOT populated");
             assert!(
                 Arc::ptr_eq(got, &warm_arc),
                 "OPS_ROOT Arc must be reused on cache hits"
             );
         }
+        super::reset_ops_root_cache();
+    }
+
+    /// ERR-1 / TASK-1462: a non-UTF-8 workspace root must fail
+    /// `Variables::from_env` with a typed `ExpandError::NotUnicode`
+    /// instead of being lossy-rendered through `Path::display()` and
+    /// silently flowing into argv / cwd / env via `try_expand`. The
+    /// canonicalize syscall fails on a synthetic non-existent path so the
+    /// raw `&Path` branch is what feeds `to_str()`; that mirrors the
+    /// production failure mode (the workspace root may legitimately be
+    /// non-existent on freshly-staged repos — the cache still installs
+    /// the raw path).
+    #[cfg(unix)]
+    #[test]
+    fn from_env_rejects_non_utf8_workspace_root() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        // Build a `PathBuf` from raw bytes that is not valid UTF-8.
+        // 0xff is reserved as a continuation byte in UTF-8 and never
+        // appears in a valid encoding.
+        let bytes: &[u8] = b"/tmp/non-utf8-task-1462-\xff/root";
+        let bad: PathBuf = PathBuf::from(OsStr::from_bytes(bytes));
+
+        let err = Variables::from_env(&bad).expect_err("non-UTF-8 root must error");
+        assert_eq!(err.var_name, "OPS_ROOT");
+        assert!(
+            matches!(err.cause, std::env::VarError::NotUnicode(_)),
+            "expected VarError::NotUnicode, got {:?}",
+            err.cause
+        );
+    }
+
+    /// PERF-3 / TASK-1465: once the OPS_ROOT cache has been warmed for a
+    /// given workspace root, subsequent `from_env` calls must skip the
+    /// `std::fs::canonicalize` syscall entirely — the hit path now probes
+    /// the cache by raw `&Path` before paying any IO. We measure that
+    /// indirectly: a million warmed calls for a synthetic, non-existent
+    /// path complete in well under a second; pre-fix this would have
+    /// fired a `realpath(2)` (or its Windows equivalent) per call.
+    #[test]
+    #[serial_test::serial(ops_root_cache)]
+    fn from_env_hit_path_avoids_canonicalize_syscall() {
+        super::reset_ops_root_cache();
+        // Synthetic path that does not exist; `std::fs::canonicalize`
+        // on this path would error on every call, but the cache hit path
+        // must short-circuit before reaching that syscall.
+        let root = PathBuf::from("/synthetic/task-1465/no-canonicalize-on-hit");
+
+        let _ = Variables::from_env(&root).expect("UTF-8 path; first call installs cache");
+
+        let start = std::time::Instant::now();
+        for _ in 0..200_000 {
+            let _ = Variables::from_env(&root).expect("UTF-8 path");
+        }
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "200k warm `from_env` calls must avoid the canonicalize syscall \
+             (elapsed {elapsed:?})"
+        );
+
         super::reset_ops_root_cache();
     }
 
@@ -748,8 +873,8 @@ mod tests {
         let link = dir.path().with_extension("link");
         std::os::unix::fs::symlink(&real, &link).expect("symlink");
 
-        let v_real = Variables::from_env(&real);
-        let v_link = Variables::from_env(&link);
+        let v_real = Variables::from_env(&real).expect("UTF-8 path");
+        let v_link = Variables::from_env(&link).expect("UTF-8 path");
         let a = v_real.builtins.get("OPS_ROOT").expect("OPS_ROOT populated");
         let b = v_link.builtins.get("OPS_ROOT").expect("OPS_ROOT populated");
         assert!(
@@ -876,7 +1001,7 @@ mod tests {
     fn from_env_amortises_tmpdir() {
         let root = PathBuf::from("/bench/root");
         // Warm the OnceLock once.
-        let warm = Variables::from_env(&root);
+        let warm = Variables::from_env(&root).expect("UTF-8 path");
         let warm_tmpdir = warm
             .builtins
             .get("TMPDIR")
@@ -888,7 +1013,7 @@ mod tests {
         // every call, defeating the OnceLock optimisation this test exists to
         // pin. `Arc::ptr_eq` is the only check that breaks on regression.
         for _ in 0..1000 {
-            let v = Variables::from_env(&root);
+            let v = Variables::from_env(&root).expect("UTF-8 path");
             let got = v.builtins.get("TMPDIR").expect("TMPDIR populated");
             assert!(
                 Arc::ptr_eq(got, &warm_tmpdir),

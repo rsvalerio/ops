@@ -6,7 +6,7 @@
 //! filename precedence with the silent-shadow warn.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 use tracing::debug;
 
@@ -54,12 +54,78 @@ use super::super::{merge::merge_config, Config};
 /// subsequent callers. Tests that need a specific base directory MUST set
 /// the relevant env var before any code path that triggers
 /// `load_config` / `load_config_at` / `load_config_or_default*` runs.
-static GLOBAL_CONFIG_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+/// READ-1 / TASK-1475: cached resolution of the global config base path.
+/// Outer `Option` is "have we resolved yet"; inner `Option<PathBuf>` is the
+/// resolution result (`None` when the base directory is empty / non-absolute
+/// and we skip the global config). Wrapped in `RwLock` rather than
+/// `OnceLock` so the test-support reset hook
+/// [`reset_global_config_path_cache`] can clear the cache between scenarios
+/// in a single binary — the runtime contract used to be "tests MUST set env
+/// before any code path triggers load_config", enforced only by comment.
+static GLOBAL_CONFIG_PATH: RwLock<Option<Option<PathBuf>>> = RwLock::new(None);
 
 fn global_config_path() -> Option<PathBuf> {
-    GLOBAL_CONFIG_PATH
-        .get_or_init(resolve_global_config_path)
-        .clone()
+    {
+        let r = GLOBAL_CONFIG_PATH
+            .read()
+            .expect("GLOBAL_CONFIG_PATH lock poisoned");
+        if let Some(cached) = r.as_ref() {
+            return cached.clone();
+        }
+    }
+    let mut w = GLOBAL_CONFIG_PATH
+        .write()
+        .expect("GLOBAL_CONFIG_PATH lock poisoned");
+    if let Some(cached) = w.as_ref() {
+        return cached.clone();
+    }
+    let resolved = resolve_global_config_path();
+    *w = Some(resolved.clone());
+    resolved
+}
+
+/// READ-1 / TASK-1475: zero-sized capability token for
+/// [`reset_global_config_path_cache`]. Constructable only via
+/// [`GlobalConfigPathResetToken::new`], which is itself gated to
+/// `#[cfg(any(test, feature = "test-support"))]` so an accidental
+/// production caller cannot compile the reset path.
+#[cfg(any(test, feature = "test-support"))]
+#[non_exhaustive]
+pub struct GlobalConfigPathResetToken {
+    _private: (),
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl GlobalConfigPathResetToken {
+    /// Mint a token. Test-support / cfg(test) only.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { _private: () }
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Default for GlobalConfigPathResetToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// READ-1 / TASK-1475: clear the `GLOBAL_CONFIG_PATH` cache so the next
+/// [`global_config_path`] call re-resolves from the live env. Test-support
+/// only — the runtime contract documented on `GLOBAL_CONFIG_PATH` ("tests
+/// MUST set env before any code path triggers load_config") was enforced
+/// only by comment; this hook makes the discipline mechanical.
+///
+/// The `_token` parameter is a capability marker: see
+/// [`GlobalConfigPathResetToken`]. Production builds (no `test-support`
+/// feature) cannot construct the token and therefore cannot call the hook.
+#[cfg(any(test, feature = "test-support"))]
+pub fn reset_global_config_path_cache(_token: GlobalConfigPathResetToken) {
+    let mut w = GLOBAL_CONFIG_PATH
+        .write()
+        .expect("GLOBAL_CONFIG_PATH lock poisoned");
+    *w = None;
 }
 
 /// Inner resolver invoked exactly once by the [`GLOBAL_CONFIG_PATH`]
@@ -158,6 +224,45 @@ fn load_global_config_at(config: &mut Config, global_path: &Path) -> anyhow::Res
 mod tests {
     use super::*;
     use std::fs;
+
+    /// READ-1 / TASK-1475: after the GLOBAL_CONFIG_PATH cache has been
+    /// resolved once, mutating `XDG_CONFIG_HOME` and then calling
+    /// `global_config_path()` again returns the **old** value — the
+    /// runtime contract is "set env before first call". The reset hook
+    /// must clear the cache so a subsequent call observes the new env.
+    #[test]
+    #[serial_test::serial]
+    fn reset_global_config_path_cache_observes_env_change() {
+        // Prime the cache with one XDG value.
+        let dir_a = tempfile::tempdir().unwrap();
+        let prev = std::env::var_os("XDG_CONFIG_HOME");
+        std::env::set_var("XDG_CONFIG_HOME", dir_a.path());
+        reset_global_config_path_cache(GlobalConfigPathResetToken::new());
+        let first = global_config_path().expect("XDG_CONFIG_HOME set");
+        assert!(first.starts_with(dir_a.path()));
+
+        // Now flip the env without resetting — the cache should still
+        // hand back the old path, proving the cache is sticky.
+        let dir_b = tempfile::tempdir().unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", dir_b.path());
+        let stale = global_config_path().expect("path resolved");
+        assert!(
+            stale.starts_with(dir_a.path()),
+            "without reset, cache must return the prior resolution"
+        );
+
+        // After reset, the new env is observed.
+        reset_global_config_path_cache(GlobalConfigPathResetToken::new());
+        let fresh = global_config_path().expect("XDG_CONFIG_HOME set");
+        assert!(fresh.starts_with(dir_b.path()));
+
+        // Restore env.
+        match prev {
+            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        reset_global_config_path_cache(GlobalConfigPathResetToken::new());
+    }
 
     /// PATTERN-1 / TASK-1090: when both `<dir>/ops/config.toml` and the
     /// legacy bare-extension `<dir>/ops/config` exist, `config.toml` MUST

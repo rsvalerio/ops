@@ -38,6 +38,9 @@ use crate::text::{cached_byte_cap_env, open_refusing_symlinks};
 #[cfg(test)]
 pub(crate) use global::resolve_global_config_path;
 
+#[cfg(any(test, feature = "test-support"))]
+pub use global::{reset_global_config_path_cache, GlobalConfigPathResetToken};
+
 /// SEC-33 / TASK-0943: default cap on `.ops.toml` (and `.ops.d/*.toml`,
 /// global config) reads. Real-world ops configs are well under 256 KiB,
 /// so this cap sits comfortably above any legitimate use while preventing
@@ -365,6 +368,11 @@ mod tests {
     fn load_config_local_parse_error_names_layer() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join(".ops.toml"), "not = = valid {{{").unwrap();
+
+        // READ-1 / TASK-1475: clear the cached `GLOBAL_CONFIG_PATH` so the
+        // env mutation below is observed by `global_config_path()` rather
+        // than being shadowed by a prior test's resolution.
+        super::reset_global_config_path_cache(super::GlobalConfigPathResetToken::new());
 
         // Neutralise XDG/global config lookups so the failure pins to the
         // local layer instead of either preceding step.

@@ -182,7 +182,27 @@ impl CommandRunner {
             IndexMap::new()
         };
 
-        let vars = Variables::from_env(&cwd);
+        // ERR-1 / TASK-1462: a non-UTF-8 workspace root would otherwise
+        // lossy-render into the OPS_ROOT builtin and defeat the
+        // strict-expand contract. `Variables::from_env` now surfaces this
+        // as an `ExpandError::NotUnicode`; the runner constructor used to
+        // be infallible, so we propagate through a `tracing::warn!` +
+        // empty-builtins fallback rather than panicking the CLI. A
+        // subsequent `try_expand("$OPS_ROOT/...")` will fail explicitly
+        // when callers actually touch the variable, preserving the
+        // "fail-loud" intent. Strict downstream callers should adopt the
+        // Result-returning `Variables::from_env` directly.
+        let vars = match Variables::from_env(&cwd) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(
+                    var = %e.var_name,
+                    cause = %e.cause,
+                    "Variables::from_env failed; downstream $OPS_ROOT expansion will surface the error"
+                );
+                Variables::empty()
+            }
+        };
         let extension_commands = IndexMap::new();
         let non_config_alias_map = resolve::build_alias_map(
             std::iter::once(&stack_commands).chain(std::iter::once(&extension_commands)),

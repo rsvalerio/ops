@@ -653,7 +653,7 @@ mod tests {
 
             let tmp = tempfile::tempdir().unwrap();
             std::fs::create_dir(tmp.path().join("sub")).unwrap();
-            let vars = Variables::from_env(tmp.path());
+            let vars = Variables::from_env(tmp.path()).expect("UTF-8 path");
 
             // Run several build_command_async invocations. Each dispatches
             // canonicalize to the blocking pool, leaving the runtime
@@ -697,7 +697,7 @@ mod tests {
     #[tokio::test]
     async fn build_command_async_preserves_program_name() {
         let tmp = tempfile::tempdir().unwrap();
-        let vars = Variables::from_env(tmp.path());
+        let vars = Variables::from_env(tmp.path()).expect("UTF-8 path");
         let spec = std::sync::Arc::new(exec_spec("echo", &["hello"]));
         // API-2 / TASK-0659: hold the Arcs locally so strong_count > 1
         // when the call clones them, satisfying the Arc-only debug_assert.
@@ -722,7 +722,7 @@ mod tests {
     #[test]
     fn resolve_spec_cwd_none_returns_workspace() {
         let ws = std::path::PathBuf::from("/tmp/ws");
-        let vars = Variables::from_env(&ws);
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
         let out = resolve_spec_cwd(
             test_default_workspace_cache(),
             None,
@@ -740,7 +740,7 @@ mod tests {
         // check. A path lexically inside the workspace is allowed under
         // Deny; verbatim because absolute paths are not joined.
         let ws = std::path::PathBuf::from("/tmp/ws");
-        let vars = Variables::from_env(&ws);
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
         let abs = std::path::Path::new("/tmp/ws/inside");
         let out = resolve_spec_cwd(
             test_default_workspace_cache(),
@@ -760,7 +760,7 @@ mod tests {
     #[test]
     fn resolve_spec_cwd_absolute_outside_workspace_is_denied() {
         let ws = std::path::PathBuf::from("/tmp/ws");
-        let vars = Variables::from_env(&ws);
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
         let abs = std::path::Path::new("/etc");
         let err = resolve_spec_cwd(
             test_default_workspace_cache(),
@@ -780,7 +780,7 @@ mod tests {
     #[test]
     fn resolve_spec_cwd_absolute_outside_workspace_warns_under_warn_and_allow() {
         let ws = std::path::PathBuf::from("/tmp/ws");
-        let vars = Variables::from_env(&ws);
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
         let abs = std::path::Path::new("/opt/elsewhere");
         let out = resolve_spec_cwd(
             test_default_workspace_cache(),
@@ -796,7 +796,7 @@ mod tests {
     #[test]
     fn resolve_spec_cwd_deny_rejects_escape() {
         let ws = std::path::PathBuf::from("/tmp/ws");
-        let vars = Variables::from_env(&ws);
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
         let escaping = std::path::Path::new("../etc");
         let err = resolve_spec_cwd(
             test_default_workspace_cache(),
@@ -813,7 +813,7 @@ mod tests {
     #[test]
     fn resolve_spec_cwd_warn_allows_escape() {
         let ws = std::path::PathBuf::from("/tmp/ws");
-        let vars = Variables::from_env(&ws);
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
         let escaping = std::path::Path::new("../etc");
         let out = resolve_spec_cwd(
             test_default_workspace_cache(),
@@ -830,7 +830,7 @@ mod tests {
     #[test]
     fn resolve_spec_cwd_relative_inside_workspace_is_joined() {
         let ws = std::path::PathBuf::from("/tmp/ws");
-        let vars = Variables::from_env(&ws);
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
         let inside = std::path::Path::new("sub/dir");
         let out = resolve_spec_cwd(
             test_default_workspace_cache(),
@@ -855,7 +855,7 @@ mod tests {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let bad: OsString = OsString::from_vec(vec![b's', b'u', b'b', 0xff]);
         let bad_path: std::path::PathBuf = bad.into();
-        let vars = Variables::from_env(&ws);
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
         let err = resolve_spec_cwd(
             test_default_workspace_cache(),
             Some(bad_path.as_path()),
@@ -924,7 +924,7 @@ mod tests {
         let escape_target = tempfile::tempdir().unwrap();
         let escape_target_canonical = std::fs::canonicalize(escape_target.path()).unwrap();
 
-        let vars = Variables::from_env(&ws);
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
         let resolved = resolve_spec_cwd(
             test_default_workspace_cache(),
             Some(&inside),
@@ -1052,7 +1052,7 @@ mod tests {
         let inside = ws.join("sub");
         std::fs::create_dir(&inside).unwrap();
 
-        let vars = Variables::from_env(&ws);
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
         let resolved = resolve_spec_cwd(
             test_default_workspace_cache(),
             Some(std::path::Path::new("sub")),
@@ -1093,7 +1093,7 @@ mod tests {
         let link = ws.join("link");
         std::os::unix::fs::symlink(&real, &link).unwrap();
 
-        let vars = Variables::from_env(&ws);
+        let vars = Variables::from_env(&ws).expect("UTF-8 path");
         let resolved = resolve_spec_cwd(
             test_default_workspace_cache(),
             Some(std::path::Path::new("link")),

@@ -20,7 +20,7 @@ pub(crate) use std::time::Duration;
 pub(crate) use tokio::sync::mpsc;
 
 pub(crate) fn test_vars() -> Variables {
-    Variables::from_env(std::path::Path::new("."))
+    Variables::from_env(std::path::Path::new(".")).expect("UTF-8 path")
 }
 
 pub(crate) fn runner_with_test_commands() -> CommandRunner {

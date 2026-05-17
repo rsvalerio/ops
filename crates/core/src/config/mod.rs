@@ -24,7 +24,10 @@ pub use loader::{
     read_config_file,
 };
 #[cfg(any(test, feature = "test-support"))]
-pub use loader::{load_config_call_count, reset_load_config_call_count};
+pub use loader::{
+    load_config_call_count, reset_global_config_path_cache, reset_load_config_call_count,
+    GlobalConfigPathResetToken,
+};
 pub use merge::merge_config;
 
 use crate::config::theme_types::ThemeConfig;
