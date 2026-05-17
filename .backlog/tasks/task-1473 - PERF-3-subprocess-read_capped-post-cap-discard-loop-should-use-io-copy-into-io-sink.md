@@ -3,11 +3,11 @@ id: TASK-1473
 title: >-
   PERF-3: subprocess::read_capped post-cap discard loop should use io::copy into
   io::sink
-status: To Do
+status: Done
 assignee:
   - TASK-1479
 created_date: '2026-05-16 10:06'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 07:42'
 labels:
   - code-review-rust
   - performance

@@ -1,11 +1,11 @@
 ---
 id: TASK-1471
 title: 'ARCH-1: subprocess.rs and config/loader.rs are >850-line grab-bag modules'
-status: To Do
+status: Done
 assignee:
   - TASK-1479
 created_date: '2026-05-16 10:06'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 07:42'
 labels:
   - code-review-rust
   - architecture

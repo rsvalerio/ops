@@ -3,11 +3,11 @@ id: TASK-1463
 title: >-
   ARCH-11: subprocess::output_byte_cap diverges from shared cached_byte_cap_env,
   missing SEC-33 clamp
-status: To Do
+status: Done
 assignee:
   - TASK-1479
 created_date: '2026-05-15 18:50'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 07:30'
 labels:
   - code-review-rust
   - architecture

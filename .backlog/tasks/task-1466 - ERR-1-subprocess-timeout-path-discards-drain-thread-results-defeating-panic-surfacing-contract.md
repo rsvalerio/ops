@@ -3,11 +3,11 @@ id: TASK-1466
 title: >-
   ERR-1: subprocess timeout path discards drain-thread results, defeating
   panic-surfacing contract
-status: To Do
+status: Done
 assignee:
   - TASK-1479
 created_date: '2026-05-15 18:51'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 07:31'
 labels:
   - code-review-rust
   - error-handling
