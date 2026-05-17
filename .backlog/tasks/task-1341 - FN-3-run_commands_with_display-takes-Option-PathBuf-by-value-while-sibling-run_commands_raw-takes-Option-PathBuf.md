@@ -3,11 +3,11 @@ id: TASK-1341
 title: >-
   FN-3: run_commands_with_display takes Option<PathBuf> by value while sibling
   run_commands_raw takes Option<&PathBuf>
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 16:41'
-updated_date: '2026-05-12 22:17'
+updated_date: '2026-05-17 06:53'
 labels:
   - code-review-rust
   - functions
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Both helpers take the same ownership form for tap (prefer Option<&Path>)
-- [ ] #2 Call sites updated; cargo clippy --all-targets --workspace -- -D warnings clean
+- [x] #1 Both helpers take the same ownership form for tap (prefer Option<&Path>)
+- [x] #2 Call sites updated; cargo clippy --all-targets --workspace -- -D warnings clean
 <!-- AC:END -->
