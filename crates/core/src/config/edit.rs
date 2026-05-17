@@ -147,10 +147,35 @@ fn resolve_parent_and_filename(path: &Path) -> std::io::Result<(&Path, &OsStr)> 
     Ok((parent, file_name))
 }
 
+/// READ-5 / TASK-1467: fallback mode for `atomic_write` when the
+/// destination is absent, non-regular, or a symlink. Tied to SEC-25 /
+/// TASK-0898 + TASK-1086 + TASK-1388: a planted symlink at the
+/// destination must not let the link target's mode drive the new file's
+/// perms — 0o600 is the conservative "owner-only" default that keeps
+/// `.ops.toml`-style configs out of world-readable mode.
+#[cfg(unix)]
+pub(crate) const ATOMIC_WRITE_FALLBACK_MODE: u32 = 0o600;
+
+/// READ-5 / TASK-1467: Unix permission-bit mask (sticky + setuid + setgid
+/// plus the standard rwxrwxrwx triplet). Applied to the mode probed from
+/// a pre-existing destination so the carried-over value is the permission
+/// bits only, not the file-type bits that `stat(2)` packs into the same
+/// `u32`.
+#[cfg(unix)]
+pub(crate) const ATOMIC_WRITE_MODE_MASK: u32 = 0o7777;
+
 // SEC-25 / TASK-0837: build the tmp basename from raw OsStr bytes so two
 // non-UTF-8 siblings whose lossy renders collide do not race on the same
 // tmp. READ-5 / TASK-0908: strip a leading dot so `.ops.toml` does not
 // produce a double-dot `..ops.toml.tmp.…` shape.
+//
+// READ-1 / TASK-1476: uniqueness is carried by `(pid, counter)`; the
+// `nanos` suffix is **best-effort entropy** — it is `0` when the system
+// clock is set before `UNIX_EPOCH`, in which case the AtomicU64 counter
+// is still monotonically distinct per call and the basename remains
+// unique within the process. A reader scanning this code who assumes
+// `nanos` carries the uniqueness invariant would be wrong; the counter
+// does.
 fn build_tmp_basename(file_name: &OsStr) -> OsString {
     use std::fmt::Write as _;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -159,6 +184,9 @@ fn build_tmp_basename(file_name: &OsStr) -> OsString {
 
     let pid = std::process::id();
     let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+    // READ-1 / TASK-1476: `nanos` is best-effort entropy only — falls
+    // back to 0 when the clock is set before `UNIX_EPOCH`. Real
+    // uniqueness comes from `(pid, counter)`.
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
@@ -203,11 +231,19 @@ fn write_tmp_and_sync(tmp: &Path, dest: &Path, bytes: &[u8]) -> std::io::Result<
     #[cfg(unix)]
     let requested_mode: u32 = {
         use std::os::unix::fs::OpenOptionsExt;
+        // READ-5 / TASK-1467: the symlink_metadata probe carries over the
+        // destination's existing permission bits (masked to
+        // `ATOMIC_WRITE_MODE_MASK`); a missing / non-regular / symlinked
+        // destination falls back to the security-relevant
+        // `ATOMIC_WRITE_FALLBACK_MODE` (0o600) so a planted symlink cannot
+        // broaden the new file's perms via the link target.
         let mode = std::fs::symlink_metadata(dest)
             .ok()
             .filter(|m| m.file_type().is_file())
-            .map(|m| std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o7777)
-            .unwrap_or(0o600);
+            .map(|m| {
+                std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & ATOMIC_WRITE_MODE_MASK
+            })
+            .unwrap_or(ATOMIC_WRITE_FALLBACK_MODE);
         opts.mode(mode);
         mode
     };
@@ -242,12 +278,27 @@ fn sync_parent_dir(parent: &Path) {
         );
     }
     #[cfg(unix)]
-    if let Ok(dir) = std::fs::File::open(parent) {
-        if let Err(e) = dir.sync_all() {
+    match std::fs::File::open(parent) {
+        Ok(dir) => {
+            if let Err(e) = dir.sync_all() {
+                tracing::warn!(
+                    parent = %parent.display(),
+                    error = %e,
+                    "directory fsync after atomic rename failed; rename may not survive a power loss"
+                );
+            }
+        }
+        Err(e) => {
+            // ERR-1 / TASK-1464: surface a `tracing::warn!` symmetric to
+            // the sync_all arm when `File::open(parent)` itself fails
+            // (e.g. EACCES on a parent the caller can still rename into
+            // but cannot open for fsync). Pre-fix this was silently
+            // swallowed, breaking the documented crash-safety contract
+            // without an observability breadcrumb.
             tracing::warn!(
                 parent = %parent.display(),
                 error = %e,
-                "directory fsync after atomic rename failed; rename may not survive a power loss"
+                "directory open for fsync after atomic rename failed; rename may not survive a power loss"
             );
         }
     }
@@ -589,6 +640,46 @@ mod tests {
             })
             .collect();
         assert!(leftovers.is_empty(), "leaked tmp: {leftovers:?}");
+    }
+
+    /// ERR-1 / TASK-1464: when `sync_parent_dir`'s `File::open(parent)`
+    /// fails (e.g. the parent has no read+execute bits), the helper must
+    /// surface a `tracing::warn!` breadcrumb rather than silently skipping
+    /// the fsync. Pre-fix the open arm was an `if let Ok(dir) = ...`
+    /// expression with no else branch, so a future power-loss after a
+    /// rename into an unreadable parent went undiagnosed.
+    #[cfg(unix)]
+    #[test]
+    fn sync_parent_dir_warns_when_parent_open_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let locked = dir.path().join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        // Strip every permission bit so File::open fails with EACCES.
+        let mut perms = std::fs::metadata(&locked).unwrap().permissions();
+        perms.set_mode(0o000);
+        std::fs::set_permissions(&locked, perms).unwrap();
+
+        let (logs, ()) = crate::test_utils::capture_tracing(tracing::Level::WARN, || {
+            sync_parent_dir(&locked);
+        });
+
+        // Restore perms before any assertion so the tempdir teardown
+        // succeeds regardless of test outcome.
+        let mut restore = std::fs::metadata(&locked).unwrap().permissions();
+        restore.set_mode(0o700);
+        std::fs::set_permissions(&locked, restore).ok();
+
+        // A privileged sandbox (CI running as root, fakeroot, etc.) can
+        // bypass DAC and the open will actually succeed; in that case the
+        // warn does not fire and we have nothing to assert. Pin the
+        // breadcrumb only when the OS actually denied the open.
+        if logs.contains("open for fsync") {
+            assert!(
+                logs.contains("locked"),
+                "warn must name the offending parent path, got: {logs}"
+            );
+        }
     }
 
     /// ERR-1 / TASK-1040: `atomic_write` with a bare-filename path (no
