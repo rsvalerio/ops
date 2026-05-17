@@ -36,23 +36,29 @@ where
         .with_validator(|input: &str| {
             Ok(match validate_command_name(input.trim()) {
                 Ok(()) => inquire::validator::Validation::Valid,
-                Err(msg) => inquire::validator::Validation::Invalid(msg.into()),
+                Err(e) => inquire::validator::Validation::Invalid(format!("{e:#}").into()),
             })
         })
         .prompt()?;
 
     let name = name.trim().to_string();
-    validate_command_name(&name).map_err(|e| anyhow::anyhow!(e))?;
+    validate_command_name(&name)?;
 
     append_command_to_config(workspace_root, &name, &program, &args)?;
 
-    writeln!(
-        io::stdout(),
-        "Added command '{}' to .ops.toml. Run it with: ops {}",
-        name,
-        name
-    )?;
+    write_added_confirmation(&mut io::stdout(), &name)?;
     Ok(())
+}
+
+/// READ-5 (TASK-1355): writer-injection seam for the
+/// `Added command '…' to .ops.toml` success line. The interactive entry
+/// point passes `io::stdout()`; tests pass a `Vec<u8>` so the
+/// confirmation is observable without spawning the binary.
+fn write_added_confirmation<W: Write>(w: &mut W, name: &str) -> io::Result<()> {
+    writeln!(
+        w,
+        "Added command '{name}' to .ops.toml. Run it with: ops {name}"
+    )
 }
 
 /// Validate that `name` is usable both as a TOML key under `[commands.<name>]`
@@ -60,22 +66,26 @@ where
 /// characters, path separators, and a leading `-` (which clap parses as a
 /// flag) are all rejected so the on-disk config never ends up with an entry
 /// the rest of the tool cannot reach.
-fn validate_command_name(name: &str) -> Result<(), String> {
+///
+/// ERR-10 (TASK-1316): returns `anyhow::Result<()>` so callers compose
+/// directly via `?` and the inquire validator can format the error chain
+/// with `{e:#}` without an intermediate `String` round-trip.
+fn validate_command_name(name: &str) -> anyhow::Result<()> {
     if name.is_empty() {
-        return Err("command name cannot be empty".into());
+        anyhow::bail!("command name cannot be empty");
     }
     if name.starts_with('-') {
-        return Err("command name cannot start with '-' (clap would parse it as a flag)".into());
+        anyhow::bail!("command name cannot start with '-' (clap would parse it as a flag)");
     }
     for c in name.chars() {
         if c.is_ascii_whitespace() {
-            return Err("command name cannot contain whitespace".into());
+            anyhow::bail!("command name cannot contain whitespace");
         }
         if c.is_control() {
-            return Err("command name cannot contain control characters".into());
+            anyhow::bail!("command name cannot contain control characters");
         }
         if c == '/' || c == '\\' {
-            return Err("command name cannot contain path separators ('/' or '\\\\')".into());
+            anyhow::bail!("command name cannot contain path separators ('/' or '\\\\')");
         }
     }
     // Reject names that collide with a built-in clap subcommand. Clap matches built-ins before the `External` catch-all, so
@@ -85,9 +95,9 @@ fn validate_command_name(name: &str) -> Result<(), String> {
     // subcommands so future additions to `CoreSubcommand` are covered
     // without editing this function.
     if builtin_subcommand_names().contains(name) {
-        return Err(format!(
+        anyhow::bail!(
             "command name '{name}' collides with a built-in `ops` subcommand; pick a different name"
-        ));
+        );
     }
     Ok(())
 }
@@ -224,6 +234,24 @@ mod tests {
         let (prog, args) = parse_command(r#"echo "a \"quoted\" word""#).unwrap();
         assert_eq!(prog, "echo");
         assert_eq!(args, vec![r#"a "quoted" word"#]);
+    }
+
+    /// READ-5 (TASK-1355): the success-line writer seam is observable
+    /// from a captured `Vec<u8>` without spawning the binary.
+    #[test]
+    fn write_added_confirmation_renders_name_into_writer() {
+        let mut buf: Vec<u8> = Vec::new();
+        write_added_confirmation(&mut buf, "deploy").expect("write");
+        let out = String::from_utf8(buf).expect("utf8");
+        assert!(
+            out.contains("Added command 'deploy'"),
+            "expected confirmation to name the command: {out}"
+        );
+        assert!(
+            out.contains("ops deploy"),
+            "expected run-with hint in confirmation: {out}"
+        );
+        assert!(out.ends_with('\n'), "confirmation must terminate with LF");
     }
 
     #[test]
@@ -399,9 +427,10 @@ theme = "classic"
             );
         }
         for name in builtins {
-            let msg = validate_command_name(name).expect_err(&format!(
+            let err = validate_command_name(name).expect_err(&format!(
                 "built-in '{name}' must be rejected as a new-command name"
             ));
+            let msg = format!("{err:#}");
             assert!(
                 msg.contains(name) && msg.contains("built-in"),
                 "rejection must name the colliding built-in, got: {msg}"

@@ -5,12 +5,28 @@ use std::io::Write;
 use crate::hook_shared;
 
 /// Returns true when the effective args request top-level help (no subcommand).
-/// E.g. `ops -h`, `ops --help`, `ops -d --help`, but NOT `ops build -h`.
+/// E.g. `ops -h`, `ops --help`, `ops -d --help`, `ops --tap out.log --help`,
+/// but NOT `ops build -h`.
+///
+/// PATTERN-1 (TASK-1377): global flags that accept a value as a separate
+/// argv entry (e.g. `--tap <FILE>`) used to make the next positional look
+/// like a subcommand, dropping `ops --tap path --help` into the
+/// subcommand-help branch. We consume one extra argv slot when the
+/// current flag is a known value-taking global so the path argument is
+/// classified as the flag's value, not a positional. `--tap=path` was
+/// already handled because clap folds the value into the same argv entry.
 pub(crate) fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
+    /// Global flags declared in `Cli` that take a value as a separate
+    /// argv entry. Mirrors the `#[arg(long, global = true)]` declarations
+    /// in `args.rs`; if a new value-taking global is added there it must
+    /// be listed here too.
+    const VALUE_TAKING_GLOBALS: &[&str] = &["--tap"];
+
     // Skip argv[0].  If any non-flag argument appears before -h/--help, the
     // user is asking for subcommand help, not top-level help.
     let mut saw_help = false;
-    for a in args.iter().skip(1) {
+    let mut it = args.iter().skip(1);
+    while let Some(a) = it.next() {
         // `--` is clap's end-of-options marker. Anything after it is a
         // positional / pass-through, even when it begins with `-`. So
         // `ops -- --help` should NOT be treated as top-level help; the
@@ -20,6 +36,10 @@ pub(crate) fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
         }
         if a == "-h" || a == "--help" {
             saw_help = true;
+        } else if VALUE_TAKING_GLOBALS.iter().any(|f| a == *f) {
+            // Skip the value argv slot that belongs to this flag so it is
+            // not misclassified as a subcommand.
+            it.next();
         } else if !a.to_string_lossy().starts_with('-') {
             // A positional (subcommand) appeared — not top-level help.
             return false;
@@ -315,6 +335,29 @@ mod tests {
     #[test]
     fn is_toplevel_help_no_args() {
         assert!(!is_toplevel_help(&os(&["ops"])));
+    }
+
+    /// PATTERN-1 (TASK-1377): a global value-taking flag (`--tap <FILE>`)
+    /// whose value sits in a separate argv entry must not make the next
+    /// arg look like a subcommand.
+    #[test]
+    fn is_toplevel_help_tap_space_path_then_help_is_toplevel() {
+        assert!(is_toplevel_help(&os(&[
+            "ops", "--tap", "out.log", "--help"
+        ])));
+        assert!(is_toplevel_help(&os(&["ops", "--tap", "out.log", "-h"])));
+        // Inline-value form continues to work.
+        assert!(is_toplevel_help(&os(&["ops", "--tap=out.log", "--help"])));
+    }
+
+    /// PATTERN-1 (TASK-1377): subcommand-help paths still classify as
+    /// non-top-level even when a value-taking global comes first.
+    #[test]
+    fn is_toplevel_help_tap_value_before_subcommand_help_is_not_toplevel() {
+        assert!(!is_toplevel_help(&os(&["ops", "build", "-h"])));
+        assert!(!is_toplevel_help(&os(&[
+            "ops", "--tap", "out.log", "build", "-h"
+        ])));
     }
 
     #[test]

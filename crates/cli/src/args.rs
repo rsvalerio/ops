@@ -46,7 +46,7 @@ pub struct Cli {
     pub raw: bool,
 
     #[command(subcommand)]
-    pub subcommand: Option<Subcommand>,
+    pub subcommand: Option<CoreSubcommand>,
 }
 
 /// Core subcommands shared between direct invocation and `cargo ops` wrapper.
@@ -126,6 +126,13 @@ pub enum CoreSubcommand {
         action: Option<RunBeforePushAction>,
     },
     /// Install and manage cargo development tools.
+    ///
+    /// API-1 (TASK-1319): gated on `stack-rust` so the subcommand is
+    /// absent from clap's help/parse surface in builds that cannot
+    /// honour it. Previously the variant was unconditional and the
+    /// handler bailed at runtime with an anyhow chain, diverging from
+    /// the symmetric `Deps` / `Plans` shape.
+    #[cfg(feature = "stack-rust")]
     Tools {
         #[command(subcommand)]
         action: ToolsAction,
@@ -202,6 +209,7 @@ pub enum RunBeforePushAction {
 }
 
 /// Tools management subcommands.
+#[cfg(feature = "stack-rust")]
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum ToolsAction {
     /// List configured tools and their installation status.
@@ -214,10 +222,6 @@ pub enum ToolsAction {
         name: Option<String>,
     },
 }
-
-/// Flatten `CoreSubcommand` so `ops verify` works directly.
-/// The `ops` prefix from `cargo ops ...` is stripped before parsing.
-pub type Subcommand = CoreSubcommand;
 
 /// Subcommand names that are only relevant to a specific stack.
 /// Unlisted commands are always visible.

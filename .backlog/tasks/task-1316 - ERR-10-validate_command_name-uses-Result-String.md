@@ -1,11 +1,11 @@
 ---
 id: TASK-1316
 title: 'ERR-10: validate_command_name uses Result<(), String>'
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-11 20:30'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:40'
 labels:
   - code-review-rust
   - error-handling
@@ -27,8 +27,8 @@ The function is small and there is one production caller and one validator calle
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 validate_command_name returns anyhow::Result<()> (or a domain error enum), not Result<(), String>
-- [ ] #2 Caller at new_command_cmd.rs:43 drops the .map_err(...) wrap
-- [ ] #3 Inquire validator at lines 34-39 still maps the resulting error to inquire::validator::Validation::Invalid(...)
-- [ ] #4 cargo clippy --all-targets -- -D warnings and cargo test --workspace pass
+- [x] #1 validate_command_name returns anyhow::Result<()> (or a domain error enum), not Result<(), String>
+- [x] #2 Caller at new_command_cmd.rs:43 drops the .map_err(...) wrap
+- [x] #3 Inquire validator at lines 34-39 still maps the resulting error to inquire::validator::Validation::Invalid(...)
+- [x] #4 cargo clippy --all-targets -- -D warnings and cargo test --workspace pass
 <!-- AC:END -->

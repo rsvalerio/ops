@@ -3,11 +3,11 @@ id: TASK-1377
 title: >-
   PATTERN-1: is_toplevel_help misclassifies ops --tap path --help as subcommand
   help
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 21:51'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:44'
 labels:
   - code-review-rust
   - readability
@@ -33,7 +33,7 @@ Repro: `ops --tap /tmp/x --help` falls through to `cmd.get_matches_from(...)` an
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 is_toplevel_help returns true for ops --tap <path> --help (space-separated value form)
-- [ ] #2 Existing positional-subcommand cases (ops build -h) still return false
-- [ ] #3 Unit test pinning the new behaviour added to help.rs::tests
+- [x] #1 is_toplevel_help returns true for ops --tap <path> --help (space-separated value form)
+- [x] #2 Existing positional-subcommand cases (ops build -h) still return false
+- [x] #3 Unit test pinning the new behaviour added to help.rs::tests
 <!-- AC:END -->

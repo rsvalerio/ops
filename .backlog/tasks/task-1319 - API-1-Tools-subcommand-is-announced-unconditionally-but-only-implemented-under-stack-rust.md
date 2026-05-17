@@ -3,11 +3,11 @@ id: TASK-1319
 title: >-
   API-1: Tools subcommand is announced unconditionally but only implemented
   under stack-rust
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-11 20:35'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:41'
 labels:
   - code-review-rust
   - API
@@ -36,8 +36,8 @@ The consequences in a default-features build (no `stack-rust`):
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 CoreSubcommand::Tools variant is gated on #[cfg(feature = "stack-rust")] (matching the Deps/Plans pattern in args.rs)
-- [ ] #2 The dispatch arm in main.rs no longer needs the not(feature = "stack-rust") bail branch; the entire arm is feature-gated
-- [ ] #3 Under a no-stack-rust build, invoking the tools subcommand fails with clap's standard unknown-subcommand error (exit 2), not an anyhow runtime bail
-- [ ] #4 Under a no-stack-rust build, top-level help output does not list "tools" as an available subcommand
+- [x] #1 CoreSubcommand::Tools variant is gated on #[cfg(feature = "stack-rust")] (matching the Deps/Plans pattern in args.rs)
+- [x] #2 The dispatch arm in main.rs no longer needs the not(feature = "stack-rust") bail branch; the entire arm is feature-gated
+- [x] #3 Under a no-stack-rust build, invoking the tools subcommand fails with clap's standard unknown-subcommand error (exit 2), not an anyhow runtime bail
+- [x] #4 Under a no-stack-rust build, top-level help output does not list "tools" as an available subcommand
 <!-- AC:END -->

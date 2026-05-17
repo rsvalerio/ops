@@ -256,16 +256,9 @@ fn dispatch(
         }
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Deps { refresh }) => run_deps(early_config, refresh)?,
+        #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Tools { action }) => {
-            #[cfg(feature = "stack-rust")]
-            {
-                return run_tools(early_config, action);
-            }
-            #[cfg(not(feature = "stack-rust"))]
-            {
-                let _ = action;
-                anyhow::bail!("tools subcommand requires the stack-rust feature");
-            }
+            return run_tools(early_config, action);
         }
         #[cfg(feature = "stack-terraform")]
         Some(CoreSubcommand::Plans(opts)) => return ops_tfplan::run_plan_pipeline(opts),

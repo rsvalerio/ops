@@ -3,11 +3,11 @@ id: TASK-1370
 title: >-
   ERR-7: main::main() formats anyhow chain via Display, bypassing path-Debug
   escape sweep on inner error fields
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 21:34'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:43'
 labels:
   - code-review-rust
   - error-handling
@@ -31,6 +31,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 verify whether ops_core::ui::error scrubs the final assembled anyhow chain or only emits the wrapped message
-- [ ] #2 if scrubbing is incomplete, switch main's printer to a Debug-routed chain walker (e.g. iterate err.chain() with {cause:?}) consistent with the tracing path-escape sweep
+- [x] #1 verify whether ops_core::ui::error scrubs the final assembled anyhow chain or only emits the wrapped message
+- [x] #2 if scrubbing is incomplete, switch main's printer to a Debug-routed chain walker (e.g. iterate err.chain() with {cause:?}) consistent with the tracing path-escape sweep
 <!-- AC:END -->

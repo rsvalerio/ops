@@ -146,4 +146,34 @@ mod tests {
         let out = render("note", "a\tb");
         assert!(out.contains("a\tb"));
     }
+
+    /// ERR-7 (TASK-1370): the program-root error printer in
+    /// `crates/cli/src/main.rs` renders an `anyhow::Error` chain via
+    /// `format!("{e:#}")` and passes the assembled string to
+    /// [`error`]. Pin that the assembly-then-sanitise order escapes ESC
+    /// bytes that originated *inside* an interpolated value of a nested
+    /// cause — the chain-joiner `: ` produced by anyhow's alternate
+    /// Display must not exempt inner-cause Display strings from the
+    /// SEC-21 sweep.
+    #[test]
+    fn anyhow_chain_alternate_display_routed_through_emit_sanitises_inner_cause() {
+        let hostile_path = "evil\u{1b}[2J\u{1b}[31m.txt";
+        let inner = anyhow::anyhow!("loading {hostile_path}");
+        let err = inner.context("init failed");
+        let assembled = format!("{err:#}");
+        let out = render("error", &assembled);
+        assert!(
+            !out.contains('\u{1b}'),
+            "ESC must be escaped end-to-end: {out:?}"
+        );
+        assert!(
+            out.contains("\\x1b"),
+            "ESC must be rendered as \\x1b: {out:?}"
+        );
+        assert!(
+            out.contains("init failed"),
+            "outer context preserved: {out:?}"
+        );
+        assert!(out.contains("loading"), "inner message preserved: {out:?}");
+    }
 }

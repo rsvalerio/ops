@@ -3,11 +3,11 @@ id: TASK-1355
 title: >-
   READ-5: run_new_command_with_tty_check writes the 'Added command' confirmation
   to io::stdout() directly with no _to variant
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 21:28'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:42'
 labels:
   - code-review-rust
   - readability
@@ -27,6 +27,6 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Add run_new_command_to_with_tty_check<W: Write>(... w: &mut W) (or thread w into the existing fn) and have the public shell pass &mut std::io::stdout()
-- [ ] #2 Add a test that captures the 'Added command' confirmation from a buffer
+- [x] #1 Add run_new_command_to_with_tty_check<W: Write>(... w: &mut W) (or thread w into the existing fn) and have the public shell pass &mut std::io::stdout()
+- [x] #2 Add a test that captures the 'Added command' confirmation from a buffer
 <!-- AC:END -->

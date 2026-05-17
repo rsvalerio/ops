@@ -3,11 +3,11 @@ id: TASK-1342
 title: >-
   API-1: pub type Subcommand = CoreSubcommand is a dead alias whose doc comment
   implies a no-longer-existing prefix flattening
-status: To Do
+status: Done
 assignee:
   - TASK-1385
 created_date: '2026-05-12 16:41'
-updated_date: '2026-05-12 22:16'
+updated_date: '2026-05-17 09:41'
 labels:
   - code-review-rust
   - api
@@ -27,6 +27,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Alias removed and Cli::subcommand uses CoreSubcommand directly (or doc comment rewritten to reflect actual purpose)
-- [ ] #2 cargo build and cargo test --workspace pass
+- [x] #1 Alias removed and Cli::subcommand uses CoreSubcommand directly (or doc comment rewritten to reflect actual purpose)
+- [x] #2 cargo build and cargo test --workspace pass
 <!-- AC:END -->
