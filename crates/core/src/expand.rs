@@ -142,12 +142,11 @@ fn cached_ops_root_arc(ops_root: &Path) -> Arc<str> {
     let canonical = std::fs::canonicalize(ops_root).ok();
     let key: &Path = canonical.as_deref().unwrap_or(ops_root);
     let cache = ops_root_cache();
-    let mut guard = cache.lock().unwrap_or_else(|e| {
-        // CONC-9 / TASK-1183: lock poisoning here is recoverable — the
-        // protected map's every state is valid. Clear and continue.
-        cache.clear_poison();
-        e.into_inner()
-    });
+    // CONC-9 / TASK-1183 + DUP-3 / TASK-1477: lock poisoning here is
+    // recoverable — every state of the protected map is valid. Centralised
+    // in `sync::lock_recover` so the policy stays uniform across the four
+    // expand/detect sites that share it.
+    let mut guard = crate::sync::lock_recover(cache);
     // PERF-3 / TASK-1423: hit path checks via `&Path` borrow without
     // allocating a fresh `PathBuf` for every lookup. Only the miss path
     // materialises the owned key.
@@ -170,20 +169,22 @@ fn cached_ops_root_arc(ops_root: &Path) -> Arc<str> {
 
 #[cfg(test)]
 pub(crate) fn ops_root_cache_len() -> usize {
+    // ERR-1 / TASK-1474: test seams must surface mutex poison rather than
+    // silently returning a "successful" count. `lock_recover_warn` clears
+    // the poison and emits a `tracing::warn!` so a flake caused by a
+    // sibling panic shows up at the right level instead of looking like a
+    // later value-mismatch.
     let cache = ops_root_cache();
-    cache
-        .lock()
-        .map(|c| c.map.len())
-        .unwrap_or_else(|e| e.into_inner().map.len())
+    crate::sync::lock_recover_warn(cache, "ops_root_cache_len")
+        .map
+        .len()
 }
 
 #[cfg(test)]
 pub(crate) fn reset_ops_root_cache() {
     let cache = ops_root_cache();
-    let mut guard = cache.lock().unwrap_or_else(|e| {
-        cache.clear_poison();
-        e.into_inner()
-    });
+    // DUP-3 / TASK-1477: shared poison-recover policy.
+    let mut guard = crate::sync::lock_recover(cache);
     guard.map.clear();
     guard.order.clear();
 }
@@ -253,29 +254,27 @@ fn expand_warn_seen() -> &'static Mutex<ExpandWarnSeen> {
 /// hint, not a correctness invariant.
 fn mark_expand_warn_emitted(var_name: &str) -> bool {
     let cache = expand_warn_seen();
-    let mut seen = cache.lock().unwrap_or_else(|e| {
-        cache.clear_poison();
-        e.into_inner()
-    });
+    // DUP-3 / TASK-1477: shared poison-recover policy.
+    let mut seen = crate::sync::lock_recover(cache);
     seen.insert(var_name)
 }
 
 #[cfg(test)]
 pub(crate) fn expand_warn_seen_count() -> usize {
+    // ERR-1 / TASK-1474: surface mutex poison via `lock_recover_warn` so a
+    // sibling-panic flake is visible at the recovery site rather than
+    // masquerading as a later count mismatch.
     let cache = expand_warn_seen();
-    cache
-        .lock()
-        .map(|s| s.set.len())
-        .unwrap_or_else(|e| e.into_inner().set.len())
+    crate::sync::lock_recover_warn(cache, "expand_warn_seen_count")
+        .set
+        .len()
 }
 
 #[cfg(test)]
 pub(crate) fn reset_expand_warn_seen() {
     let cache = expand_warn_seen();
-    let mut seen = cache.lock().unwrap_or_else(|e| {
-        cache.clear_poison();
-        e.into_inner()
-    });
+    // DUP-3 / TASK-1477: shared poison-recover policy.
+    let mut seen = crate::sync::lock_recover(cache);
     seen.set.clear();
     seen.order.clear();
 }
@@ -377,6 +376,50 @@ mod tests {
 
     fn test_vars() -> Variables {
         Variables::from_env(&PathBuf::from("/test/project"))
+    }
+
+    /// ERR-1 / TASK-1474: when the OPS_ROOT cache mutex is poisoned (a
+    /// previous holder panicked), `ops_root_cache_len` must surface a
+    /// `tracing::warn!` breadcrumb pointing at the seam — the prior
+    /// implementation swallowed the poison via `unwrap_or_else(|e|
+    /// e.into_inner().map.len())` so a test would observe a "successful"
+    /// count rather than the poison that caused the flake.
+    #[test]
+    #[serial_test::serial(ops_root_cache)]
+    fn ops_root_cache_len_surfaces_poison_breadcrumb() {
+        // Populate the cache so the post-poison lookup has something to
+        // count and the test is robust to ordering.
+        let _ = cached_ops_root_arc(&PathBuf::from("/task-1474/seed"));
+
+        // Poison the lock from a thread that panics while holding it.
+        let cache: &'static Mutex<OpsRootCache> = ops_root_cache();
+        let poisoner = std::thread::spawn(move || {
+            let _guard = cache.lock().expect("lock");
+            panic!("synthetic poison for TASK-1474");
+        });
+        assert!(
+            poisoner.join().is_err(),
+            "poisoner thread must have panicked to poison the lock"
+        );
+
+        let (logs, len) =
+            crate::test_utils::capture_tracing(tracing::Level::WARN, || ops_root_cache_len());
+
+        // Reset state so the rest of the test suite sees a clean cache.
+        reset_ops_root_cache();
+
+        assert!(
+            len >= 1,
+            "ops_root_cache_len must still return the recovered count, got {len}"
+        );
+        assert!(
+            logs.contains("ops_root_cache_len"),
+            "warn breadcrumb must name the recovery seam, got: {logs}"
+        );
+        assert!(
+            logs.contains("poisoned"),
+            "warn breadcrumb must mention the poison recovery, got: {logs}"
+        );
     }
 
     #[test]

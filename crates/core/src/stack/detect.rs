@@ -23,11 +23,14 @@ static CANONICALIZE_CACHE: OnceLock<Mutex<HashMap<PathBuf, PathBuf>>> = OnceLock
 
 fn canonicalize_cached(start: &Path) -> PathBuf {
     let cache = CANONICALIZE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(p) = cache
-        .lock()
-        .expect("canonicalize cache poisoned")
-        .get(start)
-    {
+    // ERR-5 / TASK-1470 + DUP-3 / TASK-1477: poisoning here is recoverable
+    // — the protected `HashMap<PathBuf, PathBuf>` has no invariant a
+    // panicking caller could have broken. Route through the shared
+    // `sync::lock_recover` so a single poison does not turn every later
+    // `Stack::detect` into a hard panic for the rest of the process (which
+    // is reachable from production CLI dispatch). Mirrors the policy used
+    // in `expand.rs`.
+    if let Some(p) = crate::sync::lock_recover(cache).get(start) {
         return p.clone();
     }
     let resolved = match std::fs::canonicalize(start) {
@@ -41,10 +44,7 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
             start.to_path_buf()
         }
     };
-    cache
-        .lock()
-        .expect("canonicalize cache poisoned")
-        .insert(start.to_path_buf(), resolved.clone());
+    crate::sync::lock_recover(cache).insert(start.to_path_buf(), resolved.clone());
     resolved
 }
 
@@ -56,11 +56,7 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
 pub(super) fn canonicalize_cache_contains(start: &Path) -> bool {
     CANONICALIZE_CACHE
         .get()
-        .map(|c| {
-            c.lock()
-                .expect("canonicalize cache poisoned")
-                .contains_key(start)
-        })
+        .map(|c| crate::sync::lock_recover(c).contains_key(start))
         .unwrap_or(false)
 }
 
@@ -127,6 +123,46 @@ pub(super) fn has_manifest_in_dir(stack: Stack, dir: &Path) -> bool {
         }
     }
     false
+}
+
+/// ERR-5 / TASK-1470: regression — pollute the canonicalize cache via a
+/// thread that panics while holding the lock, then assert the next
+/// `detect()` call still resolves rather than hard-panicking. Pre-fix,
+/// both lock sites in this module used `.expect("canonicalize cache
+/// poisoned")` which would propagate the poison as a panic for the rest
+/// of the process.
+#[cfg(test)]
+#[test]
+fn detect_recovers_from_poisoned_canonicalize_cache() {
+    use std::sync::Arc;
+
+    // Force the cache to be initialised before we poison it so the
+    // post-poison `detect` call observes a populated, then-recovered map.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let _ = detect(dir.path());
+
+    let cache: Arc<&'static Mutex<HashMap<PathBuf, PathBuf>>> = Arc::new(
+        CANONICALIZE_CACHE
+            .get()
+            .expect("cache populated by detect() above"),
+    );
+    let poisoner = std::thread::spawn({
+        let cache = Arc::clone(&cache);
+        move || {
+            let _guard = cache.lock().expect("lock");
+            panic!("synthetic poison for TASK-1470");
+        }
+    });
+    // Join must report Err — confirming the thread panicked and left the
+    // mutex poisoned.
+    assert!(
+        poisoner.join().is_err(),
+        "poisoner thread must have panicked to poison the lock"
+    );
+
+    // Production policy: poison must not propagate. `detect` should
+    // continue to resolve.
+    let _ = detect(dir.path());
 }
 
 /// Walk ancestors of `start` looking for a manifest match.
