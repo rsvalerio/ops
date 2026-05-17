@@ -1,11 +1,11 @@
 ---
 id: TASK-1464
 title: 'ERR-1: sync_parent_dir silently swallows parent-directory open failure on Unix'
-status: To Do
+status: Done
 assignee:
   - TASK-1482
 created_date: '2026-05-15 18:50'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 08:56'
 labels:
   - code-review-rust
   - error-handling

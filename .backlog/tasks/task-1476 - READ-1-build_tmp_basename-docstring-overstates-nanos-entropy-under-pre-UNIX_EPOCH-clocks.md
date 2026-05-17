@@ -3,11 +3,11 @@ id: TASK-1476
 title: >-
   READ-1: build_tmp_basename docstring overstates nanos entropy under
   pre-UNIX_EPOCH clocks
-status: To Do
+status: Done
 assignee:
   - TASK-1482
 created_date: '2026-05-16 10:06'
-updated_date: '2026-05-17 07:06'
+updated_date: '2026-05-17 08:56'
 labels:
   - code-review-rust
   - readability
