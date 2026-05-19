@@ -3,11 +3,11 @@ id: TASK-1544
 title: >-
   PATTERN-1: as_array().into_iter().flatten() JSON-iteration idiom open-coded 8+
   times in types.rs
-status: To Do
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:25'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - PATTERN

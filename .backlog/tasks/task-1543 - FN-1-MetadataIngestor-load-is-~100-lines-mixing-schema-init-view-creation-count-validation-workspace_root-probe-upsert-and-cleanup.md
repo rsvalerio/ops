@@ -3,11 +3,11 @@ id: TASK-1543
 title: >-
   FN-1: MetadataIngestor::load is ~100 lines mixing schema init, view creation,
   count validation, workspace_root probe, upsert, and cleanup
-status: To Do
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:24'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - FN

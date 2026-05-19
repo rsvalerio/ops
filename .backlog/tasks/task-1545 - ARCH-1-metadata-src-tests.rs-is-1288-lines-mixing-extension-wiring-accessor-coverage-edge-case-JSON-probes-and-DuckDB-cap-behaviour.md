@@ -3,11 +3,11 @@ id: TASK-1545
 title: >-
   ARCH-1: metadata/src/tests.rs is 1288 lines mixing extension wiring, accessor
   coverage, edge-case JSON probes, and DuckDB cap behaviour
-status: To Do
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:25'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - ARCH

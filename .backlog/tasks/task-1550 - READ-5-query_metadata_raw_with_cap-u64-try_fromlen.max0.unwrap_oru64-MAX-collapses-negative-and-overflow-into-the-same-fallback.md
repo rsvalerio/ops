@@ -4,11 +4,11 @@ title: >-
   READ-5: query_metadata_raw_with_cap
   u64::try_from(len.max(0)).unwrap_or(u64::MAX) collapses negative and overflow
   into the same fallback
-status: To Do
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:27'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - READ

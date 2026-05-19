@@ -3,11 +3,11 @@ id: TASK-1540
 title: >-
   DUP-4: cargo-metadata JSON fixture re-inlined 12+ times across
   metadata/src/tests.rs and ingestor.rs tests
-status: To Do
+status: In Progress
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:24'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - DUP
@@ -36,3 +36,21 @@ Each block restates the same 15-20 boilerplate fields (`source`, `features`, `ma
 - [ ] #2 Each individual test body retains only the fields it specifically exercises; boilerplate fields (license, repository, homepage, etc.) live in the helper
 - [ ] #3 All existing tests still pass without weakening their assertions
 <!-- AC:END -->
+
+---
+
+**Status note (2026-05-19, wave-122):** Left In Progress. The ingestor.rs
+tests and the split-out `metadata/src/tests/edge_cases.rs` still re-inline
+the ~30-field cargo-metadata JSON skeleton across ~12 call sites. A
+follow-up wave should land:
+
+1. a `test_fixtures` module exposing `sample_pkg(name, version, id)` and
+   `sample_metadata_with_pkgs(pkgs)` helpers (shared between ingestor and
+   tests/* submodules), and
+2. a mechanical refactor of each inline `serde_json::json!({...})` call
+   site so the boilerplate disappears.
+
+Wave-122 deliberately did not pick this up because the rest of the wave
+(14 of 15 member tasks) touched the same files and a partial fixture
+refactor would have produced a confusing diff. None of the wave-122
+changes regressed the duplication — it remains exactly as it was before.

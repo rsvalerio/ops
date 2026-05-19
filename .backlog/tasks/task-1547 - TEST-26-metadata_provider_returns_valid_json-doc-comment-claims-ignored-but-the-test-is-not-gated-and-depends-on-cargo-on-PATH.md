@@ -3,11 +3,11 @@ id: TASK-1547
 title: >-
   TEST-26: metadata_provider_returns_valid_json doc-comment claims ignored but
   the test is not gated and depends on cargo on PATH
-status: To Do
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:26'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - TEST

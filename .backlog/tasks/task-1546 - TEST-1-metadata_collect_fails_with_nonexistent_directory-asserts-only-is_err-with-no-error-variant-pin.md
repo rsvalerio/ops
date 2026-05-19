@@ -3,11 +3,11 @@ id: TASK-1546
 title: >-
   TEST-1: metadata_collect_fails_with_nonexistent_directory asserts only
   is_err() with no error-variant pin
-status: To Do
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:25'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - TEST

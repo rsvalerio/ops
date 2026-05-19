@@ -3,11 +3,11 @@ id: TASK-1541
 title: >-
   TRAIT-1: public Metadata / Package / Dependency / Target types do not derive
   or implement Debug
-status: To Do
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:24'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - TRAIT

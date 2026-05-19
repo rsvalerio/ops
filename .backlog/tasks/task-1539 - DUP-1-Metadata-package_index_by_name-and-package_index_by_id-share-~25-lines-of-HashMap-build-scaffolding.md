@@ -3,11 +3,11 @@ id: TASK-1539
 title: >-
   DUP-1: Metadata::package_index_by_name and package_index_by_id share ~25 lines
   of HashMap-build scaffolding
-status: To Do
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:23'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - DUP

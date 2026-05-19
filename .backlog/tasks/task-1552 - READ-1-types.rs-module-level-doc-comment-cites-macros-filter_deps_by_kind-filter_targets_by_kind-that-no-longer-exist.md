@@ -3,11 +3,11 @@ id: TASK-1552
 title: >-
   READ-1: types.rs module-level doc comment cites macros (filter_deps_by_kind!,
   filter_targets_by_kind!) that no longer exist
-status: To Do
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:27'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - READ

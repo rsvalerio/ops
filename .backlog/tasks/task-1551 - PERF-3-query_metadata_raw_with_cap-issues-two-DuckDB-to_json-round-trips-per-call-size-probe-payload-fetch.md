@@ -3,11 +3,11 @@ id: TASK-1551
 title: >-
   PERF-3: query_metadata_raw_with_cap issues two DuckDB to_json() round trips
   per call (size probe + payload fetch)
-status: To Do
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:27'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - PERF

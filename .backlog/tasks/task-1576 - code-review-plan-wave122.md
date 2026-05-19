@@ -1,10 +1,11 @@
 ---
 id: TASK-1576
 title: code-review-plan-wave122
-status: To Do
+status: In Progress
 assignee:
   - code-review-wave
 created_date: '2026-05-19 16:45'
+updated_date: '2026-05-19 17:31'
 labels:
   - code-review-wave
 dependencies:
@@ -30,3 +31,9 @@ dependencies:
 <!-- SECTION:DESCRIPTION:BEGIN -->
 metadata crate: fixture dedup, MetadataIngestor::load split, types.rs idioms, Debug derives, ARCH-1 split
 <!-- SECTION:DESCRIPTION:END -->
+
+---
+
+**Wave-122 status (2026-05-19):** 14 of 15 member tasks Done. TASK-1540
+left In Progress (see its task file for the deferred-work note). Wave
+parent therefore remains non-Done until TASK-1540 lands.

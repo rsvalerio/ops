@@ -1,11 +1,11 @@
 ---
 id: TASK-1542
 title: 'ERR-2: Metadata::from_context returns anyhow::Error in a public library API'
-status: To Do
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:24'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - ERR

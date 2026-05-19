@@ -3,11 +3,11 @@ id: TASK-1549
 title: >-
   API-1: MetadataExtension lacks must_use and Debug despite being part of the
   crate's public factory surface
-status: To Do
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:26'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:48'
 labels:
   - code-review-rust
   - API
