@@ -3,11 +3,11 @@ id: TASK-1566
 title: >-
   PATTERN-1: parse_active_toolchain returns Some("no") for rustup 'no active
   toolchain configured' output
-status: To Do
+status: Done
 assignee:
   - TASK-1575
 created_date: '2026-05-19 16:09'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:12'
 labels:
   - code-review-rust
   - pattern

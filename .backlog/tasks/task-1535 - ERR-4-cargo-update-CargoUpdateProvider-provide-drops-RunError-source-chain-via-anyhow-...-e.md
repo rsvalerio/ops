@@ -3,11 +3,11 @@ id: TASK-1535
 title: >-
   ERR-4: cargo-update CargoUpdateProvider::provide drops RunError source chain
   via anyhow!("...: {}", e)
-status: To Do
+status: Done
 assignee:
   - TASK-1575
 created_date: '2026-05-19 09:54'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:09'
 labels:
   - code-review-rust
   - err

@@ -3,11 +3,11 @@ id: TASK-1536
 title: >-
   DUP-3: cargo-update tests.rs duplicates BufWriter+MakeWriter tracing-capture
   scaffold across two tests
-status: To Do
+status: Done
 assignee:
   - TASK-1575
 created_date: '2026-05-19 09:54'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:11'
 labels:
   - code-review-rust
   - dup

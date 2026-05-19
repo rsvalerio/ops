@@ -3,11 +3,11 @@ id: TASK-1537
 title: >-
   SEC-21: cargo-update provider embeds raw cargo stderr_tail into anyhow error
   without control-byte scrubbing
-status: To Do
+status: Done
 assignee:
   - TASK-1575
 created_date: '2026-05-19 09:54'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:10'
 labels:
   - code-review-rust
   - sec

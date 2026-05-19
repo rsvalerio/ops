@@ -3,11 +3,11 @@ id: TASK-1534
 title: >-
   PERF-3: cargo-update parse_update_output makes three filter+count passes over
   entries
-status: To Do
+status: Done
 assignee:
   - TASK-1575
 created_date: '2026-05-19 09:53'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:08'
 labels:
   - code-review-rust
   - perf
