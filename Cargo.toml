@@ -37,6 +37,7 @@ ops-about-terraform = { path = "extensions-terraform/about" }
 ops-hook-common = { path = "extensions/hook-common" }
 ops-run-before-commit = { path = "extensions/run-before-commit" }
 ops-run-before-push = { path = "extensions/run-before-push" }
+ops-text-fixers = { path = "extensions/text-fixers" }
 ops-test-coverage = { path = "extensions-rust/test-coverage" }
 linkme = "0.3"
 serde = { version = "1", features = ["derive"] }
