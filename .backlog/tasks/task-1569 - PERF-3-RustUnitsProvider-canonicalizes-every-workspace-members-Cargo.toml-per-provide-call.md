@@ -3,11 +3,11 @@ id: TASK-1569
 title: >-
   PERF-3: RustUnitsProvider canonicalizes every workspace member's Cargo.toml
   per provide() call
-status: To Do
+status: Done
 assignee:
   - TASK-1578
 created_date: '2026-05-19 16:35'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:48'
 labels:
   - code-review-rust
   - performance

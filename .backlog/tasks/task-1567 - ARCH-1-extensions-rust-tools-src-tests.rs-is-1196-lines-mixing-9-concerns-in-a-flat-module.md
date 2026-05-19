@@ -3,11 +3,11 @@ id: TASK-1567
 title: >-
   ARCH-1: extensions-rust/tools/src/tests.rs is 1196 lines mixing 9+ concerns in
   a flat module
-status: To Do
+status: In Progress
 assignee:
   - TASK-1578
 created_date: '2026-05-19 16:10'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:34'
 labels:
   - code-review-rust
   - architecture
@@ -52,3 +52,16 @@ ARCH-1 threshold (300 lines, mixing 3+ concerns) is exceeded by ~4x lines and 3x
 - [ ] #2 Each test group is co-located with the production module it covers (probe/cargo.rs, probe/rustup.rs, probe/path.rs, install.rs)
 - [ ] #3 All tests continue to pass under cargo test -p ops-tools
 <!-- AC:END -->
+
+---
+
+**Status note (2026-05-19, wave-124):** Left In Progress. Splitting the
+1196-line `tools/src/tests.rs` into co-located `#[cfg(test)] mod tests`
+blocks inside `probe/{cargo,rustup,path}.rs` and `install.rs` requires
+mechanically relocating ~50 tests, threading their imports through the
+new module locations, and verifying no shared helper drifts. The
+sibling acceptance criteria for this wave touched many of the same
+code paths; a partial split would have landed alongside diff-noisy
+import shuffles that made review harder. Wave-124 deliberately defers
+this to a dedicated wave that can take the split on its own. No
+production behaviour regressed.

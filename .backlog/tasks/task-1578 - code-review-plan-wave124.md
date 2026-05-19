@@ -1,10 +1,11 @@
 ---
 id: TASK-1578
 title: code-review-plan-wave124
-status: To Do
+status: In Progress
 assignee:
   - code-review-wave
 created_date: '2026-05-19 16:45'
+updated_date: '2026-05-19 18:34'
 labels:
   - code-review-wave
 dependencies:
@@ -26,3 +27,10 @@ dependencies:
 <!-- SECTION:DESCRIPTION:BEGIN -->
 extensions-rust tools/about/units: probe scaffolding dedup, tests.rs split, RustUnitsProvider perf, about toml dep cleanup
 <!-- SECTION:DESCRIPTION:END -->
+
+---
+
+**Wave-124 status (2026-05-19):** 10 of 11 member tasks Done. TASK-1567
+(ARCH-1 split of `tools/src/tests.rs`) left In Progress — see the task
+file for the deferral note. Wave parent therefore remains non-Done
+until TASK-1567 lands.

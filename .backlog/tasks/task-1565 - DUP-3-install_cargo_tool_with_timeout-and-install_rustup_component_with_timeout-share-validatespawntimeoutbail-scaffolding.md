@@ -4,11 +4,11 @@ title: >-
   DUP-3: install_cargo_tool_with_timeout and
   install_rustup_component_with_timeout share validate+spawn+timeout+bail
   scaffolding
-status: To Do
+status: Done
 assignee:
   - TASK-1578
 created_date: '2026-05-19 15:56'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:48'
 labels:
   - code-review-rust
   - duplication

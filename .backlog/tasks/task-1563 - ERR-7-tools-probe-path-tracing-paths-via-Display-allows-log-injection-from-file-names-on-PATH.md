@@ -3,11 +3,11 @@ id: TASK-1563
 title: >-
   ERR-7: tools::probe::path tracing paths via Display allows log injection from
   file names on PATH
-status: To Do
+status: Done
 assignee:
   - TASK-1578
 created_date: '2026-05-19 15:56'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:48'
 labels:
   - code-review-rust
   - error-handling

@@ -3,11 +3,11 @@ id: TASK-1570
 title: >-
   PERF-3: dep_counts lookup key allocates an owned String per workspace member
   via to_string_lossy().into_owned()
-status: To Do
+status: Done
 assignee:
   - TASK-1578
 created_date: '2026-05-19 16:35'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:48'
 labels:
   - code-review-rust
   - performance

@@ -3,11 +3,11 @@ id: TASK-1491
 title: >-
   PATTERN-1: classify_member uses redundant star_idx.expect after explicit
   is_none check
-status: To Do
+status: Done
 assignee:
   - TASK-1578
 created_date: '2026-05-18 17:00'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:48'
 labels:
   - code-review-rust
   - pattern

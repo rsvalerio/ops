@@ -3,11 +3,11 @@ id: TASK-1568
 title: >-
   TEST-1: tool_status_debug and tool_status_clone pin compiler-generated derive
   output without behavioural value
-status: To Do
+status: Done
 assignee:
   - TASK-1578
 created_date: '2026-05-19 16:10'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:48'
 labels:
   - code-review-rust
   - test

@@ -3,11 +3,11 @@ id: TASK-1490
 title: >-
   VER-1: extensions-rust/about declares toml in [dependencies] but only uses it
   in tests
-status: To Do
+status: Done
 assignee:
   - TASK-1578
 created_date: '2026-05-18 16:43'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:48'
 labels:
   - code-review-rust
   - version

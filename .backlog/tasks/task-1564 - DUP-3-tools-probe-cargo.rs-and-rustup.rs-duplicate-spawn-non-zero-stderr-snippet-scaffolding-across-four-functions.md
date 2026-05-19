@@ -3,11 +3,11 @@ id: TASK-1564
 title: >-
   DUP-3: tools::probe cargo.rs and rustup.rs duplicate
   spawn/non-zero/stderr-snippet scaffolding across four functions
-status: To Do
+status: Done
 assignee:
   - TASK-1578
 created_date: '2026-05-19 15:56'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:48'
 labels:
   - code-review-rust
   - duplication
