@@ -681,11 +681,6 @@ fn data_registry_default() {
     assert!(registry.provider_names().is_empty());
 }
 
-/// SEC-21 / TASK-1226: `DataRegistry::register` formats the runtime-
-/// generated `provider_name` field via the `?` (Debug) formatter so an
-/// extension that builds a provider name from external data containing
-/// newlines or ANSI sequences cannot forge log entries through the
-/// duplicate-insert breadcrumb. Pin the value-level escape directly,
 /// DUP-3 / TASK-1225: building a `CommandRegistry` via `collect()` /
 /// `from_iter()` must NOT silently drop the duplicate-insert audit
 /// trail. The implementation drains `duplicate_inserts` and surfaces
@@ -725,13 +720,81 @@ fn command_registry_from_iter_drains_duplicate_audit_trail() {
     );
 }
 
-/// mirroring `program_field_debug_escapes_control_characters`
-/// (TASK-1127) and the broader workspace policy.
+/// SEC-21 / TASK-1226: `DataRegistry::register` formats the runtime-
+/// generated `provider_name` field via the `?` (Debug) formatter so an
+/// extension that builds a provider name from external data containing
+/// newlines or ANSI sequences cannot forge log entries through the
+/// duplicate-insert breadcrumb. Pin the value-level escape directly by
+/// driving `DataRegistry::register` with a forged provider name and
+/// capturing the emitted tracing event — flipping the format specifier
+/// from `?name` (Debug) to `%name` (Display) in `data.rs` would let raw
+/// newline / ESC bytes through and fail this test, mirroring
+/// `program_field_debug_escapes_control_characters` (TASK-1127) and the
+/// broader workspace policy.
 #[test]
 fn provider_name_field_debug_escapes_control_characters() {
-    let name = "stub\nFAKE_LOG\n\u{1b}[31m";
-    let rendered = format!("{name:?}");
-    assert!(!rendered.contains('\n'));
-    assert!(!rendered.contains('\u{1b}'));
-    assert!(rendered.contains("\\n"));
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    struct BufWriter(Arc<Mutex<Vec<u8>>>);
+    impl Write for BufWriter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().expect("lock").extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    let forged = "stub\nFAKE_LOG\n\u{1b}[31m";
+    let buf = BufWriter::default();
+    let captured = buf.0.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buf)
+        .with_max_level(tracing::Level::DEBUG)
+        .with_ansi(false)
+        .finish();
+
+    tracing::subscriber::with_default(subscriber, || {
+        let mut registry = DataRegistry::new();
+        registry.register(forged, Box::new(StubProvider));
+        // Duplicate insert triggers the breadcrumb under test.
+        registry.register(forged, Box::new(StubProvider));
+    });
+
+    let text = String::from_utf8(captured.lock().expect("lock").clone()).expect("utf8");
+    assert!(
+        text.contains("DataRegistry::register dropping duplicate provider"),
+        "expected duplicate-insert breadcrumb in captured tracing output, got: {text}"
+    );
+    // The raw ESC byte must not appear — Debug formatting must have
+    // escaped it. If the format specifier in data.rs is flipped from
+    // `?name` (Debug) to `%name` (Display), the raw ESC byte leaks into
+    // the breadcrumb and this assertion fails.
+    assert!(
+        !text.contains('\u{1b}'),
+        "captured breadcrumb must not contain raw ESC byte: {text:?}"
+    );
+    // The escaped forms must appear in the provider_name field. The
+    // breadcrumb line itself ends with a real `\n` (record terminator),
+    // so we cannot assert the entire `text` is newline-free; instead we
+    // pin that Debug produced the escape sequence `\n` and `\u{1b}` in
+    // the rendered field.
+    assert!(
+        text.contains("\\n"),
+        "captured breadcrumb must contain escaped newline (\\n): {text:?}"
+    );
+    assert!(
+        text.contains("\\u{1b}"),
+        "captured breadcrumb must contain escaped ESC (\\u{{1b}}): {text:?}"
+    );
 }
