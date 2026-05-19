@@ -3,11 +3,11 @@ id: TASK-1556
 title: >-
   VER-1: test-coverage declares linkme in both [dependencies] and
   [dev-dependencies] (redundant)
-status: To Do
+status: Done
 assignee:
   - TASK-1577
 created_date: '2026-05-19 15:42'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:05'
 labels:
   - code-review-rust
   - idioms

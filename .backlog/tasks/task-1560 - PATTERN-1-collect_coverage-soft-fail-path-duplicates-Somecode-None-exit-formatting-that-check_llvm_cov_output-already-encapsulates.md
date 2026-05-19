@@ -3,11 +3,11 @@ id: TASK-1560
 title: >-
   PATTERN-1: collect_coverage soft-fail path duplicates Some(code)/None
   exit-formatting that check_llvm_cov_output already encapsulates
-status: To Do
+status: Done
 assignee:
   - TASK-1577
 created_date: '2026-05-19 15:43'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:05'
 labels:
   - code-review-rust
   - idioms

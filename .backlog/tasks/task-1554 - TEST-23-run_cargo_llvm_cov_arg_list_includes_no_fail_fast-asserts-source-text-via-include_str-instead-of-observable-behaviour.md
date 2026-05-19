@@ -3,11 +3,11 @@ id: TASK-1554
 title: >-
   TEST-23: run_cargo_llvm_cov_arg_list_includes_no_fail_fast asserts source text
   via include_str! instead of observable behaviour
-status: To Do
+status: Done
 assignee:
   - TASK-1577
 created_date: '2026-05-19 15:34'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:05'
 labels:
   - code-review-rust
   - tests

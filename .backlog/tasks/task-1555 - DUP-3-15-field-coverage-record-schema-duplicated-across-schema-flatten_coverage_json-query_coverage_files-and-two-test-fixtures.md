@@ -3,11 +3,11 @@ id: TASK-1555
 title: >-
   DUP-3: 15-field coverage record schema duplicated across schema(),
   flatten_coverage_json, query_coverage_files, and two test fixtures
-status: To Do
+status: Done
 assignee:
   - TASK-1577
 created_date: '2026-05-19 15:34'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:05'
 labels:
   - code-review-rust
   - duplication

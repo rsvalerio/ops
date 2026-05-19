@@ -3,11 +3,11 @@ id: TASK-1553
 title: >-
   FN-1: flatten_coverage_json spans 106 lines combining export iteration,
   filename validation, section extraction, and dedup bookkeeping
-status: To Do
+status: Done
 assignee:
   - TASK-1577
 created_date: '2026-05-19 15:34'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:05'
 labels:
   - code-review-rust
   - structure

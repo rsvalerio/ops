@@ -3,11 +3,11 @@ id: TASK-1562
 title: >-
   DUP-1: test-coverage tests open-code identical
   tempdir+DuckDb+write_coverage_fixture+ingestor.load scaffold across 5+ tests
-status: To Do
+status: Done
 assignee:
   - TASK-1577
 created_date: '2026-05-19 15:51'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:05'
 labels:
   - code-review-rust
   - duplication

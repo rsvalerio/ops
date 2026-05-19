@@ -3,11 +3,11 @@ id: TASK-1557
 title: >-
   ERR-1: collect_coverage soft-fail path accepts empty 'data' array, masking
   real cargo failure as schema bail
-status: To Do
+status: Done
 assignee:
   - TASK-1577
 created_date: '2026-05-19 15:42'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:05'
 labels:
   - code-review-rust
   - error-handling

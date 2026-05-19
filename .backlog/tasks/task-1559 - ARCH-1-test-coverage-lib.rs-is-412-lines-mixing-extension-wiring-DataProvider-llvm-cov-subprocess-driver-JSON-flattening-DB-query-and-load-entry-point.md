@@ -4,11 +4,11 @@ title: >-
   ARCH-1: test-coverage/lib.rs is 412 lines mixing extension wiring,
   DataProvider, llvm-cov subprocess driver, JSON flattening, DB query, and load
   entry point
-status: To Do
+status: Done
 assignee:
   - TASK-1577
 created_date: '2026-05-19 15:43'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:05'
 labels:
   - code-review-rust
   - architecture

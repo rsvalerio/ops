@@ -3,11 +3,11 @@ id: TASK-1561
 title: >-
   API-5: test-coverage public free functions flatten_coverage_json /
   collect_coverage / load_coverage lack #[must_use]
-status: To Do
+status: Done
 assignee:
   - TASK-1577
 created_date: '2026-05-19 15:43'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 18:05'
 labels:
   - code-review-rust
   - api-design
