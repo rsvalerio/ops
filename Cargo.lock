@@ -2404,6 +2404,7 @@ dependencies = [
  "ops-core",
  "ops-duckdb",
  "ops-extension",
+ "serde",
  "serde_json",
  "tempfile",
  "tracing",

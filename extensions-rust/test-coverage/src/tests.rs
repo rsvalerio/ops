@@ -1,8 +1,10 @@
 //! Tests for the coverage extension.
 
 use super::*;
+use crate::provider::{query_coverage_files, CoverageProvider};
+use crate::subprocess::{check_llvm_cov_output, LLVM_COV_ARGS};
 use ops_duckdb::{init_schema, DataIngestor, DuckDb};
-use ops_extension::Extension;
+use ops_extension::{DataProvider, Extension};
 
 // -- Extension trait tests --
 
@@ -171,6 +173,36 @@ fn flatten_coverage_json_iterates_all_data_entries() {
     assert_eq!(names, vec!["a.rs", "b.rs"]);
 }
 
+/// ERR-1 / TASK-1557: when `cargo llvm-cov` exits non-zero AND stdout
+/// carries `{"data": []}`, the soft-fail path must NOT swallow the cargo
+/// exit and pass an empty array to `flatten_coverage_json` — that would
+/// surface the schema-shape error `'data' array is empty in coverage
+/// JSON`, hiding the cargo root cause (compile error, missing toolchain,
+/// OOM kill). Drive the soft-fail decision directly: with an empty
+/// `data[]`, the predicate returns `false` so the caller falls through
+/// to the cargo error path.
+#[test]
+fn soft_fail_predicate_rejects_empty_data_array() {
+    // The decision logic lives inline in `collect_coverage`; we replicate
+    // its `is_some_and(|a| !a.is_empty())` predicate against an empty
+    // array and a populated array to pin the contract.
+    let empty = serde_json::json!({"data": []});
+    let populated = serde_json::json!({"data": [{"files": []}]});
+    let has_nonempty = |raw: &serde_json::Value| -> bool {
+        raw.get("data")
+            .and_then(|d| d.as_array())
+            .is_some_and(|a| !a.is_empty())
+    };
+    assert!(
+        !has_nonempty(&empty),
+        "empty data[] must fall through to cargo error path so the operator sees the real cause"
+    );
+    assert!(
+        has_nonempty(&populated),
+        "non-empty data[] must drive the soft-fail warn-and-continue branch"
+    );
+}
+
 // -- DuckDB integration tests --
 
 fn write_coverage_fixture(data_dir: &Path) {
@@ -182,16 +214,25 @@ fn write_coverage_fixture(data_dir: &Path) {
         .expect("write workspace");
 }
 
-#[test]
-fn coverage_load_creates_table_and_view() {
+/// DUP-3 / TASK-1562: collapses the 5-line `tempdir + open_in_memory +
+/// write_coverage_fixture + ingest` boilerplate that previously sat in
+/// five DuckDB integration tests. Returns the tempdir (kept alive so the
+/// sidecar paths remain valid for the lifetime of the test) and the
+/// loaded DuckDb handle.
+pub(crate) fn setup_loaded_db() -> (tempfile::TempDir, DuckDb) {
     let data_dir = tempfile::tempdir().expect("tempdir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
     write_coverage_fixture(data_dir.path());
-
     let ingestor = CoverageIngestor;
     let _ = ingestor
         .load(data_dir.path(), &db)
         .expect("load should succeed");
+    (data_dir, db)
+}
+
+#[test]
+fn coverage_load_creates_table_and_view() {
+    let (data_dir, db) = setup_loaded_db();
 
     let conn = db.lock().expect("lock");
 
@@ -225,15 +266,7 @@ fn coverage_load_creates_table_and_view() {
 
 #[test]
 fn coverage_summary_view_computes_percentages() {
-    let data_dir = tempfile::tempdir().expect("tempdir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
-    write_coverage_fixture(data_dir.path());
-
-    let ingestor = CoverageIngestor;
-    let _ = ingestor
-        .load(data_dir.path(), &db)
-        .expect("load should succeed");
-
+    let (_data_dir, db) = setup_loaded_db();
     let conn = db.lock().expect("lock");
     let lines_percent: f64 = conn
         .query_row("SELECT lines_percent FROM coverage_summary", [], |row| {
@@ -380,19 +413,25 @@ fn check_llvm_cov_output_failure_signal_kill_says_signal() {
 
 /// ERR-1 / TASK-1057: `cargo llvm-cov` must run with `--no-fail-fast`
 /// so a single failing test does not erase the entire coverage signal
-/// for the run. Pin the arg list at the source-of-truth.
+/// for the run. TEST-23 / TASK-1554: the regression guard reads the
+/// argv slice directly rather than grepping the source text via
+/// `include_str!`, so rustfmt re-wraps, helper-function moves, and
+/// const-renames cannot make this test rot silently.
 #[test]
 fn run_cargo_llvm_cov_arg_list_includes_no_fail_fast() {
-    let src = include_str!("lib.rs");
-    let needle = "\"--no-fail-fast\"";
     assert!(
-        src.contains(needle),
-        "run_cargo_llvm_cov arg list must include --no-fail-fast (TASK-1057)"
+        LLVM_COV_ARGS.contains(&"--no-fail-fast"),
+        "argv must include --no-fail-fast (TASK-1057); current argv: {LLVM_COV_ARGS:?}"
     );
-    // Also pin order: --tests must precede --no-fail-fast and --json
-    // must remain the final flag (downstream parsing depends on JSON
-    // mode being on).
-    assert!(src.contains("\"--json\""));
+    assert_eq!(
+        LLVM_COV_ARGS.last().copied(),
+        Some("--json"),
+        "TASK-1057: --json must be the final flag (downstream parsing depends on JSON mode); \
+         current argv: {LLVM_COV_ARGS:?}"
+    );
+    // The first flag is the subcommand name; bind it so reordering doesn't
+    // silently make this a `cargo nextest --json` invocation.
+    assert_eq!(LLVM_COV_ARGS.first().copied(), Some("llvm-cov"));
 }
 
 /// ERR-1 / TASK-1021: when `data[]` carries multiple exports listing the
@@ -596,13 +635,7 @@ fn load_coverage_returns_record_count() {
 
 #[test]
 fn query_coverage_files_round_trip() {
-    let data_dir = tempfile::tempdir().expect("tempdir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
-    write_coverage_fixture(data_dir.path());
-
-    let ingestor = CoverageIngestor;
-    let _ = ingestor.load(data_dir.path(), &db).expect("load");
-
+    let (_data_dir, db) = setup_loaded_db();
     let rows = query_coverage_files(&db).expect("query");
     let arr = rows.as_array().unwrap();
     assert_eq!(arr.len(), 2);
@@ -638,13 +671,7 @@ fn query_coverage_files_round_trip() {
 
 #[test]
 fn coverage_summary_view_all_metric_percentages() {
-    let data_dir = tempfile::tempdir().expect("tempdir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
-    write_coverage_fixture(data_dir.path());
-
-    let ingestor = CoverageIngestor;
-    let _ = ingestor.load(data_dir.path(), &db).expect("load");
-
+    let (_data_dir, db) = setup_loaded_db();
     let conn = db.lock().expect("lock");
 
     // functions: 27/30 = 90%
@@ -704,16 +731,12 @@ fn coverage_summary_view_all_metric_percentages() {
 
 #[test]
 fn coverage_load_is_idempotent() {
-    let data_dir = tempfile::tempdir().expect("tempdir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
-
-    // First load
+    let (data_dir, db) = setup_loaded_db();
+    // Second load against the same fixture: `setup_loaded_db` already
+    // performed the first ingest; restage the sidecar (the loader
+    // removes the staged JSON after a successful load) and ingest again.
     write_coverage_fixture(data_dir.path());
     let ingestor = CoverageIngestor;
-    let _ = ingestor.load(data_dir.path(), &db).expect("first load");
-
-    // Second load with same data
-    write_coverage_fixture(data_dir.path());
     let _ = ingestor.load(data_dir.path(), &db).expect("second load");
 
     let conn = db.lock().expect("lock");

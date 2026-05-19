@@ -1,0 +1,92 @@
+//! Subprocess driver for `cargo llvm-cov`.
+//!
+//! ARCH-1 / TASK-1559: lifted out of `lib.rs` so the wiring layer stays focused
+//! on extension registration. PATTERN-1 / TASK-1560: the cargo exit formatter
+//! is centralised here so both the soft-fail path in `parse::collect_coverage`
+//! and the hard-fail path in [`check_llvm_cov_output`] surface the same
+//! marker for SIGKILL/OOM kills.
+
+use ops_core::output::format_error_tail;
+use ops_core::subprocess::{run_cargo, RunError};
+use std::path::Path;
+use std::process::{ExitStatus, Output};
+use std::time::Duration;
+
+/// Default timeout for `cargo llvm-cov`; overridable via
+/// `OPS_SUBPROCESS_TIMEOUT_SECS`. Coverage runs the full test suite, so this
+/// is the largest of the cargo-subprocess defaults.
+pub(crate) const CARGO_LLVM_COV_TIMEOUT: Duration = Duration::from_secs(900);
+
+/// TEST-23 / TASK-1554: the argv list `cargo llvm-cov` runs with. Exposed
+/// so the regression guard for TASK-1057 (`--no-fail-fast` must remain
+/// present; `--json` must remain the last flag) can assert against the
+/// authoritative slice instead of grepping the source text via
+/// `include_str!`, which rotted silently under rustfmt re-wraps and
+/// helper-function moves.
+pub(crate) const LLVM_COV_ARGS: &[&str] = &[
+    "llvm-cov",
+    "--workspace",
+    "--no-cfg-coverage",
+    "--tests",
+    "--no-fail-fast",
+    "--json",
+];
+
+/// Run `cargo llvm-cov` against the workspace and return the captured
+/// `Output`.
+///
+/// ERR-1 / TASK-1057: pass `--no-fail-fast` (forwarded to cargo test) so a
+/// single failing test does not abort the whole suite — without it,
+/// `cargo llvm-cov` returns non-zero with empty / partial JSON and the
+/// entire coverage signal vanishes from `coverage_files` /
+/// `coverage_summary`. With `--no-fail-fast`, every test runs and the
+/// per-file coverage data for the passing slice is preserved; the
+/// `check_llvm_cov_output` helper then tolerates a non-zero exit when
+/// stdout still contains a parseable llvm-cov JSON document.
+pub(crate) fn run_cargo_llvm_cov(working_dir: &Path) -> Result<Output, RunError> {
+    run_cargo(
+        LLVM_COV_ARGS,
+        working_dir,
+        CARGO_LLVM_COV_TIMEOUT,
+        "cargo llvm-cov",
+    )
+}
+
+/// PATTERN-1 / TASK-1560: render an `ExitStatus` as the operator-visible
+/// exit marker so the soft-fail (warn) path in [`crate::parse::collect_coverage`]
+/// and the hard-fail (bail) path in [`check_llvm_cov_output`] surface the
+/// same string for SIGKILL/OOM (`exit_code = None`) and the same string for
+/// a regular non-zero exit (`status {code}`). Drifting between
+/// `"signal"` and `"exit_code = None"` previously broke grep-on-logs
+/// (TASK-1099).
+pub(crate) fn format_cargo_exit(status: &ExitStatus) -> String {
+    match status.code() {
+        Some(code) => format!("status {code}"),
+        None => "exit_code = None (terminated by signal)".to_string(),
+    }
+}
+
+/// PATTERN-1 / TASK-1099: include the exit code (or `signal` for `None`)
+/// in the error so SIGKILL/OOM kills are distinguishable from a real
+/// cargo failure.
+///
+/// ERR-1 / TASK-1057: when the exit is non-zero but stdout contains a
+/// parseable llvm-cov JSON document, `collect_coverage` treats it as a
+/// soft failure (warn + continue) so the per-file coverage for the
+/// passing slice of the workspace is preserved. This helper still
+/// surfaces the non-zero exit; the caller decides whether to demote it.
+pub(crate) fn check_llvm_cov_output(output: &Output) -> Result<(), anyhow::Error> {
+    if !output.status.success() {
+        let tail = format_error_tail(&output.stderr, 5);
+        let marker = format_cargo_exit(&output.status);
+        // Preserve the historical "status 0" / "exit_code = None (terminated
+        // by signal)" Display shape so log greps that pre-date TASK-1560
+        // keep matching. PATTERN-1 / TASK-1099: keep "cargo llvm-cov" prefix
+        // intact so sister assertions still bind.
+        match output.status.code() {
+            Some(_) => anyhow::bail!("cargo llvm-cov exited with {marker}: {tail}"),
+            None => anyhow::bail!("cargo llvm-cov terminated by signal ({marker}): {tail}"),
+        }
+    }
+    Ok(())
+}

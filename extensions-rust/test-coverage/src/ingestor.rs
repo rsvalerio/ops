@@ -51,6 +51,15 @@ mod tests {
         assert!(result.is_err());
     }
 
+    /// DUP-3 / TASK-1562: this test deliberately keeps its own single-file
+    /// fixture (rather than going through `crate::tests::setup_loaded_db`)
+    /// because it owns the `WHERE filename = 'src/lib.rs'` round-trip
+    /// assertion against `lines_count = 100`. The shared fixture in
+    /// `tests::sample_coverage_json` deliberately ships two files (and
+    /// `src/lib.rs` carries `lines_count = 200`) so the
+    /// `coverage_summary_view_*` tests can pin the SUM-across-files
+    /// aggregates. Using the shared fixture would force a value rewrite
+    /// here that hides the original assertion's intent.
     #[test]
     fn coverage_load_with_sample_data() {
         let data_dir = tempfile::tempdir().unwrap();
