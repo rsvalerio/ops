@@ -91,17 +91,30 @@ fn tool_status_equality() {
     assert_ne!(ToolStatus::Installed, ToolStatus::NotInstalled);
 }
 
+/// TEST-1 / TASK-1568: pin the `Display` strings that lib.rs documents
+/// as the stable user-facing contract. The previous `tool_status_debug`
+/// asserted what `#[derive(Debug)]` produces by definition and could
+/// not fail without removing the derive; this test instead binds the
+/// surface the doc comment promises ("installed" / "not installed" /
+/// "probe failed"). Adding a new variant without extending the
+/// `Display` impl in `lib.rs` makes this test fail to compile because
+/// the match in `Display` is exhaustive — and the match-on-`self`
+/// arms below mirror it, so the lint trail flows from `Display` (the
+/// authoritative impl) outwards.
 #[test]
-fn tool_status_debug() {
-    assert_eq!(format!("{:?}", ToolStatus::Installed), "Installed");
-    assert_eq!(format!("{:?}", ToolStatus::NotInstalled), "NotInstalled");
-}
-
-#[test]
-fn tool_status_clone() {
-    let status = ToolStatus::Installed;
-    let cloned = status;
-    assert_eq!(status, cloned);
+fn tool_status_display_strings_are_stable() {
+    assert_eq!(ToolStatus::Installed.to_string(), "installed");
+    assert_eq!(ToolStatus::NotInstalled.to_string(), "not installed");
+    assert_eq!(ToolStatus::ProbeFailed.to_string(), "probe failed");
+    // Exhaustive match: a new variant added without a Display arm in
+    // lib.rs breaks the match in `Display`, and adding a new variant
+    // here without extending the assertions above breaks this match.
+    // Either way the contract change cannot ship silently.
+    let _: &'static str = match ToolStatus::Installed {
+        ToolStatus::Installed => "installed",
+        ToolStatus::NotInstalled => "not installed",
+        ToolStatus::ProbeFailed => "probe failed",
+    };
 }
 
 // --- ToolInfo ---

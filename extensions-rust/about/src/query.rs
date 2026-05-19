@@ -58,6 +58,12 @@ struct TypedManifestEntry {
     freshness: Option<ManifestFreshness>,
     loaded: LoadedManifest,
     last_accessed: u64,
+    /// PERF-3 / TASK-1572: `Arc<PathBuf>` key shared with the victim
+    /// queue so the cache-hit path can `Arc::clone` instead of cloning
+    /// the underlying `PathBuf` on every LRU tick refresh. The map key
+    /// is still `PathBuf` (HashMap doesn't accept `&Path` lookups via
+    /// `Arc`); this is the same allocation, referenced twice.
+    key: Arc<PathBuf>,
 }
 
 /// PERF-1 / TASK-1240: pair the cwd→entry map with a min-heap of
@@ -67,7 +73,13 @@ struct TypedManifestEntry {
 /// module-level lockstep contract.
 struct TypedManifestCache {
     map: HashMap<PathBuf, TypedManifestEntry>,
-    victim_queue: LruVictimQueue<PathBuf>,
+    /// PERF-3 / TASK-1572: queue keys are `Arc<PathBuf>` so the
+    /// cache-hit path (the dominant case once any provider has primed
+    /// the cache) can refresh the LRU tick by cloning an Arc rather
+    /// than allocating a fresh `PathBuf`. The Arc is shared with the
+    /// `TypedManifestEntry::key` slot so both refer to the same heap
+    /// allocation.
+    victim_queue: LruVictimQueue<Arc<PathBuf>>,
 }
 
 impl TypedManifestCache {
@@ -80,11 +92,18 @@ impl TypedManifestCache {
 
     fn evict_lru(&mut self) -> Option<PathBuf> {
         let map = &mut self.map;
-        let victim = self
-            .victim_queue
-            .pop_lru(|path, tick| map.get(path).is_some_and(|e| e.last_accessed == tick))?;
-        map.remove(&victim);
-        Some(victim)
+        let victim = self.victim_queue.pop_lru(|path, tick| {
+            map.get(path.as_ref())
+                .is_some_and(|e| e.last_accessed == tick)
+        })?;
+        map.remove(victim.as_ref());
+        // PERF-3 / TASK-1572: the only outstanding Arc references at
+        // this point are the queue entry we just popped and the map
+        // entry we just removed (now dropped), so `try_unwrap` succeeds
+        // on the common path. On the rare contention case (a clone
+        // outliving the eviction) we fall back to a single clone of
+        // the inner PathBuf.
+        Some(Arc::try_unwrap(victim).unwrap_or_else(|arc| (*arc).clone()))
     }
 }
 
@@ -105,6 +124,17 @@ impl TypedManifestCache {
 pub(crate) struct LoadedManifest {
     pub(crate) manifest: Arc<CargoToml>,
     pub(crate) resolved_members: Arc<Vec<String>>,
+    /// PERF-3 / TASK-1569: lazy map from workspace member (as listed in
+    /// `resolved_members`) to its canonical `Cargo.toml` path. Computed
+    /// once per `LoadedManifest` instance — itself cached per workspace
+    /// — so `RustUnitsProvider::provide` no longer fans out N
+    /// `std::fs::canonicalize` syscalls on every invocation. Held behind
+    /// `Arc<OnceLock<_>>` because `LoadedManifest` is cloned freely
+    /// across providers and the canonicalize work must happen once even
+    /// when both `units` and a sibling consumer hit the same cache
+    /// entry.
+    pub(crate) canonical_member_manifests:
+        Arc<std::sync::OnceLock<std::collections::HashMap<String, std::path::PathBuf>>>,
 }
 
 impl LoadedManifest {
@@ -121,6 +151,30 @@ impl LoadedManifest {
     /// call and adds no semantic value.
     pub(crate) fn resolved_members(&self) -> &[String] {
         self.resolved_members.as_slice()
+    }
+
+    /// PERF-3 / TASK-1569: build (or return the cached) member → canonical
+    /// `Cargo.toml` path map. Each member is resolved via
+    /// `cwd.join(member).join("Cargo.toml")` and then canonicalised; a
+    /// failed canonicalize falls back to the unresolved path so the
+    /// lookup still has a chance on platforms / paths where canonicalize
+    /// errors are normal (broken symlinks). The map is keyed by member
+    /// string so per-call lookups can use a `&str` borrow without
+    /// allocation (TASK-1570).
+    pub(crate) fn canonical_member_manifests(
+        &self,
+        cwd: &Path,
+    ) -> &std::collections::HashMap<String, std::path::PathBuf> {
+        self.canonical_member_manifests.get_or_init(|| {
+            self.resolved_members()
+                .iter()
+                .map(|member| {
+                    let crate_toml = cwd.join(member).join("Cargo.toml");
+                    let canonical = std::fs::canonicalize(&crate_toml).unwrap_or(crate_toml);
+                    (member.clone(), canonical)
+                })
+                .collect()
+        })
     }
 }
 
@@ -278,17 +332,22 @@ fn lock_typed_manifest_cache(
 pub(crate) fn load_workspace_manifest(
     ctx: &mut Context,
 ) -> Result<LoadedManifest, DataProviderError> {
-    let cwd: PathBuf = PathBuf::clone(&ctx.working_directory);
+    // PERF-3 / TASK-1572: borrow the cwd as `&Path` for the cache
+    // probe (HashMap lookup + freshness stat) and the cold-path
+    // workspace-root walk so the cache-hit path never allocates a
+    // PathBuf. The cache-miss insert path takes a fresh owned
+    // PathBuf after the borrow ends (NLL lets the immutable borrow on
+    // `ctx.working_directory` end before `ctx.cached(...)` /
+    // `provider.provide_typed(ctx)` need a mutable borrow).
     let cache = typed_manifest_cache();
-
-    let current_freshness = cargo_toml_freshness(&cwd);
+    let current_freshness = cargo_toml_freshness(ctx.working_directory.as_path());
 
     if ctx.refresh {
         let mut guard = lock_typed_manifest_cache(cache);
-        guard.map.remove(&cwd);
+        guard.map.remove(ctx.working_directory.as_path());
     } else {
         let mut guard = lock_typed_manifest_cache(cache);
-        if let Some(entry) = guard.map.get_mut(&cwd) {
+        if let Some(entry) = guard.map.get_mut(ctx.working_directory.as_path()) {
             // CONC-2 / TASK-0843 + TASK-1198: serve the cached Arc only
             // when both the mtime AND the byte length match. Pairing
             // mtime with size closes the second-resolution-mtime window
@@ -309,10 +368,18 @@ pub(crate) fn load_workspace_manifest(
                 // PERF-1 / TASK-1240: push the new tick onto the victim
                 // heap; the older `(prev_tick, cwd)` pair stays in the
                 // heap and is discarded as stale during eviction.
+                //
+                // PERF-3 / TASK-1572: the queue holds the `Arc<PathBuf>`
+                // already shared with the entry, so the per-hit refresh
+                // is now an `Arc::clone` (atomic bump) instead of a
+                // PathBuf clone. With 4 providers hitting the cache per
+                // `ops about` run, that's 4 path allocations dropped
+                // from the hot read path.
                 let tick = next_lru_tick();
                 entry.last_accessed = tick;
+                let key = Arc::clone(&entry.key);
                 let loaded = entry.loaded.clone();
-                guard.victim_queue.push(tick, cwd.clone());
+                guard.victim_queue.push(tick, key);
                 return Ok(loaded);
             }
         }
@@ -348,11 +415,11 @@ pub(crate) fn load_workspace_manifest(
         // shared and only the typed fields are produced.
         CargoToml::deserialize(cached.as_ref()).map_err(DataProviderError::computation_error)?
     } else {
-        let provider = match find_workspace_root_strict(&cwd) {
+        let provider = match find_workspace_root_strict(ctx.working_directory.as_path()) {
             Ok(root) => CargoTomlProvider::with_root(root),
             Err(err) => {
                 tracing::debug!(
-                    cwd = ?cwd.display(),
+                    cwd = ?ctx.working_directory.display(),
                     error = ?err,
                     "TASK-1204: strict workspace-root resolution failed; surfacing typed error"
                 );
@@ -367,12 +434,23 @@ pub(crate) fn load_workspace_manifest(
     // mutation flattened `["crates/*"]` to the expanded list on the cached
     // Arc, hiding the original glob spec from any future consumer (linter,
     // doc generator) and silently no-op'ing any re-expansion attempt.
-    let resolved_members = Arc::new(resolved_workspace_members(&manifest, &cwd));
+    let resolved_members = Arc::new(resolved_workspace_members(
+        &manifest,
+        ctx.working_directory.as_path(),
+    ));
 
     let loaded = LoadedManifest {
         manifest: Arc::new(manifest),
         resolved_members,
+        canonical_member_manifests: Arc::new(std::sync::OnceLock::new()),
     };
+    // PERF-3 / TASK-1572: the cache-miss insert is the only path that
+    // needs an owned PathBuf. Wrap it once in `Arc<PathBuf>` so the
+    // entry, the map key, and the victim-queue push all reference the
+    // same heap allocation (the map needs an owned `PathBuf` slot; the
+    // entry+queue share the `Arc`).
+    let owned_cwd: PathBuf = ctx.working_directory.as_path().to_path_buf();
+    let key_arc: Arc<PathBuf> = Arc::new(owned_cwd.clone());
     {
         let mut guard = lock_typed_manifest_cache(cache);
         // CONC-2 / TASK-0843 + TASK-1023: bound the cache with LRU
@@ -383,17 +461,20 @@ pub(crate) fn load_workspace_manifest(
         // could evict the daemon's own workspace.
         // PERF-1 / TASK-1240: O(log n) eviction via the lazy-invalidation
         // min-heap, replacing the previous O(n) `min_by_key` scan.
-        if !guard.map.contains_key(&cwd) && guard.map.len() >= MAX_TYPED_MANIFEST_CACHE_ENTRIES {
+        if !guard.map.contains_key(owned_cwd.as_path())
+            && guard.map.len() >= MAX_TYPED_MANIFEST_CACHE_ENTRIES
+        {
             let _ = guard.evict_lru();
         }
         let tick = next_lru_tick();
-        guard.victim_queue.push(tick, cwd.clone());
+        guard.victim_queue.push(tick, Arc::clone(&key_arc));
         guard.map.insert(
-            cwd,
+            owned_cwd,
             TypedManifestEntry {
                 freshness: current_freshness,
                 loaded: loaded.clone(),
                 last_accessed: tick,
+                key: key_arc,
             },
         );
     }
@@ -472,17 +553,20 @@ enum MemberShape<'a> {
 /// the metacharacter scan so [`resolved_workspace_members`] reads as a flat
 /// dispatch instead of a nested-if state machine.
 fn classify_member(member: &str) -> MemberShape<'_> {
-    let star_idx = member.find('*');
-    // PATTERN-1 (TASK-0803): detect glob shapes that lack `*` but still
-    // contain class/alternation metacharacters (`crates/{core,cli}`,
-    // `crates/[abc]`).
-    if star_idx.is_none() {
-        if contains_unsupported_glob_meta(member) {
-            return MemberShape::Unsupported;
-        }
-        return MemberShape::Literal;
-    }
-    let idx = star_idx.expect("star_idx checked above");
+    // ERR-5 / TASK-1491: bind the `*` position with `let-else` so the
+    // happy path falls through without an `is_none()` + `.expect()`
+    // round-trip whose "checked above" invariant a future edit could
+    // silently invalidate.
+    let Some(idx) = member.find('*') else {
+        // PATTERN-1 (TASK-0803): detect glob shapes that lack `*` but still
+        // contain class/alternation metacharacters (`crates/{core,cli}`,
+        // `crates/[abc]`).
+        return if contains_unsupported_glob_meta(member) {
+            MemberShape::Unsupported
+        } else {
+            MemberShape::Literal
+        };
+    };
     if is_unsupported_glob(member, idx) {
         return MemberShape::Unsupported;
     }

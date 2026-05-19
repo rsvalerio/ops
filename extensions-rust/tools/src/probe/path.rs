@@ -42,8 +42,12 @@ pub(crate) fn capture_path_index_from(path_var: &std::ffi::OsStr) -> PathIndex {
             Ok(rd) => rd,
             Err(e) => {
                 if e.kind() != std::io::ErrorKind::NotFound {
+                    // ERR-7 / TASK-1563: render PATH dir via Debug so a
+                    // directory whose name contains embedded \n / ANSI
+                    // escapes cannot forge multi-line log records (sister
+                    // fix to TASK-0965 / TASK-0974 / TASK-0979).
                     tracing::warn!(
-                        path = %dir.display(),
+                        path = ?dir,
                         error = %e,
                         "PATH entry unreadable while building path index; skipping"
                     );
@@ -110,8 +114,10 @@ pub(crate) fn find_on_path_in(
         match check_executable(&candidate) {
             ExecCheck::Yes => return Some(candidate),
             ExecCheck::BrokenSymlink => {
+                // ERR-7 / TASK-1563: Debug-format candidate path so embedded
+                // \n / ANSI escapes in PATH entries cannot forge log lines.
                 tracing::warn!(
-                    path = %candidate.display(),
+                    path = ?candidate,
                     "PATH entry is a broken symlink; skipping"
                 );
             }
@@ -178,6 +184,34 @@ fn check_executable(path: &std::path::Path) -> ExecCheck {
             Ok(m) if m.file_type().is_symlink() => ExecCheck::BrokenSymlink,
             _ => ExecCheck::Missing,
         },
+    }
+}
+
+#[cfg(test)]
+mod log_safety_tests {
+    use std::path::Path;
+
+    /// ERR-7 / TASK-1563: the warn paths in `capture_path_index_from` and
+    /// `find_on_path_in` render path fields via the `?` format. PathBuf /
+    /// OsStr's `Debug` impl escapes control bytes — assert this directly
+    /// so a future revert that switches back to `%` (Display) lights up
+    /// CI before reaching the log scraper.
+    #[test]
+    fn path_debug_format_escapes_control_bytes() {
+        let path = Path::new("/tmp/inj\nect\u{1b}[31mFAKE\u{1b}[0m");
+        let rendered = format!("{path:?}");
+        assert!(
+            !rendered.contains('\n'),
+            "Debug must escape raw newline; got: {rendered}"
+        );
+        assert!(
+            !rendered.contains('\u{1b}'),
+            "Debug must escape raw ESC; got: {rendered}"
+        );
+        assert!(
+            rendered.contains("\\n"),
+            "Debug must surface escaped \\n; got: {rendered}"
+        );
     }
 }
 

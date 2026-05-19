@@ -1,11 +1,10 @@
 //! `cargo --list` parsing and cargo-tool installation detection.
 
-use ops_core::output::format_error_tail;
 use ops_core::subprocess::resolve_cargo_bin;
 use std::process::Command;
 
 use super::path::check_binary_installed;
-use super::timeout::{run_probe_with_timeout, ProbeOutcome};
+use super::timeout::{run_probe_capturing, ProbeOutcome};
 
 /// PATTERN-1 / TASK-1101: `cargo --list` enumerates *every* subcommand cargo
 /// knows about — built-ins ship inside the cargo binary itself, not as
@@ -59,24 +58,12 @@ const CARGO_BUILTIN_SUBCOMMANDS: &[&str] = &[
 pub fn check_cargo_tool_installed(name: &str) -> ProbeOutcome<bool> {
     let mut cmd = Command::new(resolve_cargo_bin());
     cmd.args(["--list"]);
-    let output = match run_probe_with_timeout(&mut cmd, "cargo --list") {
-        ProbeOutcome::Ok(o) => o,
-        ProbeOutcome::Failed => return ProbeOutcome::Failed,
-    };
-
-    if !output.status.success() {
-        let stderr_snippet = format_error_tail(&output.stderr, 10);
-        tracing::warn!(
-            tool = name,
-            code = ?output.status.code(),
-            stderr = ?stderr_snippet,
-            "cargo --list exited non-zero; reporting tool as ProbeFailed"
-        );
-        return ProbeOutcome::Failed;
+    match run_probe_capturing(&mut cmd, "cargo --list") {
+        ProbeOutcome::Ok(stdout) => {
+            ProbeOutcome::Ok(is_in_cargo_list(&stdout, name) || check_binary_installed(name))
+        }
+        ProbeOutcome::Failed => ProbeOutcome::Failed,
     }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    ProbeOutcome::Ok(is_in_cargo_list(&stdout, name) || check_binary_installed(name))
 }
 
 pub(crate) fn is_in_cargo_list(stdout: &str, name: &str) -> bool {
@@ -98,12 +85,5 @@ pub(crate) fn is_in_cargo_list(stdout: &str, name: &str) -> bool {
 pub fn capture_cargo_list() -> ProbeOutcome<String> {
     let mut cmd = Command::new(resolve_cargo_bin());
     cmd.args(["--list"]);
-    let output = match run_probe_with_timeout(&mut cmd, "cargo --list") {
-        ProbeOutcome::Ok(o) => o,
-        ProbeOutcome::Failed => return ProbeOutcome::Failed,
-    };
-    if !output.status.success() {
-        return ProbeOutcome::Failed;
-    }
-    ProbeOutcome::Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    run_probe_capturing(&mut cmd, "cargo --list")
 }

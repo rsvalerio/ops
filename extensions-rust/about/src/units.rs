@@ -66,6 +66,12 @@ impl DataProvider for RustUnitsProvider {
             ),
         };
 
+        // PERF-3 / TASK-1569: prime the canonical-manifest-path cache once
+        // per workspace (LoadedManifest is itself cached per cwd in the
+        // typed-manifest cache). Subsequent provide() invocations and
+        // sibling providers reuse the same map.
+        let canonical_manifests = manifest.canonical_member_manifests(&cwd);
+
         // PERF-3 / TASK-1251: `resolved_members` already returns a sorted +
         // deduplicated list (TASK-0794 + TASK-1042); the previous extra
         // `Vec<&str>` collect + `sort_unstable()` pass was wasted work. Sister
@@ -100,26 +106,48 @@ impl DataProvider for RustUnitsProvider {
                     version,
                     description,
                 } = read_crate_metadata(&crate_toml);
-                // ERR-2 / TASK-1253: cargo metadata stores `manifest_path` as
-                // a canonicalised absolute path; canonicalize the
-                // workspace-relative `cwd.join(member)` form so the lookup
-                // matches even when `cwd` has unresolved symlinks. A failed
-                // canonicalize falls back to the unresolved path so the
-                // lookup still has a chance on platforms / paths where
-                // canonicalize errors are normal (e.g. broken symlinks).
-                let canonical_manifest_path = std::fs::canonicalize(&crate_toml)
-                    .unwrap_or_else(|_| crate_toml.clone());
+                // PERF-3 / TASK-1569: canonical `Cargo.toml` paths are
+                // cached on `LoadedManifest` so the N-syscall fan-out
+                // happens at most once per workspace, not once per
+                // provide() invocation. ERR-2 / TASK-1253: cargo
+                // metadata stores `manifest_path` as a canonicalised
+                // absolute path, so the lookup keys must match.
+                let canonical_manifest_path = canonical_manifests
+                    .get(member)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        std::fs::canonicalize(&crate_toml).unwrap_or_else(|_| crate_toml.clone())
+                    });
                 let dep_count = if pkg_name.is_some() {
-                    let key = canonical_manifest_path.to_string_lossy().into_owned();
-                    let lookup = dep_counts.get(&key).copied();
-                    if lookup.is_none() {
-                        tracing::debug!(
-                            member,
-                            manifest_path = %key,
-                            "ERR-2 / TASK-1253: no dep_count row for canonical manifest_path"
-                        );
+                    // PERF-3 / TASK-1570: borrow the canonical path as
+                    // `&str` so the HashMap lookup costs no allocation
+                    // (HashMap<String, _> borrows via `Borrow<str>`).
+                    // A non-UTF-8 canonical path skips the lookup with
+                    // a debug breadcrumb rather than collapsing through
+                    // `to_string_lossy` and silently keying on a U+FFFD
+                    // corrupted name (sister-policy to TASK-0946).
+                    match canonical_manifest_path.to_str() {
+                        Some(key) => {
+                            let lookup = dep_counts.get(key).copied();
+                            if lookup.is_none() {
+                                tracing::debug!(
+                                    member,
+                                    manifest_path = %key,
+                                    "ERR-2 / TASK-1253: no dep_count row for canonical manifest_path"
+                                );
+                            }
+                            lookup
+                        }
+                        None => {
+                            tracing::debug!(
+                                member,
+                                manifest_path = ?canonical_manifest_path,
+                                "PERF-3 / TASK-1570: canonical manifest_path is not valid UTF-8; \
+                                 skipping dep_count lookup rather than collapsing through to_string_lossy"
+                            );
+                            None
+                        }
                     }
-                    lookup
                 } else {
                     tracing::debug!(
                         member,

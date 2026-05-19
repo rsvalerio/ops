@@ -59,6 +59,34 @@ pub(crate) fn validate_cargo_tool_arg(value: &str, label: &str) -> anyhow::Resul
     Ok(())
 }
 
+/// DUP-3 / TASK-1565: shared spawn + bounded-wait scaffold for the
+/// install paths. The stdio policy (stdin closed, stdout/stderr
+/// inherited) and timeout-bounded wait live in one place so future
+/// install entry points (e.g. `cargo binstall`, `rustup toolchain
+/// install`) cannot drift on the contract.
+///
+/// CONC-3: stdout/stderr are inherited because nothing in this process
+/// reads them (cargo writes directly to the inherited fds), keeping the
+/// bounded wait safe from the pipe-buffer deadlock fixed in TASK-0650.
+/// CONC-5: stdin is closed so an unexpected interactive prompt hits EOF
+/// and bails deterministically rather than blocking until the deadline.
+fn spawn_install_with_timeout(
+    bin: impl AsRef<std::ffi::OsStr>,
+    args: &[&str],
+    timeout: Duration,
+    spawn_label: &'static str,
+    wait_label: &str,
+) -> anyhow::Result<std::process::ExitStatus> {
+    let child = Command::new(bin)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .with_context(|| format!("failed to spawn {spawn_label}"))?;
+    run_with_timeout(child, timeout, wait_label)
+}
+
 pub(crate) fn install_cargo_tool_with_timeout(
     name: &str,
     package: Option<&str>,
@@ -76,25 +104,13 @@ pub(crate) fn install_cargo_tool_with_timeout(
     } else {
         args.push(name);
     }
-    // CONC-3: deliberately inherit stdout/stderr so cargo's progress output
-    // streams straight to the user's terminal. The bounded `wait_timeout`
-    // below is safe under inheritance because nothing in this process is
-    // reading those fds — cargo writes directly to the inherited
-    // descriptors. We do *not* capture stdout/stderr: that would require a
-    // draining reader thread to avoid the same pipe-buffer deadlock fixed
-    // in TASK-0650 for `git diff --cached`.
-    //
-    // CONC-5: stdin is closed via `Stdio::null()` so an unexpected
-    // interactive prompt (rare in cargo, occasional in rustup) hits EOF
-    // and bails deterministically instead of blocking until the timeout.
-    let child = Command::new(resolve_cargo_bin())
-        .args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .context("failed to spawn cargo install")?;
-    let status = run_with_timeout(child, timeout, &format!("cargo install {name}"))?;
+    let status = spawn_install_with_timeout(
+        resolve_cargo_bin(),
+        &args,
+        timeout,
+        "cargo install",
+        &format!("cargo install {name}"),
+    )?;
     if status.success() {
         Ok(())
     } else {
@@ -123,16 +139,13 @@ pub(crate) fn install_rustup_component_with_timeout(
 ) -> anyhow::Result<()> {
     validate_cargo_tool_arg(component, "rustup component")?;
     validate_cargo_tool_arg(toolchain, "rustup toolchain")?;
-    // CONC-3: same inherited-stdio choice as `install_cargo_tool_with_timeout`.
-    // See that function for the deadlock rationale.
-    let child = Command::new(resolve_rustup_bin())
-        .args(["component", "add", component, "--toolchain", toolchain])
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .context("failed to spawn rustup component add")?;
-    let status = run_with_timeout(child, timeout, &format!("rustup component add {component}"))?;
+    let status = spawn_install_with_timeout(
+        resolve_rustup_bin(),
+        &["component", "add", component, "--toolchain", toolchain],
+        timeout,
+        "rustup component add",
+        &format!("rustup component add {component}"),
+    )?;
     if status.success() {
         Ok(())
     } else {

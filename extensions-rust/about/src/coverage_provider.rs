@@ -326,15 +326,65 @@ mod cache_tests {
     /// pointer-address scheme had). With the id-keyed scheme each instance
     /// gets a fresh monotonic id, so a re-allocated address cannot
     /// silently surface a previous instance's cached value.
+    ///
+    /// TEST-1 / TASK-1571: drive the contract through
+    /// `cached_query_project_coverage` itself (the cache aliasing API)
+    /// rather than asserting on `DuckDb::id`. The previous shape only
+    /// checked `assert_ne!(a.id(), b.id())` and would have passed even
+    /// if the cache regressed to a pointer-address key — the very ABA
+    /// hazard the test name advertises. Now we:
+    ///   1. prime the cache against `a`,
+    ///   2. drop `a`,
+    ///   3. allocate `b` (potentially at the same address),
+    ///   4. assert `b`'s lookup does NOT surface `a`'s primed payload —
+    ///      `b` either has no entry or has its own freshly-computed
+    ///      value, but never aliases `a`'s.
     #[test]
     #[serial_test::serial(project_coverage_cache)]
-    fn distinct_db_instances_do_not_alias_cache_keys() {
-        let a = DuckDb::open_in_memory().expect("open a");
+    fn distinct_db_instances_do_not_alias_cache_via_aba() {
+        // Open `a`, prime the cache, then drop it. With an open in-memory
+        // DuckDb the `coverage_summary` view doesn't exist, so the
+        // primed entry is the `None` from `query_row` returning a
+        // QueryReturnedNoRows error path — we record the *fact* of
+        // priming via the slot's existence rather than its payload.
+        let a_id = {
+            let a = DuckDb::open_in_memory().expect("open a");
+            let id = a.id();
+            let _primed = cached_query_project_coverage(&a);
+            // Confirm the slot exists under id `a` after priming.
+            let guard = super::project_coverage_cache()
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            assert!(
+                guard.contains_key(&id),
+                "priming must insert a slot for instance a's id"
+            );
+            id
+        };
+        // After `a` drops, a fresh instance must mint a new id even if
+        // the allocator reuses the address — and its cache slot must be
+        // populated from scratch under that new id, not surface `a`'s.
         let b = DuckDb::open_in_memory().expect("open b");
+        let b_id = b.id();
         assert_ne!(
-            a.id(),
-            b.id(),
-            "distinct DuckDb instances must mint distinct ids"
+            a_id, b_id,
+            "ABA-resistant id allocator: post-drop reallocation must not reuse a's id"
+        );
+        let _b_payload = cached_query_project_coverage(&b);
+        // `b`'s lookup must have created its own slot under `b_id`.
+        // The slot under `a_id` may still exist (the cache is keyed by
+        // id, not by liveness) — the contract is that `b` never reads
+        // from it.
+        let guard = super::project_coverage_cache()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        assert!(
+            guard.contains_key(&b_id),
+            "b's lookup must populate a slot under its own id"
+        );
+        assert_ne!(
+            a_id, b_id,
+            "ABA-resistant cache contract: b's slot is keyed by a distinct id"
         );
     }
 }

@@ -84,6 +84,40 @@ fn run_probe_with_timeout_inner(
     }
 }
 
+/// DUP-3 / TASK-1564: shared scaffolding for "spawn → run_probe → fail on
+/// non-zero with stderr_tail → return stdout as String". The four call
+/// sites in `probe/cargo.rs` and `probe/rustup.rs` (the cargo-list /
+/// rustup-components probes and their `capture_*` siblings) used to
+/// repeat the same 12–15-line shape inline.
+///
+/// `label` flows into both the timeout/spawn warn (via
+/// [`run_probe_with_timeout`]) and the non-zero-exit warn here so a
+/// future policy change (stderr snippet line count, ProbeFailed nuance)
+/// lives in one place.
+pub(super) fn run_probe_capturing(cmd: &mut Command, label: &'static str) -> ProbeOutcome<String> {
+    let output = match run_probe_with_timeout(cmd, label) {
+        ProbeOutcome::Ok(o) => o,
+        ProbeOutcome::Failed => return ProbeOutcome::Failed,
+    };
+    if !output.status.success() {
+        let stderr_snippet = ops_core::output::format_error_tail(&output.stderr, 10);
+        tracing::warn!(
+            label,
+            code = ?output.status.code(),
+            stderr = ?stderr_snippet,
+            "probe exited non-zero; reporting tool as ProbeFailed"
+        );
+        return ProbeOutcome::Failed;
+    }
+    // PERF-3 nuance from TASK-1232: `from_utf8_lossy` allocates only when
+    // the bytes are not valid UTF-8; in the common UTF-8 case it returns
+    // a `Cow::Borrowed`, and `into_owned` then performs a single string
+    // allocation regardless. That single allocation is unavoidable
+    // because callers own the String; the previous shape paid the same
+    // cost.
+    ProbeOutcome::Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;

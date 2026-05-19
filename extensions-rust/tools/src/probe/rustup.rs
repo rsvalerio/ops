@@ -1,10 +1,9 @@
 //! `rustup` toolchain / component probes.
 
-use ops_core::output::format_error_tail;
 use ops_core::subprocess::resolve_rustup_bin;
 use std::process::Command;
 
-use super::timeout::{run_probe_with_timeout, ProbeOutcome};
+use super::timeout::{run_probe_capturing, run_probe_with_timeout, ProbeOutcome};
 
 pub fn get_active_toolchain() -> Option<String> {
     // `--quiet` is rustup's global flag, not a subcommand option, so it
@@ -79,24 +78,10 @@ pub(crate) fn parse_active_toolchain(stdout: &str) -> Option<String> {
 pub fn check_rustup_component_installed(component: &str) -> ProbeOutcome<bool> {
     let mut cmd = Command::new(resolve_rustup_bin());
     cmd.args(["component", "list", "--installed"]);
-    let output = match run_probe_with_timeout(&mut cmd, "rustup component list --installed") {
-        ProbeOutcome::Ok(o) => o,
-        ProbeOutcome::Failed => return ProbeOutcome::Failed,
-    };
-
-    if !output.status.success() {
-        let stderr_snippet = format_error_tail(&output.stderr, 10);
-        tracing::warn!(
-            component = component,
-            code = ?output.status.code(),
-            stderr = ?stderr_snippet,
-            "rustup component list exited non-zero; reporting component as ProbeFailed"
-        );
-        return ProbeOutcome::Failed;
+    match run_probe_capturing(&mut cmd, "rustup component list --installed") {
+        ProbeOutcome::Ok(stdout) => ProbeOutcome::Ok(is_component_in_list(&stdout, component)),
+        ProbeOutcome::Failed => ProbeOutcome::Failed,
     }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    ProbeOutcome::Ok(is_component_in_list(&stdout, component))
 }
 
 /// `-{arch}-` patterns used to find the component-name / target-triple
@@ -158,12 +143,5 @@ pub(crate) fn is_component_in_list(stdout: &str, component: &str) -> bool {
 pub fn capture_rustup_components() -> ProbeOutcome<String> {
     let mut cmd = Command::new(resolve_rustup_bin());
     cmd.args(["component", "list", "--installed"]);
-    let output = match run_probe_with_timeout(&mut cmd, "rustup component list --installed") {
-        ProbeOutcome::Ok(o) => o,
-        ProbeOutcome::Failed => return ProbeOutcome::Failed,
-    };
-    if !output.status.success() {
-        return ProbeOutcome::Failed;
-    }
-    ProbeOutcome::Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    run_probe_capturing(&mut cmd, "rustup component list --installed")
 }
