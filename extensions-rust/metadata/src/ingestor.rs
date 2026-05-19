@@ -42,82 +42,23 @@ impl DataIngestor for MetadataIngestor {
 
     fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<LoadResult> {
         init_schema(db)?;
-        let conn = db.lock()?;
-
         let path = data_dir.join("metadata.json");
-        let sql = views::metadata_raw_create_sql(&path)?;
-        conn.execute(&sql, [])
-            .map_err(|e| DbError::query_failed("metadata_raw create", e))?;
-
-        let view_sql = views::crate_dependencies_view_sql();
-        conn.execute(&view_sql, [])
-            .map_err(|e| DbError::query_failed("crate_dependencies view", e))?;
-
-        // API-1 (TASK-0606): record_count is what `data_sources` exposes to
-        // downstream tooling as a health signal. Query it instead of hard-
-        // coding 1 — today the `metadata_raw` JSON ingest produces a single
-        // row per workspace, but a future schema variant (multi-target,
-        // workspace-of-workspaces) could yield more, and a hard-coded 1
-        // would silently misreport that.
-        let record_count: u64 = conn
-            .query_row("SELECT count(*) FROM metadata_raw", [], |row| {
-                row.get::<_, i64>(0)
-            })
-            .map_err(|e| DbError::query_failed("metadata_raw count", e))
-            .and_then(|raw| {
-                u64::try_from(raw).map_err(|_| DbError::InvalidRecordCount {
-                    table: "metadata_raw".to_string(),
-                    count: raw,
-                })
-            })?;
-
-        // ERR-1 (TASK-1043): the `workspace_root` SELECT below uses
-        // `ORDER BY rowid LIMIT 1`, which silently picks an arbitrary row
-        // when `metadata_raw` ends up with more than one entry. Today the
-        // ingest path produces exactly one row per workspace, but a future
-        // schema variant (multi-target, partial re-ingest without truncate)
-        // could yield more. Emit a `tracing::warn!` when we observe >1 rows
-        // so the discrepancy is observable; the sister read in
-        // `query_metadata_raw` already enforces the singleton invariant via
-        // `ensure!`. Behaviour is otherwise unchanged: we still take the
-        // first row by `rowid`.
+        {
+            let conn = db.lock()?;
+            build_views(&conn, &path)?;
+        }
+        let conn = db.lock()?;
+        let record_count = query_record_count(&conn)?;
         if record_count > 1 {
             tracing::warn!(
                 rows = record_count,
                 "metadata_raw has multiple workspace_root rows; using first"
             );
         }
-
-        let workspace_root: String = conn
-            .query_row(
-                "SELECT workspace_root FROM metadata_raw ORDER BY rowid LIMIT 1",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(|e| {
-                // READ-5 (TASK-0614): when DuckDB infers `workspace_root`
-                // as null or non-VARCHAR (cargo metadata edge case), the
-                // raw error names neither the observed type nor the
-                // offending value. Probe the column type via `typeof(...)`
-                // so the operator sees what shape DuckDB actually saw —
-                // probe failures fall back to a static label so the error
-                // is at worst as informative as before.
-                let observed_type = conn
-                    .query_row(
-                        "SELECT typeof(workspace_root) FROM metadata_raw ORDER BY rowid LIMIT 1",
-                        [],
-                        |row| row.get::<_, String>(0),
-                    )
-                    .unwrap_or_else(|_| "<probe failed>".to_string());
-                DbError::query_failed(
-                    format!("metadata_raw workspace_root extract (observed type: {observed_type})"),
-                    e,
-                )
-            })?;
-
+        let workspace_root = extract_workspace_root(&conn)?;
         drop(conn);
 
-        let checksum = ops_duckdb::sql::checksum_file(&data_dir.join("metadata.json"))?;
+        let checksum = ops_duckdb::sql::checksum_file(&path)?;
         upsert_data_source(
             db,
             &ops_duckdb::DataSourceMetadata::new(
@@ -128,21 +69,73 @@ impl DataIngestor for MetadataIngestor {
                 &checksum,
             ),
         )?;
-
-        // TASK-0510: cleanup is best-effort. The DuckDB row is already
-        // committed; failing the whole load over a remove_file error
-        // (read-only mount, AV race) makes subsequent invocations think
-        // ingestion is incomplete and retry it. Log at warn so the leftover
-        // file is observable, but do not propagate.
-        if let Err(e) = std::fs::remove_file(&path) {
-            tracing::warn!(
-                path = %path.display(),
-                error = %e,
-                "failed to remove staged metadata file after successful load; leaving in place"
-            );
-        }
-
+        cleanup_staged_file(&path);
         Ok(LoadResult::success(self.name(), record_count))
+    }
+}
+
+/// FN-1 / TASK-1543: build the `metadata_raw` table and `crate_dependencies`
+/// view in one place. Extracted from `MetadataIngestor::load` so the loader
+/// reads at one nesting level.
+fn build_views(conn: &duckdb::Connection, path: &Path) -> DbResult<()> {
+    let sql = views::metadata_raw_create_sql(path)?;
+    conn.execute(&sql, [])
+        .map_err(|e| DbError::query_failed("metadata_raw create", e))?;
+    let view_sql = views::crate_dependencies_view_sql();
+    conn.execute(&view_sql, [])
+        .map_err(|e| DbError::query_failed("crate_dependencies view", e))?;
+    Ok(())
+}
+
+/// FN-1 / TASK-1543: count rows in `metadata_raw` and map the raw `i64` to
+/// `u64` via the project's `InvalidRecordCount` policy (API-1 / TASK-0606).
+fn query_record_count(conn: &duckdb::Connection) -> DbResult<u64> {
+    let raw: i64 = conn
+        .query_row("SELECT count(*) FROM metadata_raw", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .map_err(|e| DbError::query_failed("metadata_raw count", e))?;
+    u64::try_from(raw).map_err(|_| DbError::InvalidRecordCount {
+        table: "metadata_raw".to_string(),
+        count: raw,
+    })
+}
+
+/// FN-1 / TASK-1543: read the first `workspace_root` from `metadata_raw`,
+/// enriching the error with the column type probe pinned by READ-5 /
+/// TASK-0614.
+fn extract_workspace_root(conn: &duckdb::Connection) -> DbResult<String> {
+    conn.query_row(
+        "SELECT workspace_root FROM metadata_raw ORDER BY rowid LIMIT 1",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(|e| {
+        let observed_type = conn
+            .query_row(
+                "SELECT typeof(workspace_root) FROM metadata_raw ORDER BY rowid LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap_or_else(|_| "<probe failed>".to_string());
+        DbError::query_failed(
+            format!("metadata_raw workspace_root extract (observed type: {observed_type})"),
+            e,
+        )
+    })
+}
+
+/// FN-1 / TASK-1543: best-effort removal of the staged JSON file after a
+/// successful load. TASK-0510: a failure here must not propagate — the
+/// DuckDB row is already committed and a subsequent re-ingest would
+/// otherwise loop.
+fn cleanup_staged_file(path: &Path) {
+    if let Err(e) = std::fs::remove_file(path) {
+        tracing::warn!(
+            path = %path.display(),
+            error = %e,
+            "failed to remove staged metadata file after successful load; leaving in place"
+        );
     }
 }
 
@@ -156,6 +149,14 @@ mod tests {
         assert_eq!(ingestor.name(), "metadata");
     }
 
+    /// TEST-1 / TASK-1546: pin the failure mode to "cargo ran but couldn't
+    /// locate a Cargo.toml" rather than asserting only `is_err()`. The bare
+    /// assertion passed for the wrong reason on environments without
+    /// `cargo` on `PATH` (`DbError::Io`) and on slow CI hits
+    /// (`DbError::Timeout`), neither of which is what the test name
+    /// promises. Match on `DbError::External` whose Display chain mentions
+    /// `cargo metadata` so the test fails loudly if the upstream failure
+    /// path stops surfacing the cargo origin.
     #[test]
     fn metadata_collect_fails_with_nonexistent_directory() {
         let ingestor = MetadataIngestor;
@@ -166,8 +167,23 @@ mod tests {
         let missing = dir.path().join("does-not-exist");
         let ctx = ops_extension::Context::test_context(missing);
         let data_dir = tempfile::tempdir().unwrap();
-        let result = ingestor.collect(&ctx, data_dir.path());
-        assert!(result.is_err());
+        let err = ingestor
+            .collect(&ctx, data_dir.path())
+            .expect_err("collect must fail on a missing working directory");
+        match &err {
+            DbError::External(inner) => {
+                let chain = format!("{inner:#}");
+                assert!(
+                    chain.contains("cargo metadata"),
+                    "External error should attribute to cargo metadata; got: {chain}"
+                );
+            }
+            DbError::Io(_) => panic!(
+                "expected a cargo-metadata External error, got DbError::Io \
+                 (is `cargo` on PATH?): {err}"
+            ),
+            other => panic!("expected DbError::External, got: {other:?}"),
+        }
     }
 
     /// SEC-25 / TASK-0933: a successful `MetadataIngestor::collect` must
@@ -582,20 +598,34 @@ mod tests {
         assert_eq!(targets, vec!["cfg(unix)", "cfg(windows)"]);
     }
 
+    /// FN-1 / TASK-1543 AC#2: drive the `extract_workspace_root` typeof-probe
+    /// fallback by handing it a `metadata_raw` shape whose `workspace_root`
+    /// column is `INTEGER`-typed (the JSON ingest path coerces null-only
+    /// columns to INTEGER). The probe should observe the type and surface
+    /// it in the error so the operator sees the offending shape.
     #[test]
-    fn negative_record_count_surfaces_as_invalid_record_count_error() {
-        let raw_count: i64 = -1;
-        let result: Result<u64, _> =
-            u64::try_from(raw_count).map_err(|_| DbError::InvalidRecordCount {
-                table: "metadata_raw".to_string(),
-                count: raw_count,
-            });
-        match result {
-            Err(DbError::InvalidRecordCount { table, count }) => {
-                assert_eq!(table, "metadata_raw");
-                assert_eq!(count, -1);
-            }
-            _ => panic!("expected InvalidRecordCount error"),
-        }
+    fn extract_workspace_root_typeof_probe_surfaces_observed_type() {
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let conn = db.lock().expect("acquire connection");
+        conn.execute("CREATE TABLE metadata_raw (workspace_root INTEGER)", [])
+            .expect("create table");
+        conn.execute("INSERT INTO metadata_raw VALUES (42)", [])
+            .expect("seed row");
+        let err = super::extract_workspace_root(&conn)
+            .expect_err("INTEGER workspace_root cannot deserialise to String");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("observed type: INTEGER"),
+            "typeof-probe must name observed column type; got: {rendered}"
+        );
     }
+
+    // TEST-1 / TASK-1546: the previous `negative_record_count_surfaces_as_…`
+    // test constructed `u64::try_from(-1)` inline and pattern-matched the
+    // error it created itself — it exercised no production code path. The
+    // `InvalidRecordCount` mapping in `MetadataIngestor::load` (see lines
+    // ~67-72 above) is already exercised by the loader's existing
+    // success-path tests and by the broader DuckDB record-count plumbing
+    // in `ops-duckdb`; a dedicated tautology test added no coverage and
+    // gave reviewers false confidence, so it has been removed.
 }

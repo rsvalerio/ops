@@ -100,6 +100,10 @@ pub(crate) fn check_metadata_output(output: &Output) -> Result<(), anyhow::Error
 }
 
 /// API-9 / TASK-0922: construct via the registered extension factory only.
+///
+/// API-1 / TASK-1549: derives `Debug` so the unit struct can be included in
+/// `tracing::debug!(?ext)` and assertion failure output.
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct MetadataExtension;
 
@@ -242,27 +246,35 @@ fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Valu
         count == 1,
         "metadata_raw must contain exactly one row, found {count}"
     );
-    // SEC-33 / TASK-1194: bound the JSON payload size **before** materialising
-    // the row into a Rust `String`. Previously this code ran
-    // `SELECT to_json(m)::VARCHAR FROM metadata_raw` first and only checked
-    // the length on the resulting `String`, so by the time the cap fired,
-    // the very allocation it was meant to prevent had already happened —
-    // and the DuckDB columnar buffer was still live, leaving peak RSS at
-    // ≥2× the payload before the bail. Query the length first so an
-    // oversized payload returns just an `i64` to Rust, then fetch the
-    // text only when we know it fits under the cap. The DuckDB-side
-    // `to_json` allocation still happens for the length probe, but never
-    // crosses the FFI boundary into a Rust `String` when over cap.
-    let len: i64 = conn
+    // SEC-33 / TASK-1194 + PERF-3 / TASK-1551: bound the JSON payload size
+    // **before** materialising the full row into a Rust `String`, but in a
+    // *single* SQL round trip — the previous shape ran `to_json(m)::VARCHAR`
+    // server-side twice (once for `octet_length`, once to fetch the text),
+    // and DuckDB does not memoise between prepares. On the common
+    // under-cap path that doubled the JSON serialisation cost. The new
+    // shape uses a CASE expression: `octet_length(...)` is computed once
+    // and returned alongside the payload, but the payload is replaced with
+    // `NULL` when over cap so it never crosses the FFI boundary into a
+    // Rust `String`. SEC-33's intent (no oversized Rust allocation) and
+    // the bail-with-byte-count behaviour are both preserved.
+    let (len, json_text): (i64, Option<String>) = conn
         .query_row(
-            "SELECT octet_length(CAST(to_json(m)::VARCHAR AS BLOB)) FROM metadata_raw m",
-            [],
-            |row: &duckdb::Row| row.get(0),
+            "SELECT octet_length(CAST(to_json(m)::VARCHAR AS BLOB)) AS bytes, \
+                    CASE WHEN octet_length(CAST(to_json(m)::VARCHAR AS BLOB)) > ? \
+                         THEN NULL ELSE to_json(m)::VARCHAR END AS payload \
+             FROM metadata_raw m",
+            duckdb::params![i64::try_from(cap).unwrap_or(i64::MAX)],
+            |row: &duckdb::Row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .context("sizing metadata_raw payload")?;
-    let len = u64::try_from(len.max(0)).unwrap_or(u64::MAX);
+        .context("reading metadata_raw payload with cap guard")?;
+    drop(conn);
+    // READ-5 / TASK-1550: a negative `octet_length` is not a real DuckDB
+    // shape — treat any negative i64 as zero-length so the over-cap branch
+    // cannot fire on a sentinel. Overflow on i64 → u64 is impossible after
+    // the `.try_from(len)` succeeds, so we no longer carry a `u64::MAX`
+    // arm whose policy would have been ambiguous.
+    let len = u64::try_from(len).unwrap_or(0);
     if len > cap {
-        drop(conn);
         tracing::warn!(
             bytes = len,
             cap,
@@ -274,14 +286,8 @@ fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Valu
              (override via {METADATA_MAX_BYTES_ENV})"
         );
     }
-    let json_text: String = conn
-        .query_row(
-            "SELECT to_json(m)::VARCHAR FROM metadata_raw m",
-            [],
-            |row: &duckdb::Row| row.get(0),
-        )
-        .context("reading from metadata_raw table")?;
-    drop(conn);
+    let json_text =
+        json_text.ok_or_else(|| anyhow::anyhow!("metadata_raw payload missing under cap"))?;
     let json: serde_json::Value =
         serde_json::from_str(&json_text).context("parsing metadata JSON")?;
     Ok(json)

@@ -2,13 +2,18 @@
 //!
 //! Provides ergonomic access to cargo metadata JSON through strongly-typed wrappers.
 //!
-//! # Code Generation (DUP-STR-001, DUP-STR-002)
+//! # Dependency- and target-kind helpers (READ-1 / TASK-1552)
 //!
-//! The `filter_deps_by_kind!` and `filter_targets_by_kind!` macros reduce boilerplate
-//! for dependency and target accessor methods. Each macro generates multiple methods
-//! that differ only by the filter predicate (enum variant or target kind string).
+//! Boilerplate for "filter dependencies by kind" lives on
+//! [`Package::filter_deps_by_kind`], a small inherent method that wraps
+//! [`Package::all_dependencies`]. The kind-aware target accessors
+//! (`Package::lib_target`, `bin_targets`, `test_targets`, `example_targets`,
+//! `bench_targets`) are simple iterator filters over [`Package::targets`] and
+//! [`Target::has_kind`]. There are no `filter_deps_by_kind!` /
+//! `filter_targets_by_kind!` macros; an earlier doc comment cited macros that
+//! never existed in this file.
 
-use ops_extension::{Context, DataRegistry};
+use ops_extension::{Context, DataProviderError, DataRegistry};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
@@ -33,7 +38,29 @@ trait JsonValueExt {
 
     fn get_str_or<'a>(&'a self, field: &str, default: &'a str) -> &'a str;
     fn get_bool_or(&self, field: &str, default: bool) -> bool;
+
+    /// PATTERN-1 / TASK-1544: iterate the elements of `self[field]` when it is
+    /// a JSON array; an absent or non-array field yields an empty iterator.
+    /// Centralises the `value[field].as_array().into_iter().flatten()` idiom
+    /// so a future change (e.g. logging when an expected array is missing)
+    /// lives in one place.
+    fn array_iter<'a>(
+        &'a self,
+        field: &str,
+    ) -> std::iter::Flatten<std::option::IntoIter<std::slice::Iter<'a, serde_json::Value>>>;
+
+    /// PATTERN-1 / TASK-1544: iterate the string elements of `self[field]`
+    /// (skipping non-string entries). Absent / non-array → empty.
+    fn array_str_iter<'a>(&'a self, field: &str) -> ArrayStrIter<'a>;
 }
+
+/// PATTERN-1 / TASK-1544: concrete iterator returned by
+/// [`JsonValueExt::array_str_iter`]. Carried as a nameable type so call sites
+/// can be ascribed in tests and trait helpers if needed.
+pub(crate) type ArrayStrIter<'a> = std::iter::FilterMap<
+    std::iter::Flatten<std::option::IntoIter<std::slice::Iter<'a, serde_json::Value>>>,
+    fn(&serde_json::Value) -> Option<&str>,
+>;
 
 impl JsonValueExt for serde_json::Value {
     fn get_field(&self, field: &str) -> Option<&serde_json::Value> {
@@ -48,6 +75,21 @@ impl JsonValueExt for serde_json::Value {
 
     fn get_bool_or(&self, field: &str, default: bool) -> bool {
         self.get_or(field, |v| v.as_bool(), default)
+    }
+
+    fn array_iter<'a>(
+        &'a self,
+        field: &str,
+    ) -> std::iter::Flatten<std::option::IntoIter<std::slice::Iter<'a, serde_json::Value>>> {
+        self.get_field(field)
+            .and_then(serde_json::Value::as_array)
+            .map(|a| a.iter())
+            .into_iter()
+            .flatten()
+    }
+
+    fn array_str_iter<'a>(&'a self, field: &str) -> ArrayStrIter<'a> {
+        self.array_iter(field).filter_map(serde_json::Value::as_str)
     }
 }
 
@@ -71,13 +113,7 @@ pub(crate) fn json_bool_with_fallback(
 /// repeat callers (members/default_members/is_member/is_default_member) do
 /// not pay the per-call HashSet build or O(n) scan.
 fn collect_member_ids_owned(metadata: &serde_json::Value, field: &str) -> HashSet<String> {
-    metadata[field]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|v| v.as_str())
-        .map(str::to_string)
-        .collect()
+    metadata.array_str_iter(field).map(str::to_string).collect()
 }
 
 /// Parsed cargo metadata with convenient accessor methods.
@@ -99,10 +135,11 @@ fn collect_member_ids_owned(metadata: &serde_json::Value, field: &str) -> HashSe
 /// JSON clone (the dominant cost) but pays the HashSet build once. Moving
 /// the caches behind the `Arc` would shrink that further but requires
 /// interior-mutability gymnastics that the current call sites don't justify.
-#[allow(dead_code)]
-#[non_exhaustive]
-pub struct Metadata {
-    pub(crate) inner: Arc<serde_json::Value>,
+/// READ-5 / TASK-1548: lazy caches enumerated once in a small substruct so
+/// adding a new lazy field (e.g. `targets_by_kind`) does not require touching
+/// every `Metadata` constructor.
+#[derive(Default)]
+struct MetadataCaches {
     /// TASK-0477: cached `workspace_members` id set, lazily computed once.
     member_ids: OnceLock<HashSet<String>>,
     /// TASK-0477: cached `workspace_default_members` id set, lazily computed once.
@@ -118,29 +155,84 @@ pub struct Metadata {
 }
 
 #[allow(dead_code)]
+#[non_exhaustive]
+pub struct Metadata {
+    pub(crate) inner: Arc<serde_json::Value>,
+    caches: MetadataCaches,
+}
+
+impl std::fmt::Debug for Metadata {
+    /// TRAIT-1 / TASK-1541: surface coarse summary counts rather than dumping
+    /// the entire `Arc<Value>` payload (cargo metadata routinely exceeds 1 MB
+    /// and is unreadable in test failure output).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let packages = self
+            .inner
+            .get("packages")
+            .and_then(serde_json::Value::as_array)
+            .map_or(0, Vec::len);
+        let members = self
+            .inner
+            .get("workspace_members")
+            .and_then(serde_json::Value::as_array)
+            .map_or(0, Vec::len);
+        f.debug_struct("Metadata")
+            .field("workspace_root", &self.workspace_root())
+            .field("packages", &packages)
+            .field("workspace_members", &members)
+            .finish()
+    }
+}
+
+#[allow(dead_code)]
 impl Metadata {
     /// Parse from cargo metadata JSON. Assumes the JSON is valid cargo metadata output.
     pub fn from_value(value: serde_json::Value) -> Self {
         Self {
             inner: Arc::new(value),
-            member_ids: OnceLock::new(),
-            default_member_ids: OnceLock::new(),
-            package_index_by_name: OnceLock::new(),
-            package_index_by_id: OnceLock::new(),
+            caches: MetadataCaches::default(),
         }
     }
 
     /// Load metadata from a cached context value, sharing the cached `Arc<Value>`
     /// without deep-cloning the underlying JSON.
-    pub fn from_context(ctx: &mut Context, registry: &DataRegistry) -> Result<Self, anyhow::Error> {
+    ///
+    /// ERR-2 / TASK-1542: returns the framework's typed [`DataProviderError`]
+    /// rather than `anyhow::Error` so downstream consumers can match on the
+    /// failure variant (`NotFound`, `ComputationFailed`, `Serialization`,
+    /// `Cycle`) without string-sniffing the chain.
+    pub fn from_context(
+        ctx: &mut Context,
+        registry: &DataRegistry,
+    ) -> Result<Self, DataProviderError> {
         let value = ctx.get_or_provide("metadata", registry)?;
         Ok(Self {
             inner: value,
-            member_ids: OnceLock::new(),
-            default_member_ids: OnceLock::new(),
-            package_index_by_name: OnceLock::new(),
-            package_index_by_id: OnceLock::new(),
+            caches: MetadataCaches::default(),
         })
+    }
+
+    /// DUP-1 / TASK-1539: shared backbone for [`Self::package_index_by_name`]
+    /// and [`Self::package_index_by_id`]. The two indexes differ only in the
+    /// extracted string field and the warn message wording.
+    fn build_package_index_by(&self, field: &str, dup_msg: &str) -> HashMap<String, usize> {
+        let mut map: HashMap<String, usize> = HashMap::new();
+        for (i, v) in self.inner.array_iter("packages").enumerate() {
+            let Some(key) = v.get(field).and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            if let Some(&existing) = map.get(key) {
+                tracing::warn!(
+                    duplicate = key,
+                    first_index = existing,
+                    duplicate_index = i,
+                    "{dup_msg}"
+                );
+                continue;
+            }
+            map.insert(key.to_string(), i);
+        }
+        map
     }
 
     /// Builds a map from package `name` to its index in `inner["packages"]`.
@@ -156,29 +248,11 @@ impl Metadata {
     /// Consumers that need version disambiguation should use
     /// [`Self::package_by_id`] instead.
     fn package_index_by_name(&self) -> &HashMap<String, usize> {
-        self.package_index_by_name.get_or_init(|| {
-            let mut map: HashMap<String, usize> = HashMap::new();
-            for (i, v) in self.inner["packages"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .enumerate()
-            {
-                let Some(name) = v.get("name").and_then(|n| n.as_str()) else {
-                    continue;
-                };
-                if let Some(&existing) = map.get(name) {
-                    tracing::warn!(
-                        duplicate_name = name,
-                        first_index = existing,
-                        duplicate_index = i,
-                        "duplicate package name in cargo metadata; keeping first-seen entry (use package_by_id for version disambiguation)"
-                    );
-                    continue;
-                }
-                map.insert(name.to_string(), i);
-            }
-            map
+        self.caches.package_index_by_name.get_or_init(|| {
+            self.build_package_index_by(
+                "name",
+                "duplicate package name in cargo metadata; keeping first-seen entry (use package_by_id for version disambiguation)",
+            )
         })
     }
 
@@ -191,35 +265,18 @@ impl Metadata {
     /// and keeps the **first-seen** entry (first-write-wins) for predictable
     /// lookups via [`Self::package_by_id`].
     fn package_index_by_id(&self) -> &HashMap<String, usize> {
-        self.package_index_by_id.get_or_init(|| {
-            let mut map: HashMap<String, usize> = HashMap::new();
-            for (i, v) in self.inner["packages"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .enumerate()
-            {
-                let Some(id) = v.get("id").and_then(|n| n.as_str()) else {
-                    continue;
-                };
-                if let Some(&existing) = map.get(id) {
-                    tracing::warn!(
-                        duplicate_id = id,
-                        first_index = existing,
-                        duplicate_index = i,
-                        "duplicate package id in cargo metadata; keeping first-seen entry"
-                    );
-                    continue;
-                }
-                map.insert(id.to_string(), i);
-            }
-            map
+        self.caches.package_index_by_id.get_or_init(|| {
+            self.build_package_index_by(
+                "id",
+                "duplicate package id in cargo metadata; keeping first-seen entry",
+            )
         })
     }
 
     fn package_at(&self, idx: usize) -> Option<Package<'_>> {
-        self.inner["packages"]
-            .as_array()
+        self.inner
+            .get("packages")
+            .and_then(serde_json::Value::as_array)
             .and_then(|arr| arr.get(idx))
             .map(|v| Package {
                 inner: v,
@@ -228,12 +285,14 @@ impl Metadata {
     }
 
     fn member_ids(&self) -> &HashSet<String> {
-        self.member_ids
+        self.caches
+            .member_ids
             .get_or_init(|| collect_member_ids_owned(&self.inner, "workspace_members"))
     }
 
     fn default_member_ids(&self) -> &HashSet<String> {
-        self.default_member_ids
+        self.caches
+            .default_member_ids
             .get_or_init(|| collect_member_ids_owned(&self.inner, "workspace_default_members"))
     }
 
@@ -254,14 +313,10 @@ impl Metadata {
 
     /// Iterator over all packages in the dependency graph.
     pub fn packages(&self) -> impl Iterator<Item = Package<'_>> {
-        self.inner["packages"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|v| Package {
-                inner: v,
-                metadata: self,
-            })
+        self.inner.array_iter("packages").map(|v| Package {
+            inner: v,
+            metadata: self,
+        })
     }
 
     /// Iterator over workspace member packages only.
@@ -307,7 +362,11 @@ impl Metadata {
 }
 
 /// A package from cargo metadata.
+///
+/// TRAIT-1 / TASK-1541: `Debug` is derived so the type is usable in
+/// `assert_eq!`, `dbg!`, and `tracing::debug!(?pkg)`.
 #[allow(dead_code)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct Package<'a> {
     pub(crate) inner: &'a serde_json::Value,
@@ -387,19 +446,15 @@ impl<'a> Package<'a> {
 
     /// All dependencies regardless of kind.
     pub fn all_dependencies(&self) -> impl Iterator<Item = Dependency<'a>> {
-        self.inner["dependencies"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        self.inner
+            .array_iter("dependencies")
             .map(|v| Dependency { inner: v })
     }
 
     /// All build targets (lib, bins, tests, examples, benches).
     pub fn targets(&self) -> impl Iterator<Item = Target<'a>> {
-        self.inner["targets"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        self.inner
+            .array_iter("targets")
             .map(|v| Target { inner: v })
     }
 
@@ -440,7 +495,11 @@ pub enum DependencyKind {
 }
 
 /// A dependency from a package.
+///
+/// TRAIT-1 / TASK-1541: `Debug` is derived so dependencies appear cleanly in
+/// `tracing::debug!(?dep)` and assertion failure output.
 #[allow(dead_code)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct Dependency<'a> {
     pub(crate) inner: &'a serde_json::Value,
@@ -479,11 +538,7 @@ impl<'a> Dependency<'a> {
 
     /// Features enabled for this dependency.
     pub fn features(&self) -> impl Iterator<Item = &'a str> {
-        self.inner["features"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|v| v.as_str())
+        self.inner.array_str_iter("features")
     }
 
     /// Renamed name if specified (e.g., `package = "original-name"`).
@@ -503,7 +558,11 @@ impl<'a> Dependency<'a> {
 }
 
 /// A build target (lib, bin, test, example, bench).
+///
+/// TRAIT-1 / TASK-1541: `Debug` is derived so targets appear cleanly in
+/// `tracing::debug!(?target)` and assertion failure output.
 #[allow(dead_code)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct Target<'a> {
     pub(crate) inner: &'a serde_json::Value,
@@ -523,11 +582,7 @@ impl<'a> Target<'a> {
 
     /// Target kinds (e.g., ["lib"], ["bin"], ["test"]).
     pub fn kinds(&self) -> impl Iterator<Item = &'a str> {
-        self.inner["kind"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|v| v.as_str())
+        self.inner.array_str_iter("kind")
     }
 
     fn has_kind(&self, kind: &str) -> bool {
@@ -561,11 +616,7 @@ impl<'a> Target<'a> {
 
     /// Required features to build this target.
     pub fn required_features(&self) -> impl Iterator<Item = &'a str> {
-        self.inner["required-features"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|v| v.as_str())
+        self.inner.array_str_iter("required-features")
     }
 
     /// Edition override if specified.
