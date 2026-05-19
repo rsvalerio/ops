@@ -34,6 +34,18 @@ pub fn get_active_toolchain() -> Option<String> {
 /// before the real toolchain identifier (e.g. `info: syncing channel
 /// updates ...\nstable-aarch64-apple-darwin\n`). Skip diagnostic-prefixed
 /// lines and continue scanning so a healthy toolchain is still recognised.
+///
+/// PATTERN-1 / TASK-1566: also require the returned token to *look like* a
+/// toolchain identifier — i.e. carry at least one of `-`/`.`/`:` so it has
+/// the shape of `stable-aarch64-apple-darwin`, `1.70.0-…`, or
+/// `linked:custom-toolchain`. Without this guard, rustup ≥1.28's
+/// `"no active toolchain configured\n"` output (no `error:` prefix) would
+/// surface as `Some("no")`, which then flows downstream to
+/// `rustup component add <component> --toolchain no` producing a confusing
+/// rustup error instead of the operator-facing "no active toolchain
+/// configured" diagnostic. Real toolchain identifiers always carry one of
+/// these separators; bare status words like `no` / `none` / `unknown` do
+/// not.
 pub(crate) fn parse_active_toolchain(stdout: &str) -> Option<String> {
     const RUSTUP_DIAGNOSTIC_PREFIXES: &[&str] = &["error:", "warning:", "info:", "note:"];
 
@@ -44,10 +56,18 @@ pub(crate) fn parse_active_toolchain(stdout: &str) -> Option<String> {
         .find_map(|line| {
             let token = line.split_whitespace().next()?;
             if RUSTUP_DIAGNOSTIC_PREFIXES.contains(&token) {
-                None
-            } else {
-                Some(token.to_string())
+                return None;
             }
+            // PATTERN-1 / TASK-1566: real toolchain identifiers always carry
+            // a `-` (target-triple form), `.` (version-pinned form), or `:`
+            // (linked-toolchain form / Windows path). Reject bare status
+            // words like `no`, `none`, `unknown` so rustup ≥1.28's
+            // `"no active toolchain configured\n"` output does not surface as
+            // `Some("no")`.
+            if !token.contains(['-', '.', ':']) {
+                return None;
+            }
+            Some(token.to_string())
         })
 }
 

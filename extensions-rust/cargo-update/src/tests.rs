@@ -2,6 +2,59 @@
 
 use super::*;
 
+/// DUP-3 / TASK-1536: shared `BufWriter`+`MakeWriter` scaffold used by tests
+/// that need to capture `tracing` output as bytes. The same scaffold was
+/// previously inlined into multiple tests (and tracked workspace-wide as
+/// TASK-1494 in the `deps` crate); lifting it here keeps each call site at
+/// ~5 lines of setup and means any future churn in the `MakeWriter` API
+/// lands in exactly one place.
+mod test_log_capture {
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    pub(super) struct BufWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl BufWriter {
+        pub(super) fn contents(&self) -> String {
+            String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+        }
+    }
+
+    impl Write for BufWriter {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// Run `body` with a `tracing` subscriber that captures WARN-level events
+    /// into the returned buffer. The closure is invoked under
+    /// `tracing::subscriber::with_default` so log records emitted inside it
+    /// flow into the buffer; records emitted outside are unaffected.
+    pub(super) fn capture_warn<F: FnOnce()>(body: F) -> String {
+        let buf = BufWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf.clone())
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, body);
+        buf.contents()
+    }
+}
+
 // -- Extension trait tests --
 
 mod extension_tests {
@@ -158,36 +211,8 @@ fn parse_skips_index_update_line() {
 /// existing tests.
 #[test]
 fn arrow_drift_and_extra_tokens_warn_fires_with_expected_entries() {
-    use std::io::Write;
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
-
-    #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-    impl Write for BufWriter {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
     // -- Updating arrow-drift: warn fires AND entries.is_empty() --
-    let buf = BufWriter::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf.clone())
-        .with_max_level(tracing::Level::WARN)
-        .with_ansi(false)
-        .finish();
-    tracing::subscriber::with_default(subscriber, || {
+    let logged = test_log_capture::capture_warn(|| {
         // Drift shape: `to` instead of `->`.
         let stderr = b"    Updating serde v1.0.0 to v1.0.1\n";
         let result = parse_update_output(stderr);
@@ -197,20 +222,13 @@ fn arrow_drift_and_extra_tokens_warn_fires_with_expected_entries() {
         );
         assert_eq!(result.update_count, 0);
     });
-    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
     assert!(
         logged.contains("WARN") && logged.contains("possible format drift"),
         "arrow-drift must emit the format-drift warn at default level; got {logged:?}"
     );
 
     // -- Adding with extra trailing tokens: warn fires AND entry is still produced --
-    let buf = BufWriter::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf.clone())
-        .with_max_level(tracing::Level::WARN)
-        .with_ansi(false)
-        .finish();
-    tracing::subscriber::with_default(subscriber, || {
+    let logged = test_log_capture::capture_warn(|| {
         // `Adding new-crate v0.1.0 (locked)` — the (locked) annotation must
         // not be glued onto the version. parse_action_line warns and keeps
         // the entry; observability contract is the warn line.
@@ -219,26 +237,18 @@ fn arrow_drift_and_extra_tokens_warn_fires_with_expected_entries() {
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].to.as_deref(), Some("0.1.0"));
     });
-    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
     assert!(
         logged.contains("WARN") && logged.contains("unexpected trailing tokens"),
         "Adding extra-tokens must emit the trailing-tokens warn at default level; got {logged:?}"
     );
 
     // -- Removing with extra trailing tokens: warn fires AND entry is still produced --
-    let buf = BufWriter::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf.clone())
-        .with_max_level(tracing::Level::WARN)
-        .with_ansi(false)
-        .finish();
-    tracing::subscriber::with_default(subscriber, || {
+    let logged = test_log_capture::capture_warn(|| {
         let stderr = b"    Removing old-crate v0.2.0 (yanked)\n";
         let result = parse_update_output(stderr);
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].from.as_deref(), Some("0.2.0"));
     });
-    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
     assert!(
         logged.contains("WARN") && logged.contains("unexpected trailing tokens"),
         "Removing extra-tokens must emit the trailing-tokens warn at default level; got {logged:?}"
@@ -549,33 +559,7 @@ fn parse_skips_alternate_registry_index_progress_line() {
 /// installed.
 #[test]
 fn parse_skips_two_token_updating_registry_form_no_warn() {
-    use tracing_subscriber::fmt::MakeWriter;
-
-    #[derive(Clone, Default)]
-    struct BufWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-    impl std::io::Write for BufWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    let buf = BufWriter::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf.clone())
-        .with_max_level(tracing::Level::WARN)
-        .with_ansi(false)
-        .finish();
-    tracing::subscriber::with_default(subscriber, || {
+    let logged = test_log_capture::capture_warn(|| {
         let stderr = b"    Updating crates.io\n";
         let result = parse_update_output(stderr);
         assert!(
@@ -583,7 +567,6 @@ fn parse_skips_two_token_updating_registry_form_no_warn() {
             "2-token Updating <registry> must be filtered as index-progress noise"
         );
     });
-    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
     assert!(
         !logged.contains("possible format drift"),
         "2-token Updating <registry> must not trigger a format-drift warn; got {logged:?}"
@@ -624,6 +607,85 @@ fn cargo_update_result_deserialization() {
     assert_eq!(result.entries.len(), 1);
     assert_eq!(result.entries[0].action, UpdateAction::Update);
     assert_eq!(result.update_count, 1);
+}
+
+/// SEC-21 / TASK-1537: the non-zero-exit branch of `CargoUpdateProvider::provide`
+/// formats the stderr tail via the Debug formatter (`{:?}`) so embedded ANSI
+/// escapes / NULs / newlines from a poisoned crate cannot forge log records or
+/// repaint the operator's terminal. Pin the contract at the same expression
+/// shape used in production (the live call would require spawning cargo, so
+/// we exercise the format expression directly with crafted stderr).
+#[test]
+fn non_zero_exit_stderr_tail_debug_escapes_control_bytes() {
+    // Craft stderr that contains ESC, embedded newline, and a NUL byte —
+    // exactly the surface SEC-21 covers.
+    let stderr_bytes = b"warn: ok\nerror: \x1b[31mhi\x1b[0m\x00bye\n";
+    let stderr_tail = ops_core::output::format_error_tail(stderr_bytes, 10);
+
+    // Mirror the provider's format expression.
+    let exit_label = "exit status: 101";
+    let rendered =
+        format!("cargo update --dry-run exited with status {exit_label}: {stderr_tail:?}");
+
+    assert!(
+        !rendered.contains('\u{1b}'),
+        "ANSI ESC must not survive in: {rendered:?}"
+    );
+    assert!(
+        !rendered.contains('\u{0}'),
+        "NUL must not survive in: {rendered:?}"
+    );
+    // Embedded newlines from the stderr body must be escaped — the only `\n`
+    // allowed are those produced by Display of the formatted string itself
+    // (there are none here since we used `format!`, not `println!`).
+    assert!(
+        !rendered.contains('\n'),
+        "embedded stderr newlines must be Debug-escaped: {rendered:?}"
+    );
+    // Operator-readable content survives in escaped form.
+    assert!(
+        rendered.contains("hi"),
+        "expected stderr context preserved: {rendered}"
+    );
+}
+
+/// ERR-4 / TASK-1535: when `run_cargo_update_dry_run` returns a `RunError`,
+/// the provider must wrap it via `.context(...)` rather than flattening it
+/// to its Display form. Pin that the resulting `anyhow::Error` chain
+/// contains BOTH the context message AND the underlying `RunError` source,
+/// so downstream consumers can walk `.source()` / `anyhow::Chain` to
+/// distinguish spawn failures from timeouts.
+#[test]
+fn provide_wraps_run_error_with_context_preserving_source_chain() {
+    use ops_core::subprocess::RunError;
+    use std::io;
+
+    // Mirror the wrapping done inside `provide()` so the contract is pinned
+    // at the same expression shape used in production.
+    let underlying = RunError::Io(io::Error::new(io::ErrorKind::NotFound, "no cargo"));
+    let wrapped: anyhow::Error =
+        anyhow::Error::new(underlying).context("cargo update --dry-run failed");
+
+    // Context message present at the top of the chain.
+    assert!(
+        wrapped
+            .to_string()
+            .contains("cargo update --dry-run failed"),
+        "expected context message in display; got {wrapped}"
+    );
+
+    // Source chain walks down to the original RunError.
+    let mut found_run_error = false;
+    for cause in wrapped.chain() {
+        if cause.downcast_ref::<RunError>().is_some() {
+            found_run_error = true;
+            break;
+        }
+    }
+    assert!(
+        found_run_error,
+        "anyhow::Chain must contain the original RunError; got {wrapped:?}"
+    );
 }
 
 #[test]

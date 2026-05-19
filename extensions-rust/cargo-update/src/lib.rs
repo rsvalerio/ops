@@ -90,6 +90,11 @@ fn strip_v_prefix(version: &str) -> &str {
 pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
     let text = String::from_utf8_lossy(stderr);
     let mut entries = Vec::new();
+    // PERF-3 / TASK-1534: accumulate per-action counts during the parse loop
+    // instead of re-walking `entries` three times with filter+count after.
+    let mut update_count = 0usize;
+    let mut add_count = 0usize;
+    let mut remove_count = 0usize;
 
     for line in text.lines() {
         let trimmed = line.trim();
@@ -123,6 +128,11 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
         }
 
         if let Some(entry) = parse_action_line(clean) {
+            match entry.action {
+                UpdateAction::Update => update_count += 1,
+                UpdateAction::Add => add_count += 1,
+                UpdateAction::Remove => remove_count += 1,
+            }
             entries.push(entry);
         } else if starts_with_known_verb(clean) {
             // TASK-0472: a line that begins with a known verb but did not
@@ -135,19 +145,6 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
             );
         }
     }
-
-    let update_count = entries
-        .iter()
-        .filter(|e| e.action == UpdateAction::Update)
-        .count();
-    let add_count = entries
-        .iter()
-        .filter(|e| e.action == UpdateAction::Add)
-        .count();
-    let remove_count = entries
-        .iter()
-        .filter(|e| e.action == UpdateAction::Remove)
-        .count();
 
     CargoUpdateResult {
         entries,
@@ -422,8 +419,13 @@ impl DataProvider for CargoUpdateProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+        // ERR-4 / TASK-1535: preserve the `RunError` source chain via
+        // `anyhow::Error::new(e).context(...)` instead of flattening it to
+        // Display with `anyhow!("{}: {}", ctx, e)`. Downstream consumers
+        // (structured logs, error inspectors) can walk `.source()` /
+        // `anyhow::Chain` to distinguish spawn failures from timeouts.
         let output = run_cargo_update_dry_run(&ctx.working_directory).map_err(|e| {
-            DataProviderError::from(anyhow::anyhow!("cargo update --dry-run failed: {}", e))
+            DataProviderError::from(anyhow::Error::new(e).context("cargo update --dry-run failed"))
         })?;
 
         // TASK-0502: a successful spawn with a non-zero exit (e.g. lockfile
@@ -434,8 +436,17 @@ impl DataProvider for CargoUpdateProvider {
         // (test-coverage, metadata, deps) instead.
         if !output.status.success() {
             let stderr_tail = format_error_tail(&output.stderr, 10);
+            // SEC-21 / TASK-1537: `format_error_tail` normalises CR/CRLF/bare-CR
+            // but does NOT scrub other C0 control bytes (ESC `\x1b`, BEL, NUL,
+            // ...). Cargo's stderr is influenced by crate names / version
+            // strings / registry metadata — surface area an attacker can shape
+            // via a poisoned crate. Route the tail through the Debug formatter
+            // (`{:?}`) so embedded ANSI escapes / NULs / newlines cannot forge
+            // log records or repaint the operator's terminal, matching the
+            // SEC-21 fix used by sibling sites (deps interpret_upgrade_output /
+            // interpret_deny_result — TASK-1160 / TASK-1250).
             return Err(DataProviderError::from(anyhow::anyhow!(
-                "cargo update --dry-run exited with status {}: {}",
+                "cargo update --dry-run exited with status {}: {:?}",
                 output.status,
                 stderr_tail
             )));

@@ -235,18 +235,34 @@ fn parse_active_toolchain_returns_none_when_only_diagnostics() {
     );
 }
 
+/// PATTERN-1 / TASK-1566: rustup ≥1.28 emits `"no active toolchain configured\n"`
+/// (no `error:` prefix). The first whitespace-bounded token is `no`, which is
+/// not a real toolchain identifier — the previous parser surfaced it as
+/// `Some("no")` and the misleading test name (`*_rejects_*`) pinned the bug.
+/// The fix requires the returned token to carry at least one of `-`/`.`/`:`,
+/// so bare status words are rejected.
 #[test]
-fn parse_active_toolchain_rejects_no_active_toolchain_message() {
-    // rustup ≥1.28 "no active toolchain" output
+fn parse_active_toolchain_rejects_no_active_toolchain_message_returns_none() {
+    // rustup ≥1.28 "no active toolchain" output: must yield None, not Some("no").
     assert_eq!(
         parse_active_toolchain("no active toolchain configured\n"),
-        Some("no".to_string())
+        None
     );
     // The colon-containing diagnostic variant
     assert_eq!(
         parse_active_toolchain("error: toolchain 'nonexistent' is not installed\n"),
         None
     );
+}
+
+/// PATTERN-1 / TASK-1566: additional bare-word rustup status forms must
+/// also return None — the parser must not be tricked into emitting them as
+/// fake toolchain names downstream of `rustup component add --toolchain ...`.
+#[test]
+fn parse_active_toolchain_rejects_other_bare_word_status_forms() {
+    assert_eq!(parse_active_toolchain("none configured\n"), None);
+    assert_eq!(parse_active_toolchain("unknown\n"), None);
+    assert_eq!(parse_active_toolchain("none\n"), None);
 }
 
 /// PATTERN-1 / TASK-1078: a blanket "contains ':'" reject would also drop
