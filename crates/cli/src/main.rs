@@ -23,6 +23,7 @@ extern crate ops_git;
 extern crate ops_metadata;
 #[cfg(feature = "coverage")]
 extern crate ops_test_coverage;
+extern crate ops_text_fixers;
 #[cfg(feature = "tokei")]
 extern crate ops_tokei;
 
@@ -56,7 +57,10 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use args::*;
 use help::{is_toplevel_help, print_categorized_help};
-use subcommands::{run_about, run_before_commit, run_before_push, run_extension, run_theme};
+use subcommands::{
+    run_about, run_before_commit, run_before_push, run_end_of_file_fixer, run_extension, run_theme,
+    run_trailing_whitespace,
+};
 #[cfg(feature = "stack-rust")]
 use subcommands::{run_deps, run_tools};
 
@@ -262,6 +266,12 @@ fn dispatch(
         }
         #[cfg(feature = "stack-terraform")]
         Some(CoreSubcommand::Plans(opts)) => return ops_tfplan::run_plan_pipeline(opts),
+        Some(CoreSubcommand::TrailingWhitespace { tracked }) => {
+            return run_trailing_whitespace(tracked);
+        }
+        Some(CoreSubcommand::EndOfFileFixer { tracked }) => {
+            return run_end_of_file_fixer(tracked);
+        }
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(
                 std::sync::Arc::clone(early_config),

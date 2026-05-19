@@ -58,6 +58,7 @@ pub(crate) fn builtin_category(name: &str) -> &'static str {
     match name {
         "about" => "Insights",
         "deps" => "Code Quality",
+        "trailing-whitespace" | "end-of-file-fixer" => "Code Quality",
         "init" | "theme" | "extension" | "tools" | "run-before-commit" | "run-before-push" => {
             "Setup"
         }

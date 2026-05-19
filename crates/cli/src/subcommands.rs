@@ -297,6 +297,45 @@ pub(crate) fn run_before_push(
     run_hook_action(config, &pre_hook_cmd::PUSH_OPS, hook_action)
 }
 
+/// Run a text-fixer and translate its [`FixerReport`] into a process exit
+/// code: success when nothing changed, `FAILURE` when at least one file was
+/// rewritten. Mirrors the `pre-commit-hooks` contract so a commit hook
+/// driver fails the commit on change.
+fn run_text_fixer<F>(label: &str, tracked: bool, fixer: F) -> anyhow::Result<ExitCode>
+where
+    F: FnOnce(
+        &ops_text_fixers::FixerOptions,
+        &mut dyn std::io::Write,
+    ) -> anyhow::Result<ops_text_fixers::FixerReport>,
+{
+    let cwd = crate::cwd()?;
+    let opts = ops_text_fixers::FixerOptions::new(cwd, tracked);
+    let mut stdout = std::io::stdout();
+    let report = fixer(&opts, &mut stdout)?;
+    ops_text_fixers::write_summary(&report, label, &mut stdout);
+    if report.changed() {
+        Ok(ExitCode::FAILURE)
+    } else {
+        Ok(ExitCode::SUCCESS)
+    }
+}
+
+pub(crate) fn run_trailing_whitespace(tracked: bool) -> anyhow::Result<ExitCode> {
+    run_text_fixer(
+        "trailing-whitespace",
+        tracked,
+        ops_text_fixers::run_trailing_whitespace,
+    )
+}
+
+pub(crate) fn run_end_of_file_fixer(tracked: bool) -> anyhow::Result<ExitCode> {
+    run_text_fixer(
+        "end-of-file-fixer",
+        tracked,
+        ops_text_fixers::run_end_of_file_fixer,
+    )
+}
+
 #[cfg(feature = "stack-rust")]
 pub(crate) fn run_tools(config: &Config, action: ToolsAction) -> anyhow::Result<ExitCode> {
     match action {

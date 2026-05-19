@@ -145,6 +145,28 @@ pub enum CoreSubcommand {
     /// and the `PlanOptions` repack.
     #[cfg(feature = "stack-terraform")]
     Plans(ops_tfplan::PlanOptions),
+    /// Strip trailing spaces and tabs from every text file under cwd.
+    ///
+    /// Fixes files in place. Exits non-zero when at least one file was
+    /// modified, matching the `pre-commit-hooks` contract so a commit hook
+    /// fails on change.
+    #[command(name = "trailing-whitespace")]
+    TrailingWhitespace {
+        /// Limit to git-tracked files (uses `git ls-files`).
+        #[arg(long)]
+        tracked: bool,
+    },
+    /// Ensure every text file ends with exactly one newline.
+    ///
+    /// Fixes files in place. Exits non-zero when at least one file was
+    /// modified, matching the `pre-commit-hooks` contract so a commit hook
+    /// fails on change.
+    #[command(name = "end-of-file-fixer")]
+    EndOfFileFixer {
+        /// Limit to git-tracked files (uses `git ls-files`).
+        #[arg(long)]
+        tracked: bool,
+    },
     /// Catch-all for dynamic config-defined commands (e.g. `ops verify`).
     #[command(external_subcommand)]
     External(Vec<OsString>),
