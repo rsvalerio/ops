@@ -3,11 +3,11 @@ id: TASK-1487
 title: >-
   TEST-11: provider_name_field_debug_escapes_control_characters tests std
   formatter, not DataRegistry::register
-status: To Do
+status: Done
 assignee:
   - TASK-1579
 created_date: '2026-05-18 06:27'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:04'
 labels:
   - code-review-rust
   - test-quality

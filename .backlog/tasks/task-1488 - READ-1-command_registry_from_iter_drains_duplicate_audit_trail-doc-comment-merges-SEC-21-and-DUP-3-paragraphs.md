@@ -3,11 +3,11 @@ id: TASK-1488
 title: >-
   READ-1: command_registry_from_iter_drains_duplicate_audit_trail doc comment
   merges SEC-21 and DUP-3 paragraphs
-status: To Do
+status: Done
 assignee:
   - TASK-1579
 created_date: '2026-05-18 06:28'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:04'
 labels:
   - code-review-rust
   - readability

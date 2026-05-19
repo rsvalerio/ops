@@ -3,11 +3,11 @@ id: TASK-1489
 title: >-
   PATTERN-3: DataRegistry::register does two hash probes (contains_key + insert)
   where sibling CommandRegistry uses entry()
-status: To Do
+status: Done
 assignee:
   - TASK-1579
 created_date: '2026-05-18 16:17'
-updated_date: '2026-05-19 16:46'
+updated_date: '2026-05-19 17:04'
 labels:
   - code-review-rust
   - pattern
