@@ -90,18 +90,33 @@ fn builtin_extensions_empty_enabled_list() {
     );
 }
 
-/// TEST-11 (TASK-1338): when `extensions.enabled` is absent, the
-/// loader returns every compiled-in extension. Under default features
-/// the previous assertion (`result.is_ok()`) was vacuous: it accepted
-/// the empty vec a no-features build legitimately produces *and* the
-/// populated vec a stack-feature build produces. Split the property
-/// against the actual compile-time feature set so both halves of the
-/// "loads all" contract are exercised by the build that runs them.
+/// When `extensions.enabled` is absent, the loader returns every
+/// compiled-in extension that survived the stack filter. The property
+/// is split across two arms:
+/// - **Stack-feature build**: at least one extension must load.
+/// - **No-stack build**: the loader may still return generic
+///   (`stack() == None`) extensions like the text-fixers and
+///   config-checkers builtins that are always linked into the CLI.
+///
+/// Both arms assert non-empty, unique names so a regression that
+/// produced empty or colliding `name()` strings is caught regardless
+/// of which feature set runs the test.
 #[test]
 fn builtin_extensions_none_enabled_loads_all() {
     let config = Config::default();
     let exts = builtin_extensions(&config, std::path::Path::new("."))
         .expect("builtin_extensions must succeed for Config::default()");
+
+    let names: Vec<&'static str> = exts.iter().map(|e| e.name()).collect();
+    for n in &names {
+        assert!(!n.is_empty(), "ext.name() must not be empty: {names:?}");
+    }
+    let unique: std::collections::HashSet<&&'static str> = names.iter().collect();
+    assert_eq!(
+        unique.len(),
+        names.len(),
+        "loaded extension names must be pairwise unique: {names:?}"
+    );
 
     #[cfg(any(
         feature = "stack-rust",
@@ -112,35 +127,9 @@ fn builtin_extensions_none_enabled_loads_all() {
         feature = "stack-java-maven",
         feature = "stack-java-gradle",
     ))]
-    {
-        assert!(
-            !exts.is_empty(),
-            "at least one stack feature is enabled; loader must return its extensions"
-        );
-        let names: Vec<&'static str> = exts.iter().map(|e| e.name()).collect();
-        for n in &names {
-            assert!(!n.is_empty(), "ext.name() must not be empty: {names:?}");
-        }
-        let unique: std::collections::HashSet<&&'static str> = names.iter().collect();
-        assert_eq!(
-            unique.len(),
-            names.len(),
-            "loaded extension names must be pairwise unique: {names:?}"
-        );
-    }
-
-    #[cfg(not(any(
-        feature = "stack-rust",
-        feature = "stack-node",
-        feature = "stack-go",
-        feature = "stack-python",
-        feature = "stack-terraform",
-        feature = "stack-java-maven",
-        feature = "stack-java-gradle",
-    )))]
     assert!(
-        exts.is_empty(),
-        "no stack feature is enabled; loader must return an empty vec"
+        !exts.is_empty(),
+        "at least one stack feature is enabled; loader must return its extensions"
     );
 }
 
