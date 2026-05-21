@@ -30,6 +30,7 @@
 
 mod abort;
 mod build;
+mod builtins;
 mod events;
 mod exec;
 mod parallel;
@@ -112,6 +113,13 @@ pub struct CommandRunner {
     pub(super) vars: Arc<Variables>,
     pub(super) stack_commands: IndexMap<CommandId, CommandSpec>,
     pub(super) extension_commands: IndexMap<CommandId, CommandSpec>,
+    /// Always-available commands that mirror clap-level subcommands
+    /// (`end-of-file-fixer`, `trailing-whitespace`, …). Registered by
+    /// [`builtins::builtin_commands`] so composite `commands = [...]` lists
+    /// can reference them by name or visible-alias. Lowest priority in
+    /// resolution so user config / stack / extension entries can still
+    /// shadow.
+    pub(super) builtin_commands: IndexMap<CommandId, CommandSpec>,
     /// OWN-6 / TASK-0200: pre-built `alias → canonical` map over the
     /// stack + extension command stores so `canonical_id` / `resolve_alias`
     /// are O(1) instead of O(N·A) per lookup. Config aliases are served by
@@ -204,8 +212,11 @@ impl CommandRunner {
             }
         };
         let extension_commands = IndexMap::new();
+        let builtin_commands = builtins::builtin_commands();
         let non_config_alias_map = resolve::build_alias_map(
-            std::iter::once(&stack_commands).chain(std::iter::once(&extension_commands)),
+            std::iter::once(&stack_commands)
+                .chain(std::iter::once(&extension_commands))
+                .chain(std::iter::once(&builtin_commands)),
         );
 
         let cwd = Arc::new(cwd);
@@ -218,6 +229,7 @@ impl CommandRunner {
             vars: Arc::new(vars),
             stack_commands,
             extension_commands,
+            builtin_commands,
             non_config_alias_map,
             data_registry: DataRegistry::new(),
             data_context,

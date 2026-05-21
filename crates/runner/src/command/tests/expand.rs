@@ -239,6 +239,41 @@ fn orphan_config_alias_falls_through_to_stack_default() {
     assert_eq!(plan, vec!["build"]);
 }
 
+/// Built-in CLI subcommands (`end-of-file-fixer`, `trailing-whitespace`) and
+/// their visible aliases (`eof`, `tw`) must resolve through the composite
+/// resolver so users can list them in `commands = [...]`. Before the
+/// builtin_commands store was added the resolver only walked
+/// config / stack / extension, producing `unknown command: eof` for a
+/// run-before-commit composite that referenced the alias.
+#[test]
+fn builtin_commands_resolve_by_name_and_alias() {
+    let runner = test_runner(HashMap::new());
+    assert!(
+        runner.resolve("end-of-file-fixer").is_some(),
+        "canonical builtin name must resolve"
+    );
+    assert!(runner.resolve("eof").is_some(), "alias must resolve");
+    assert!(
+        runner.resolve("trailing-whitespace").is_some(),
+        "canonical builtin name must resolve"
+    );
+    assert!(runner.resolve("tw").is_some(), "alias must resolve");
+}
+
+#[test]
+fn composite_can_reference_builtin_aliases() {
+    let mut commands = HashMap::new();
+    commands.insert(
+        "pre-commit".to_string(),
+        CommandSpec::Composite(composite_cmd(&["eof", "tw"])),
+    );
+    let runner = test_runner(commands);
+    let plan = runner
+        .expand_to_leaves("pre-commit")
+        .expect("composite referencing builtin aliases must expand");
+    assert_eq!(plan, vec!["end-of-file-fixer", "trailing-whitespace"]);
+}
+
 mod proptest_tests {
     use super::*;
     use proptest::prelude::*;

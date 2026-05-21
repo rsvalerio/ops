@@ -28,15 +28,18 @@ impl CommandRunner {
             .map(|s| s.as_str())
             .chain(self.stack_commands.keys().map(|k| k.as_str()))
             .chain(self.extension_commands.keys().map(|k| k.as_str()))
+            .chain(self.builtin_commands.keys().map(|k| k.as_str()))
     }
 
-    /// Look up a command by ID across all stores (config → stack → extension).
+    /// Look up a command by ID across all stores (config → stack → extension → builtin).
+    /// Builtins land last so user config / stack defaults / extensions can shadow them.
     fn find_in_stores(&self, id: &str) -> Option<&CommandSpec> {
         self.config
             .commands
             .get(id)
             .or_else(|| self.stack_commands.get(id))
             .or_else(|| self.extension_commands.get(id))
+            .or_else(|| self.builtin_commands.get(id))
     }
 
     /// Resolve a command by ID or alias (config first, then stack defaults, then extension, then aliases).
@@ -67,6 +70,9 @@ impl CommandRunner {
             return Some(k.as_str());
         }
         if let Some((k, _)) = self.extension_commands.get_key_value(id) {
+            return Some(k.as_str());
+        }
+        if let Some((k, _)) = self.builtin_commands.get_key_value(id) {
             return Some(k.as_str());
         }
         if let Some(name) = self.config.resolve_alias(id) {
@@ -102,6 +108,9 @@ impl CommandRunner {
         if let Some((k, v)) = self.extension_commands.get_key_value(id) {
             return Some((k.as_str(), v));
         }
+        if let Some((k, v)) = self.builtin_commands.get_key_value(id) {
+            return Some((k.as_str(), v));
+        }
         if let Some(name) = self.config.resolve_alias(id) {
             if let Some((k, v)) = self.config.commands.get_key_value(name) {
                 return Some((k.as_str(), v));
@@ -117,6 +126,9 @@ impl CommandRunner {
             if let Some((k, v)) = self.extension_commands.get_key_value(name) {
                 return Some((k.as_str(), v));
             }
+            if let Some((k, v)) = self.builtin_commands.get_key_value(name) {
+                return Some((k.as_str(), v));
+            }
         }
         if let Some(name) = self.non_config_alias_map.get(id) {
             let n = name.as_str();
@@ -124,6 +136,9 @@ impl CommandRunner {
                 return Some((k.as_str(), v));
             }
             if let Some((k, v)) = self.extension_commands.get_key_value(n) {
+                return Some((k.as_str(), v));
+            }
+            if let Some((k, v)) = self.builtin_commands.get_key_value(n) {
                 return Some((k.as_str(), v));
             }
         }
@@ -149,6 +164,7 @@ impl CommandRunner {
                 .stack_commands
                 .get(name)
                 .or_else(|| self.extension_commands.get(name))
+                .or_else(|| self.builtin_commands.get(name))
             {
                 return Some(spec);
             }
@@ -157,6 +173,7 @@ impl CommandRunner {
         self.stack_commands
             .get(canonical.as_str())
             .or_else(|| self.extension_commands.get(canonical.as_str()))
+            .or_else(|| self.builtin_commands.get(canonical.as_str()))
     }
 
     /// List all available command IDs (config first, then stack, then extension commands; sorted for stable order).
