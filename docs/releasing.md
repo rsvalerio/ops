@@ -164,8 +164,8 @@ cog bump --version 0.2.0
 ## Installers Generated
 
 - **Shell script** - `curl`-based installer for Unix systems
-- **Homebrew formula** - `brew install rsvalerio/tap/ops` (repository: `rsvalerio/homebrew-tap`). 
-  - Alternative two step install: 
+- **Homebrew formula** - `brew install rsvalerio/tap/ops` (repository: `rsvalerio/homebrew-tap`).
+  - Alternative two step install:
     ```bash
        brew tap rsvalerio/tap; \
        brew install ops

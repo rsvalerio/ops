@@ -24,7 +24,7 @@ priority: high
 
 The string `"no"` then flows downstream to `install_rustup_component(component, "no")`, where `validate_cargo_tool_arg` will accept it (alphanumeric, no dash, no dot), and finally to `rustup component add <component> --toolchain no`, which is an invalid toolchain and produces a confusing rustup error instead of the operator-facing "no active toolchain configured" diagnostic the user should see.
 
-**Why it matters**: 
+**Why it matters**:
 - Correctness: an explicit rustup error message is silently converted into a fake toolchain name, then propagated through install flows that the SEC-13 validator cannot catch because `no` is a syntactically valid identifier.
 - The misleading test name (`*_rejects_no_active_toolchain_message`) actively documents-as-correct what is, on reading, a defect. Future contributors will preserve the buggy behaviour because the test pins it.
 - Operator experience: instead of "rustup has no active toolchain — run `rustup default stable`", the operator sees a generic rustup `--toolchain no` failure.
