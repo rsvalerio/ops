@@ -21,8 +21,9 @@ use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 /// Build the always-available builtin command store.
 ///
 /// Currently registers the text fixers (`end-of-file-fixer` / `eof`,
-/// `trailing-whitespace` / `tw`). Add new entries here whenever a clap-level
-/// subcommand should also be referenceable from composite `commands = [...]`.
+/// `trailing-whitespace` / `tw`) and the config checkers (`check-json`,
+/// `check-yaml`). Add new entries here whenever a clap-level subcommand
+/// should also be referenceable from composite `commands = [...]`.
 pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
     let ops_bin = std::env::current_exe()
         .ok()
@@ -37,6 +38,14 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
     map.insert(
         CommandId::from("trailing-whitespace"),
         CommandSpec::Exec(builtin_exec(&ops_bin, "trailing-whitespace", &["tw"])),
+    );
+    map.insert(
+        CommandId::from("check-json"),
+        CommandSpec::Exec(builtin_exec(&ops_bin, "check-json", &[])),
+    );
+    map.insert(
+        CommandId::from("check-yaml"),
+        CommandSpec::Exec(builtin_exec(&ops_bin, "check-yaml", &[])),
     );
     map
 }
@@ -67,6 +76,19 @@ mod tests {
             .get("trailing-whitespace")
             .expect("trailing-whitespace registered");
         assert!(tw.aliases().iter().any(|a| a == "tw"));
+    }
+
+    #[test]
+    fn registers_config_checkers() {
+        let map = builtin_commands();
+        assert!(
+            map.get("check-json").is_some(),
+            "check-json must be registered as a builtin"
+        );
+        assert!(
+            map.get("check-yaml").is_some(),
+            "check-yaml must be registered as a builtin"
+        );
     }
 
     #[test]
