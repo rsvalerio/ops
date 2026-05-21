@@ -7,7 +7,7 @@ program = "cargo"
 args = ["install", "--path", "crates/cli", "--force", "--all-features"]
 
 [commands.run-before-commit]
-commands = ["verify"]
+commands = ["verify","end-of-file-fixer","trailing-whitespace"]
 fail_fast = true
 help = "Run run-before-commit checks before committing"
 
