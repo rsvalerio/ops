@@ -47,6 +47,7 @@ ops-test-coverage = { workspace = true, optional = true }
 ops-run-before-commit = { workspace = true }
 ops-run-before-push = { workspace = true }
 ops-text-fixers = { workspace = true }
+ops-config-checkers = { workspace = true }
 clap = { workspace = true }
 tracing-subscriber = { workspace = true }
 inquire = { workspace = true }

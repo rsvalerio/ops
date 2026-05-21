@@ -58,8 +58,8 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use args::*;
 use help::{is_toplevel_help, print_categorized_help};
 use subcommands::{
-    run_about, run_before_commit, run_before_push, run_end_of_file_fixer, run_extension, run_theme,
-    run_trailing_whitespace,
+    run_about, run_before_commit, run_before_push, run_check_json, run_check_yaml,
+    run_end_of_file_fixer, run_extension, run_theme, run_trailing_whitespace,
 };
 #[cfg(feature = "stack-rust")]
 use subcommands::{run_deps, run_tools};
@@ -271,6 +271,15 @@ fn dispatch(
         }
         Some(CoreSubcommand::EndOfFileFixer { tracked }) => {
             return run_end_of_file_fixer(tracked);
+        }
+        Some(CoreSubcommand::CheckJson {
+            tracked,
+            allow_jsonc,
+        }) => {
+            return run_check_json(tracked, allow_jsonc);
+        }
+        Some(CoreSubcommand::CheckYaml { tracked }) => {
+            return run_check_yaml(tracked);
         }
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(

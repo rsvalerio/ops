@@ -167,6 +167,31 @@ pub enum CoreSubcommand {
         #[arg(long)]
         tracked: bool,
     },
+    /// Verify every `*.json` file under cwd parses as JSON.
+    ///
+    /// Exits non-zero if at least one file fails to parse, matching the
+    /// `pre-commit-hooks` `check-json` contract. Pass `--allow-jsonc` to
+    /// also accept comments and trailing commas.
+    #[command(name = "check-json")]
+    CheckJson {
+        /// Limit to git-tracked files (uses `git ls-files`).
+        #[arg(long)]
+        tracked: bool,
+        /// Accept JSONC (comments and trailing commas).
+        #[arg(long = "allow-jsonc")]
+        allow_jsonc: bool,
+    },
+    /// Verify every `*.yaml` / `*.yml` file under cwd parses as YAML.
+    ///
+    /// Exits non-zero if at least one file fails to parse, matching the
+    /// `pre-commit-hooks` `check-yaml` contract. Multi-document streams
+    /// are accepted.
+    #[command(name = "check-yaml")]
+    CheckYaml {
+        /// Limit to git-tracked files (uses `git ls-files`).
+        #[arg(long)]
+        tracked: bool,
+    },
     /// Catch-all for dynamic config-defined commands (e.g. `ops verify`).
     #[command(external_subcommand)]
     External(Vec<OsString>),

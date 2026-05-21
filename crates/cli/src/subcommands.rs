@@ -336,6 +336,42 @@ pub(crate) fn run_end_of_file_fixer(tracked: bool) -> anyhow::Result<ExitCode> {
     )
 }
 
+/// Run a config-checker and translate its [`CheckerReport`] into a process
+/// exit code: success when nothing failed, `FAILURE` when at least one file
+/// failed to parse. Mirrors the `pre-commit-hooks` contract.
+fn run_config_checker<F>(
+    label: &str,
+    opts: ops_config_checkers::CheckerOptions,
+    checker: F,
+) -> anyhow::Result<ExitCode>
+where
+    F: FnOnce(
+        &ops_config_checkers::CheckerOptions,
+        &mut dyn std::io::Write,
+    ) -> anyhow::Result<ops_config_checkers::CheckerReport>,
+{
+    let mut stdout = std::io::stdout();
+    let report = checker(&opts, &mut stdout)?;
+    ops_config_checkers::write_summary(&report, label, &mut stdout);
+    if report.failed() {
+        Ok(ExitCode::FAILURE)
+    } else {
+        Ok(ExitCode::SUCCESS)
+    }
+}
+
+pub(crate) fn run_check_json(tracked: bool, allow_jsonc: bool) -> anyhow::Result<ExitCode> {
+    let cwd = crate::cwd()?;
+    let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked).with_allow_jsonc(allow_jsonc);
+    run_config_checker("check-json", opts, ops_config_checkers::run_check_json)
+}
+
+pub(crate) fn run_check_yaml(tracked: bool) -> anyhow::Result<ExitCode> {
+    let cwd = crate::cwd()?;
+    let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked);
+    run_config_checker("check-yaml", opts, ops_config_checkers::run_check_yaml)
+}
+
 #[cfg(feature = "stack-rust")]
 pub(crate) fn run_tools(config: &Config, action: ToolsAction) -> anyhow::Result<ExitCode> {
     match action {
