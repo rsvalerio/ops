@@ -69,8 +69,20 @@ pub(crate) fn builtin_category(name: &str) -> &'static str {
 /// A command entry used for categorized help output.
 pub(crate) struct CmdEntry {
     pub name: String,
+    pub aliases: Vec<String>,
     pub about: String,
     pub category: Option<String>,
+}
+
+impl CmdEntry {
+    /// Combined `name, alias1, alias2` label used as the first column.
+    fn display_name(&self) -> String {
+        if self.aliases.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{}, {}", self.name, self.aliases.join(", "))
+        }
+    }
 }
 
 /// Collect built-in clap subcommands and dynamic config/stack commands into a
@@ -93,9 +105,11 @@ pub(crate) fn collect_command_entries(
         let name = sub.get_name().to_string();
         let about = sub.get_about().map(|s| s.to_string()).unwrap_or_default();
         let category = Some(builtin_category(&name).to_string());
+        let aliases = sub.get_visible_aliases().map(String::from).collect();
         seen.insert(name.clone());
         entries.push(CmdEntry {
             name,
+            aliases,
             about,
             category,
         });
@@ -117,6 +131,7 @@ pub(crate) fn collect_command_entries(
         let about = hook_shared::command_description(spec);
         entries.push(CmdEntry {
             name: name.to_string(),
+            aliases: spec.aliases().to_vec(),
             about,
             category: Some(spec.category().unwrap_or("Commands").to_string()),
         });
@@ -184,15 +199,19 @@ pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
     // [`ops_core::output::pad_to_display_width`] helper that the tools_cmd
     // and theme_cmd list views also use, so the three help-style tables
     // can't drift on the unicode-width measurement (CJK / wide emoji).
-    let max_name_width = entries
+    // Cache each entry's combined `name, alias…` label so we measure it once
+    // (here) and reuse the same string for padding below, rather than
+    // re-allocating per row in the loop.
+    let display_names: Vec<String> = entries.iter().map(CmdEntry::display_name).collect();
+    let max_name_width = display_names
         .iter()
-        .map(|e| display_width(&e.name))
+        .map(|n| display_width(n))
         .max()
         .unwrap_or(0);
     let mut grouped = String::new();
     let mut heading_state = HeadingState::Unset;
 
-    for entry in entries {
+    for (entry, display_name) in entries.iter().zip(display_names.iter()) {
         let cat = entry.category.as_deref();
         if !heading_state.matches(cat) {
             let heading = cat.unwrap_or("Commands");
@@ -200,7 +219,7 @@ pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
             heading_state = HeadingState::Last(cat);
         }
         grouped.push_str("  ");
-        grouped.push_str(&pad_to_display_width(&entry.name, max_name_width));
+        grouped.push_str(&pad_to_display_width(display_name, max_name_width));
         grouped.push_str("  ");
         grouped.push_str(&entry.about);
         grouped.push('\n');
@@ -403,6 +422,16 @@ mod tests {
     fn entry(name: &str, category: Option<&str>) -> CmdEntry {
         CmdEntry {
             name: name.to_string(),
+            aliases: Vec::new(),
+            about: String::new(),
+            category: category.map(|s| s.to_string()),
+        }
+    }
+
+    fn entry_with_aliases(name: &str, aliases: &[&str], category: Option<&str>) -> CmdEntry {
+        CmdEntry {
+            name: name.to_string(),
+            aliases: aliases.iter().map(|s| s.to_string()).collect(),
             about: String::new(),
             category: category.map(|s| s.to_string()),
         }
@@ -728,6 +757,94 @@ mod tests {
         let err = write_categorized_help(&mut FailingWriter, cmd, &config, None, false)
             .expect_err("failing writer must surface its error");
         assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
+    }
+
+    #[test]
+    fn render_grouped_sections_renders_aliases_inline() {
+        let mut aliased = entry_with_aliases("trailing-whitespace", &["tw"], Some("Code Quality"));
+        aliased.about = "strip".to_string();
+        let mut plain = entry("deps", Some("Code Quality"));
+        plain.about = "deps".to_string();
+
+        let output = render_grouped_sections(&[aliased, plain]);
+        assert!(
+            output.contains("trailing-whitespace, tw"),
+            "alias rendered inline: {output}"
+        );
+
+        // Description columns align across aliased and non-aliased rows.
+        let cols: std::collections::HashSet<usize> = output
+            .lines()
+            .filter_map(|l| {
+                if l.contains("strip") {
+                    Some(ops_core::output::display_width(
+                        &l[..l.find("strip").unwrap()],
+                    ))
+                } else if l.contains("deps") && !l.starts_with("\n") && l.starts_with("  ") {
+                    // Skip the "Code Quality:" heading; find the about column,
+                    // which is the second occurrence of "deps".
+                    let idx = l.rfind("deps")?;
+                    Some(ops_core::output::display_width(&l[..idx]))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(
+            cols.len(),
+            1,
+            "description columns must align when aliases widen one row: {cols:?}\n{output}"
+        );
+    }
+
+    #[test]
+    fn render_grouped_sections_no_aliases_renders_bare_name() {
+        let entries = vec![entry("build", Some("Commands"))];
+        let output = render_grouped_sections(&entries);
+        assert!(
+            output.contains("  build"),
+            "bare name without trailing comma: {output}"
+        );
+        assert!(
+            !output.contains("build,"),
+            "no trailing comma when no aliases: {output}"
+        );
+    }
+
+    #[test]
+    fn collect_command_entries_picks_up_clap_visible_aliases() {
+        let mut cmd = clap::Command::new("ops");
+        cmd = cmd.subcommand(
+            clap::Command::new("trailing-whitespace")
+                .about("strip")
+                .visible_alias("tw"),
+        );
+        let config = ops_core::config::Config::empty();
+        let entries = collect_command_entries(&cmd, &config, None);
+        let e = entries
+            .iter()
+            .find(|e| e.name == "trailing-whitespace")
+            .expect("entry present");
+        assert_eq!(e.aliases, vec!["tw".to_string()]);
+    }
+
+    #[test]
+    fn collect_command_entries_picks_up_config_aliases() {
+        let cmd = clap::Command::new("ops");
+        let mut config = ops_core::config::Config::empty();
+        let mut spec = ops_core::config::ExecCommandSpec::new("cargo", ["build"]);
+        spec.aliases = vec!["b".to_string()];
+        config.commands.insert(
+            "build".to_string(),
+            ops_core::config::CommandSpec::Exec(spec),
+        );
+
+        let entries = collect_command_entries(&cmd, &config, None);
+        let e = entries
+            .iter()
+            .find(|e| e.name == "build")
+            .expect("build entry present");
+        assert_eq!(e.aliases, vec!["b".to_string()]);
     }
 
     #[test]

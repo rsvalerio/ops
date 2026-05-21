@@ -150,7 +150,7 @@ pub enum CoreSubcommand {
     /// Fixes files in place. Exits non-zero when at least one file was
     /// modified, matching the `pre-commit-hooks` contract so a commit hook
     /// fails on change.
-    #[command(name = "trailing-whitespace")]
+    #[command(name = "trailing-whitespace", visible_alias = "tw")]
     TrailingWhitespace {
         /// Limit to git-tracked files (uses `git ls-files`).
         #[arg(long)]
@@ -161,7 +161,7 @@ pub enum CoreSubcommand {
     /// Fixes files in place. Exits non-zero when at least one file was
     /// modified, matching the `pre-commit-hooks` contract so a commit hook
     /// fails on change.
-    #[command(name = "end-of-file-fixer")]
+    #[command(name = "end-of-file-fixer", visible_alias = "eof")]
     EndOfFileFixer {
         /// Limit to git-tracked files (uses `git ls-files`).
         #[arg(long)]
@@ -202,7 +202,7 @@ pub enum AboutAction {
     /// `crates` and `modules` render the same stack-aware
     /// project-units view via `ops_about::run_about_units`; the alias keeps
     /// the Go-idiomatic name working without duplicating dispatch.
-    #[command(alias = "modules")]
+    #[command(visible_alias = "modules")]
     /// Display project units — crates (Rust) or modules (Go).
     Crates,
 }
