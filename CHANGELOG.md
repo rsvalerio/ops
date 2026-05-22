@@ -2,6 +2,31 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.31.0](https://github.com/rsvalerio/ops/compare/304ce5edfea0fe275f3c82dc396af7e5bc4c81aa..v0.31.0) - 2026-05-22
+#### 🚀 Features
+- (**cli**) add check-json and check-yaml config checker subcommands - ([304ce5e](https://github.com/rsvalerio/ops/commit/304ce5edfea0fe275f3c82dc396af7e5bc4c81aa)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) register config checkers as builtin commands - ([e0fce55](https://github.com/rsvalerio/ops/commit/e0fce55633c1e166ec3c76323467fca2c244b8ba)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**config-checkers**) harden error handling, add size cap, JSON5 rename - ([fdd5b57](https://github.com/rsvalerio/ops/commit/fdd5b578b18f3702dab2feea9d16f424ba86f3ce)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+#### 📚 Documentation
+- remove obsolete terraform plan summary - ([018cd69](https://github.com/rsvalerio/ops/commit/018cd6960a3632192feba516e0b518f91ece41a8)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**deps**) update arrow to 58.3.0 and hashbrown to 0.17.1 - ([11abfa1](https://github.com/rsvalerio/ops/commit/11abfa159c9255d7c6adeef37dd3b140360a1677)) - [@rsvalerio](https://github.com/rsvalerio)
+- add ops-config-checkers extension crate - ([0d519d0](https://github.com/rsvalerio/ops/commit/0d519d0372ab2ee3384703f9df223884572d1d00)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**cli**) simplify extension loader test for generic extensions - ([7ca845f](https://github.com/rsvalerio/ops/commit/7ca845fa266691566404e8cefed9f79d71dcf4a5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust**) wave-130 promote install_*_with_timeout to pub, log kill/wait failures on timeout path, rename install-side timeout module, add #[must_use] to pure tools queries, gate install-timeout tests to cfg(unix), drop dead ProbeOutcome::map, add validate_rustup_toolchain accepting '.' for version-pinned identifiers, mark ProbeOutcome #[non_exhaustive], split get_active_toolchain into Resolved/None/ProbeFailed via ActiveToolchain (API-3 ERR-9 READ-1 API-5 TEST-19 READ-7 ERR-2 API-1 ERR-1 TASK-1581 TASK-1584 TASK-1585 TASK-1586 TASK-1591 TASK-1592 TASK-1608 TASK-1615 TASK-1619) - ([d8994aa](https://github.com/rsvalerio/ops/commit/d8994aa982c38c3225702b5e7cae8c93a7498b56)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions-rust**) wave-129 hoist PATHEXT out of find_on_path_in loop, pair cargo built-in / rustup target arch lists with drift-detection tests, strip rule IDs from probe timeout warn, surface per-entry read_dir errors in capture_path_index_from, precompute cargo-list / rustup-components hash sets in collect_tools, extend PathIndex case-folding to macOS (PERF-3 PATTERN-1 READ-2 ERR-7 CONC-7 TASK-1580 TASK-1582 TASK-1583 TASK-1605 TASK-1614 TASK-1616 TASK-1617) - ([04cf7f4](https://github.com/rsvalerio/ops/commit/04cf7f4836d77a89857c252c229489800a4409df)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**ops-duckdb**) wave-132 wrap extra_opts in ExtraOpts newtype with validating constructor, rename query::helpers::TableName to QueryTableName, make SourceName/WorkspaceRoot fields private with ::new/::as_*, add #[must_use] to get_source_checksum / escape_sql_string / sanitize_path_for_sql, collapse create_table_from_json_sql to a single format!, add phase+table_name with_context to provide_via_ingestor, generalise query_project_row helper and route query_project_coverage / query_project_scalar through it, pin select_expr to &'static str, extract rename_json_to_done / unlink_and_remove_sidecar from cleanup_artifacts, switch downcast_duckdb to Option<&Arc<...>> (SEC-12 READ-1 API-2 API-5 READ-8 ERR-4 DUP-1 FN-1 OWN-6 TASK-1623 TASK-1624 TASK-1625 TASK-1626 TASK-1627 TASK-1628 TASK-1629 TASK-1630 TASK-1631 TASK-1632 TASK-1633) - ([fc1df28](https://github.com/rsvalerio/ops/commit/fc1df287fee302721102867ec77b48439e3423b8)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+- (**ops-git**) wave-131 move SEC-33 cap check above lossy UTF-8 decode so in-cap configs with non-UTF-8 bytes are not false-rejected, annotate parse_remote_url / read_origin_url / read_origin_url_from / read_head_branch with #[must_use], extract shared decode_quoted_body helper for git-config quoted-string escapes (ERR-1 API-5 DUP-1 TASK-1620 TASK-1621 TASK-1622 TASK-1639) - ([6d02c23](https://github.com/rsvalerio/ops/commit/6d02c23818702666042d15fb0c98a74439352d00)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**test-coverage**) address code review findings — demote internal exports, harden error handling, add schema drift tracking (API-9 READ-1 READ-5 ERR-1 PATTERN-1 PATTERN-3 TEST-19 ARCH-11 TASK-1601 TASK-1602 TASK-1606 TASK-1609 TASK-1610 TASK-1611 TASK-1612 TASK-1613 TASK-1618) - ([2a12828](https://github.com/rsvalerio/ops/commit/2a12828758a454b7463eefefddcd385e3411fb46)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) add wave-133 task definitions from test-coverage code review - ([b1edfa4](https://github.com/rsvalerio/ops/commit/b1edfa43879c47bc75a8659cdec7f48a56e27b0c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave 132 — ops-duckdb SQL & schema hardening - ([66e15f6](https://github.com/rsvalerio/ops/commit/66e15f6680768595422ce3bb3200e35d81a050fb)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+- (**backlog**) close wave 128 — config-checkers hardening - ([3eb93e6](https://github.com/rsvalerio/ops/commit/3eb93e657e079183ecc033581f48274846aa8056)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+
+- - -
+
 ## [v0.30.0](https://github.com/rsvalerio/ops/compare/21c3c7853f15ab302c2577844237e79c7def7ce9..v0.30.0) - 2026-05-21
 #### 🚀 Features
 - (**cli**) display command aliases in help output - ([e432c9f](https://github.com/rsvalerio/ops/commit/e432c9f4c9abe7d433081ffccf46c72ff11072a2)) - [@rsvalerio](https://github.com/rsvalerio)
