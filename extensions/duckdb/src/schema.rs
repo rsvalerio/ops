@@ -26,7 +26,12 @@ pub fn init_schema(db: &DuckDb) -> DbResult<()> {
 }
 
 /// Get stored checksum for a source and workspace, if any.
+///
+/// API-5 / TASK-1626: the returned `Option<String>` is the signal callers
+/// consult to decide whether to skip reloading a data source. Dropping it
+/// silently treats "never ingested" identically to "already current".
 #[allow(dead_code)]
+#[must_use = "the Some/None distinguishes 'already ingested' from 'never ingested'; discarding it skips reload checks"]
 pub fn get_source_checksum(
     db: &DuckDb,
     source_name: &str,
@@ -53,10 +58,34 @@ pub fn get_source_checksum(
 /// duplicate ingest records and divergent checksums no future run could
 /// reconcile. Swap is now a compile error.
 #[derive(Debug, Clone, Copy)]
-pub struct SourceName<'a>(pub &'a str);
+pub struct SourceName<'a>(&'a str);
+
+impl<'a> SourceName<'a> {
+    #[must_use]
+    pub const fn new(name: &'a str) -> Self {
+        Self(name)
+    }
+
+    #[must_use]
+    pub const fn as_str(&self) -> &'a str {
+        self.0
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
-pub struct WorkspaceRoot<'a>(pub &'a std::ffi::OsStr);
+pub struct WorkspaceRoot<'a>(&'a std::ffi::OsStr);
+
+impl<'a> WorkspaceRoot<'a> {
+    #[must_use]
+    pub const fn new(root: &'a std::ffi::OsStr) -> Self {
+        Self(root)
+    }
+
+    #[must_use]
+    pub const fn as_os_str(&self) -> &'a std::ffi::OsStr {
+        self.0
+    }
+}
 
 /// Metadata describing a loaded data source row.
 #[non_exhaustive]
@@ -174,8 +203,8 @@ mod tests {
         let result = upsert_data_source(
             &db,
             &DataSourceMetadata::new(
-                SourceName("metadata"),
-                WorkspaceRoot(std::ffi::OsStr::new("/ws")),
+                SourceName::new("metadata"),
+                WorkspaceRoot::new(std::ffi::OsStr::new("/ws")),
                 bad_path,
                 1,
                 "abc",
@@ -195,8 +224,8 @@ mod tests {
         upsert_data_source(
             &db,
             &DataSourceMetadata::new(
-                SourceName("big"),
-                WorkspaceRoot(std::ffi::OsStr::new("/ws")),
+                SourceName::new("big"),
+                WorkspaceRoot::new(std::ffi::OsStr::new("/ws")),
                 Path::new("/ws/target/ops/big.json"),
                 big,
                 "abc",
@@ -221,8 +250,8 @@ mod tests {
         upsert_data_source(
             &db,
             &DataSourceMetadata::new(
-                SourceName("metadata"),
-                WorkspaceRoot(std::ffi::OsStr::new("/ws")),
+                SourceName::new("metadata"),
+                WorkspaceRoot::new(std::ffi::OsStr::new("/ws")),
                 Path::new("/ws/target/ops/metadata.json"),
                 1,
                 "abc123",

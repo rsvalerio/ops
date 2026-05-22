@@ -259,8 +259,8 @@ impl SidecarIngestorConfig {
         crate::schema::upsert_data_source(
             db,
             &crate::schema::DataSourceMetadata::new(
-                crate::schema::SourceName(self.name),
-                crate::schema::WorkspaceRoot(workspace_root),
+                crate::schema::SourceName::new(self.name),
+                crate::schema::WorkspaceRoot::new(workspace_root),
                 json_path,
                 record_count,
                 &checksum,
@@ -293,70 +293,94 @@ impl SidecarIngestorConfig {
     /// the unit test can pin the formatting without intercepting a
     /// tracing subscriber.
     fn cleanup_artifacts(&self, data_dir: &Path, json_path: &Path) {
-        // ARCH-2 / TASK-1008 (option B): rename the staging JSON to a
-        // `.done` suffix before unlinking. A `kill -9` between rename and
-        // unlink leaves a single `*.done` file on disk that operators can
-        // unambiguously identify as post-load debris (vs. a `*.json` mid-
-        // flight). The rename → unlink ordering keeps the success path
-        // identical (both syscalls run, file is gone) while making the
-        // crash window observable rather than indistinguishable.
-        let original_json_path: &Path = json_path;
-        let done_path = original_json_path.with_extension("json.done");
-        let effective_path: &Path = match std::fs::rename(original_json_path, &done_path) {
-            Ok(()) => done_path.as_path(),
-            // Fall back to direct removal if the rename failed for any
-            // reason (e.g. cross-device). This restores the prior
-            // behaviour without leaving a half-rename state.
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                tracing::debug!(
-                    source = self.name,
-                    paths = %cleanup_artifacts_breadcrumb_paths(
-                        original_json_path,
-                        original_json_path,
-                    ),
-                    error = ?e,
-                    "cleanup_artifacts: rename to .done failed; falling back to direct unlink"
-                );
-                original_json_path
-            }
-            // NotFound on the rename: source already absent — fall
-            // through to the existing match arms below for the same
-            // recovery semantics.
-            Err(_) => original_json_path,
-        };
-        match std::fs::remove_file(effective_path) {
-            Ok(()) => crate::sql::remove_workspace_sidecar(data_dir, self.name),
-            // ARCH-2 / TASK-1005: NotFound is the operationally-rare case
-            // (external scrubber, manual `rm`, mid-pipeline interruption).
-            // The ERR-1 / TASK-0466 contract treats "sidecar removed only
-            // after JSON gone" as the post-condition; an absent JSON means
-            // the post-condition is already satisfied, so the sidecar may
-            // be removed too. Emit a debug breadcrumb so the unexpected
-            // absence is at least visible to operators chasing
-            // half-state symptoms.
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                tracing::debug!(
-                    source = self.name,
-                    paths = %cleanup_artifacts_breadcrumb_paths(
-                        original_json_path,
-                        effective_path,
-                    ),
-                    "cleanup_artifacts: JSON staging file already absent before removal; removing sidecar anyway"
-                );
-                crate::sql::remove_workspace_sidecar(data_dir, self.name);
-            }
-            Err(err) => {
-                tracing::warn!(
-                    source = self.name,
-                    paths = %cleanup_artifacts_breadcrumb_paths(
-                        original_json_path,
-                        effective_path,
-                    ),
-                    error = ?err,
-                    "failed to remove staged JSON after ingest; \
-                     leaving sidecar to drive recovery on next run"
-                );
-            }
+        // FN-1 / TASK-1631: the rename-or-fallback and the unlink-with-recovery
+        // each live in their own helper so this body stays a three-line
+        // recovery policy ("rename, then unlink the effective path, removing
+        // the sidecar when JSON is gone") rather than ~67 lines of mixed
+        // syscalls + log formatting.
+        let effective_path = rename_json_to_done(self.name, json_path);
+        unlink_and_remove_sidecar(self.name, data_dir, json_path, &effective_path);
+    }
+}
+
+/// ARCH-2 / TASK-1008 (option B) — FN-1 / TASK-1631 (extracted): rename
+/// the staging JSON to a `.done` suffix before unlinking. A `kill -9`
+/// between rename and unlink leaves a single `*.done` file on disk that
+/// operators can unambiguously identify as post-load debris (vs. a
+/// `*.json` mid-flight). The rename → unlink ordering keeps the success
+/// path identical while making the crash window observable rather than
+/// indistinguishable.
+///
+/// Returns the path that the subsequent unlink should target:
+/// * the `.done` path on successful rename,
+/// * the original path on EXDEV/permission failure (logged as debug) or
+///   when the source was already absent (NotFound, no log — the caller's
+///   NotFound branch will emit the appropriate breadcrumb).
+fn rename_json_to_done(source: &'static str, original_json_path: &Path) -> std::path::PathBuf {
+    let done_path = original_json_path.with_extension("json.done");
+    match std::fs::rename(original_json_path, &done_path) {
+        Ok(()) => done_path,
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            tracing::debug!(
+                source,
+                paths = %cleanup_artifacts_breadcrumb_paths(
+                    original_json_path,
+                    original_json_path,
+                ),
+                error = ?e,
+                "cleanup_artifacts: rename to .done failed; falling back to direct unlink"
+            );
+            original_json_path.to_path_buf()
+        }
+        // NotFound on the rename: source already absent — fall through to
+        // the unlink helper for the same recovery semantics.
+        Err(_) => original_json_path.to_path_buf(),
+    }
+}
+
+/// FN-1 / TASK-1631 (extracted): unlink the post-rename staging file and
+/// remove the workspace sidecar.
+///
+/// ERR-1 / TASK-0466 contract: the sidecar is only removed once the JSON
+/// is gone, so a transient permission/IO error leaves the sidecar in
+/// place so `read_workspace_sidecar` can drive a clean recovery on the
+/// next run.
+///
+/// ARCH-2 / TASK-1005: a NotFound on the unlink is operationally rare
+/// (external scrubber, manual `rm`, mid-pipeline interruption). The
+/// ERR-1 post-condition ("sidecar removed only after JSON gone") is
+/// already satisfied if the JSON is absent, so the sidecar is removed
+/// too; a debug breadcrumb makes the unexpected absence visible.
+fn unlink_and_remove_sidecar(
+    source: &'static str,
+    data_dir: &Path,
+    original_json_path: &Path,
+    effective_path: &Path,
+) {
+    match std::fs::remove_file(effective_path) {
+        Ok(()) => crate::sql::remove_workspace_sidecar(data_dir, source),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            tracing::debug!(
+                source,
+                paths = %cleanup_artifacts_breadcrumb_paths(
+                    original_json_path,
+                    effective_path,
+                ),
+                "cleanup_artifacts: JSON staging file already absent before removal; removing sidecar anyway"
+            );
+            crate::sql::remove_workspace_sidecar(data_dir, source);
+        }
+        Err(err) => {
+            tracing::warn!(
+                source,
+                paths = %cleanup_artifacts_breadcrumb_paths(
+                    original_json_path,
+                    effective_path,
+                ),
+                error = ?err,
+                "failed to remove staged JSON after ingest; \
+                 leaving sidecar to drive recovery on next run"
+            );
         }
     }
 }

@@ -1,17 +1,23 @@
 //! SQL builders and table-state probes for ingestor pipelines.
 
-use crate::sql::validation::{prepare_path_for_sql, quoted_ident, validate_extra_opts, SqlError};
+use crate::sql::validation::{prepare_path_for_sql, quoted_ident, ExtraOpts, SqlError};
 use crate::DuckDb;
 use std::path::Path;
 
 /// Generate `CREATE OR REPLACE TABLE <name> AS SELECT * FROM read_json_auto(...)` SQL (DUP-009).
 ///
-/// Validates and escapes the path for safe interpolation. Pass `extra_opts` for
-/// additional read_json_auto parameters (e.g., `"maximum_object_size=67108864"`).
+/// Validates and escapes the path for safe interpolation. Pass an
+/// [`ExtraOpts`] (validated at construction) for additional
+/// `read_json_auto` parameters (e.g. `"maximum_object_size=67108864"`).
+///
+/// SEC-12 / TASK-1623: the extra_opts argument is typed as `Option<ExtraOpts>`
+/// rather than `Option<&str>` so the validation contract (`validate_extra_opts`)
+/// is encoded in the type system. Any future dynamic caller must route
+/// through [`ExtraOpts::new`] and cannot bypass the allowlist.
 pub fn create_table_from_json_sql(
     table_name: &str,
     path: &Path,
-    extra_opts: Option<&str>,
+    extra_opts: Option<ExtraOpts<'_>>,
 ) -> Result<String, SqlError> {
     // SEC-12 (TASK-0522): use the same `quoted_ident` defense-in-depth as
     // `table_has_data` and `drop_table_if_exists` so a future widening of
@@ -19,17 +25,15 @@ pub fn create_table_from_json_sql(
     // not silently break the safety contract here.
     let quoted = quoted_ident(table_name)?;
     let escaped = prepare_path_for_sql(path)?;
-    match extra_opts {
-        Some(opts) => {
-            validate_extra_opts(opts)?;
-            Ok(format!(
-            "CREATE OR REPLACE TABLE {quoted} AS SELECT * FROM read_json_auto('{escaped}', {opts})",
-        ))
-        }
-        None => Ok(format!(
-            "CREATE OR REPLACE TABLE {quoted} AS SELECT * FROM read_json_auto('{escaped}')",
-        )),
-    }
+    // READ-8 / TASK-1627: single `format!` site; the optional opts segment
+    // is rendered inline so the SQL template lives in exactly one place.
+    let opts_segment = match extra_opts {
+        Some(opts) => format!(", {}", opts.as_str()),
+        None => String::new(),
+    };
+    Ok(format!(
+        "CREATE OR REPLACE TABLE {quoted} AS SELECT * FROM read_json_auto('{escaped}'{opts_segment})",
+    ))
 }
 
 /// Check if a table or view exists in the database.
@@ -209,28 +213,40 @@ mod tests {
     #[test]
     fn create_table_from_json_sql_accepts_safe_extra_opts() {
         let path = PathBuf::from("/safe/path.json");
-        assert!(
-            create_table_from_json_sql("t", &path, Some("maximum_object_size=67108864")).is_ok()
-        );
-        assert!(
-            create_table_from_json_sql("t", &path, Some("maximum_object_size=1,format=auto"))
-                .is_ok()
-        );
+        let opts1 = ExtraOpts::new("maximum_object_size=67108864").expect("safe opts");
+        assert!(create_table_from_json_sql("t", &path, Some(opts1)).is_ok());
+        let opts2 = ExtraOpts::new("maximum_object_size=1,format=auto").expect("safe opts");
+        assert!(create_table_from_json_sql("t", &path, Some(opts2)).is_ok());
     }
 
+    /// SEC-12 / TASK-1623: the validation contract now lives on
+    /// `ExtraOpts::new`. Malicious fragments must be rejected at
+    /// construction so they can never reach `create_table_from_json_sql`.
     #[test]
-    fn create_table_from_json_sql_rejects_malicious_extra_opts() {
+    fn extra_opts_new_rejects_malicious_fragments() {
+        assert!(ExtraOpts::new("maximum_object_size=1, injection='x') --").is_err());
+        assert!(ExtraOpts::new("a=1;DROP TABLE users").is_err());
+        assert!(ExtraOpts::new("a=(1)").is_err());
+        assert!(ExtraOpts::new("a='x'").is_err());
+        assert!(ExtraOpts::new("a").is_err());
+        assert!(ExtraOpts::new("").is_err());
+    }
+
+    /// SEC-12 / TASK-1623 AC #4: a dynamic (non-static) opts string still
+    /// flows through the same `ExtraOpts::new` validation gate. Pinning the
+    /// dynamic-construction path here so a future widening of the type's
+    /// constructors (e.g. an unchecked `from_static`) would have to update
+    /// this test alongside the API.
+    #[test]
+    fn extra_opts_new_validates_dynamic_construction() {
         let path = PathBuf::from("/safe/path.json");
-        assert!(create_table_from_json_sql(
-            "t",
-            &path,
-            Some("maximum_object_size=1, injection='x') --")
-        )
-        .is_err());
-        assert!(create_table_from_json_sql("t", &path, Some("a=1;DROP TABLE users")).is_err());
-        assert!(create_table_from_json_sql("t", &path, Some("a=(1)")).is_err());
-        assert!(create_table_from_json_sql("t", &path, Some("a='x'")).is_err());
-        assert!(create_table_from_json_sql("t", &path, Some("a")).is_err());
-        assert!(create_table_from_json_sql("t", &path, Some("")).is_err());
+        let cap: u64 = 9_999_999;
+        let dynamic = format!("maximum_object_size={cap}");
+        let opts = ExtraOpts::new(&dynamic).expect("dynamic safe opts");
+        let sql = create_table_from_json_sql("t", &path, Some(opts)).expect("ok");
+        assert!(sql.contains("maximum_object_size=9999999"), "got: {sql}");
+
+        let bad = format!("a=1;{}", "DROP TABLE users");
+        assert!(ExtraOpts::new(&bad).is_err());
     }
 }

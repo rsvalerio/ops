@@ -35,7 +35,14 @@ macro_rules! sql_ident_newtype {
     };
 }
 
-sql_ident_newtype!(TableName, "A validated SQL table name.");
+sql_ident_newtype!(
+    QueryTableName,
+    "READ-1 / TASK-1624: runtime-validated SQL table name for per-crate \
+     query scaffolding. Distinct from `crate::sql::validation::TableName`, \
+     which is a *compile-time* validated `&'static str` newtype for the \
+     ingest side; both share the SEC-12 \"identifier is allowlisted before \
+     interpolation\" contract but cover different lifetimes."
+);
 sql_ident_newtype!(ColumnAlias, "A validated SQL column/table alias.");
 sql_ident_newtype!(ColumnName, "A validated SQL column name.");
 
@@ -131,26 +138,49 @@ where
     Ok(acc)
 }
 
+/// DUP-1 / TASK-1629: shared scaffolding for project-level queries that
+/// fetch a single row. Acquires the DB lock, returns `default` when the
+/// table is missing, otherwise runs `sql` with no parameters and maps the
+/// resulting row via `row_mapper`. Centralises the lock + table_exists +
+/// query_row + with_context prologue that `query_project_scalar` and the
+/// former hand-rolled `query_project_coverage` each implemented
+/// independently.
+pub(super) fn query_project_row<T, F>(
+    db: &DuckDb,
+    spec: &QuerySpec<'_>,
+    default: T,
+    row_mapper: F,
+) -> anyhow::Result<T>
+where
+    F: FnOnce(&duckdb::Row<'_>) -> Result<T, duckdb::Error>,
+{
+    use anyhow::Context;
+
+    let label = spec.label;
+    let conn = db
+        .lock()
+        .with_context(|| format!("acquiring db lock for {label}"))?;
+
+    if !table_exists(&conn, spec.table)? {
+        return Ok(default);
+    }
+
+    conn.query_row(spec.sql, [], row_mapper)
+        .context(label.to_string())
+}
+
 /// Shared scaffolding: lock db, check table exists, run a scalar aggregate query.
 /// Returns `Ok(0)` if the table doesn't exist.
+///
+/// DUP-1 / TASK-1629: delegates to [`query_project_row`] so the lock +
+/// table-exists + with_context prologue lives in exactly one place.
 pub(super) fn query_project_scalar(
     db: &DuckDb,
     table: &str,
     sql: &str,
     label: &str,
 ) -> anyhow::Result<i64> {
-    use anyhow::Context;
-
-    let conn = db
-        .lock()
-        .with_context(|| format!("acquiring db lock for {label}"))?;
-
-    if !table_exists(&conn, table)? {
-        return Ok(0);
-    }
-
-    conn.query_row(sql, [], |row: &duckdb::Row| row.get(0))
-        .context(label.to_string())
+    query_project_row(db, &QuerySpec { table, sql, label }, 0, |row| row.get(0))
 }
 
 /// Result of preparing per-crate query scaffolding.
@@ -286,9 +316,15 @@ where
 /// error (API-1) and validation is enforced once at construction time.
 pub(super) struct PerCrateI64Query<'a> {
     pub db: &'a DuckDb,
-    pub table: TableName,
+    pub table: QueryTableName,
     pub member_paths: &'a [&'a str],
-    pub select_expr: &'a str,
+    /// SEC-12 / API-2 / TASK-1630: a SQL fragment interpolated alongside
+    /// the surrounding `TableName` / `ColumnAlias` / `ColumnName`
+    /// newtypes. Constrained to `&'static str` so the compiler rejects
+    /// any future dynamic source (e.g. config-derived `String`) at the
+    /// call site — making "static-vetted SQL fragment" a build-time
+    /// property rather than a code-review one.
+    pub select_expr: &'static str,
     pub join_alias: ColumnAlias,
     pub join_column: ColumnName,
     pub label: &'a str,

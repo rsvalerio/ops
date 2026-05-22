@@ -67,7 +67,8 @@ pub fn metadata_raw_create_sql(path: &Path) -> Result<String, SqlError> {
 /// re-initialised).
 pub(crate) fn metadata_raw_create_sql_with_cap(path: &Path, cap: u64) -> Result<String, SqlError> {
     let opts = format!("maximum_object_size={cap}");
-    ops_duckdb::sql::create_table_from_json_sql("metadata_raw", path, Some(&opts))
+    let extra = ops_duckdb::sql::ExtraOpts::new(&opts)?;
+    ops_duckdb::sql::create_table_from_json_sql("metadata_raw", path, Some(extra))
 }
 
 #[cfg(test)]

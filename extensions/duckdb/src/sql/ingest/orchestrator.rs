@@ -94,21 +94,42 @@ where
         poisoned.into_inner()
     });
 
+    use anyhow::Context;
+
+    // ERR-4 / TASK-1628: every `?` inside the orchestrator carries
+    // `.with_context` that names *both* the phase (drop / probe /
+    // create-dir / collect / init-schema / load / query) and the
+    // `table_name`. Without the label, two ingestors failing at the same
+    // syscall produced identical raw `DbError::Io` / `anyhow::Error`
+    // messages and operators had to grep the codebase to localise the
+    // failure. The closure cost is one short allocation per `?`; benign
+    // on the cold ingest path.
+
     // CONC-2 / TASK-0909: drop_table_if_exists MUST run inside the per-table
     // ingest_mutex critical section, before the table_has_data probe.
     if ctx.refresh {
-        drop_table_if_exists(db, table_name)?;
+        drop_table_if_exists(db, table_name)
+            .with_context(|| format!("provide_via_ingestor({table_name}): drop phase"))?;
     }
 
-    if !table_has_data(db, table_name)? {
+    let has_data = table_has_data(db, table_name)
+        .with_context(|| format!("provide_via_ingestor({table_name}): table_has_data probe"))?;
+    if !has_data {
         let data_dir = data_dir_for_db(db.path());
-        create_ingest_dir(&data_dir).map_err(DbError::Io)?;
-        ingestor.collect(ctx, &data_dir)?;
-        crate::init_schema(db)?;
-        let _load_result = ingestor.load(&data_dir, db)?;
+        create_ingest_dir(&data_dir)
+            .map_err(DbError::Io)
+            .with_context(|| format!("provide_via_ingestor({table_name}): create ingest dir"))?;
+        ingestor
+            .collect(ctx, &data_dir)
+            .with_context(|| format!("provide_via_ingestor({table_name}): ingestor collect"))?;
+        crate::init_schema(db)
+            .with_context(|| format!("provide_via_ingestor({table_name}): init_schema"))?;
+        let _load_result = ingestor
+            .load(&data_dir, db)
+            .with_context(|| format!("provide_via_ingestor({table_name}): ingestor load"))?;
     }
 
-    query_fn(db)
+    query_fn(db).with_context(|| format!("provide_via_ingestor({table_name}): query_fn"))
 }
 
 /// Drop a table if it exists (used by refresh to force re-collection).
@@ -571,5 +592,52 @@ mod tests {
     fn reentry_guard_allows_distinct_tables_on_same_thread() {
         let _a = ReentryGuard::new("conc2_table_a");
         let _b = ReentryGuard::new("conc2_table_b");
+    }
+
+    /// ERR-4 / TASK-1628: a failing `collect` must surface the table name
+    /// and the phase label in the anyhow error chain so operators can
+    /// localise the failure without grepping the codebase.
+    #[test]
+    fn failing_collect_surfaces_table_name_in_error_chain() {
+        use crate::DataIngestor;
+
+        struct FailingIngestor;
+        impl DataIngestor for FailingIngestor {
+            fn name(&self) -> &'static str {
+                "failing"
+            }
+            fn collect(&self, _ctx: &ops_extension::Context, _data_dir: &Path) -> DbResult<()> {
+                Err(DbError::Io(std::io::Error::other(
+                    "simulated collect failure",
+                )))
+            }
+            fn load(&self, _data_dir: &Path, _db: &DuckDb) -> DbResult<crate::LoadResult> {
+                unreachable!("collect failed before load")
+            }
+        }
+
+        let db_dir = tempfile::tempdir().expect("tempdir");
+        let db_path = db_dir.path().join("ctx.duckdb");
+        let db = DuckDb::open(&db_path).expect("db");
+        init_schema(&db).expect("init_schema");
+        let ctx = ops_extension::Context::new(
+            Arc::new(ops_core::config::Config::empty()),
+            PathBuf::from("/tmp"),
+        );
+
+        let err = provide_via_ingestor(&db, &ctx, "ctx_err_table", &FailingIngestor, |_| {
+            Ok(serde_json::Value::Null)
+        })
+        .expect_err("collect failure must propagate");
+
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("ctx_err_table"),
+            "table name must appear in error chain: {rendered}"
+        );
+        assert!(
+            rendered.contains("ingestor collect"),
+            "phase label must appear in error chain: {rendered}"
+        );
     }
 }

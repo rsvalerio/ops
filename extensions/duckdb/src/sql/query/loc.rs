@@ -7,7 +7,8 @@ use ops_core::project_identity::LanguageStat;
 
 use super::super::ingest::table_exists;
 use super::helpers::{
-    query_per_crate_i64, query_project_scalar, ColumnAlias, ColumnName, PerCrateI64Query, TableName,
+    query_per_crate_i64, query_project_scalar, ColumnAlias, ColumnName, PerCrateI64Query,
+    QueryTableName,
 };
 
 /// Query total file count across the whole project from `tokei_files`.
@@ -30,7 +31,7 @@ pub fn query_crate_file_count(
 ) -> anyhow::Result<HashMap<String, i64>> {
     query_per_crate_i64(&PerCrateI64Query {
         db,
-        table: TableName::new("tokei_files")?,
+        table: QueryTableName::new("tokei_files")?,
         member_paths,
         select_expr: "COUNT(f.file)",
         join_alias: ColumnAlias::new("f")?,
@@ -113,7 +114,7 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>>
 pub fn query_crate_loc(db: &DuckDb, member_paths: &[&str]) -> anyhow::Result<HashMap<String, i64>> {
     query_per_crate_i64(&PerCrateI64Query {
         db,
-        table: TableName::new("tokei_files")?,
+        table: QueryTableName::new("tokei_files")?,
         member_paths,
         select_expr: "COALESCE(SUM(f.code), 0)",
         join_alias: ColumnAlias::new("f")?,

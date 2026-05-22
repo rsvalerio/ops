@@ -3,30 +3,30 @@
 use crate::DuckDb;
 use std::collections::HashMap;
 
-use super::super::ingest::table_exists;
 use super::super::validation::{validate_no_traversal, validate_path_chars};
 use super::helpers::{
     collect_per_crate_map, coverage_col_select, members_cte_prefix, prepare_per_crate,
-    resolve_per_crate, ColumnAlias, CrateCoverage, Resolved,
+    query_project_row, resolve_per_crate, ColumnAlias, CrateCoverage, QuerySpec, Resolved,
 };
 
 /// Query total coverage across the whole project from `coverage_files`.
+///
+/// DUP-1 / TASK-1629: shares the lock + table_exists + query_row + with_context
+/// prologue with `query_project_scalar` via the generalised
+/// `query_project_row` helper. Both project-scalar (LOC, deps) and
+/// project-row (coverage) callers now flow through the same scaffolding.
 pub fn query_project_coverage(db: &DuckDb) -> anyhow::Result<CrateCoverage> {
-    use anyhow::Context;
-
-    let conn = db
-        .lock()
-        .context("acquiring db lock for query_project_coverage")?;
-
-    if !table_exists(&conn, "coverage_files")? {
-        return Ok(CrateCoverage::zero());
-    }
-
     let sql = format!("SELECT {} FROM coverage_files", coverage_col_select(None));
-    conn.query_row(&sql, [], |row: &duckdb::Row| {
-        Ok(CrateCoverage::new(row.get(0)?, row.get(1)?, row.get(2)?))
-    })
-    .context("querying project coverage")
+    query_project_row(
+        db,
+        &QuerySpec {
+            table: "coverage_files",
+            sql: &sql,
+            label: "query_project_coverage",
+        },
+        CrateCoverage::zero(),
+        |row| Ok(CrateCoverage::new(row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
 }
 
 /// Query per-crate coverage from `coverage_files`.

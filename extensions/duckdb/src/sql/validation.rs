@@ -74,6 +74,12 @@ pub fn validate_identifier(name: &str) -> Result<(), SqlError> {
 /// runtime `quoted_ident` failure. Carries the validated `&'static str`
 /// for diagnostics; the quoted form is built on demand and is safe to
 /// interpolate into SQL without re-validation.
+///
+/// READ-1 / TASK-1624: not to be confused with
+/// `crate::sql::query::helpers::QueryTableName`, which is a *runtime*-
+/// validated equivalent used by the per-crate query scaffolding. Both
+/// share the SEC-12 "identifier allowlist before interpolation" contract
+/// but differ in when validation runs (build-time vs. runtime).
 #[derive(Debug, Clone, Copy)]
 pub struct TableName(&'static str);
 
@@ -183,6 +189,34 @@ pub fn validate_extra_opts(opts: &str) -> Result<(), SqlError> {
     Ok(())
 }
 
+/// SEC-12 / TASK-1623: newtype wrapping a validated `extra_opts` fragment
+/// for `read_json_auto(..., {opts})`.
+///
+/// Construction (via [`ExtraOpts::new`]) runs [`validate_extra_opts`] so the
+/// inner `&str` is guaranteed to satisfy the SEC-12 / SEC-33 allowlist and
+/// caps before it can be interpolated. The contract: a value of this type
+/// has been validated and is safe to render verbatim into the SQL fragment
+/// produced by [`crate::sql::create_table_from_json_sql`]. Static callers
+/// (today's only callers) and any future dynamic caller (e.g. a config-
+/// sourced opts string) share the same construction gate — neither can
+/// reach the SQL builder without passing through `ExtraOpts::new`.
+#[derive(Debug, Clone, Copy)]
+pub struct ExtraOpts<'a>(&'a str);
+
+impl<'a> ExtraOpts<'a> {
+    /// Construct from a validated extra_opts fragment.
+    pub fn new(opts: &'a str) -> Result<Self, SqlError> {
+        validate_extra_opts(opts)?;
+        Ok(Self(opts))
+    }
+
+    /// Recover the validated fragment for interpolation.
+    #[must_use]
+    pub const fn as_str(&self) -> &'a str {
+        self.0
+    }
+}
+
 /// SEC-33 / TASK-1241: hard upper bound on the byte length of an
 /// `extra_opts` fragment. Sized well above realistic static call-site
 /// values (today's longest is on the order of 100 bytes) so the cap
@@ -206,6 +240,7 @@ pub const EXTRA_OPTS_MAX_PAIRS: usize = 32;
 /// neutralised here (callers go through `sanitize_path_for_sql` first, so
 /// no NUL should normally reach this function, but the guard preserves
 /// the previous defense in depth).
+#[must_use = "SEC-12: the escaped return value is the only safe form for SQL interpolation; discarding it interpolates the raw input"]
 pub fn escape_sql_string(s: &str) -> String {
     let mut escaped = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -218,6 +253,7 @@ pub fn escape_sql_string(s: &str) -> String {
     escaped
 }
 
+#[must_use = "SEC-12: the sanitized return value is the only safe form for SQL interpolation; discarding it interpolates the raw input"]
 pub fn sanitize_path_for_sql(path: &str) -> String {
     path.replace('\0', "")
 }

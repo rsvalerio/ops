@@ -244,7 +244,14 @@ mod cache_tests {
         assert!(second.is_none(), "second call must hit cached fallback");
 
         let logs = buf.captured();
-        let warn_count = logs.matches("query_project_coverage").count();
+        // Count the `query="query_project_coverage"` tracing field rather
+        // than the bare substring: `query_or_warn` includes the label both
+        // as a tracing field and (via the shared `query_project_row`
+        // helper) inside the error context, so two substring matches per
+        // emission is the expected post-DUP-1 shape. The contract being
+        // pinned is that the *warn event* fires once, which the field
+        // count uniquely identifies.
+        let warn_count = logs.matches("query=\"query_project_coverage\"").count();
         assert_eq!(
             warn_count, 1,
             "warn must fire exactly once across both call sites; got {warn_count} in:\n{logs}"
@@ -313,7 +320,10 @@ mod cache_tests {
         let _ = h_b.join().unwrap();
         let logs = captured.captured();
 
-        let warn_count = logs.matches("query_project_coverage").count();
+        // See sibling test: count the structured `query=` field so the
+        // label-appearing-twice (context + tracing field) does not double
+        // the substring match.
+        let warn_count = logs.matches("query=\"query_project_coverage\"").count();
         assert_eq!(
             warn_count, 1,
             "warn must fire exactly once under concurrent first-callers; got {warn_count} in:\n{logs}"

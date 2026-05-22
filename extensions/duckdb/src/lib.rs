@@ -22,10 +22,8 @@ use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-fn downcast_duckdb(handle: &Option<Arc<dyn ops_extension::DuckDbHandle>>) -> Option<&DuckDb> {
-    handle
-        .as_ref()
-        .and_then(|h| h.as_any().downcast_ref::<DuckDb>())
+fn downcast_duckdb(handle: Option<&Arc<dyn ops_extension::DuckDbHandle>>) -> Option<&DuckDb> {
+    handle.and_then(|h| h.as_any().downcast_ref::<DuckDb>())
 }
 
 /// Try to provide data from DuckDB first, falling back to a direct computation.
@@ -42,7 +40,7 @@ where
     G: FnOnce(&mut Context) -> Result<serde_json::Value, anyhow::Error>,
 {
     let db_arc = ctx.db.clone();
-    if let Some(db) = downcast_duckdb(&db_arc) {
+    if let Some(db) = downcast_duckdb(db_arc.as_ref()) {
         return db_fn(db, ctx).map_err(Into::into);
     }
     fallback_fn(ctx).map_err(Into::into)
@@ -50,7 +48,7 @@ where
 
 /// Extract the [`DuckDb`] handle from a context by downcasting from the trait object.
 pub fn get_db(ctx: &Context) -> Option<&DuckDb> {
-    downcast_duckdb(&ctx.db)
+    downcast_duckdb(ctx.db.as_ref())
 }
 
 pub const NAME: &str = "duckdb";
@@ -141,8 +139,8 @@ mod tests {
         upsert_data_source(
             &db,
             &DataSourceMetadata::new(
-                SourceName("test_source"),
-                WorkspaceRoot(std::ffi::OsStr::new("/test/workspace")),
+                SourceName::new("test_source"),
+                WorkspaceRoot::new(std::ffi::OsStr::new("/test/workspace")),
                 std::path::Path::new("/test/data.json"),
                 42,
                 "abc123",

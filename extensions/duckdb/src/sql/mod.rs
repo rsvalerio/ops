@@ -97,7 +97,7 @@ pub use query::{
 // the SEC-12 defense-in-depth wrapper and is needed at every site that
 // interpolates an identifier into a hand-written SQL string (e.g.
 // `extensions/tokei/src/views::tokei_languages_view_sql`).
-pub use validation::{quoted_ident, SqlError, TableName};
+pub use validation::{quoted_ident, ExtraOpts, SqlError, TableName};
 
 #[cfg(test)]
 mod tests {
