@@ -55,9 +55,9 @@ impl DataProvider for CoverageProvider {
 }
 
 /// DUP-3 / TASK-1555: project rows through `CoverageRow` so the SELECT list
-/// and the JSON row builder share one schema. A new metric only adds a
-/// `row.get(N)?` to `from_row` + a column to the SELECT; the JSON shape
-/// follows automatically via `serde_json::to_value`.
+/// and the JSON row builder share one schema. Column binding is by name
+/// (TASK-1610) so reordering the SELECT or swapping same-typed columns
+/// produces a clear runtime error instead of silent data corruption.
 pub(crate) fn query_coverage_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
     ops_duckdb::sql::query_rows_to_json(
         db,
@@ -68,21 +68,21 @@ pub(crate) fn query_coverage_files(db: &DuckDb) -> Result<serde_json::Value, any
          FROM coverage_files",
         |row| {
             let coverage = CoverageRow {
-                filename: row.get::<_, String>(0)?,
-                lines_count: row.get::<_, i64>(1)?,
-                lines_covered: row.get::<_, i64>(2)?,
-                lines_percent: row.get::<_, f64>(3)?,
-                functions_count: row.get::<_, i64>(4)?,
-                functions_covered: row.get::<_, i64>(5)?,
-                functions_percent: row.get::<_, f64>(6)?,
-                regions_count: row.get::<_, i64>(7)?,
-                regions_covered: row.get::<_, i64>(8)?,
-                regions_notcovered: row.get::<_, i64>(9)?,
-                regions_percent: row.get::<_, f64>(10)?,
-                branches_count: row.get::<_, i64>(11)?,
-                branches_covered: row.get::<_, i64>(12)?,
-                branches_notcovered: row.get::<_, i64>(13)?,
-                branches_percent: row.get::<_, f64>(14)?,
+                filename: row.get::<_, String>("filename")?,
+                lines_count: row.get::<_, i64>("lines_count")?,
+                lines_covered: row.get::<_, i64>("lines_covered")?,
+                lines_percent: row.get::<_, f64>("lines_percent")?,
+                functions_count: row.get::<_, i64>("functions_count")?,
+                functions_covered: row.get::<_, i64>("functions_covered")?,
+                functions_percent: row.get::<_, f64>("functions_percent")?,
+                regions_count: row.get::<_, i64>("regions_count")?,
+                regions_covered: row.get::<_, i64>("regions_covered")?,
+                regions_notcovered: row.get::<_, i64>("regions_notcovered")?,
+                regions_percent: row.get::<_, f64>("regions_percent")?,
+                branches_count: row.get::<_, i64>("branches_count")?,
+                branches_covered: row.get::<_, i64>("branches_covered")?,
+                branches_notcovered: row.get::<_, i64>("branches_notcovered")?,
+                branches_percent: row.get::<_, f64>("branches_percent")?,
             };
             serde_json::to_value(coverage).map_err(|e| {
                 duckdb::Error::FromSqlConversionFailure(0, duckdb::types::Type::Any, Box::new(e))

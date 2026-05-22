@@ -9,34 +9,34 @@
 use ops_duckdb::sql::SqlError;
 use std::path::Path;
 
-pub fn coverage_files_create_sql(path: &Path) -> Result<String, SqlError> {
+pub(crate) fn coverage_files_create_sql(path: &Path) -> Result<String, SqlError> {
     ops_duckdb::sql::create_table_from_json_sql("coverage_files", path, None)
 }
 
-pub fn coverage_summary_view_sql() -> String {
+pub(crate) fn coverage_summary_view_sql() -> String {
     "CREATE OR REPLACE VIEW coverage_summary AS \
      SELECT \
      SUM(lines_count) AS lines_count, \
      SUM(lines_covered) AS lines_covered, \
      CASE WHEN SUM(lines_count) > 0 \
-         THEN ROUND(SUM(lines_covered) * 100.0 / SUM(lines_count), 2) \
+         THEN SUM(lines_covered) * 100.0 / SUM(lines_count) \
          ELSE 0.0 END AS lines_percent, \
      SUM(functions_count) AS functions_count, \
      SUM(functions_covered) AS functions_covered, \
      CASE WHEN SUM(functions_count) > 0 \
-         THEN ROUND(SUM(functions_covered) * 100.0 / SUM(functions_count), 2) \
+         THEN SUM(functions_covered) * 100.0 / SUM(functions_count) \
          ELSE 0.0 END AS functions_percent, \
      SUM(regions_count) AS regions_count, \
      SUM(regions_covered) AS regions_covered, \
      SUM(regions_notcovered) AS regions_notcovered, \
      CASE WHEN SUM(regions_count) > 0 \
-         THEN ROUND(SUM(regions_covered) * 100.0 / SUM(regions_count), 2) \
+         THEN SUM(regions_covered) * 100.0 / SUM(regions_count) \
          ELSE 0.0 END AS regions_percent, \
      SUM(branches_count) AS branches_count, \
      SUM(branches_covered) AS branches_covered, \
      SUM(branches_notcovered) AS branches_notcovered, \
      CASE WHEN SUM(branches_count) > 0 \
-         THEN ROUND(SUM(branches_covered) * 100.0 / SUM(branches_count), 2) \
+         THEN SUM(branches_covered) * 100.0 / SUM(branches_count) \
          ELSE 0.0 END AS branches_percent \
      FROM coverage_files"
         .to_string()
@@ -85,5 +85,16 @@ mod tests {
         let sql = coverage_summary_view_sql();
         assert!(sql.contains("regions_notcovered"));
         assert!(sql.contains("branches_notcovered"));
+    }
+
+    /// PATTERN-1 / TASK-1603: verify no ROUND in the view so downstream
+    /// consumers get full f64 precision.
+    #[test]
+    fn coverage_summary_view_sql_has_no_round() {
+        let sql = coverage_summary_view_sql();
+        assert!(
+            !sql.contains("ROUND"),
+            "view should not round; let presentation layer handle precision"
+        );
     }
 }

@@ -37,11 +37,15 @@ pub(crate) struct CoverageRow {
 }
 
 impl CoverageRow {
-    fn from_summary(filename: &str, summary: &serde_json::Value) -> Self {
-        let lines = extract_section(summary, "lines");
-        let functions = extract_section(summary, "functions");
-        let regions = extract_section(summary, "regions");
-        let branches = extract_section(summary, "branches");
+    fn from_summary(
+        filename: &str,
+        summary: &serde_json::Value,
+        drift_warned: &mut std::collections::HashSet<(String, String)>,
+    ) -> Self {
+        let lines = extract_section(summary, "lines", drift_warned);
+        let functions = extract_section(summary, "functions", drift_warned);
+        let regions = extract_section(summary, "regions", drift_warned);
+        let branches = extract_section(summary, "branches", drift_warned);
         Self {
             filename: filename.to_string(),
             lines_count: lines.count,
@@ -74,68 +78,111 @@ struct Section {
     percent: f64,
 }
 
-fn extract_section(summary: &serde_json::Value, key: &str) -> Section {
+fn extract_section(
+    summary: &serde_json::Value,
+    key: &str,
+    drift_warned: &mut std::collections::HashSet<(String, String)>,
+) -> Section {
     let Some(s) = summary.get(key) else {
         return Section::default();
     };
+    let mut drift = DriftTracker::new(key, drift_warned);
     Section {
-        count: read_i64_field(s, key, "count"),
-        covered: read_i64_field(s, key, "covered"),
-        notcovered: read_i64_field(s, key, "notcovered"),
-        percent: read_f64_field(s, key, "percent"),
+        count: read_i64_field(s, "count", &mut drift),
+        covered: read_i64_field(s, "covered", &mut drift),
+        notcovered: read_i64_field(s, "notcovered", &mut drift),
+        percent: read_f64_field(s, "percent", &mut drift),
     }
 }
 
-/// ERR-1: an absent field is legitimately empty (default); a field that is
-/// present but the wrong shape (e.g. llvm-cov bumping `count` to a string or
-/// float) is a schema-drift signal that must surface as a warn so coverage
-/// does not silently drop to zero.
+/// TASK-1599: batches schema-drift warnings so N malformed files produce at
+/// most one warn per (section, field) pair per `flatten_coverage_json` call.
+pub(crate) struct DriftTracker<'a> {
+    section_key: &'a str,
+    warned: &'a mut std::collections::HashSet<(String, String)>,
+}
+
+impl<'a> DriftTracker<'a> {
+    pub(crate) fn new(
+        section_key: &'a str,
+        warned: &'a mut std::collections::HashSet<(String, String)>,
+    ) -> Self {
+        Self {
+            section_key,
+            warned,
+        }
+    }
+}
+
+impl DriftTracker<'_> {
+    pub(crate) fn warn_wrong_shape(
+        &mut self,
+        field: &str,
+        value: &serde_json::Value,
+        type_name: &'static str,
+    ) {
+        let key = (self.section_key.to_string(), field.to_string());
+        if self.warned.insert(key) {
+            tracing::warn!(
+                section = self.section_key,
+                field,
+                value = %value,
+                "coverage field present but not {type_name}; coercing to default (llvm-cov schema drift?)"
+            );
+        }
+    }
+}
+
+/// ERR-1 / TASK-1599: an absent field is legitimately empty (default); a
+/// field that is `null` is downgraded to `debug!` (harmless absent marker);
+/// a field that is present but the wrong shape (e.g. llvm-cov bumping `count`
+/// to a string) is a schema-drift signal surfaced via [`DriftTracker`].
 fn read_field<T: Default>(
     section: &serde_json::Value,
-    section_key: &str,
     field: &str,
     accessor: impl FnOnce(&serde_json::Value) -> Option<T>,
     type_name: &'static str,
+    drift: &mut DriftTracker<'_>,
 ) -> T {
     match section.get(field) {
         None => T::default(),
         Some(v) => accessor(v).unwrap_or_else(|| {
-            tracing::warn!(
-                section = section_key,
-                field,
-                value = %v,
-                "coverage field present but not {type_name}; coercing to default (llvm-cov schema drift?)"
-            );
+            if v.is_null() {
+                tracing::debug!(
+                    section = drift.section_key,
+                    field,
+                    "coverage field is null; coercing to default"
+                );
+            } else {
+                drift.warn_wrong_shape(field, v, type_name);
+            }
             T::default()
         }),
     }
 }
 
-fn read_i64_field(section: &serde_json::Value, section_key: &str, field: &str) -> i64 {
+fn read_i64_field(section: &serde_json::Value, field: &str, drift: &mut DriftTracker<'_>) -> i64 {
     read_field(
         section,
-        section_key,
         field,
         serde_json::Value::as_i64,
         "an integer",
+        drift,
     )
 }
 
-fn read_f64_field(section: &serde_json::Value, section_key: &str, field: &str) -> f64 {
-    read_field(
-        section,
-        section_key,
-        field,
-        serde_json::Value::as_f64,
-        "a float",
-    )
+fn read_f64_field(section: &serde_json::Value, field: &str, drift: &mut DriftTracker<'_>) -> f64 {
+    read_field(section, field, serde_json::Value::as_f64, "a float", drift)
 }
 
 /// FN-1 / TASK-1553: build a single `CoverageRow` for one entry in
 /// `files[]`. Returns `None` when `filename` is absent or non-string so the
 /// caller can skip the record (TASK-0984: empty-key rows used to inflate
 /// project totals).
-fn build_record(file: &serde_json::Value) -> Option<CoverageRow> {
+fn build_record(
+    file: &serde_json::Value,
+    drift_warned: &mut std::collections::HashSet<(String, String)>,
+) -> Option<CoverageRow> {
     let filename = match file.get("filename").and_then(|f| f.as_str()) {
         Some(s) if !s.is_empty() => s,
         other => {
@@ -151,28 +198,28 @@ fn build_record(file: &serde_json::Value) -> Option<CoverageRow> {
     // `serde_json::Value::Null` and an empty object yield identical lookups
     // through `get(...)`, so we elide the `json!({})` allocation entirely.
     let summary = file.get("summary").unwrap_or(&serde_json::Value::Null);
-    Some(CoverageRow::from_summary(filename, summary))
+    Some(CoverageRow::from_summary(filename, summary, drift_warned))
 }
 
 /// FN-1 / TASK-1553 + PATTERN-3 / TASK-1558: push `record` onto `records`,
-/// or overwrite the prior slot when its filename was already seen. Uses
-/// `HashMap::entry` so the dedup path costs a single probe.
+/// or overwrite the prior slot when its filename was already seen.
+///
+/// PERF-3 / TASK-1598: uses `get` + conditional `insert` so the duplicate
+/// (Occupied) path avoids the filename clone that `entry()` would require.
+/// Only first-seen filenames incur one clone for the HashMap key.
 fn dedup_push(
     records: &mut Vec<CoverageRow>,
     idx_map: &mut std::collections::HashMap<String, usize>,
     record: CoverageRow,
     duplicate_count: &mut usize,
 ) {
-    use std::collections::hash_map::Entry;
-    match idx_map.entry(record.filename.clone()) {
-        Entry::Occupied(slot) => {
-            *duplicate_count += 1;
-            records[*slot.get()] = record;
-        }
-        Entry::Vacant(slot) => {
-            slot.insert(records.len());
-            records.push(record);
-        }
+    if let Some(&idx) = idx_map.get(&record.filename) {
+        records[idx] = record;
+        *duplicate_count += 1;
+    } else {
+        let idx = records.len();
+        records.push(record);
+        idx_map.insert(records[idx].filename.clone(), idx);
     }
 }
 
@@ -181,7 +228,9 @@ fn dedup_push(
 /// optionally warn. The per-record construction lives in [`build_record`],
 /// the dedup branch in [`dedup_push`].
 #[must_use = "flatten output drives coverage_files ingest; dropping it loses every per-file row"]
-pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Value, anyhow::Error> {
+pub(crate) fn flatten_coverage_json(
+    raw: &serde_json::Value,
+) -> Result<serde_json::Value, anyhow::Error> {
     let data = raw
         .get("data")
         .and_then(|d| d.as_array())
@@ -198,12 +247,12 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
             "coverage JSON contains more than one data export; flattening all entries"
         );
     }
-    let file_arrays: Vec<&Vec<serde_json::Value>> = data
+    let file_arrays: Vec<&[serde_json::Value]> = data
         .iter()
         .map(|entry| {
             entry
                 .get("files")
-                .and_then(|f| f.as_array())
+                .and_then(|f| f.as_array().map(|a| a.as_slice()))
                 .context("missing or invalid 'files' array in coverage data")
         })
         .collect::<Result<_, _>>()?;
@@ -215,8 +264,12 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
     let mut filename_to_idx: std::collections::HashMap<String, usize> =
         std::collections::HashMap::with_capacity(total);
     let mut duplicate_count: usize = 0;
+    let mut skipped_count: usize = 0;
+    let mut drift_warned: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
     for file in file_arrays.into_iter().flat_map(|f| f.iter()) {
-        let Some(record) = build_record(file) else {
+        let Some(record) = build_record(file, &mut drift_warned) else {
+            skipped_count += 1;
             continue;
         };
         dedup_push(
@@ -224,6 +277,14 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
             &mut filename_to_idx,
             record,
             &mut duplicate_count,
+        );
+    }
+    if skipped_count > 0 {
+        tracing::warn!(
+            skipped = skipped_count,
+            valid_files = records.len(),
+            "coverage JSON contained records with missing or non-string filenames; \
+             skipped to keep coverage_summary aggregates honest"
         );
     }
     if duplicate_count > 0 {
@@ -235,6 +296,15 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
         );
     }
     serde_json::to_value(records).context("encoding coverage rows as JSON")
+}
+
+/// Formats non-empty stderr as a diagnostic tail for logging. Returns
+/// `None` when stderr is empty so the caller can skip the log line entirely.
+pub(crate) fn format_stderr_diagnostic(stderr: &[u8]) -> Option<String> {
+    if stderr.is_empty() {
+        return None;
+    }
+    Some(format_error_tail(stderr, 5))
 }
 
 /// Run `cargo llvm-cov` and flatten its JSON output into per-file records.
@@ -252,16 +322,25 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
 /// error (with the cargo exit code + stderr tail) keeps the operator
 /// pointed at the real root cause instead of the misleading "data array
 /// is empty" message from `flatten_coverage_json`.
+///
+/// On the success path, non-empty stderr is emitted at `info` level so
+/// instrumentation skips and compiler warnings are visible in operator
+/// logs without re-running with `RUST_LOG=debug`.
 #[must_use = "collect_coverage drives the coverage ingest; dropping the result throws the run away"]
-pub fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
+pub(crate) fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
     let output = run_cargo_llvm_cov(working_dir)?;
     if !output.status.success() {
         let parsed = serde_json::from_slice::<serde_json::Value>(&output.stdout).ok();
-        let has_nonempty_data = parsed
-            .as_ref()
-            .and_then(|raw| raw.get("data").and_then(|d| d.as_array()))
-            .is_some_and(|a| !a.is_empty());
-        if has_nonempty_data {
+        // READ-5 / TASK-1609: the predicate and value recovery are unified in
+        // one `if let` so the compiler enforces the "parsed is Some" invariant
+        // instead of a runtime `expect`.
+        if let Some(valid_parsed) = parsed.as_ref().filter(|raw| {
+            raw.get("data").and_then(|d| d.as_array()).is_some_and(|a| {
+                !a.is_empty()
+                    && a.iter()
+                        .all(|e| e.get("files").and_then(|f| f.as_array()).is_some())
+            })
+        }) {
             let tail = format_error_tail(&output.stderr, 5);
             let marker = format_cargo_exit(&output.status);
             tracing::warn!(
@@ -270,11 +349,17 @@ pub fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, anyhow:
                 "TASK-1057: cargo llvm-cov exited non-zero but stdout contains parseable JSON; \
                  continuing with partial coverage data (likely test failures with --no-fail-fast)"
             );
-            return flatten_coverage_json(
-                parsed.as_ref().expect("non-empty implies parsed is Some"),
-            );
+            return flatten_coverage_json(valid_parsed);
         }
         check_llvm_cov_output(&output)?;
+    }
+    if let Some(tail) = format_stderr_diagnostic(&output.stderr) {
+        tracing::info!(
+            stderr_tail = %tail,
+            "cargo llvm-cov succeeded with stderr output; check for warnings or instrumentation skips"
+        );
+    } else {
+        tracing::debug!("cargo llvm-cov completed successfully");
     }
     let raw: serde_json::Value =
         serde_json::from_slice(&output.stdout).context("parsing llvm-cov JSON output")?;

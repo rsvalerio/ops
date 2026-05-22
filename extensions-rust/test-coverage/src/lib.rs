@@ -19,20 +19,21 @@ mod provider;
 mod subprocess;
 #[cfg(test)]
 mod tests;
-pub mod views;
+mod views;
 
-pub use ingestor::CoverageIngestor;
-pub use parse::{collect_coverage, flatten_coverage_json};
+// API-9 / TASK-1601: CoverageIngestor has no external callers; kept
+// crate-private (ingestor + provider reference it via crate-internal paths).
+// API-9 / TASK-1602: flatten_coverage_json / collect_coverage have no external
+// callers either; demoted to pub(crate) in parse.rs.
 
+use crate::ingestor::CoverageIngestor;
 use ops_duckdb::{init_schema, DataIngestor, DuckDb, LoadResult};
 use ops_extension::ExtensionType;
 use std::path::Path;
 
 pub const NAME: &str = "coverage";
-#[allow(dead_code)]
 pub const DESCRIPTION: &str =
     "LLVM code coverage provider (per-file line, function, region, branch coverage)";
-#[allow(dead_code)]
 pub const SHORTNAME: &str = "cov";
 pub const DATA_PROVIDER_NAME: &str = "coverage";
 

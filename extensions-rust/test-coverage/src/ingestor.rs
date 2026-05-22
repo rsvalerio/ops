@@ -1,5 +1,6 @@
 //! CoverageIngestor: collect LLVM coverage data and load into DuckDB.
 
+use crate::parse::collect_coverage;
 use crate::views;
 use ops_duckdb::sql::external_err;
 use ops_duckdb::{DataIngestor, DbResult, DuckDb, LoadResult, SidecarIngestorConfig};
@@ -17,7 +18,7 @@ impl DataIngestor for CoverageIngestor {
     }
 
     fn collect(&self, ctx: &Context, data_dir: &Path) -> DbResult<()> {
-        let records = super::collect_coverage(&ctx.working_directory).map_err(external_err)?;
+        let records = collect_coverage(&ctx.working_directory).map_err(external_err)?;
         PIPELINE.collect_sidecar(data_dir, &records, &ctx.working_directory)
     }
 

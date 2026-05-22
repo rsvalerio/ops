@@ -1,6 +1,8 @@
 //! Tests for the coverage extension.
 
 use super::*;
+use crate::ingestor::CoverageIngestor;
+use crate::parse::{flatten_coverage_json, format_stderr_diagnostic};
 use crate::provider::{query_coverage_files, CoverageProvider};
 use crate::subprocess::{check_llvm_cov_output, LLVM_COV_ARGS};
 use ops_duckdb::{init_schema, DataIngestor, DuckDb};
@@ -181,25 +183,58 @@ fn flatten_coverage_json_iterates_all_data_entries() {
 /// OOM kill). Drive the soft-fail decision directly: with an empty
 /// `data[]`, the predicate returns `false` so the caller falls through
 /// to the cargo error path.
+///
+/// ERR-1 / TASK-1597: the predicate also rejects data entries lacking a
+/// `files` array — `{"data":[{}]}` must fall through to the cargo error
+/// path so the operator sees "cargo llvm-cov exited with status N" rather
+/// than a misleading "missing or invalid 'files' array" parse error.
 #[test]
 fn soft_fail_predicate_rejects_empty_data_array() {
-    // The decision logic lives inline in `collect_coverage`; we replicate
-    // its `is_some_and(|a| !a.is_empty())` predicate against an empty
-    // array and a populated array to pin the contract.
     let empty = serde_json::json!({"data": []});
     let populated = serde_json::json!({"data": [{"files": []}]});
-    let has_nonempty = |raw: &serde_json::Value| -> bool {
-        raw.get("data")
-            .and_then(|d| d.as_array())
-            .is_some_and(|a| !a.is_empty())
+    let no_files = serde_json::json!({"data": [{}]});
+    let has_valid = |raw: &serde_json::Value| -> bool {
+        raw.get("data").and_then(|d| d.as_array()).is_some_and(|a| {
+            !a.is_empty()
+                && a.iter()
+                    .all(|e| e.get("files").and_then(|f| f.as_array()).is_some())
+        })
     };
     assert!(
-        !has_nonempty(&empty),
+        !has_valid(&empty),
         "empty data[] must fall through to cargo error path so the operator sees the real cause"
     );
     assert!(
-        has_nonempty(&populated),
-        "non-empty data[] must drive the soft-fail warn-and-continue branch"
+        has_valid(&populated),
+        "non-empty data[] with files must drive the soft-fail warn-and-continue branch"
+    );
+    assert!(
+        !has_valid(&no_files),
+        "data[] entry without files must fall through to cargo error path"
+    );
+}
+
+/// ERR-1 / TASK-1597: when the predicate rejects (e.g. data entry lacks
+/// files), `check_llvm_cov_output` surfaces the cargo exit + stderr tail,
+/// not a schema-shape parse error from `flatten_coverage_json`.
+#[cfg(unix)]
+#[test]
+fn non_zero_exit_without_files_surfaces_cargo_error() {
+    use std::os::unix::process::ExitStatusExt;
+    let output = std::process::Output {
+        status: std::process::ExitStatus::from_raw(256),
+        stdout: br#"{"data":[{}]}"#.to_vec(),
+        stderr: b"error: something failed".to_vec(),
+    };
+    let err = check_llvm_cov_output(&output).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("cargo llvm-cov exited with"),
+        "should surface cargo error, got: {msg}"
+    );
+    assert!(
+        !msg.contains("'files'"),
+        "should not mention files schema, got: {msg}"
     );
 }
 
@@ -327,8 +362,29 @@ fn coverage_files_has_data_returns_false_for_empty_db() {
     assert!(!has, "empty db should have no coverage data");
 }
 
+// -- format_stderr_diagnostic tests --
+
+/// TASK-1595: the extracted helper must return `Some` when stderr contains
+/// bytes and `None` when empty, so the success-path log line fires only
+/// when there is actually something to report.
+#[test]
+fn success_stderr_diagnostic_returns_some_for_nonempty_stderr() {
+    let diag = format_stderr_diagnostic(b"warning: something");
+    assert!(diag.is_some());
+    assert!(
+        diag.unwrap().contains("warning"),
+        "diagnostic should contain stderr tail"
+    );
+}
+
+#[test]
+fn success_stderr_diagnostic_returns_none_for_empty_stderr() {
+    assert!(format_stderr_diagnostic(b"").is_none());
+}
+
 // -- check_llvm_cov_output tests --
 
+#[cfg(unix)]
 #[test]
 fn check_llvm_cov_output_success() {
     use std::os::unix::process::ExitStatusExt;
@@ -340,6 +396,7 @@ fn check_llvm_cov_output_success() {
     assert!(check_llvm_cov_output(&output).is_ok());
 }
 
+#[cfg(unix)]
 #[test]
 fn check_llvm_cov_output_failure_includes_stderr_tail() {
     use std::os::unix::process::ExitStatusExt;
@@ -359,6 +416,7 @@ fn check_llvm_cov_output_failure_includes_stderr_tail() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn check_llvm_cov_output_failure_empty_stderr() {
     use std::os::unix::process::ExitStatusExt;
@@ -500,6 +558,73 @@ fn flatten_coverage_json_keeps_distinct_filenames_across_exports() {
         .collect();
     assert!(filenames.contains(&"src/a.rs"));
     assert!(filenames.contains(&"src/b.rs"));
+}
+
+/// TASK-1599: when multiple files have the same wrong-shape field (e.g. count
+/// is a string), the DriftTracker ensures the warn fires only once per
+/// (section, field) pair. Two inserts of the same key → set grows by 1, not 2.
+#[test]
+fn drift_tracker_deduplicates_warnings_per_section_field_pair() {
+    use std::collections::HashSet;
+    let mut warned: HashSet<(String, String)> = HashSet::new();
+    let v = serde_json::Value::String("not-an-int".to_string());
+    {
+        let mut drift = crate::parse::DriftTracker::new("lines", &mut warned);
+        drift.warn_wrong_shape("count", &v, "an integer");
+        drift.warn_wrong_shape("count", &v, "an integer");
+        drift.warn_wrong_shape("covered", &v, "an integer");
+    }
+    assert_eq!(
+        warned.len(),
+        2,
+        "should have exactly 2 unique (section, field) pairs"
+    );
+}
+
+/// TASK-1599: flatten_coverage_json still produces correct output when fields
+/// are wrong-shape across many files (drift-tracked, not spammed).
+#[test]
+fn flatten_coverage_json_wrong_shape_fields_still_flattens() {
+    let raw = serde_json::json!({
+        "data": [{
+            "files": [
+                { "filename": "a.rs", "summary": { "lines": { "count": "bad", "covered": "bad", "notcovered": "bad", "percent": "bad" } } },
+                { "filename": "b.rs", "summary": { "lines": { "count": "bad", "covered": "bad", "notcovered": "bad", "percent": "bad" } } },
+                { "filename": "c.rs", "summary": { "lines": { "count": "bad", "covered": "bad", "notcovered": "bad", "percent": "bad" } } }
+            ]
+        }]
+    });
+    let result = flatten_coverage_json(&raw).expect("should still flatten");
+    let arr = result.as_array().unwrap();
+    assert_eq!(arr.len(), 3, "all three files should be present");
+    // Wrong-shape fields coerce to default (0)
+    for row in arr {
+        assert_eq!(row["lines_count"], 0);
+    }
+}
+
+/// TASK-1600: when all file records are malformed (missing/non-string
+/// filename), the output has zero rows. The skipped-count summary warn
+/// fires once (not per-record). We verify the output is empty; the warn
+/// volume is covered by the `DriftTracker` pattern.
+#[test]
+fn flatten_coverage_json_all_malformed_records_produces_empty_output() {
+    let raw = serde_json::json!({
+        "data": [{
+            "files": [
+                { "summary": { "lines": { "count": 10, "covered": 5, "percent": 50.0 } } },
+                { "filename": 42, "summary": {} },
+                { "filename": "", "summary": {} }
+            ]
+        }]
+    });
+    let result = flatten_coverage_json(&raw).expect("should not error");
+    let arr = result.as_array().unwrap();
+    assert!(
+        arr.is_empty(),
+        "all three malformed records should be skipped, got {} rows",
+        arr.len()
+    );
 }
 
 // -- flatten_coverage_json edge cases --
