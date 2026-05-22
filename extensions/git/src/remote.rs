@@ -38,6 +38,7 @@ pub struct RemoteInfo {
 /// - `https://host/owner/repo(.git)?` (may include `user:token@` which we strip)
 /// - `git@host:owner/repo(.git)?` (scp-style)
 /// - `ssh://[user@]host[:port]/owner/repo(.git)?`
+#[must_use]
 pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
     let raw = raw.trim();
     if raw.is_empty() {

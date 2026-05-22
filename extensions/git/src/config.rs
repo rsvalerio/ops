@@ -139,6 +139,7 @@ pub const MAX_GIT_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 /// SEC-33 / TASK-0910: the read is capped at [`MAX_GIT_CONFIG_BYTES`]
 /// via `File::open` + `Read::take`. An oversized config returns `None`
 /// with a `tracing::warn!` rather than slurping the whole file.
+#[must_use]
 pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
     use std::io::Read;
     let path = git_dir.join("config");
@@ -174,6 +175,23 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
         );
         return None;
     }
+    // SEC-33 / TASK-1620: enforce the byte cap on the raw bytes, *before*
+    // lossy UTF-8 decoding. `String::from_utf8_lossy` replaces each invalid
+    // byte with U+FFFD (3 UTF-8 bytes), so checking `content.len()` after
+    // decoding can spuriously exceed the cap for in-cap files containing
+    // non-UTF-8 bytes — false-rejecting exactly the scenario
+    // `read_origin_url_survives_non_utf8_byte_in_unrelated_section` exists
+    // to support. `take(limit)` already returned ≤ limit bytes, so the file
+    // is in-cap iff `bytes.len() <= MAX_GIT_CONFIG_BYTES`.
+    if bytes.len() as u64 > MAX_GIT_CONFIG_BYTES {
+        // ERR-7 / TASK-1206: Debug-format path; see comment above.
+        tracing::warn!(
+            path = ?path.display(),
+            cap = MAX_GIT_CONFIG_BYTES,
+            "SEC-33: .git/config exceeds byte cap; refusing to parse and treating as no remote"
+        );
+        return None;
+    }
     let content = match std::str::from_utf8(&bytes) {
         Ok(_) => String::from_utf8(bytes).expect("validated above"),
         Err(_) => {
@@ -187,15 +205,6 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
             String::from_utf8_lossy(&bytes).into_owned()
         }
     };
-    if content.len() as u64 > MAX_GIT_CONFIG_BYTES {
-        // ERR-7 / TASK-1206: Debug-format path; see comment above.
-        tracing::warn!(
-            path = ?path.display(),
-            cap = MAX_GIT_CONFIG_BYTES,
-            "SEC-33: .git/config exceeds byte cap; refusing to parse and treating as no remote"
-        );
-        return None;
-    }
     parse_origin_url_inner(&content, Some(&path))
 }
 
@@ -227,6 +236,7 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
 /// without an explicit `into_string()` / `as_str()` call, which makes a
 /// future credential-leak refactor visible at the call site instead of
 /// silent.
+#[must_use]
 pub fn read_origin_url_from(content: &str) -> Option<RedactedUrl> {
     parse_origin_url_inner(content, None)
 }
@@ -336,37 +346,14 @@ fn strip_url_key(line: &str) -> Option<std::borrow::Cow<'_, str>> {
         return None;
     }
     let value = value.trim_start();
-    // READ-2 / TASK-1213: a leading `"` puts the value in git-config's
-    // quoted form. Read up to the matching closing quote, applying the
-    // same escape rules as `parse_section_header` (`\\` → `\`, `\"` → `"`)
-    // so a real-world templated URL like
-    // `url = "https://example.com/path;tag=v1"` is not silently truncated
-    // at the first `;` by the unquoted-comment-stripper below. Inline
-    // comments inside a quoted value pass through unchanged. An
-    // unbalanced or malformed quoted value falls back to None so the
-    // caller's downstream redaction step sees no candidate (matching the
-    // policy for other malformed lines).
+    // READ-2 / TASK-1213, DUP-1 / TASK-1622: a leading `"` puts the value
+    // in git-config's quoted form. Delegate decoding to the shared
+    // [`decode_quoted_body`] helper so the `\\` / `\"` escape grammar is
+    // single-source with [`parse_section_header`]. Any malformed quoted
+    // value (unterminated, unbalanced, unknown escape) collapses to None
+    // — caller's downstream redaction step sees no candidate.
     if let Some(body) = value.strip_prefix('"') {
-        let mut decoded = String::with_capacity(body.len());
-        let mut chars = body.chars();
-        let mut closed = false;
-        while let Some(c) = chars.next() {
-            match c {
-                '"' => {
-                    closed = true;
-                    break;
-                }
-                '\\' => match chars.next() {
-                    Some('\\') => decoded.push('\\'),
-                    Some('"') => decoded.push('"'),
-                    Some(_) | None => return None,
-                },
-                other => decoded.push(other),
-            }
-        }
-        if !closed {
-            return None;
-        }
+        let (decoded, _rest) = decode_quoted_body(body).ok()?;
         return Some(std::borrow::Cow::Owned(decoded));
     }
     // READ-2 (TASK-0726): unquoted form — drop trailing inline comments
@@ -422,6 +409,54 @@ enum SectionHeaderError {
     UnterminatedEscape,
 }
 
+/// DUP-1 / TASK-1622: typed reason for [`decode_quoted_body`] failures.
+/// Maps onto [`SectionHeaderError`] at the section-header call site and is
+/// collapsed to `None` at the `url = "..."` call site — keeping the
+/// git-config quoted-string escape grammar single-source between both.
+#[derive(Debug)]
+enum QuotedBodyError {
+    Unterminated,
+    UnknownEscape,
+    UnterminatedEscape,
+}
+
+/// DUP-1 / TASK-1622: shared decoder for git-config quoted-string bodies.
+///
+/// Input is the substring *after* an opening `"` (the opening quote is
+/// already stripped by the caller). The decoder consumes characters,
+/// applying the two escapes git-config(1) honours (`\\` → `\`, `\"` → `"`),
+/// until it hits an unescaped closing `"`. On success it returns the
+/// decoded body and the leftover `&str` after the closing quote so the
+/// caller can decide whether to tolerate trailing content (`strip_url_key`)
+/// or require an empty tail (`parse_section_header`).
+///
+/// Errors are typed so the section-header path can preserve its existing
+/// `SectionHeaderError::{UnknownEscape, UnterminatedEscape, UnbalancedQuotes}`
+/// surface; the url= path collapses every error to `None`. Keeping both
+/// behaviours wrapped around a single decoder means future tightening of
+/// the escape grammar (or hardening against an attacker-shaped value) only
+/// has to land in one place.
+fn decode_quoted_body(body: &str) -> Result<(String, &str), QuotedBodyError> {
+    let mut decoded = String::with_capacity(body.len());
+    let mut chars = body.char_indices();
+    while let Some((idx, c)) = chars.next() {
+        match c {
+            '"' => {
+                let rest = &body[idx + c.len_utf8()..];
+                return Ok((decoded, rest));
+            }
+            '\\' => match chars.next() {
+                Some((_, '\\')) => decoded.push('\\'),
+                Some((_, '"')) => decoded.push('"'),
+                Some(_) => return Err(QuotedBodyError::UnknownEscape),
+                None => return Err(QuotedBodyError::UnterminatedEscape),
+            },
+            other => decoded.push(other),
+        }
+    }
+    Err(QuotedBodyError::Unterminated)
+}
+
 /// Parse a git-config section header `[section "subsection"]` into its parts.
 ///
 /// Decodes the two escapes git recognises inside subsection names (`\\` → `\`,
@@ -440,21 +475,19 @@ fn parse_section_header(line: &str) -> Result<(&str, Option<String>), SectionHea
     };
     let body = rest
         .strip_prefix('"')
-        .and_then(|r| r.strip_suffix('"'))
         .ok_or(SectionHeaderError::UnbalancedQuotes)?;
-    let mut decoded = String::with_capacity(body.len());
-    let mut chars = body.chars();
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            match chars.next() {
-                Some('\\') => decoded.push('\\'),
-                Some('"') => decoded.push('"'),
-                Some(_) => return Err(SectionHeaderError::UnknownEscape),
-                None => return Err(SectionHeaderError::UnterminatedEscape),
-            }
-        } else {
-            decoded.push(c);
-        }
+    // DUP-1 / TASK-1622: share the quoted-body decoder with `strip_url_key`.
+    // The closing `"` must terminate the body — any trailing content after
+    // it is a malformed header (e.g. `[remote "origin"trailing]`), and a
+    // body that never closes is treated the same as the pre-refactor
+    // `strip_suffix('"')` failure.
+    let (decoded, rest) = decode_quoted_body(body).map_err(|e| match e {
+        QuotedBodyError::Unterminated => SectionHeaderError::UnbalancedQuotes,
+        QuotedBodyError::UnknownEscape => SectionHeaderError::UnknownEscape,
+        QuotedBodyError::UnterminatedEscape => SectionHeaderError::UnterminatedEscape,
+    })?;
+    if !rest.is_empty() {
+        return Err(SectionHeaderError::UnbalancedQuotes);
     }
     Ok((section, Some(decoded)))
 }
@@ -466,6 +499,7 @@ fn parse_section_header(line: &str) -> Result<(&str, Option<String>), SectionHea
 /// repository states), `tracing::warn!` on every other IO error so an
 /// operator chasing "branch keeps showing as detached" sees the underlying
 /// permission/EIO problem instead of a `None` that pretends HEAD is detached.
+#[must_use]
 pub fn read_head_branch(git_dir: &Path) -> Option<String> {
     let head_path = git_dir.join("HEAD");
     let content = match std::fs::read_to_string(&head_path) {
@@ -830,6 +864,46 @@ mod tests {
             read_origin_url(&git_dir).map(RedactedUrl::into_string),
             Some("https://github.com/o/r.git".to_string()),
             "the well-formed url= line must survive a non-UTF-8 byte elsewhere"
+        );
+    }
+
+    /// ERR-1 / TASK-1620: the SEC-33 size cap is checked on raw bytes
+    /// *before* lossy UTF-8 decoding. A `.git/config` whose raw size is at
+    /// or under MAX_GIT_CONFIG_BYTES but contains an invalid UTF-8 byte
+    /// (each replaced by U+FFFD = 3 bytes on the lossy path) must still
+    /// surface the `[remote "origin"]` URL — checking `content.len()` after
+    /// lossy decode would spuriously inflate the size and false-reject.
+    #[test]
+    fn read_origin_url_survives_in_cap_non_utf8_near_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        // Build a payload that is *within* the cap on the raw-byte axis but
+        // would exceed it once every invalid byte expands to U+FFFD (3
+        // bytes). Each `\xff` byte becomes 3 bytes after lossy decoding, so
+        // a 1 KiB block of `\xff` becomes 3 KiB. Stay safely under the cap
+        // raw while pushing the lossy-decoded length past it.
+        let header = b"[remote \"origin\"]\n\turl = https://github.com/o/r.git\n[user]\n\temail = ";
+        let trailer = b"@example.com\n";
+        let raw_target = (MAX_GIT_CONFIG_BYTES as usize) - header.len() - trailer.len() - 16;
+        // Half of the trailing block is invalid bytes — lossy expansion 3x
+        // takes total decoded length well above MAX_GIT_CONFIG_BYTES even
+        // though the raw file is comfortably under the cap.
+        let invalid_block = vec![0xffu8; raw_target / 2];
+        let mut bytes: Vec<u8> = Vec::new();
+        bytes.extend_from_slice(header);
+        bytes.extend_from_slice(&invalid_block);
+        bytes.extend_from_slice(trailer);
+        assert!(
+            (bytes.len() as u64) <= MAX_GIT_CONFIG_BYTES,
+            "test payload must be within the SEC-33 cap"
+        );
+        std::fs::write(git_dir.join("config"), &bytes).unwrap();
+
+        assert_eq!(
+            read_origin_url(&git_dir).map(RedactedUrl::into_string),
+            Some("https://github.com/o/r.git".to_string()),
+            "in-cap config with non-UTF-8 bytes must still surface the origin URL"
         );
     }
 
