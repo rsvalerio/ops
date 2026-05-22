@@ -274,9 +274,9 @@ fn dispatch(
         }
         Some(CoreSubcommand::CheckJson {
             tracked,
-            allow_jsonc,
+            allow_json5,
         }) => {
-            return run_check_json(tracked, allow_jsonc);
+            return run_check_json(tracked, allow_json5);
         }
         Some(CoreSubcommand::CheckYaml { tracked }) => {
             return run_check_yaml(tracked);

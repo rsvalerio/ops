@@ -170,16 +170,17 @@ pub enum CoreSubcommand {
     /// Verify every `*.json` file under cwd parses as JSON.
     ///
     /// Exits non-zero if at least one file fails to parse, matching the
-    /// `pre-commit-hooks` `check-json` contract. Pass `--allow-jsonc` to
-    /// also accept comments and trailing commas.
+    /// `pre-commit-hooks` `check-json` contract. Pass `--allow-json5` to
+    /// also accept JSON5 (comments, trailing commas, unquoted keys, etc.).
     #[command(name = "check-json")]
     CheckJson {
         /// Limit to git-tracked files (uses `git ls-files`).
         #[arg(long)]
         tracked: bool,
-        /// Accept JSONC (comments and trailing commas).
-        #[arg(long = "allow-jsonc")]
-        allow_jsonc: bool,
+        /// Accept JSON5 (a strict superset of JSONC: comments, trailing
+        /// commas, unquoted keys, single-quoted strings, hex numbers, etc.).
+        #[arg(long = "allow-json5")]
+        allow_json5: bool,
     },
     /// Verify every `*.yaml` / `*.yml` file under cwd parses as YAML.
     ///

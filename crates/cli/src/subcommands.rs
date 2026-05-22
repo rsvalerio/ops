@@ -352,7 +352,8 @@ where
 {
     let mut stdout = std::io::stdout();
     let report = checker(&opts, &mut stdout)?;
-    ops_config_checkers::write_summary(&report, label, &mut stdout);
+    ops_config_checkers::write_summary(&report, label, &mut stdout)
+        .with_context(|| format!("{label}: writing summary failed"))?;
     if report.failed() {
         Ok(ExitCode::FAILURE)
     } else {
@@ -360,9 +361,9 @@ where
     }
 }
 
-pub(crate) fn run_check_json(tracked: bool, allow_jsonc: bool) -> anyhow::Result<ExitCode> {
+pub(crate) fn run_check_json(tracked: bool, allow_json5: bool) -> anyhow::Result<ExitCode> {
     let cwd = crate::cwd()?;
-    let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked).with_allow_jsonc(allow_jsonc);
+    let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked).with_allow_json5(allow_json5);
     run_config_checker("check-json", opts, ops_config_checkers::run_check_json)
 }
 
