@@ -78,6 +78,7 @@ const CARGO_BUILTIN_ALIASES: &[&str] = &["b", "c", "d", "r", "rm", "t"];
 /// API / TASK-1200: returns [`ProbeOutcome::Failed`] when `cargo --list`
 /// itself cannot be answered (timeout / IO / non-zero exit). The PATH
 /// fallback runs only when `cargo --list` answered.
+#[must_use]
 pub fn check_cargo_tool_installed(name: &str) -> ProbeOutcome<bool> {
     let mut cmd = Command::new(resolve_cargo_bin());
     cmd.args(["--list"]);
@@ -105,6 +106,7 @@ pub(crate) fn is_in_cargo_list(stdout: &str, name: &str) -> bool {
 }
 
 /// Capture the raw stdout of `cargo --list` once.
+#[must_use]
 pub fn capture_cargo_list() -> ProbeOutcome<String> {
     let mut cmd = Command::new(resolve_cargo_bin());
     cmd.args(["--list"]);

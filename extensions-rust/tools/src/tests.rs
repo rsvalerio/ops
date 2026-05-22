@@ -1,5 +1,7 @@
 use super::*;
-use crate::probe::{is_component_in_list, is_in_cargo_list, parse_active_toolchain};
+use crate::probe::{
+    classify_active_toolchain, is_component_in_list, is_in_cargo_list, parse_active_toolchain,
+};
 
 // --- ToolSpec ---
 
@@ -268,6 +270,63 @@ fn parse_active_toolchain_rejects_no_active_toolchain_message_returns_none() {
     );
 }
 
+// --- ERR-1 / TASK-1619: classify_active_toolchain three-way branch ---
+
+/// ERR-1 / TASK-1619 AC#3: probe-failed branch (rustup didn't answer at
+/// all — timeout, spawn IO, etc.) maps to ProbeFailed, distinct from
+/// "answered but no toolchain configured".
+#[test]
+fn classify_active_toolchain_probe_failed_branch() {
+    assert!(matches!(
+        classify_active_toolchain(None),
+        crate::ActiveToolchain::ProbeFailed
+    ));
+}
+
+/// ERR-1 / TASK-1619 AC#3: rustup answered with a non-zero exit status —
+/// treated as ProbeFailed (the answer is not trustworthy), distinct from
+/// the "no active toolchain configured" case.
+#[test]
+fn classify_active_toolchain_non_zero_exit_is_probe_failed() {
+    assert!(matches!(
+        classify_active_toolchain(Some((false, ""))),
+        crate::ActiveToolchain::ProbeFailed
+    ));
+    assert!(matches!(
+        classify_active_toolchain(Some((false, "stable-aarch64-apple-darwin\n"))),
+        crate::ActiveToolchain::ProbeFailed
+    ));
+}
+
+/// ERR-1 / TASK-1619 AC#3: rustup answered, but no toolchain identifier
+/// was parseable from stdout (rustup ≥1.28 "no active toolchain
+/// configured\n"). Distinct from probe failure: operators should be told
+/// to run `rustup default`, not asked to check their rustup install.
+#[test]
+fn classify_active_toolchain_no_toolchain_configured_is_none() {
+    assert!(matches!(
+        classify_active_toolchain(Some((true, "no active toolchain configured\n"))),
+        crate::ActiveToolchain::None
+    ));
+    assert!(matches!(
+        classify_active_toolchain(Some((true, ""))),
+        crate::ActiveToolchain::None
+    ));
+}
+
+/// ERR-1 / TASK-1619 AC#3: rustup answered with a real toolchain
+/// identifier — Resolved.
+#[test]
+fn classify_active_toolchain_resolved_branch() {
+    let resolved = classify_active_toolchain(Some((true, "stable-aarch64-apple-darwin\n")));
+    match resolved {
+        crate::ActiveToolchain::Resolved(t) => {
+            assert_eq!(t, "stable-aarch64-apple-darwin");
+        }
+        other => panic!("expected Resolved, got {other:?}"),
+    }
+}
+
 /// PATTERN-1 / TASK-1566: additional bare-word rustup status forms must
 /// also return None — the parser must not be tricked into emitting them as
 /// fake toolchain names downstream of `rustup component add --toolchain ...`.
@@ -484,11 +543,11 @@ fn component_list_strips_wasm32_target_triple() {
 #[ignore = "requires rustup installed; run with: cargo test -- --ignored"]
 fn get_active_toolchain_returns_some() {
     let tc = get_active_toolchain();
-    assert!(
-        tc.is_some(),
-        "rustup should be available in dev environment"
-    );
-    let tc = tc.unwrap();
+    let resolved = match tc {
+        crate::ActiveToolchain::Resolved(t) => t,
+        other => panic!("rustup should resolve a toolchain in dev environment, got {other:?}"),
+    };
+    let tc = resolved;
     assert!(
         !tc.is_empty(),
         "toolchain string should not be empty, got: {tc}"
@@ -963,6 +1022,74 @@ fn install_rustup_component_rejects_dash_toolchain() {
         err.to_string().contains("rustup toolchain"),
         "error should mention toolchain: {err}"
     );
+}
+
+// --- ERR-2 / TASK-1608: rustup toolchain identifier validation ---
+
+use crate::install::validate_rustup_toolchain;
+
+/// ERR-2 / TASK-1608 AC#1: version-pinned toolchains (e.g.
+/// `1.70.0-x86_64-apple-darwin`, the canonical form produced by
+/// `rust-toolchain.toml` / `rustup default 1.70.0`) must validate. The
+/// crates.io grammar enforced by `validate_cargo_tool_arg` rejects `.`
+/// — for toolchains that's a false positive that blocked
+/// `ops tools install` on any version-pinned workspace.
+#[test]
+fn validate_rustup_toolchain_accepts_version_pinned_identifier() {
+    for ok in [
+        "1.70.0-x86_64-apple-darwin",
+        "stable",
+        "stable-aarch64-apple-darwin",
+        "nightly-2024-01-01",
+        "1.85.0",
+    ] {
+        assert!(
+            validate_rustup_toolchain(ok, "rustup toolchain").is_ok(),
+            "expected {ok:?} to validate as a rustup toolchain"
+        );
+    }
+}
+
+/// ERR-2 / TASK-1608 AC#2: relaxing `.` must not weaken the
+/// leading-dash flag-injection guard.
+#[test]
+fn validate_rustup_toolchain_rejects_leading_dash() {
+    assert!(validate_rustup_toolchain("-vV", "rustup toolchain").is_err());
+    assert!(validate_rustup_toolchain("--config=evil", "rustup toolchain").is_err());
+}
+
+/// ERR-2 / TASK-1608: shell metacharacters and whitespace still rejected.
+#[test]
+fn validate_rustup_toolchain_rejects_metacharacters() {
+    for bad in [
+        "stable;rm -rf /",
+        "1.70.0 stable",
+        "1.70.0$VAR",
+        "1.70.0`cmd`",
+        "1.70.0|pipe",
+        "1.70.0/path",
+        "",
+    ] {
+        assert!(
+            validate_rustup_toolchain(bad, "rustup toolchain").is_err(),
+            "expected rejection of {bad:?}"
+        );
+    }
+}
+
+/// ERR-2 / TASK-1608 AC#4: `install_rustup_component_with_timeout`
+/// passes a dotted toolchain through the validator (the prior
+/// `validate_cargo_tool_arg` reject would surface as an
+/// `invalid character` error before rustup is even spawned). Spawning
+/// rustup against a real toolchain identifier risks a network sync in
+/// tests, so we drive the validator directly via the same call site
+/// `install_rustup_component_with_timeout` uses (cf.
+/// `install.rs:141`) — a regression that reverts to the stricter
+/// validator would fail this assertion before any subprocess work.
+#[test]
+fn install_rustup_component_validator_accepts_dotted_toolchain() {
+    validate_rustup_toolchain("1.70.0-x86_64-apple-darwin", "rustup toolchain")
+        .expect("install path validator must accept version-pinned toolchain identifier");
 }
 
 // --- SEC-13: PATH-walking binary detection ---

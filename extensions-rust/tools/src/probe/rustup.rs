@@ -6,22 +6,59 @@ use std::process::Command;
 
 use super::timeout::{run_probe_capturing, run_probe_with_timeout, ProbeOutcome};
 
-pub fn get_active_toolchain() -> Option<String> {
+/// ERR-1 / TASK-1619: outcome of `rustup show active-toolchain`. The
+/// prior shape (`Option<String>`) folded three distinct cases onto `None`
+/// — probe-IO/timeout failure, rustup's non-zero exit, and "no active
+/// toolchain configured" — and operators got a single generic error
+/// regardless of cause. Mirrors the same probe-failure-vs.-answer
+/// distinction [`crate::ToolStatus`] / [`ProbeOutcome`] surface for
+/// installed-tool checks (API / TASK-1200).
+///
+/// API-1: marked `#[non_exhaustive]` so a future split (e.g.
+/// Timeout vs Io) does not break downstream `match`. Mirrors policy on
+/// [`crate::ToolStatus`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum ActiveToolchain {
+    /// rustup answered and named a toolchain.
+    Resolved(String),
+    /// rustup answered but no toolchain is configured (rustup ≥1.28
+    /// emits `"no active toolchain configured\n"`; older versions emit
+    /// nothing parseable).
+    None,
+    /// `rustup show active-toolchain` did not answer (spawn IO failure,
+    /// timeout, non-zero exit). Distinct from [`ActiveToolchain::None`]:
+    /// operators should not be told to run `rustup default` here.
+    ProbeFailed,
+}
+
+#[must_use]
+pub fn get_active_toolchain() -> ActiveToolchain {
     // `--quiet` is rustup's global flag, not a subcommand option, so it
     // appears before `show`. ASYNC-6 / TASK-0914: capped at PROBE_TIMEOUT.
     let mut cmd = Command::new(resolve_rustup_bin());
     cmd.args(["--quiet", "show", "active-toolchain"]);
-    let output = match run_probe_with_timeout(&mut cmd, "rustup show active-toolchain") {
-        ProbeOutcome::Ok(o) => o,
-        ProbeOutcome::Failed => return None,
-    };
-
-    if !output.status.success() {
-        return None;
+    match run_probe_with_timeout(&mut cmd, "rustup show active-toolchain") {
+        ProbeOutcome::Failed => classify_active_toolchain(None),
+        ProbeOutcome::Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            classify_active_toolchain(Some((output.status.success(), &stdout)))
+        }
     }
+}
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_active_toolchain(&stdout)
+/// ERR-1 / TASK-1619: pure classification helper. `None` means the
+/// probe did not answer; `Some((success, stdout))` carries the
+/// successful flag and rustup's stdout. Extracted so all three
+/// branches are unit-testable without spawning rustup (AC#3).
+pub(crate) fn classify_active_toolchain(probe: Option<(bool, &str)>) -> ActiveToolchain {
+    match probe {
+        None | Some((false, _)) => ActiveToolchain::ProbeFailed,
+        Some((true, stdout)) => match parse_active_toolchain(stdout) {
+            Some(s) => ActiveToolchain::Resolved(s),
+            None => ActiveToolchain::None,
+        },
+    }
 }
 
 /// Parse the toolchain name out of `rustup show active-toolchain` stdout.
@@ -76,6 +113,7 @@ pub(crate) fn parse_active_toolchain(stdout: &str) -> Option<String> {
 /// (timeout / IO / non-zero exit) so callers route it to
 /// [`crate::ToolStatus::ProbeFailed`] instead of mis-reporting the
 /// component as not installed.
+#[must_use]
 pub fn check_rustup_component_installed(component: &str) -> ProbeOutcome<bool> {
     let mut cmd = Command::new(resolve_rustup_bin());
     cmd.args(["component", "list", "--installed"]);
@@ -170,6 +208,7 @@ pub(crate) fn is_component_in_list(stdout: &str, component: &str) -> bool {
 }
 
 /// Capture the raw stdout of `rustup component list --installed` once.
+#[must_use]
 pub fn capture_rustup_components() -> ProbeOutcome<String> {
     let mut cmd = Command::new(resolve_rustup_bin());
     cmd.args(["component", "list", "--installed"]);

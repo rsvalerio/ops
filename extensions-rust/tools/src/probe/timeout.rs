@@ -21,20 +21,18 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 /// (`Option<Output>` mapped to `bool` in callers) collapsed both onto
 /// `NotInstalled`, which `install_tool` then re-mediated by reinstalling
 /// a perfectly working toolchain.
+///
+/// API-1 / TASK-1615: marked `#[non_exhaustive]` so adding a future
+/// variant (e.g. splitting Failed into Timeout / Io / NonZero, foreshadowed
+/// by [`run_probe_with_timeout_inner`]) is not a breaking change for
+/// downstream `match`. Mirrors the policy documented on [`crate::ToolStatus`].
+/// When adding a variant, also update in-crate matches in `probe/cargo.rs`,
+/// `probe/rustup.rs`, and `probe/mod.rs` that consume this enum.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub enum ProbeOutcome<T> {
     Ok(T),
     Failed,
-}
-
-impl<T> ProbeOutcome<T> {
-    #[allow(dead_code)]
-    pub(crate) fn map<U>(self, f: impl FnOnce(T) -> U) -> ProbeOutcome<U> {
-        match self {
-            ProbeOutcome::Ok(t) => ProbeOutcome::Ok(f(t)),
-            ProbeOutcome::Failed => ProbeOutcome::Failed,
-        }
-    }
 }
 
 /// Run a probe Command under [`run_with_timeout`], logging timeout / IO

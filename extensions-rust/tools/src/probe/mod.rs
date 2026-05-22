@@ -21,6 +21,7 @@ pub use path::{
 };
 pub use rustup::{
     capture_rustup_components, check_rustup_component_installed, get_active_toolchain,
+    ActiveToolchain,
 };
 pub use timeout::ProbeOutcome;
 
@@ -29,7 +30,7 @@ pub(crate) use cargo::{cargo_list_index, is_in_cargo_list, is_in_cargo_set};
 #[cfg(test)]
 pub(crate) use path::{capture_path_index_from, find_on_path, find_on_path_in, is_in_path_index};
 #[cfg(test)]
-pub(crate) use rustup::parse_active_toolchain;
+pub(crate) use rustup::{classify_active_toolchain, parse_active_toolchain};
 pub(crate) use rustup::{is_component_in_list, is_component_in_set, rustup_components_index};
 
 pub fn check_tool_status(name: &str, spec: &ToolSpec) -> ToolStatus {

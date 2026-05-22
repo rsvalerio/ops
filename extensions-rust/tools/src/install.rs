@@ -6,8 +6,8 @@ use ops_core::subprocess::{resolve_cargo_bin, resolve_rustup_bin};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use crate::probe::get_active_toolchain;
-use crate::timeout::{run_with_timeout, DEFAULT_INSTALL_TIMEOUT};
+use crate::install_timeout::{run_with_timeout, DEFAULT_INSTALL_TIMEOUT};
+use crate::probe::{get_active_toolchain, ActiveToolchain};
 
 pub fn install_cargo_tool(name: &str, package: Option<&str>) -> anyhow::Result<()> {
     install_cargo_tool_with_timeout(name, package, DEFAULT_INSTALL_TIMEOUT)
@@ -35,6 +35,23 @@ pub fn install_cargo_tool(name: &str, package: Option<&str>) -> anyhow::Result<(
 /// rejected on the dot — not on the leading digit — keeping the operator
 /// error message pointed at the actual policy break.
 pub(crate) fn validate_cargo_tool_arg(value: &str, label: &str) -> anyhow::Result<()> {
+    validate_install_arg(value, label, false)
+}
+
+/// ERR-2 / TASK-1608: rustup toolchain identifiers carry `.` (e.g.
+/// `1.70.0-x86_64-apple-darwin`, the canonical version-pinned form that
+/// `rust-toolchain.toml` and `rustup default 1.70.0` produce). The
+/// crates.io grammar enforced by [`validate_cargo_tool_arg`] forbids
+/// `.`, which caused `ops tools install` to bail before reaching
+/// `rustup component add` for any version-pinned workspace. This
+/// sibling allows `.` while keeping every other defence-in-depth check
+/// (non-empty, alphanumeric leading byte, no leading `-`, no shell
+/// metacharacters).
+pub(crate) fn validate_rustup_toolchain(value: &str, label: &str) -> anyhow::Result<()> {
+    validate_install_arg(value, label, true)
+}
+
+fn validate_install_arg(value: &str, label: &str, allow_dot: bool) -> anyhow::Result<()> {
     let mut chars = value.chars();
     let Some(first) = chars.next() else {
         anyhow::bail!("{label} is empty");
@@ -50,9 +67,15 @@ pub(crate) fn validate_cargo_tool_arg(value: &str, label: &str) -> anyhow::Resul
     // leading-character check would silently accept a leading `-` again
     // because the loop allows it.
     for ch in chars {
-        if !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-') {
+        let ok = ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || (allow_dot && ch == '.');
+        if !ok {
+            let allowed = if allow_dot {
+                "[A-Za-z0-9_.-]"
+            } else {
+                "[A-Za-z0-9_-]"
+            };
             anyhow::bail!(
-                "{label} {value:?} contains invalid character {ch:?}; allowed: [A-Za-z0-9_-]"
+                "{label} {value:?} contains invalid character {ch:?}; allowed: {allowed}"
             );
         }
     }
@@ -87,7 +110,13 @@ fn spawn_install_with_timeout(
     run_with_timeout(child, timeout, wait_label)
 }
 
-pub(crate) fn install_cargo_tool_with_timeout(
+/// API-3 / TASK-1581: explicit-timeout entry point. Promoted from
+/// `pub(crate)` so downstream binaries can pick a deadline appropriate
+/// to their environment (fast CI vs. embedded toolchains on a slow
+/// registry) without forking the crate. The default-timeout wrapper
+/// [`install_cargo_tool`] still delegates here with
+/// [`DEFAULT_INSTALL_TIMEOUT`].
+pub fn install_cargo_tool_with_timeout(
     name: &str,
     package: Option<&str>,
     timeout: Duration,
@@ -132,13 +161,16 @@ pub fn install_rustup_component(component: &str, toolchain: &str) -> anyhow::Res
     install_rustup_component_with_timeout(component, toolchain, DEFAULT_INSTALL_TIMEOUT)
 }
 
-pub(crate) fn install_rustup_component_with_timeout(
+/// API-3 / TASK-1581: explicit-timeout sibling of
+/// [`install_rustup_component`]; see that function for the rationale on
+/// keeping the deadline configurable from downstream crates.
+pub fn install_rustup_component_with_timeout(
     component: &str,
     toolchain: &str,
     timeout: Duration,
 ) -> anyhow::Result<()> {
     validate_cargo_tool_arg(component, "rustup component")?;
-    validate_cargo_tool_arg(toolchain, "rustup toolchain")?;
+    validate_rustup_toolchain(toolchain, "rustup toolchain")?;
     let status = spawn_install_with_timeout(
         resolve_rustup_bin(),
         &["component", "add", component, "--toolchain", toolchain],
@@ -157,8 +189,24 @@ pub fn install_tool(name: &str, spec: &ToolSpec) -> anyhow::Result<()> {
     let has_rustup_component = spec.rustup_component().is_some();
 
     if let Some(component) = spec.rustup_component() {
-        let toolchain = get_active_toolchain()
-            .ok_or_else(|| anyhow::anyhow!("could not determine active toolchain"))?;
+        // ERR-1 / TASK-1619: distinguish "rustup did not answer" from
+        // "rustup answered, no active toolchain". The two failure modes
+        // need different operator guidance.
+        let toolchain = match get_active_toolchain() {
+            ActiveToolchain::Resolved(t) => t,
+            ActiveToolchain::None => {
+                anyhow::bail!(
+                    "no active rustup toolchain configured; run `rustup default <toolchain>` \
+                     (e.g. `rustup default stable`)"
+                );
+            }
+            ActiveToolchain::ProbeFailed => {
+                anyhow::bail!(
+                    "`rustup show active-toolchain` probe failed; check that rustup is \
+                     installed and reachable on PATH (see warnings logged above)"
+                );
+            }
+        };
         install_rustup_component(component, &toolchain)?;
     }
 

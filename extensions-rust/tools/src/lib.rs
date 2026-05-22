@@ -1,26 +1,30 @@
 //! Cargo tools extension: install and manage development tools.
 //!
 //! Split for cohesion:
-//! - [`timeout`] — generic subprocess timeout primitive
+//! - [`install_timeout`] — install-side subprocess timeout primitive
 //! - [`probe`]   — detect toolchain + installed cargo tools / rustup components
 //! - [`install`] — install cargo tools and rustup components via subprocess
 
 mod install;
+mod install_timeout;
 mod probe;
 #[cfg(test)]
 mod tests;
-mod timeout;
 
 // Re-export tool types from core for convenience of downstream users.
 pub use ops_core::config::tools::{ExtendedToolSpec, ToolSource, ToolSpec};
 
-pub use install::{install_cargo_tool, install_rustup_component, install_tool};
+pub use install::{
+    install_cargo_tool, install_cargo_tool_with_timeout, install_rustup_component,
+    install_rustup_component_with_timeout, install_tool,
+};
+pub use install_timeout::{run_with_timeout, DEFAULT_INSTALL_TIMEOUT};
 pub use probe::{
     capture_cargo_list, capture_path_index, capture_rustup_components, check_binary_installed,
     check_binary_installed_with, check_cargo_tool_installed, check_rustup_component_installed,
-    check_tool_status, check_tool_status_with, get_active_toolchain, PathIndex, ProbeOutcome,
+    check_tool_status, check_tool_status_with, get_active_toolchain, ActiveToolchain, PathIndex,
+    ProbeOutcome,
 };
-pub use timeout::{run_with_timeout, DEFAULT_INSTALL_TIMEOUT};
 
 use indexmap::IndexMap;
 use ops_extension::ExtensionType;
@@ -122,6 +126,7 @@ impl ToolInfo {
 /// caller-supplied probe. Tests inject a deterministic probe so the suite
 /// does not depend on whether the host (or CI image) happens to have
 /// `rustfmt` / `cargo-fmt` installed.
+#[must_use]
 pub fn collect_tools_with(
     tools: &IndexMap<String, ToolSpec>,
     probe: &dyn Fn(&str, &ToolSpec) -> ToolStatus,
@@ -155,6 +160,7 @@ pub fn collect_tool_one(name: &str, spec: &ToolSpec) -> ToolInfo {
     }
 }
 
+#[must_use]
 pub fn collect_tools(tools: &IndexMap<String, ToolSpec>) -> Vec<ToolInfo> {
     let needs_cargo = tools
         .values()

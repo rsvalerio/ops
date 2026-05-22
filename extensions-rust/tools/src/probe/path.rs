@@ -32,6 +32,7 @@ pub(crate) fn index_key(name: OsString) -> OsString {
 }
 
 /// Build a one-shot index of executable basenames present on `$PATH`.
+#[must_use]
 pub fn capture_path_index() -> Option<PathIndex> {
     let path = std::env::var_os("PATH")?;
     Some(capture_path_index_from(&path))
@@ -111,6 +112,7 @@ pub(crate) fn is_in_path_index(index: &PathIndex, name: &str) -> bool {
 /// PERF-3 / TASK-1046: variant that consults a precomputed [`PathIndex`]
 /// when supplied, falling back to the per-call `$PATH` walk when `index`
 /// is `None`.
+#[must_use]
 pub fn check_binary_installed_with(name: &str, index: Option<&PathIndex>) -> bool {
     match index {
         Some(idx) => is_in_path_index(idx, name),
@@ -119,6 +121,7 @@ pub fn check_binary_installed_with(name: &str, index: Option<&PathIndex>) -> boo
 }
 
 /// SEC-13: walk `PATH` directly instead of shelling out to `which`.
+#[must_use]
 pub fn check_binary_installed(name: &str) -> bool {
     find_on_path(name).is_some()
 }
