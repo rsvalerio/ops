@@ -16,10 +16,15 @@ use std::ffi::OsString;
 /// to lowercase under `cfg(windows)` at both insert and lookup time.
 pub type PathIndex = HashSet<OsString>;
 
-/// CONC-7 / TASK-1249: normalise an `OsString` basename to the index key
-/// form. Lowercase on Windows; verbatim on Unix.
+/// CONC-7 / TASK-1249, TASK-1617: normalise an `OsString` basename to the
+/// index key form. Lowercased on Windows (always case-insensitive) and
+/// macOS (APFS/HFS+ default to case-preserving / case-insensitive, so a
+/// tool installed as `Tokei` is visited with its on-disk casing and a
+/// `is_in_path_index(&idx, "tokei")` lookup would otherwise miss and
+/// trigger a redundant reinstall); verbatim elsewhere where the FS is
+/// reliably case-sensitive.
 pub(crate) fn index_key(name: OsString) -> OsString {
-    if cfg!(windows) {
+    if cfg!(any(windows, target_os = "macos")) {
         OsString::from(name.to_string_lossy().to_lowercase())
     } else {
         name
@@ -55,10 +60,31 @@ pub(crate) fn capture_path_index_from(path_var: &std::ffi::OsStr) -> PathIndex {
                 continue;
             }
         };
-        for entry in entries.flatten() {
-            let candidate = entry.path();
-            if matches!(check_executable(&candidate), ExecCheck::Yes) {
-                set.insert(index_key(entry.file_name()));
+        for entry in entries {
+            match entry {
+                Ok(entry) => {
+                    let candidate = entry.path();
+                    if matches!(check_executable(&candidate), ExecCheck::Yes) {
+                        set.insert(index_key(entry.file_name()));
+                    }
+                }
+                Err(e) => {
+                    // ERR-7 / TASK-1614: a per-entry IO error (EIO on a
+                    // flaky network mount, EACCES on a partially-restricted
+                    // directory, ENOENT during concurrent dir mutation)
+                    // means an executable on `$PATH` quietly fails to enter
+                    // the index — downstream the tool is probed as
+                    // NotInstalled and reinstalled. Surface the failure
+                    // via the same Debug-escape pathway the outer
+                    // `read_dir` arm uses (ERR-7 / TASK-1563) so a PATH
+                    // directory whose entries carry embedded \n / ANSI
+                    // escapes cannot forge multi-line log records.
+                    tracing::warn!(
+                        path = ?dir,
+                        error = %e,
+                        "PATH entry unreadable while building path index; skipping entry"
+                    );
+                }
             }
         }
     }
@@ -106,6 +132,11 @@ pub(crate) fn find_on_path_in(
     name: &str,
     path_var: &std::ffi::OsStr,
 ) -> Option<std::path::PathBuf> {
+    // PERF-3 / TASK-1580: hoist PATHEXT resolution out of the per-directory
+    // loop. `pathext_suffixes()` re-reads `PATHEXT` via `var_os` and
+    // allocates a fresh `Vec<OsString>` on each call; the value is
+    // invariant per call so resolve it once.
+    let pathexts = pathext_suffixes();
     for dir in std::env::split_paths(path_var) {
         if dir.as_os_str().is_empty() {
             continue;
@@ -123,14 +154,12 @@ pub(crate) fn find_on_path_in(
             }
             ExecCheck::NotExec | ExecCheck::Missing => {}
         }
-        if cfg!(windows) {
-            for ext in pathext_suffixes() {
-                let mut with_ext = candidate.clone().into_os_string();
-                with_ext.push(&ext);
-                let p = std::path::PathBuf::from(with_ext);
-                if matches!(check_executable(&p), ExecCheck::Yes) {
-                    return Some(p);
-                }
+        for ext in &pathexts {
+            let mut with_ext = candidate.clone().into_os_string();
+            with_ext.push(ext);
+            let p = std::path::PathBuf::from(with_ext);
+            if matches!(check_executable(&p), ExecCheck::Yes) {
+                return Some(p);
             }
         }
     }
@@ -233,11 +262,13 @@ mod path_index_case_tests {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, unix, not(target_os = "macos")))]
 mod path_index_unix_tests {
     use super::*;
 
-    /// CONC-7 / TASK-1249: Unix lookup remains case-sensitive.
+    /// CONC-7 / TASK-1249: non-macOS Unix lookup remains case-sensitive.
+    /// (macOS has its own case-insensitive contract — see
+    /// [`super::path_index_macos_tests`].)
     #[test]
     fn unix_lookup_remains_case_sensitive() {
         let mut idx: PathIndex = HashSet::new();
@@ -247,5 +278,78 @@ mod path_index_unix_tests {
             "Unix lookup must stay case-sensitive: `tokei` and `Tokei` are distinct"
         );
         assert!(is_in_path_index(&idx, "Tokei"));
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod path_index_macos_tests {
+    use super::*;
+
+    /// CONC-7 / TASK-1617: macOS APFS / HFS+ default to case-insensitive
+    /// (case-preserving). A binary installed as `Tokei` must be found by
+    /// a lookup for `tokei`, otherwise the probe falsely reports
+    /// `NotInstalled` and `cargo install` re-runs against a tool that
+    /// already lives on `$PATH`.
+    #[test]
+    fn macos_lookup_matches_mixed_case_basename() {
+        let mut idx: PathIndex = HashSet::new();
+        idx.insert(index_key(OsString::from("Tokei")));
+        assert!(
+            is_in_path_index(&idx, "tokei"),
+            "macOS lookup must be case-insensitive in both directions"
+        );
+        idx.insert(index_key(OsString::from("ripgrep")));
+        assert!(is_in_path_index(&idx, "RipGrep"));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod path_index_error_tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// ERR-7 / TASK-1614: when a `$PATH` directory is partially readable —
+    /// entries present, some unreadable, some healthy — the previous
+    /// `.flatten()` shortcut silently dropped the Err half of the iterator.
+    /// The fixed loop now `match`es on each `io::Result<DirEntry>`. We
+    /// cannot deterministically inject a `ReadDir::next()` error from
+    /// stable Rust on a portable filesystem (readdir errors are extremely
+    /// rare and OS/FS-specific), so this regression test instead exercises
+    /// the *positive* half of the same loop on a directory with mixed
+    /// contents — an executable file plus a non-executable sibling and a
+    /// dangling symlink — and asserts the executable still enters the
+    /// index. A future refactor that loses the loop body or skips the
+    /// `Ok` arm will fail here.
+    #[test]
+    fn capture_path_index_indexes_healthy_entries_alongside_oddities() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let exec_path = dir.path().join("real-binary-xyz");
+        fs::write(&exec_path, b"#!/bin/sh\nexit 0\n").expect("write exec");
+        fs::set_permissions(&exec_path, fs::Permissions::from_mode(0o755)).expect("chmod exec");
+
+        let non_exec = dir.path().join("not-executable.txt");
+        fs::write(&non_exec, b"data").expect("write non-exec");
+
+        let dangling = dir.path().join("dangling-link");
+        std::os::unix::fs::symlink(dir.path().join("nope-not-here"), &dangling)
+            .expect("create dangling symlink");
+
+        let path_var = OsString::from(dir.path());
+        let idx = capture_path_index_from(&path_var);
+
+        assert!(
+            idx.contains(&OsString::from("real-binary-xyz")),
+            "executable basename must enter the index even when siblings are non-exec or dangling"
+        );
+        assert!(
+            !idx.contains(&OsString::from("not-executable.txt")),
+            "non-executable file must not enter the index"
+        );
+        assert!(
+            !idx.contains(&OsString::from("dangling-link")),
+            "dangling symlink must not enter the index"
+        );
     }
 }

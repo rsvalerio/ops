@@ -175,17 +175,20 @@ pub fn collect_tools(tools: &IndexMap<String, ToolSpec>) -> Vec<ToolInfo> {
     // to per-tool probing (`None`), where the failure surfaces as
     // `ToolStatus::ProbeFailed` for the affected entries instead of
     // collapsing the whole sweep.
-    let cargo_list = if needs_cargo {
+    // PERF-3 / TASK-1616: tokenise each capture into a `HashSet` once so
+    // the per-tool lookup is O(1). The prior shape kept the raw stdout
+    // and re-walked it line-by-line for every tool — O(T × L) per sweep.
+    let cargo_set = if needs_cargo {
         match probe::capture_cargo_list() {
-            ProbeOutcome::Ok(s) => Some(s),
+            ProbeOutcome::Ok(s) => Some(probe::cargo_list_index(&s)),
             ProbeOutcome::Failed => None,
         }
     } else {
         None
     };
-    let rustup_components = if needs_rustup {
+    let rustup_set = if needs_rustup {
         match probe::capture_rustup_components() {
-            ProbeOutcome::Ok(s) => Some(s),
+            ProbeOutcome::Ok(s) => Some(probe::rustup_components_index(&s)),
             ProbeOutcome::Failed => None,
         }
     } else {
@@ -199,11 +202,11 @@ pub fn collect_tools(tools: &IndexMap<String, ToolSpec>) -> Vec<ToolInfo> {
     tools
         .iter()
         .map(|(name, spec)| {
-            let status = probe::check_tool_status_with(
+            let status = probe::check_tool_status_with_sets(
                 name,
                 spec,
-                cargo_list.as_deref(),
-                rustup_components.as_deref(),
+                cargo_set.as_ref(),
+                rustup_set.as_ref(),
                 path_index.as_ref(),
             );
             ToolInfo {

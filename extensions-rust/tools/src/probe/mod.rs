@@ -9,6 +9,8 @@ mod path;
 mod rustup;
 mod timeout;
 
+use std::collections::HashSet;
+
 use ops_core::config::tools::{ToolSource, ToolSpec};
 
 use crate::ToolStatus;
@@ -23,12 +25,12 @@ pub use rustup::{
 pub use timeout::ProbeOutcome;
 
 // Crate-internal re-exports for sibling modules and tests.
-pub(crate) use cargo::is_in_cargo_list;
+pub(crate) use cargo::{cargo_list_index, is_in_cargo_list, is_in_cargo_set};
 #[cfg(test)]
 pub(crate) use path::{capture_path_index_from, find_on_path, find_on_path_in, is_in_path_index};
-pub(crate) use rustup::is_component_in_list;
 #[cfg(test)]
 pub(crate) use rustup::parse_active_toolchain;
+pub(crate) use rustup::{is_component_in_list, is_component_in_set, rustup_components_index};
 
 pub fn check_tool_status(name: &str, spec: &ToolSpec) -> ToolStatus {
     check_tool_status_with(name, spec, None, None, None)
@@ -67,6 +69,49 @@ pub fn check_tool_status_with(
     let is_installed = match spec.source() {
         ToolSource::Cargo => match cargo_list {
             Some(s) => is_in_cargo_list(s, name) || check_binary_installed_with(name, path_index),
+            None => match check_cargo_tool_installed(name) {
+                ProbeOutcome::Ok(b) => b,
+                ProbeOutcome::Failed => return ToolStatus::ProbeFailed,
+            },
+        },
+        ToolSource::System => check_binary_installed_with(name, path_index),
+    };
+
+    if is_installed {
+        ToolStatus::Installed
+    } else {
+        ToolStatus::NotInstalled
+    }
+}
+
+/// PERF-3 / TASK-1616: sweep-mode variant of [`check_tool_status_with`]
+/// that consults precomputed hash sets instead of re-walking the
+/// captured stdout per tool. The public [`check_tool_status_with`] API
+/// (which takes `&str`) is preserved for per-tool callers — see AC#2 in
+/// TASK-1616.
+pub(crate) fn check_tool_status_with_sets(
+    name: &str,
+    spec: &ToolSpec,
+    cargo_list: Option<&HashSet<String>>,
+    rustup_components: Option<&HashSet<String>>,
+    path_index: Option<&PathIndex>,
+) -> ToolStatus {
+    if let Some(component) = spec.rustup_component() {
+        let installed = match rustup_components {
+            Some(s) => is_component_in_set(s, component),
+            None => match check_rustup_component_installed(component) {
+                ProbeOutcome::Ok(b) => b,
+                ProbeOutcome::Failed => return ToolStatus::ProbeFailed,
+            },
+        };
+        if !installed {
+            return ToolStatus::NotInstalled;
+        }
+    }
+
+    let is_installed = match spec.source() {
+        ToolSource::Cargo => match cargo_list {
+            Some(s) => is_in_cargo_set(s, name) || check_binary_installed_with(name, path_index),
             None => match check_cargo_tool_installed(name) {
                 ProbeOutcome::Ok(b) => b,
                 ProbeOutcome::Failed => return ToolStatus::ProbeFailed,

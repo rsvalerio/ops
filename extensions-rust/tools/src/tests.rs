@@ -469,6 +469,15 @@ fn component_list_handles_installed_annotation() {
     assert!(is_component_in_list(stdout, "clippy"));
 }
 
+/// PATTERN-1 / TASK-1583 AC#2: lock the contract on a non-baseline
+/// triple so a future regression in `RUSTUP_TARGET_ARCH_PATTERNS` (e.g.
+/// dropping `-wasm32-`) lights up here, not in operator output.
+#[test]
+fn component_list_strips_wasm32_target_triple() {
+    let stdout = "rust-std-wasm32-unknown-unknown\nrust-std-wasm32v1-none\n";
+    assert!(is_component_in_list(stdout, "rust-std"));
+}
+
 // --- Integration tests (require rustup/cargo in PATH) ---
 
 #[test]

@@ -58,10 +58,15 @@ fn run_probe_with_timeout_inner(
     match run_with_timeout(cmd, timeout, label) {
         Ok(out) => ProbeOutcome::Ok(out),
         Err(RunError::Timeout(e)) => {
+            // READ-2 / TASK-1605: keep rule/task provenance in code
+            // comments (ASYNC-6 / TASK-0914 introduced the deadline;
+            // API / TASK-1200 introduced ProbeFailed routing) — the
+            // operator-facing message itself stays free of internal
+            // identifiers operators cannot look up.
             tracing::warn!(
                 label,
                 timeout_secs = e.timeout.as_secs(),
-                "ASYNC-6 / TASK-0914 + API / TASK-1200: probe timed out; reporting tool as ProbeFailed"
+                "probe timed out; reporting tool as ProbeFailed"
             );
             ProbeOutcome::Failed
         }
