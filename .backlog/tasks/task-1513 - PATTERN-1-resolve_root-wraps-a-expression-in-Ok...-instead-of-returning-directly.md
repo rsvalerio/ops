@@ -3,11 +3,11 @@ id: TASK-1513
 title: >-
   PATTERN-1: resolve_root wraps a ? expression in Ok(...) instead of returning
   directly
-status: To Do
+status: Done
 assignee:
-  - TASK-1573
+  - TASK-1641
 created_date: '2026-05-18 19:57'
-updated_date: '2026-05-19 16:45'
+updated_date: '2026-05-25 16:13'
 labels:
   - code-review-rust
   - patterns

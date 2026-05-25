@@ -5,9 +5,9 @@ title: >-
   dependency section (dependencies / dev-dependencies / build-dependencies)
 status: To Do
 assignee:
-  - TASK-1573
+  - TASK-1642
 created_date: '2026-05-18 19:15'
-updated_date: '2026-05-19 16:45'
+updated_date: '2026-05-25 16:08'
 labels:
   - code-review-rust
   - ERR

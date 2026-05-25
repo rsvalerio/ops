@@ -3,11 +3,11 @@ id: TASK-1501
 title: >-
   API-3: cargo-toml blanket #[allow(dead_code)] on public impl blocks and
   constants
-status: To Do
+status: Done
 assignee:
-  - TASK-1573
+  - TASK-1641
 created_date: '2026-05-18 18:04'
-updated_date: '2026-05-19 16:45'
+updated_date: '2026-05-25 16:13'
 labels:
   - code-review-rust
   - api-design

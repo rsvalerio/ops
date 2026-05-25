@@ -3,9 +3,9 @@ id: TASK-1529
 title: 'PERF-3: deps resolve_package clones strings DecodedDiagnostic already owns'
 status: To Do
 assignee:
-  - TASK-1574
+  - TASK-1647
 created_date: '2026-05-19 07:33'
-updated_date: '2026-05-19 16:45'
+updated_date: '2026-05-25 16:08'
 labels:
   - code-review-rust
   - performance

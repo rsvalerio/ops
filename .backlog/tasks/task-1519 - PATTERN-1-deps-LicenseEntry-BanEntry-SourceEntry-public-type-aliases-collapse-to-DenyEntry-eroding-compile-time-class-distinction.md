@@ -5,9 +5,9 @@ title: >-
   to DenyEntry, eroding compile-time class distinction
 status: To Do
 assignee:
-  - TASK-1574
+  - TASK-1648
 created_date: '2026-05-19 07:28'
-updated_date: '2026-05-19 16:45'
+updated_date: '2026-05-25 16:08'
 labels:
   - code-review-rust
   - pattern

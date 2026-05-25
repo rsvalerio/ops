@@ -3,9 +3,9 @@ id: TASK-1528
 title: 'PATTERN-3: deps classify_code linear-scans a fixed array per diagnostic line'
 status: To Do
 assignee:
-  - TASK-1574
+  - TASK-1648
 created_date: '2026-05-19 07:33'
-updated_date: '2026-05-19 16:45'
+updated_date: '2026-05-25 16:08'
 labels:
   - code-review-rust
   - pattern

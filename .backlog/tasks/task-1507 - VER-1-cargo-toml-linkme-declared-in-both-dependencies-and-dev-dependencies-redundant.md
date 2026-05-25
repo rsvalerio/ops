@@ -3,11 +3,11 @@ id: TASK-1507
 title: >-
   VER-1: cargo-toml linkme declared in both [dependencies] and
   [dev-dependencies] (redundant)
-status: To Do
+status: Done
 assignee:
-  - TASK-1573
+  - TASK-1641
 created_date: '2026-05-18 19:14'
-updated_date: '2026-05-19 16:45'
+updated_date: '2026-05-25 16:13'
 labels:
   - code-review-rust
   - VER

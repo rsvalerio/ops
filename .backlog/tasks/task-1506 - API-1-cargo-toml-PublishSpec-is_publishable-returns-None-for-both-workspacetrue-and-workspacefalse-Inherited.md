@@ -3,11 +3,11 @@ id: TASK-1506
 title: >-
   API-1: cargo-toml PublishSpec::is_publishable returns None for both
   workspace=true and workspace=false Inherited
-status: To Do
+status: Done
 assignee:
-  - TASK-1573
+  - TASK-1641
 created_date: '2026-05-18 18:04'
-updated_date: '2026-05-19 16:45'
+updated_date: '2026-05-25 16:13'
 labels:
   - code-review-rust
   - api-design

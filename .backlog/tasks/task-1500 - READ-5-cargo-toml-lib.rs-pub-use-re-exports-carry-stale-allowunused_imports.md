@@ -3,11 +3,11 @@ id: TASK-1500
 title: >-
   READ-5: cargo-toml lib.rs pub use re-exports carry stale
   #[allow(unused_imports)]
-status: To Do
+status: Done
 assignee:
-  - TASK-1573
+  - TASK-1641
 created_date: '2026-05-18 18:04'
-updated_date: '2026-05-19 16:45'
+updated_date: '2026-05-25 16:13'
 labels:
   - code-review-rust
   - readability

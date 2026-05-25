@@ -3,11 +3,11 @@ id: TASK-1499
 title: >-
   API-5: cargo-toml constructors CargoTomlExtension/CargoTomlProvider
   new/with_root lack #[must_use]
-status: To Do
+status: Done
 assignee:
-  - TASK-1573
+  - TASK-1641
 created_date: '2026-05-18 18:03'
-updated_date: '2026-05-19 16:45'
+updated_date: '2026-05-25 16:13'
 labels:
   - code-review-rust
   - api-design

@@ -5,9 +5,9 @@ title: >-
   is_breaking arms
 status: To Do
 assignee:
-  - TASK-1574
+  - TASK-1645
 created_date: '2026-05-19 07:32'
-updated_date: '2026-05-19 16:45'
+updated_date: '2026-05-25 16:08'
 labels:
   - code-review-rust
   - duplication
