@@ -3,11 +3,11 @@ id: TASK-1495
 title: >-
   PERF-3: format_severity_section classifies severity twice per row
   (severity_icon + colorize_severity)
-status: To Do
+status: Done
 assignee:
   - TASK-1646
 created_date: '2026-05-18 17:29'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:58'
 labels:
   - code-review-rust
   - performance

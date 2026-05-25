@@ -3,11 +3,11 @@ id: TASK-1526
 title: >-
   READ-5: deps severity_icon/colorize_severity are wrappers that re-classify per
   call
-status: To Do
+status: Done
 assignee:
   - TASK-1646
 created_date: '2026-05-19 07:33'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:58'
 labels:
   - code-review-rust
   - readability

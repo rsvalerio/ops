@@ -3,11 +3,11 @@ id: TASK-1517
 title: >-
   FN-1: deps format_bans_summary spans 70 lines mixing classification, counter
   formatting, and pluralisation
-status: To Do
+status: Done
 assignee:
   - TASK-1646
 created_date: '2026-05-19 07:27'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:58'
 labels:
   - code-review-rust
   - fn

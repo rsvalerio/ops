@@ -3,11 +3,11 @@ id: TASK-1521
 title: >-
   FN-1: deps format_severity_section spans 61 lines and branches on Option<id>
   per-row, duplicating the row-emit path
-status: To Do
+status: Done
 assignee:
   - TASK-1646
 created_date: '2026-05-19 07:28'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:58'
 labels:
   - code-review-rust
   - fn

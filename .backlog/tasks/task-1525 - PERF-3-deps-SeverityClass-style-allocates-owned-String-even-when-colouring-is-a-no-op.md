@@ -3,11 +3,11 @@ id: TASK-1525
 title: >-
   PERF-3: deps SeverityClass::style allocates owned String even when colouring
   is a no-op
-status: To Do
+status: Done
 assignee:
   - TASK-1646
 created_date: '2026-05-19 07:32'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:58'
 labels:
   - code-review-rust
   - performance

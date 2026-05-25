@@ -3,11 +3,11 @@ id: TASK-1530
 title: >-
   READ-5: deps has_issues repeats per-section iter+any pattern 4 times across
   advisories/licenses/bans/sources
-status: To Do
+status: Done
 assignee:
   - TASK-1646
 created_date: '2026-05-19 07:33'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:58'
 labels:
   - code-review-rust
   - readability

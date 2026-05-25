@@ -3,11 +3,11 @@ id: TASK-1520
 title: >-
   DUP-3: deps format_bans_summary open-codes plural-s formatting three times for
   errors/warnings/unknowns
-status: To Do
+status: Done
 assignee:
   - TASK-1646
 created_date: '2026-05-19 07:28'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:58'
 labels:
   - code-review-rust
   - dup
