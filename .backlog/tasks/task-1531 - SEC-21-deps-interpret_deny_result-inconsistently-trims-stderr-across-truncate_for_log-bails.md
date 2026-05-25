@@ -3,11 +3,11 @@ id: TASK-1531
 title: >-
   SEC-21: deps interpret_deny_result inconsistently trims stderr across
   truncate_for_log bails
-status: To Do
+status: Done
 assignee:
   - TASK-1648
 created_date: '2026-05-19 07:33'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 19:06'
 labels:
   - code-review-rust
   - security

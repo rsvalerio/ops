@@ -3,11 +3,11 @@ id: TASK-1519
 title: >-
   PATTERN-1: deps LicenseEntry/BanEntry/SourceEntry public type aliases collapse
   to DenyEntry, eroding compile-time class distinction
-status: To Do
+status: Done
 assignee:
   - TASK-1648
 created_date: '2026-05-19 07:28'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 19:03'
 labels:
   - code-review-rust
   - pattern

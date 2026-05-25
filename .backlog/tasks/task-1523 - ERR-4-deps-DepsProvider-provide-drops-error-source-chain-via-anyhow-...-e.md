@@ -3,11 +3,11 @@ id: TASK-1523
 title: >-
   ERR-4: deps DepsProvider::provide drops error source chain via anyhow!("...:
   {}", e)
-status: To Do
+status: Done
 assignee:
   - TASK-1648
 created_date: '2026-05-19 07:32'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 19:05'
 labels:
   - code-review-rust
   - error-handling

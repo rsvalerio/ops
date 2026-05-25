@@ -3,11 +3,11 @@ id: TASK-1514
 title: >-
   API-5: deps pub parsers/formatters lack #[must_use] (parse_upgrade_table,
   parse_deny_output, format_report)
-status: To Do
+status: Done
 assignee:
   - TASK-1648
 created_date: '2026-05-19 06:39'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 19:03'
 labels:
   - code-review-rust
   - api
