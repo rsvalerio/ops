@@ -1,4 +1,5 @@
 use super::*;
+use crate::workspace_root::content_declares_workspace;
 use std::fs;
 use std::path::Path;
 
@@ -369,4 +370,42 @@ fn find_root_canonicalize_perm_denied_keeps_canonicalize_failed_variant() {
         ),
         "expected typed FindWorkspaceRootError, got: {err:?}"
     );
+}
+
+/// PERF-3 / TASK-1512: `[workspace.metadata]` (a sub-table of workspace)
+/// must still count as declaring a workspace.
+#[test]
+fn content_declares_workspace_subtable() {
+    let content = "[workspace.metadata]\nfoo = \"bar\"\n";
+    assert!(content_declares_workspace(content));
+}
+
+/// PERF-3 / TASK-1512: a string value containing `[workspace]` must NOT
+/// register as declaring a workspace — only real table headers count.
+#[test]
+fn content_declares_workspace_ignores_string_value() {
+    let content = r#"
+[package]
+name = "fake"
+description = """
+This package has a [workspace] reference in a string.
+"""
+version = "0.1.0"
+"#;
+    assert!(!content_declares_workspace(content));
+}
+
+/// PERF-3 / TASK-1512: literal multi-line strings (''') also suppress false
+/// positives.
+#[test]
+fn content_declares_workspace_ignores_literal_multiline_string() {
+    let content = "[package]\nname = 'x'\ndoc = '''\n[workspace]\n'''\nversion = \"1.0\"\n";
+    assert!(!content_declares_workspace(content));
+}
+
+/// PERF-3 / TASK-1512: a real `[workspace]` header is detected.
+#[test]
+fn content_declares_workspace_detects_bare_workspace() {
+    let content = "[workspace]\nmembers = [\"crates/*\"]\n";
+    assert!(content_declares_workspace(content));
 }

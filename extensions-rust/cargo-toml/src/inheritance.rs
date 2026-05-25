@@ -153,6 +153,20 @@ fn resolve_deps_inheritance(
     Ok(())
 }
 
+/// Resolve a single dependency marked `workspace = true` from the workspace
+/// dependency table.
+///
+/// # Intentionally ignored local fields
+///
+/// Cargo forbids a member from overriding the *source* of a workspace-inherited
+/// dependency. When `workspace = true` is set on a detailed dep, only `features`,
+/// `optional`, and `default-features` are meaningful local overrides (see
+/// [`extract_local_overrides`]). Any local `version`, `path`, `git`, `branch`,
+/// `tag`, `rev`, `target`, or `package` field is silently discarded — matching
+/// `cargo`'s behaviour where specifying these alongside `workspace = true` is a
+/// hard error. We drop them silently rather than erroring because ops processes
+/// manifests for reporting, not for build-graph fidelity, and erroring here would
+/// prevent introspection of technically-invalid-but-readable manifests.
 fn resolve_dep_from_workspace(
     name: &str,
     local: &DepSpec,
@@ -233,7 +247,17 @@ fn resolve_from_detailed_dep(ws: &DetailedDepSpec, local: &DepSpec) -> DetailedD
 fn extract_local_overrides(local: &DepSpec) -> (Vec<String>, bool, bool) {
     match local {
         DepSpec::Simple(_) => (vec![], false, true),
-        DepSpec::Detailed(d) => (d.features.clone(), d.optional, d.default_features),
+        DepSpec::Detailed(d) => {
+            if d.version.is_some() || d.path.is_some() || d.git.is_some() {
+                tracing::debug!(
+                    version = ?d.version,
+                    path = ?d.path,
+                    git = ?d.git,
+                    "workspace-inherited dep has local source overrides that will be discarded"
+                );
+            }
+            (d.features.clone(), d.optional, d.default_features)
+        }
     }
 }
 
