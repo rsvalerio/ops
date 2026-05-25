@@ -108,6 +108,7 @@ fn check_row_shape_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Result<()> {
 /// row rather than splitting on whitespace, so multi-word notes (e.g. "pinned
 /// by parent") and any future column additions don't silently shift values
 /// across `UpgradeEntry` fields.
+#[must_use]
 pub fn parse_upgrade_table(stdout: &str) -> Vec<UpgradeEntry> {
     parse_upgrade_table_inner(stdout).0
 }

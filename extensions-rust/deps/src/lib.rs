@@ -10,6 +10,7 @@ mod parse;
 #[cfg(test)]
 mod tests;
 
+use anyhow::Context as _;
 use ops_core::subprocess::{run_cargo, RunError};
 use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
@@ -70,10 +71,39 @@ pub struct DenyEntry {
     pub severity: String,
 }
 
-/// Backwards-compatible type aliases.
-pub type LicenseEntry = DenyEntry;
-pub type BanEntry = DenyEntry;
-pub type SourceEntry = DenyEntry;
+/// Distinct newtypes per diagnostic class — prevents cross-mixing at compile time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct LicenseEntry(pub DenyEntry);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BanEntry(pub DenyEntry);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SourceEntry(pub DenyEntry);
+
+impl std::ops::Deref for LicenseEntry {
+    type Target = DenyEntry;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for BanEntry {
+    type Target = DenyEntry;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for SourceEntry {
+    type Target = DenyEntry;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 /// Combined result from `cargo deny check`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -174,8 +204,8 @@ pub fn ensure_tools() -> anyhow::Result<()> {
 /// failing the command outright — matches the "tolerate broken config"
 /// posture of `cli/main.rs::early_config`.
 pub fn build_user_context() -> anyhow::Result<Context> {
-    let cwd = std::env::current_dir()
-        .map_err(|e| anyhow::anyhow!("reading current working directory for deps command: {e}"))?;
+    let cwd =
+        std::env::current_dir().context("deps: failed to determine current working directory")?;
     let config = ops_core::config::load_config_or_default_at(&cwd, "deps");
     Ok(Context::new(std::sync::Arc::new(config), cwd))
 }
@@ -253,19 +283,26 @@ fn has_issues(report: &DepsReport) -> bool {
         }
     }
 
-    let sections: &[(&[_], bool)] = &[
-        (&report.deny.licenses, false),
-        (&report.deny.bans, true),
-        (&report.deny.sources, false),
-    ];
     report
         .deny
         .advisories
         .iter()
         .any(|e| is_actionable(&e.severity, false))
-        || sections
+        || report
+            .deny
+            .licenses
             .iter()
-            .any(|(entries, relax)| entries.iter().any(|e| is_actionable(&e.severity, *relax)))
+            .any(|e| is_actionable(&e.severity, false))
+        || report
+            .deny
+            .bans
+            .iter()
+            .any(|e| is_actionable(&e.severity, true))
+        || report
+            .deny
+            .sources
+            .iter()
+            .any(|e| is_actionable(&e.severity, false))
 }
 
 // ── Extension + DataProvider ────────────────────────────────────────────────
@@ -311,12 +348,14 @@ impl DataProvider for DepsProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let upgrade_entries = run_cargo_upgrade_dry_run(&ctx.working_directory)
-            .map_err(|e| DataProviderError::from(anyhow::anyhow!("cargo upgrade failed: {}", e)))?;
+            .context("cargo upgrade failed")
+            .map_err(DataProviderError::from)?;
 
         let upgrades = categorize_upgrades(upgrade_entries);
 
         let deny = run_cargo_deny(&ctx.working_directory)
-            .map_err(|e| DataProviderError::from(anyhow::anyhow!("cargo deny failed: {}", e)))?;
+            .context("cargo deny failed")
+            .map_err(DataProviderError::from)?;
 
         let report = DepsReport { upgrades, deny };
         serde_json::to_value(&report).map_err(DataProviderError::from)

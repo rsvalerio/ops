@@ -1,6 +1,6 @@
 //! Parser for `cargo deny check` JSON output.
 
-use crate::{AdvisoryEntry, BanEntry, DenyResult, LicenseEntry, SourceEntry};
+use crate::{AdvisoryEntry, BanEntry, DenyEntry, DenyResult, LicenseEntry, SourceEntry};
 use ops_core::subprocess::run_cargo;
 use serde::Deserialize;
 use std::path::Path;
@@ -23,33 +23,16 @@ enum DiagClass {
     Source,
 }
 
-/// Single source of truth for the cargo-deny diagnostic code dispatch.
-const CODE_CLASSES: &[(&str, DiagClass)] = &[
-    // Advisories
-    ("vulnerability", DiagClass::Advisory),
-    ("notice", DiagClass::Advisory),
-    ("unmaintained", DiagClass::Advisory),
-    ("unsound", DiagClass::Advisory),
-    ("yanked", DiagClass::Advisory),
-    // Licenses
-    ("rejected", DiagClass::License),
-    ("unlicensed", DiagClass::License),
-    ("no-license-field", DiagClass::License),
-    // Bans
-    ("banned", DiagClass::Ban),
-    ("not-allowed", DiagClass::Ban),
-    ("duplicate", DiagClass::Ban),
-    ("workspace-duplicate", DiagClass::Ban),
-    // Sources
-    ("source-not-allowed", DiagClass::Source),
-    ("git-source-underspecified", DiagClass::Source),
-];
-
 fn classify_code(code: &str) -> Option<DiagClass> {
-    CODE_CLASSES
-        .iter()
-        .find(|(c, _)| *c == code)
-        .map(|(_, class)| *class)
+    match code {
+        "vulnerability" | "notice" | "unmaintained" | "unsound" | "yanked" => {
+            Some(DiagClass::Advisory)
+        }
+        "rejected" | "unlicensed" | "no-license-field" => Some(DiagClass::License),
+        "banned" | "not-allowed" | "duplicate" | "workspace-duplicate" => Some(DiagClass::Ban),
+        "source-not-allowed" | "git-source-underspecified" => Some(DiagClass::Source),
+        _ => None,
+    }
 }
 
 /// Run `cargo deny check` and parse the JSON output.
@@ -111,7 +94,7 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
                     "cargo deny exited with status 1 but stderr decoded zero diagnostics; \
                      refusing to score as clean — likely non-JSON (text-mode) output. \
                      stderr (truncated): {:?}",
-                    truncate_for_log(stderr)
+                    truncate_for_log(stderr.trim())
                 );
             }
             Ok(parsed)
@@ -128,7 +111,7 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
             "cargo deny exited with unexpected status code {other}; \
              refusing to treat partial diagnostics as authoritative. \
              stderr (truncated): {:?}",
-            truncate_for_log(stderr)
+            truncate_for_log(stderr.trim())
         ),
     }
 }
@@ -284,20 +267,20 @@ fn push_diagnostic(result: &mut DenyResult, class: DiagClass, mut diag: DecodedD
                 title,
             });
         }
-        DiagClass::License => result.licenses.push(LicenseEntry {
+        DiagClass::License => result.licenses.push(LicenseEntry(DenyEntry {
             package,
             message: diag.message,
             severity: diag.severity,
-        }),
-        DiagClass::Ban => result.bans.push(BanEntry {
+        })),
+        DiagClass::Ban => result.bans.push(BanEntry(DenyEntry {
             package,
             message: diag.message,
             severity: diag.severity,
-        }),
-        DiagClass::Source => result.sources.push(SourceEntry {
+        })),
+        DiagClass::Source => result.sources.push(SourceEntry(DenyEntry {
             package,
             message: diag.message,
             severity: diag.severity,
-        }),
+        })),
     }
 }

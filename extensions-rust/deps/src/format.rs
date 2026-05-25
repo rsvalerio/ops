@@ -77,6 +77,7 @@ impl SeverityClass {
     }
 }
 
+#[must_use]
 pub fn format_report(report: &DepsReport) -> String {
     let mut out = String::new();
 
@@ -389,21 +390,21 @@ mod helper_tests {
     #[test]
     fn bans_summary_unknown_severity_renders_distinctly_from_info() {
         let bans = vec![
-            BanEntry {
+            BanEntry(DenyEntry {
                 package: "dup-a".to_string(),
                 message: "duplicate".to_string(),
                 severity: crate::parse::MISSING_SEVERITY_SENTINEL.to_string(),
-            },
-            BanEntry {
+            }),
+            BanEntry(DenyEntry {
                 package: "dup-b".to_string(),
                 message: "duplicate".to_string(),
                 severity: "critical".to_string(),
-            },
-            BanEntry {
+            }),
+            BanEntry(DenyEntry {
                 package: "dup-c".to_string(),
                 message: "duplicate".to_string(),
                 severity: "info".to_string(),
-            },
+            }),
         ];
 
         let mut out = String::new();

@@ -920,16 +920,16 @@ fn format_report_duplicate_crates_shows_totals_only() {
         upgrades: UpgradeResult::default(),
         deny: DenyResult {
             bans: vec![
-                BanEntry {
+                BanEntry(DenyEntry {
                     package: "hashbrown".into(),
                     message: "found 3 duplicate entries".into(),
                     severity: "warning".into(),
-                },
-                BanEntry {
+                }),
+                BanEntry(DenyEntry {
                     package: "syn".into(),
                     message: "found 2 duplicate entries".into(),
                     severity: "error".into(),
-                },
+                }),
             ],
             ..Default::default()
         },
@@ -976,11 +976,11 @@ fn has_issues_warning_is_actionable_only_on_strict_gate() {
     // Relaxed gate (bans): warning => not actionable.
     let relaxed = DepsReport {
         deny: DenyResult {
-            bans: vec![BanEntry {
+            bans: vec![BanEntry(DenyEntry {
                 package: "a".into(),
                 message: "duplicate".into(),
                 severity: "warning".into(),
-            }],
+            })],
             ..Default::default()
         },
         ..Default::default()
@@ -1077,11 +1077,11 @@ fn has_issues_unknown_severity_fails_closed() {
 fn has_issues_license_error() {
     let report = DepsReport {
         deny: DenyResult {
-            licenses: vec![LicenseEntry {
+            licenses: vec![LicenseEntry(DenyEntry {
                 package: "evil".into(),
                 message: "rejected".into(),
                 severity: "error".into(),
-            }],
+            })],
             ..Default::default()
         },
         ..Default::default()
@@ -1093,11 +1093,11 @@ fn has_issues_license_error() {
 fn has_issues_license_warning() {
     let report = DepsReport {
         deny: DenyResult {
-            licenses: vec![LicenseEntry {
+            licenses: vec![LicenseEntry(DenyEntry {
                 package: "sketchy".into(),
                 message: "unclear".into(),
                 severity: "warning".into(),
-            }],
+            })],
             ..Default::default()
         },
         ..Default::default()
@@ -1109,11 +1109,11 @@ fn has_issues_license_warning() {
 fn has_issues_ban_error() {
     let report = DepsReport {
         deny: DenyResult {
-            bans: vec![BanEntry {
+            bans: vec![BanEntry(DenyEntry {
                 package: "banned".into(),
                 message: "not allowed".into(),
                 severity: "error".into(),
-            }],
+            })],
             ..Default::default()
         },
         ..Default::default()
@@ -1125,11 +1125,11 @@ fn has_issues_ban_error() {
 fn has_issues_ban_warning_not_actionable() {
     let report = DepsReport {
         deny: DenyResult {
-            bans: vec![BanEntry {
+            bans: vec![BanEntry(DenyEntry {
                 package: "dup".into(),
                 message: "duplicate".into(),
                 severity: "warning".into(),
-            }],
+            })],
             ..Default::default()
         },
         ..Default::default()
@@ -1144,11 +1144,11 @@ fn has_issues_ban_warning_not_actionable() {
 fn has_issues_ban_critical_severity_fails_closed() {
     let report = DepsReport {
         deny: DenyResult {
-            bans: vec![BanEntry {
+            bans: vec![BanEntry(DenyEntry {
                 package: "dangerous".into(),
                 message: "critical ban".into(),
                 severity: "critical".into(),
-            }],
+            })],
             ..Default::default()
         },
         ..Default::default()
@@ -1163,11 +1163,11 @@ fn has_issues_ban_critical_severity_fails_closed() {
 fn has_issues_source_error() {
     let report = DepsReport {
         deny: DenyResult {
-            sources: vec![SourceEntry {
+            sources: vec![SourceEntry(DenyEntry {
                 package: "untrusted".into(),
                 message: "bad source".into(),
                 severity: "error".into(),
-            }],
+            })],
             ..Default::default()
         },
         ..Default::default()
@@ -1179,11 +1179,11 @@ fn has_issues_source_error() {
 fn has_issues_source_warning() {
     let report = DepsReport {
         deny: DenyResult {
-            sources: vec![SourceEntry {
+            sources: vec![SourceEntry(DenyEntry {
                 package: "sketchy".into(),
                 message: "underspecified".into(),
                 severity: "warning".into(),
-            }],
+            })],
             ..Default::default()
         },
         ..Default::default()
@@ -1199,16 +1199,16 @@ fn format_report_with_license_issues() {
         upgrades: UpgradeResult::default(),
         deny: DenyResult {
             licenses: vec![
-                LicenseEntry {
+                LicenseEntry(DenyEntry {
                     package: "gpl-crate".into(),
                     message: "license rejected: GPL-3.0".into(),
                     severity: "error".into(),
-                },
-                LicenseEntry {
+                }),
+                LicenseEntry(DenyEntry {
                     package: "unknown-lic".into(),
                     message: "no license field".into(),
                     severity: "warning".into(),
-                },
+                }),
             ],
             ..Default::default()
         },
@@ -1225,11 +1225,11 @@ fn format_report_with_source_issues() {
     let report = DepsReport {
         upgrades: UpgradeResult::default(),
         deny: DenyResult {
-            sources: vec![SourceEntry {
+            sources: vec![SourceEntry(DenyEntry {
                 package: "sketchy-src".into(),
                 message: "source not allowed".into(),
                 severity: "error".into(),
-            }],
+            })],
             ..Default::default()
         },
     };
@@ -1246,11 +1246,11 @@ fn format_report_bans_info_only() {
     let report = DepsReport {
         upgrades: UpgradeResult::default(),
         deny: DenyResult {
-            bans: vec![BanEntry {
+            bans: vec![BanEntry(DenyEntry {
                 package: "hashbrown".into(),
                 message: "found 2 duplicate entries".into(),
                 severity: "info".into(),
-            }],
+            })],
             ..Default::default()
         },
     };
@@ -1267,31 +1267,31 @@ fn format_report_bans_plural_errors_and_warnings() {
         upgrades: UpgradeResult::default(),
         deny: DenyResult {
             bans: vec![
-                BanEntry {
+                BanEntry(DenyEntry {
                     package: "a".into(),
                     message: "banned".into(),
                     severity: "error".into(),
-                },
-                BanEntry {
+                }),
+                BanEntry(DenyEntry {
                     package: "b".into(),
                     message: "banned".into(),
                     severity: "error".into(),
-                },
-                BanEntry {
+                }),
+                BanEntry(DenyEntry {
                     package: "c".into(),
                     message: "dup".into(),
                     severity: "warning".into(),
-                },
-                BanEntry {
+                }),
+                BanEntry(DenyEntry {
                     package: "d".into(),
                     message: "dup".into(),
                     severity: "warning".into(),
-                },
-                BanEntry {
+                }),
+                BanEntry(DenyEntry {
                     package: "e".into(),
                     message: "dup".into(),
                     severity: "warning".into(),
-                },
+                }),
             ],
             ..Default::default()
         },
@@ -1544,5 +1544,24 @@ fn interpret_deny_result_exit_two_debug_escapes_stderr_tail() {
     assert!(
         msg.contains("invalid TOML"),
         "expected stderr context preserved: {msg}"
+    );
+}
+
+// -- ERR-4 / TASK-1523: error source chain preserved through .context() --
+
+#[test]
+fn provide_error_preserves_source_chain() {
+    use anyhow::Context as _;
+    use ops_extension::DataProviderError;
+
+    let root = std::io::Error::new(std::io::ErrorKind::NotFound, "cargo not found");
+    let wrapped: anyhow::Error = anyhow::Error::from(root);
+    let with_context: anyhow::Error = wrapped.context("cargo upgrade failed");
+    let provider_err = DataProviderError::from(with_context);
+
+    let err: &dyn std::error::Error = &provider_err;
+    assert!(
+        err.source().is_some(),
+        "DataProviderError must preserve the error source chain"
     );
 }
