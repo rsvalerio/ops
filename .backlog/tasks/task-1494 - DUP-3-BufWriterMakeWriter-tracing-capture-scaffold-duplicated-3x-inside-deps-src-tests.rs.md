@@ -3,11 +3,11 @@ id: TASK-1494
 title: >-
   DUP-3: BufWriter+MakeWriter tracing-capture scaffold duplicated 3x inside
   deps/src/tests.rs
-status: To Do
+status: Done
 assignee:
   - TASK-1647
 created_date: '2026-05-18 17:28'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 18:53'
 labels:
   - code-review-rust
   - duplication

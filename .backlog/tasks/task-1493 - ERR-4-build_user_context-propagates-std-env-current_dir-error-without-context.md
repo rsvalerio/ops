@@ -3,11 +3,11 @@ id: TASK-1493
 title: >-
   ERR-4: build_user_context propagates std::env::current_dir error without
   context
-status: To Do
+status: Done
 assignee:
   - TASK-1647
 created_date: '2026-05-18 17:28'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 18:53'
 labels:
   - code-review-rust
   - error-handling

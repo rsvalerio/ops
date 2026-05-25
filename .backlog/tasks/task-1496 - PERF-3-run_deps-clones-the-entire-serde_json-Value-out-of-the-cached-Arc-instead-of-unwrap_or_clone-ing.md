@@ -3,11 +3,11 @@ id: TASK-1496
 title: >-
   PERF-3: run_deps clones the entire serde_json::Value out of the cached Arc
   instead of unwrap_or_clone-ing
-status: To Do
+status: Done
 assignee:
   - TASK-1647
 created_date: '2026-05-18 17:29'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 18:53'
 labels:
   - code-review-rust
   - performance

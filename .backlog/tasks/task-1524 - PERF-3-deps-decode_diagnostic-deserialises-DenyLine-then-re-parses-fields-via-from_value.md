@@ -3,11 +3,11 @@ id: TASK-1524
 title: >-
   PERF-3: deps decode_diagnostic deserialises DenyLine then re-parses fields via
   from_value
-status: To Do
+status: Done
 assignee:
   - TASK-1647
 created_date: '2026-05-19 07:32'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 18:53'
 labels:
   - code-review-rust
   - performance
