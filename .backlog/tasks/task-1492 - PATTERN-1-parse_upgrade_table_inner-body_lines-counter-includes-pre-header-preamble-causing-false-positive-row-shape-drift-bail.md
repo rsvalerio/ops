@@ -3,11 +3,11 @@ id: TASK-1492
 title: >-
   PATTERN-1: parse_upgrade_table_inner body_lines counter includes pre-header
   preamble, causing false-positive row-shape-drift bail
-status: To Do
+status: Done
 assignee:
   - TASK-1645
 created_date: '2026-05-18 17:28'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:40'
 labels:
   - code-review-rust
   - correctness

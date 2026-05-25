@@ -3,11 +3,11 @@ id: TASK-1527
 title: >-
   PATTERN-1: deps separator_columns mutates cols in-place via index loop after
   collection
-status: To Do
+status: Done
 assignee:
   - TASK-1645
 created_date: '2026-05-19 07:33'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:45'
 labels:
   - code-review-rust
   - pattern

@@ -3,11 +3,11 @@ id: TASK-1518
 title: >-
   FN-1: deps parse_upgrade_table_inner spans 72 lines combining header /
   separator / body / diagnostics state
-status: To Do
+status: Done
 assignee:
   - TASK-1645
 created_date: '2026-05-19 07:27'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:44'
 labels:
   - code-review-rust
   - fn

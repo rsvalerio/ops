@@ -3,11 +3,11 @@ id: TASK-1515
 title: >-
   FN-4: deps format_upgrade_section takes bool is_breaking flag with three
   downstream branches
-status: To Do
+status: Done
 assignee:
   - TASK-1645
 created_date: '2026-05-19 07:27'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:41'
 labels:
   - code-review-rust
   - fn

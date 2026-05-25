@@ -3,11 +3,11 @@ id: TASK-1522
 title: >-
   DUP-1: deps format_upgrade_section duplicates row-write scaffolding across
   is_breaking arms
-status: To Do
+status: Done
 assignee:
   - TASK-1645
 created_date: '2026-05-19 07:32'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:41'
 labels:
   - code-review-rust
   - duplication

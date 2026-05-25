@@ -3,11 +3,11 @@ id: TASK-1516
 title: >-
   FN-1: deps interpret_upgrade_output Some(0) arm packs header-drift,
   row-shape-drift, and parse into a 73-line function
-status: To Do
+status: Done
 assignee:
   - TASK-1645
 created_date: '2026-05-19 07:27'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:42'
 labels:
   - code-review-rust
   - fn

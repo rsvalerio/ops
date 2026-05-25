@@ -3,11 +3,11 @@ id: TASK-1532
 title: >-
   FN-1: deps parse_upgrade_row mixes column slicing, validation, and note
   extraction in 54-line body
-status: To Do
+status: Done
 assignee:
   - TASK-1645
 created_date: '2026-05-19 07:33'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:45'
 labels:
   - code-review-rust
   - function-shape
