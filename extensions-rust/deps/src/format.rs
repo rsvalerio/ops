@@ -2,6 +2,7 @@
 
 use crate::{BanEntry, DepsReport, UpgradeEntry};
 use ops_core::style::{bold, dim, green, red, yellow};
+use std::borrow::Cow;
 use std::fmt::Write as _;
 
 const P: &str = "  "; // left padding for the entire report
@@ -58,31 +59,22 @@ impl SeverityClass {
         }
     }
 
-    fn style(self, text: &str) -> String {
+    fn style<'a>(self, text: &'a str) -> Cow<'a, str> {
         match self {
             Self::Error | Self::Unknown => red(text),
             Self::Warning => yellow(text),
             Self::Info => dim(text),
         }
-        .into_owned()
     }
-}
 
-fn severity_icon(severity: &str) -> &'static str {
-    SeverityClass::classify(severity).icon()
-}
-
-fn colorize_severity(text: &str, severity: &str) -> String {
-    let class = SeverityClass::classify(severity);
-    if class == SeverityClass::Unknown {
-        // ERR-2 / TASK-0602: a single warn per render so the operator log
-        // carries the offending value alongside the visible red `?` icon.
-        tracing::warn!(
-            severity = %severity,
-            "TASK-0602: unknown cargo-deny severity rendered with fallback style"
-        );
+    fn label(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Error => ("error", "errors"),
+            Self::Warning => ("warning", "warnings"),
+            Self::Info => ("info", "info"),
+            Self::Unknown => ("unknown severity", "unknown severities"),
+        }
     }
-    class.style(text)
 }
 
 pub fn format_report(report: &DepsReport) -> String {
@@ -226,47 +218,33 @@ fn format_severity_section<T, F>(
         format_empty_section(out, title);
         return;
     }
-    // PERF-3 / TASK-0880: re-apply `extract` for the width passes instead
-    // of materialising every projected row up front. The closure is a pure
-    // borrow-projection so re-running it is free; the previous Vec was the
-    // single allocation contradicting this function's "one allocation per
-    // render" intent (PERF-3 / TASK-0802 above). The borrow contract is
-    // preserved: `AdvisoryRow<'a>` still borrows from `entries`.
     let _ = writeln!(out, "{P}{} ({}):", title, entries.len());
-    let pkg_width = entries
+    let pkg_w = entries
         .iter()
         .map(|e| extract(e).package.len())
         .max()
         .unwrap_or(0);
-    let id_width = entries
+    let id_w = entries
         .iter()
         .filter_map(|e| extract(e).id.map(str::len))
         .max()
         .unwrap_or(0);
+    let mut warned_unknown = false;
     for entry in entries {
         let row = extract(entry);
-        let icon = severity_icon(row.severity);
-        if let Some(id) = row.id {
-            let _ = writeln!(
-                out,
-                "{P}    {} {:<id_w$}  {:<pkg_w$}  {}",
-                colorize_severity(icon, row.severity),
-                id,
-                row.package,
-                dim(row.message),
-                id_w = id_width,
-                pkg_w = pkg_width,
-            );
-        } else {
-            let _ = writeln!(
-                out,
-                "{P}    {} {:<pkg_w$}  {}",
-                colorize_severity(icon, row.severity),
-                row.package,
-                dim(row.message),
-                pkg_w = pkg_width,
+        let class = SeverityClass::classify(row.severity);
+        if class == SeverityClass::Unknown && !warned_unknown {
+            warned_unknown = true;
+            tracing::warn!(
+                severity = %row.severity,
+                "TASK-0602: unknown cargo-deny severity rendered with fallback style"
             );
         }
+        let _ = write!(out, "{P}    {} ", class.style(class.icon()));
+        if let Some(id) = row.id {
+            let _ = write!(out, "{:<id_w$}  ", id);
+        }
+        let _ = writeln!(out, "{:<pkg_w$}  {}", row.package, dim(row.message));
     }
     out.push('\n');
     for line in advice.lines() {
@@ -276,66 +254,34 @@ fn format_severity_section<T, F>(
 }
 
 fn format_bans_summary(out: &mut String, bans: &[BanEntry]) {
+    use SeverityClass::{Error, Info, Unknown, Warning};
+
     let title = "\u{1f4e6} Duplicate Crates";
     if bans.is_empty() {
         format_empty_section(out, title);
         return;
     }
-    // PATTERN-1 / TASK-1041: classify each ban via SeverityClass so unknown /
-    // <missing-severity> entries land in their own bucket rendered in red,
-    // matching the fail-closed gate decision made by `has_issues`. The
-    // previous implementation lumped every non-error / non-warning entry
-    // (including the MISSING_SEVERITY_SENTINEL and any future cargo-deny
-    // severity like `critical`) into a dim "info" counter, contradicting
-    // the gate and hiding schema-drift signal from the operator-facing
-    // summary line.
-    let mut errors = 0usize;
-    let mut warnings = 0usize;
-    let mut infos = 0usize;
-    let mut unknowns = 0usize;
+
+    const CLASSES: [SeverityClass; 4] = [Error, Warning, Info, Unknown];
+    let mut counts = [0usize; 4];
     for b in bans {
-        match SeverityClass::classify(&b.severity) {
-            SeverityClass::Error => errors += 1,
-            SeverityClass::Warning => warnings += 1,
-            SeverityClass::Info => infos += 1,
-            SeverityClass::Unknown => unknowns += 1,
-        }
+        let idx = CLASSES
+            .iter()
+            .position(|&c| c == SeverityClass::classify(&b.severity))
+            .unwrap();
+        counts[idx] += 1;
     }
 
-    let mut parts: Vec<String> = Vec::new();
-    if errors > 0 {
-        parts.push(
-            red(&format!(
-                "{} error{}",
-                errors,
-                if errors == 1 { "" } else { "s" }
-            ))
-            .into_owned(),
-        );
-    }
-    if warnings > 0 {
-        parts.push(
-            yellow(&format!(
-                "{} warning{}",
-                warnings,
-                if warnings == 1 { "" } else { "s" }
-            ))
-            .into_owned(),
-        );
-    }
-    if infos > 0 {
-        parts.push(dim(&format!("{infos} info")).into_owned());
-    }
-    if unknowns > 0 {
-        parts.push(
-            red(&format!(
-                "{} unknown severit{}",
-                unknowns,
-                if unknowns == 1 { "y" } else { "ies" }
-            ))
-            .into_owned(),
-        );
-    }
+    let parts: Vec<String> = CLASSES
+        .iter()
+        .zip(&counts)
+        .filter(|(_, &n)| n > 0)
+        .map(|(&class, &n)| {
+            let (singular, plural) = class.label();
+            let label = if n == 1 { singular } else { plural };
+            class.style(&format!("{n} {label}")).into_owned()
+        })
+        .collect();
 
     let _ = writeln!(
         out,
@@ -381,31 +327,24 @@ mod helper_tests {
         assert!(out.contains("buffer overflow"));
     }
 
-    /// DUP-3 / TASK-0972: every known severity must round-trip identically
-    /// through `severity_icon` and `colorize_severity` (same `SeverityClass`).
-    /// Adding a new severity (e.g. `critical`) is now a one-line edit on the
-    /// enum and this test guards the icon/style pair from drifting.
     #[test]
     fn known_severities_round_trip_through_classifier() {
         for sev in ["error", "warning", "note", "help", "info"] {
-            let class_from_icon = match severity_icon(sev) {
+            let class = SeverityClass::classify(sev);
+            let icon_class = match class.icon() {
                 "\u{2718}" => SeverityClass::Error,
                 "\u{26a0}" => SeverityClass::Warning,
                 "\u{2139}" => SeverityClass::Info,
                 other => panic!("unexpected icon `{other}` for severity `{sev}`"),
             };
-            let class_direct = SeverityClass::classify(sev);
             assert_eq!(
-                class_direct, class_from_icon,
+                class, icon_class,
                 "icon and classifier disagree for severity `{sev}`"
             );
-            // colorize_severity must use the same class — the styled string
-            // contains the SGR prefix that matches the chosen colour.
-            let styled = colorize_severity("x", sev);
-            let expected = class_direct.style("x");
             assert_eq!(
-                styled, expected,
-                "colorize_severity diverged from SeverityClass::style for `{sev}`"
+                class.style("x").as_ref(),
+                SeverityClass::classify(sev).style("x").as_ref(),
+                "style diverged for `{sev}`"
             );
         }
     }
@@ -414,8 +353,8 @@ mod helper_tests {
     fn unknown_severity_classifies_to_red_question_mark() {
         let class = SeverityClass::classify("critical");
         assert_eq!(class, SeverityClass::Unknown);
-        assert_eq!(severity_icon("critical"), "?");
-        assert_eq!(colorize_severity("x", "critical"), red("x"));
+        assert_eq!(class.icon(), "?");
+        assert_eq!(class.style("x").as_ref(), red("x").as_ref());
     }
 
     #[test]

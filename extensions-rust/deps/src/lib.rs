@@ -252,26 +252,19 @@ fn has_issues(report: &DepsReport) -> bool {
         }
     }
 
+    let sections: &[(&[_], bool)] = &[
+        (&report.deny.licenses, false),
+        (&report.deny.bans, true),
+        (&report.deny.sources, false),
+    ];
     report
         .deny
         .advisories
         .iter()
         .any(|e| is_actionable(&e.severity, false))
-        || report
-            .deny
-            .licenses
+        || sections
             .iter()
-            .any(|e| is_actionable(&e.severity, false))
-        || report
-            .deny
-            .bans
-            .iter()
-            .any(|e| is_actionable(&e.severity, true))
-        || report
-            .deny
-            .sources
-            .iter()
-            .any(|e| is_actionable(&e.severity, false))
+            .any(|(entries, relax)| entries.iter().any(|e| is_actionable(&e.severity, *relax)))
 }
 
 // ── Extension + DataProvider ────────────────────────────────────────────────
