@@ -50,7 +50,6 @@ pub struct CargoToml {
     pub features: BTreeMap<String, Vec<String>>,
 }
 
-#[allow(dead_code)]
 impl CargoToml {
     /// Parse Cargo.toml content from a string.
     ///
@@ -222,11 +221,17 @@ pub enum PublishSpec {
     None,
 }
 
-#[allow(dead_code)]
 impl PublishSpec {
     /// Returns `Some(true)` if publishing is allowed (to any registry),
     /// `Some(false)` if publishing is explicitly disabled, and `None` for
     /// unresolved [`PublishSpec::Inherited`] values.
+    ///
+    /// `None` is returned for **any** `Inherited` variant, regardless of
+    /// the inner `workspace` flag: both `workspace = true` (actual
+    /// inheritance request) and `workspace = false` (no-op declaration
+    /// that Cargo rejects) map to `None`. Callers should resolve
+    /// workspace inheritance before querying publishability, or treat
+    /// `None` as "do not publish".
     ///
     /// API / TASK-1196: previously returned `bool` and matched
     /// `Inherited { .. }` as `true`, silently flipping the safe default
@@ -346,7 +351,6 @@ pub enum DepSpec {
     Detailed(DetailedDepSpec),
 }
 
-#[allow(dead_code)]
 impl DepSpec {
     /// Returns the inner `DetailedDepSpec` if this is a `Detailed` variant.
     pub fn detail(&self) -> Option<&DetailedDepSpec> {

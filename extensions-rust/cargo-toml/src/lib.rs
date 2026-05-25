@@ -60,9 +60,7 @@ mod inheritance;
 mod tests;
 mod types;
 
-#[allow(unused_imports)]
 pub use inheritance::InheritanceError;
-#[allow(unused_imports)]
 pub use types::{
     CargoToml, DepSpec, DetailedDepSpec, Package, PublishSpec, ReadmeSpec, Workspace,
     WorkspacePackage,
@@ -105,9 +103,7 @@ impl FindWorkspaceRootError {
 }
 
 pub const NAME: &str = "cargo-toml";
-#[allow(dead_code)]
 pub const DESCRIPTION: &str = "Cargo.toml manifest parser and workspace data provider";
-#[allow(dead_code)]
 pub const SHORTNAME: &str = "cargo";
 pub const DATA_PROVIDER_NAME: &str = "cargo_toml";
 
@@ -129,18 +125,20 @@ pub const DATA_PROVIDER_NAME: &str = "cargo_toml";
 /// // Or specify explicit root
 /// let ext = CargoTomlExtension::with_root(PathBuf::from("/path/to/workspace"));
 /// ```
+#[derive(Debug)]
 pub struct CargoTomlExtension {
     root: Option<PathBuf>,
 }
 
 impl CargoTomlExtension {
     /// Create extension that auto-discovers workspace root from working directory.
+    #[must_use]
     pub fn new() -> Self {
         Self { root: None }
     }
 
     /// Create extension with an explicit workspace root path.
-    #[allow(dead_code)]
+    #[must_use]
     pub fn with_root(root: PathBuf) -> Self {
         Self { root: Some(root) }
     }
@@ -181,17 +179,20 @@ ops_extension::impl_extension! {
 /// - Returns fresh data on each call (no internal caching)
 ///
 /// Consumers should use `Context::get_or_provide()` for caching.
+#[derive(Debug)]
 pub struct CargoTomlProvider {
     root: Option<PathBuf>,
 }
 
 impl CargoTomlProvider {
     /// Create provider that auto-discovers workspace root.
+    #[must_use]
     pub fn new() -> Self {
         Self { root: None }
     }
 
     /// Create provider with an explicit workspace root path.
+    #[must_use]
     pub fn with_root(root: PathBuf) -> Self {
         Self { root: Some(root) }
     }
@@ -200,7 +201,7 @@ impl CargoTomlProvider {
         if let Some(root) = &self.root {
             return Ok(root.clone());
         }
-        Ok(find_workspace_root(working_dir)?)
+        find_workspace_root(working_dir).map_err(Into::into)
     }
 }
 
