@@ -138,7 +138,7 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
 struct DenyLine {
     #[serde(rename = "type")]
     line_type: String,
-    fields: serde_json::Value,
+    fields: DiagnosticFields,
 }
 
 #[derive(Deserialize)]
@@ -191,17 +191,7 @@ fn decode_diagnostic(trimmed: &str) -> Option<DecodedDiagnostic> {
     if deny_line.line_type != "diagnostic" {
         return None;
     }
-    let fields: DiagnosticFields = match serde_json::from_value(deny_line.fields) {
-        Ok(f) => f,
-        Err(e) => {
-            tracing::debug!(
-                error = %e,
-                line = %truncate_for_log(trimmed),
-                "ERR-1: skipping cargo-deny diagnostic with unexpected fields shape"
-            );
-            return None;
-        }
-    };
+    let fields = deny_line.fields;
     let code = fields.code?;
     let severity = match fields.severity {
         Some(s) => s,
@@ -231,16 +221,16 @@ fn decode_diagnostic(trimmed: &str) -> Option<DecodedDiagnostic> {
 /// "schema drift surfaces, doesn't silently mute the gate".
 pub(crate) const MISSING_SEVERITY_SENTINEL: &str = "<missing-severity>";
 
-fn resolve_package(diag: &DecodedDiagnostic) -> String {
+fn resolve_package(diag: &mut DecodedDiagnostic) -> String {
     diag.advisory
-        .as_ref()
-        .and_then(|a| a.package.clone())
+        .as_mut()
+        .and_then(|a| a.package.take())
         .or_else(|| {
             diag.graphs
-                .as_ref()
-                .and_then(|g| g.first())
-                .and_then(|g| g.krate.as_ref())
-                .map(|k| k.name.clone())
+                .as_mut()
+                .and_then(|g| g.first_mut())
+                .and_then(|g| g.krate.as_mut())
+                .map(|k| std::mem::take(&mut k.name))
         })
         .unwrap_or_else(|| {
             tracing::debug!(
@@ -279,16 +269,13 @@ pub fn parse_deny_output(stderr: &str) -> DenyResult {
     result
 }
 
-fn push_diagnostic(result: &mut DenyResult, class: DiagClass, diag: DecodedDiagnostic) {
-    let package = resolve_package(&diag);
+fn push_diagnostic(result: &mut DenyResult, class: DiagClass, mut diag: DecodedDiagnostic) {
+    let package = resolve_package(&mut diag);
     match class {
         DiagClass::Advisory => {
-            let (id, title) = match &diag.advisory {
-                Some(adv) => (
-                    adv.id.clone(),
-                    adv.title.clone().unwrap_or_else(|| diag.message.clone()),
-                ),
-                None => (diag.code.clone(), diag.message.clone()),
+            let (id, title) = match diag.advisory {
+                Some(adv) => (adv.id, adv.title.unwrap_or(diag.message)),
+                None => (diag.code, diag.message),
             };
             result.advisories.push(AdvisoryEntry {
                 id,

@@ -174,7 +174,8 @@ pub fn ensure_tools() -> anyhow::Result<()> {
 /// failing the command outright — matches the "tolerate broken config"
 /// posture of `cli/main.rs::early_config`.
 pub fn build_user_context() -> anyhow::Result<Context> {
-    let cwd = std::env::current_dir()?;
+    let cwd = std::env::current_dir()
+        .map_err(|e| anyhow::anyhow!("reading current working directory for deps command: {e}"))?;
     let config = ops_core::config::load_config_or_default_at(&cwd, "deps");
     Ok(Context::new(std::sync::Arc::new(config), cwd))
 }
@@ -202,7 +203,7 @@ pub fn run_deps(
     }
 
     let value = ctx.get_or_provide(DATA_PROVIDER_NAME, data_registry)?;
-    let report: DepsReport = serde_json::from_value((*value).clone())?;
+    let report: DepsReport = serde_json::from_value(std::sync::Arc::unwrap_or_clone(value))?;
 
     print!("{}", format_report(&report));
 

@@ -2,6 +2,49 @@
 
 use super::*;
 
+mod tracing_capture {
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+    use tracing::Level;
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    pub struct BufWriter(pub Arc<Mutex<Vec<u8>>>);
+
+    impl Write for BufWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for BufWriter {
+        type Writer = BufWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    pub fn with_captured_logs<F, R>(level: Level, ansi: bool, f: F) -> (R, String)
+    where
+        F: FnOnce() -> R,
+    {
+        let buf = BufWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(level)
+            .with_writer(buf.clone())
+            .with_ansi(ansi)
+            .without_time()
+            .finish();
+        let result = tracing::subscriber::with_default(subscriber, f);
+        let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+        (result, logged)
+    }
+}
+
 // -- Extension trait tests --
 
 mod extension_tests {
@@ -147,35 +190,6 @@ serde  1.0.100 1.0.228    1.0.228 1.0.228
 /// `tracing` test subscriber to assert the warn fires.
 #[test]
 fn parse_upgrade_table_warns_on_missing_separator() {
-    use tracing::subscriber::with_default;
-    use tracing::Level;
-    use tracing_subscriber::fmt::MakeWriter;
-
-    #[derive(Clone, Default)]
-    struct BufWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-    impl std::io::Write for BufWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    let buf = BufWriter::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(Level::WARN)
-        .with_writer(buf.clone())
-        .without_time()
-        .finish();
-
     // Hypothetical drifted format: no `====` row and an unrecognised header.
     let stdout = "\
 Paquete  Versión actual  Última
@@ -183,13 +197,14 @@ serde    1.0.100         1.0.228
 tokio    1.35.0          1.38.0
 ";
 
-    let entries = with_default(subscriber, || parse_upgrade_table(stdout));
+    let (entries, logged) =
+        tracing_capture::with_captured_logs(tracing::Level::WARN, false, || {
+            parse_upgrade_table(stdout)
+        });
     assert!(
         entries.is_empty(),
         "unparseable table must yield no entries"
     );
-
-    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
     assert!(
         logged.contains("TASK-1026") && logged.contains("separator"),
         "expected a TASK-1026 separator-drift warn; got: {logged}"
@@ -353,35 +368,6 @@ fn interpret_upgrade_output_parses_on_clean_exit() {
 /// bail so the supply-chain gate fails loudly on cargo-edit format drift.
 #[test]
 fn interpret_upgrade_output_bails_on_unrecognised_header_with_separator() {
-    use tracing::subscriber::with_default;
-    use tracing::Level;
-    use tracing_subscriber::fmt::MakeWriter;
-
-    #[derive(Clone, Default)]
-    struct BufWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-    impl std::io::Write for BufWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    let buf = BufWriter::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(Level::WARN)
-        .with_writer(buf.clone())
-        .without_time()
-        .finish();
-
     // Renamed header columns ("Package" / "Current Req" / "Available") with
     // a real `====` separator and one body row. Pre-fix this would silently
     // parse and return 1 entry; post-fix it bails with a TASK-1074 warn.
@@ -389,7 +375,7 @@ fn interpret_upgrade_output_bails_on_unrecognised_header_with_separator() {
                    ======= =========== ========= ======  ====== ====\n\
                    serde   1.0.100     1.0.228   1.0.228 1.0.228\n";
 
-    let result = with_default(subscriber, || {
+    let (result, logged) = tracing_capture::with_captured_logs(tracing::Level::WARN, false, || {
         crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
     });
 
@@ -400,8 +386,6 @@ fn interpret_upgrade_output_bails_on_unrecognised_header_with_separator() {
         msg.contains("header") && (msg.contains("not recognised") || msg.contains("drift")),
         "error must call out header-drift; got: {msg}"
     );
-
-    let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
     assert!(
         logged.contains("TASK-1074") && logged.contains("header"),
         "expected a TASK-1074 header-drift warn; got: {logged}"
@@ -1450,53 +1434,20 @@ fn deps_report_serialization_round_trip() {
 #[test]
 #[serial_test::serial]
 fn parse_deny_output_skips_malformed_json_with_tracing() {
-    use std::io::Write;
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
+    // First line is malformed JSON; second has valid envelope but bad fields
+    // shape. Both should be skipped; both should log.
+    let stderr = "{not json\n{\"type\":\"diagnostic\",\"fields\":42}\n";
 
-    #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-    impl Write for BufWriter {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    let buf = BufWriter::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf.clone())
-        .with_max_level(tracing::Level::DEBUG)
-        .with_ansi(false)
-        .finish();
-
-    tracing::subscriber::with_default(subscriber, || {
-        // First line is malformed JSON; second has valid envelope but bad fields
-        // shape. Both should be skipped; both should log.
-        let stderr = "{not json\n{\"type\":\"diagnostic\",\"fields\":42}\n";
-        let result = parse::parse_deny_output(stderr);
-        assert!(result.advisories.is_empty());
-
-        let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
-        assert!(logged.contains("ERR-1"), "missing ERR-1 marker: {logged}");
-        assert!(
-            logged.contains("malformed cargo-deny JSON line"),
-            "missing malformed-line message: {logged}"
-        );
-        assert!(
-            logged.contains("unexpected fields shape"),
-            "missing fields-shape message: {logged}"
-        );
-    });
+    let (result, logged) =
+        tracing_capture::with_captured_logs(tracing::Level::DEBUG, false, || {
+            parse::parse_deny_output(stderr)
+        });
+    assert!(result.advisories.is_empty());
+    assert!(logged.contains("ERR-1"), "missing ERR-1 marker: {logged}");
+    assert!(
+        logged.contains("malformed cargo-deny JSON line"),
+        "missing malformed-line message: {logged}"
+    );
 }
 
 /// ASYNC-6 (TASK-0791): `check_tool_in` must surface a clear timeout error
