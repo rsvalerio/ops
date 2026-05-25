@@ -1,5 +1,6 @@
 use super::*;
 use ops_core::config::Config;
+use ops_extension::DataProviderError;
 use std::sync::Arc;
 
 fn test_context(working_dir: PathBuf) -> Context {
@@ -26,9 +27,11 @@ fn provider_missing_cargo_toml() {
     let provider = CargoTomlProvider::with_root(temp_dir.path().to_path_buf());
     let mut ctx = test_context(temp_dir.path().to_path_buf());
 
-    let result = provider.provide(&mut ctx);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("reading"));
+    let err = provider.provide(&mut ctx).unwrap_err();
+    assert!(
+        matches!(err, DataProviderError::ComputationFailed(_)),
+        "expected ComputationFailed for missing file, got: {err:?}"
+    );
 }
 
 #[test]
@@ -40,9 +43,11 @@ fn provider_invalid_toml() {
     let provider = CargoTomlProvider::with_root(temp_dir.path().to_path_buf());
     let mut ctx = test_context(temp_dir.path().to_path_buf());
 
-    let result = provider.provide(&mut ctx);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("parsing"));
+    let err = provider.provide(&mut ctx).unwrap_err();
+    assert!(
+        matches!(err, DataProviderError::ComputationFailed(_)),
+        "expected ComputationFailed for invalid TOML, got: {err:?}"
+    );
 }
 
 /// TQ-EFF-002: Test that unreadable files return an error.
