@@ -3,11 +3,11 @@ id: TASK-1512
 title: >-
   PERF-3: manifest_declares_workspace parses the whole Cargo.toml just to check
   for a top-level [workspace] key
-status: To Do
+status: Done
 assignee:
   - TASK-1643
 created_date: '2026-05-18 19:57'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 16:49'
 labels:
   - code-review-rust
   - performance

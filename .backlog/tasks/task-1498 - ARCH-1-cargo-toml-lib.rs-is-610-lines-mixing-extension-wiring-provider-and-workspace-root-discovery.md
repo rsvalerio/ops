@@ -3,11 +3,11 @@ id: TASK-1498
 title: >-
   ARCH-1: cargo-toml lib.rs is 610 lines mixing extension wiring, provider, and
   workspace-root discovery
-status: To Do
+status: Done
 assignee:
   - TASK-1643
 created_date: '2026-05-18 18:03'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 16:54'
 labels:
   - code-review-rust
   - architecture

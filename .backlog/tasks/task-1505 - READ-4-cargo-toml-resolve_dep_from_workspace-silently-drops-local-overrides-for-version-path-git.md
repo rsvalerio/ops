@@ -3,11 +3,11 @@ id: TASK-1505
 title: >-
   READ-4: cargo-toml resolve_dep_from_workspace silently drops local overrides
   for version/path/git
-status: To Do
+status: Done
 assignee:
   - TASK-1643
 created_date: '2026-05-18 18:04'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 16:48'
 labels:
   - code-review-rust
   - readability

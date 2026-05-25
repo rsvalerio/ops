@@ -3,11 +3,11 @@ id: TASK-1497
 title: >-
   DUP-1: cargo-toml find_workspace_root_*_with_depth share ~50 lines of walk
   scaffolding
-status: To Do
+status: Done
 assignee:
   - TASK-1643
 created_date: '2026-05-18 18:03'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 16:50'
 labels:
   - code-review-rust
   - duplication
