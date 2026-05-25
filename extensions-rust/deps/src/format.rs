@@ -94,14 +94,14 @@ pub fn format_report(report: &DepsReport) -> String {
         &mut out,
         "\u{2b06}\u{fe0f} Compatible Upgrades",
         &report.upgrades.compatible,
-        false,
+        UpgradeKind::Compatible,
     );
 
     format_upgrade_section(
         &mut out,
         "\u{1f4a5} Breaking Upgrades",
         &report.upgrades.incompatible,
-        true,
+        UpgradeKind::Breaking,
     );
 
     // Advisories — id column in front of the package column.
@@ -149,11 +149,17 @@ pub fn format_report(report: &DepsReport) -> String {
     out
 }
 
+#[derive(Clone, Copy)]
+enum UpgradeKind {
+    Compatible,
+    Breaking,
+}
+
 fn format_upgrade_section(
     out: &mut String,
     title: &str,
     entries: &[UpgradeEntry],
-    is_breaking: bool,
+    kind: UpgradeKind,
 ) {
     if entries.is_empty() {
         format_empty_section(out, title);
@@ -162,45 +168,35 @@ fn format_upgrade_section(
     let _ = writeln!(out, "{P}{} ({}):", title, entries.len());
     let name_width = entries.iter().map(|e| e.name.len()).max().unwrap_or(0);
     let old_width = entries.iter().map(|e| e.old_req.len()).max().unwrap_or(0);
-    // ERR-1 / TASK-0600: for breaking upgrades, surface the absolute
-    // `latest` column too — operators need to see how far behind the
-    // compatible-cap (`new_req`) is from the latest published version
-    // (e.g. cap stuck at 3.x while latest is 5.x). Compatible upgrades
-    // already collapse cap == latest so the column would be redundant.
-    let latest_width = if is_breaking {
-        entries.iter().map(|e| e.latest.len()).max().unwrap_or(0)
-    } else {
-        0
+    let latest_width = match kind {
+        UpgradeKind::Breaking => entries.iter().map(|e| e.latest.len()).max().unwrap_or(0),
+        UpgradeKind::Compatible => 0,
     };
     for e in entries {
-        if is_breaking {
-            let _ = writeln!(
-                out,
-                "{P}    {:<name_w$}  {}  {}  {}  (latest {})",
-                e.name,
-                dim(&format!("{:<old_w$}", e.old_req, old_w = old_width)),
-                dim("->"),
-                green(&e.new_req),
-                dim(&format!("{:<latest_w$}", e.latest, latest_w = latest_width)),
-                name_w = name_width,
-            );
-        } else {
-            let _ = writeln!(
-                out,
-                "{P}    {:<name_w$}  {}  {}  {}",
-                e.name,
-                dim(&format!("{:<old_w$}", e.old_req, old_w = old_width)),
-                dim("->"),
-                green(&e.new_req),
-                name_w = name_width,
-            );
-        }
+        let suffix = match kind {
+            UpgradeKind::Breaking => {
+                format!(
+                    "  (latest {})",
+                    dim(&format!("{:<w$}", e.latest, w = latest_width))
+                )
+            }
+            UpgradeKind::Compatible => String::new(),
+        };
+        let _ = writeln!(
+            out,
+            "{P}    {:<name_w$}  {}  {}  {}{}",
+            e.name,
+            dim(&format!("{:<old_w$}", e.old_req, old_w = old_width)),
+            dim("->"),
+            green(&e.new_req),
+            suffix,
+            name_w = name_width,
+        );
     }
     out.push('\n');
-    let advice = if is_breaking {
-        "Run `cargo upgrade --incompatible` to apply breaking upgrades."
-    } else {
-        "Run `cargo upgrade` to apply compatible upgrades."
+    let advice = match kind {
+        UpgradeKind::Breaking => "Run `cargo upgrade --incompatible` to apply breaking upgrades.",
+        UpgradeKind::Compatible => "Run `cargo upgrade` to apply compatible upgrades.",
     };
     let _ = writeln!(out, "{P}    {} {}\n", dim("\u{1f4a1}"), dim(advice));
 }

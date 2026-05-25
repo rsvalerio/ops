@@ -45,48 +45,8 @@ pub fn interpret_upgrade_output(
         Some(0) => {
             let stdout = String::from_utf8_lossy(stdout);
             let (entries, diag) = parse_upgrade_table_inner(&stdout);
-            // PATTERN-1 / TASK-1074: if cargo-edit's table prints a `====`
-            // separator row but the header line above it does not match any
-            // recognised token shape (renamed / localised columns), refuse to
-            // score the run as "no upgrades available". The separator alone
-            // would still calibrate column offsets and yield rows, but the
-            // header drift is the canary for an upstream format change we
-            // have not vetted — fail closed so operators see the drift
-            // signal instead of silently downgrading the supply-chain gate.
-            if diag.saw_separator && !diag.saw_recognised_header {
-                tracing::warn!(
-                    "TASK-1074: cargo-upgrade stdout had a `====` separator row but no recognised header line; \
-                     refusing to parse output as authoritative — suspect cargo-edit header-token drift"
-                );
-                anyhow::bail!(
-                    "cargo upgrade --dry-run produced a table whose header line was not recognised \
-                     (no `name` / `old req` / `new req` tokens); refusing to score as `no upgrades` — \
-                     suspect cargo-edit format drift"
-                );
-            }
-            // ERR-1 / TASK-1202: a recognised header + separator with body
-            // lines but zero parsed entries means every row was dropped by
-            // `parse_upgrade_row` (column shape mismatch). Fail closed so a
-            // wholesale row-shape drift surfaces as an error rather than a
-            // silent empty Vec masquerading as "no upgrades available".
-            if diag.saw_recognised_header
-                && diag.saw_separator
-                && diag.body_lines > 0
-                && diag.entries_emitted == 0
-            {
-                tracing::warn!(
-                    body_lines = diag.body_lines,
-                    "TASK-1202: cargo-upgrade stdout had a recognised header, a `====` separator, \
-                     and body lines, but every row failed parse_upgrade_row (column-shape drift); \
-                     refusing to parse output as authoritative"
-                );
-                anyhow::bail!(
-                    "cargo upgrade --dry-run produced {body_lines} body row(s) but none filled the \
-                     5 fixed columns; refusing to score as `no upgrades` — suspect cargo-edit \
-                     row-shape drift",
-                    body_lines = diag.body_lines
-                );
-            }
+            check_header_drift(&diag)?;
+            check_row_shape_drift(&diag)?;
             Ok(entries)
         }
         None => anyhow::bail!(
@@ -95,11 +55,6 @@ pub fn interpret_upgrade_output(
         ),
         Some(other) => {
             let stderr = String::from_utf8_lossy(stderr);
-            // ERR-7 / SEC-21 / TASK-1160: format the stderr tail via Debug ({:?})
-            // so embedded ANSI escapes / newlines / NULs from registry-served
-            // diagnostics cannot forge log entries or repaint the operator
-            // terminal. Mirrors the workspace policy enforced in probe.rs and
-            // query.rs.
             anyhow::bail!(
                 "cargo upgrade --dry-run exited with status {other}; \
                  refusing to parse output as authoritative. \
@@ -108,6 +63,43 @@ pub fn interpret_upgrade_output(
             )
         }
     }
+}
+
+fn check_header_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Result<()> {
+    if diag.saw_separator && !diag.saw_recognised_header {
+        tracing::warn!(
+            "TASK-1074: cargo-upgrade stdout had a `====` separator row but no recognised header line; \
+             refusing to parse output as authoritative — suspect cargo-edit header-token drift"
+        );
+        anyhow::bail!(
+            "cargo upgrade --dry-run produced a table whose header line was not recognised \
+             (no `name` / `old req` / `new req` tokens); refusing to score as `no upgrades` — \
+             suspect cargo-edit format drift"
+        );
+    }
+    Ok(())
+}
+
+fn check_row_shape_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Result<()> {
+    if diag.saw_recognised_header
+        && diag.saw_separator
+        && diag.body_lines > 0
+        && diag.entries_emitted == 0
+    {
+        tracing::warn!(
+            body_lines = diag.body_lines,
+            "TASK-1202: cargo-upgrade stdout had a recognised header, a `====` separator, \
+             and body lines, but every row failed parse_upgrade_row (column-shape drift); \
+             refusing to parse output as authoritative"
+        );
+        anyhow::bail!(
+            "cargo upgrade --dry-run produced {body_lines} body row(s) but none filled the \
+             5 fixed columns; refusing to score as `no upgrades` — suspect cargo-edit \
+             row-shape drift",
+            body_lines = diag.body_lines
+        );
+    }
+    Ok(())
 }
 
 /// Parse the table output from `cargo upgrade --dry-run`.
@@ -130,7 +122,7 @@ struct UpgradeParseDiagnostics {
     /// `true` once a header line matched the recognised token shape
     /// (`name` + `old req` / `new req`, case-insensitive).
     saw_recognised_header: bool,
-    /// Number of non-empty, non-header, non-separator lines observed.
+    /// Number of non-empty lines observed after the `====` separator.
     body_lines: usize,
     /// Number of rows successfully parsed into an `UpgradeEntry`.
     /// ERR-1 / TASK-1202: combined with `body_lines`, this lets
@@ -140,131 +132,123 @@ struct UpgradeParseDiagnostics {
     entries_emitted: usize,
 }
 
+enum UpgradeLine {
+    Header,
+    Separator,
+    Body,
+}
+
+fn classify_upgrade_line(line: &str) -> UpgradeLine {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("====") {
+        return UpgradeLine::Separator;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("name") && (lower.contains("old req") || lower.contains("new req")) {
+        return UpgradeLine::Header;
+    }
+    UpgradeLine::Body
+}
+
 fn parse_upgrade_table_inner(stdout: &str) -> (Vec<UpgradeEntry>, UpgradeParseDiagnostics) {
     let mut entries = Vec::new();
     let mut columns: Option<Vec<(usize, usize)>> = None;
     let mut saw_separator = false;
     let mut saw_recognised_header = false;
     let mut body_lines: usize = 0;
+    let mut total_content_lines: usize = 0;
 
     for line in stdout.lines() {
         if line.trim().is_empty() {
             continue;
         }
-
-        // ERR-1 / TASK-1026: header detection must be case-insensitive and
-        // tolerant of cargo-edit's column-name drift (e.g. `Name`, `Old Req`,
-        // `New Req`). The cargo-edit table format is not a stable API, so a
-        // capitalisation flip used to silently break detection — `columns`
-        // stayed `None`, every data row was skipped, and the parser returned
-        // an empty Vec, masquerading as "no upgrades available".
-        let trimmed = line.trim_start();
-        let lower = trimmed.to_ascii_lowercase();
-        if lower.starts_with("name") && (lower.contains("old req") || lower.contains("new req")) {
-            // ERR-1 / TASK-1203: detect the header once. A future cargo-edit
-            // sub-table header or a localised note row that happens to
-            // contain the same tokens would otherwise re-arm `columns` to
-            // None, dropping every subsequent body row until the next
-            // `====` separator restores them. Keep the existing column
-            // calibration in place after the first header detection.
-            if saw_recognised_header {
-                tracing::debug!(
-                    line = %line,
-                    "TASK-1203: ignoring repeat header-shaped line — column offsets retained"
-                );
-                continue;
+        match classify_upgrade_line(line) {
+            UpgradeLine::Header if saw_recognised_header => {}
+            UpgradeLine::Header => {
+                columns = None;
+                saw_recognised_header = true;
             }
-            columns = None;
-            saw_recognised_header = true;
-            continue;
-        }
-
-        // Separator row: `====   ======= ==========` defines exact byte columns.
-        if trimmed.starts_with("====") {
-            columns = Some(separator_columns(line));
-            saw_separator = true;
-            continue;
-        }
-
-        body_lines += 1;
-        if let Some(cols) = columns.as_deref() {
-            if let Some(entry) = parse_upgrade_row(line, cols) {
-                entries.push(entry);
+            UpgradeLine::Separator => {
+                columns = Some(separator_columns(line));
+                saw_separator = true;
+            }
+            UpgradeLine::Body => {
+                total_content_lines += 1;
+                if saw_separator {
+                    body_lines += 1;
+                    if let Some(cols) = columns.as_deref() {
+                        if let Some(entry) = parse_upgrade_row(line, cols) {
+                            entries.push(entry);
+                        }
+                    }
+                }
             }
         }
     }
 
-    if body_lines > 0 && !saw_separator {
-        tracing::warn!(
-            "TASK-1026: cargo-upgrade stdout had body lines but no `====` separator row; \
-             parse_upgrade_table is returning an empty result — suspect cargo-edit table-format drift"
-        );
+    if total_content_lines > 0 && !saw_separator {
+        tracing::warn!("TASK-1026: cargo-upgrade stdout had body lines but no `====` separator — suspect format drift");
     }
+    let diag = UpgradeParseDiagnostics {
+        saw_separator,
+        saw_recognised_header,
+        body_lines,
+        entries_emitted: entries.len(),
+    };
+    (entries, diag)
+}
 
-    let entries_emitted = entries.len();
-    (
-        entries,
-        UpgradeParseDiagnostics {
-            saw_separator,
-            saw_recognised_header,
-            body_lines,
-            entries_emitted,
-        },
-    )
+fn slice_column<'a>(line: &'a str, cols: &[(usize, usize)], idx: usize) -> Option<&'a str> {
+    let &(start, end) = cols.get(idx)?;
+    let (start, end) = clamp_to_char_boundaries(line, start, end)?;
+    let trimmed = line[start..end].trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+fn slice_fixed_columns<'a>(line: &'a str, cols: &[(usize, usize)]) -> Option<[&'a str; 5]> {
+    Some([
+        slice_column(line, cols, 0)?,
+        slice_column(line, cols, 1)?,
+        slice_column(line, cols, 2)?,
+        slice_column(line, cols, 3)?,
+        slice_column(line, cols, 4)?,
+    ])
+}
+
+fn slice_note(line: &str, cols: &[(usize, usize)]) -> Option<String> {
+    let &(start, _) = cols.get(5)?;
+    let (start, end) = clamp_to_char_boundaries(line, start, line.len())?;
+    let trimmed = line[start..end].trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 fn parse_upgrade_row(line: &str, cols: &[(usize, usize)]) -> Option<UpgradeEntry> {
     if cols.len() < 5 {
         tracing::debug!(
             column_count = cols.len(),
-            line = %line,
-            "TASK-0404: skipping cargo-upgrade row — separator row had fewer than 5 columns"
+            "TASK-0404: skipping row — fewer than 5 columns"
         );
         return None;
     }
-
-    let slice_col = |idx: usize| -> Option<&str> {
-        let &(start, end) = cols.get(idx)?;
-        let (start, end) = clamp_to_char_boundaries(line, start, end)?;
-        let trimmed = line[start..end].trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    };
-
-    let (Some(name), Some(old_req), Some(compatible), Some(latest), Some(new_req)) = (
-        slice_col(0),
-        slice_col(1),
-        slice_col(2),
-        slice_col(3),
-        slice_col(4),
-    ) else {
-        tracing::debug!(
-            line = %line,
-            "TASK-0404: skipping cargo-upgrade row that did not fill the 5 fixed columns"
-        );
-        return None;
-    };
-
-    let note = cols.get(5).and_then(|(start, _)| {
-        let (start, end) = clamp_to_char_boundaries(line, *start, line.len())?;
-        let slice = line[start..end].trim();
-        if slice.is_empty() {
-            None
-        } else {
-            Some(slice.to_string())
-        }
-    });
-
+    let [name, old_req, compatible, latest, new_req] = slice_fixed_columns(line, cols).or_else(|| {
+        tracing::debug!(line = %line, "TASK-0404: skipping row that did not fill 5 fixed columns");
+        None
+    })?;
     Some(UpgradeEntry {
         name: name.to_string(),
         old_req: old_req.to_string(),
         compatible: compatible.to_string(),
         latest: latest.to_string(),
         new_req: new_req.to_string(),
-        note,
+        note: slice_note(line, cols),
     })
 }
 
@@ -313,13 +297,11 @@ fn separator_columns(line: &str) -> Vec<(usize, usize)> {
             i += 1;
         }
     }
-    for idx in 0..cols.len().saturating_sub(1) {
-        cols[idx].1 = cols[idx + 1].0;
-    }
-    if let Some(last) = cols.last_mut() {
-        last.1 = line.len();
-    }
-    cols
+    let len = line.len();
+    cols.iter()
+        .zip(cols.iter().skip(1).map(|c| c.0).chain(std::iter::once(len)))
+        .map(|(&(start, _), end)| (start, end))
+        .collect()
 }
 
 /// PERF-3 / TASK-1112: case-insensitive ASCII substring scan that does not
@@ -356,5 +338,42 @@ pub fn categorize_upgrades(entries: Vec<UpgradeEntry>) -> UpgradeResult {
     UpgradeResult {
         compatible,
         incompatible,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_header() {
+        assert!(matches!(
+            classify_upgrade_line("name   old req compatible latest  new req"),
+            UpgradeLine::Header
+        ));
+        assert!(matches!(
+            classify_upgrade_line("Name   Old Req Compatible Latest  New Req"),
+            UpgradeLine::Header
+        ));
+    }
+
+    #[test]
+    fn classify_separator() {
+        assert!(matches!(
+            classify_upgrade_line("====   ======= ========== ======  ======="),
+            UpgradeLine::Separator
+        ));
+    }
+
+    #[test]
+    fn classify_body() {
+        assert!(matches!(
+            classify_upgrade_line("serde  1.0.100 1.0.228    1.0.228 1.0.228"),
+            UpgradeLine::Body
+        ));
+        assert!(matches!(
+            classify_upgrade_line("Updating crates.io index"),
+            UpgradeLine::Body
+        ));
     }
 }

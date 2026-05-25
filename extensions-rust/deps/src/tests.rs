@@ -452,6 +452,20 @@ fn interpret_upgrade_output_bails_on_row_shape_drift() {
     );
 }
 
+/// TASK-1492: preamble lines before the header must not feed the body_lines
+/// counter. A recognised header + separator with zero real body rows must
+/// return Ok([]), not bail with row-shape-drift.
+#[test]
+fn interpret_upgrade_output_preamble_does_not_inflate_body_lines() {
+    let stdout = b"Updating crates.io index\n\
+                   Some other preamble line\n\
+                   name   old req compatible latest  new req\n\
+                   ====   ======= ========== ======  =======\n";
+    let result = crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
+        .expect("preamble + header + separator + zero body rows must be Ok");
+    assert!(result.is_empty());
+}
+
 // -- Deny exit-code interpretation --
 
 #[test]
