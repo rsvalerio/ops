@@ -3,11 +3,11 @@ id: TASK-1504
 title: >-
   TEST-11: cargo-toml provider_missing_cargo_toml / provider_invalid_toml assert
   via Display substring match
-status: To Do
+status: Done
 assignee:
   - TASK-1644
 created_date: '2026-05-18 18:04'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:11'
 labels:
   - code-review-rust
   - tests

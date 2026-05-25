@@ -3,11 +3,11 @@ id: TASK-1503
 title: >-
   TEST-2: cargo-toml find_root_strict_rejects_symlinked_ancestor_planting is 110
   lines with weak post-condition
-status: To Do
+status: Done
 assignee:
   - TASK-1644
 created_date: '2026-05-18 18:04'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 17:11'
 labels:
   - code-review-rust
   - tests
