@@ -3,11 +3,11 @@ id: TASK-1509
 title: >-
   ERR-2: InheritanceError::MissingWorkspaceDependency does not identify the
   dependency section (dependencies / dev-dependencies / build-dependencies)
-status: To Do
+status: Done
 assignee:
   - TASK-1642
 created_date: '2026-05-18 19:15'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 16:21'
 labels:
   - code-review-rust
   - ERR

@@ -3,11 +3,11 @@ id: TASK-1510
 title: >-
   ERR-4: CargoTomlProvider::resolve_root propagates find_workspace_root error
   without context
-status: To Do
+status: Done
 assignee:
   - TASK-1642
 created_date: '2026-05-18 19:57'
-updated_date: '2026-05-25 16:08'
+updated_date: '2026-05-25 16:22'
 labels:
   - code-review-rust
   - errors
