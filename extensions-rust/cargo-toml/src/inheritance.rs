@@ -16,8 +16,8 @@ use crate::types::{
 #[non_exhaustive]
 pub enum InheritanceError {
     /// Dependency marked as `workspace = true` but not found in workspace.
-    #[error("dependency '{name}' not found in workspace.dependencies")]
-    MissingWorkspaceDependency { name: String },
+    #[error("dependency '{name}' (in [{section}]) not found in workspace.dependencies")]
+    MissingWorkspaceDependency { name: String, section: &'static str },
 }
 
 impl CargoToml {
@@ -32,9 +32,9 @@ impl CargoToml {
 
         let ws_deps = &ws.dependencies;
 
-        resolve_deps_inheritance(&mut self.dependencies, ws_deps)?;
-        resolve_deps_inheritance(&mut self.dev_dependencies, ws_deps)?;
-        resolve_deps_inheritance(&mut self.build_dependencies, ws_deps)?;
+        resolve_deps_inheritance(&mut self.dependencies, ws_deps, "dependencies")?;
+        resolve_deps_inheritance(&mut self.dev_dependencies, ws_deps, "dev-dependencies")?;
+        resolve_deps_inheritance(&mut self.build_dependencies, ws_deps, "build-dependencies")?;
 
         Ok(())
     }
@@ -143,10 +143,11 @@ pub(crate) fn resolve_publish(field: &mut PublishSpec, ws_value: &PublishSpec) {
 fn resolve_deps_inheritance(
     deps: &mut BTreeMap<String, DepSpec>,
     ws_deps: &BTreeMap<String, DepSpec>,
+    section: &'static str,
 ) -> Result<(), InheritanceError> {
     for (name, dep) in deps {
         if dep.is_workspace_inherited() {
-            *dep = resolve_dep_from_workspace(name, dep, ws_deps)?;
+            *dep = resolve_dep_from_workspace(name, dep, ws_deps, section)?;
         }
     }
     Ok(())
@@ -156,11 +157,13 @@ fn resolve_dep_from_workspace(
     name: &str,
     local: &DepSpec,
     ws_deps: &BTreeMap<String, DepSpec>,
+    section: &'static str,
 ) -> Result<DepSpec, InheritanceError> {
     let ws_dep = ws_deps
         .get(name)
         .ok_or_else(|| InheritanceError::MissingWorkspaceDependency {
             name: name.to_string(),
+            section,
         })?;
 
     let resolved = match ws_dep {

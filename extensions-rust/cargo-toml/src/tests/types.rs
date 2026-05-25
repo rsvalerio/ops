@@ -292,8 +292,9 @@ serde = "1.0"
     assert!(result.is_err());
 
     match result {
-        Err(InheritanceError::MissingWorkspaceDependency { name }) => {
+        Err(InheritanceError::MissingWorkspaceDependency { name, section }) => {
             assert_eq!(name, "nonexistent");
+            assert_eq!(section, "dependencies");
         }
         _ => panic!("expected MissingWorkspaceDependency error"),
     }

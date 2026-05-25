@@ -8,6 +8,11 @@ use ops_core::serde_defaults;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Error returned by [`CargoToml::parse`].
+#[derive(Debug, thiserror::Error)]
+#[error("failed to parse Cargo.toml")]
+pub struct ParseError(#[from] toml::de::Error);
+
 /// Root Cargo.toml structure.
 ///
 /// Represents the complete manifest with all sections. Use [`CargoToml::parse`]
@@ -56,8 +61,8 @@ impl CargoToml {
     /// # Errors
     ///
     /// Returns an error if the TOML is malformed or contains unexpected types.
-    pub fn parse(content: &str) -> Result<Self, toml::de::Error> {
-        toml::from_str(content)
+    pub fn parse(content: &str) -> Result<Self, ParseError> {
+        Ok(toml::from_str(content)?)
     }
 
     /// Returns `true` if this is a virtual workspace (no root package).

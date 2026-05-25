@@ -62,7 +62,7 @@ mod types;
 
 pub use inheritance::InheritanceError;
 pub use types::{
-    CargoToml, DepSpec, DetailedDepSpec, Package, PublishSpec, ReadmeSpec, Workspace,
+    CargoToml, DepSpec, DetailedDepSpec, Package, ParseError, PublishSpec, ReadmeSpec, Workspace,
     WorkspacePackage,
 };
 
@@ -201,7 +201,12 @@ impl CargoTomlProvider {
         if let Some(root) = &self.root {
             return Ok(root.clone());
         }
-        find_workspace_root(working_dir).map_err(Into::into)
+        find_workspace_root(working_dir).with_context(|| {
+            format!(
+                "resolving cargo_toml workspace root from {}",
+                working_dir.display()
+            )
+        })
     }
 }
 
