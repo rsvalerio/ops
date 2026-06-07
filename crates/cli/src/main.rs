@@ -32,6 +32,7 @@ mod args;
 mod extension_cmd;
 mod help;
 mod hook_shared;
+mod import_makefile_cmd;
 mod init_cmd;
 mod new_command_cmd;
 mod pre_hook_cmd;
@@ -247,6 +248,12 @@ fn dispatch(
         Some(CoreSubcommand::NewCommand) => {
             let cwd = cwd()?;
             new_command_cmd::run_new_command(&cwd)?;
+        }
+        Some(CoreSubcommand::ImportMakefile { file }) => {
+            let cwd = cwd()?;
+            // Forward the exit code: Esc at the picker is a user cancel
+            // surfaced as SIGINT_EXIT (130), not a hard error.
+            return import_makefile_cmd::run_import_makefile(&cwd, file);
         }
         Some(CoreSubcommand::RunBeforeCommit {
             changed_only,

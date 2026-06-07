@@ -98,6 +98,17 @@ pub enum CoreSubcommand {
     },
     /// Interactively add a new command to `.ops.toml`.
     NewCommand,
+    /// Import Makefile targets as `.ops.toml` commands (interactive picker).
+    ///
+    /// Parses the project Makefile, shows a checklist of its targets, and
+    /// writes each selected one as `[commands.<target>]` running
+    /// `make <target>` — so it becomes invocable as `ops <target>`.
+    ImportMakefile {
+        /// Path to the Makefile (defaults to GNUmakefile/makefile/Makefile
+        /// in the workspace root, in make's own lookup order).
+        #[arg(long, value_name = "FILE")]
+        file: Option<PathBuf>,
+    },
     /// Setup git pre-commit hook to run an ops command of your choice.
     ///
     /// Without a subcommand, runs the configured command. Pass `--changed-only`
