@@ -80,9 +80,8 @@ pub(crate) fn resolve_max_parallel() -> usize {
     })
 }
 
-/// PERF-3 / TASK-1171: memoised sibling of [`resolve_max_parallel`]. Same
-/// caching contract.
 /// PATTERN-1 (TASK-1236): mpsc channel capacity for a parallel plan.
+/// Pure arithmetic — no caching, no env access.
 /// Sized as `min(steps_len, max_parallel) × event_budget` (with a floor of
 /// `event_budget` so an empty plan still yields a non-zero capacity). The
 /// previous shape used `max_parallel × event_budget` unconditionally, which
@@ -96,6 +95,14 @@ pub(crate) fn compute_channel_capacity(
     live_producers.saturating_mul(event_budget)
 }
 
+/// Resolve [`DEFAULT_PARALLEL_EVENT_BUDGET_PER_TASK`] honoring
+/// `OPS_PARALLEL_EVENT_BUDGET`.
+///
+/// PERF-3 / TASK-1171: memoised sibling of [`resolve_max_parallel`]. Same
+/// caching contract: the first call parses and clamps; subsequent calls
+/// return the cached value without re-reading `std::env`, so env mutations
+/// after the first call are ignored. Tests exercising the parse/clamp
+/// matrix must call [`resolve_env_usize`] directly to bypass the cache.
 fn resolve_event_budget() -> usize {
     *EVENT_BUDGET_CACHED.get_or_init(|| {
         resolve_env_usize(

@@ -260,7 +260,9 @@ fn run_terraform_pipeline(opts: &PlanOptions) -> anyhow::Result<String> {
                  install it from https://developer.hashicorp.com/terraform/install"
             )
         } else {
-            anyhow::anyhow!("failed to run terraform plan: {e}")
+            // ERR-4: keep the io::Error as source() instead of flattening
+            // it into the message string.
+            anyhow::Error::new(e).context("failed to run terraform plan")
         }
     })?;
 
