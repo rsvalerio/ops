@@ -15,13 +15,27 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.repository_owner == 'rsvalerio' && github.event.workflow_run.conclusion == 'success' }}
     steps:
+      # Own-repo token from the my-cloud-ci GitHub App. Unlike GITHUB_TOKEN, pushes made with
+      # it trigger the downstream release workflow on the bumped tag.
+      - name: Mint workflow token (my-cloud-ci GitHub App)
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: rsvalerio
+          # SEC-18 / TASK-1654: least privilege — without `repositories:` the
+          # token is scoped to every repo in the app installation. The bump
+          # job only ever pushes to this repository.
+          repositories: ${{ github.event.repository.name }}
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ secrets.WORKFLOW_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       # Install cargo-edit and cocogitto
       - name: Install cargo-edit and cocogitto
