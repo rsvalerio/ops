@@ -23,7 +23,10 @@ all-features = true
 install-updater = false
 # Homebrew tap for formula publishing
 tap = "rsvalerio/homebrew-tap"
-# Publish homebrew formula to tap
-publish-jobs = ["homebrew"]
+# Publish homebrew formula to tap via the user-owned custom publish job
+# (.github/workflows/publish-homebrew.yml), which mints a GitHub App token
+# instead of using a static HOMEBREW_TAP_TOKEN PAT. Being a custom job, it
+# survives `dist generate` regeneration.
+publish-jobs = ["./publish-homebrew"]
 # Custom formula name for Homebrew (install with `brew install ops`)
 formula = "ops"
