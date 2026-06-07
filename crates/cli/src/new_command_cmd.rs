@@ -5,7 +5,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::sync::OnceLock;
 
-use ops_core::config::{edit_ops_toml, ensure_table};
+use ops_core::config::{edit_ops_toml, ensure_table, insert_command};
 
 pub fn run_new_command(workspace_root: &Path) -> anyhow::Result<()> {
     run_new_command_with_tty_check(workspace_root, crate::tty::is_stdout_tty)
@@ -70,7 +70,7 @@ fn write_added_confirmation<W: Write>(w: &mut W, name: &str) -> io::Result<()> {
 /// ERR-10 (TASK-1316): returns `anyhow::Result<()>` so callers compose
 /// directly via `?` and the inquire validator can format the error chain
 /// with `{e:#}` without an intermediate `String` round-trip.
-fn validate_command_name(name: &str) -> anyhow::Result<()> {
+pub(crate) fn validate_command_name(name: &str) -> anyhow::Result<()> {
     if name.is_empty() {
         anyhow::bail!("command name cannot be empty");
     }
@@ -158,25 +158,7 @@ fn append_command_to_config(
     let config_path = workspace_root.join(".ops.toml");
     edit_ops_toml(&config_path, |doc| {
         let commands = ensure_table(doc, "commands")?;
-
-        if commands.contains_key(name) {
-            anyhow::bail!(
-                "command '{}' already exists in .ops.toml. Edit it manually or remove it first.",
-                name
-            );
-        }
-
-        let mut cmd = toml_edit::Table::new();
-        cmd.insert("program", toml_edit::value(program));
-        if !args.is_empty() {
-            let mut arr = toml_edit::Array::new();
-            for arg in args {
-                arr.push(arg.as_str());
-            }
-            cmd.insert("args", toml_edit::value(arr));
-        }
-        commands.insert(name, toml_edit::Item::Table(cmd));
-        Ok(())
+        insert_command(commands, name, program, args, None)
     })
 }
 

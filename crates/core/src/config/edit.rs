@@ -64,6 +64,55 @@ pub fn ensure_table<'a>(
         .with_context(|| format!("[{key}] is not a table in .ops.toml"))
 }
 
+/// Names already present under `[commands]` in the `.ops.toml` at `path`.
+/// A missing file means no commands; a malformed one is a hard error so
+/// callers never plan an edit that the write path would then refuse.
+/// Owns the `[commands]`-table walk next to the writers ([`insert_command`])
+/// so the config layout is encoded in one module, not re-derived per caller.
+pub fn command_names(path: &Path) -> anyhow::Result<Vec<String>> {
+    let doc = read_ops_toml(path)?;
+    Ok(doc
+        .get("commands")
+        .and_then(toml_edit::Item::as_table)
+        .map(|t| t.iter().map(|(k, _)| k.to_string()).collect())
+        .unwrap_or_default())
+}
+
+/// Insert one `[commands.<name>]` entry (program / args / optional help)
+/// into the `commands` table, bailing if the name is already taken.
+///
+/// Shared by `new-command` and `import-makefile` so the on-disk command
+/// schema and the duplicate-rejection wording live in exactly one place —
+/// the same consolidation rationale as [`ensure_table`] (DUP-1). An empty
+/// `args` slice omits the `args` key entirely.
+pub fn insert_command<S: AsRef<str>>(
+    commands: &mut toml_edit::Table,
+    name: &str,
+    program: &str,
+    args: &[S],
+    help: Option<&str>,
+) -> anyhow::Result<()> {
+    if commands.contains_key(name) {
+        anyhow::bail!(
+            "command '{name}' already exists in .ops.toml. Edit it manually or remove it first."
+        );
+    }
+    let mut cmd = toml_edit::Table::new();
+    cmd.insert("program", toml_edit::value(program));
+    if !args.is_empty() {
+        let mut arr = toml_edit::Array::new();
+        for arg in args {
+            arr.push(arg.as_ref());
+        }
+        cmd.insert("args", toml_edit::value(arr));
+    }
+    if let Some(help) = help {
+        cmd.insert("help", toml_edit::value(help));
+    }
+    commands.insert(name, toml_edit::Item::Table(cmd));
+    Ok(())
+}
+
 /// Atomically write the serialized `doc` back to `path` (sibling temp file +
 /// rename). Pair with [`read_ops_toml`] for a read / mutate / write pipeline
 /// where the caller wants to skip the write on some branches.
@@ -465,6 +514,60 @@ mod tests {
             leftovers.is_empty(),
             "expected tmp cleanup, leftovers: {leftovers:?}"
         );
+    }
+
+    #[test]
+    fn command_names_missing_file_is_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let names = command_names(&dir.path().join(".ops.toml")).unwrap();
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn command_names_lists_commands_table_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".ops.toml");
+        std::fs::write(
+            &path,
+            "[commands.build]\nprogram = \"cargo\"\n[commands.test]\nprogram = \"cargo\"\n",
+        )
+        .unwrap();
+        assert_eq!(command_names(&path).unwrap(), vec!["build", "test"]);
+    }
+
+    #[test]
+    fn command_names_malformed_file_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".ops.toml");
+        std::fs::write(&path, "not = = valid\n{{{").unwrap();
+        assert!(command_names(&path).is_err());
+    }
+
+    #[test]
+    fn insert_command_writes_schema_and_omits_empty_args() {
+        let mut doc = toml_edit::DocumentMut::new();
+        let commands = ensure_table(&mut doc, "commands").unwrap();
+        insert_command(commands, "lint", "make", &[] as &[&str], None).unwrap();
+        insert_command(commands, "build", "make", &["build"], Some("Compile")).unwrap();
+
+        let rendered = doc.to_string();
+        assert!(rendered.contains("[commands.lint]"));
+        assert!(rendered.contains("[commands.build]"));
+        assert!(rendered.contains(r#"program = "make""#));
+        assert!(rendered.contains(r#"args = ["build"]"#));
+        assert!(rendered.contains(r#"help = "Compile""#));
+        assert!(
+            !rendered.contains("[commands.lint]\nargs") && rendered.matches("args").count() == 1,
+            "empty args must omit the key: {rendered}"
+        );
+    }
+
+    #[test]
+    fn insert_command_rejects_duplicate() {
+        let mut commands = toml_edit::Table::new();
+        insert_command(&mut commands, "build", "cargo", &["build"], None).unwrap();
+        let err = insert_command(&mut commands, "build", "make", &["build"], None).unwrap_err();
+        assert!(err.to_string().contains("already exists"));
     }
 
     #[test]
