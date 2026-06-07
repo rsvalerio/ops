@@ -2,6 +2,41 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.32.0](https://github.com/rsvalerio/ops/compare/e8aa16cdbea7586f82acdefbcd19fac4a72ace95..v0.32.0) - 2026-06-07
+#### 🚀 Features
+- (**cli**) add import-makefile command to import Makefile targets as ops commands - ([4e267ab](https://github.com/rsvalerio/ops/commit/4e267ab69a03177cba6b626e9b6bd3a12ca4f33f)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**ci**) refine HOMEBREW_TAP_TOKEN check to match actual secret usage in release.yml - ([e5c16e0](https://github.com/rsvalerio/ops/commit/e5c16e0e195f952171c20ed33c64f4986b8955b4)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**runner,terraform**) fix compute_channel_capacity doc, improve error context in terraform plan - ([47f272b](https://github.com/rsvalerio/ops/commit/47f272b594189edf0a06605c679545feb76626fd)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**cargo-toml**) wave-136 rename overstated test name, split 110-line symlink test, replace Display substring assertions with variant match (TEST-2 TEST-11 FN-1 TASK-1502 TASK-1503 TASK-1504) - ([f2d7fcf](https://github.com/rsvalerio/ops/commit/f2d7fcfd1f08bbbc728d2e487db9bce4334d7588)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+#### 🔧 Build System
+- inherit workspace lints across crates and extensions - ([7e1d27b](https://github.com/rsvalerio/ops/commit/7e1d27b109a16a9b4210945cc7fa34cc03107274)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔄 CI/CD
+- upgrade GitHub Actions checkout from v4 to v6 - ([55aebd0](https://github.com/rsvalerio/ops/commit/55aebd0d1ed252bffb8ee4982fd52a5206ac26d4)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**cargo-toml**) wave-135 extract workspace_root module, dedup walk scaffolding, replace full TOML parse with line scan, document silently dropped dep overrides (ARCH-1 DUP-1 PERF-3 READ-4 TASK-1497 TASK-1498 TASK-1505 TASK-1512) - ([3260d48](https://github.com/rsvalerio/ops/commit/3260d4806826f056e6dca79f997b250dc35436cf)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+- (**cargo-toml**) wave-134 wrap parse return type in crate-local ParseError, add section field to MissingWorkspaceDependency, attach context to resolve_root propagation (ERR-2 ERR-4 TASK-1508 TASK-1509 TASK-1510) - ([26f78d1](https://github.com/rsvalerio/ops/commit/26f78d168810906be76a1a43eaeb24687f0d179b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+- (**cargo-toml**) wave-133 add #[must_use] to constructors, derive Debug on Extension/Provider, remove stale #[allow(unused_imports)] and blanket #[allow(dead_code)], clarify PublishSpec::is_publishable None semantics, drop redundant linkme dev-dep, simplify resolve_root Ok(x?) to map_err (API-5 READ-5 API-3 API-1 VER-1 TRAIT-1 PATTERN-1 TASK-1499 TASK-1500 TASK-1501 TASK-1506 TASK-1507 TASK-1511 TASK-1513) - ([e8aa16c](https://github.com/rsvalerio/ops/commit/e8aa16cdbea7586f82acdefbcd19fac4a72ace95)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+- (**config**) extract insert_command helper and expose new config API - ([91c4867](https://github.com/rsvalerio/ops/commit/91c4867a1b4228e57d0f0fabd8fd0fa832bbad50)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) wave-140 add #[must_use] to pub parsers/formatters, replace type aliases with newtypes, preserve error source chain via .context(), replace classify_code linear scan with match, normalise stderr trim before truncate (API-5 PATTERN-1 ERR-4 PATTERN-3 SEC-21 TASK-1514 TASK-1519 TASK-1523 TASK-1528 TASK-1531 TASK-1533) - ([63578ce](https://github.com/rsvalerio/ops/commit/63578ced18b6b01eb9de97c4491250b696e4f841)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) wave-139 add context to build_user_context current_dir, extract tracing-capture test helper, use Arc::unwrap_or_clone in run_deps, type DenyLine.fields directly as DiagnosticFields, take ownership in resolve_package (ERR-4 DUP-3 PERF-3 TASK-1493 TASK-1494 TASK-1496 TASK-1524 TASK-1529) - ([7d8cf3d](https://github.com/rsvalerio/ops/commit/7d8cf3d5d71ad29022c90d5d73f94b45811ac717)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) wave-138 return Cow from SeverityClass::style, inline severity_icon/colorize_severity wrappers, consolidate format_bans_summary with class-driven loop, unify format_severity_section row-emit path, table-drive has_issues DenyEntry sections (PERF-3 FN-1 DUP-3 READ-5 TASK-1495 TASK-1517 TASK-1520 TASK-1521 TASK-1525 TASK-1526 TASK-1530) - ([bdd08ae](https://github.com/rsvalerio/ops/commit/bdd08ae7b139664b87a3c1e6037146e23b5569b3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) wave-137 fix body_lines pre-separator inflation, extract classify/drift/slice helpers, replace bool with UpgradeKind enum, deduplicate row-write, rewrite separator_columns with iterator (PATTERN-1 FN-4 FN-1 DUP-1 TASK-1492 TASK-1515 TASK-1516 TASK-1518 TASK-1522 TASK-1527 TASK-1532) - ([4684ea3](https://github.com/rsvalerio/ops/commit/4684ea38596c37237526b7f9fe31e2823f992398)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) add task definitions from code review - ([88915dc](https://github.com/rsvalerio/ops/commit/88915dcb0f375ac2506d981a4c11ee25e541832b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-140 — deps error handling, security, API & type quality - ([c94c619](https://github.com/rsvalerio/ops/commit/c94c619b1f20337952c4752e8ce776114691b08c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-139 — deps performance, allocation & test scaffolding - ([dca55cd](https://github.com/rsvalerio/ops/commit/dca55cd226a84db558fa5370f526c929c99d34c5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-138 — deps formatting, severity & output helpers - ([5979a44](https://github.com/rsvalerio/ops/commit/5979a44efb4b004e604e4eaa866c96361110cb59)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave-137 — deps upgrade-table parsing & format - ([28bd0ed](https://github.com/rsvalerio/ops/commit/28bd0ed3fdbdc94d180bc2bd1c911f7158979dfb)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+- (**backlog**) close wave-136 — cargo-toml test quality - ([5ae5f69](https://github.com/rsvalerio/ops/commit/5ae5f690a2307d6d4ed21ce77a5e9897cf1e0c01)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+- (**backlog**) close wave-135 — cargo-toml architecture, dedup & perf - ([11161b3](https://github.com/rsvalerio/ops/commit/11161b3f16abebe4709283b79d254fcdd59ff500)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+- (**backlog**) close wave-134 — cargo-toml error handling hygiene - ([d25e0c5](https://github.com/rsvalerio/ops/commit/d25e0c5ec0e578ffec7980d12c7861eb1c624106)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+- (**backlog**) close wave-133 — cargo-toml API, lint & readability hygiene - ([2bcebac](https://github.com/rsvalerio/ops/commit/2bcebac47d7281558bbee2b153cba1e39decc62b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.7 (1M context)
+
+- - -
+
 ## [v0.31.0](https://github.com/rsvalerio/ops/compare/304ce5edfea0fe275f3c82dc396af7e5bc4c81aa..v0.31.0) - 2026-05-22
 #### 🚀 Features
 - (**cli**) add check-json and check-yaml config checker subcommands - ([304ce5e](https://github.com/rsvalerio/ops/commit/304ce5edfea0fe275f3c82dc396af7e5bc4c81aa)) - [@rsvalerio](https://github.com/rsvalerio)
