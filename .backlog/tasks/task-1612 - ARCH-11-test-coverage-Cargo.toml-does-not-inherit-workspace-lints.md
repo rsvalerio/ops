@@ -1,11 +1,11 @@
 ---
 id: TASK-1612
 title: 'ARCH-11: test-coverage Cargo.toml does not inherit workspace lints'
-status: To Do
+status: Done
 assignee:
   - TASK-1635
 created_date: '2026-05-22 06:49'
-updated_date: '2026-05-22 10:17'
+updated_date: '2026-05-25 19:21'
 labels:
   - code-review-rust
   - architecture
