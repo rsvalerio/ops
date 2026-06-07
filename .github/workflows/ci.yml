@@ -126,7 +126,9 @@ jobs:
             echo '::error file=.github/workflows/release.yml::tap-token mint step is missing — `dist generate` dropped it; re-apply the "Mint homebrew-tap token" step (see NOTE in release.yml)'
             exit 1
           fi
-          if grep -q 'HOMEBREW_TAP_TOKEN' .github/workflows/release.yml; then
+          # Match only an actual secret usage — the NOTE comment in release.yml
+          # mentions HOMEBREW_TAP_TOKEN by name, so a bare grep self-trips.
+          if grep -q 'secrets\.HOMEBREW_TAP_TOKEN' .github/workflows/release.yml; then
             echo '::error file=.github/workflows/release.yml::stale HOMEBREW_TAP_TOKEN reference — replace it with the minted tap-token step output (see NOTE in release.yml)'
             exit 1
           fi
