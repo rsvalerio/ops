@@ -27,3 +27,6 @@ tracing-subscriber = { workspace = true }
 # same env-mutation guard from their own #[cfg(test)] modules without
 # duplicating the implementation.
 test-helpers = []
+
+[lints]
+workspace = true

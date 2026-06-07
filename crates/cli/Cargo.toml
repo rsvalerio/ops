@@ -71,3 +71,6 @@ serde_json = { workspace = true }
 [[bin]]
 name = "ops"
 path = "src/main.rs"
+
+[lints]
+workspace = true

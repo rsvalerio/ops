@@ -20,3 +20,6 @@ tracing = { workspace = true }
 ops-extension = { workspace = true, features = ["test-support"] }
 ops-duckdb = { workspace = true, features = ["test-helpers"] }
 tempfile = { workspace = true }
+
+[lints]
+workspace = true

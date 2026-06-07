@@ -31,3 +31,6 @@ proptest = { workspace = true }
 serial_test = { workspace = true }
 tokio = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true
