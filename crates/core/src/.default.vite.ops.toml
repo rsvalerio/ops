@@ -1,0 +1,74 @@
+# Default commands for the Vite + TypeScript stack (bun).
+#
+# Detected by a `vite.config.{ts,js,mjs,mts,cjs,cts}` manifest, which is checked
+# before the generic Node stack so Vite projects get type-checking + Vite-aware
+# defaults instead of the bare `npm run build` delegation.
+#
+# Commands invoke the toolchain directly through `bunx` so they work even when a
+# project has not wired up matching `package.json` scripts. Override `program`
+# in `.ops.toml` to switch the runner (e.g. `npx`, `pnpm dlx`, `yarn dlx`).
+
+[commands.install]
+program = "bun"
+args = ["install"]
+help = "Install dependencies"
+category = "Build"
+
+[commands.typecheck]
+program = "bunx"
+args = ["tsc", "-b", "--noEmit"]
+help = "Type-check without emitting"
+category = "Code Quality"
+
+[commands.build]
+program = "bunx"
+args = ["vite", "build"]
+help = "Build the project"
+category = "Build"
+
+[commands.lint]
+program = "bunx"
+args = ["eslint", "."]
+help = "Lint the codebase"
+category = "Code Quality"
+
+[commands.test]
+program = "bunx"
+args = ["vitest", "run"]
+help = "Run tests once (non-watch)"
+category = "Code Quality"
+
+# Baseline suggestion — uncomment and adjust to opt in (requires prettier).
+# [commands.fmt]
+# program = "bunx"
+# args = ["prettier", "--write", "."]
+# help = "Format all code"
+# category = "Code Quality"
+
+# Baseline suggestion — uncomment and adjust to opt in.
+# [commands.preview]
+# program = "bunx"
+# args = ["vite", "preview"]
+# help = "Preview the production build locally"
+# category = "Build"
+
+# Baseline suggestion — uncomment and adjust to opt in (destructive).
+# [commands.clean]
+# program = "rm"
+# args = ["-rf", "node_modules", "dist"]
+# help = "Remove build artifacts and deps"
+# category = "Build"
+
+[commands.verify]
+commands = ["install", "typecheck", "lint", "build"]
+parallel = false
+fail_fast = true
+help = "Run install, typecheck, lint, build"
+category = "Code Quality"
+
+[commands.qa]
+commands = ["test"]
+parallel = false
+fail_fast = true
+help = "Run test"
+category = "Code Quality"

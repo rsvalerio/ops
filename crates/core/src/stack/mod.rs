@@ -22,7 +22,10 @@ mod metadata;
 /// `Stack::detect` (declaration order, iterated via `strum::EnumIter`).
 /// Variant order matters: detection probes earlier variants first, so
 /// `JavaGradle` is declared before `JavaMaven` to win on mixed Gradle/Maven
-/// workspaces (see `gradle_prioritized_over_maven` test).
+/// workspaces (see `gradle_prioritized_over_maven` test). `Vite` is declared
+/// before `Node` for the same reason: every Vite project also ships a
+/// `package.json`, so without the earlier probe Node would claim it (see
+/// `vite_prioritized_over_node` test).
 #[derive(
     Debug,
     Clone,
@@ -38,6 +41,7 @@ mod metadata;
 #[strum(serialize_all = "lowercase")]
 pub enum Stack {
     Rust,
+    Vite,
     Node,
     Go,
     Python,
@@ -202,6 +206,7 @@ mod tests {
     fn stack_from_str_roundtrip() {
         for stack in [
             Stack::Rust,
+            Stack::Vite,
             Stack::Node,
             Stack::Go,
             Stack::Python,
@@ -395,6 +400,48 @@ mod tests {
     }
 
     #[test]
+    fn detect_finds_vite_config_ts() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("vite.config.ts"), "").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::Vite));
+    }
+
+    #[test]
+    fn detect_finds_vite_config_mjs() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("vite.config.mjs"), "").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::Vite));
+    }
+
+    /// A Vite project always also ships a `package.json`; `Vite` is declared
+    /// before `Node` so the more specific stack wins (mirrors the
+    /// `gradle_prioritized_over_maven` precedent).
+    #[test]
+    fn vite_prioritized_over_node() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("package.json"), "{}").expect("write");
+        std::fs::write(dir.path().join("vite.config.ts"), "").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::Vite));
+    }
+
+    /// A `package.json` with no Vite config must still resolve to `Node`.
+    #[test]
+    fn detect_finds_node_without_vite_config() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("package.json"), "{}").expect("write");
+        assert_eq!(Stack::detect(dir.path()), Some(Stack::Node));
+    }
+
+    #[test]
+    fn vite_defines_typecheck() {
+        let cmds = Stack::Vite.default_commands_ref();
+        assert!(
+            cmds.contains_key("typecheck"),
+            "vite must define a typecheck command"
+        );
+    }
+
+    #[test]
     fn detect_finds_go_mod() {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("go.mod"), "module test").expect("write");
@@ -553,6 +600,7 @@ mod tests {
     fn all_embedded_default_tomls_parse() {
         for stack in [
             Stack::Rust,
+            Stack::Vite,
             Stack::Node,
             Stack::Go,
             Stack::Python,
@@ -574,6 +622,7 @@ mod tests {
     fn each_stack_default_toml_parses_and_includes_verify() {
         for stack in [
             Stack::Rust,
+            Stack::Vite,
             Stack::Node,
             Stack::Go,
             Stack::Python,
@@ -702,6 +751,7 @@ mod tests {
     fn every_stack_defines_qa() {
         for stack in [
             Stack::Rust,
+            Stack::Vite,
             Stack::Node,
             Stack::Go,
             Stack::Python,

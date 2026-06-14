@@ -26,6 +26,17 @@ pub(super) fn metadata(stack: Stack) -> (&'static [&'static str], Option<&'stati
     }
     match stack {
         Stack::Rust => meta!(&["Cargo.toml"], ".default.rust.ops.toml"),
+        Stack::Vite => meta!(
+            &[
+                "vite.config.ts",
+                "vite.config.js",
+                "vite.config.mjs",
+                "vite.config.mts",
+                "vite.config.cjs",
+                "vite.config.cts",
+            ],
+            ".default.vite.ops.toml"
+        ),
         Stack::Node => meta!(&["package.json"], ".default.node.ops.toml"),
         Stack::Go => meta!(&["go.mod"], ".default.go.ops.toml"),
         Stack::Python => meta!(
