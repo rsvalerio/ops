@@ -492,6 +492,21 @@ fn run_cargo_llvm_cov_arg_list_includes_no_fail_fast() {
     assert_eq!(LLVM_COV_ARGS.first().copied(), Some("llvm-cov"));
 }
 
+/// The JSON report must go to a file via `--output-path`, not stdout: the
+/// report grows with the workspace and an ~8 MB document blows past the
+/// `OPS_OUTPUT_BYTE_CAP` stdout cap, silently truncating it into
+/// unparseable JSON and erasing the entire coverage signal.
+#[test]
+fn llvm_cov_argv_appends_output_path_after_static_args() {
+    let argv = crate::subprocess::llvm_cov_argv("/tmp/report.json");
+    assert_eq!(&argv[..LLVM_COV_ARGS.len()], LLVM_COV_ARGS);
+    assert_eq!(
+        &argv[LLVM_COV_ARGS.len()..],
+        &["--output-path", "/tmp/report.json"],
+        "report must be written to a file, not stdout (output-cap truncation); argv: {argv:?}"
+    );
+}
+
 /// ERR-1 / TASK-1021: when `data[]` carries multiple exports listing the
 /// same source filename (per-target merge from a future llvm-cov
 /// version, or a sibling caller passing a multi-export JSON), the

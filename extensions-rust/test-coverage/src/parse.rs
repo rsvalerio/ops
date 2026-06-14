@@ -310,8 +310,8 @@ pub(crate) fn format_stderr_diagnostic(stderr: &[u8]) -> Option<String> {
 /// Run `cargo llvm-cov` and flatten its JSON output into per-file records.
 ///
 /// ERR-1 / TASK-1057: with `--no-fail-fast`, `cargo llvm-cov` still exits
-/// non-zero when one or more tests fail, but stdout contains a complete
-/// llvm-cov JSON document for the passing slice of the workspace. Treat
+/// non-zero when one or more tests fail, but the report file contains a
+/// complete llvm-cov JSON document for the passing slice of the workspace. Treat
 /// that case as a soft failure: warn (so the operator still sees the test
 /// breakage in the log) and continue with the partial-but-useful coverage
 /// data instead of dropping every per-file row.
@@ -328,9 +328,27 @@ pub(crate) fn format_stderr_diagnostic(stderr: &[u8]) -> Option<String> {
 /// logs without re-running with `RUST_LOG=debug`.
 #[must_use = "collect_coverage drives the coverage ingest; dropping the result throws the run away"]
 pub(crate) fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
-    let output = run_cargo_llvm_cov(working_dir)?;
+    // The JSON report is written to a temp file via `--output-path` rather
+    // than captured from stdout: the report grows with the workspace and a
+    // ~8 MB document blows past the OPS_OUTPUT_BYTE_CAP stdout cap, which
+    // silently truncates it into unparseable JSON (and an opaque
+    // "ingestor collect" failure). The handle keeps the file alive until
+    // this function returns; the OS path is what cargo writes through.
+    let report = tempfile::Builder::new()
+        .prefix("ops-llvm-cov-")
+        .suffix(".json")
+        .tempfile()
+        .context("creating temp file for llvm-cov JSON report")?;
+    let report_path = report
+        .path()
+        .to_str()
+        .context("llvm-cov temp report path is not valid UTF-8")?
+        .to_string();
+    let output = run_cargo_llvm_cov(working_dir, &report_path)?;
     if !output.status.success() {
-        let parsed = serde_json::from_slice::<serde_json::Value>(&output.stdout).ok();
+        let parsed = std::fs::read(report.path())
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
         // READ-5 / TASK-1609: the predicate and value recovery are unified in
         // one `if let` so the compiler enforces the "parsed is Some" invariant
         // instead of a runtime `expect`.
@@ -361,7 +379,8 @@ pub(crate) fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, 
     } else {
         tracing::debug!("cargo llvm-cov completed successfully");
     }
+    let bytes = std::fs::read(report.path()).context("reading llvm-cov JSON report")?;
     let raw: serde_json::Value =
-        serde_json::from_slice(&output.stdout).context("parsing llvm-cov JSON output")?;
+        serde_json::from_slice(&bytes).context("parsing llvm-cov JSON output")?;
     flatten_coverage_json(&raw)
 }

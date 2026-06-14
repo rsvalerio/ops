@@ -32,8 +32,22 @@ pub(crate) const LLVM_COV_ARGS: &[&str] = &[
     "--json",
 ];
 
-/// Run `cargo llvm-cov` against the workspace and return the captured
-/// `Output`.
+/// Build the full argv for one `cargo llvm-cov` invocation: the static
+/// [`LLVM_COV_ARGS`] plus `--output-path` pointing at `output_path`.
+///
+/// The JSON report goes to a file instead of stdout because the report
+/// grows with the workspace (~8 MB here already) and blows past the
+/// `OPS_OUTPUT_BYTE_CAP` stdout cap, which silently truncates it into
+/// unparseable JSON and kills the entire coverage signal.
+pub(crate) fn llvm_cov_argv(output_path: &str) -> Vec<&str> {
+    let mut args = LLVM_COV_ARGS.to_vec();
+    args.extend(["--output-path", output_path]);
+    args
+}
+
+/// Run `cargo llvm-cov` against the workspace, writing the JSON report to
+/// `output_path`, and return the captured `Output` (stdout stays small;
+/// stderr carries the test-run log).
 ///
 /// ERR-1 / TASK-1057: pass `--no-fail-fast` (forwarded to cargo test) so a
 /// single failing test does not abort the whole suite — without it,
@@ -42,10 +56,13 @@ pub(crate) const LLVM_COV_ARGS: &[&str] = &[
 /// `coverage_summary`. With `--no-fail-fast`, every test runs and the
 /// per-file coverage data for the passing slice is preserved; the
 /// `check_llvm_cov_output` helper then tolerates a non-zero exit when
-/// stdout still contains a parseable llvm-cov JSON document.
-pub(crate) fn run_cargo_llvm_cov(working_dir: &Path) -> Result<Output, RunError> {
+/// the report file still contains a parseable llvm-cov JSON document.
+pub(crate) fn run_cargo_llvm_cov(
+    working_dir: &Path,
+    output_path: &str,
+) -> Result<Output, RunError> {
     run_cargo(
-        LLVM_COV_ARGS,
+        &llvm_cov_argv(output_path),
         working_dir,
         CARGO_LLVM_COV_TIMEOUT,
         "cargo llvm-cov",
