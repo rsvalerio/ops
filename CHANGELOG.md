@@ -2,6 +2,18 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.33.0](https://github.com/rsvalerio/ops/compare/5e43b356517b41c93367a613dce378498a7eff8c..v0.33.0) - 2026-06-14
+#### 🚀 Features
+- (**stack**) add Vite detection and configuration - ([5e43b35](https://github.com/rsvalerio/ops/commit/5e43b356517b41c93367a613dce378498a7eff8c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**test-coverage**) write llvm-cov JSON to file to prevent stdout truncation - ([4779961](https://github.com/rsvalerio/ops/commit/477996167861e75c2dd3e04ab01c2755ab6e9d16)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**stacks**) add Vite to command mappings and stack reference - ([2c7e708](https://github.com/rsvalerio/ops/commit/2c7e708ae97a25b85dcedb60c2f224799ac4add0)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔄 CI/CD
+- (**workflows**) remove redundant comments and obsolete install job - ([c6dbc07](https://github.com/rsvalerio/ops/commit/c6dbc07ab8c2e8067bda15d32415591a1580c840)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.32.0](https://github.com/rsvalerio/ops/compare/e8aa16cdbea7586f82acdefbcd19fac4a72ace95..v0.32.0) - 2026-06-07
 #### 🚀 Features
 - (**cli**) add import-makefile command to import Makefile targets as ops commands - ([4e267ab](https://github.com/rsvalerio/ops/commit/4e267ab69a03177cba6b626e9b6bd3a12ca4f33f)) - [@rsvalerio](https://github.com/rsvalerio)
