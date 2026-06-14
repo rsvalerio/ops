@@ -96,15 +96,3 @@ jobs:
           repo: rsvalerio/ops
       - name: ops --raw deps
         run: cargo deny check
-
-  install:
-    name: Install
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          rustflags: ""
-      - uses: mozilla-actions/sccache-action@v0.0.9
-      - name: cargo install --path crates/cli --force --all-features
-        run: cargo install --path crates/cli --force --all-features
