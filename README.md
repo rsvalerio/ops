@@ -96,15 +96,18 @@ Every supported stack ships the same 7-command contract via `ops init --commands
 A `✓` means the command is active by default; `*` means it's emitted commented-out
 as a suggestion you can uncomment and adjust.
 
-| Command | Rust | Node | Go | Python | TF | Ansible | Java-M | Java-G |
-|---------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `fmt`       | ✓ (cargo fmt) | * (prettier)   | ✓ (go fmt) | ✓ (ruff format, key `format`) | ✓ (tf fmt) | * (ansible-lint --fix) | * (spotless) | * (spotless) |
-| `lint`      | ✓ (cargo clippy, key `clippy`) | ✓ (npm run lint) | ✓ (go vet, key `vet`) | ✓ (ruff check) | * (tflint) | ✓ (ansible-lint) | * (spotless/checkstyle) | * (spotless/checkstyle) |
-| `build`     | ✓ | ✓ | ✓ | * (python -m build) | * (terraform plan) | * (galaxy build) | ✓ | ✓ |
-| `test`      | ✓ | ✓ | ✓ | ✓ (pytest) | * (terraform test) | * (molecule test) | ✓ | ✓ |
-| `clean`     | ✓ (cargo clean) | * (rm node_modules dist) | ✓ (go clean) | * (rm caches) | * (rm .terraform) | * (rm .ansible) | ✓ | ✓ |
-| `verify`    | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `qa`        | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Command | Rust | Vite | Node | Go | Python | TF | Ansible | Java-M | Java-G |
+|---------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `fmt`       | ✓ (cargo fmt) | * (bunx prettier) | * (prettier)   | ✓ (go fmt) | ✓ (ruff format, key `format`) | ✓ (tf fmt) | * (ansible-lint --fix) | * (spotless) | * (spotless) |
+| `lint`      | ✓ (cargo clippy, key `clippy`) | ✓ (bunx eslint) | ✓ (npm run lint) | ✓ (go vet, key `vet`) | ✓ (ruff check) | * (tflint) | ✓ (ansible-lint) | * (spotless/checkstyle) | * (spotless/checkstyle) |
+| `build`     | ✓ | ✓ (bunx vite build) | ✓ | ✓ | * (python -m build) | * (terraform plan) | * (galaxy build) | ✓ | ✓ |
+| `test`      | ✓ | ✓ (bunx vitest run) | ✓ | ✓ | ✓ (pytest) | * (terraform test) | * (molecule test) | ✓ | ✓ |
+| `clean`     | ✓ (cargo clean) | * (rm node_modules dist) | * (rm node_modules dist) | ✓ (go clean) | * (rm caches) | * (rm .terraform) | * (rm .ansible) | ✓ | ✓ |
+| `verify`    | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `qa`        | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+The Vite stack also ships a `typecheck` command (`bunx tsc -b --noEmit`) wired into its `verify`,
+and is detected before Node via `vite.config.*` so Vite/TypeScript projects get type-aware defaults.
 
 Commented suggestions show up verbatim when you run `ops init --commands`, so you can
 opt in by uncommenting, or remap to the tool your project actually uses.

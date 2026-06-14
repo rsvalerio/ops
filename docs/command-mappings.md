@@ -42,6 +42,24 @@ Suggested `fmt` and `clean` commands exist only as **commented** templates in th
 
 ---
 
+## vite (`vite.config.{ts,js,mjs,mts,cjs,cts}`)
+
+Detected **before** node, since every Vite project also ships a `package.json`. Commands invoke the toolchain directly through `bunx` so they work even when matching `package.json` scripts are absent; override `program` (e.g. `npx`, `pnpm dlx`) in `.ops.toml` to switch runner.
+
+| Command | Maps to |
+| --- | --- |
+| `install` | `bun install` |
+| `typecheck` | `bunx tsc -b --noEmit` |
+| `build` | `bunx vite build` |
+| `lint` | `bunx eslint .` |
+| `test` | `bunx vitest run` |
+| `verify` | composite: `install`, `typecheck`, `lint`, `build` (sequential, fail-fast) |
+| `qa` | composite: `test` (sequential, fail-fast) |
+
+Suggested `fmt` (`bunx prettier --write .`), `preview` (`bunx vite preview`), and `clean` commands exist only as **commented** templates in the default TOML.
+
+---
+
 ## go (`go.mod`)
 
 | Command | Maps to |
