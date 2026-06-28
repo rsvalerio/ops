@@ -2,6 +2,22 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.34.0](https://github.com/rsvalerio/ops/compare/e3ce909df497f0fbf81d80ab5078933beb6ce649..v0.34.0) - 2026-06-28
+#### 🚀 Features
+- (**cli**) add security command - ([e3ce909](https://github.com/rsvalerio/ops/commit/e3ce909df497f0fbf81d80ab5078933beb6ce649)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) add report module and rendering - ([a070eb6](https://github.com/rsvalerio/ops/commit/a070eb6b95bf10cbd5b0f00c119c256f338429f6)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- update command mappings for new security command - ([e003342](https://github.com/rsvalerio/ops/commit/e0033422b0cc047ed2d05d2c67721802595980ed)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- update lock file - ([ea32b9d](https://github.com/rsvalerio/ops/commit/ea32b9d306ab220c705ff155ea2e7e126e95aa27)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**deps**) reorganize and improve formatting logic - ([16060ef](https://github.com/rsvalerio/ops/commit/16060ef2a0ec887f5f4d60cc0f469f36adf03025)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) extract theme types and refactor configurable system - ([a699993](https://github.com/rsvalerio/ops/commit/a6999931a9c05eabf6ab16ae4576480ec737b686)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**config**) add security command to default stack configurations - ([c877623](https://github.com/rsvalerio/ops/commit/c877623da72d2a43777b3dd18201a71080e8b671)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.33.0](https://github.com/rsvalerio/ops/compare/5e43b356517b41c93367a613dce378498a7eff8c..v0.33.0) - 2026-06-14
 #### 🚀 Features
 - (**stack**) add Vite detection and configuration - ([5e43b35](https://github.com/rsvalerio/ops/commit/5e43b356517b41c93367a613dce378498a7eff8c)) - [@rsvalerio](https://github.com/rsvalerio)
