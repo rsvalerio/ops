@@ -830,16 +830,30 @@ fn parse_deny_fields_deserialization_failure_skipped() {
 
 // -- Report formatting tests --
 
+/// Render a report through the shared theme machinery, mirroring `run_deps`.
+/// Color is gated off in tests (no TTY), so the output is plain text and these
+/// substring assertions are stable. Section "(N)" headers are gone — counts now
+/// live in each row's result slot — so the assertions check label + result.
+fn render(report: &DepsReport) -> String {
+    use ops_core::config::theme_types::ThemeConfig;
+    use ops_theme::ConfigurableTheme;
+    let theme = ConfigurableTheme::new(ThemeConfig::compact());
+    theme.render_report(&build_report(report), 100).join("\n")
+}
+
 #[test]
 fn format_report_all_clean() {
     let report = DepsReport::default();
-    let output = format_report(&report);
+    let output = render(&report);
+    assert!(output.contains("Dependency Health Report"));
     assert!(output.contains("Compatible Upgrades"));
     assert!(output.contains("None"));
     assert!(output.contains("Advisories"));
     assert!(output.contains("License Issues"));
     assert!(output.contains("Duplicate Crates"));
     assert!(output.contains("Source Issues"));
+    // Footer reuses the runner's summary chrome, counting checks not time.
+    assert!(output.contains("Done 6 checks"));
 }
 
 #[test]
@@ -858,8 +872,9 @@ fn format_report_with_upgrades() {
         },
         deny: DenyResult::default(),
     };
-    let output = format_report(&report);
-    assert!(output.contains("Compatible Upgrades (1):"));
+    let output = render(&report);
+    assert!(output.contains("Compatible Upgrades"));
+    assert!(output.contains("1 upgrade"));
     assert!(output.contains("serde"));
     assert!(output.contains("1.0.100"));
     assert!(output.contains("1.0.228"));
@@ -882,8 +897,9 @@ fn format_report_with_breaking_upgrades_shows_advice() {
         },
         deny: DenyResult::default(),
     };
-    let output = format_report(&report);
-    assert!(output.contains("Breaking Upgrades (1):"));
+    let output = render(&report);
+    assert!(output.contains("Breaking Upgrades"));
+    assert!(output.contains("1 upgrade"));
     assert!(output.contains("cargo upgrade --incompatible"));
     // ERR-1 / TASK-0600: a breaking-upgrade row must surface the absolute
     // `latest` so operators see how far behind the compatible cap is.
@@ -907,8 +923,9 @@ fn format_report_with_advisory() {
             ..Default::default()
         },
     };
-    let output = format_report(&report);
-    assert!(output.contains("Advisories (1):"));
+    let output = render(&report);
+    assert!(output.contains("Advisories"));
+    assert!(output.contains("1 error"));
     assert!(output.contains("RUSTSEC-2024-0001"));
     assert!(output.contains("foo"));
     assert!(output.contains("cargo deny check advisories"));
@@ -934,12 +951,12 @@ fn format_report_duplicate_crates_shows_totals_only() {
             ..Default::default()
         },
     };
-    let output = format_report(&report);
-    assert!(output.contains("Duplicate Crates:"));
+    let output = render(&report);
+    assert!(output.contains("Duplicate Crates"));
     // Should NOT list individual crate names
     assert!(!output.contains("hashbrown"));
     assert!(!output.contains("syn"));
-    // Should show severity totals on same line
+    // Should show severity totals in the result slot
     assert!(output.contains("1 error"));
     assert!(output.contains("1 warning"));
     assert!(output.contains("transitive, usually harmless"));
@@ -1213,8 +1230,10 @@ fn format_report_with_license_issues() {
             ..Default::default()
         },
     };
-    let output = format_report(&report);
-    assert!(output.contains("License Issues (2):"));
+    let output = render(&report);
+    assert!(output.contains("License Issues"));
+    assert!(output.contains("1 error"));
+    assert!(output.contains("1 warning"));
     assert!(output.contains("gpl-crate"));
     assert!(output.contains("unknown-lic"));
     assert!(output.contains("deny.toml"));
@@ -1233,8 +1252,9 @@ fn format_report_with_source_issues() {
             ..Default::default()
         },
     };
-    let output = format_report(&report);
-    assert!(output.contains("Source Issues (1):"));
+    let output = render(&report);
+    assert!(output.contains("Source Issues"));
+    assert!(output.contains("1 error"));
     assert!(output.contains("sketchy-src"));
     assert!(output.contains("trusted sources"));
 }
@@ -1254,8 +1274,8 @@ fn format_report_bans_info_only() {
             ..Default::default()
         },
     };
-    let output = format_report(&report);
-    assert!(output.contains("Duplicate Crates:"));
+    let output = render(&report);
+    assert!(output.contains("Duplicate Crates"));
     assert!(output.contains("1 info"));
     assert!(!output.contains("error"));
     assert!(!output.contains("warning"));
@@ -1296,7 +1316,7 @@ fn format_report_bans_plural_errors_and_warnings() {
             ..Default::default()
         },
     };
-    let output = format_report(&report);
+    let output = render(&report);
     assert!(output.contains("2 errors"));
     assert!(output.contains("3 warnings"));
 }
@@ -1331,8 +1351,10 @@ fn format_report_advisories_mixed_severities() {
             ..Default::default()
         },
     };
-    let output = format_report(&report);
-    assert!(output.contains("Advisories (3):"));
+    let output = render(&report);
+    assert!(output.contains("Advisories"));
+    assert!(output.contains("1 error"));
+    assert!(output.contains("1 warning"));
     assert!(output.contains("RUSTSEC-2024-0001"));
     assert!(output.contains("RUSTSEC-2024-0002"));
     assert!(output.contains("RUSTSEC-2024-0003"));
@@ -1373,9 +1395,10 @@ fn format_report_multiple_upgrades_aligned() {
         },
         deny: DenyResult::default(),
     };
-    let output = format_report(&report);
-    assert!(output.contains("Compatible Upgrades (2):"));
-    assert!(output.contains("Breaking Upgrades (1):"));
+    let output = render(&report);
+    assert!(output.contains("Compatible Upgrades"));
+    assert!(output.contains("2 upgrades"));
+    assert!(output.contains("Breaking Upgrades"));
     assert!(output.contains("serde"));
     assert!(output.contains("tokio-stream"));
     assert!(output.contains("clap"));
@@ -1551,7 +1574,6 @@ fn interpret_deny_result_exit_two_debug_escapes_stderr_tail() {
 
 #[test]
 fn provide_error_preserves_source_chain() {
-    use anyhow::Context as _;
     use ops_extension::DataProviderError;
 
     let root = std::io::Error::new(std::io::ErrorKind::NotFound, "cargo not found");

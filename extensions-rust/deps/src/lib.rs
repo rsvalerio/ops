@@ -18,7 +18,7 @@ use ops_extension::{
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-pub use format::format_report;
+pub use format::build_report;
 pub use parse::{
     categorize_upgrades, interpret_deny_result, parse_deny_output, parse_upgrade_table,
     run_cargo_deny, run_cargo_upgrade_dry_run,
@@ -232,10 +232,20 @@ pub fn run_deps(
         ctx.refresh = true;
     }
 
+    // Resolve the theme + column width from the same config the runner commands
+    // use, BEFORE `get_or_provide` borrows `ctx` mutably. `ops deps` now renders
+    // through the shared theme machinery (`render_report`) instead of hand-rolled
+    // `println!`, so a custom theme restyles it exactly as it restyles `ops verify`.
+    let columns = ctx.config.output.resolve_columns();
+    let theme = ops_theme::resolve_theme(&ctx.config.output.theme, &ctx.config.themes)
+        .map_err(|e| anyhow::anyhow!("deps: {e}"))?;
+
     let value = ctx.get_or_provide(DATA_PROVIDER_NAME, data_registry)?;
     let report: DepsReport = serde_json::from_value(std::sync::Arc::unwrap_or_clone(value))?;
 
-    print!("{}", format_report(&report));
+    for line in theme.render_report(&build_report(&report), columns) {
+        println!("{line}");
+    }
 
     if has_issues(&report) {
         anyhow::bail!("dependency issues found");
