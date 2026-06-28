@@ -70,10 +70,10 @@ category = "Build"
 # category = "Build"
 
 [commands.verify]
-commands = ["fmt", "lint", "type"]
+commands = ["fmt", "lint", "type", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]
 parallel = false
 fail_fast = true
-help = "Run fmt, lint, type"
+help = "Run fmt, lint, type, trailing-whitespace, end-of-file-fixer, check-json, check-yaml"
 category = "Code Quality"
 
 [commands.qa]

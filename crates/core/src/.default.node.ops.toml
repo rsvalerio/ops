@@ -39,10 +39,10 @@ category = "Code Quality"
 # category = "Build"
 
 [commands.verify]
-commands = ["install", "lint", "build"]
+commands = ["install", "lint", "build", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]
 parallel = false
 fail_fast = true
-help = "Run install, lint, build"
+help = "Run install, lint, build, trailing-whitespace, end-of-file-fixer, check-json, check-yaml"
 category = "Code Quality"
 
 [commands.qa]

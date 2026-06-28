@@ -53,10 +53,10 @@ category = "Code Quality"
 # category = "Build"
 
 [commands.verify]
-commands = ["fmt", "validate"]
+commands = ["fmt", "validate", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]
 parallel = false
 fail_fast = true
-help = "Run fmt, validate"
+help = "Run fmt, validate, trailing-whitespace, end-of-file-fixer, check-json, check-yaml"
 category = "Code Quality"
 
 [commands.qa]

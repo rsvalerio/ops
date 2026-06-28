@@ -32,10 +32,10 @@ help = "Remove build artifacts"
 category = "Build"
 
 [commands.verify]
-commands = ["fmt", "build"]
+commands = ["fmt", "build", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]
 parallel = false
 fail_fast = true
-help = "Run fmt, build"
+help = "Run fmt, build, trailing-whitespace, end-of-file-fixer, check-json, check-yaml"
 category = "Code Quality"
 
 [commands.qa]
