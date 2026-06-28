@@ -4,6 +4,7 @@
 //! The rendering logic that uses these types lives in the theme crate.
 
 use crate::output::StepStatus;
+use crate::report::ReportStatus;
 use serde::{Deserialize, Serialize};
 
 /// Style for rendering the plan header.
@@ -54,6 +55,75 @@ impl Default for ErrorBlockChars {
             bottom: "\u{2570}\u{2500}".into(),
             rail: String::new(),
             color: String::new(),
+        }
+    }
+}
+
+/// Per-status icons and colors for report-style command output (`ops deps`),
+/// rendered by `ConfigurableTheme::render_report`.
+///
+/// Defaulted in full so existing themes and `.ops.toml` files need no
+/// `[themes.*.report]` block — it is added with `#[serde(default)]` on
+/// [`ThemeConfig::report`], and `#[serde(default)]` here lets a user override
+/// only the keys they care about. The default glyphs/colors reproduce the
+/// long-standing hand-rolled `ops deps` output (`✓ ℹ ⚠ ✘`, green/dim/yellow/red).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ReportTheme {
+    /// Icon for a clean / passing row (default `✓`).
+    pub icon_ok: String,
+    /// Icon for an informational row (default `ℹ`).
+    pub icon_info: String,
+    /// Icon for a warning row (default `⚠`).
+    pub icon_warning: String,
+    /// Icon for an error row (default `✘`).
+    pub icon_error: String,
+    /// ANSI color spec for an ok row's result slot (default `green`).
+    pub color_ok: String,
+    /// ANSI color spec for an info row's result slot (default `dim`).
+    pub color_info: String,
+    /// ANSI color spec for a warning row's result slot (default `yellow`).
+    pub color_warning: String,
+    /// ANSI color spec for an error row's result slot (default `red`).
+    pub color_error: String,
+    /// ANSI color spec for the report title (default `bold`).
+    pub title_color: String,
+}
+
+impl Default for ReportTheme {
+    fn default() -> Self {
+        Self {
+            icon_ok: "\u{2713}".into(),      // ✓
+            icon_info: "\u{2139}".into(),    // ℹ
+            icon_warning: "\u{26a0}".into(), // ⚠
+            icon_error: "\u{2718}".into(),   // ✘
+            color_ok: "green".into(),
+            color_info: "dim".into(),
+            color_warning: "yellow".into(),
+            color_error: "red".into(),
+            title_color: "bold".into(),
+        }
+    }
+}
+
+impl ReportTheme {
+    /// Icon glyph for a report status.
+    pub fn icon(&self, status: ReportStatus) -> &str {
+        match status {
+            ReportStatus::Ok => &self.icon_ok,
+            ReportStatus::Info => &self.icon_info,
+            ReportStatus::Warning => &self.icon_warning,
+            ReportStatus::Error => &self.icon_error,
+        }
+    }
+
+    /// ANSI color spec for a report status's result slot.
+    pub fn color(&self, status: ReportStatus) -> &str {
+        match status {
+            ReportStatus::Ok => &self.color_ok,
+            ReportStatus::Info => &self.color_info,
+            ReportStatus::Warning => &self.color_warning,
+            ReportStatus::Error => &self.color_error,
         }
     }
 }
@@ -122,6 +192,10 @@ pub struct ThemeConfig {
     /// Overall layout kind (flat or boxed). Defaults to flat for backward compatibility.
     #[serde(default)]
     pub layout_kind: LayoutKind,
+    /// Icons and colors for report-style command output (`ops deps`).
+    /// Defaulted so existing themes need no `[report]` block.
+    #[serde(default)]
+    pub report: ReportTheme,
 }
 
 fn default_left_pad() -> usize {
@@ -161,6 +235,7 @@ impl ThemeConfig {
             duration_color: String::new(),
             summary_color: String::new(),
             layout_kind: LayoutKind::Flat,
+            report: ReportTheme::default(),
         }
     }
 
@@ -190,6 +265,7 @@ impl ThemeConfig {
             duration_color: String::new(),
             summary_color: String::new(),
             layout_kind: LayoutKind::Flat,
+            report: ReportTheme::default(),
         }
     }
 

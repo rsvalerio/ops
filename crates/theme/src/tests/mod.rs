@@ -17,6 +17,7 @@ mod error_block_color;
 mod format_duration;
 mod left_pad;
 mod render_basics;
+mod render_report;
 mod render_summary;
 mod resolve;
 mod unicode;

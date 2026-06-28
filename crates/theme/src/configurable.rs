@@ -1,9 +1,10 @@
 //! TOML-configurable theme implementation.
 
 use ops_core::output::{display_width, ErrorDetail, StepLine, StepStatus, ALL_STATUSES};
+use ops_core::report::{Report, ReportStatus};
 
 use super::render::render_error_block;
-use super::step_line_theme::{format_duration, BoxSnapshot, StepPrefixParts};
+use super::step_line_theme::{format_duration, BoxSnapshot, SlotLine, StepPrefixParts};
 use super::style::{apply_with_prefix, precompute_sgr_prefix, visible_width};
 use super::{PlanHeaderStyle, ThemeConfig};
 use ops_core::config::theme_types::LayoutKind;
@@ -48,6 +49,15 @@ pub struct ConfigurableTheme {
     label_prefix: Option<String>,
     separator_prefix: Option<String>,
     duration_prefix: Option<String>,
+    /// Precomputed SGR prefixes for the report `[report]` block — one per
+    /// [`ReportStatus`] result slot, plus the report title. Mirrors the
+    /// label/separator/duration prefixes so `render_report` avoids re-parsing
+    /// the color specs on every row.
+    report_ok_prefix: Option<String>,
+    report_info_prefix: Option<String>,
+    report_warning_prefix: Option<String>,
+    report_error_prefix: Option<String>,
+    report_title_prefix: Option<String>,
     /// TASK-1035: precomputed `" ".repeat(config.left_pad)` so the per-step
     /// render path doesn't allocate a fresh padding string on every call.
     left_pad_str: String,
@@ -62,6 +72,11 @@ impl ConfigurableTheme {
             label_prefix: precompute_sgr_prefix(&config.label_color),
             separator_prefix: precompute_sgr_prefix(&config.separator_color),
             duration_prefix: precompute_sgr_prefix(&config.duration_color),
+            report_ok_prefix: precompute_sgr_prefix(&config.report.color_ok),
+            report_info_prefix: precompute_sgr_prefix(&config.report.color_info),
+            report_warning_prefix: precompute_sgr_prefix(&config.report.color_warning),
+            report_error_prefix: precompute_sgr_prefix(&config.report.color_error),
+            report_title_prefix: precompute_sgr_prefix(&config.report.title_color),
             left_pad_str,
             config,
         }
@@ -308,7 +323,15 @@ impl ConfigurableTheme {
     /// Returning the components separately (rather than re-deriving them in
     /// each caller) makes drift impossible.
     pub fn step_prefix_parts(&self, status: StepStatus, is_running: bool) -> StepPrefixParts<'_> {
-        let icon = self.status_icon(status);
+        self.icon_prefix_parts(self.status_icon(status), is_running)
+    }
+
+    /// Generalization of [`step_prefix_parts`](Self::step_prefix_parts) over an
+    /// explicit icon glyph, so report rows (whose icons come from the `[report]`
+    /// block, not [`StepStatus`]) share the exact same icon-column alignment.
+    /// `icon_column_width` still measures over [`ALL_STATUSES`], so report
+    /// glyphs (✓ ⚠ ✘ ℹ, width 1) line up under the same column as step icons.
+    pub fn icon_prefix_parts<'a>(&'a self, icon: &'a str, is_running: bool) -> StepPrefixParts<'a> {
         let icon_width = display_width(icon);
         let max_icon_width = self.icon_column_width();
         let (indent, spinner_cols) = if is_running {
@@ -379,51 +402,203 @@ impl ConfigurableTheme {
     }
 
     // TASK-0747: render uses precomputed SGR prefixes instead of re-parsing
-    // the spec string on every step line.
+    // the spec string on every step line. The body now lives in
+    // [`render_slot`](Self::render_slot); `render` only maps a `StepLine` onto a
+    // `SlotLine` (icon = status icon, trailing = formatted duration). Keep this
+    // mapping mechanical so the runner output stays byte-identical.
     pub fn render(&self, step: &StepLine, columns: u16) -> String {
         let is_running = step.status == StepStatus::Running;
-        let plain_prefix = self.render_prefix(step, is_running);
-        let plain_duration = step
+        let trailing = step
             .elapsed
             .map(|d| self.format_elapsed(d))
             .unwrap_or_default();
-        let plain_separator =
-            self.render_separator(&plain_prefix, &plain_duration, columns as usize, is_running);
-        let pad = if is_running { "" } else { self.left_pad_str() };
+        self.render_slot(
+            &SlotLine {
+                icon: self.status_icon(step.status),
+                label: &step.label,
+                trailing: &trailing,
+                trailing_prefix: self.duration_prefix.as_deref(),
+                is_running,
+            },
+            columns,
+        )
+    }
 
-        let parts = self.step_prefix_parts(step.status, is_running);
-        let colored_label = apply_with_prefix(&step.label, self.label_prefix.as_deref());
+    /// Shared render path for one line of `{indent}{icon}{pad} label … trailing`,
+    /// driven by an explicit [`SlotLine`]. Both the runner's [`render`](Self::render)
+    /// (trailing = duration) and report rows (trailing = result string) call
+    /// here so the prefix layout, dotted separator, and color application have a
+    /// single source of truth.
+    pub fn render_slot(&self, slot: &SlotLine<'_>, columns: u16) -> String {
+        let parts = self.icon_prefix_parts(slot.icon, slot.is_running);
+        let plain_prefix = format!("{}{}{} {}", parts.indent, parts.icon, parts.pad, slot.label);
+        let plain_separator = self.render_separator(
+            &plain_prefix,
+            slot.trailing,
+            columns as usize,
+            slot.is_running,
+        );
+        let pad = if slot.is_running {
+            ""
+        } else {
+            self.left_pad_str()
+        };
+
+        let colored_label = apply_with_prefix(slot.label, self.label_prefix.as_deref());
         let colored_prefix = format!(
             "{}{}{} {}",
             parts.indent, parts.icon, parts.pad, colored_label
         );
-
         let colored_separator =
             apply_with_prefix(&plain_separator, self.separator_prefix.as_deref());
 
-        if plain_duration.is_empty() {
+        if slot.trailing.is_empty() {
             format!("{}{}{}", pad, colored_prefix, colored_separator)
         } else {
-            let colored_duration =
-                apply_with_prefix(&plain_duration, self.duration_prefix.as_deref());
+            let colored_trailing = apply_with_prefix(slot.trailing, slot.trailing_prefix);
             format!(
                 "{}{}{} {}",
-                pad, colored_prefix, colored_separator, colored_duration
+                pad, colored_prefix, colored_separator, colored_trailing
             )
         }
     }
 
-    // TASK-0747: render_summary uses precomputed SGR prefix.
+    // TASK-0747: render_summary uses precomputed SGR prefix. Split so report
+    // footers reuse the same chrome (`render_summary_text`) with their own body.
     pub fn render_summary(&self, success: bool, elapsed_secs: f64) -> String {
         let label = if success { "Done" } else { "Failed" };
-        let body = format!("{} in {}", label, format_duration(elapsed_secs));
-        let colored = apply_with_prefix(&body, self.summary_prefix.as_deref());
+        self.render_summary_text(&format!("{} in {}", label, format_duration(elapsed_secs)))
+    }
+
+    /// Render an arbitrary summary body with the theme's summary chrome
+    /// (left pad + summary glyph/separator + colored body). The runner passes
+    /// `"Done in 1.20s"`; reports pass their `footer_text()`.
+    pub fn render_summary_text(&self, body: &str) -> String {
+        let colored = apply_with_prefix(body, self.summary_prefix.as_deref());
         format!(
             "{}{}{}",
             self.left_pad_str(),
             self.summary_prefix(),
             colored
         )
+    }
+
+    /// Icon glyph for a [`ReportStatus`], from the theme's `[report]` block.
+    pub fn report_icon(&self, status: ReportStatus) -> &str {
+        self.config.report.icon(status)
+    }
+
+    /// Precomputed SGR prefix for a [`ReportStatus`] result slot.
+    fn report_prefix(&self, status: ReportStatus) -> Option<&str> {
+        match status {
+            ReportStatus::Ok => self.report_ok_prefix.as_deref(),
+            ReportStatus::Info => self.report_info_prefix.as_deref(),
+            ReportStatus::Warning => self.report_warning_prefix.as_deref(),
+            ReportStatus::Error => self.report_error_prefix.as_deref(),
+            // `ReportStatus` is `#[non_exhaustive]`; an unknown future severity
+            // renders its result slot uncolored rather than failing to build.
+            _ => None,
+        }
+    }
+
+    /// Render a [`Report`] (title, status rows, footer) through the shared
+    /// step-line machinery so "command output" commands match the runner's
+    /// themed look. Each row becomes a [`SlotLine`] whose icon/color come from
+    /// the `[report]` block and whose trailing slot is the result string;
+    /// per-row `details` are emitted verbatim (no dotted separator).
+    ///
+    /// Honors the active layout: flat themes render a bare title + rows +
+    /// summary; boxed themes draw the same enclosing frame the runner uses,
+    /// with the report title in the top border and the footer in the bottom.
+    pub fn render_report(&self, report: &Report, columns: u16) -> Vec<String> {
+        if matches!(self.config.layout_kind, LayoutKind::Boxed) {
+            return self.render_report_boxed(report, columns);
+        }
+
+        let pad = self.left_pad_str();
+        let mut out = Vec::with_capacity(report.rows.len() * 2 + 4);
+        out.push(String::new());
+        let title = apply_with_prefix(&report.title, self.report_title_prefix.as_deref());
+        out.push(format!("{}{}", pad, title));
+        out.push(String::new());
+        for row in &report.rows {
+            out.push(self.render_slot(&self.report_slot(row), columns));
+            for detail in &row.details {
+                out.push(detail.clone());
+            }
+        }
+        // Blank line before the summary, matching the runner's flat layout
+        // (`✓ … 5.97s` ⏎ blank ⏎ ` Done …`).
+        out.push(String::new());
+        out.push(self.render_summary_text(&report.footer_text()));
+        out
+    }
+
+    /// Boxed-layout report: top border with the title, each row wrapped in the
+    /// `│ … │` frame (reserving the box columns exactly as the runner's
+    /// `render_and_wrap_step` does — render at the reduced budget, then wrap),
+    /// detail lines wrapped as continuation content, and a bottom border
+    /// carrying the footer summary.
+    fn render_report_boxed(&self, report: &Report, columns: u16) -> Vec<String> {
+        let mut out = Vec::with_capacity(report.rows.len() * 2 + 4);
+        let reserve = self.step_column_reserve();
+        let effective = columns.saturating_sub(reserve);
+
+        out.push(String::new());
+        out.push(build_horizontal_border(BorderArgs {
+            title: &format!(" {} ", report.title),
+            left_corner: "╭─",
+            right_corner: "╮",
+            columns,
+            left_pad: self.left_pad(),
+            title_prefix: self.report_title_prefix.as_deref(),
+        }));
+        for row in &report.rows {
+            let inner = self.render_slot(&self.report_slot(row), effective);
+            // All report rows are terminal; use the runner's "done" cell so the
+            // left progress column reads as a solid bar.
+            out.push(self.wrap_step_line(&inner, "█", columns));
+            for detail in &row.details {
+                out.push(self.wrap_box_content(detail, columns));
+            }
+        }
+        out.push(build_horizontal_border(BorderArgs {
+            title: &format!(" {} ", report.footer_text()),
+            left_corner: "╰─",
+            right_corner: "╯",
+            columns,
+            left_pad: self.left_pad(),
+            title_prefix: self.summary_prefix.as_deref(),
+        }));
+        out
+    }
+
+    /// Build the [`SlotLine`] for a report row (icon/color from the `[report]`
+    /// block, trailing = the result string). Shared by the flat and boxed paths.
+    fn report_slot<'a>(&'a self, row: &'a ops_core::report::ReportRow) -> SlotLine<'a> {
+        SlotLine {
+            icon: self.report_icon(row.status),
+            label: &row.label,
+            trailing: &row.result,
+            trailing_prefix: self.report_prefix(row.status),
+            is_running: false,
+        }
+    }
+
+    /// Wrap an already-formatted content line in the boxed `│ … │` frame,
+    /// right-padding so the closing bar aligns with [`wrap_step_line`]'s. Used
+    /// for report detail/continuation lines, which carry their own indentation
+    /// and so don't take the progress-cell column.
+    fn wrap_box_content(&self, inner: &str, columns: u16) -> String {
+        let pad = self.left_pad_str();
+        // Interior between the two `│` bars, minus the leading and trailing
+        // interior spaces — the content area whose right edge must line up with
+        // the right bar that `wrap_step_line` emits at `columns - left_pad`.
+        let content_area = (columns as usize)
+            .saturating_sub(2 * self.left_pad())
+            .saturating_sub(4);
+        let right_pad = content_area.saturating_sub(visible_width(inner));
+        format!("{pad}│ {inner}{} │", " ".repeat(right_pad))
     }
 }
 

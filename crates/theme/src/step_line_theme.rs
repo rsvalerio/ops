@@ -69,6 +69,30 @@ pub struct BoxSnapshot<'a> {
 // so each field is named at the use site and clippy's too_many_arguments
 // rule (threshold 5) is respected without an `#[allow]`.
 
+/// Inputs to `ConfigurableTheme::render_slot` — the generalized
+/// "left chrome + label + dotted separator + right-aligned trailing slot"
+/// line shared by the runner's step line and report rows.
+///
+/// The runner builds one from a [`StepLine`](ops_core::output::StepLine) (icon
+/// from the step status, trailing = formatted duration); a report builds one
+/// per [`ReportRow`](ops_core::report::ReportRow) (icon/color from the theme's
+/// `[report]` block, trailing = the result string). Keeping the right-hand slot
+/// a plain string + precomputed SGR is what lets a single render path serve
+/// both — see `ConfigurableTheme::render_slot`.
+pub struct SlotLine<'a> {
+    /// Glyph for the icon column (theme step icon OR report status icon).
+    pub icon: &'a str,
+    /// Command label / section name shown after the icon.
+    pub label: &'a str,
+    /// Right-aligned trailing string: `"1.20s"` | `"None"` | `"28 warnings"` | `""`.
+    pub trailing: &'a str,
+    /// Precomputed SGR prefix for the trailing slot (`duration_color` for the
+    /// runner; the per-row report color for reports). `None` renders plain.
+    pub trailing_prefix: Option<&'a str>,
+    /// Running rows drop the left pad and reserve spinner width.
+    pub is_running: bool,
+}
+
 /// Plain layout pieces that make up the left portion of a step line:
 /// `{indent}{icon}{pad} `. Returned by `ConfigurableTheme::step_prefix_parts`
 /// so `render` and `render_prefix` cannot drift in width or composition.

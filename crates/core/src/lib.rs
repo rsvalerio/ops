@@ -3,6 +3,7 @@ pub mod expand;
 pub mod output;
 pub mod paths;
 pub mod project_identity;
+pub mod report;
 pub mod serde_defaults;
 pub mod stack;
 pub mod style;
