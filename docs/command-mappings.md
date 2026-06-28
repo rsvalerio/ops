@@ -20,7 +20,7 @@ Below, **exec** lines are `program` plus `args` from config. **Composite** comma
 | `test` | `cargo test --all --all-features` |
 | `test-ignored` | `cargo test --all --all-features -- --ignored` |
 | `clean` | `cargo clean` |
-| `verify` | composite: `fmt`, `check`, `clippy`, `build` (parallel, fail-fast) |
+| `verify` | composite: `fmt`, `check`, `clippy`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (parallel, fail-fast) |
 | `qa` | composite: `deps`, `test`, `test-ignored` (parallel, fail-fast) |
 
 **`deps`:** not defined in the embedded TOML; it is supplied by the **Rust `deps` extension** when built in. That command runs dependency health checks (notably `cargo upgrade --dry-run` and `cargo deny check`); see `extensions-rust/deps`.
@@ -35,7 +35,7 @@ Below, **exec** lines are `program` plus `args` from config. **Composite** comma
 | `build` | `npm run build` |
 | `test` | `npm test` |
 | `lint` | `npm run lint` |
-| `verify` | composite: `install`, `lint`, `build` (sequential, fail-fast) |
+| `verify` | composite: `install`, `lint`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `test` (sequential, fail-fast) |
 
 Suggested `fmt` and `clean` commands exist only as **commented** templates in the default TOML.
@@ -53,7 +53,7 @@ Detected **before** node, since every Vite project also ships a `package.json`. 
 | `build` | `bunx vite build` |
 | `lint` | `bunx eslint .` |
 | `test` | `bunx vitest run` |
-| `verify` | composite: `install`, `typecheck`, `lint`, `build` (sequential, fail-fast) |
+| `verify` | composite: `install`, `typecheck`, `lint`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `test` (sequential, fail-fast) |
 
 Suggested `fmt` (`bunx prettier --write .`), `preview` (`bunx vite preview`), and `clean` commands exist only as **commented** templates in the default TOML.
@@ -70,7 +70,7 @@ Suggested `fmt` (`bunx prettier --write .`), `preview` (`bunx vite preview`), an
 | `build` | `go build ./...` |
 | `test` | `go test ./...` |
 | `clean` | `go clean ./...` |
-| `verify` | composite: `fmt`, `build` (sequential, fail-fast) |
+| `verify` | composite: `fmt`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `test`, `vet` (sequential, fail-fast) |
 
 ---
@@ -89,7 +89,7 @@ Suggested `fmt` (`bunx prettier --write .`), `preview` (`bunx vite preview`), an
 | `type` | `uv run pyright` |
 | `test` | `uv run pytest -q` |
 | `clean` | `rm -rf .pytest_cache .ruff_cache .pyright build dist` |
-| `verify` | composite: `fmt`, `lint`, `type` (sequential, fail-fast) |
+| `verify` | composite: `fmt`, `lint`, `type`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `test` (sequential, fail-fast) |
 
 A suggested `build` (`uv build`) is commented in the default TOML.
@@ -104,7 +104,7 @@ A suggested `build` (`uv build`) is commented in the default TOML.
 | `fmt` | `terraform fmt -recursive` |
 | `validate` | `terraform validate` |
 | `plan` | `terraform plan` |
-| `verify` | composite: `fmt`, `validate` (sequential, fail-fast) |
+| `verify` | composite: `fmt`, `validate`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `plan` (sequential, fail-fast) |
 
 Suggested `lint` (`tflint`), `build`, `test`, and `clean` are commented templates.
@@ -117,7 +117,7 @@ Suggested `lint` (`tflint`), `build`, `test`, and `clean` are commented template
 | --- | --- |
 | `lint` | `ansible-lint` |
 | `check` | `ansible-playbook --check site.yml` |
-| `verify` | composite: `lint`, `check` (sequential, fail-fast) |
+| `verify` | composite: `lint`, `check`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `check` (sequential, fail-fast) |
 
 Suggested `fmt`, `build`, `test`, and `clean` are commented templates.
@@ -134,7 +134,7 @@ Uses `./mvnw` (Maven wrapper).
 | `build` | `./mvnw package -DskipTests` |
 | `test` | `./mvnw test` |
 | `clean` | `./mvnw clean` |
-| `verify` | composite: `compile` (sequential, fail-fast) |
+| `verify` | composite: `compile`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `test` (sequential, fail-fast) |
 
 Suggested `fmt` / `lint` (e.g. Spotless) are commented templates.
@@ -151,7 +151,7 @@ Uses `./gradlew` (Gradle wrapper).
 | `build` | `./gradlew build -x test` |
 | `test` | `./gradlew test` |
 | `clean` | `./gradlew clean` |
-| `verify` | composite: `compile` (sequential, fail-fast) |
+| `verify` | composite: `compile`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `test` (sequential, fail-fast) |
 
 Suggested `fmt` / `lint` (e.g. Spotless) are commented templates.
