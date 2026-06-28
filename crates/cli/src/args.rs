@@ -204,6 +204,27 @@ pub enum CoreSubcommand {
         #[arg(long)]
         tracked: bool,
     },
+    /// Run security scans via Trivy, auto-selected by detected file types.
+    ///
+    /// Always runs a secret scan; adds a vulnerability scan when a dependency
+    /// manifest/lockfile is present, and a misconfiguration (IaC) scan when a
+    /// Dockerfile, Kubernetes manifest, or other infrastructure-as-code file is
+    /// present. Each scan shells out to the `trivy` CLI, which must be installed.
+    ///
+    /// Override the auto-detection with `--skip <scan>` to drop a scan or
+    /// `--force <scan>` to run one regardless of detection (scans: `secrets`,
+    /// `vuln`, `misconfig`). Use the global `--dry-run` flag to preview which
+    /// scans would run (and which would be skipped, with reasons) without
+    /// executing Trivy. Exit code is non-zero if any scan fails or reports
+    /// findings.
+    Sec {
+        /// Skip a scan even if it would otherwise run (repeatable).
+        #[arg(long = "skip", value_enum, value_name = "SCAN")]
+        skip: Vec<crate::sec_cmd::ScanArg>,
+        /// Force a scan to run even if detection would skip it (repeatable).
+        #[arg(long = "force", value_enum, value_name = "SCAN")]
+        force: Vec<crate::sec_cmd::ScanArg>,
+    },
     /// Catch-all for dynamic config-defined commands (e.g. `ops verify`).
     #[command(external_subcommand)]
     External(Vec<OsString>),

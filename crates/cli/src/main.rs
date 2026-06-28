@@ -39,6 +39,7 @@ mod pre_hook_cmd;
 mod registry;
 mod row;
 mod run_cmd;
+mod sec_cmd;
 mod subcommands;
 mod theme_cmd;
 #[cfg(feature = "stack-rust")]
@@ -287,6 +288,10 @@ fn dispatch(
         }
         Some(CoreSubcommand::CheckYaml { tracked }) => {
             return run_check_yaml(tracked);
+        }
+        Some(CoreSubcommand::Sec { skip, force }) => {
+            let cwd = cwd()?;
+            return sec_cmd::run_sec(&cwd, cli.dry_run, &skip, &force);
         }
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(
