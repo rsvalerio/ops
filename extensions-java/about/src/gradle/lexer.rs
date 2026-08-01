@@ -19,10 +19,9 @@ pub(super) fn extract_quoted(s: &str) -> Option<&str> {
     let s = s.trim();
     let (open, rest) = if let Some(r) = s.strip_prefix('"') {
         ('"', r)
-    } else if let Some(r) = s.strip_prefix('\'') {
-        ('\'', r)
     } else {
-        return None;
+        let r = s.strip_prefix('\'')?;
+        ('\'', r)
     };
     let end = find_unescaped(rest, open)?;
     Some(&rest[..end])
