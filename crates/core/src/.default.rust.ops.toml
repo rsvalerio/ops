@@ -8,32 +8,34 @@ category = "Code Quality"
 
 [commands.check]
 program = "cargo"
-args = ["check", "--all", "--all-features"]
+args = ["check", "--workspace", "--all-features", "--all-targets"]
 help = "Check all targets"
 category = "Code Quality"
 
 [commands.clippy]
 program = "cargo"
-args = ["clippy", "--all", "--all-features", "--", "-D", "warnings"]
+args = ["clippy", "--workspace", "--all-features", "--all-targets", "--", "-D", "warnings"]
 aliases = ["lint"]
 help = "Lint with clippy"
 category = "Code Quality"
 
 [commands.build]
 program = "cargo"
-args = ["build", "--all", "--all-features"]
+args = ["build", "--workspace", "--all-features", "--all-targets"]
 help = "Build all targets"
 category = "Build"
 
+# No --all-targets here: for `cargo test` it *disables doctests*
+# ("Test all targets (does not include doctests)" — cargo test --help).
 [commands.test]
 program = "cargo"
-args = ["test", "--all", "--all-features"]
+args = ["test", "--workspace", "--all-features"]
 help = "Run all tests (ignoring ignored tests)"
 category = "Code Quality"
 
 [commands.test-ignored]
 program = "cargo"
-args = ["test", "--all", "--all-features", "--", "--ignored"]
+args = ["test", "--workspace", "--all-features", "--", "--ignored"]
 help = "Run all tests (including ignored tests)"
 category = "Code Quality"
 
@@ -43,16 +45,31 @@ args = ["clean"]
 help = "Remove build artifacts"
 category = "Build"
 
+# Sequential, matching every other stack. `cargo fmt --all` rewrites the very
+# .rs files `clippy` and `build` read, so the two must not overlap. Nesting the
+# compile steps in a parallel sub-composite does NOT work around this: composite
+# expansion flattens to a single leaf plan and ORs the `parallel` flags
+# (`any_parallel` in runner/src/command/resolve.rs), so one parallel descendant
+# makes the whole plan parallel.
+#
+# This costs real but small wall-clock: measured warm on this repo, `verify`
+# goes from ~0.45s parallel to ~0.90s sequential. Concurrent cargo invocations
+# serialise on the build directory lock anyway, so the parallelism was worth
+# less than it looked.
+#
+# `check` is deliberately absent — `build --all-targets` subsumes it and clippy
+# type-checks independently, so including it compiled the workspace a third
+# time under a third fingerprint. It remains available as a standalone command.
 [commands.verify]
-commands = ["fmt", "check", "clippy", "build", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]
-parallel = true
+commands = ["fmt", "clippy", "build", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]
+parallel = false
 fail_fast = true
-help = "Run fmt, check, clippy, build, trailing-whitespace, end-of-file-fixer, check-json, check-yaml"
+help = "Run fmt, clippy, build, trailing-whitespace, end-of-file-fixer, check-json, check-yaml"
 category = "Code Quality"
 
 [commands.qa]
 commands = ["deps", "test", "test-ignored"]
-parallel = true
+parallel = false
 fail_fast = true
 help = "Run deps, test, test-ignored"
 category = "Code Quality"

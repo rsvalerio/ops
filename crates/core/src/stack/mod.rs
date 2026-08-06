@@ -659,6 +659,117 @@ mod tests {
         );
     }
 
+    /// Args of a Rust default exec command, or panic if it is not an exec.
+    fn rust_exec_args(name: &str) -> Vec<String> {
+        let cmds = Stack::Rust.default_commands_ref();
+        match cmds.get(name) {
+            Some(crate::config::CommandSpec::Exec(e)) => e.args.clone(),
+            Some(_) => panic!("rust `{name}` must be an exec command"),
+            None => panic!("rust `{name}` must exist"),
+        }
+    }
+
+    /// Compile-and-lint commands must cover tests, benches and examples.
+    ///
+    /// Without `--all-targets` cargo only builds the default targets (lib and
+    /// bins), so test code is never type-checked or linted and lint escapes ship
+    /// unnoticed. Their `help` strings already claim "all targets"; this makes
+    /// the args match. It also aligns with the Go stack, whose `./...` spans
+    /// test files already.
+    #[test]
+    fn rust_compile_commands_cover_all_targets() {
+        for name in ["check", "clippy", "build"] {
+            let args = rust_exec_args(name);
+            assert!(
+                args.iter().any(|a| a == "--all-targets"),
+                "rust `{name}` must pass --all-targets, got: {args:?}"
+            );
+        }
+    }
+
+    /// `--all-targets` must NOT reach `cargo test`.
+    ///
+    /// For `cargo test` the flag *disables* doctests — "Test all targets (does
+    /// not include doctests)" per `cargo test --help` — so adding it for
+    /// symmetry with the compile commands would silently drop doctest coverage.
+    #[test]
+    fn rust_test_commands_omit_all_targets_to_keep_doctests() {
+        for name in ["test", "test-ignored"] {
+            let args = rust_exec_args(name);
+            assert!(
+                !args.iter().any(|a| a == "--all-targets"),
+                "rust `{name}` must not pass --all-targets: it disables doctests, got: {args:?}"
+            );
+        }
+    }
+
+    /// For cargo's build-system subcommands `--all` is a deprecated alias for
+    /// `--workspace` (`cargo build --help`).
+    ///
+    /// `fmt` is deliberately excluded: `cargo fmt --all` is rustfmt's own flag
+    /// ("Format all packages, and also their local path-based dependencies"),
+    /// not the deprecated cargo alias, and rustfmt offers no `--workspace`.
+    #[test]
+    fn rust_uses_workspace_not_deprecated_all() {
+        for name in ["check", "clippy", "build", "test", "test-ignored"] {
+            let args = rust_exec_args(name);
+            assert!(
+                !args.iter().any(|a| a == "--all"),
+                "rust `{name}` uses deprecated --all; prefer --workspace, got: {args:?}"
+            );
+        }
+    }
+
+    /// `verify` must run `fmt` before anything reads the sources it rewrites.
+    ///
+    /// `cargo fmt --all` mutates the `.rs` files `clippy` and `build` read, so
+    /// the three must not overlap.
+    ///
+    /// The transitive check matters and is not paranoia: composite expansion
+    /// flattens to a single leaf plan and ORs the `parallel` flags together
+    /// (`any_parallel` in `runner/src/command/resolve.rs`), so nesting the
+    /// compile steps in a `parallel = true` sub-composite would silently make
+    /// the *whole* plan parallel while `verify.parallel` still read `false`.
+    #[test]
+    fn rust_verify_is_sequential_so_fmt_cannot_race_the_compile_steps() {
+        let cmds = Stack::Rust.default_commands_ref();
+        let CommandSpec::Composite(verify) = cmds.get("verify").expect("verify must exist") else {
+            panic!("rust `verify` must be a composite command");
+        };
+        assert!(
+            !verify.parallel,
+            "rust `verify` must be sequential: fmt rewrites files the compile steps read"
+        );
+
+        // No descendant may re-enable parallelism, or the flattened plan runs
+        // concurrently regardless of the flag asserted above.
+        for child in &verify.commands {
+            if let Some(CommandSpec::Composite(c)) = cmds.get(child) {
+                assert!(
+                    !c.parallel,
+                    "`{child}` is parallel; expansion ORs the flags, so `verify` would run \
+                     concurrently despite parallel = false"
+                );
+            }
+        }
+
+        let pos = |name: &str| {
+            verify
+                .commands
+                .iter()
+                .position(|c| c == name)
+                .unwrap_or_else(|| panic!("verify must run {name}"))
+        };
+        let fmt = pos("fmt");
+        for reader in ["clippy", "build"] {
+            assert!(
+                fmt < pos(reader),
+                "fmt must precede {reader}, got: {:?}",
+                verify.commands
+            );
+        }
+    }
+
     #[test]
     fn go_vet_aliased_to_lint() {
         let cmds = Stack::Go.default_commands_ref();
