@@ -13,15 +13,28 @@ Below, **exec** lines are `program` plus `args` from config. **Composite** comma
 | Command | Maps to |
 | --- | --- |
 | `fmt` | `cargo fmt --all` |
-| `check` | `cargo check --all --all-features` |
-| `clippy` | `cargo clippy --all --all-features -- -D warnings` |
+| `check` | `cargo check --workspace --all-features --all-targets` |
+| `clippy` | `cargo clippy --workspace --all-features --all-targets -- -D warnings` |
 | `lint` | alias → `clippy` |
-| `build` | `cargo build --all --all-features` |
-| `test` | `cargo test --all --all-features` |
-| `test-ignored` | `cargo test --all --all-features -- --ignored` |
+| `build` | `cargo build --workspace --all-features --all-targets` |
+| `test` | `cargo test --workspace --all-features` |
+| `test-ignored` | `cargo test --workspace --all-features -- --ignored` |
 | `clean` | `cargo clean` |
-| `verify` | composite: `fmt`, `check`, `clippy`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (parallel, fail-fast) |
-| `qa` | composite: `deps`, `test`, `test-ignored` (parallel, fail-fast) |
+| `verify` | composite: `fmt`, `clippy`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
+| `qa` | composite: `deps`, `test`, `test-ignored` (sequential, fail-fast) |
+
+**`--all-targets` on `test`:** deliberately absent. For `cargo test` the flag
+*disables* doctests ("Test all targets (does not include doctests)"), so adding
+it for symmetry would silently drop doctest coverage.
+
+**`verify` is sequential:** `fmt` rewrites the `.rs` files `clippy` and `build`
+read, so they must not overlap. Note that a nested `parallel = true` composite
+would not help: expansion flattens to one leaf plan and ORs the `parallel`
+flags, so a single parallel descendant makes the whole plan parallel.
+
+**`check` is not in `verify`:** `build --all-targets` subsumes it and `clippy`
+type-checks independently, so including it compiled the workspace a third time
+under a third fingerprint. It remains available standalone.
 
 **`deps`:** not defined in the embedded TOML; it is supplied by the **Rust `deps` extension** when built in. That command runs dependency health checks (notably `cargo upgrade --dry-run` and `cargo deny check`); see `extensions-rust/deps`.
 
