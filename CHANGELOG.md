@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.34.1](https://github.com/rsvalerio/ops/compare/84742919f413cde73af7ae1762d99bac950bba05..v0.34.1) - 2026-08-06
+#### 🐛 Bug Fixes
+- (**rust**) check, lint and build every target by default - ([46ad4e0](https://github.com/rsvalerio/ops/commit/46ad4e03eb474d28d0ef4211e67ef34379068d94)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- spec Verified bump commits via Git Data API - ([8474291](https://github.com/rsvalerio/ops/commit/84742919f413cde73af7ae1762d99bac950bba05)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 4.8 (1M context)
+#### 🔧 Build System
+- (**deps**) add ignore crate for gitignore support - ([ff55835](https://github.com/rsvalerio/ops/commit/ff558358ad287ea249eeae26c94d2d6865070b0b)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**discovery**) use ignore crate to honor gitignore patterns - ([23aa465](https://github.com/rsvalerio/ops/commit/23aa465103c659402f66010e4d9da9a6ce74bac7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**gradle-lexer**) simplify extract_quoted with early return - ([aeb6561](https://github.com/rsvalerio/ops/commit/aeb656128b9270f3d3a16144f040ff557847e1b3)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) track findings surfaced by the Rust defaults fix - ([f06740d](https://github.com/rsvalerio/ops/commit/f06740ddb8079a2c76ab785d9b522d69c10846a7)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.34.0](https://github.com/rsvalerio/ops/compare/e3ce909df497f0fbf81d80ab5078933beb6ce649..v0.34.0) - 2026-06-28
 #### 🚀 Features
 - (**cli**) add security command - ([e3ce909](https://github.com/rsvalerio/ops/commit/e3ce909df497f0fbf81d80ab5078933beb6ce649)) - [@rsvalerio](https://github.com/rsvalerio)
