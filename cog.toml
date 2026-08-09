@@ -16,12 +16,15 @@ pre_bump_hooks = [
   "cargo set-version {{version}}",
 ]
 
-post_bump_hooks = [
-    # push Changelog and Cargo.toml changes to the remote repository
-    "git push",
-    # push the new tag to the remote repository
-    "git push origin v{{version}}",
-]
+# No post_bump_hooks on purpose: cog only commits and tags locally.
+#
+# Publishing is done by the Bump workflow, which replays cog's local commit
+# through the GitHub Git Data API so the commit and tag land Verified and
+# attributed to the my-cloud-ci App bot. A `git push` here would put an
+# unsigned copy on main first. See docs/verified-bump/README.md.
+#
+# Bumping by hand? Push cog's local commit and tag yourself afterwards.
+post_bump_hooks = []
 
 [changelog]
 path = "CHANGELOG.md"
