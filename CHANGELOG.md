@@ -2,6 +2,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.35.0](https://github.com/rsvalerio/ops/compare/38404f9b5f82b3312b9e30e0cbaa7e10375d1545..v0.35.0) - 2026-08-09
+#### 🚀 Features
+- (**rust-loc**) split Rust LOC into production, test and example (#8) - ([8b9a55f](https://github.com/rsvalerio/ops/commit/8b9a55f07679135f1b819eff151fa98ac369c0f9)) - [@rsvalerio](https://github.com/rsvalerio), Claude
+#### 🔄 CI/CD
+- use client-id for GitHub App token minting (#7) - ([110498e](https://github.com/rsvalerio/ops/commit/110498ebdc5d7a406aac808052e519efefc1cdae)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) track bump.yml missing --skip-ci flag - ([9932333](https://github.com/rsvalerio/ops/commit/993233380b3fc707c86f8a4b06ae97aa2fd8112b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**changelog**) dedupe the duplicated v0.34.1 section - ([38404f9](https://github.com/rsvalerio/ops/commit/38404f9b5f82b3312b9e30e0cbaa7e10375d1545)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.34.1](https://github.com/rsvalerio/ops/compare/84742919f413cde73af7ae1762d99bac950bba05..v0.34.1) - 2026-08-08
 #### 🐛 Bug Fixes
 - (**rust**) check, lint and build every target by default - ([46ad4e0](https://github.com/rsvalerio/ops/commit/46ad4e03eb474d28d0ef4211e67ef34379068d94)) - [@rsvalerio](https://github.com/rsvalerio)
