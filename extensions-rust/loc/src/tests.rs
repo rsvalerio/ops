@@ -207,7 +207,6 @@ fn compound_cfg_predicates_are_test_gates() {
         "#[cfg(all(test, unix))]",
         "#[cfg(any(test, feature = \"x\"))]",
         "#[cfg( test )]",
-        "#[cfg_attr(test, allow(dead_code))]",
     ] {
         let src = format!("{gate}\nmod m {{\n    fn f() {{}}\n}}\n");
         let counts = count_source(&src, Region::Main);
@@ -229,6 +228,33 @@ fn feature_named_test_is_not_a_test_gate() {
     let counts = count_source(src, Region::Main);
     assert_eq!(counts.main.code, 2);
     assert_eq!(counts.test, Locs::default());
+}
+
+/// `#[cfg_attr(test, ..)]` applies an attribute conditionally; it never
+/// removes the item, so the item ships in release builds and is
+/// production code. Counting it as test misattributes the whole item —
+/// a `#[cfg_attr(test, derive(Debug))]` struct is not a test.
+#[test]
+fn cfg_attr_is_not_a_test_gate() {
+    let src = "\
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Config {
+    pub name: String,
+}
+";
+    let counts = count_source(src, Region::Main);
+    assert_eq!(counts.main.code, 4);
+    assert_eq!(counts.test, Locs::default());
+}
+
+/// A `#[cfg_attr(test, ..)]` sitting *next to* a real `#[test]` is still
+/// a test: the gate comes from `#[test]`, not from the `cfg_attr`.
+#[test]
+fn cfg_attr_beside_a_test_attribute_stays_test() {
+    let src = "#[test]\n#[cfg_attr(test, ignore = \"slow\")]\nfn t() {}\n";
+    let counts = count_source(src, Region::Main);
+    assert_eq!(counts.test.code, 3);
+    assert_eq!(counts.main, Locs::default());
 }
 
 /// `#[cfg(not(test))]` compiles the item *out* of test builds, so it is
@@ -264,6 +290,25 @@ fn unlexable_source_falls_back_to_blank_versus_nonblank() {
 #[test]
 fn empty_source_counts_nothing() {
     assert_eq!(count_source("", Region::Main).main, Locs::default());
+}
+
+/// `count_source` drops proc-macro2's thread-local source map on entry
+/// to bound memory across a whole-workspace scan. That invalidates every
+/// span issued by an earlier call, so this pins the property that makes
+/// it safe: counts depend only on the source passed in, never on what
+/// was counted before it on the same thread.
+#[test]
+fn repeated_counts_on_one_thread_are_independent() {
+    let first = "/// Doc.\npub fn a() {}\n";
+    let second = "#[cfg(test)]\nmod t {\n    fn b() {}\n}\n";
+
+    let baseline = count_source(first, Region::Main);
+    let _ = count_source(second, Region::Main);
+    let repeat = count_source(first, Region::Main);
+
+    assert_eq!(baseline, repeat, "counts must not depend on scan order");
+    assert_eq!(repeat.main.docs, 1);
+    assert_eq!(repeat.main.code, 1);
 }
 
 // -- ordering invariant --

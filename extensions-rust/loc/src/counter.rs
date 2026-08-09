@@ -12,8 +12,9 @@
 //!
 //! Test attribution comes from `syn`, which parses `#[cfg(...)]`
 //! predicates properly. A textual matcher has to string-compare
-//! `"#[cfg(test)]"` and therefore misses `#[cfg(all(test, unix))]`,
-//! `#[cfg_attr(test, ...)]`, and `#[cfg( test )]`.
+//! `"#[cfg(test)]"` and therefore misses `#[cfg(all(test, unix))]` and
+//! `#[cfg( test )]`, while over-matching `#[cfg_attr(test, ...)]`,
+//! which does not gate the item out of a non-test build at all.
 //!
 //! # Known limits
 //!
@@ -155,8 +156,23 @@ pub fn region_from_path(path: &Path) -> Region {
 /// Never fails: unparseable input degrades to [`count_fallback`] rather
 /// than dropping the file, so a single nightly-only syntax file cannot
 /// zero out a whole crate's numbers.
+///
+/// # Memory
+///
+/// `span-locations` makes every parse retain an owned copy of the
+/// source plus a line table in a thread-local source map that is never
+/// truncated on its own, and this function parses `src` twice (once to
+/// lex, once for `syn`). Left alone, a whole-workspace scan would hold
+/// several times the tree's byte size resident until the thread exits.
+/// Dropping the map on entry bounds the retention at one file's worth.
+/// This invalidates every previously issued `Span`, which is safe here
+/// because spans never escape a single `count_source` call.
 #[must_use]
 pub fn count_source(src: &str, base: Region) -> FileCounts {
+    // Must precede the parses below, not follow them: the spans this
+    // function reads have to stay valid for the rest of the body.
+    proc_macro2::extra::invalidate_current_thread_spans();
+
     let lines: Vec<&str> = src.lines().collect();
     let line_count = lines.len();
     if line_count == 0 {
@@ -323,17 +339,24 @@ fn item_is_test_gated(item: &syn::Item) -> bool {
     item_attrs(item).is_some_and(|attrs| attrs.iter().any(attr_is_test_gate))
 }
 
-/// Is this attribute a test gate?
+/// Is this attribute a test gate — does it keep the item out of a
+/// non-test build?
 ///
 /// Accepts `#[test]` and any framework variant whose final path segment
-/// is `test` (`#[tokio::test]`), plus `#[cfg(..)]` / `#[cfg_attr(..)]`
-/// whose predicate mentions the bare `test` ident.
+/// is `test` (`#[tokio::test]`), plus `#[cfg(..)]` whose predicate
+/// mentions the bare `test` ident.
 ///
 /// Scanning for a bare ident is deliberately not the same as a
 /// substring match: `cfg(feature = "test")` carries `test` as a string
 /// *literal*, not an ident, so it correctly does not match. A `not(..)`
 /// group is skipped for the same reason — `#[cfg(not(test))]` gates code
 /// *out* of test builds, so it is production code.
+///
+/// `#[cfg_attr(test, ..)]` is deliberately **not** a gate. It applies an
+/// attribute conditionally; the item itself compiles in every
+/// configuration. A production type carrying
+/// `#[cfg_attr(test, derive(Debug))]` is production code, and counting
+/// it as test would misattribute the whole item.
 fn attr_is_test_gate(attr: &syn::Attribute) -> bool {
     let path = attr.path();
     if path
@@ -343,7 +366,7 @@ fn attr_is_test_gate(attr: &syn::Attribute) -> bool {
     {
         return true;
     }
-    if path.is_ident("cfg") || path.is_ident("cfg_attr") {
+    if path.is_ident("cfg") {
         return stream_has_test_ident(&attr.to_token_stream());
     }
     false

@@ -88,10 +88,12 @@ pub(crate) const EXCLUDED_DIRS: &[&str] = &["target", ".git"];
 
 /// Walk `working_dir` for `.rs` files and classify each one.
 ///
-/// A file that cannot be read is logged and skipped rather than
-/// aborting the scan: a partial count is more useful than none, and an
-/// unreadable file is not a data-integrity problem for a display-only
-/// statistic.
+/// Anything that cannot be read — an individual file, or a whole
+/// subtree the walker cannot descend — is logged and skipped rather
+/// than aborting the scan: a partial count is more useful than none,
+/// and an unreadable path is not a data-integrity problem for a
+/// display-only statistic. Both failure modes warn, so a silently
+/// short count is always accompanied by a log line.
 pub fn collect_rust_loc(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
     let mut records = Vec::new();
 
@@ -99,7 +101,14 @@ pub fn collect_rust_loc(working_dir: &Path) -> Result<serde_json::Value, anyhow:
         .filter_entry(|entry| !is_excluded_dir(entry))
         .build();
 
-    for entry in walker.filter_map(Result::ok) {
+    for entry in walker {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                tracing::warn!(%error, "rust-loc: skipping unwalkable path");
+                continue;
+            }
+        };
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
