@@ -121,14 +121,15 @@ Once all checks pass and review threads are resolved, merge the PR into `main`.
 
 ### 4. Automatic Version Bump
 
-The [Bump workflow](../.github/workflows/bump.yml) runs when the **CI** workflow completes successfully on `main` (`workflow_run`). It only runs for this upstream repo (`github.repository_owner == 'rsvalerio'`); forks do not auto-bump. The bump commit uses `[skip ci]` to avoid retriggering CI.
+The [Bump workflow](../.github/workflows/bump.yml) runs when the **CI** workflow completes successfully on `main` (`workflow_run`). It only runs for this upstream repo (`github.repository_owner == 'rsvalerio'`); forks do not auto-bump.
 
 The job runs `cog bump --auto`, which:
 1. Analyzes conventional commits since the last tag
 2. Determines the appropriate version bump (major/minor/patch)
 3. **pre_bump_hooks**: runs `cargo set-version` to update `Cargo.toml`
-4. Updates `CHANGELOG.md`, creates a version commit and git tag (e.g., `v0.2.0`)
-5. **post_bump_hooks**: pushes the commit and tag to remote, which triggers cargo-dist
+4. Updates `CHANGELOG.md`, creates a version commit and git tag (e.g., `v0.2.0`) — **locally only**, `cog.toml` has no post-bump hooks
+
+The workflow then publishes that commit itself, via [`.github/scripts/api-commit.sh`](../.github/scripts/api-commit.sh): cog's local commit is replayed through the GitHub Git Data API and the tag is pointed at the result. Commits created through the API are signed by GitHub, so the bump commit and tag land **Verified** and attributed to the `my-cloud-ci[bot]` App rather than being an unsigned `git push`. The ref update uses the App token, which is what lets it trigger cargo-dist (`GITHUB_TOKEN` would not). See [verified-bump](verified-bump/README.md).
 
 If there is nothing to release (no `feat` / `fix` / breaking commits since the last tag), `cog bump --auto` does not create a new version commit or tag.
 
@@ -142,12 +143,16 @@ If you need to release manually:
 # Install cocogitto and cargo-edit
 cargo install cocogitto cargo-edit
 
-# Bump automatically based on commits
-# post_bump_hooks handle git push + tag push
+# Bump automatically based on commits (commits and tags locally only)
 cog bump --auto
 
 # Or bump to a specific version
 cog bump --version 0.2.0
+
+# cog.toml has no post_bump_hooks, so push the commit and tag yourself.
+# Note these will be Unverified unless your own commit signing is configured.
+git push
+git push origin "v$(cog get-version)"
 ```
 
 ## Supported Platforms
@@ -206,11 +211,9 @@ pre_bump_hooks = [
   "cargo set-version {{version}}",
 ]
 
-# Pushes commit and tag to remote after bump (tag must match tag_prefix)
-post_bump_hooks = [
-  "git push",
-  "git push origin v{{version}}",
-]
+# Empty on purpose: the Bump workflow publishes via the GitHub API so the
+# commit and tag are Verified. A `git push` here would land an unsigned copy first.
+post_bump_hooks = []
 ```
 
 ### dist-workspace.toml

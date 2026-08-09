@@ -4,7 +4,8 @@ Spec for making the automated **bump commit and tag** show GitHub's green **Veri
 badge, while remaining authored by the **my-cloud-ci** GitHub App bot rather than
 `github-actions[bot]`.
 
-Status: **proposed** — not yet implemented.
+Status: **implemented** — Option A, in [`.github/workflows/bump.yml`](../../.github/workflows/bump.yml)
+and [`.github/scripts/api-commit.sh`](../../.github/scripts/api-commit.sh).
 
 ## Background
 
@@ -130,21 +131,45 @@ Commits stay "Unverified". Zero additional work.
 - ➖ No green badge; if the `main` ruleset ever requires signed commits, the bypass actor
   must continue to cover the bot (it does today).
 
-## Recommendation
+## What was implemented
 
-**Option A.** It is the only path that satisfies both goals (App-bot author **and**
-Verified) without introducing a static signing secret. Implement as:
+Option A — the only path that satisfies both goals (App-bot author **and** Verified)
+without introducing a static signing secret.
 
-1. Move pushing out of `cog.toml` post-bump hooks into the workflow.
-2. Add an `api-commit` helper that, given a base SHA + message + changed paths, creates a
-   signed commit and updates a ref via the Git Data API with the App token.
-3. Have `bump.yml` run cog (compute + local commit), then call the helper to re-create the
-   commit on `main` and the `vX.Y.Z` tag.
-4. Verify on a throwaway tag that the resulting commit shows **Verified** and that
-   `release.yml` still fires.
+1. `cog.toml` has **no `post_bump_hooks`**: cog computes the version, updates the files,
+   and creates a local commit + annotated tag, but pushes nothing.
+2. [`.github/scripts/api-commit.sh`](../../.github/scripts/api-commit.sh) replays a local
+   commit through the Git Data API: one blob per changed path, a tree on top of the base
+   commit's tree, a commit object, then a `PATCH` of the branch ref. `author`/`committer`
+   are omitted so GitHub stamps the token owner (the App bot) and signs the result.
+   Deletions are sent as a tree entry with a `null` sha; the ref update uses `force: false`
+   so a branch that moved underneath the job fails loudly.
+3. `bump.yml` runs cog, then calls the helper with `HEAD^ HEAD <branch>` and creates
+   `refs/tags/vX.Y.Z` pointing at the returned signed SHA. Because the ref update uses the
+   App token rather than `GITHUB_TOKEN`, `release.yml` still fires on the tag.
+
+### Verifying a change to this flow
+
+The next bump commit on `main` should render **Verified**, be authored by
+`my-cloud-ci[bot]`, and be followed by a `release.yml` run on the new tag. When changing
+`api-commit.sh`, exercise it against a stub `gh` on a scratch repo first — the tree
+assembly has to survive added/modified/deleted paths, executable (`100755`) modes, binary
+content, and paths containing spaces.
+
+### Known sharp edge: `--skip-ci`
+
+`cog.toml` defines `skip_ci = "[skip ci]"` but `bump.yml` deliberately does **not** pass
+`--skip-ci`. GitHub honours `[skip ci]` in the head commit message of *any* push including
+**tag** pushes, so a bump commit carrying the marker would suppress `release.yml` and no
+binaries would ship. The re-triggered CI run on the bump commit is the accepted cost: the
+follow-up bump job finds no commits after the new tag and stops there.
 
 ## Related
 
-- Author-attribution change (App bot instead of `github-actions[bot]`) is already applied
-  in `bump.yml`, `publish-deb.yml`, and `publish-homebrew.yml`.
+- Author attribution: the bump commit is authored and committed by the App bot because the
+  Git Data API stamps the token's owner. The `git config user.*` step in `bump.yml` only
+  labels cog's throwaway local commit.
+- Human commits land Verified via your own SSH signing key — but GitHub's **"Rebase and
+  merge"** button re-creates commits server-side and drops their signatures. The repo has
+  `allow_rebase_merge` disabled for that reason; use squash or a merge commit.
 - See [`../releasing.md`](../releasing.md) for the end-to-end release flow.
