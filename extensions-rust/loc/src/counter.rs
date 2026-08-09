@@ -363,11 +363,7 @@ fn stream_has_test_ident(stream: &TokenStream) -> bool {
                     return true;
                 }
             }
-            TokenTree::Group(group) => {
-                if stream_has_test_ident(&group.stream()) {
-                    return true;
-                }
-            }
+            TokenTree::Group(group) if stream_has_test_ident(&group.stream()) => return true,
             _ => {}
         }
     }
