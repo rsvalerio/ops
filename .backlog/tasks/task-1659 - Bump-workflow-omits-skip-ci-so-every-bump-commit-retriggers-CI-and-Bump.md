@@ -34,6 +34,7 @@ It stops being harmless during recovery. On 2026-08-08, a manual `cog bump --aut
 **Remaining scope**: if the duplicate-release cycle is still worth closing, it needs a mechanism that suppresses only CI and leaves the tag-triggered release alone — e.g. a condition in `ci.yml` that skips when the pushed head commit is a `chore(version):` bump, rather than a marker in the commit message.
 
 **Partly overtaken by events** (2026-08-09): the docs claim is corrected, and the specific recovery failure described above is much less likely now — `cog.toml` no longer has `post_bump_hooks`, so a manual `cog bump --auto` commits and tags locally without pushing, and cannot re-trigger CI on its own.
+**Fix**: add `--skip-ci` to the bump invocation in `bump.yml`, then correct or delete the claim at `docs/releasing.md:124` so the docs match behaviour.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
