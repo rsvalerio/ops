@@ -21,6 +21,8 @@ extern crate ops_cargo_update;
 extern crate ops_git;
 #[cfg(feature = "stack-rust")]
 extern crate ops_metadata;
+#[cfg(feature = "stack-rust")]
+extern crate ops_rust_loc;
 #[cfg(feature = "coverage")]
 extern crate ops_test_coverage;
 extern crate ops_text_fixers;

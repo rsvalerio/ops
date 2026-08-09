@@ -141,7 +141,7 @@ Stack flavors currently shipped:
 
 Ranked by closeness to Rust parity: **Node** and **Python+uv** (identity + units + baseline CLI), **Go** (~90%, weaker units provider), **Java-Maven** / **Java-Gradle** (identity + module counts, but no `project_units` provider yet for the `about modules` subpage).
 
-Rust-only extensions: `deps`, `tools`, `cargo-toml`, `cargo-update`, `metadata`, `test-coverage`. `about code` is stack-agnostic (tokei scans any language) and only gated by the compile-time `tokei` feature on the `ops` binary; `about coverage` and `about dependencies` are Rust-only because their providers shell out to `cargo llvm-cov` / cargo metadata.
+Rust-only extensions: `deps`, `tools`, `cargo-toml`, `cargo-update`, `metadata`, `test-coverage`, `rust-loc`. `about code` is stack-agnostic (tokei scans any language) and only gated by the compile-time `tokei` feature on the `ops` binary; `about coverage` and `about dependencies` are Rust-only because their providers shell out to `cargo llvm-cov` / cargo metadata.
 
 #### Not yet implemented
 
