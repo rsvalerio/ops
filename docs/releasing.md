@@ -185,7 +185,7 @@ The release workflow needs a `WORKFLOW_TOKEN` (Personal Access Token) with `cont
 
 The custom publish job ([`publish-homebrew.yml`](../.github/workflows/publish-homebrew.yml)) mints a short-lived installation token from the **my-cloud-ci GitHub App** via `actions/create-github-app-token` — no static PAT, nothing to rotate. It requires:
 
-- **Repository variable** `GH_APP_ID` — the GitHub App's ID
+- **Repository variable** `GH_APP_CLIENT_ID` — the GitHub App's **Client ID** (the `Iv23li…` string on the App's General settings page, *not* the numeric App ID). `actions/create-github-app-token` deprecated its `app-id` input in favour of `client-id`.
 - **Repository secret** `GH_APP_PRIVATE_KEY` — the App's private key (PEM)
 - The App installed on `rsvalerio/homebrew-tap` with **Contents: Read and write**
 
