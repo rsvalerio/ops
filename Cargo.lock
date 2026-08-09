@@ -1747,6 +1747,7 @@ dependencies = [
  "ops-run-before-commit",
  "ops-run-before-push",
  "ops-runner",
+ "ops-rust-loc",
  "ops-test-coverage",
  "ops-text-fixers",
  "ops-tfplan",
@@ -2099,6 +2100,24 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ops-rust-loc"
+version = "0.34.1"
+dependencies = [
+ "anyhow",
+ "duckdb",
+ "ignore",
+ "linkme",
+ "ops-duckdb",
+ "ops-extension",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "syn 2.0.119",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]
