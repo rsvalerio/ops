@@ -176,6 +176,40 @@ mod tests {
         assert!(status.success());
     }
 
+    /// Write an executable fake `git` script into `dir` and return its path.
+    #[cfg(unix)]
+    fn write_fake_git(dir: &Path, name: &str, script: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(name);
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    /// Run `probe`, retrying while the exec loses the `ETXTBSY` race.
+    ///
+    /// Writing an executable and exec'ing it straight away is racy under the
+    /// parallel test harness: any thread that forks between our `write` and
+    /// our `execve` hands the child an inherited write fd, and the kernel
+    /// answers `execve` on a file that is open for writing with `ETXTBSY`.
+    /// The window is short, so retry briefly instead of failing the run.
+    #[cfg(unix)]
+    fn retry_while_text_file_busy(
+        mut probe: impl FnMut() -> Result<bool, HasStagedFilesError>,
+    ) -> Result<bool, HasStagedFilesError> {
+        for _ in 0..50 {
+            match probe() {
+                Err(HasStagedFilesError::Spawn { source, .. })
+                    if source.kind() == std::io::ErrorKind::ExecutableFileBusy =>
+                {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                other => return other,
+            }
+        }
+        probe()
+    }
+
     #[test]
     fn has_staged_files_false_when_index_empty() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -212,11 +246,15 @@ mod tests {
     #[test]
     fn has_staged_files_lossily_decodes_invalid_utf8_stderr() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let fake_git = dir.path().join("git-fake");
-        std::fs::write(&fake_git, "#!/bin/sh\nprintf '\\377\\376' >&2\nexit 128\n").unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&fake_git, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let err = has_staged_files_with(fake_git.to_str().unwrap(), dir.path()).unwrap_err();
+        let fake_git = write_fake_git(
+            dir.path(),
+            "git-fake",
+            "#!/bin/sh\nprintf '\\377\\376' >&2\nexit 128\n",
+        );
+        let err = retry_while_text_file_busy(|| {
+            has_staged_files_with(fake_git.to_str().unwrap(), dir.path())
+        })
+        .unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains('\u{FFFD}'), "expected lossy U+FFFD in: {msg}");
     }
@@ -237,17 +275,16 @@ mod tests {
     #[test]
     fn has_staged_files_times_out_on_hanging_git() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let fake_git = dir.path().join("git-hang");
-        std::fs::write(&fake_git, "#!/bin/sh\nsleep 30\n").unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&fake_git, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let fake_git = write_fake_git(dir.path(), "git-hang", "#!/bin/sh\nsleep 30\n");
 
         let started = std::time::Instant::now();
-        let err = has_staged_files_with_timeout(
-            fake_git.to_str().unwrap(),
-            dir.path(),
-            Duration::from_millis(200),
-        )
+        let err = retry_while_text_file_busy(|| {
+            has_staged_files_with_timeout(
+                fake_git.to_str().unwrap(),
+                dir.path(),
+                Duration::from_millis(200),
+            )
+        })
         .unwrap_err();
         let elapsed = started.elapsed();
 
@@ -266,23 +303,22 @@ mod tests {
     #[test]
     fn has_staged_files_captures_late_stderr_within_drain_grace() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let fake_git = dir.path().join("git-late-stderr");
-        std::fs::write(
-            &fake_git,
+        let fake_git = write_fake_git(
+            dir.path(),
+            "git-late-stderr",
             "#!/bin/sh\n\
              sleep 0.1\n\
              printf 'warning: refname HEAD is ambiguous\\nfatal: bad object HEAD\\n' >&2\n\
              exit 128\n",
-        )
-        .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&fake_git, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
 
-        let err = has_staged_files_with_timeout(
-            fake_git.to_str().unwrap(),
-            dir.path(),
-            Duration::from_secs(5),
-        )
+        let err = retry_while_text_file_busy(|| {
+            has_staged_files_with_timeout(
+                fake_git.to_str().unwrap(),
+                dir.path(),
+                Duration::from_secs(5),
+            )
+        })
         .unwrap_err();
 
         match err {
@@ -304,24 +340,23 @@ mod tests {
     #[test]
     fn has_staged_files_handles_large_output_without_deadlock() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let fake_git = dir.path().join("git-loud");
-        std::fs::write(
-            &fake_git,
+        let fake_git = write_fake_git(
+            dir.path(),
+            "git-loud",
             "#!/bin/sh\n\
              yes path/to/some/file.txt | head -n 20000\n\
              yes path/to/some/file.txt | head -n 20000 >&2\n\
              exit 1\n",
-        )
-        .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&fake_git, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
 
         let started = std::time::Instant::now();
-        let result = has_staged_files_with_timeout(
-            fake_git.to_str().unwrap(),
-            dir.path(),
-            Duration::from_millis(1500),
-        );
+        let result = retry_while_text_file_busy(|| {
+            has_staged_files_with_timeout(
+                fake_git.to_str().unwrap(),
+                dir.path(),
+                Duration::from_millis(1500),
+            )
+        });
         let elapsed = started.elapsed();
 
         assert!(
