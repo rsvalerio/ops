@@ -18,10 +18,13 @@ pre_bump_hooks = [
 
 # No post_bump_hooks on purpose: cog only commits and tags locally.
 #
-# Publishing is done by the Bump workflow, which replays cog's local commit
-# through the GitHub Git Data API so the commit and tag land Verified and
-# attributed to the my-cloud-ci App bot. A `git push` here would put an
-# unsigned copy on main first. See docs/verified-bump/README.md.
+# Publishing is done by the Bump workflow (a wrapper around forge's shared one),
+# which replays cog's local commit through the GraphQL createCommitOnBranch
+# mutation so the commit and tag land Verified and attributed to the my-cloud-ci
+# App bot. A `git push` here would put an unsigned copy on main first — and worse,
+# leave the branch ahead of the mutation's expectedHeadOid, so the signed push
+# would fail with a confusing conflict. forge's workflow rejects a cog.toml with
+# push hooks for exactly this reason. See docs/releasing.md.
 #
 # Bumping by hand? Push cog's local commit and tag yourself afterwards.
 post_bump_hooks = []

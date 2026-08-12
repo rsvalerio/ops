@@ -4,8 +4,20 @@ Spec for making the automated **bump commit and tag** show GitHub's green **Veri
 badge, while remaining authored by the **my-cloud-ci** GitHub App bot rather than
 `github-actions[bot]`.
 
-Status: **implemented** — Option A, in [`.github/workflows/bump.yml`](../../.github/workflows/bump.yml)
-and [`.github/scripts/api-commit.sh`](../../.github/scripts/api-commit.sh).
+Status: **superseded** — kept for the background and the option analysis below, but the
+implementation notes are wrong on one decisive point and the mechanism now lives elsewhere.
+
+- **Option A does not work as specified here.** It is built on the REST Git Data API, which
+  produces `verified=false, reason=unsigned`. Probed 2026-08-09 against this repo: of
+  `git push`, REST `git/commits`, REST Contents, and GraphQL `createCommitOnBranch`, only
+  the GraphQL mutation yields a signature.
+- **The script this doc links to never existed here.** `.github/scripts/api-commit.sh` was
+  referenced by the workflow but never committed, so every bump after #9 failed with
+  exit 127 until the workflow moved to forge.
+- **Current implementation:** [forge's shared bump workflow](https://github.com/rsvalerio/forge/blob/v1/.github/workflows/bump.yml)
+  and [`actions/signed-commit`](https://github.com/rsvalerio/forge/tree/v1/actions/signed-commit),
+  called from [`.github/workflows/bump.yml`](../../.github/workflows/bump.yml). See
+  [forge's verified-bump notes](https://github.com/rsvalerio/forge/blob/v1/docs/verified-bump.md).
 
 ## Background
 
