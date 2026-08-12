@@ -90,7 +90,8 @@ pub use ingest::{
 pub use query::{
     query_crate_coverage, query_crate_dep_counts, query_crate_deps, query_crate_file_count,
     query_crate_loc, query_dependency_count, query_project_coverage, query_project_file_count,
-    query_project_languages, query_project_loc, CrateCoverage,
+    query_project_languages, query_project_loc, query_rust_loc_file_count, query_rust_loc_summary,
+    CrateCoverage, RustLocStat,
 };
 // `SqlError` and `quoted_ident` cross the crate boundary; the rest of the
 // granular validation helpers stay module-internal (ARCH-9). `quoted_ident` is

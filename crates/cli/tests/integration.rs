@@ -708,6 +708,81 @@ edition = "2021"
         .stdout(predicate::str::contains("demo"));
 }
 
+/// TEST-31: `ops about loc` is documented in the README, so it is covered
+/// as a spawned command — the subpage only works if arg parsing, the
+/// `rust-loc` provider, the DuckDB ingest and the renderer all line up,
+/// and none of the unit tests exercise that chain end to end.
+///
+/// The provider walks the workspace, so the fixture carries a `#[cfg(test)]`
+/// block: the whole point of the page is that those lines are attributed to
+/// Test rather than Production, which is exactly what a line-based counter
+/// would get wrong.
+#[test]
+#[cfg(feature = "duckdb")]
+#[cfg_attr(not(feature = "stack-rust"), ignore)]
+fn cli_about_loc_splits_production_from_test_lines() {
+    let dir = temp_dir();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .expect("write Cargo.toml");
+    std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
+    std::fs::write(
+        dir.path().join("src/lib.rs"),
+        r#"//! Demo crate.
+
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::add;
+
+    #[test]
+    fn adds() {
+        assert_eq!(add(1, 2), 3);
+    }
+}
+"#,
+    )
+    .expect("write lib.rs");
+
+    ops()
+        .arg("about")
+        .arg("loc")
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Production"))
+        .stdout(predicate::str::contains("Test"))
+        .stdout(predicate::str::contains("Docs"))
+        .stdout(predicate::str::contains("code lines in"));
+}
+
+/// The page is Rust-only: on any other stack the `rust-loc` provider is
+/// never registered, and the command must say so and exit 0 rather than
+/// failing or printing an empty table.
+#[test]
+#[cfg(feature = "duckdb")]
+fn cli_about_loc_without_rust_reports_no_data() {
+    let dir = temp_dir();
+    std::fs::write(dir.path().join("package.json"), "{}").expect("write package.json");
+
+    ops()
+        .arg("about")
+        .arg("loc")
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No Rust LOC data available."));
+}
+
 // -- TQ-017: Malformed .ops.d/ handling --
 
 #[test]

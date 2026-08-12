@@ -1,4 +1,5 @@
-//! LOC, file count, and per-language queries over `tokei_files`.
+//! LOC, file count, and per-language queries over `tokei_files`, plus the
+//! Rust production / test / example breakdown over `rust_loc_summary`.
 
 use crate::DuckDb;
 use std::collections::HashMap;
@@ -105,6 +106,100 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>>
         }
     }
     Ok(filtered)
+}
+
+/// One row of the `rust_loc_summary` view: the totals for a single region
+/// (`main`, `test`, or `example`) of the Rust sources.
+///
+/// `region` stays a `String` rather than an enum because the canonical
+/// region list lives in the `ops-rust-loc` crate, which depends on this
+/// one — modelling it here would invert that edge. Renderers map the raw
+/// value to a label and treat an unrecognised region as displayable data
+/// rather than an error, so a future region added upstream shows up
+/// instead of disappearing.
+///
+/// Constructed by struct literal rather than a `new` — six same-typed
+/// `i64` counts behind a positional constructor read as an unlabelled
+/// number soup at every callsite (and trip `too_many_arguments`), while
+/// field names make a transposed `docs`/`comments` pair obvious. That
+/// rules out `#[non_exhaustive]`, which would block literal construction
+/// from the sibling crates that render and test this row; nothing here is
+/// published, so the compatibility guarantee it buys has no consumer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RustLocStat {
+    pub region: String,
+    pub files: i64,
+    pub code: i64,
+    pub docs: i64,
+    pub comments: i64,
+    pub blanks: i64,
+    pub lines: i64,
+}
+
+/// Query the Rust production / test / example line breakdown from the
+/// `rust_loc_summary` view, which the `rust-loc` data provider creates
+/// alongside the `rust_loc_files` table it ingests.
+///
+/// Returns an empty `Vec` when the view is absent. That is the normal
+/// state for every non-Rust workspace — `rust-loc` only registers on the
+/// Rust stack — so it is reported as "no data" rather than an error, the
+/// same contract [`query_project_languages`] uses for a missing
+/// `tokei_files`.
+///
+/// Rows come back in the view's own order (code descending); callers that
+/// need a fixed region order sort at the point of display.
+pub fn query_rust_loc_summary(db: &DuckDb) -> anyhow::Result<Vec<RustLocStat>> {
+    use anyhow::Context;
+
+    let conn = db
+        .lock()
+        .context("acquiring db lock for query_rust_loc_summary")?;
+
+    if !table_exists(&conn, "rust_loc_summary")? {
+        return Ok(vec![]);
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT region, files, code, docs, comments, blanks, lines \
+             FROM rust_loc_summary",
+        )
+        .context("preparing query_rust_loc_summary")?;
+
+    let rows = stmt
+        .query_map([], |row: &duckdb::Row| {
+            Ok(RustLocStat {
+                region: row.get(0)?,
+                files: row.get(1)?,
+                code: row.get(2)?,
+                docs: row.get(3)?,
+                comments: row.get(4)?,
+                blanks: row.get(5)?,
+                lines: row.get(6)?,
+            })
+        })
+        .context("querying rust loc summary")?;
+
+    rows.map(|row| row.context("reading rust loc row"))
+        .collect()
+}
+
+/// Count the distinct `.rs` files behind `rust_loc_files`.
+///
+/// Regions overlap within a file — a module with a `#[cfg(test)]` block
+/// contributes both a `main` and a `test` row — so summing the summary
+/// view's per-region `files` column counts such a file twice. This is the
+/// honest denominator for "N files scanned".
+///
+/// Returns 0 when the table is absent, matching
+/// [`query_rust_loc_summary`]'s empty result for the same workspace.
+pub fn query_rust_loc_file_count(db: &DuckDb) -> anyhow::Result<i64> {
+    query_project_scalar(
+        db,
+        "rust_loc_files",
+        "SELECT COUNT(DISTINCT file) FROM rust_loc_files",
+        "query_rust_loc_file_count",
+    )
 }
 
 /// Query per-crate lines of code from `tokei_files`.

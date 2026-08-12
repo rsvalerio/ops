@@ -255,6 +255,18 @@ pub enum AboutAction {
     #[cfg(feature = "duckdb")]
     /// Display code statistics (lines of code, languages).
     Code,
+    // `about loc` renders the Rust production / test / example split from
+    // the `rust-loc` provider. Feature-gated for the same reason as `Code`:
+    // the breakdown is stored in DuckDB, so without that feature the binary
+    // cannot answer and the subcommand should not parse.
+    //
+    // The rationale above is a plain comment, not a doc comment: clap folds
+    // every `///` line on a variant into the user-facing help text, so the
+    // neighbouring variants' internal reasoning is currently printed to
+    // users by `ops about --help`.
+    #[cfg(feature = "duckdb")]
+    /// Display Rust line counts split into production, test and example.
+    Loc,
     /// Display dependency tree.
     Dependencies,
     /// `crates` and `modules` render the same stack-aware
@@ -649,6 +661,55 @@ mod tests {
             names.contains(&"code"),
             "about subcommands with duckdb must include `code`: {names:?}"
         );
+    }
+
+    /// `about loc` is gated on `duckdb` exactly like `about code` — the
+    /// region breakdown lives in DuckDB, so a build without it must not
+    /// offer a subcommand it cannot answer.
+    #[cfg(not(feature = "duckdb"))]
+    #[test]
+    fn about_loc_not_in_help_without_duckdb_feature() {
+        let cmd = Cli::command();
+        let about = cmd
+            .find_subcommand("about")
+            .expect("about subcommand must exist");
+        let names: Vec<&str> = about
+            .get_subcommands()
+            .map(clap::Command::get_name)
+            .collect();
+        assert!(
+            !names.contains(&"loc"),
+            "about subcommands without duckdb must not include `loc`: {names:?}"
+        );
+    }
+
+    #[cfg(feature = "duckdb")]
+    #[test]
+    fn about_loc_in_help_with_duckdb_feature() {
+        let cmd = Cli::command();
+        let about = cmd
+            .find_subcommand("about")
+            .expect("about subcommand must exist");
+        let names: Vec<&str> = about
+            .get_subcommands()
+            .map(clap::Command::get_name)
+            .collect();
+        assert!(
+            names.contains(&"loc"),
+            "about subcommands with duckdb must include `loc`: {names:?}"
+        );
+    }
+
+    #[cfg(feature = "duckdb")]
+    #[test]
+    fn parse_about_loc() {
+        let cli = Cli::parse_from(["ops", "about", "loc"]);
+        match cli.subcommand {
+            Some(CoreSubcommand::About { action, .. }) => {
+                assert!(matches!(action, Some(AboutAction::Loc)));
+            }
+            other => panic!("expected About::Loc, got {:?}", other),
+        }
     }
 
     #[test]
