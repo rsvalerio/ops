@@ -496,3 +496,129 @@ fn query_crate_coverage_with_absolute_paths() {
     assert_eq!(result["crates/cli"].lines_count, 200);
     assert_eq!(result["crates/cli"].lines_covered, 100);
 }
+
+/// Create a `rust_loc_files` table shaped like the one the `rust-loc`
+/// ingestor loads, so the summary query runs against realistic column
+/// types. The view on top is created by each test that needs one.
+fn rust_loc_files_fixture(db: &DuckDb) {
+    let conn = db.lock().expect("lock");
+    conn.execute_batch(
+        "CREATE TABLE rust_loc_files (file VARCHAR, region VARCHAR, code BIGINT, \
+         docs BIGINT, comments BIGINT, blanks BIGINT, lines BIGINT);
+         INSERT INTO rust_loc_files VALUES ('src/lib.rs', 'main', 300, 40, 10, 50, 400);
+         INSERT INTO rust_loc_files VALUES ('src/util.rs', 'main', 200, 10, 5, 25, 240);
+         INSERT INTO rust_loc_files VALUES ('src/lib.rs', 'test', 120, 0, 4, 16, 140);
+         INSERT INTO rust_loc_files VALUES ('examples/demo.rs', 'example', 30, 2, 1, 7, 40);",
+    )
+    .expect("insert test data");
+}
+
+#[test]
+fn query_rust_loc_summary_no_view() {
+    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    init_schema(&db).expect("init_schema");
+
+    let stats = query_rust_loc_summary(&db).expect("missing view must not error");
+    assert!(
+        stats.is_empty(),
+        "missing view must read as no data: {stats:?}"
+    );
+}
+
+/// The aggregate columns come back as DuckDB `SUM(BIGINT)` (a 128-bit
+/// HUGEINT), so this pins that they still decode into the `i64` fields of
+/// [`RustLocStat`] — a silent type mismatch here would surface as an
+/// unreadable "invalid column type" at the about page instead.
+#[test]
+fn query_rust_loc_summary_aggregates_per_region() {
+    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    init_schema(&db).expect("init_schema");
+    rust_loc_files_fixture(&db);
+
+    let conn = db.lock().expect("lock");
+    conn.execute_batch(
+        "CREATE VIEW rust_loc_summary AS \
+         SELECT region, COUNT(*) AS files, SUM(code) AS code, SUM(docs) AS docs, \
+         SUM(comments) AS comments, SUM(blanks) AS blanks, SUM(lines) AS lines \
+         FROM rust_loc_files GROUP BY region ORDER BY code DESC",
+    )
+    .expect("create view");
+    drop(conn);
+
+    let stats = query_rust_loc_summary(&db).expect("query should work");
+    assert_eq!(stats.len(), 3, "one row per region: {stats:?}");
+
+    let main = stats
+        .iter()
+        .find(|s| s.region == "main")
+        .expect("main region present");
+    assert_eq!(main.files, 2);
+    assert_eq!(main.code, 500);
+    assert_eq!(main.docs, 50);
+    assert_eq!(main.comments, 15);
+    assert_eq!(main.blanks, 75);
+    assert_eq!(main.lines, 640);
+
+    let test = stats
+        .iter()
+        .find(|s| s.region == "test")
+        .expect("test region present");
+    assert_eq!(test.code, 120);
+    assert_eq!(test.files, 1);
+
+    let example = stats
+        .iter()
+        .find(|s| s.region == "example")
+        .expect("example region present");
+    assert_eq!(example.code, 30);
+}
+
+/// A `rust_loc_files` table with no rows produces an empty summary rather
+/// than a row of zeros, so the renderer's "no data" branch is reachable
+/// even after a successful ingest of an empty workspace.
+#[test]
+fn query_rust_loc_summary_empty_table_yields_no_rows() {
+    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    init_schema(&db).expect("init_schema");
+
+    let conn = db.lock().expect("lock");
+    conn.execute_batch(
+        "CREATE TABLE rust_loc_files (file VARCHAR, region VARCHAR, code BIGINT, \
+         docs BIGINT, comments BIGINT, blanks BIGINT, lines BIGINT);
+         CREATE VIEW rust_loc_summary AS \
+         SELECT region, COUNT(*) AS files, SUM(code) AS code, SUM(docs) AS docs, \
+         SUM(comments) AS comments, SUM(blanks) AS blanks, SUM(lines) AS lines \
+         FROM rust_loc_files GROUP BY region ORDER BY code DESC",
+    )
+    .expect("create view");
+    drop(conn);
+
+    let stats = query_rust_loc_summary(&db).expect("query should work");
+    assert!(
+        stats.is_empty(),
+        "no source rows means no regions: {stats:?}"
+    );
+}
+
+/// The distinct-file count must not double-count a file that carries both
+/// production code and a `#[cfg(test)]` block — the fixture's `src/lib.rs`
+/// contributes a `main` row and a `test` row, so summing the summary
+/// view's per-region `files` column would report 4 files for 3.
+#[test]
+fn query_rust_loc_file_count_counts_each_file_once() {
+    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    init_schema(&db).expect("init_schema");
+    rust_loc_files_fixture(&db);
+
+    let files = query_rust_loc_file_count(&db).expect("query should work");
+    assert_eq!(files, 3, "src/lib.rs spans two regions but is one file");
+}
+
+#[test]
+fn query_rust_loc_file_count_no_table() {
+    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    init_schema(&db).expect("init_schema");
+
+    let files = query_rust_loc_file_count(&db).expect("missing table must not error");
+    assert_eq!(files, 0);
+}

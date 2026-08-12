@@ -494,6 +494,54 @@ fn rust_loc_collect_and_load_cycle() {
     assert!(regions >= 2, "fixture spans main, test and example");
 }
 
+/// Cross-crate contract: `ops about loc` reads this crate's summary view
+/// through [`ops_duckdb::sql::query_rust_loc_summary`], which selects the
+/// columns by name. The view SQL lives here and the SELECT lives in
+/// `ops-duckdb`, so a rename on either side would otherwise only fail at
+/// runtime, on a real workspace, as an empty about page.
+#[test]
+fn rust_loc_summary_view_satisfies_the_shared_summary_query() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_fixture_tree(dir.path());
+    let data_dir = tempfile::tempdir().expect("data tempdir");
+    let db = DuckDb::open_in_memory().expect("open in-memory db");
+
+    let ctx = Context::test_context(dir.path().to_path_buf());
+    RustLocIngestor
+        .collect(&ctx, data_dir.path())
+        .expect("collect should succeed");
+    let loaded = RustLocIngestor
+        .load(data_dir.path(), &db)
+        .expect("load should succeed");
+    assert!(loaded.record_count > 0, "fixture rows must reach DuckDB");
+
+    let stats = ops_duckdb::sql::query_rust_loc_summary(&db).expect("summary query");
+    assert!(!stats.is_empty(), "ingested fixture must produce regions");
+
+    let regions: Vec<&str> = stats.iter().map(|s| s.region.as_str()).collect();
+    for expected in ["main", "test", "example"] {
+        assert!(
+            regions.contains(&expected),
+            "fixture covers {expected}: {regions:?}"
+        );
+    }
+
+    let main = stats
+        .iter()
+        .find(|s| s.region == "main")
+        .expect("main region");
+    assert!(main.code > 0, "main region has code lines: {main:?}");
+    assert!(
+        main.docs > 0,
+        "fixture's `//! Docs.` must land in the docs column: {main:?}"
+    );
+    assert_eq!(
+        main.lines,
+        main.code + main.docs + main.comments + main.blanks,
+        "region totals must reconcile: {main:?}"
+    );
+}
+
 #[test]
 fn rust_loc_ingestor_load_without_collect_fails() {
     let data_dir = tempfile::tempdir().expect("tempdir");
