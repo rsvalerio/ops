@@ -524,6 +524,40 @@ pub fn is_root_euid() -> bool {
     false
 }
 
+/// Keep one globally-registered `tracing` dispatcher alive for the whole
+/// test binary so scoped capture subscribers are never the *only* ones
+/// registered.
+///
+/// `tracing` caches each callsite's `Interest` process-wide, computed from
+/// the dispatchers registered the moment that callsite is first hit. With
+/// only scoped (`with_default`) subscribers, a test thread can first-hit a
+/// callsite while no dispatcher is registered at all: the callsite then
+/// caches `Interest::never()` and every later event from it is dropped
+/// before reaching *any* subscriber — including the capture a parallel test
+/// is asserting on, which comes back empty at random. A global dispatcher
+/// is never unregistered, so every registration resolves against it and the
+/// interest cache can no longer answer "never".
+///
+/// The global itself discards everything; captures still come from the
+/// scoped subscriber installed per call.
+#[cfg(test)]
+fn pin_global_dispatcher() {
+    use std::sync::Once;
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        let sink = tracing_subscriber::fmt()
+            .with_writer(std::io::sink)
+            .with_max_level(tracing::Level::TRACE)
+            .finish();
+        // Another test binary layout may already have set one; either way an
+        // interested global is registered from here on.
+        let _ = tracing::subscriber::set_global_default(sink);
+        // Callsites hit before this point resolved against an empty
+        // dispatcher list; recompute them now that one is registered.
+        tracing::callsite::rebuild_interest_cache();
+    });
+}
+
 /// Shared tracing-event capture helper for tests across the core crate.
 /// Installs a thread-local subscriber at `level` for the duration of `f`,
 /// captures the formatted output (ANSI off) and returns it alongside `f`'s
@@ -534,6 +568,7 @@ pub fn capture_tracing<F, R>(level: tracing::Level, f: F) -> (String, R)
 where
     F: FnOnce() -> R,
 {
+    pin_global_dispatcher();
     use std::sync::{Arc, Mutex};
     use tracing_subscriber::fmt::MakeWriter;
 

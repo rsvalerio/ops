@@ -109,12 +109,35 @@ pub fn with_temp_config(content: &str) -> (tempfile::TempDir, CwdGuard) {
     (dir, guard)
 }
 
+/// Keep one globally-registered `tracing` dispatcher alive for the whole
+/// test binary so scoped capture subscribers are never the only ones
+/// registered. `tracing` caches each callsite's `Interest` process-wide
+/// against the dispatchers registered when the callsite is first hit; with
+/// only scoped subscribers, a parallel test thread can first-hit a callsite
+/// while none is registered, caching `Interest::never()` and silently
+/// dropping the event a capture elsewhere asserts on. The global discards
+/// everything — captures still come from the per-call scoped subscriber.
+#[cfg(test)]
+fn pin_global_dispatcher() {
+    use std::sync::Once;
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        let sink = tracing_subscriber::fmt()
+            .with_writer(std::io::sink)
+            .with_max_level(tracing::Level::TRACE)
+            .finish();
+        let _ = tracing::subscriber::set_global_default(sink);
+        tracing::callsite::rebuild_interest_cache();
+    });
+}
+
 /// Shared tracing-event capture helper for tests across the cli crate.
 /// Installs a thread-local subscriber at `level` for the duration of `f`
 /// and returns the captured text.
 #[cfg(test)]
 #[allow(dead_code)]
 pub fn capture_tracing<F: FnOnce()>(level: tracing::Level, f: F) -> String {
+    pin_global_dispatcher();
     use std::sync::{Arc, Mutex};
     use tracing_subscriber::fmt::MakeWriter;
 
