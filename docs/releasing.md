@@ -129,7 +129,9 @@ The job runs `cog bump --auto`, which:
 3. **pre_bump_hooks**: runs `cargo set-version` to update `Cargo.toml`
 4. Updates `CHANGELOG.md`, creates a version commit and git tag (e.g., `v0.2.0`) — **locally only**, `cog.toml` has no post-bump hooks
 
-The workflow then publishes that commit itself, via [`.github/scripts/api-commit.sh`](../.github/scripts/api-commit.sh): cog's local commit is replayed through the GitHub Git Data API and the tag is pointed at the result. Commits created through the API are signed by GitHub, so the bump commit and tag land **Verified** and attributed to the `my-cloud-ci[bot]` App rather than being an unsigned `git push`. The ref update uses the App token, which is what lets it trigger cargo-dist (`GITHUB_TOKEN` would not). See [verified-bump](verified-bump/README.md).
+The workflow then publishes that commit itself. `.github/workflows/bump.yml` is a thin wrapper around [forge's shared bump workflow](https://github.com/rsvalerio/forge/blob/v1/.github/workflows/bump.yml), which replays cog's local commit through the GraphQL `createCommitOnBranch` mutation and points the tag at the result. Only that mutation yields a signature — GitHub signs a commit solely when *it* builds the commit object, so `git push` and both REST endpoints all produce `verified=false`. The bump commit therefore lands **Verified**, attributed to the `my-cloud-ci[bot]` App. The tag ref itself is unsigned, which is normal and invisible in the UI; it uses the App token, which is what lets it trigger cargo-dist (`GITHUB_TOKEN` would not). See [forge's verified-bump notes](https://github.com/rsvalerio/forge/blob/v1/docs/verified-bump.md).
+
+Bump commits carry `[skip ci]`, so they no longer re-trigger the CI + Bump cycle. `cog.toml` always defined `skip_ci`, but it applies only when `cog bump` is passed `--skip-ci`, which the old inline workflow never did.
 
 If there is nothing to release (no `feat` / `fix` / breaking commits since the last tag), `cog bump --auto` does not create a new version commit or tag.
 

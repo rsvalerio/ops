@@ -1,85 +1,33 @@
 name: Bump
-permissions:
-  contents: write
+
+# Thin wrapper: everything below the trigger lives in rsvalerio/forge. See
+# https://github.com/rsvalerio/forge/blob/v1/docs/consuming.md#bump
+#
+# The previous inline copy shelled out to `.github/scripts/api-commit.sh`, which was
+# never committed to this repo — the step referencing it merged in #9 but the script
+# itself only ever existed on a workstation, so every bump since has failed with
+# exit 127. That script now lives in forge as `actions/signed-commit`.
+
 on:
   workflow_run:
     workflows: ["CI"]
-    types:
-      - completed
-    branches:
-      - main
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
-  release:
-    name: Bump
-    runs-on: ubuntu-latest
+  bump:
+    # Forks inherit the workflow but not the App credentials, so gate on the owner.
     if: ${{ github.repository_owner == 'rsvalerio' && github.event.workflow_run.conclusion == 'success' }}
-    steps:
-      # Own-repo token from the my-cloud-ci GitHub App. Unlike GITHUB_TOKEN, pushes made with
-      # it trigger the downstream release workflow on the bumped tag.
-      - name: Mint workflow token (my-cloud-ci GitHub App)
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.GH_APP_CLIENT_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          owner: rsvalerio
-          # SEC-18 / TASK-1654: least privilege — without `repositories:` the
-          # token is scoped to every repo in the app installation. The bump
-          # job only ever pushes to this repository.
-          repositories: ${{ github.event.repository.name }}
-
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_branch }}
-          fetch-depth: 0
-          fetch-tags: true
-          token: ${{ steps.app-token.outputs.token }}
-
-      - name: Install cargo-edit and cocogitto
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-edit,cocogitto
-
-      # Only used for cog's throwaway local commit — the commit that actually
-      # lands on main is created by the API step below, which stamps the App
-      # bot as author and committer.
-      - name: Configure git user
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      # cog bump --auto: determines version from conventional commits, then runs:
-      #   pre_bump_hooks: cargo set-version (updates Cargo.toml)
-      # and creates a local commit + annotated tag. cog.toml has no post_bump
-      # hooks: nothing is pushed here, the next step publishes instead.
-      - name: Run cog bump --auto
-        run: cog -vvv bump --auto
-
-      # A locally-made commit can never be Verified — a GitHub App has no
-      # private key for `git commit`, and GitHub signs only the commit objects
-      # it creates itself. So cog's commit is replayed through the Git Data API
-      # and the tag is pointed at the signed copy.
-      # See docs/verified-bump/README.md.
-      - name: Publish bump commit and tag as Verified
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          GH_REPO: ${{ github.repository }}
-          BRANCH: ${{ github.event.workflow_run.head_branch }}
-        run: |
-          set -euo pipefail
-
-          tag="$(git tag --points-at HEAD | head -n 1)"
-          if [[ -z "$tag" ]]; then
-            echo "cog did not create a tag on HEAD — nothing to publish" >&2
-            exit 1
-          fi
-
-          sha="$(.github/scripts/api-commit.sh HEAD^ HEAD "$BRANCH")"
-          echo "Verified bump commit: $sha"
-
-          # Lightweight tag ref is enough to trigger release.yml, and a ref
-          # update made with the App token (unlike GITHUB_TOKEN) does trigger it.
-          jq -n --arg r "refs/tags/${tag}" --arg s "$sha" '{ref: $r, sha: $s}' |
-            gh api "repos/${GH_REPO}/git/refs" --input - --jq .ref
+    uses: rsvalerio/forge/.github/workflows/bump.yml@v1
+    with:
+      branch: ${{ github.event.workflow_run.head_branch }}
+      # forge falls back to `vars.GH_APP_CLIENT_ID` itself, but pass it explicitly:
+      # a variable that fails to resolve in the called workflow surfaces as an
+      # opaque token-minting error rather than a missing-input one.
+      app-client-id: ${{ vars.GH_APP_CLIENT_ID }}
+    # Explicit rather than `secrets: inherit` — this workflow needs exactly one secret.
+    secrets:
+      GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}

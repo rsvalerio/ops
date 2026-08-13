@@ -26,6 +26,11 @@ pub mod code;
 #[cfg(feature = "duckdb")]
 pub use code::run_about_code;
 
+#[cfg(feature = "duckdb")]
+pub mod loc;
+#[cfg(feature = "duckdb")]
+pub use loc::run_about_loc;
+
 use std::io::Write;
 use std::path::Path;
 
