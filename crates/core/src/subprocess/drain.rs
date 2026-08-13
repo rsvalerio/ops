@@ -8,6 +8,7 @@
 
 use std::io::{self, Read};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use super::cap::OUTPUT_CAP_ENV;
 use super::RunError;
@@ -183,19 +184,56 @@ pub(super) fn collect_drain(
     }
 }
 
+/// ASYNC-6: how long the post-timeout cleanup waits for a drain thread to
+/// see EOF before abandoning it. Mirrors the stderr drain grace the hook
+/// crates use for the same reason.
+const DRAIN_GRACE: Duration = Duration::from_millis(500);
+
+/// Poll interval while waiting out [`DRAIN_GRACE`]. Short enough that the
+/// common case (EOF already delivered) costs one tick, long enough not to
+/// spin.
+const DRAIN_POLL: Duration = Duration::from_millis(10);
+
 /// ERR-1 / TASK-1466: post-timeout-kill drain reaper. Joins both pipe
 /// drains and emits a `tracing::warn!` against `label`/`stream` when a
 /// drain ended in an IO error or thread panic. `collect_drain` already
 /// emits its own internal warn; the extra "during timeout cleanup"
 /// breadcrumb here lets operators correlate the loss of captured bytes
 /// with the `RunError::Timeout` that the caller observed.
+///
+/// ASYNC-6: the join is bounded by [`DRAIN_GRACE`] rather than unbounded.
+/// Killing the child does *not* guarantee EOF on its pipes: any surviving
+/// grandchild inherits the write ends and holds them open (`sh -c "sleep
+/// 30"` under a shell that forks instead of exec'ing leaves the `sleep`
+/// behind). Joining unconditionally there made the timed-out call outrun
+/// its own deadline by the grandchild's whole lifetime — the bounded-wait
+/// contract the timeout exists to enforce. A drain thread still blocked
+/// after the grace is abandoned: it owns only its capped buffer and exits
+/// on its own once the pipe finally closes.
 pub(super) fn drain_after_timeout(
     stdout: Option<thread::JoinHandle<DrainResult>>,
     stderr: Option<thread::JoinHandle<DrainResult>>,
     label: &str,
 ) {
+    let deadline = Instant::now() + DRAIN_GRACE;
     for (handle, stream) in [(stdout, "stdout"), (stderr, "stderr")] {
-        if let Err(e) = collect_drain(handle, label, stream) {
+        let Some(handle) = handle else {
+            continue;
+        };
+        while !handle.is_finished() && Instant::now() < deadline {
+            thread::sleep(DRAIN_POLL);
+        }
+        if !handle.is_finished() {
+            tracing::warn!(
+                label,
+                stream,
+                grace_ms = DRAIN_GRACE.as_millis(),
+                "pipe drain still blocked after the child was killed; abandoning it — \
+                 a surviving grandchild is holding the pipe open, and captured bytes are lost"
+            );
+            continue;
+        }
+        if let Err(e) = collect_drain(Some(handle), label, stream) {
             tracing::warn!(
                 label,
                 stream,

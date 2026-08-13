@@ -372,8 +372,29 @@ mod tests {
         fn exit(&self, _span: &tracing::span::Id) {}
     }
 
+    /// Keep one globally-registered dispatcher alive for the whole test
+    /// binary. `tracing` caches each callsite's `Interest` process-wide
+    /// against the dispatchers registered the moment that callsite is first
+    /// hit; with only scoped (`with_default`) subscribers, a parallel test
+    /// thread can first-hit the warn callsite while none is registered,
+    /// caching `Interest::never()` so the warn these tests count never fires
+    /// again and the assertion fails at random. A global dispatcher is never
+    /// unregistered, so the cache can no longer answer "never". This one
+    /// counts into a throwaway counter nobody reads.
+    fn pin_global_dispatcher() {
+        static INSTALL: std::sync::Once = std::sync::Once::new();
+        INSTALL.call_once(|| {
+            let global = WarnCounter(std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+            let _ = tracing::subscriber::set_global_default(global);
+            // Callsites hit before this point resolved against an empty
+            // dispatcher list; recompute them now that one is registered.
+            tracing::callsite::rebuild_interest_cache();
+        });
+    }
+
     #[test]
     fn collect_units_dotdot_prefixed_dir_is_in_tree() {
+        pin_global_dispatcher();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("go.work"),
@@ -457,6 +478,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn collect_units_absolute_use_directive_is_marked_out_of_tree() {
+        pin_global_dispatcher();
         let dir = tempfile::tempdir().unwrap();
         let other = tempfile::tempdir().unwrap();
         // Place a real go.mod at the absolute target to prove we're not

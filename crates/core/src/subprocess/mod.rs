@@ -260,8 +260,12 @@ fn run_with_timeout_inner(
     let status = match child.wait_timeout(timeout)? {
         Some(s) => s,
         None => {
-            // Kill first so the drain threads see EOF and unblock; then
+            // Kill first so the drain threads can see EOF and unblock; then
             // collect their results before returning the timeout error.
+            // ASYNC-6: the kill only closes the pipe ends the child itself
+            // holds — a surviving grandchild keeps its inherited copies open
+            // — so `drain_after_timeout` bounds that wait rather than
+            // blocking here for as long as the grandchild lives.
             let _ = child.kill();
             let _ = child.wait();
             // ERR-1 / TASK-1466: the timeout branch used to swallow the
@@ -501,5 +505,32 @@ mod tests {
             RunError::Io(e) => panic!("expected timeout, got io error: {e}"),
             RunError::Spawn(e) => panic!("expected timeout, got spawn error: {e}"),
         }
+    }
+
+    /// ASYNC-6: killing the timed-out child does not close the pipe ends a
+    /// *grandchild* inherited, so the post-kill drain must be bounded. The
+    /// backgrounded `sleep` here outlives the shell we kill and keeps
+    /// stdout/stderr open; before the drain grace, the call blocked for the
+    /// grandchild's whole lifetime and blew past its own deadline.
+    #[cfg(unix)]
+    #[test]
+    fn timeout_returns_promptly_when_a_grandchild_holds_the_pipes() {
+        let started = std::time::Instant::now();
+        let err = run_with_timeout(
+            Command::new("sh").args(["-c", "sleep 5 & sleep 5"]),
+            Duration::from_millis(300),
+            "sh orphan",
+        )
+        .expect_err("slow command should time out");
+        let elapsed = started.elapsed();
+
+        assert!(
+            matches!(err, RunError::Timeout(_)),
+            "expected timeout, got {err:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "must not wait out the surviving grandchild; elapsed = {elapsed:?}"
+        );
     }
 }

@@ -10,7 +10,7 @@ use super::*;
 /// lands in exactly one place.
 mod test_log_capture {
     use std::io::Write;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, Once};
     use tracing_subscriber::fmt::MakeWriter;
 
     #[derive(Clone, Default)]
@@ -39,11 +39,39 @@ mod test_log_capture {
         }
     }
 
+    /// Keep one globally-registered dispatcher alive for the whole test
+    /// binary so the scoped capture subscribers below are never the only
+    /// ones registered.
+    ///
+    /// `tracing` caches each callsite's `Interest` process-wide, computed
+    /// from the dispatchers registered the moment that callsite is first
+    /// hit. With only scoped (`with_default`) subscribers, a parallel test
+    /// thread can first-hit the warn callsite while none is registered: it
+    /// then caches `Interest::never()` and the warn is dropped before
+    /// reaching any subscriber, so the capture below comes back empty and
+    /// the assertion fails at random. A global dispatcher is never
+    /// unregistered, so the cache can no longer answer "never". This one
+    /// discards everything it is handed.
+    fn pin_global_dispatcher() {
+        static INSTALL: Once = Once::new();
+        INSTALL.call_once(|| {
+            let sink = tracing_subscriber::fmt()
+                .with_writer(std::io::sink)
+                .with_max_level(tracing::Level::TRACE)
+                .finish();
+            let _ = tracing::subscriber::set_global_default(sink);
+            // Callsites hit before this point resolved against an empty
+            // dispatcher list; recompute them now that one is registered.
+            tracing::callsite::rebuild_interest_cache();
+        });
+    }
+
     /// Run `body` with a `tracing` subscriber that captures WARN-level events
     /// into the returned buffer. The closure is invoked under
     /// `tracing::subscriber::with_default` so log records emitted inside it
     /// flow into the buffer; records emitted outside are unaffected.
     pub(super) fn capture_warn<F: FnOnce()>(body: F) -> String {
+        pin_global_dispatcher();
         let buf = BufWriter::default();
         let subscriber = tracing_subscriber::fmt()
             .with_writer(buf.clone())
