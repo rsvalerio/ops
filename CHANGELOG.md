@@ -2,6 +2,26 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.36.0](https://github.com/rsvalerio/ops/compare/574926793f7249c0cfb18a9a83669ead9bf5be21..v0.36.0) - 2026-08-13
+#### 🚀 Features
+- (**about**) add `ops about loc` splitting production, test and example lines - ([14aa874](https://github.com/rsvalerio/ops/commit/14aa874576966246844fb57d3cfd9fdaa4b3c964)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+- (**duckdb**) add Rust LOC region queries over rust_loc_summary - ([6814ad7](https://github.com/rsvalerio/ops/commit/6814ad78a7b5822f03b7c2889b3d3f0554881711)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+#### 🐛 Bug Fixes
+- (**core**) bound the pipe drain after a subprocess timeout - ([a5fc809](https://github.com/rsvalerio/ops/commit/a5fc8091c566e4283afc9077324dfa365365cac7)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+#### 📚 Documentation
+- (**readme**) document `ops about loc` and how it differs from `about code` - ([ff88dcf](https://github.com/rsvalerio/ops/commit/ff88dcf992830538ec53a7d6a533ca640a13ba81)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+#### 🧪 Testing
+- (**run-before-commit**) retry fake-git exec on ETXTBSY - ([8cee2ac](https://github.com/rsvalerio/ops/commit/8cee2ac99467225c9e76b51f37a03d9fffaa48a0)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+- (**tracing**) pin a global dispatcher so parallel log captures survive - ([55202b4](https://github.com/rsvalerio/ops/commit/55202b42c66f719a58cc179f028c093a31d312c3)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+#### 🔄 CI/CD
+- (**bump**) call forge's shared bump workflow - ([0626a6e](https://github.com/rsvalerio/ops/commit/0626a6e8da164155401c06c64bc460675acad2b1)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+- (**bump**) publish the bump commit and tag as Verified (#9) - ([5749267](https://github.com/rsvalerio/ops/commit/574926793f7249c0cfb18a9a83669ead9bf5be21)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context), Claude Opus 5 (1M context), Claude Opus 5 (1M context), Claude Opus 5 (1M context)
+#### ⚙️ Miscellaneous
+- Merge pull request #11 from rsvalerio/fix/test-stability - ([08c443c](https://github.com/rsvalerio/ops/commit/08c443cc29bf89599de468ce4e0e2d3215ed0c2a)) - [@rsvalerio](https://github.com/rsvalerio)
+- Merge pull request #10 - ([afd3fd7](https://github.com/rsvalerio/ops/commit/afd3fd7cbcfd0d54255da26dbd4e9f73d70abefe)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.35.0](https://github.com/rsvalerio/ops/compare/38404f9b5f82b3312b9e30e0cbaa7e10375d1545..v0.35.0) - 2026-08-09
 #### 🚀 Features
 - (**rust-loc**) split Rust LOC into production, test and example (#8) - ([8b9a55f](https://github.com/rsvalerio/ops/commit/8b9a55f07679135f1b819eff151fa98ac369c0f9)) - [@rsvalerio](https://github.com/rsvalerio), Claude
