@@ -21,7 +21,11 @@ jobs:
   bump:
     # Forks inherit the workflow but not the App credentials, so gate on the owner.
     if: ${{ github.repository_owner == 'rsvalerio' && github.event.workflow_run.conclusion == 'success' }}
-    uses: rsvalerio/forge/.github/workflows/bump.yml@v1
+    # Pinned to an exact release rather than the moving `v1` tag. `release-workflow`
+    # below arrived in v0.2.0, and `v1` still points at v0.1.2 — calling `@v1` would
+    # fail on an unknown input. forge's versioning.md permits pinning precisely; move
+    # this back to `@v1` once that tag is repointed.
+    uses: rsvalerio/forge/.github/workflows/bump.yml@v0.2.0
     with:
       branch: ${{ github.event.workflow_run.head_branch }}
       # The bump commit carries `[skip ci]`, and GitHub applies that marker per push
