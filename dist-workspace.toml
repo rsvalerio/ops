@@ -30,3 +30,13 @@ tap = "rsvalerio/homebrew-tap"
 publish-jobs = ["./publish-homebrew"]
 # Custom formula name for Homebrew (install with `brew install ops`)
 formula = "ops"
+# Trigger releases by workflow_dispatch rather than by tag push.
+#
+# The Bump workflow marks its commit `[skip ci]` so the bump does not re-trigger the
+# CI + Bump cycle. GitHub applies that marker per *push event*, and a tag push is a
+# push — so the release tag inherited the skip and `release.yml` never ran. The two
+# behaviours shared one mechanism and could not both win.
+#
+# Dispatching decouples them: the marker keeps suppressing CI, and the bump job asks
+# for the release explicitly once the tag exists. See docs/releasing.md.
+dispatch-releases = true

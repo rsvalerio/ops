@@ -24,6 +24,11 @@ jobs:
     uses: rsvalerio/forge/.github/workflows/bump.yml@v1
     with:
       branch: ${{ github.event.workflow_run.head_branch }}
+      # The bump commit carries `[skip ci]`, and GitHub applies that marker per push
+      # event — a tag push included — so the version tag could never trigger the
+      # release. dist now runs in `dispatch-releases` mode and forge asks for the
+      # release explicitly once the tag exists. See docs/releasing.md.
+      release-workflow: release.yml
       # forge falls back to `vars.GH_APP_CLIENT_ID` itself, but pass it explicitly:
       # a variable that fails to resolve in the called workflow surfaces as an
       # opaque token-minting error rather than a missing-input one.
