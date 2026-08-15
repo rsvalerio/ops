@@ -30,6 +30,26 @@ tap = "rsvalerio/homebrew-tap"
 publish-jobs = ["./publish-homebrew"]
 # Custom formula name for Homebrew (install with `brew install ops`)
 formula = "ops"
+# Hand-maintained edits to .github/workflows/release.yml are intentional.
+#
+# `dist plan` does not merely regenerate the CI file — it asserts the on-disk
+# contents byte-match what it would generate, and hard-fails the release
+# workflow otherwise ("release.yml has out of date contents"). That check is
+# incompatible with the security hardening applied to that file: third-party
+# actions pinned to commit SHAs (SEC-35/TASK-1661) and an explicit `secrets:`
+# block on the homebrew publish job in place of `secrets: inherit`
+# (SEC-36/TASK-1662). dist emits bare tags and blanket secret forwarding, so the
+# two can never agree.
+#
+# `allow-dirty = ["ci"]` tells dist to neither check nor regenerate release.yml,
+# which makes that file ours to maintain. Consequences:
+#   - Upgrading `cargo-dist-version` no longer updates release.yml on its own.
+#     To take a new dist's CI changes, temporarily drop this key, run
+#     `dist init`, then re-apply the SHA pins and the `secrets:` block and put
+#     the key back. The `workflow-guard` job in ci.yml fails the build if either
+#     is missing, so a forgotten re-apply cannot land silently.
+allow-dirty = ["ci"]
+
 # Trigger releases by workflow_dispatch rather than by tag push.
 #
 # The Bump workflow marks its commit `[skip ci]` so the bump does not re-trigger the

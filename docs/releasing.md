@@ -116,7 +116,11 @@ The [CI workflow](../.github/workflows/ci.yml) runs on every PR and produces sev
 
 CI installs `cargo-edit`/`cargo-deny` via [`taiki-e/install-action`](https://github.com/taiki-e/install-action) (for the Deps job). The Deps job invokes `cargo deny` directly rather than through `ops`; it does not install `ops` itself.
 
-All third-party actions are pinned to full commit SHAs with a trailing `# vX.Y.Z` comment. The **Workflow Guard** check enforces this, and also rejects `secrets: inherit`. Both matter most for `release.yml`, which `dist generate` regenerates with bare tags and blanket secret forwarding — if you regenerate it, re-apply the pins and the explicit `secrets:` block, or Workflow Guard will fail the build.
+All third-party actions are pinned to full commit SHAs with a trailing `# vX.Y.Z` comment. The **Workflow Guard** check enforces this, and also rejects `secrets: inherit`.
+
+Both matter most for `release.yml`, which dist would otherwise emit with bare tags and blanket secret forwarding. Note that `dist plan` does not merely regenerate that file — it asserts the on-disk contents byte-match its own output and hard-fails the release otherwise. Since the hardening makes them differ permanently, `dist-workspace.toml` sets `allow-dirty = ["ci"]`, which takes `release.yml` out of dist's hands entirely.
+
+**Consequence:** bumping `cargo-dist-version` no longer updates `release.yml` by itself. To pick up a new dist's CI changes, temporarily remove `allow-dirty`, run `dist init`, then re-apply the SHA pins and the explicit `secrets:` block and restore the key. Workflow Guard fails the build if you forget either.
 
 ### 3. Merge PR to Main
 
