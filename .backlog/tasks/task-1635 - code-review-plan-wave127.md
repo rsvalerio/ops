@@ -1,11 +1,11 @@
 ---
 id: TASK-1635
 title: code-review-plan-wave127
-status: In Progress
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-05-22 08:12'
-updated_date: '2026-05-22 10:23'
+updated_date: '2026-08-15 00:00'
 labels:
   - code-review-wave
 dependencies:
@@ -30,3 +30,12 @@ test-coverage API surface, visibility, test portability, workspace lint hygiene
 <!-- SECTION:NOTES:BEGIN -->
 7/8 member tasks Done. TASK-1612 deferred (no [workspace.lints] section exists yet; workspace-wide rollout prerequisite).
 <!-- SECTION:NOTES:END -->
+
+## Triage Notes
+
+<!-- SECTION:TRIAGE:BEGIN -->
+Closed in the 2026-08-15 stale-`In Progress` sweep.
+
+All 8 dependency tasks are `Done`. Wave never closed after its children
+completed; no outstanding work.
+<!-- SECTION:TRIAGE:END -->

@@ -3,11 +3,11 @@ id: TASK-1567
 title: >-
   ARCH-1: extensions-rust/tools/src/tests.rs is 1196 lines mixing 9+ concerns in
   a flat module
-status: In Progress
+status: To Do
 assignee:
   - TASK-1578
 created_date: '2026-05-19 16:10'
-updated_date: '2026-05-19 18:34'
+updated_date: '2026-08-15 00:00'
 labels:
   - code-review-rust
   - architecture
@@ -65,3 +65,17 @@ code paths; a partial split would have landed alongside diff-noisy
 import shuffles that made review harder. Wave-124 deliberately defers
 this to a dedicated wave that can take the split on its own. No
 production behaviour regressed.
+
+## Triage Notes
+
+<!-- SECTION:TRIAGE:BEGIN -->
+Reset from `In Progress` to `To Do` in the 2026-08-15 sweep.
+
+Verified against the tree: `extensions-rust/tools/src/tests.rs` is now **1361
+lines**, up from the 1196 quoted in the report. No split has happened and the
+file has grown, so the `In Progress` marker dated 2026-05-19 was stale.
+
+For context, sibling crates in the same directory are comparable or worse —
+`deps/src/tests.rs` is 1589 lines — so this is a pattern rather than a
+one-off. Consider whether the task should be widened before it is picked up.
+<!-- SECTION:TRIAGE:END -->

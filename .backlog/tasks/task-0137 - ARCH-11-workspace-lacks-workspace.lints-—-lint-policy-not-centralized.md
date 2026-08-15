@@ -1,10 +1,10 @@
 ---
 id: TASK-0137
 title: 'ARCH-11: workspace lacks [workspace.lints] — lint policy not centralized'
-status: In Progress
+status: To Do
 assignee: []
 created_date: '2026-04-22 21:16'
-updated_date: '2026-04-23 14:32'
+updated_date: '2026-08-15 00:00'
 labels:
   - rust-code-review
   - arch
@@ -33,3 +33,13 @@ priority: medium
 <!-- SECTION:NOTES:BEGIN -->
 Deferred: adding [workspace.lints] with clippy::pedantic warn triggers dozens of new warnings across ~25 crates and  would fail the verify gate. Proper scope is: (1) add [workspace.lints] scaffolding with only clippy::all + rust warnings, (2) enable pedantic as a separate PR with systematic fixes (probably a wave of its own). Leaving task In Progress so next wave picks it up with dedicated scope rather than smuggling a huge diff into this one.
 <!-- SECTION:NOTES:END -->
+
+## Triage Notes
+
+<!-- SECTION:TRIAGE:BEGIN -->
+Reset from `In Progress` to `To Do` in the 2026-08-15 sweep.
+
+Verified against the tree: `Cargo.toml` still has no `[workspace.lints]`
+table, so neither AC is met and no work has landed. The `In Progress` marker
+dated 2026-04-23 was stale, not a work-in-progress.
+<!-- SECTION:TRIAGE:END -->
