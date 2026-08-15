@@ -10,6 +10,13 @@ on:
       plan:
         required: true
         type: string
+    # SEC-36 (TASK-1662): declare the one secret this workflow actually uses, so
+    # the caller can pass it explicitly instead of forwarding every repo secret
+    # with `secrets: inherit`. GH_APP_CLIENT_ID is a *variable*, not a secret —
+    # `vars.*` is available to called workflows without being passed.
+    secrets:
+      GH_APP_PRIVATE_KEY:
+        required: true
 
 jobs:
   publish-homebrew-formula:
@@ -21,20 +28,20 @@ jobs:
     steps:
       - name: Mint homebrew-tap token (my-cloud-ci GitHub App)
         id: tap-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ vars.GH_APP_CLIENT_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: rsvalerio
           repositories: homebrew-tap
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: true
           repository: "rsvalerio/homebrew-tap"
           token: ${{ steps.tap-token.outputs.token }}
       # So we have access to the formula
       - name: Fetch homebrew formulae
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: artifacts-*
           path: Formula/

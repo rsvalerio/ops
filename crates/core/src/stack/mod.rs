@@ -793,6 +793,151 @@ mod tests {
         );
     }
 
+    /// Collect every composite reachable from `root` that carries
+    /// `parallel = true`, following the composite tree transitively.
+    ///
+    /// Children that do not resolve inside the stack's own map are builtins
+    /// (`trailing-whitespace`, `check-json`, …) registered by the runner. Those
+    /// are always `CommandSpec::Exec` leaves (see `runner/src/command/builtins.rs`),
+    /// so skipping them cannot hide a parallel composite.
+    ///
+    /// `seen` guards against the diamond/cycle shapes that `expand_inner`
+    /// tolerates, so a malformed default cannot hang the test suite.
+    fn parallel_descendants(
+        cmds: &IndexMap<String, CommandSpec>,
+        root: &str,
+        seen: &mut std::collections::HashSet<String>,
+        found: &mut Vec<String>,
+    ) {
+        if !seen.insert(root.to_string()) {
+            return;
+        }
+        let Some(CommandSpec::Composite(c)) = cmds.get(root) else {
+            return;
+        };
+        if c.parallel {
+            found.push(root.to_string());
+        }
+        for child in &c.commands {
+            parallel_descendants(cmds, child, seen, found);
+        }
+    }
+
+    /// TASK-1656: a composite declaring `parallel = false` must not have any
+    /// parallel descendant, at any depth.
+    ///
+    /// This is the transitive form of the one-level check in
+    /// `rust_verify_is_sequential_so_fmt_cannot_race_the_compile_steps`.
+    /// Composite expansion flattens the tree to a flat leaf plan and ORs the
+    /// `parallel` flags (`ctx.any_parallel` in `runner/src/command/resolve.rs`),
+    /// so *one* parallel node anywhere below a sequential root makes the whole
+    /// plan run concurrently while the root's flag still reads `false`. The
+    /// config is then actively misleading, and the failure mode — formatters
+    /// racing checkers over the same files — is intermittent.
+    ///
+    /// Asserted for every stack so a new default cannot reintroduce the trap.
+    /// Remove or relax this only alongside a resolution to TASK-1657.
+    #[test]
+    fn sequential_composites_have_no_parallel_descendant_in_any_stack() {
+        for stack in Stack::iter() {
+            let cmds = stack.default_commands_ref();
+            for (name, spec) in cmds {
+                let CommandSpec::Composite(c) = spec else {
+                    continue;
+                };
+                if c.parallel {
+                    continue;
+                }
+                let mut found = Vec::new();
+                parallel_descendants(
+                    cmds,
+                    name,
+                    &mut std::collections::HashSet::new(),
+                    &mut found,
+                );
+                assert!(
+                    found.is_empty(),
+                    "stack `{}`: `{name}` declares parallel = false but has parallel \
+                     descendant(s) {found:?}; expansion ORs the flags, so the whole \
+                     plan would run concurrently despite the flag",
+                    stack.as_str()
+                );
+            }
+        }
+    }
+
+    /// TASK-1656: `fmt` promises "Run ruff --fix then black" in its help text.
+    /// Both rewrite the same `.py` files, so the ordering must hold at runtime,
+    /// which requires every ancestor scheduling it to be sequential too —
+    /// covered by `sequential_composites_have_no_parallel_descendant_in_any_stack`.
+    #[test]
+    fn python_fmt_runs_ruff_fix_strictly_before_black() {
+        let cmds = Stack::Python.default_commands_ref();
+        let CommandSpec::Composite(fmt) = cmds.get("fmt").expect("python `fmt` must exist") else {
+            panic!("python `fmt` must be a composite command");
+        };
+        assert!(
+            !fmt.parallel,
+            "python `fmt` must be sequential: ruff --fix and black rewrite the same files"
+        );
+        let pos = |name: &str| {
+            fmt.commands
+                .iter()
+                .position(|c| c == name)
+                .unwrap_or_else(|| panic!("python `fmt` must run {name}"))
+        };
+        assert!(
+            pos("ruff-fix") < pos("black-fmt"),
+            "ruff-fix must precede black-fmt, got: {:?}",
+            fmt.commands
+        );
+    }
+
+    /// TASK-1656: `verify` schedules the formatters (`fmt`), the checkers
+    /// (`lint`) and the type checker (`type`) over one source tree. If any of
+    /// them can overlap, `black` rewrites files while `black --check` and
+    /// `pyright` read them.
+    #[test]
+    fn python_verify_is_sequential_so_formatters_cannot_race_checkers() {
+        let cmds = Stack::Python.default_commands_ref();
+        let CommandSpec::Composite(verify) = cmds.get("verify").expect("verify must exist") else {
+            panic!("python `verify` must be a composite command");
+        };
+        assert!(
+            !verify.parallel,
+            "python `verify` must be sequential: fmt rewrites files lint and type read"
+        );
+
+        let mut found = Vec::new();
+        parallel_descendants(
+            cmds,
+            "verify",
+            &mut std::collections::HashSet::new(),
+            &mut found,
+        );
+        assert!(
+            found.is_empty(),
+            "python `verify` has parallel descendant(s) {found:?}; the flattened plan \
+             would run formatters concurrently with checkers"
+        );
+
+        let pos = |name: &str| {
+            verify
+                .commands
+                .iter()
+                .position(|c| c == name)
+                .unwrap_or_else(|| panic!("verify must run {name}"))
+        };
+        let fmt = pos("fmt");
+        for reader in ["lint", "type"] {
+            assert!(
+                fmt < pos(reader),
+                "fmt must precede {reader}, got: {:?}",
+                verify.commands
+            );
+        }
+    }
+
     /// PERF-3 (TASK-1409): two back-to-back calls must return equal-content
     /// maps, exercising the OnceLock-cached parse path on the second call.
     /// PERF-3 (TASK-1410): repeat `detect()` calls with the same start

@@ -100,9 +100,9 @@ git push -u origin feat/my-feature
 gh pr create
 ```
 
-### 2. CI Status Checks (6 parallel jobs)
+### 2. CI Status Checks (7 parallel jobs)
 
-The [CI workflow](../.github/workflows/ci.yml) runs on every PR and produces six required status checks that must all pass before merge:
+The [CI workflow](../.github/workflows/ci.yml) runs on every PR and produces seven status checks that must all pass before merge. **Workflow Guard** is new — if the branch ruleset names its required checks explicitly, add it there so it can block merge:
 
 | Check | Command | Description |
 |-------|---------|-------------|
@@ -111,9 +111,16 @@ The [CI workflow](../.github/workflows/ci.yml) runs on every PR and produces six
 | **Lint** | `ops clippy` | Lint with clippy |
 | **Build** | `ops build` | Build all targets |
 | **Test** | `ops test` | Run all tests |
-| **Deps** | `ops deps` | Check dependencies, advisories, licenses, bans and sources |
+| **Deps** | `cargo deny check` | Check dependencies, advisories, licenses, bans and sources |
+| **Workflow Guard** | `grep` over `.github/workflows/` | Fail if any action is not SHA-pinned, or any workflow uses `secrets: inherit` |
 
-CI installs `ops` from the latest GitHub release via [`jaxxstorm/action-install-gh-release`](https://github.com/jaxxstorm/action-install-gh-release), and `cargo-edit`/`cargo-deny` via [`taiki-e/install-action`](https://github.com/taiki-e/install-action) (for the Deps job).
+CI installs `cargo-edit`/`cargo-deny` via [`taiki-e/install-action`](https://github.com/taiki-e/install-action) (for the Deps job). The Deps job invokes `cargo deny` directly rather than through `ops`; it does not install `ops` itself.
+
+All third-party actions are pinned to full commit SHAs with a trailing `# vX.Y.Z` comment. The **Workflow Guard** check enforces this, and also rejects `secrets: inherit`.
+
+Both matter most for `release.yml`, which dist would otherwise emit with bare tags and blanket secret forwarding. Note that `dist plan` does not merely regenerate that file — it asserts the on-disk contents byte-match its own output and hard-fails the release otherwise. Since the hardening makes them differ permanently, `dist-workspace.toml` sets `allow-dirty = ["ci"]`, which takes `release.yml` out of dist's hands entirely.
+
+**Consequence:** bumping `cargo-dist-version` no longer updates `release.yml` by itself. To pick up a new dist's CI changes, temporarily remove `allow-dirty`, run `dist init`, then re-apply the SHA pins and the explicit `secrets:` block and restore the key. Workflow Guard fails the build if you forget either.
 
 ### 3. Merge PR to Main
 

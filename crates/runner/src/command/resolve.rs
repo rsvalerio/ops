@@ -17,6 +17,51 @@ struct ExpandCtx<'a> {
     max_depth: usize,
     any_parallel: bool,
     fail_fast_disabled: bool,
+    /// TASK-1657: `(name, value)` of the first composite in this plan to
+    /// declare `parallel`, used to reject a tree that disagrees with itself.
+    parallel_decl: Option<(&'a str, bool)>,
+    /// TASK-1657: same, for `fail_fast`.
+    fail_fast_decl: Option<(&'a str, bool)>,
+}
+
+/// TASK-1657: enforce that every composite in one plan agrees on a scheduling
+/// flag, recording the first declaration and rejecting any later disagreement.
+///
+/// Comparing against the *first* composite visited is sufficient to prove
+/// whole-plan agreement: expansion is a depth-first walk from the root, so the
+/// first declaration is the root's, and if every later node matches the root
+/// then all nodes match each other. It also makes the error name the root the
+/// user actually invoked rather than an arbitrary interior pair.
+fn check_schedule_flag<'a>(
+    decl: &mut Option<(&'a str, bool)>,
+    flag: &'static str,
+    name: &'a str,
+    value: bool,
+) -> Result<(), ExpandError> {
+    match *decl {
+        None => {
+            *decl = Some((name, value));
+            Ok(())
+        }
+        Some((root, root_value)) if root_value != value => {
+            tracing::warn!(
+                flag = %flag,
+                root = ?root,
+                root_value,
+                conflicting = ?name,
+                conflicting_value = value,
+                "rejecting composite plan with conflicting scheduling flags"
+            );
+            Err(ExpandError::ConflictingSchedule {
+                flag,
+                root: root.to_string(),
+                root_value,
+                conflicting: name.to_string(),
+                conflicting_value: value,
+            })
+        }
+        Some(_) => Ok(()),
+    }
 }
 
 impl CommandRunner {
@@ -233,6 +278,8 @@ impl CommandRunner {
             max_depth: MAX_DEPTH,
             any_parallel: false,
             fail_fast_disabled: false,
+            parallel_decl: None,
+            fail_fast_decl: None,
         };
         let leaves = self.expand_inner(id, &mut ctx)?;
         Ok((leaves, ctx.any_parallel, ctx.fail_fast_disabled))
@@ -275,8 +322,17 @@ impl CommandRunner {
                 if !ctx.visited.insert(canonical) {
                     return Err(ExpandError::Cycle(canonical.to_string()));
                 }
+                // TASK-1657: the plan is flat and scheduled as one unit, so
+                // every composite in it must agree on the scheduling flags.
+                // Checked before recursing so the error names the shallowest
+                // offender rather than a deeper one that happens to differ.
+                check_schedule_flag(&mut ctx.parallel_decl, "parallel", canonical, c.parallel)?;
+                check_schedule_flag(&mut ctx.fail_fast_decl, "fail_fast", canonical, c.fail_fast)?;
                 // PATTERN-1 / TASK-1283: aggregate parallel/fail_fast flags
-                // along the same single pass that collects leaves.
+                // along the same single pass that collects leaves. With the
+                // agreement check above these are now uniform across the
+                // plan, but the aggregation is kept so callers keep a single
+                // source of truth for the effective scheduling.
                 if c.parallel {
                     ctx.any_parallel = true;
                 }

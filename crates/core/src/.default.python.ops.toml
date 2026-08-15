@@ -39,7 +39,13 @@ category = "Code Quality"
 
 [commands.lint]
 commands = ["ruff", "black"]
-parallel = true
+# TASK-1656: must stay sequential. Composite expansion flattens the whole tree
+# into one leaf plan and ORs the `parallel` flags together (`any_parallel` in
+# runner/src/command/resolve.rs), so a single `parallel = true` here promotes
+# the entire `verify` plan to parallel — running `ruff --fix`/`black` (which
+# rewrite .py files) concurrently with `black --check`/`pyright` (which read
+# them). Do not flip this back without first resolving TASK-1657.
+parallel = false
 fail_fast = true
 help = "Run ruff check and black --check"
 category = "Code Quality"

@@ -334,9 +334,21 @@ fn join_shell_quoted(parts: &[String]) -> String {
 #[non_exhaustive]
 pub struct CompositeCommandSpec {
     pub commands: Vec<String>,
+    /// Run this group's steps concurrently.
+    ///
+    /// TASK-1657: composite expansion flattens the whole tree into one flat
+    /// leaf plan that the runner schedules as a single unit, so this flag is
+    /// necessarily plan-wide, not per-group. Every composite reachable in one
+    /// plan must therefore declare the *same* value; a tree that disagrees is
+    /// rejected at expansion time with `ExpandError::ConflictingSchedule`
+    /// rather than silently picking a winner. See the "Command groups and
+    /// scheduling" section of `README.md`.
     #[serde(default)]
     pub parallel: bool,
     /// When true (default), stop remaining steps on first failure. When false, run all steps.
+    ///
+    /// TASK-1657: plan-wide for the same reason as [`Self::parallel`], and
+    /// subject to the same agreement requirement.
     #[serde(default = "serde_defaults::default_true")]
     pub fail_fast: bool,
     /// Short help text shown in `ops --help`.
