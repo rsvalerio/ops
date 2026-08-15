@@ -23,9 +23,18 @@ async fn run_plan_echo_success() {
     let result = &results[0];
     assert_eq!(result.id, "echo_hi");
     assert!(result.success);
+    // TASK-1664: asserted at nanosecond granularity, not milliseconds. The
+    // previous `as_millis() > 0` required the step to be *at least a
+    // millisecond slow*, which is not a property worth having: `echo hi` on a
+    // fast runner completes in under 1ms, `as_millis()` truncates to 0, and the
+    // test fails for being quick. Observed failing on CI while passing locally.
+    //
+    // The invariant actually worth pinning is that the duration was measured at
+    // all rather than left at its default.
     assert!(
-        result.duration.as_millis() > 0,
-        "should have non-zero duration"
+        result.duration.as_nanos() > 0,
+        "duration should be measured, got {:?}",
+        result.duration
     );
 }
 
