@@ -3,6 +3,41 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 ## [v0.36.1](https://github.com/rsvalerio/ops/compare/8468d674d01c9aa92cbd3d1ee01312a1f425651c..v0.36.1) - 2026-08-15
+
+> **⚠️ Breaking change, despite the patch version number.**
+>
+> This release contains a breaking change but was versioned as a patch
+> (`0.36.0` → `0.36.1`) rather than a minor. Manual note added after the fact so
+> the break is not discoverable only by upgrading into it.
+>
+> **What changed.** A `.ops.toml` command group (`commands = [...]`) tree is
+> expanded into one flat plan and scheduled as a single unit, so the `parallel`
+> and `fail_fast` flags are plan-wide. Previously they were OR-folded across the
+> tree, which let one `parallel = true` group silently promote an entire
+> `parallel = false` plan to parallel — the config said sequential and the steps
+> ran concurrently. Such a config is now **rejected** instead of running.
+>
+> **Who is affected.** Only configs that nest groups with *differing* `parallel`
+> or `fail_fast` values. Flat configs, and nested groups whose flags agree, are
+> unaffected. No stack default triggers it.
+>
+> **What you will see.**
+>
+> ```console
+> $ ops verify
+> ops: error: conflicting `parallel` in the plan for `verify`: `verify` sets parallel = false, but `lint` sets parallel = true
+> ops: error:   composite commands are flattened into one plan and scheduled as a single unit, so mixed `parallel` values cannot both be honoured
+> ops: error:   fix: make them agree — set `lint.parallel = false`, or set `verify.parallel = true`
+> ```
+>
+> **How to fix.** Make the flags agree, as the error says. Choose `false`
+> throughout if any step in the plan writes files another step reads;
+> choose `true` throughout if the whole plan is safe to run concurrently.
+>
+> Expressing "run these groups in order, but let the steps inside one group run
+> together" is not supported today — see the "Command groups and scheduling"
+> section of the README.
+
 #### 🐛 Bug Fixes
 - ![BREAKING](https://img.shields.io/badge/BREAKING-red) composite scheduling correctness and CI supply-chain hardening (#14) - ([81e514d](https://github.com/rsvalerio/ops/commit/81e514d2c5b0d2baac1564c92259aae5887e705f)) - [@rsvalerio](https://github.com/rsvalerio)
 #### 🔄 CI/CD
