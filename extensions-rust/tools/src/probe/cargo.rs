@@ -78,16 +78,57 @@ const CARGO_BUILTIN_ALIASES: &[&str] = &["b", "c", "d", "r", "rm", "t"];
 /// API / TASK-1200: returns [`ProbeOutcome::Failed`] when `cargo --list`
 /// itself cannot be answered (timeout / IO / non-zero exit). The PATH
 /// fallback runs only when `cargo --list` answered.
+/// PERF/ERR (TASK-1665): `--color never` is not cosmetic. `cargo --list`
+/// colourises its output whenever colour is forced — `CARGO_TERM_COLOR=always`
+/// in the environment, which this repo's own CI sets — and then every entry
+/// arrives wrapped in ANSI escapes (`\x1b[1m\x1b[96madd`). The
+/// whitespace-splitting parser below reads that as the subcommand name, so no
+/// entry ever matches and every cargo tool is reported as not installed.
+/// Passing the flag explicitly makes the probe independent of the caller's
+/// environment rather than relying on cargo's TTY auto-detection.
 #[must_use]
 pub fn check_cargo_tool_installed(name: &str) -> ProbeOutcome<bool> {
     let mut cmd = Command::new(resolve_cargo_bin());
-    cmd.args(["--list"]);
+    cmd.args(["--color", "never", "--list"]);
     match run_probe_capturing(&mut cmd, "cargo --list") {
         ProbeOutcome::Ok(stdout) => {
             ProbeOutcome::Ok(is_in_cargo_list(&stdout, name) || check_binary_installed(name))
         }
         ProbeOutcome::Failed => ProbeOutcome::Failed,
     }
+}
+
+/// Strip ANSI CSI sequences (`ESC [ … final-byte`) from a token.
+///
+/// TASK-1665: defence in depth beside the `--color never` flag on the probe
+/// invocation. This function is reachable with arbitrary stdout — notably via
+/// the public `capture_cargo_list` — so it should not depend on the caller
+/// having suppressed colour. Borrows unchanged when there is no escape to
+/// remove, which is the normal path.
+fn strip_ansi(token: &str) -> std::borrow::Cow<'_, str> {
+    if !token.contains('\x1b') {
+        return std::borrow::Cow::Borrowed(token);
+    }
+    let mut out = String::with_capacity(token.len());
+    let mut chars = token.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\x1b' {
+            out.push(c);
+            continue;
+        }
+        // Only CSI (`ESC [`) is consumed; a lone ESC is dropped and the
+        // following character is preserved.
+        if chars.peek() == Some(&'[') {
+            chars.next();
+            // Parameter/intermediate bytes run until a final byte in @..~.
+            for p in chars.by_ref() {
+                if ('@'..='~').contains(&p) {
+                    break;
+                }
+            }
+        }
+    }
+    std::borrow::Cow::Owned(out)
 }
 
 pub(crate) fn is_in_cargo_list(stdout: &str, name: &str) -> bool {
@@ -101,7 +142,7 @@ pub(crate) fn is_in_cargo_list(stdout: &str, name: &str) -> bool {
     stdout.lines().any(|line| {
         line.split_whitespace()
             .next()
-            .is_some_and(|cmd| cmd == cargo_name)
+            .is_some_and(|cmd| strip_ansi(cmd) == cargo_name)
     })
 }
 
@@ -109,7 +150,9 @@ pub(crate) fn is_in_cargo_list(stdout: &str, name: &str) -> bool {
 #[must_use]
 pub fn capture_cargo_list() -> ProbeOutcome<String> {
     let mut cmd = Command::new(resolve_cargo_bin());
-    cmd.args(["--list"]);
+    // TASK-1665: see `check_cargo_tool_installed` — colour must be off or the
+    // parser reads ANSI escapes as part of the subcommand name.
+    cmd.args(["--color", "never", "--list"]);
     run_probe_capturing(&mut cmd, "cargo --list")
 }
 
@@ -142,6 +185,36 @@ pub(crate) fn is_in_cargo_set(set: &HashSet<String>, name: &str) -> bool {
 mod cargo_builtins_drift_tests {
     use super::*;
     use crate::probe::path::check_binary_installed;
+
+    /// TASK-1665: the drift test above shells out to `cargo --list`, and the
+    /// probe must be immune to colour being forced on. With
+    /// `CARGO_TERM_COLOR=always` set — as this repo's CI does — an unguarded
+    /// `cargo --list` returns entries wrapped in ANSI escapes, the
+    /// whitespace-splitting parser reads `\x1b[1m\x1b[96madd` as the
+    /// subcommand name, nothing matches, and every cargo tool is reported as
+    /// not installed. This was a live production bug: any user with that
+    /// variable exported got wrong answers from `ops`. It surfaced only once
+    /// CI started running the full suite (TASK-1664).
+    ///
+    /// Asserts on the parser rather than the subprocess so it holds regardless
+    /// of which cargo is installed on the machine running the tests.
+    #[test]
+    fn is_in_cargo_list_is_not_fooled_by_ansi_colour_codes() {
+        // Exactly the shape `cargo --list` emits under CARGO_TERM_COLOR=always.
+        let coloured = "Installed Commands:\n    \x1b[1m\x1b[96mnextest\x1b[0m Run tests\n";
+        let plain = "Installed Commands:\n    nextest Run tests\n";
+
+        assert!(
+            is_in_cargo_list(plain, "nextest"),
+            "sanity: the plain form must match"
+        );
+        assert!(
+            is_in_cargo_list(coloured, "nextest"),
+            "colourised `cargo --list` output must still match; the probe passes \
+             `--color never`, but if that guard is dropped this parser silently \
+             reports every cargo tool as missing"
+        );
+    }
 
     /// PATTERN-1 / TASK-1582: every non-alias entry in `cargo --list` must
     /// either be tracked as a built-in or correspond to an installed
