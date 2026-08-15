@@ -86,8 +86,11 @@ jobs:
         with:
           rustflags: ""
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-      - name: cargo test --all --all-features -- --ignored
-        run: cargo test --all --all-features -- --ignored
+      # `-- --ignored` runs *only* ignored tests, so this job was executing 22
+      # of the workspace's ~2500 and filtering out the rest — the Test check
+      # passed on roughly 1% of the suite. `--include-ignored` runs both.
+      - name: cargo test --all --all-features -- --include-ignored
+        run: cargo test --all --all-features -- --include-ignored
 
   deps:
     name: Deps

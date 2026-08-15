@@ -1265,9 +1265,15 @@ fn check_cargo_tool_installed_honours_cargo_env() {
 
     let dir = tempfile::tempdir().expect("tempdir");
     let fake = dir.path().join("cargo");
+    // TASK-1665: scan every argument rather than matching `$1`. The probe now
+    // passes `--color never --list`, so `$1` is `--color` and a positional
+    // check silently stops matching — which is exactly how this fixture broke
+    // when that flag was added. Position-independent, so a future argument
+    // change cannot quietly turn this test into a no-op.
     std::fs::write(
         &fake,
-        "#!/bin/sh\nif [ \"$1\" = \"--list\" ]; then echo '    fake-marker-tool   A fake'; fi\n",
+        "#!/bin/sh\nfor a in \"$@\"; do\n  if [ \"$a\" = \"--list\" ]; then \
+         echo '    fake-marker-tool   A fake'; fi\ndone\n",
     )
     .unwrap();
     let mut perms = std::fs::metadata(&fake).unwrap().permissions();

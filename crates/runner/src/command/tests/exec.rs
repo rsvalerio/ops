@@ -23,9 +23,18 @@ async fn run_plan_echo_success() {
     let result = &results[0];
     assert_eq!(result.id, "echo_hi");
     assert!(result.success);
+    // TASK-1664: asserted at nanosecond granularity, not milliseconds. The
+    // previous `as_millis() > 0` required the step to be *at least a
+    // millisecond slow*, which is not a property worth having: `echo hi` on a
+    // fast runner completes in under 1ms, `as_millis()` truncates to 0, and the
+    // test fails for being quick. Observed failing on CI while passing locally.
+    //
+    // The invariant actually worth pinning is that the duration was measured at
+    // all rather than left at its default.
     assert!(
-        result.duration.as_millis() > 0,
-        "should have non-zero duration"
+        result.duration.as_nanos() > 0,
+        "duration should be measured, got {:?}",
+        result.duration
     );
 }
 
@@ -277,12 +286,13 @@ mod exec_unit_tests {
     /// shared `Arc<str>` across every emitted `StepOutput` event so the
     /// per-line cost is an `Arc::clone` (atomic refcount inc) rather than
     /// a fresh heap allocation. We can't observe allocator counts from
-    /// stable Rust, so the bench-style assertion here pins two invariants:
-    /// (1) every emitted line points at the *same* underlying buffer
-    /// pointer, and (2) the wall-clock cost stays well below the
-    /// String-per-line baseline. Together these form the regression test
-    /// the AC asks for — if a future refactor reverts to per-line String
-    /// allocations, line addresses would diverge across events.
+    /// stable Rust, so the assertion here pins the invariant that every
+    /// emitted line points at the *same* underlying buffer pointer — if a
+    /// future refactor reverts to per-line String allocations, line addresses
+    /// diverge across events and this fails.
+    ///
+    /// TEST-15 / TASK-1664: a second, wall-clock assertion was removed; see
+    /// the note at the end of the body.
     #[test]
     fn emit_output_events_shares_buffer_across_lines() {
         // Build a 10k-line stderr payload deterministically.
@@ -293,9 +303,7 @@ mod exec_unit_tests {
         }
 
         let mut events: Vec<RunnerEvent> = Vec::with_capacity(10_001);
-        let start = std::time::Instant::now();
         emit("noisy", "", &payload, &mut |e| events.push(e));
-        let elapsed = start.elapsed();
 
         let lines: Vec<&crate::command::OutputLine> = events
             .iter()
@@ -321,13 +329,18 @@ mod exec_unit_tests {
             );
         }
 
-        // 10k lines should comfortably fit under 250ms even on cold CI;
-        // the pre-fix per-line String allocation passed too, so this is a
-        // sanity floor, not a precision regression detector.
-        assert!(
-            elapsed < std::time::Duration::from_millis(250),
-            "emit_output_events should be fast for 10k lines; took {elapsed:?}"
-        );
+        // TEST-15 / TASK-1664: the wall-clock assertion that used to sit here
+        // (10k lines under 250ms) has been removed. Its own comment conceded
+        // it did not detect the regression — "the pre-fix per-line String
+        // allocation passed too, so this is a sanity floor, not a precision
+        // regression detector" — while being the most reliable failure in the
+        // suite once tests run in parallel: it passes in isolation (~0.08s)
+        // and fails on every full-suite run, because a 250ms budget in a debug
+        // build cannot survive sharing a machine with the other tests.
+        //
+        // The pointer-identity check above is the real detector, exactly as
+        // this test's doc comment describes: per-line allocations would make
+        // the line addresses diverge.
     }
 
     /// PERF-3 / TASK-0838: explicit Arc::ptr_eq + strong_count assertion.

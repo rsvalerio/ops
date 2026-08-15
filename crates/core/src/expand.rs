@@ -158,6 +158,10 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
     // Miss: now pay the canonicalize syscall (so symlink + raw paths still
     // collapse onto a single cached value) and install both keys.
     drop(guard);
+    // TEST-15 / TASK-1465: increment immediately before the syscall so the
+    // counter measures exactly what the hit path must avoid.
+    #[cfg(test)]
+    record_canonicalize_call(ops_root);
     let canonical = std::fs::canonicalize(ops_root).ok();
     let key: &Path = canonical.as_deref().unwrap_or(ops_root);
     // ERR-1 / TASK-1462: refuse to lossy-render a non-UTF-8 workspace
@@ -231,6 +235,46 @@ pub(crate) fn reset_ops_root_cache() {
     let mut guard = crate::sync::lock_recover(cache);
     guard.map.clear();
     guard.order.clear();
+}
+
+/// TEST-15 / TASK-1465: counts `std::fs::canonicalize` calls issued by
+/// [`cached_ops_root_arc`].
+///
+/// The hit-path contract ("a warm `from_env` must not reach `realpath(2)`")
+/// used to be asserted by timing 200k calls against a one-second budget. That
+/// is a wall-clock assertion in a debug build: it passes on an idle machine and
+/// fails under CPU contention, which is exactly the condition a CI runner is
+/// in. Counting the syscall proves the same property deterministically, in a
+/// thousandth of the iterations, and is immune to how loaded the host is.
+///
+/// Mirrors the existing seam style (`ops_root_cache_len`,
+/// `stack::detect::canonicalize_cache_contains`).
+///
+/// Keyed **per path** rather than a single global counter. Test binaries run
+/// their tests in parallel threads and many of them call `from_env`, so a
+/// process-wide counter is incremented by unrelated tests between a reader's
+/// two observations — measured as a spurious delta of 3 under load. Keying by
+/// the root being canonicalised makes each test observe only its own synthetic
+/// path, which no other test uses.
+#[cfg(test)]
+fn canonicalize_calls() -> &'static Mutex<std::collections::HashMap<PathBuf, usize>> {
+    static CALLS: OnceLock<Mutex<std::collections::HashMap<PathBuf, usize>>> = OnceLock::new();
+    CALLS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+#[cfg(test)]
+fn record_canonicalize_call(path: &Path) {
+    *crate::sync::lock_recover(canonicalize_calls())
+        .entry(path.to_path_buf())
+        .or_insert(0) += 1;
+}
+
+#[cfg(test)]
+pub(crate) fn canonicalize_call_count(path: &Path) -> usize {
+    crate::sync::lock_recover(canonicalize_calls())
+        .get(path)
+        .copied()
+        .unwrap_or(0)
 }
 
 /// PERF-3 / TASK-1411 + CONC-1 / TASK-1444: maximum number of distinct
@@ -570,10 +614,24 @@ mod tests {
             .clone();
 
         // Swap TMPDIR to a value the cache could not possibly have captured.
+        //
+        // TEST-15 / TASK-1664: the swap target must be a **real** directory,
+        // not a synthetic non-existent path. `set_var` is process-global while
+        // `#[serial]` only serialises against other `#[serial]` tests, so for
+        // the duration of this window every concurrently-running test that
+        // calls `tempfile::tempdir()` resolves TMPDIR — ~85 of them in this
+        // crate alone. Pointing it at nothing made them fail with
+        // `NotFound`; `stack::tests::detect_finds_cargo_toml` was observed
+        // dying exactly that way once the full suite started running in CI.
+        // A valid directory proves the same contract (the cached Arc must not
+        // change) without breaking unrelated tests that lose the race.
+        //
+        // Created before the swap, so it lands under the original TMPDIR.
+        let swap_dir = tempfile::tempdir().expect("tempdir for the TMPDIR swap target");
         let prev = std::env::var_os("TMPDIR");
         // SAFETY: test-only guard via #[serial] attribute.
         unsafe {
-            std::env::set_var("TMPDIR", "/definitely/not/the/cached/tmpdir/READ-5");
+            std::env::set_var("TMPDIR", swap_dir.path());
         }
 
         let v_after = test_vars();
@@ -828,11 +886,20 @@ mod tests {
 
     /// PERF-3 / TASK-1465: once the OPS_ROOT cache has been warmed for a
     /// given workspace root, subsequent `from_env` calls must skip the
-    /// `std::fs::canonicalize` syscall entirely — the hit path now probes
-    /// the cache by raw `&Path` before paying any IO. We measure that
-    /// indirectly: a million warmed calls for a synthetic, non-existent
-    /// path complete in well under a second; pre-fix this would have
-    /// fired a `realpath(2)` (or its Windows equivalent) per call.
+    /// `std::fs::canonicalize` syscall entirely — the hit path probes the
+    /// cache by raw `&Path` before paying any IO.
+    ///
+    /// TEST-15 / TASK-1664: asserted by **counting the syscall**, not by
+    /// timing. The previous form ran 200k calls against a one-second
+    /// wall-clock budget, which is load-dependent in a debug build: it passes
+    /// on an idle machine and fails under CPU contention (measured here at
+    /// ~2-4.7s with parallel builds running). That is the state a shared CI
+    /// runner is normally in, so enabling the full suite in CI would have made
+    /// it a recurring flake. The counter proves the same property exactly, in
+    /// 1/200th of the iterations, with no timing dependency at all.
+    ///
+    /// Same treatment `secret_patterns.rs` already applied to its
+    /// `SECRET_SCAN_LIMIT` test for the same reason.
     #[test]
     #[serial_test::serial(ops_root_cache)]
     fn from_env_hit_path_avoids_canonicalize_syscall() {
@@ -844,15 +911,19 @@ mod tests {
 
         let _ = Variables::from_env(&root).expect("UTF-8 path; first call installs cache");
 
-        let start = std::time::Instant::now();
-        for _ in 0..200_000 {
+        // Count only the warm calls: the miss above legitimately canonicalises.
+        let before = super::canonicalize_call_count(&root);
+        for _ in 0..1_000 {
             let _ = Variables::from_env(&root).expect("UTF-8 path");
         }
-        let elapsed = start.elapsed();
-        assert!(
-            elapsed < std::time::Duration::from_secs(1),
-            "200k warm `from_env` calls must avoid the canonicalize syscall \
-             (elapsed {elapsed:?})"
+        let after = super::canonicalize_call_count(&root);
+        assert_eq!(
+            after,
+            before,
+            "1000 warm `from_env` calls must not reach canonicalize; \
+             saw {} syscall(s) — the hit path regressed to canonicalising \
+             before the cache probe",
+            after - before
         );
 
         super::reset_ops_root_cache();
