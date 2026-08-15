@@ -1,11 +1,11 @@
 ---
 id: TASK-1573
 title: code-review-plan-wave119
-status: In Progress
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-05-19 16:44'
-updated_date: '2026-05-19 17:21'
+updated_date: '2026-08-15 00:00'
 labels:
   - code-review-wave
 dependencies:
@@ -33,3 +33,12 @@ dependencies:
 <!-- SECTION:DESCRIPTION:BEGIN -->
 cargo-toml crate: workspace-root discovery dedup, lib.rs size, API/error/ergonomic cleanups
 <!-- SECTION:DESCRIPTION:END -->
+
+## Triage Notes
+
+<!-- SECTION:TRIAGE:BEGIN -->
+Closed in the 2026-08-15 stale-`In Progress` sweep.
+
+All 17 dependency tasks are `Done`. The wave itself was simply never closed
+after its children completed; there is no outstanding work behind it.
+<!-- SECTION:TRIAGE:END -->

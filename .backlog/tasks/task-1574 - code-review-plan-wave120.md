@@ -1,11 +1,11 @@
 ---
 id: TASK-1574
 title: code-review-plan-wave120
-status: In Progress
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-05-19 16:44'
-updated_date: '2026-05-19 17:26'
+updated_date: '2026-08-15 00:00'
 labels:
   - code-review-wave
 dependencies:
@@ -41,3 +41,12 @@ dependencies:
 <!-- SECTION:DESCRIPTION:BEGIN -->
 extensions-rust/deps crate: parsers, formatters, severity, error-context, perf cleanups
 <!-- SECTION:DESCRIPTION:END -->
+
+## Triage Notes
+
+<!-- SECTION:TRIAGE:BEGIN -->
+Closed in the 2026-08-15 stale-`In Progress` sweep.
+
+All 25 dependency tasks are `Done`. Wave never closed after its children
+completed; no outstanding work.
+<!-- SECTION:TRIAGE:END -->

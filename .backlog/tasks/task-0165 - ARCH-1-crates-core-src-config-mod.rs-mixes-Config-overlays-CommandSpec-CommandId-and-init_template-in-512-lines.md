@@ -3,10 +3,10 @@ id: TASK-0165
 title: >-
   ARCH-1: crates/core/src/config/mod.rs mixes Config, overlays, CommandSpec,
   CommandId and init_template in 512 lines
-status: In Progress
+status: To Do
 assignee: []
 created_date: '2026-04-22 21:24'
-updated_date: '2026-04-23 14:32'
+updated_date: '2026-08-15 00:00'
 labels:
   - rust-code-review
   - ARCH
@@ -36,3 +36,27 @@ priority: medium
 <!-- SECTION:NOTES:BEGIN -->
 Deferred: this is pure code reorganization (Extract CommandId to command_id.rs; Extract InitSections/init_template to init.rs). Low risk but high churn and needs re-exports across ops-core API; splitting into a dedicated wave keeps this high-value correctness wave (ERR-5 / SEC-32 / API-9) focused. Leaving In Progress for the next wave to pick up.
 <!-- SECTION:NOTES:END -->
+
+## Triage Notes
+
+<!-- SECTION:TRIAGE:BEGIN -->
+Reset from `In Progress` to `To Do` in the 2026-08-15 sweep, with partial
+progress recorded.
+
+Verified against the tree:
+
+- AC #1 (extract `CommandId` to `config/command_id.rs`) — **partially done by
+  other work**. `CommandId` is no longer in `mod.rs`; it now lives at
+  `crates/core/src/config/commands.rs:405`. That is a different destination
+  than the AC names, so the AC as written is unmet, but the concern is out of
+  `mod.rs`. Decide whether `commands.rs` is an acceptable home before redoing
+  this.
+- AC #2 (extract `InitSections` / `init_template` to `config/init.rs`) —
+  **not done**. No `config/init.rs`; 4 references remain in `mod.rs`.
+- AC #3 (`mod.rs` as a thin re-export hub, <150 lines) — **not done**.
+  `mod.rs` is 486 lines, down from the 512 in the report.
+
+The surrounding directory has been split since the report (`commands.rs`,
+`edit.rs`, `loader/`, `merge.rs`, `overlay.rs`, `theme_types.rs`, `tools.rs`),
+so the file shrank incidentally rather than through this task.
+<!-- SECTION:TRIAGE:END -->
