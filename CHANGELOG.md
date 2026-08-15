@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.36.1](https://github.com/rsvalerio/ops/compare/8468d674d01c9aa92cbd3d1ee01312a1f425651c..v0.36.1) - 2026-08-15
+#### 🐛 Bug Fixes
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) composite scheduling correctness and CI supply-chain hardening (#14) - ([81e514d](https://github.com/rsvalerio/ops/commit/81e514d2c5b0d2baac1564c92259aae5887e705f)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔄 CI/CD
+- (**bump**) pin forge to v0.2.0 rather than the v1 tag - ([617192d](https://github.com/rsvalerio/ops/commit/617192d7dd4b7ae9162d96f83c9a122f442c4a5a)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+- (**release**) Merge pull request #13 from rsvalerio/ci/dispatch-releases - ([1f28b44](https://github.com/rsvalerio/ops/commit/1f28b449f18f94232ab5659febcd838696a3840d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**release**) trigger releases by dispatch instead of tag push - ([8468d67](https://github.com/rsvalerio/ops/commit/8468d674d01c9aa92cbd3d1ee01312a1f425651c)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+
+- - -
+
 ## [v0.36.0](https://github.com/rsvalerio/ops/compare/574926793f7249c0cfb18a9a83669ead9bf5be21..v0.36.0) - 2026-08-13
 #### 🚀 Features
 - (**about**) add `ops about loc` splitting production, test and example lines - ([14aa874](https://github.com/rsvalerio/ops/commit/14aa874576966246844fb57d3cfd9fdaa4b3c964)) - Rodrigo Valerio, Claude Opus 5 (1M context)
