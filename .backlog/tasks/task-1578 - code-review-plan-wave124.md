@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - code-review-wave
 created_date: '2026-05-19 16:45'
-updated_date: '2026-05-19 18:34'
+updated_date: '2026-08-15 00:00'
 labels:
   - code-review-wave
 dependencies:
@@ -34,3 +34,13 @@ extensions-rust tools/about/units: probe scaffolding dedup, tests.rs split, Rust
 (ARCH-1 split of `tools/src/tests.rs`) left In Progress — see the task
 file for the deferral note. Wave parent therefore remains non-Done
 until TASK-1567 lands.
+
+## Triage Notes
+
+<!-- SECTION:TRIAGE:BEGIN -->
+Reviewed in the 2026-08-15 stale-`In Progress` sweep — **status is accurate,
+left as-is**.
+
+10 of 11 dependency tasks are `Done`. Genuinely blocked on TASK-1567 alone.
+Closes when that does.
+<!-- SECTION:TRIAGE:END -->

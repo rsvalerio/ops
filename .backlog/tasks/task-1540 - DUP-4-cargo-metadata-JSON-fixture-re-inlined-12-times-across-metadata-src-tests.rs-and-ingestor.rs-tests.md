@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:24'
-updated_date: '2026-05-19 17:48'
+updated_date: '2026-08-15 00:00'
 labels:
   - code-review-rust
   - DUP
@@ -54,3 +54,22 @@ Wave-122 deliberately did not pick this up because the rest of the wave
 (14 of 15 member tasks) touched the same files and a partial fixture
 refactor would have produced a confusing diff. None of the wave-122
 changes regressed the duplication — it remains exactly as it was before.
+
+## Triage Notes
+
+<!-- SECTION:TRIAGE:BEGIN -->
+Reviewed in the 2026-08-15 sweep — **status is accurate, left as-is**, but
+the remaining scope has narrowed and is recorded here.
+
+Real progress has landed since the report: `metadata/src/tests.rs` was split
+into a `tests/` module, and `tests/fixtures.rs` now provides the shared
+`sample_metadata()` helper AC #1 asks for. `tests.rs` itself has zero `json!`
+literals.
+
+Remaining: 23 `json!` literals still open-code fixture JSON —
+`tests/edge_cases.rs` (15), `tests/duplicates.rs` (2), `tests/accessors.rs`
+(2), and `ingestor.rs` (4). AC #2 (each test body retains only the fields it
+exercises) is therefore not yet met. `edge_cases.rs` is the bulk of it and may
+legitimately need bespoke JSON — worth checking before mechanically folding
+those into the helper.
+<!-- SECTION:TRIAGE:END -->
