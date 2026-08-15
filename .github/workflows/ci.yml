@@ -6,6 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+# SEC-34 (TASK-1660): least privilege for the run-scoped GITHUB_TOKEN.
+# Without this block the token inherits the repository default, which is
+# read/write on contents, packages, pull-requests and more unless the org has
+# restricted it — far more than any job here needs, on a workflow that runs
+# against every PR including from forks. Every job only reads: `checkout`,
+# the toolchain/sccache/install actions fetching release assets, and
+# `cargo deny check`. Nothing writes, so `contents: read` is sufficient.
+# Declaring it at the top level makes it the ceiling for every job; a job that
+# later needs more must opt in explicitly and visibly.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -16,12 +28,12 @@ jobs:
     name: Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           components: rustfmt
           rustflags: ""
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
       - name: cargo fmt --all
         run: cargo fmt --all
 
@@ -29,11 +41,11 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           rustflags: ""
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
       - name: cargo check --all --all-features
         run: cargo check --all --all-features
 
@@ -41,12 +53,12 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           components: clippy
           rustflags: ""
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
       - name: cargo clippy --all --all-features -- -D warnings
         run: cargo clippy --all --all-features -- -D warnings
 
@@ -54,11 +66,11 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           rustflags: ""
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
       - name: cargo build --all --all-features
         run: cargo build --all --all-features
 
@@ -69,11 +81,11 @@ jobs:
       CARGO_TERM_VERBOSE: true
       OPS_LOG_LEVEL: debug
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           rustflags: ""
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
       - name: cargo test --all --all-features -- --ignored
         run: cargo test --all --all-features -- --ignored
 
@@ -81,18 +93,69 @@ jobs:
     name: Deps
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           rustflags: ""
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
       - name: Install cargo-edit and cargo-deny
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
         with:
           tool: cargo-edit,cargo-deny
-      - name: Install ops
-        uses: jaxxstorm/action-install-gh-release@v1
-        with:
-          repo: rsvalerio/ops
-      - name: ops --raw deps
+      # SEC-37 (TASK-1663): the `Install ops` step that used to sit here was
+      # removed. It pulled the *latest* published `ops` release (unpinned) on
+      # every PR run, but nothing consumed it — the step below shells out to
+      # `cargo deny` directly. It was pure supply-chain surface for no benefit,
+      # and installing the last release to check the PR that changes it is
+      # backwards regardless.
+      - name: cargo deny check
         run: cargo deny check
+
+  # SEC-35 (TASK-1661): third-party actions must be pinned to a full commit SHA.
+  #
+  # A tag like `@v6` is repointable by the upstream maintainer, or by anyone who
+  # compromises their repo, with no visible change here. That matters most for
+  # `publish-homebrew.yml`, where `create-github-app-token` receives
+  # GH_APP_PRIVATE_KEY and mints a token that can push to homebrew-tap.
+  #
+  # This guard exists because `release.yml` is regenerated by `dist generate`,
+  # which emits bare tags and would silently undo the pins. Failing CI is what
+  # makes the pinning durable rather than a one-off cleanup.
+  workflow-guard:
+    name: Workflow Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Every third-party `uses:` is pinned to a 40-hex commit SHA
+        run: |
+          set -euo pipefail
+          # Exempt: local workflow calls (./...), and the first-party forge
+          # reusable workflow, which is version-pinned by deliberate decision
+          # (see the comment in bump.yml). Everything else must be a SHA.
+          if offenders=$(grep -rnE '^\s*(-\s*)?uses:' .github/workflows/ \
+                | grep -vE 'uses:\s*\./' \
+                | grep -vE 'uses:\s*rsvalerio/forge/' \
+                | grep -vE 'uses:\s*[^@]+@[0-9a-f]{40}(\s|$)' \
+                | grep .); then
+            echo "::error::unpinned action reference(s) found — pin to a full commit SHA with a trailing '# vX.Y.Z' comment"
+            echo "$offenders"
+            echo
+            echo "If release.yml was just regenerated by 'dist generate', re-apply the pins."
+            exit 1
+          fi
+          echo "All third-party action references are SHA-pinned."
+
+      # SEC-36 (TASK-1662): `secrets: inherit` forwards every repo secret to the
+      # called workflow. dist re-emits it into release.yml on every
+      # `dist generate`, so like the pins above it needs a guard to stay fixed.
+      - name: "No workflow forwards all secrets with `secrets: inherit`"
+        run: |
+          set -euo pipefail
+          if offenders=$(grep -rnE '^\s*secrets:\s*inherit\s*$' .github/workflows/ | grep .); then
+            echo "::error::\`secrets: inherit\` forwards every repo secret — pass only the secrets the called workflow declares"
+            echo "$offenders"
+            echo
+            echo "If release.yml was just regenerated by 'dist generate', re-apply the explicit secrets block."
+            exit 1
+          fi
+          echo "No workflow uses \`secrets: inherit\`."

@@ -100,9 +100,9 @@ git push -u origin feat/my-feature
 gh pr create
 ```
 
-### 2. CI Status Checks (6 parallel jobs)
+### 2. CI Status Checks (7 parallel jobs)
 
-The [CI workflow](../.github/workflows/ci.yml) runs on every PR and produces six required status checks that must all pass before merge:
+The [CI workflow](../.github/workflows/ci.yml) runs on every PR and produces seven status checks that must all pass before merge. **Workflow Guard** is new — if the branch ruleset names its required checks explicitly, add it there so it can block merge:
 
 | Check | Command | Description |
 |-------|---------|-------------|
@@ -111,9 +111,12 @@ The [CI workflow](../.github/workflows/ci.yml) runs on every PR and produces six
 | **Lint** | `ops clippy` | Lint with clippy |
 | **Build** | `ops build` | Build all targets |
 | **Test** | `ops test` | Run all tests |
-| **Deps** | `ops deps` | Check dependencies, advisories, licenses, bans and sources |
+| **Deps** | `cargo deny check` | Check dependencies, advisories, licenses, bans and sources |
+| **Workflow Guard** | `grep` over `.github/workflows/` | Fail if any action is not SHA-pinned, or any workflow uses `secrets: inherit` |
 
-CI installs `ops` from the latest GitHub release via [`jaxxstorm/action-install-gh-release`](https://github.com/jaxxstorm/action-install-gh-release), and `cargo-edit`/`cargo-deny` via [`taiki-e/install-action`](https://github.com/taiki-e/install-action) (for the Deps job).
+CI installs `cargo-edit`/`cargo-deny` via [`taiki-e/install-action`](https://github.com/taiki-e/install-action) (for the Deps job). The Deps job invokes `cargo deny` directly rather than through `ops`; it does not install `ops` itself.
+
+All third-party actions are pinned to full commit SHAs with a trailing `# vX.Y.Z` comment. The **Workflow Guard** check enforces this, and also rejects `secrets: inherit`. Both matter most for `release.yml`, which `dist generate` regenerates with bare tags and blanket secret forwarding — if you regenerate it, re-apply the pins and the explicit `secrets:` block, or Workflow Guard will fail the build.
 
 ### 3. Merge PR to Main
 
