@@ -721,13 +721,22 @@ mod depth_limit_tests {
 
     /// PERF-3 / TASK-0766: pin the post-fold hot path. The pre-fix code paid
     /// two store traversals per node (`canonical_id` + `resolve`); folding
-    /// them into one pass via `canonical_with_spec` cuts roughly half the
-    /// lookups on every visit. This microbench builds a representative
-    /// composite graph (one root that fans out 50 wide → 5 mid composites
-    /// → 10 leaves each) and asserts that 1k expansions complete within a
-    /// generous wall-clock budget on the slowest CI runners. The point is
-    /// not to be a regression detector with millisecond precision but to
-    /// guard against an order-of-magnitude regression sneaking back in.
+    /// them into one pass via `canonical_with_spec` cuts the lookups on every
+    /// visit in half.
+    ///
+    /// TEST-15 / TASK-1664: asserted by **counting traversals**, not by
+    /// timing. The previous form ran 1k expansions against a two-second
+    /// wall-clock budget, which failed at 9.8s under CPU contention — the
+    /// normal state of a shared CI runner, and the reason this test could not
+    /// be enabled there. The budget was also too coarse to catch what it
+    /// guarded: a 2x regression would not reliably breach two seconds, so it
+    /// only ever caught catastrophic slowdowns.
+    ///
+    /// The count is exact. Expanding the graph below visits 551 nodes
+    /// (1 root + 50 mids + 500 leaves), so a correct single-pass expansion
+    /// performs exactly 551 store walks. Reverting to `canonical_id` +
+    /// `resolve` would report 1102 and fail immediately — precisely the
+    /// regression the wall-clock version was blind to.
     #[test]
     fn expand_to_leaves_microbench_does_not_regress() {
         let mut commands = HashMap::new();
@@ -753,15 +762,23 @@ mod depth_limit_tests {
         );
 
         let runner = test_runner(commands);
-        let start = std::time::Instant::now();
-        for _ in 0..1_000 {
-            let plan = runner.expand_to_leaves("root").expect("expand");
-            assert_eq!(plan.len(), 50 * 10);
-        }
-        let elapsed = start.elapsed();
-        assert!(
-            elapsed < std::time::Duration::from_secs(2),
-            "expand_to_leaves microbench regressed: 1k expansions took {elapsed:?}"
+
+        // One expansion, counted exactly. The counter is process-global and
+        // other tests in this binary also walk the stores, so measure a delta
+        // around a single call rather than an absolute total.
+        let before = crate::command::resolve::store_walk_count();
+        let plan = runner.expand_to_leaves("root").expect("expand");
+        let walks = crate::command::resolve::store_walk_count() - before;
+
+        assert_eq!(plan.len(), 50 * 10);
+
+        // 1 root + 50 mid composites + 500 leaf visits.
+        let nodes = 1 + 50 + (50 * 10);
+        assert_eq!(
+            walks, nodes,
+            "expand_to_leaves must walk the command stores exactly once per \
+             visited node ({nodes}); saw {walks}. Twice that means the \
+             canonical_id + resolve double-lookup came back (TASK-0766)."
         );
     }
 }

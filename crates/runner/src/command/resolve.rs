@@ -64,6 +64,35 @@ fn check_schedule_flag<'a>(
     }
 }
 
+// TEST-15 / TASK-1664: counts walks over the command stores.
+//
+// PERF-3 / TASK-0766 folded `canonical_id` + `resolve` into the single
+// `canonical_with_spec` pass, halving store traversals per visited node. That
+// contract used to be pinned by timing 1k expansions against a two-second
+// wall-clock budget — which is load-dependent in a debug build (measured at
+// 9.8s under CPU contention) and, worse, too coarse to actually catch the 2x
+// regression it was guarding: a doubling would not reliably breach the
+// budget. Counting the traversals pins it exactly and deterministically.
+// **Thread-local**, not a global counter. Test binaries run tests in parallel
+// threads and many of them resolve commands, so a process-wide counter is
+// incremented by unrelated tests between a reader's two observations. Each
+// test observes only the walks made on its own thread, which makes an exact
+// equality assertion sound.
+#[cfg(test)]
+thread_local! {
+    static STORE_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(super) fn record_store_walk() {
+    STORE_WALKS.with(|c| c.set(c.get() + 1));
+}
+
+#[cfg(test)]
+pub(super) fn store_walk_count() -> usize {
+    STORE_WALKS.with(|c| c.get())
+}
+
 impl CommandRunner {
     /// Iterator over all command keys across config → stack → extension.
     pub(super) fn all_command_keys(&self) -> impl Iterator<Item = &str> {
@@ -79,6 +108,8 @@ impl CommandRunner {
     /// Look up a command by ID across all stores (config → stack → extension → builtin).
     /// Builtins land last so user config / stack defaults / extensions can shadow them.
     fn find_in_stores(&self, id: &str) -> Option<&CommandSpec> {
+        #[cfg(test)]
+        record_store_walk();
         self.config
             .commands
             .get(id)
@@ -108,6 +139,8 @@ impl CommandRunner {
     /// spec.
     #[allow(dead_code)]
     pub(super) fn canonical_id<'a>(&'a self, id: &str) -> Option<&'a str> {
+        #[cfg(test)]
+        record_store_walk();
         if let Some((k, _)) = self.config.commands.get_key_value(id) {
             return Some(k.as_str());
         }
@@ -144,6 +177,8 @@ impl CommandRunner {
         &'a self,
         id: &str,
     ) -> Option<(&'a str, &'a CommandSpec)> {
+        #[cfg(test)]
+        record_store_walk();
         if let Some((k, v)) = self.config.commands.get_key_value(id) {
             return Some((k.as_str(), v));
         }
