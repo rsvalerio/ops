@@ -31,7 +31,7 @@ Running: build, clippy, test
 ```text
   ○  cargo build --all-targets .......................................
   ○  cargo clippy --all-targets -- -D warnings ........................
-  ○  cargo test --all-targets .........................................
+  ○  cargo test --workspace --all-features ............................
 ```
 
 **Theme variations:** Icon is `○` in both classic and compact.
@@ -153,7 +153,7 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 
 **Visual example (classic theme):**
 ```text
-  ✗  cargo test --all-targets ........................... 0.42s
+  ✗  cargo test --workspace ............................. 0.42s
      ╭─
      │ exit status: 101
      │ stderr (last 5 lines):
@@ -190,7 +190,7 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 
 **Visual example:**
 ```text
-  ✅ cargo test --all-targets ........................... 0.80s
+  ✅ cargo test --workspace ............................. 0.80s
 │                                                             <-- separator
 └── Done 5/5 in 23.62s
 ```
@@ -239,13 +239,13 @@ Running: build, clippy, test                  # [1] Plan Header
 
   ⠁ cargo build --all-targets ...... 2s       # [3] Spinner + [5] Dots + [6] Timer (running)
   ○  cargo clippy -- -D warnings ......       # [2] Pending Step Line + [4] Icon (○)
-  ○  cargo test --all-targets .........       # [2] Pending Step Line
+  ○  cargo test --workspace ...........       # [2] Pending Step Line
                                               # [8] Summary Separator
 Done 0/3…                                     # [9] Footer (progress)
 
   ✅ cargo build --all-targets ...... 12.35s  # [4] Icon (✅) + [5] Dots + [6] Timer
   ✅ cargo clippy -- -D warnings .... 3.20s
-  ✗  cargo test --all-targets ....... 0.42s   # [4] Icon (✗)
+  ✗  cargo test --workspace ......... 0.42s   # [4] Icon (✗)
      ╭─                                       # [7] Error Detail Box
      │ exit status: 101                       #
      │ stderr (last 2 lines):                 #
