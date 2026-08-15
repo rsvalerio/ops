@@ -66,6 +66,47 @@ fail_fast = true
 
 Config is merged in order: built-in defaults → global config → local `.ops.toml` → env. When run inside a project with a detected stack (e.g. Rust), `ops init` pre-fills stack-specific commands.
 
+### Command groups and scheduling
+
+A command with a `commands = [...]` list is a *group* (composite). Groups may
+reference other groups, and `ops` expands the whole tree into a single flat plan
+that is scheduled as one unit.
+
+Because the plan is scheduled as one unit, **every group in a plan must declare
+the same `parallel` and the same `fail_fast`.** A tree that disagrees with
+itself is rejected with an error naming both groups:
+
+```toml
+[commands.lint]
+commands = ["ruff", "black"]
+parallel = true
+
+[commands.verify]
+commands = ["fmt", "lint"]
+parallel = false          # error: conflicts with lint.parallel = true
+```
+
+```console
+$ ops verify
+error: conflicting `parallel` in the plan for `verify`: `verify` sets parallel = false,
+but `lint` sets parallel = true
+```
+
+This is deliberate. The flags used to be OR-folded across the tree, so a single
+`parallel = true` group silently promoted the entire plan to parallel while its
+parent still read `parallel = false` — which meant formatters could run
+concurrently with the checkers reading the same files. Rejecting the config
+makes that loud rather than intermittent.
+
+To fix, make the flags agree — either set `lint.parallel = false`, or set
+`verify.parallel = true` if the whole plan really should run concurrently.
+
+Note that this applies *within* one plan. Naming several commands on one
+invocation (`ops run verify qa`) expands each independently, so they may differ.
+
+> Expressing "run these groups in order, but let the steps inside one group run
+> together" is not supported today; it needs per-group scheduling boundaries.
+
 ## Commands
 
 ### Stack-agnostic CLI (same on every stack)

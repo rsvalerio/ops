@@ -897,10 +897,18 @@ mod nested_parallel_detection_tests {
     }
 }
 
-/// `merge_plan` aggregates `parallel` / `fail_fast`
-/// flags by walking the composite tree, so an outer composite that wraps a
-/// parallel inner composite still surfaces `any_parallel = true` and a
-/// nested `fail_fast = false` propagates upward.
+/// `merge_plan` aggregates `parallel` / `fail_fast` flags by walking the
+/// composite tree, and — since TASK-1657 — rejects a tree that disagrees with
+/// itself instead of silently OR-folding the flags.
+///
+/// **Behaviour change (TASK-1657).** These two tests previously asserted the
+/// OR-fold: a `parallel = true` inner composite surfaced `any_parallel = true`
+/// through a `parallel = false` outer one, and a nested `fail_fast = false`
+/// propagated upward. That aggregation is what made the flags lie — the outer
+/// composite still read `parallel = false` while its whole plan ran
+/// concurrently. The plan model is still flat (one scheduling decision for the
+/// whole plan), so rather than pick a winner silently, expansion now fails with
+/// [`ExpandError::ConflictingSchedule`]. The tests are inverted accordingly.
 mod merge_plan_nested_aggregation_tests {
     use crate::run_cmd::plan::merge_plan;
     use crate::test_utils::TestConfigBuilder;
@@ -911,8 +919,10 @@ mod merge_plan_nested_aggregation_tests {
         ops_runner::command::CommandRunner::new(config, PathBuf::from("."))
     }
 
+    /// TASK-1657: a parallel inner composite under a sequential outer one is a
+    /// config error, not a silent promotion of the whole plan to parallel.
     #[test]
-    fn merge_plan_picks_up_nested_parallel() {
+    fn merge_plan_rejects_nested_parallel_under_sequential_outer() {
         let mut inner = CompositeCommandSpec::new(["a", "b"]);
         inner.parallel = true;
         let outer = CompositeCommandSpec::new(["inner"]); // outer.parallel = false
@@ -927,16 +937,26 @@ mod merge_plan_nested_aggregation_tests {
             .commands
             .insert("outer".to_string(), CommandSpec::Composite(outer));
 
-        let (_, any_parallel, fail_fast) = merge_plan(&runner_with(config), &["outer"]).unwrap();
+        let err = merge_plan(&runner_with(config), &["outer"])
+            .expect_err("conflicting `parallel` must be rejected, not OR-folded");
+        let msg = err.to_string();
         assert!(
-            any_parallel,
-            "nested inner.parallel must propagate to merge_plan"
+            msg.contains("conflicting `parallel`"),
+            "error must name the conflicting flag, got: {msg}"
         );
-        assert!(fail_fast, "no composite disables fail_fast → defaults true");
+        for expected in ["outer", "inner"] {
+            assert!(
+                msg.contains(expected),
+                "error must name `{expected}`, got: {msg}"
+            );
+        }
+        assert!(msg.contains("fix:"), "error must be actionable, got: {msg}");
     }
 
+    /// TASK-1657: same contract for `fail_fast` — a nested `fail_fast = false`
+    /// must not silently disable fail-fast for a plan whose root enables it.
     #[test]
-    fn merge_plan_picks_up_nested_fail_fast_disabled() {
+    fn merge_plan_rejects_nested_fail_fast_disabled_under_enabled_outer() {
         let mut inner = CompositeCommandSpec::new(["a"]);
         inner.fail_fast = false;
         let outer = CompositeCommandSpec::new(["inner"]); // outer.fail_fast defaults true
@@ -948,11 +968,66 @@ mod merge_plan_nested_aggregation_tests {
             .commands
             .insert("outer".to_string(), CommandSpec::Composite(outer));
 
-        let (_, _any_parallel, fail_fast) = merge_plan(&runner_with(config), &["outer"]).unwrap();
+        let err = merge_plan(&runner_with(config), &["outer"])
+            .expect_err("conflicting `fail_fast` must be rejected, not OR-folded");
+        let msg = err.to_string();
         assert!(
-            !fail_fast,
-            "nested inner.fail_fast = false must propagate to merge_plan"
+            msg.contains("conflicting `fail_fast`"),
+            "error must name the conflicting flag, got: {msg}"
         );
+    }
+
+    /// TASK-1657: a tree whose composites *agree* still expands, and the
+    /// agreed value is what `merge_plan` reports. This is the positive case
+    /// that proves the check rejects disagreement rather than nesting itself.
+    #[test]
+    fn merge_plan_allows_nested_composites_that_agree() {
+        let mut inner = CompositeCommandSpec::new(["a", "b"]);
+        inner.parallel = true;
+        let mut outer = CompositeCommandSpec::new(["inner"]);
+        outer.parallel = true;
+        let mut config = TestConfigBuilder::new()
+            .exec("a", "echo", &["a"])
+            .exec("b", "echo", &["b"])
+            .build();
+        config
+            .commands
+            .insert("inner".to_string(), CommandSpec::Composite(inner));
+        config
+            .commands
+            .insert("outer".to_string(), CommandSpec::Composite(outer));
+
+        let (leaves, any_parallel, fail_fast) =
+            merge_plan(&runner_with(config), &["outer"]).expect("agreeing composites must expand");
+        assert_eq!(leaves, vec!["a", "b"]);
+        assert!(any_parallel, "both composites set parallel = true");
+        assert!(fail_fast, "no composite disables fail_fast → defaults true");
+    }
+
+    /// TASK-1657: the agreement check is scoped to a single expansion root.
+    /// `ops run seq par` names two independent plans, and the user asked for
+    /// both explicitly, so their differing flags are merged (not rejected) —
+    /// exactly as before.
+    #[test]
+    fn merge_plan_does_not_reject_across_independent_roots() {
+        let mut par = CompositeCommandSpec::new(["b"]);
+        par.parallel = true;
+        let seq = CompositeCommandSpec::new(["a"]); // parallel = false
+        let mut config = TestConfigBuilder::new()
+            .exec("a", "echo", &["a"])
+            .exec("b", "echo", &["b"])
+            .build();
+        config
+            .commands
+            .insert("seq".to_string(), CommandSpec::Composite(seq));
+        config
+            .commands
+            .insert("par".to_string(), CommandSpec::Composite(par));
+
+        let (leaves, any_parallel, _) = merge_plan(&runner_with(config), &["seq", "par"])
+            .expect("independent roots must not trip the intra-plan agreement check");
+        assert_eq!(leaves, vec!["a", "b"]);
+        assert!(any_parallel, "merging across roots still ORs");
     }
 
     /// `merge_plan` rejects an empty `names` slice

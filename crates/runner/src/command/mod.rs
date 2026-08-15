@@ -90,6 +90,38 @@ pub enum ExpandError {
     /// Expansion exceeded the safety depth cap.
     #[error("composite expansion exceeded depth limit {max_depth} at command `{id}`")]
     DepthExceeded { id: String, max_depth: usize },
+    /// TASK-1657: a composite tree declares conflicting values for a
+    /// scheduling flag (`parallel` or `fail_fast`).
+    ///
+    /// Expansion flattens a composite tree into a single flat leaf plan that
+    /// the runner schedules as one unit, so exactly one value per flag can be
+    /// honoured. Previously the flags were OR-folded across the traversal,
+    /// which let a `parallel = true` descendant silently promote a
+    /// `parallel = false` ancestor (and a `fail_fast = false` descendant
+    /// silently disable fail-fast for the whole plan). The flag then did not
+    /// mean what it said and the failure mode — formatters racing checkers
+    /// over the same files — was intermittent. Rejecting at expansion time
+    /// makes the trap loud instead of silent.
+    #[error(
+        "conflicting `{flag}` in the plan for `{root}`: `{root}` sets {flag} = {root_value}, \
+         but `{conflicting}` sets {flag} = {conflicting_value}\n\
+         composite commands are flattened into one plan and scheduled as a single unit, \
+         so mixed `{flag}` values cannot both be honoured\n\
+         fix: make them agree — set `{conflicting}.{flag} = {root_value}`, \
+         or set `{root}.{flag} = {conflicting_value}`"
+    )]
+    ConflictingSchedule {
+        /// The scheduling flag that disagrees: `parallel` or `fail_fast`.
+        flag: &'static str,
+        /// First composite visited in the plan (the expansion root).
+        root: String,
+        /// The value `root` declared for `flag`.
+        root_value: bool,
+        /// The composite that disagreed with `root`.
+        conflicting: String,
+        /// The value `conflicting` declared for `flag`.
+        conflicting_value: bool,
+    },
 }
 
 use exec::exec_command;

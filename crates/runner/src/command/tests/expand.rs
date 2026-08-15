@@ -326,6 +326,187 @@ mod proptest_tests {
     }
 }
 
+/// TASK-1657: composite trees must agree with themselves on the scheduling
+/// flags, because the expanded plan is flat and scheduled as a single unit.
+///
+/// Before this, `expand_inner` OR-folded `parallel` and `fail_fast` across the
+/// whole traversal, so one `parallel = true` descendant silently promoted a
+/// `parallel = false` ancestor and the config read as though it were
+/// sequential while every step ran concurrently. Option 3 of TASK-1657
+/// (reject at validation) keeps the flat plan model and makes the trap loud.
+mod schedule_flag_agreement_tests {
+    use super::*;
+
+    /// Build a runner with `outer -> inner -> [a, b]`, letting each composite's
+    /// `(parallel, fail_fast)` be set independently.
+    fn nested_runner(outer: (bool, bool), inner: (bool, bool)) -> crate::command::CommandRunner {
+        let mut commands = HashMap::new();
+        commands.insert("a".to_string(), CommandSpec::Exec(echo_cmd("a")));
+        commands.insert("b".to_string(), CommandSpec::Exec(echo_cmd("b")));
+
+        let mut inner_spec = composite_cmd(&["a", "b"]);
+        inner_spec.parallel = inner.0;
+        inner_spec.fail_fast = inner.1;
+        commands.insert("inner".to_string(), CommandSpec::Composite(inner_spec));
+
+        let mut outer_spec = composite_cmd(&["inner"]);
+        outer_spec.parallel = outer.0;
+        outer_spec.fail_fast = outer.1;
+        commands.insert("outer".to_string(), CommandSpec::Composite(outer_spec));
+
+        test_runner(commands)
+    }
+
+    /// The headline case from TASK-1656: sequential parent, parallel child.
+    #[test]
+    fn parallel_child_under_sequential_parent_is_rejected() {
+        let runner = nested_runner((false, true), (true, true));
+        let err = runner
+            .expand_to_leaves("outer")
+            .expect_err("parallel child under sequential parent must be rejected");
+        assert!(
+            matches!(
+                &err,
+                ExpandError::ConflictingSchedule {
+                    flag: "parallel",
+                    root,
+                    root_value: false,
+                    conflicting,
+                    conflicting_value: true,
+                } if root == "outer" && conflicting == "inner"
+            ),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    /// The reverse direction is equally a lie under a flat plan: `inner`
+    /// declares `parallel = false` but every step would run concurrently.
+    #[test]
+    fn sequential_child_under_parallel_parent_is_rejected() {
+        let runner = nested_runner((true, true), (false, true));
+        let err = runner
+            .expand_to_leaves("outer")
+            .expect_err("sequential child under parallel parent must be rejected");
+        assert!(
+            matches!(
+                &err,
+                ExpandError::ConflictingSchedule {
+                    flag: "parallel",
+                    root_value: true,
+                    conflicting_value: false,
+                    ..
+                }
+            ),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    /// `fail_fast` gets the same treatment: a `false` descendant must not
+    /// silently disable fail-fast for a plan whose root enables it.
+    #[test]
+    fn fail_fast_disagreement_is_rejected() {
+        let runner = nested_runner((false, true), (false, false));
+        let err = runner
+            .expand_to_leaves("outer")
+            .expect_err("fail_fast disagreement must be rejected");
+        assert!(
+            matches!(
+                &err,
+                ExpandError::ConflictingSchedule {
+                    flag: "fail_fast",
+                    root_value: true,
+                    conflicting_value: false,
+                    ..
+                }
+            ),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    /// The check rejects *disagreement*, not nesting. Agreeing trees expand
+    /// exactly as before, in both the all-sequential and all-parallel shapes.
+    #[test]
+    fn agreeing_nested_composites_still_expand() {
+        for flags in [(false, true), (true, true), (true, false), (false, false)] {
+            let runner = nested_runner(flags, flags);
+            let plan = runner
+                .expand_to_leaves("outer")
+                .unwrap_or_else(|e| panic!("agreeing tree {flags:?} must expand, got: {e:?}"));
+            assert_eq!(plan, vec!["a", "b"], "flags {flags:?}");
+        }
+    }
+
+    /// The aggregated flags returned alongside the leaves must reflect the
+    /// (now uniform) declared value, so callers scheduling the plan agree with
+    /// what the config says.
+    #[test]
+    fn aggregated_flags_match_the_agreed_declaration() {
+        let runner = nested_runner((true, false), (true, false));
+        let (leaves, any_parallel, fail_fast_disabled) = runner
+            .expand_to_leaves_with_flags("outer")
+            .expect("agreeing tree must expand");
+        assert_eq!(leaves, vec!["a", "b"]);
+        assert!(any_parallel);
+        assert!(fail_fast_disabled);
+    }
+
+    /// A diamond (`root -> [x, y]`, both `-> shared`) revisits `shared`. The
+    /// agreement check must not mistake a second visit to an *agreeing* node
+    /// for a conflict — the cycle guard already tolerates this shape.
+    #[test]
+    fn diamond_revisit_of_agreeing_node_is_not_a_conflict() {
+        let mut commands = HashMap::new();
+        commands.insert("leaf".to_string(), CommandSpec::Exec(echo_cmd("l")));
+        commands.insert(
+            "shared".to_string(),
+            CommandSpec::Composite(composite_cmd(&["leaf"])),
+        );
+        commands.insert(
+            "x".to_string(),
+            CommandSpec::Composite(composite_cmd(&["shared"])),
+        );
+        commands.insert(
+            "y".to_string(),
+            CommandSpec::Composite(composite_cmd(&["shared"])),
+        );
+        commands.insert(
+            "root".to_string(),
+            CommandSpec::Composite(composite_cmd(&["x", "y"])),
+        );
+
+        let runner = test_runner(commands);
+        let plan = runner
+            .expand_to_leaves("root")
+            .expect("diamond must expand");
+        assert_eq!(plan, vec!["leaf", "leaf"]);
+    }
+
+    /// The message is the whole point of choosing rejection over a silent
+    /// winner, so pin that it names both composites, the flag, both values,
+    /// and offers a concrete fix.
+    #[test]
+    fn conflict_message_is_actionable() {
+        let runner = nested_runner((false, true), (true, true));
+        let msg = runner
+            .expand_to_leaves("outer")
+            .expect_err("must conflict")
+            .to_string();
+        for expected in [
+            "conflicting `parallel`",
+            "`outer`",
+            "`inner`",
+            "parallel = false",
+            "parallel = true",
+            "fix:",
+        ] {
+            assert!(
+                msg.contains(expected),
+                "error message missing {expected:?}, got:\n{msg}"
+            );
+        }
+    }
+}
+
 mod nested_composite_tests {
     use super::*;
 
