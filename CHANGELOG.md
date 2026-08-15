@@ -6,9 +6,14 @@ All notable changes to this project will be documented in this file. See [conven
 
 > **⚠️ Breaking change, despite the patch version number.**
 >
-> This release contains a breaking change but was versioned as a patch
-> (`0.36.0` → `0.36.1`) rather than a minor. Manual note added after the fact so
-> the break is not discoverable only by upgrading into it.
+> This release contains a breaking change but is versioned as a patch
+> (`0.36.0` → `0.36.1`). That is expected, not an oversight: while the project
+> is on `0.y.z`, `cog bump --auto` [will not move it to `1.0.0`](https://docs.cocogitto.io/guide/bump.html)
+> for a breaking change, so the version falls through to the `fix:` rule. See
+> "Breaking Changes" in `docs/releasing.md`.
+>
+> The consequence is that the version number alone does not warn you, hence
+> this note.
 >
 > **What changed.** A `.ops.toml` command group (`commands = [...]`) tree is
 > expanded into one flat plan and scheduled as a single unit, so the `parallel`

@@ -85,6 +85,28 @@ Breaking changes normally trigger a **major** version bump (e.g. 1.x.x → 2.0.0
 
 **0.y.z caveat:** With `cog bump --auto`, Cocogitto [does not move a 0.y.z project to 1.0.0 automatically](https://docs.cocogitto.io/guide/bump.html), even if commits include breaking changes. When you are ready to leave **0.x**, bump explicitly, for example `cog bump --version 1.0.0`.
 
+Because of this, a breaking change on `0.x` lands as a **patch** release. The changelog still renders a `BREAKING` badge, but the version number gives no warning — so say what breaks, and how to fix it, in the PR description and in a note on the changelog entry. v0.36.1 is a worked example.
+
+#### Squash merges drop your commit subjects
+
+Both merge styles are enabled on this repo, and cocogitto reads them differently:
+
+| Merged via | What cog parses | Does `!` on your commit count? |
+|---|---|---|
+| **Merge commit** | your individual commits — `ignore_merge_commits = true` in `cog.toml` makes cog skip the merge commit itself | **Yes.** `feat!:` or a trailing `BREAKING CHANGE:` footer works exactly as above. |
+| **Squash** | the squash commit, whose subject is the **PR title**; your commit subjects become `*` bullets in its body | **No.** A `!` that appears only on an individual commit is not in the subject cog reads. |
+
+So the guidance above holds for merge commits, and is not enough on its own for squash.
+
+**Rule: put `!` in both the individual commit type and the PR title.** It costs nothing and is correct under either merge style, and you rarely control which one gets used at merge time.
+
+```text
+commit:    fix(runner)!: reject composite plans with conflicting scheduling flags
+PR title:  fix!: composite scheduling correctness and CI supply-chain hardening
+```
+
+**Worked example — PR #14 ([`81e514d`](https://github.com/rsvalerio/ops/commit/81e514d2c5b0d2baac1564c92259aae5887e705f)).** The breaking commit was correctly written `fix(runner)!:` with a `BREAKING CHANGE:` footer, but the PR title was a plain `fix:`. Squash-merging made that title the commit subject and demoted the `!` into a body bullet. The changelog badge still rendered, so the break was flagged — but the `!` was not where it needed to be for the subject to carry it.
+
 ## Creating a Release
 
 Releases are fully automated. The `main` branch is protected by a GitHub ruleset that requires all status checks to pass and review threads to be resolved before merging.
