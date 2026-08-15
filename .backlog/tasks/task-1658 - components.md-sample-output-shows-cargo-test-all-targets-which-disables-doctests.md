@@ -3,9 +3,10 @@ id: TASK-1658
 title: >-
   components.md sample output shows 'cargo test --all-targets', which disables
   doctests
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-08-06 14:30'
+updated_date: '2026-08-15 00:00'
 labels:
   - docs
 dependencies: []
@@ -32,6 +33,35 @@ For `cargo test`, `--all-targets` *disables* doctests — cargo's own help reads
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No docs sample shows --all-targets applied to cargo test
-- [ ] #2 The dot-padding illustration still demonstrates varying label widths
+- [x] #1 No docs sample shows --all-targets applied to cargo test
+- [x] #2 The dot-padding illustration still demonstrates varying label widths
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Shipped in PR #14 (squashed as `81e514d`), released in v0.36.1.
+
+**Scope was larger than reported.** The description named only
+`docs/components.md:34`, but AC #1 is about *any* docs sample, and a grep found
+five occurrences in that file — lines 34, 156, 193, 242 and 248 (the Error
+Detail Box, Summary Separator, and the two annotated composite examples). All
+five fixed.
+
+Replacements match what the Rust stack defaults actually run
+(`crates/core/src/.default.rust.ops.toml`), so the samples now double as
+accurate documentation rather than merely non-misleading filler:
+
+- line 34 → `cargo test --workspace --all-features` (the real `test` command)
+- lines 156, 193, 242, 248 → `cargo test --workspace` (shorter label; these
+  lines carry timers and trailing `# [n]` annotations whose columns must hold)
+
+Dot padding recomputed per line so every total width and annotation column is
+unchanged: 71/63/62/69/60 before and after. AC #2 holds — the primary example
+still shows three distinct label widths (25 / 41 / 37 chars).
+
+Left untouched: `docs/command-mappings.md:26`, the prose *explaining* that
+`--all-targets` is deliberately absent from `test` — the one place the string
+should appear. `cargo build --all-targets` and `cargo clippy --all-targets`
+samples are also unchanged; the flag is correct for those two.
+<!-- SECTION:NOTES:END -->
