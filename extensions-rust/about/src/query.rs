@@ -270,6 +270,15 @@ fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
 // migration above. A new caller that opens parallel `ctx`s against
 // distinct cwds and bottlenecks here would silently undo a downstream
 // performance fix.
+// TEST-15 / TASK-1664: **every test that reaches this cache must carry
+// `#[serial_test::serial(typed_manifest_cache)]`** — including the ones that
+// reach it indirectly through a provider's `provide()` →
+// `load_workspace_manifest`. `lock_typed_manifest_cache` recovers by calling
+// `clear_poison()`, so a poisoned lock produces exactly one warn and the first
+// caller to recover consumes it. The poison tests in this module were
+// serialised against each other but raced 14 unserialised tests in
+// `identity/mod.rs` and `units.rs`, which reach the same static through their
+// providers. That passed on a workstation and failed on a 2-core CI runner.
 fn typed_manifest_cache() -> &'static Mutex<TypedManifestCache> {
     static CACHE: OnceLock<Mutex<TypedManifestCache>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(TypedManifestCache::new()))
