@@ -1,11 +1,11 @@
 ---
 id: TASK-1576
 title: code-review-plan-wave122
-status: In Progress
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-05-19 16:45'
-updated_date: '2026-08-15 00:00'
+updated_date: '2026-08-16 19:20'
 labels:
   - code-review-wave
 dependencies:
@@ -47,3 +47,11 @@ left as-is**.
 14 of 15 dependency tasks are `Done`. Genuinely blocked on TASK-1540 alone.
 Closes when that does.
 <!-- SECTION:TRIAGE:END -->
+
+## Closure
+
+<!-- SECTION:CLOSURE:BEGIN -->
+**Closed 2026-08-16.** TASK-1540 landed (shared `test_support` fixture module
+for the metadata crate), so all 15 member tasks are Done and the wave closes
+as predicted by the 2026-08-15 triage note.
+<!-- SECTION:CLOSURE:END -->

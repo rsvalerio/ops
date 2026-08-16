@@ -4,6 +4,7 @@
 //! DUP-3 / TASK-1538: both tests share the `TracingBuf` harness from
 //! `ops_about::test_support` so a future harness change lives in one place.
 
+use crate::test_support::{pkg, workspace};
 use crate::Metadata;
 use ops_about::test_support::TracingBuf;
 
@@ -13,34 +14,22 @@ use ops_about::test_support::TracingBuf;
 #[test]
 fn metadata_package_index_by_id_warns_on_duplicate_id() {
     let dup_id = "dup-pkg 0.1.0 (path+file:///workspace/dup)";
-    let value = serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": [],
-        "workspace_default_members": [],
-        "packages": [
-            {
-                "name": "dup-pkg",
-                "version": "0.1.0",
-                "id": dup_id,
-                "edition": "2021",
-                "manifest_path": "/workspace/dup/a/Cargo.toml",
-                "dependencies": [],
-                "targets": [],
-                "description": "first"
-            },
-            {
-                "name": "dup-pkg",
-                "version": "0.1.0",
-                "id": dup_id,
-                "edition": "2021",
-                "manifest_path": "/workspace/dup/b/Cargo.toml",
-                "dependencies": [],
-                "targets": [],
-                "description": "second"
-            }
-        ]
-    });
+    let value = workspace()
+        .external(
+            pkg("dup-pkg", "0.1.0")
+                .id(dup_id)
+                .manifest_path("/workspace/dup/a/Cargo.toml")
+                .edition("2021")
+                .field("description", serde_json::json!("first")),
+        )
+        .external(
+            pkg("dup-pkg", "0.1.0")
+                .id(dup_id)
+                .manifest_path("/workspace/dup/b/Cargo.toml")
+                .edition("2021")
+                .field("description", serde_json::json!("second")),
+        )
+        .value();
 
     let buf = TracingBuf::default();
     let subscriber = tracing_subscriber::fmt()
@@ -90,32 +79,20 @@ fn metadata_package_index_by_id_warns_on_duplicate_id() {
 fn metadata_package_index_by_name_warns_on_duplicate_name() {
     let id_v1 = "serde 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)";
     let id_v0 = "serde 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)";
-    let value = serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": [],
-        "workspace_default_members": [],
-        "packages": [
-            {
-                "name": "serde",
-                "version": "1.0.0",
-                "id": id_v1,
-                "edition": "2021",
-                "manifest_path": "/cache/serde-1.0.0/Cargo.toml",
-                "dependencies": [],
-                "targets": []
-            },
-            {
-                "name": "serde",
-                "version": "0.9.0",
-                "id": id_v0,
-                "edition": "2018",
-                "manifest_path": "/cache/serde-0.9.0/Cargo.toml",
-                "dependencies": [],
-                "targets": []
-            }
-        ]
-    });
+    let value = workspace()
+        .external(
+            pkg("serde", "1.0.0")
+                .id(id_v1)
+                .manifest_path("/cache/serde-1.0.0/Cargo.toml")
+                .edition("2021"),
+        )
+        .external(
+            pkg("serde", "0.9.0")
+                .id(id_v0)
+                .manifest_path("/cache/serde-0.9.0/Cargo.toml")
+                .edition("2018"),
+        )
+        .value();
 
     let buf = TracingBuf::default();
     let subscriber = tracing_subscriber::fmt()

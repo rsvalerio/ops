@@ -3,11 +3,11 @@ id: TASK-1540
 title: >-
   DUP-4: cargo-metadata JSON fixture re-inlined 12+ times across
   metadata/src/tests.rs and ingestor.rs tests
-status: In Progress
+status: Done
 assignee:
   - TASK-1576
 created_date: '2026-05-19 15:24'
-updated_date: '2026-08-15 00:00'
+updated_date: '2026-08-16 19:20'
 labels:
   - code-review-rust
   - DUP
@@ -32,9 +32,9 @@ Each block restates the same 15-20 boilerplate fields (`source`, `features`, `ma
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 metadata/src/tests.rs and ingestor.rs share a single test-helper module (e.g. sample_pkg / sample_metadata_with) that constructs cargo-metadata JSON fixtures
-- [ ] #2 Each individual test body retains only the fields it specifically exercises; boilerplate fields (license, repository, homepage, etc.) live in the helper
-- [ ] #3 All existing tests still pass without weakening their assertions
+- [x] #1 metadata/src/tests.rs and ingestor.rs share a single test-helper module (e.g. sample_pkg / sample_metadata_with) that constructs cargo-metadata JSON fixtures
+- [x] #2 Each individual test body retains only the fields it specifically exercises; boilerplate fields (license, repository, homepage, etc.) live in the helper
+- [x] #3 All existing tests still pass without weakening their assertions
 <!-- AC:END -->
 
 ---
@@ -73,3 +73,85 @@ exercises) is therefore not yet met. `edge_cases.rs` is the bulk of it and may
 legitimately need bespoke JSON — worth checking before mechanically folding
 those into the helper.
 <!-- SECTION:TRIAGE:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Done — one fixture module, two deliberately different families
+
+```
+                          before   after
+src/ingestor.rs              632     413
+src/tests/edge_cases.rs      397     262
+src/tests/accessors.rs       354     343
+src/tests/duplicates.rs      167     144
+src/tests/fixtures.rs         84       - (moved)
+src/test_support.rs            -     409  new
+```
+
+`json!` fixture literals: **23 -> 11**, and the 11 survivors are payloads, not
+skeletons — a `deps(json!([...]))` argument *is* the subject of its test.
+
+### The finding the task did not anticipate
+
+The triage note flagged that `edge_cases.rs` "may legitimately need bespoke
+JSON — worth checking before mechanically folding those into the helper." It
+does, and so does `ingestor.rs`, for opposite reasons. A single
+`sample_pkg()` returning a fully-populated package would have broken both:
+
+- **View fixtures** (`pkg`, `workspace`) feed `Metadata::from_value`, which
+  reads lazily. Most of `edge_cases.rs` asserts on *absent* fields —
+  `edition()` falling back to `""`, `license()` returning `None`. A helper
+  filling in defaults would leave those tests green while testing nothing.
+  So the builder is minimal by construction: it emits only what was set.
+- **Ingest fixtures** (`ingest_metadata`, `ingest_dep`) are written to disk
+  and read back through DuckDB's `read_json_auto`. Their ~20 empty-string
+  fields are load-bearing: a column that is null in every row infers as
+  INTEGER and the view's casts then fail. AC #2 read literally ("retain only
+  the fields it exercises") would break schema inference here.
+
+Both families live in one module (AC #1) with the contrast documented at the
+top — that contrast is the part a future reader needs and neither call site
+was stating.
+
+### Design points
+
+- `id` and `manifest_path` derive from name+version, so the package entry and
+  `workspace_members` cannot drift apart. `.id(...)` overrides it where the id
+  is the subject (duplicate-id, registry packages).
+- `.member()` vs `.external()` replaces hand-maintained `workspace_members`
+  arrays; `.default_members(&["pkg-a"])` takes names and panics on one that
+  was never added, so the list cannot silently point at nothing.
+- `write_metadata_json(dir, &value)` folds the write-then-load preamble the
+  four ingestor tests each open-coded.
+
+### Left inline on purpose (2 sites)
+
+- `metadata_missing_packages_key` — the absence of the `packages` key is the
+  subject; the builder always emits it.
+- `metadata_root_package_finds_match_with_backslash_separator` (`#[cfg(windows)]`)
+  — needs backslash-separated paths, and a Windows-separator setter would be
+  dead code on every other platform, which does not compile clean under
+  `-D warnings`.
+
+Both carry a comment saying why, so the next reader does not "finish the job".
+
+### Verification
+
+`cargo test -p ops-metadata`: **85 before, 85 after**, inventory diffed by
+name via `--list --include-ignored` — identical, empty in both directions.
+No assertion was weakened: `metadata_load_with_sample_data` keeps its
+`assert!(!json_path.exists())` cleanup check, which is why
+`write_metadata_json` returns the path.
+
+Dropped `#[allow(clippy::too_many_lines)]` from
+`crate_dependencies_view_preserves_target_conditional_duplicates` — the test
+is 20 lines now and no longer needs the exemption.
+
+### Note for review
+
+`test_support.rs` is 409 lines, just over the ~400 ARCH-1 guideline. Kept as
+one module deliberately: the two families are documented together because the
+contrast between them is the knowledge, and splitting would either duplicate
+that explanation or orphan it.
+<!-- SECTION:NOTES:END -->

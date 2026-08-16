@@ -2,7 +2,7 @@
 //!
 //! ARCH-1 / TASK-1545: split out from the legacy `tests.rs`.
 
-use super::fixtures::{sample_metadata, test_pkg_a, test_pkg_serde};
+use crate::test_support::{pkg, sample_metadata, test_pkg_a, test_pkg_serde, workspace};
 use crate::{DependencyKind, Metadata};
 
 #[test]
@@ -66,22 +66,16 @@ fn metadata_package_by_id() {
 
 #[test]
 fn metadata_root_package_finds_match() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": ["root-pkg 0.1.0 (path+file:///workspace)"],
-        "packages": [
-            {
-                "name": "root-pkg",
-                "version": "0.1.0",
-                "id": "root-pkg 0.1.0 (path+file:///workspace)",
-                "edition": "2021",
-                "manifest_path": "/workspace/Cargo.toml",
-                "dependencies": [],
-                "targets": []
-            }
-        ]
-    }));
+    // A root package's manifest sits at the workspace root, not in a
+    // subdirectory — which is the whole point of the lookup under test.
+    let m = workspace()
+        .member(
+            pkg("root-pkg", "0.1.0")
+                .id("root-pkg 0.1.0 (path+file:///workspace)")
+                .manifest_path("/workspace/Cargo.toml")
+                .edition("2021"),
+        )
+        .metadata();
     let root = m.root_package().expect("should find root package");
     assert_eq!(root.name(), "root-pkg");
     assert_eq!(root.manifest_path(), "/workspace/Cargo.toml");
@@ -95,12 +89,7 @@ fn metadata_root_package_none_when_not_at_workspace_root() {
 
 #[test]
 fn metadata_root_package_none_for_virtual_workspace() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": [],
-        "packages": []
-    }));
+    let m = workspace().metadata();
     assert!(m.root_package().is_none());
 }
 

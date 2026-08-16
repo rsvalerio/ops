@@ -1,50 +1,32 @@
 //! Minimal-field and missing-optional edge case coverage.
 //!
 //! ARCH-1 / TASK-1545: split out from the legacy `tests.rs`.
+//! DUP-4 / TASK-1540: the cargo-metadata skeleton comes from
+//! `crate::test_support`. These tests are mostly *about* absent fields, so the
+//! fixtures there emit only what a test sets — a package built with no
+//! `.edition(...)` really has no `edition` key.
 
+use crate::test_support::{pkg, workspace};
 use crate::Metadata;
 
 #[test]
 fn metadata_build_directory_none_when_missing() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": [],
-        "packages": []
-    }));
+    let m = workspace().metadata();
     assert!(m.build_directory().is_none());
 }
 
 #[test]
 fn metadata_empty_workspace_members() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": [],
-        "packages": []
-    }));
+    let m = workspace().metadata();
     let members: Vec<_> = m.members().collect();
     assert!(members.is_empty(), "empty workspace should have no members");
 }
 
 #[test]
 fn metadata_package_no_targets() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": ["empty-pkg 0.1.0 (path+file:///workspace/empty-pkg)"],
-        "packages": [
-            {
-                "name": "empty-pkg",
-                "version": "0.1.0",
-                "id": "empty-pkg 0.1.0 (path+file:///workspace/empty-pkg)",
-                "edition": "2021",
-                "manifest_path": "/workspace/empty-pkg/Cargo.toml",
-                "dependencies": [],
-                "targets": []
-            }
-        ]
-    }));
+    let m = workspace()
+        .member(pkg("empty-pkg", "0.1.0").edition("2021"))
+        .metadata();
     let pkg = m.package_by_name("empty-pkg").expect("should find package");
     assert_eq!(pkg.targets().count(), 0, "package should have no targets");
     assert!(pkg.lib_target().is_none());
@@ -53,22 +35,9 @@ fn metadata_package_no_targets() {
 
 #[test]
 fn metadata_package_no_dependencies() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": ["no-deps 0.1.0 (path+file:///workspace/no-deps)"],
-        "packages": [
-            {
-                "name": "no-deps",
-                "version": "0.1.0",
-                "id": "no-deps 0.1.0 (path+file:///workspace/no-deps)",
-                "edition": "2021",
-                "manifest_path": "/workspace/no-deps/Cargo.toml",
-                "dependencies": [],
-                "targets": []
-            }
-        ]
-    }));
+    let m = workspace()
+        .member(pkg("no-deps", "0.1.0").edition("2021"))
+        .metadata();
     let pkg = m.package_by_name("no-deps").expect("should find package");
     assert_eq!(pkg.all_dependencies().count(), 0);
     assert_eq!(pkg.dependencies().count(), 0);
@@ -78,21 +47,9 @@ fn metadata_package_no_dependencies() {
 
 #[test]
 fn metadata_package_missing_optional_fields() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": ["minimal 0.1.0 (path+file:///workspace/minimal)"],
-        "packages": [
-            {
-                "name": "minimal",
-                "version": "0.1.0",
-                "id": "minimal 0.1.0 (path+file:///workspace/minimal)",
-                "manifest_path": "/workspace/minimal/Cargo.toml",
-                "dependencies": [],
-                "targets": []
-            }
-        ]
-    }));
+    // No `.edition(...)`, no license/repository/description: the fixture emits
+    // none of them, which is exactly what this test asserts about.
+    let m = workspace().member(pkg("minimal", "0.1.0")).metadata();
     let pkg = m.package_by_name("minimal").expect("should find package");
     assert_eq!(
         pkg.edition(),
@@ -106,26 +63,14 @@ fn metadata_package_missing_optional_fields() {
 
 #[test]
 fn dependency_missing_optional_fields() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": ["pkg 0.1.0 (path+file:///workspace/pkg)"],
-        "packages": [
+    let m = workspace()
+        .member(pkg("pkg", "0.1.0").deps(serde_json::json!([
             {
-                "name": "pkg",
-                "version": "0.1.0",
-                "id": "pkg 0.1.0 (path+file:///workspace/pkg)",
-                "manifest_path": "/workspace/pkg/Cargo.toml",
-                "dependencies": [
-                    {
-                        "name": "minimal-dep",
-                        "req": "^1.0"
-                    }
-                ],
-                "targets": []
+                "name": "minimal-dep",
+                "req": "^1.0"
             }
-        ]
-    }));
+        ])))
+        .metadata();
     let pkg = m.package_by_name("pkg").expect("should find package");
     let dep = pkg.dependencies().next().expect("should have dep");
     assert_eq!(dep.name(), "minimal-dep");
@@ -145,24 +90,14 @@ fn dependency_missing_optional_fields() {
 
 #[test]
 fn target_edition_present() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": ["pkg 0.1.0 (path+file:///workspace/pkg)"],
-        "packages": [{
+    let m = workspace()
+        .member(pkg("pkg", "0.1.0").targets(serde_json::json!([{
             "name": "pkg",
-            "version": "0.1.0",
-            "id": "pkg 0.1.0 (path+file:///workspace/pkg)",
-            "manifest_path": "/workspace/pkg/Cargo.toml",
-            "dependencies": [],
-            "targets": [{
-                "name": "pkg",
-                "kind": ["lib"],
-                "src_path": "/workspace/pkg/src/lib.rs",
-                "edition": "2021"
-            }]
-        }]
-    }));
+            "kind": ["lib"],
+            "src_path": "/workspace/pkg/src/lib.rs",
+            "edition": "2021"
+        }])))
+        .metadata();
     let pkg = m.package_by_name("pkg").unwrap();
     let lib = pkg.lib_target().unwrap();
     assert_eq!(lib.edition(), Some("2021"));
@@ -170,24 +105,14 @@ fn target_edition_present() {
 
 #[test]
 fn target_doc_path_present() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": ["pkg 0.1.0 (path+file:///workspace/pkg)"],
-        "packages": [{
+    let m = workspace()
+        .member(pkg("pkg", "0.1.0").targets(serde_json::json!([{
             "name": "pkg",
-            "version": "0.1.0",
-            "id": "pkg 0.1.0 (path+file:///workspace/pkg)",
-            "manifest_path": "/workspace/pkg/Cargo.toml",
-            "dependencies": [],
-            "targets": [{
-                "name": "pkg",
-                "kind": ["lib"],
-                "src_path": "/workspace/pkg/src/lib.rs",
-                "doc_path": "/workspace/pkg/src/lib.rs"
-            }]
-        }]
-    }));
+            "kind": ["lib"],
+            "src_path": "/workspace/pkg/src/lib.rs",
+            "doc_path": "/workspace/pkg/src/lib.rs"
+        }])))
+        .metadata();
     let pkg = m.package_by_name("pkg").unwrap();
     let lib = pkg.lib_target().unwrap();
     assert_eq!(lib.doc_path(), Some("/workspace/pkg/src/lib.rs"));
@@ -195,24 +120,14 @@ fn target_doc_path_present() {
 
 #[test]
 fn dependency_with_rename() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": ["pkg 0.1.0 (path+file:///workspace/pkg)"],
-        "packages": [{
-            "name": "pkg",
-            "version": "0.1.0",
-            "id": "pkg 0.1.0 (path+file:///workspace/pkg)",
-            "manifest_path": "/workspace/pkg/Cargo.toml",
-            "dependencies": [{
-                "name": "serde",
-                "req": "^1.0",
-                "rename": "my_serde",
-                "source": "registry+https://github.com/rust-lang/crates.io-index"
-            }],
-            "targets": []
-        }]
-    }));
+    let m = workspace()
+        .member(pkg("pkg", "0.1.0").deps(serde_json::json!([{
+            "name": "serde",
+            "req": "^1.0",
+            "rename": "my_serde",
+            "source": "registry+https://github.com/rust-lang/crates.io-index"
+        }])))
+        .metadata();
     let pkg = m.package_by_name("pkg").unwrap();
     let dep = pkg.all_dependencies().next().unwrap();
     assert_eq!(dep.rename(), Some("my_serde"));
@@ -221,23 +136,13 @@ fn dependency_with_rename() {
 
 #[test]
 fn dependency_with_target_platform() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": ["pkg 0.1.0 (path+file:///workspace/pkg)"],
-        "packages": [{
-            "name": "pkg",
-            "version": "0.1.0",
-            "id": "pkg 0.1.0 (path+file:///workspace/pkg)",
-            "manifest_path": "/workspace/pkg/Cargo.toml",
-            "dependencies": [{
-                "name": "winapi",
-                "req": "^0.3",
-                "target": "cfg(windows)"
-            }],
-            "targets": []
-        }]
-    }));
+    let m = workspace()
+        .member(pkg("pkg", "0.1.0").deps(serde_json::json!([{
+            "name": "winapi",
+            "req": "^0.3",
+            "target": "cfg(windows)"
+        }])))
+        .metadata();
     let pkg = m.package_by_name("pkg").unwrap();
     let dep = pkg.all_dependencies().next().unwrap();
     assert_eq!(dep.target(), Some("cfg(windows)"));
@@ -245,46 +150,17 @@ fn dependency_with_target_platform() {
 
 #[test]
 fn metadata_multiple_workspace_members() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": [
-            "pkg-a 0.1.0 (path+file:///workspace/pkg-a)",
-            "pkg-b 0.2.0 (path+file:///workspace/pkg-b)"
-        ],
-        "workspace_default_members": [
-            "pkg-a 0.1.0 (path+file:///workspace/pkg-a)"
-        ],
-        "packages": [
-            {
-                "name": "pkg-a",
-                "version": "0.1.0",
-                "id": "pkg-a 0.1.0 (path+file:///workspace/pkg-a)",
-                "edition": "2021",
-                "manifest_path": "/workspace/pkg-a/Cargo.toml",
-                "dependencies": [],
-                "targets": []
-            },
-            {
-                "name": "pkg-b",
-                "version": "0.2.0",
-                "id": "pkg-b 0.2.0 (path+file:///workspace/pkg-b)",
-                "edition": "2021",
-                "manifest_path": "/workspace/pkg-b/Cargo.toml",
-                "dependencies": [],
-                "targets": []
-            },
-            {
-                "name": "external",
-                "version": "1.0.0",
-                "id": "external 1.0.0 (registry+https://crates.io)",
-                "edition": "2018",
-                "manifest_path": "/cargo/registry/external-1.0.0/Cargo.toml",
-                "dependencies": [],
-                "targets": []
-            }
-        ]
-    }));
+    let m = workspace()
+        .member(pkg("pkg-a", "0.1.0").edition("2021"))
+        .member(pkg("pkg-b", "0.2.0").edition("2021"))
+        .external(
+            pkg("external", "1.0.0")
+                .id("external 1.0.0 (registry+https://crates.io)")
+                .manifest_path("/cargo/registry/external-1.0.0/Cargo.toml")
+                .edition("2018"),
+        )
+        .default_members(&["pkg-a"])
+        .metadata();
     let members: Vec<&str> = m.members().map(|p| p.name()).collect();
     assert_eq!(members, vec!["pkg-a", "pkg-b"]);
 
@@ -298,25 +174,15 @@ fn metadata_multiple_workspace_members() {
 
 #[test]
 fn metadata_package_with_all_target_types() {
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace",
-        "target_directory": "/workspace/target",
-        "workspace_members": ["pkg 0.1.0 (path+file:///workspace/pkg)"],
-        "packages": [{
-            "name": "pkg",
-            "version": "0.1.0",
-            "id": "pkg 0.1.0 (path+file:///workspace/pkg)",
-            "manifest_path": "/workspace/pkg/Cargo.toml",
-            "dependencies": [],
-            "targets": [
-                {"name": "pkg", "kind": ["lib"], "src_path": "/workspace/pkg/src/lib.rs"},
-                {"name": "cli", "kind": ["bin"], "src_path": "/workspace/pkg/src/main.rs"},
-                {"name": "integration", "kind": ["test"], "src_path": "/workspace/pkg/tests/integration.rs"},
-                {"name": "demo", "kind": ["example"], "src_path": "/workspace/pkg/examples/demo.rs"},
-                {"name": "perf", "kind": ["bench"], "src_path": "/workspace/pkg/benches/perf.rs"}
-            ]
-        }]
-    }));
+    let m = workspace()
+        .member(pkg("pkg", "0.1.0").targets(serde_json::json!([
+            {"name": "pkg", "kind": ["lib"], "src_path": "/workspace/pkg/src/lib.rs"},
+            {"name": "cli", "kind": ["bin"], "src_path": "/workspace/pkg/src/main.rs"},
+            {"name": "integration", "kind": ["test"], "src_path": "/workspace/pkg/tests/integration.rs"},
+            {"name": "demo", "kind": ["example"], "src_path": "/workspace/pkg/examples/demo.rs"},
+            {"name": "perf", "kind": ["bench"], "src_path": "/workspace/pkg/benches/perf.rs"}
+        ])))
+        .metadata();
     let pkg = m.package_by_name("pkg").unwrap();
     assert!(pkg.lib_target().is_some());
     assert_eq!(pkg.bin_targets().count(), 1);
@@ -341,6 +207,10 @@ fn metadata_root_package_finds_match_with_backslash_separator() {
     // TASK-0952: on Windows, cargo emits backslash-separated manifest_path
     // values. The comparison must use Path-based equivalence so platform
     // separators line up.
+    //
+    // Written out rather than built from `test_support`: the fixture derives
+    // `target_directory` by joining with `/`, and a Windows-separator setter
+    // would be dead code on every other platform.
     let m = Metadata::from_value(serde_json::json!({
         "workspace_root": "C:\\workspace",
         "target_directory": "C:\\workspace\\target",
@@ -364,22 +234,15 @@ fn metadata_root_package_finds_match_with_backslash_separator() {
 #[test]
 fn metadata_root_package_uses_path_equivalence() {
     // TASK-0952: trailing slash on workspace_root should not break the join.
-    let m = Metadata::from_value(serde_json::json!({
-        "workspace_root": "/workspace/",
-        "target_directory": "/workspace/target",
-        "workspace_members": ["root-pkg 0.1.0 (path+file:///workspace)"],
-        "packages": [
-            {
-                "name": "root-pkg",
-                "version": "0.1.0",
-                "id": "root-pkg 0.1.0 (path+file:///workspace)",
-                "edition": "2021",
-                "manifest_path": "/workspace/Cargo.toml",
-                "dependencies": [],
-                "targets": []
-            }
-        ]
-    }));
+    let m = workspace()
+        .root("/workspace/")
+        .member(
+            pkg("root-pkg", "0.1.0")
+                .id("root-pkg 0.1.0 (path+file:///workspace)")
+                .manifest_path("/workspace/Cargo.toml")
+                .edition("2021"),
+        )
+        .metadata();
     let root = m
         .root_package()
         .expect("should find root package via Path equivalence");
@@ -388,6 +251,8 @@ fn metadata_root_package_uses_path_equivalence() {
 
 #[test]
 fn metadata_missing_packages_key() {
+    // Written out rather than built from `test_support`: the fixture always
+    // emits `packages`, and the absence of that key is the subject here.
     let m = Metadata::from_value(serde_json::json!({
         "workspace_root": "/workspace",
         "target_directory": "/workspace/target"
