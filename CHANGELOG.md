@@ -2,6 +2,28 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.36.2](https://github.com/rsvalerio/ops/compare/60a78e001f3a2e9de8d8edb2b1573d96301ecf16..v0.36.2) - 2026-08-15
+#### 🐛 Bug Fixes
+- (**tools**) cargo --list probe misreads every tool as missing under forced colour - ([f54757e](https://github.com/rsvalerio/ops/commit/f54757e348ff2e464dc620f69702e4e6fbb04f91)) - Rodrigo Valerio
+#### 📚 Documentation
+- (**changelog**) flag the v0.36.1 breaking change and how to fix it (#17) - ([ed8adf9](https://github.com/rsvalerio/ops/commit/ed8adf993d44e51f474b94ab9e1683de9b6d603a)) - [@rsvalerio](https://github.com/rsvalerio)
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**releasing**) document that squash merges drop commit subjects - ([e50c832](https://github.com/rsvalerio/ops/commit/e50c832290f2ac03c978019eed6ddccec47d46fe)) - Rodrigo Valerio
+#### 🧪 Testing
+- (**core,runner**) replace wall-clock assertions with behavioural seams - ([98e9ef6](https://github.com/rsvalerio/ops/commit/98e9ef62fda7bce795da24c8b0c8076dcf84096d)) - Rodrigo Valerio
+- (**runner**) assert step duration at nanosecond, not millisecond, granularity - ([6e795fc](https://github.com/rsvalerio/ops/commit/6e795fc5b86ea01326d3c53a9ce42a8f92a905c8)) - Rodrigo Valerio
+- (**tools**) make the fake-cargo fixture argument-position independent - ([d9bd7ab](https://github.com/rsvalerio/ops/commit/d9bd7ab54cd1b5340ba7319985d5fa18723a1250)) - Rodrigo Valerio
+#### 🔄 CI/CD
+- run the full test suite, not only ignored tests - ([7257e53](https://github.com/rsvalerio/ops/commit/7257e5360a2aaf2bdba5e234781aab02a5248803)) - Rodrigo Valerio
+#### ⚙️ Miscellaneous
+- (**backlog**) triage nine stale In Progress tasks - ([f3cc88e](https://github.com/rsvalerio/ops/commit/f3cc88e4acc9abea8725aea19ceb8f178cddb923)) - Rodrigo Valerio
+- (**backlog**) close TASK-1656..1663 as done - ([60a78e0](https://github.com/rsvalerio/ops/commit/60a78e001f3a2e9de8d8edb2b1573d96301ecf16)) - Rodrigo Valerio
+- Merge pull request #19 from rsvalerio/fix/ci-runs-full-test-suite - ([0061411](https://github.com/rsvalerio/ops/commit/0061411cf249f4d35c23d3b7f7e94daca921d142)) - [@rsvalerio](https://github.com/rsvalerio)
+- Merge pull request #18 from rsvalerio/docs/breaking-changes-squash-caveat - ([50a1058](https://github.com/rsvalerio/ops/commit/50a10585995a07eecdc43b2915a7e2ca1344c7d9)) - [@rsvalerio](https://github.com/rsvalerio)
+- Merge pull request #16 from rsvalerio/chore/backlog-triage-stale-in-progress - ([591630c](https://github.com/rsvalerio/ops/commit/591630c38934214ebecc0b580b77cd86c330de83)) - [@rsvalerio](https://github.com/rsvalerio)
+- Merge pull request #15 from rsvalerio/chore/backlog-reconcile-1656-1663 - ([c73bb89](https://github.com/rsvalerio/ops/commit/c73bb897bba922258170baa171cada0e063e79df)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.36.1](https://github.com/rsvalerio/ops/compare/8468d674d01c9aa92cbd3d1ee01312a1f425651c..v0.36.1) - 2026-08-15
 
 > **⚠️ Breaking change, despite the patch version number.**
