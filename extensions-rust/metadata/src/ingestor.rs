@@ -142,6 +142,7 @@ fn cleanup_staged_file(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{ingest_dep, ingest_metadata, write_metadata_json};
 
     #[test]
     fn metadata_ingestor_name() {
@@ -218,65 +219,8 @@ mod tests {
     fn metadata_load_with_sample_data() {
         let data_dir = tempfile::tempdir().unwrap();
 
-        // Write a minimal cargo metadata JSON file.
-        // All nullable string fields use explicit strings so DuckDB schema inference
-        // picks up the correct types (null-only columns get inferred as integers).
-        let metadata_json = serde_json::json!({
-            "packages": [{
-                "name": "test-crate",
-                "version": "0.1.0",
-                "id": "test-crate 0.1.0 (path+file:///test)",
-                "source": "registry+https://github.com/rust-lang/crates.io-index",
-                "dependencies": [{
-                    "name": "serde",
-                    "source": "registry+https://github.com/rust-lang/crates.io-index",
-                    "req": "^1.0",
-                    "kind": "normal",
-                    "optional": false,
-                    "uses_default_features": true,
-                    "features": [],
-                    "target": "",
-                    "rename": "",
-                    "registry": ""
-                }],
-                "targets": [],
-                "features": {},
-                "manifest_path": "/test/Cargo.toml",
-                "metadata": {},
-                "publish": [],
-                "authors": [],
-                "categories": [],
-                "keywords": [],
-                "readme": "",
-                "repository": "",
-                "homepage": "",
-                "documentation": "",
-                "edition": "2021",
-                "links": "",
-                "default_run": "",
-                "rust_version": "",
-                "license": "",
-                "license_file": "",
-                "description": ""
-            }],
-            "workspace_members": [
-                "test-crate 0.1.0 (path+file:///test)"
-            ],
-            "workspace_default_members": [
-                "test-crate 0.1.0 (path+file:///test)"
-            ],
-            "resolve": {"nodes": [], "root": ""},
-            "target_directory": "/test/target",
-            "version": 1,
-            "workspace_root": "/test",
-            "metadata": {}
-        });
-        let json_path = data_dir.path().join("metadata.json");
-        std::fs::write(
-            &json_path,
-            serde_json::to_vec_pretty(&metadata_json).unwrap(),
-        )
-        .unwrap();
+        let metadata_json = ingest_metadata().dep(ingest_dep("serde", "^1.0")).value();
+        let json_path = write_metadata_json(data_dir.path(), &metadata_json);
 
         let db = DuckDb::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
@@ -307,72 +251,12 @@ mod tests {
     #[test]
     fn crate_dependencies_view_includes_path_deps() {
         let data_dir = tempfile::tempdir().unwrap();
-        let metadata_json = serde_json::json!({
-            "packages": [{
-                "name": "test-crate",
-                "version": "0.1.0",
-                "id": "test-crate 0.1.0 (path+file:///test)",
-                "source": "",
-                "dependencies": [
-                    {
-                        "name": "serde",
-                        "source": "registry+https://github.com/rust-lang/crates.io-index",
-                        "req": "^1.0",
-                        "kind": "normal",
-                        "optional": false,
-                        "uses_default_features": true,
-                        "features": [],
-                        "target": "",
-                        "rename": "",
-                        "registry": ""
-                    },
-                    {
-                        "name": "ws-sibling",
-                        "source": null,
-                        "req": "*",
-                        "kind": "normal",
-                        "optional": false,
-                        "uses_default_features": true,
-                        "features": [],
-                        "target": "",
-                        "rename": "",
-                        "registry": ""
-                    }
-                ],
-                "targets": [],
-                "features": {},
-                "manifest_path": "/test/Cargo.toml",
-                "metadata": {},
-                "publish": [],
-                "authors": [],
-                "categories": [],
-                "keywords": [],
-                "readme": "",
-                "repository": "",
-                "homepage": "",
-                "documentation": "",
-                "edition": "2021",
-                "links": "",
-                "default_run": "",
-                "rust_version": "",
-                "license": "",
-                "license_file": "",
-                "description": ""
-            }],
-            "workspace_members": ["test-crate 0.1.0 (path+file:///test)"],
-            "workspace_default_members": ["test-crate 0.1.0 (path+file:///test)"],
-            "resolve": {"nodes": [], "root": ""},
-            "target_directory": "/test/target",
-            "version": 1,
-            "workspace_root": "/test",
-            "metadata": {}
-        });
-        let json_path = data_dir.path().join("metadata.json");
-        std::fs::write(
-            &json_path,
-            serde_json::to_vec_pretty(&metadata_json).unwrap(),
-        )
-        .unwrap();
+        let metadata_json = ingest_metadata()
+            .source(serde_json::json!(""))
+            .dep(ingest_dep("serde", "^1.0"))
+            .dep(ingest_dep("ws-sibling", "*").path_source())
+            .value();
+        write_metadata_json(data_dir.path(), &metadata_json);
 
         let db = DuckDb::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
@@ -407,54 +291,13 @@ mod tests {
     fn metadata_load_warns_when_metadata_raw_has_multiple_rows() {
         use ops_about::test_support::TracingBuf;
 
-        fn sample_obj(workspace_root: &str) -> serde_json::Value {
-            serde_json::json!({
-                "packages": [{
-                    "name": "test-crate",
-                    "version": "0.1.0",
-                    "id": "test-crate 0.1.0 (path+file:///test)",
-                    "source": "registry+https://github.com/rust-lang/crates.io-index",
-                    "dependencies": [],
-                    "targets": [],
-                    "features": {},
-                    "manifest_path": "/test/Cargo.toml",
-                    "metadata": {},
-                    "publish": [],
-                    "authors": [],
-                    "categories": [],
-                    "keywords": [],
-                    "readme": "",
-                    "repository": "",
-                    "homepage": "",
-                    "documentation": "",
-                    "edition": "2021",
-                    "links": "",
-                    "default_run": "",
-                    "rust_version": "",
-                    "license": "",
-                    "license_file": "",
-                    "description": ""
-                }],
-                "workspace_members": ["test-crate 0.1.0 (path+file:///test)"],
-                "workspace_default_members": ["test-crate 0.1.0 (path+file:///test)"],
-                "resolve": {"nodes": [], "root": ""},
-                "target_directory": "/test/target",
-                "version": 1,
-                "workspace_root": workspace_root,
-                "metadata": {}
-            })
-        }
-
         let data_dir = tempfile::tempdir().unwrap();
         // Two-element JSON array → DuckDB `read_json_auto` emits two rows.
-        let metadata_json =
-            serde_json::Value::Array(vec![sample_obj("/test/a"), sample_obj("/test/b")]);
-        let json_path = data_dir.path().join("metadata.json");
-        std::fs::write(
-            &json_path,
-            serde_json::to_vec_pretty(&metadata_json).unwrap(),
-        )
-        .unwrap();
+        let metadata_json = serde_json::Value::Array(vec![
+            ingest_metadata().root("/test/a").value(),
+            ingest_metadata().root("/test/b").value(),
+        ]);
+        write_metadata_json(data_dir.path(), &metadata_json);
 
         let buf = TracingBuf::default();
         let subscriber = tracing_subscriber::fmt()
@@ -489,75 +332,13 @@ mod tests {
     /// view must keep both — TASK-0982 fixed the inverse drop, this
     /// fixes the duplicate-collapse.
     #[test]
-    #[allow(clippy::too_many_lines)]
     fn crate_dependencies_view_preserves_target_conditional_duplicates() {
         let data_dir = tempfile::tempdir().unwrap();
-        let metadata_json = serde_json::json!({
-            "packages": [{
-                "name": "test-crate",
-                "version": "0.1.0",
-                "id": "test-crate 0.1.0 (path+file:///test)",
-                "source": "registry+https://github.com/rust-lang/crates.io-index",
-                "dependencies": [
-                    {
-                        "name": "libc",
-                        "source": "registry+https://github.com/rust-lang/crates.io-index",
-                        "req": "^0.2",
-                        "kind": "normal",
-                        "optional": false,
-                        "uses_default_features": true,
-                        "features": [],
-                        "target": "cfg(unix)",
-                        "rename": "",
-                        "registry": ""
-                    },
-                    {
-                        "name": "libc",
-                        "source": "registry+https://github.com/rust-lang/crates.io-index",
-                        "req": "^0.2",
-                        "kind": "normal",
-                        "optional": false,
-                        "uses_default_features": true,
-                        "features": [],
-                        "target": "cfg(windows)",
-                        "rename": "",
-                        "registry": ""
-                    }
-                ],
-                "targets": [],
-                "features": {},
-                "manifest_path": "/test/Cargo.toml",
-                "metadata": {},
-                "publish": [],
-                "authors": [],
-                "categories": [],
-                "keywords": [],
-                "readme": "",
-                "repository": "",
-                "homepage": "",
-                "documentation": "",
-                "edition": "2021",
-                "links": "",
-                "default_run": "",
-                "rust_version": "",
-                "license": "",
-                "license_file": "",
-                "description": ""
-            }],
-            "workspace_members": ["test-crate 0.1.0 (path+file:///test)"],
-            "workspace_default_members": ["test-crate 0.1.0 (path+file:///test)"],
-            "resolve": {"nodes": [], "root": ""},
-            "target_directory": "/test/target",
-            "version": 1,
-            "workspace_root": "/test",
-            "metadata": {}
-        });
-        let json_path = data_dir.path().join("metadata.json");
-        std::fs::write(
-            &json_path,
-            serde_json::to_vec_pretty(&metadata_json).unwrap(),
-        )
-        .unwrap();
+        let metadata_json = ingest_metadata()
+            .dep(ingest_dep("libc", "^0.2").target("cfg(unix)"))
+            .dep(ingest_dep("libc", "^0.2").target("cfg(windows)"))
+            .value();
+        write_metadata_json(data_dir.path(), &metadata_json);
 
         let db = DuckDb::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
