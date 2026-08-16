@@ -1,11 +1,11 @@
 ---
 id: TASK-1578
 title: code-review-plan-wave124
-status: In Progress
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-05-19 16:45'
-updated_date: '2026-08-15 00:00'
+updated_date: '2026-08-16 19:20'
 labels:
   - code-review-wave
 dependencies:
@@ -44,3 +44,12 @@ left as-is**.
 10 of 11 dependency tasks are `Done`. Genuinely blocked on TASK-1567 alone.
 Closes when that does.
 <!-- SECTION:TRIAGE:END -->
+
+## Closure
+
+<!-- SECTION:CLOSURE:BEGIN -->
+**Closed 2026-08-16.** The 2026-08-15 triage note recorded this wave as
+blocked on TASK-1567 alone. TASK-1567 went Done in commit 7b47f36 without the
+wave parent being revisited, so the note had been stale since then. All 11
+member tasks are Done; closing.
+<!-- SECTION:CLOSURE:END -->
