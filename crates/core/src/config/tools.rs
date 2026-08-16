@@ -64,7 +64,7 @@ mod tests {
     use super::*;
 
     fn parse_tool_spec(toml_value: &str) -> ToolSpec {
-        let doc = format!("tool = {}", toml_value);
+        let doc = format!("tool = {toml_value}");
         let parsed: toml::Value = toml::from_str(&doc).unwrap();
         let value = parsed.get("tool").unwrap().clone();
         ToolSpec::deserialize(value).unwrap()

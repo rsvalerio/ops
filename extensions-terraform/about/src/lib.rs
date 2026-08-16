@@ -14,6 +14,16 @@
 //! The directory enumeration in [`find_required_version`] mirrors the
 //! same policy — non-NotFound `read_dir` failures are logged at `warn`.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 use std::path::Path;
 
 use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
@@ -126,10 +136,10 @@ fn find_required_version(root: &Path) -> Option<String> {
         .collect();
     tf_paths.sort();
     for path in tf_paths {
-        let kind = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "<unnamed>.tf".to_string());
+        let kind = path.file_name().map_or_else(
+            || "<unnamed>.tf".to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
         if let Some(content) = ops_about::manifest_io::read_optional_text(&path, &kind) {
             if let Some(v) = extract_required_version(&content) {
                 return Some(v);

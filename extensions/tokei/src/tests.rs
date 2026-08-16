@@ -248,8 +248,7 @@ fn flatten_tokei_strips_workspace_prefix() {
         let file = record["file"].as_str().unwrap();
         assert!(
             !file.starts_with(manifest_dir.to_str().unwrap()),
-            "file path should be relative, got: {}",
-            file
+            "file path should be relative, got: {file}"
         );
     }
 }
@@ -339,8 +338,7 @@ fn ingestor_load_errors_when_json_missing() {
     let msg = err.to_string().to_lowercase();
     assert!(
         msg.contains("not found") || msg.contains("no such file") || msg.contains("os error 2"),
-        "expected missing-file error, got: {}",
-        err
+        "expected missing-file error, got: {err}"
     );
 }
 
@@ -460,8 +458,7 @@ fn flatten_tokei_with_unrelated_prefix_keeps_full_path() {
         let file = record["file"].as_str().unwrap();
         assert!(
             file.starts_with('/') || file.contains(&manifest_dir.to_string_lossy().to_string()),
-            "file should retain full path when prefix doesn't match, got: {}",
-            file
+            "file should retain full path when prefix doesn't match, got: {file}"
         );
     }
 }

@@ -161,11 +161,11 @@ impl ConfigurableTheme {
             PlanHeaderStyle::Plain => {
                 let body = format!("{}Running: {}", self.config.plan_header_prefix, ids);
                 let colored = apply_with_prefix(&body, self.header_prefix.as_deref());
-                let header = format!("{}{}", pad, colored);
+                let header = format!("{pad}{colored}");
                 vec![String::new(), header, String::new()]
             }
             PlanHeaderStyle::Tree => {
-                let body = format!("┌ Running: {}", ids);
+                let body = format!("┌ Running: {ids}");
                 let colored = apply_with_prefix(&body, self.header_prefix.as_deref());
                 vec![
                     String::new(),
@@ -453,13 +453,10 @@ impl ConfigurableTheme {
             apply_with_prefix(&plain_separator, self.separator_prefix.as_deref());
 
         if slot.trailing.is_empty() {
-            format!("{}{}{}", pad, colored_prefix, colored_separator)
+            format!("{pad}{colored_prefix}{colored_separator}")
         } else {
             let colored_trailing = apply_with_prefix(slot.trailing, slot.trailing_prefix);
-            format!(
-                "{}{}{} {}",
-                pad, colored_prefix, colored_separator, colored_trailing
-            )
+            format!("{pad}{colored_prefix}{colored_separator} {colored_trailing}")
         }
     }
 
@@ -519,7 +516,7 @@ impl ConfigurableTheme {
         let mut out = Vec::with_capacity(report.rows.len() * 2 + 4);
         out.push(String::new());
         let title = apply_with_prefix(&report.title, self.report_title_prefix.as_deref());
-        out.push(format!("{}{}", pad, title));
+        out.push(format!("{pad}{title}"));
         out.push(String::new());
         for row in &report.rows {
             out.push(self.render_slot(&self.report_slot(row), columns));

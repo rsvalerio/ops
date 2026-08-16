@@ -9,6 +9,16 @@
 //! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
 //! manifest does not silently look like a missing one (TASK-0394).
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 mod units;
 
 use std::path::Path;
@@ -311,14 +321,13 @@ fn normalize_urls(
         std::collections::HashMap::with_capacity(urls.len());
     let mut first_seen_raw: std::collections::HashMap<String, &String> =
         std::collections::HashMap::with_capacity(urls.len());
-    for (k, v) in urls.iter() {
+    for (k, v) in urls {
         let norm = normalize_url_key(k);
         if let Some(existing_url) = out.get(&norm) {
             let existing_key = first_seen_raw
                 .get(&norm)
                 .copied()
-                .map(|s| s.as_str())
-                .unwrap_or("");
+                .map_or("", std::string::String::as_str);
             tracing::warn!(
                 normalized_key = %norm,
                 first_key = %existing_key,

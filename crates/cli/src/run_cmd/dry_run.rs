@@ -132,7 +132,7 @@ pub(crate) fn print_exec_spec(
         }
     }
     if let Some(timeout) = e.timeout_secs {
-        writeln!(w, "      timeout: {}s", timeout)?;
+        writeln!(w, "      timeout: {timeout}s")?;
     }
     Ok(())
 }

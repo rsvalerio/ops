@@ -356,3 +356,6 @@ mod path_index_error_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

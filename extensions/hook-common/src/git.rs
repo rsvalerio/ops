@@ -194,7 +194,7 @@ fn max_parent_escape(path: &Path) -> usize {
             Component::ParentDir => {
                 depth -= 1;
                 if depth < 0 {
-                    let escape = depth.unsigned_abs() as usize;
+                    let escape = usize::try_from(depth.unsigned_abs()).unwrap_or(usize::MAX);
                     if escape > peak {
                         peak = escape;
                     }

@@ -75,19 +75,19 @@ impl Stack {
     /// rejected.
     pub fn resolve(config_stack: Option<&str>, workspace_root: &Path) -> Option<Self> {
         if let Some(raw) = config_stack {
-            match raw.parse::<Self>() {
-                Ok(stack) => return Some(stack),
-                Err(_) => {
-                    let accepted = Self::VARIANTS.join(", ");
-                    tracing::warn!(
-                        value = raw,
-                        accepted = %accepted,
-                        "unrecognised stack override in config; falling back to detection"
-                    );
-                    crate::ui::warn(format!(
-                        "config.stack = \"{raw}\" is not a recognised stack; falling back to auto-detection (accepted: {accepted})"
-                    ));
-                }
+            if let Ok(stack) = raw.parse::<Self>() {
+                return Some(stack);
+            }
+            {
+                let accepted = Self::VARIANTS.join(", ");
+                tracing::warn!(
+                    value = raw,
+                    accepted = %accepted,
+                    "unrecognised stack override in config; falling back to detection"
+                );
+                crate::ui::warn(format!(
+                    "config.stack = \"{raw}\" is not a recognised stack; falling back to auto-detection (accepted: {accepted})"
+                ));
             }
         }
         Self::detect(workspace_root)
@@ -108,6 +108,9 @@ impl Stack {
     }
 
     /// Embedded TOML content for this stack's default commands, or None for Generic.
+    // `&self` for consistency with the sibling `default_commands_*` methods,
+    // which cannot take `self` by value.
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     fn default_commands_toml(&self) -> Option<&'static str> {
         metadata::metadata(*self).1
     }
@@ -135,6 +138,11 @@ impl Stack {
     /// variant during `OnceLock` initialisation (via `Self::iter`), so the
     /// `expect` is a documented invariant violation rather than a runtime
     /// concern.
+    ///
+    /// # Panics
+    ///
+    /// If the cache is missing an entry for `self`, which can only happen if
+    /// `Self::iter` stops yielding every `Stack` variant.
     pub fn default_commands_ref(&self) -> &'static IndexMap<String, CommandSpec> {
         Self::default_commands_cache()
             .get(self)
@@ -969,7 +977,9 @@ mod tests {
         assert_eq!(first.len(), second.len());
         for (k, v) in &first {
             assert_eq!(
-                second.get(k).map(|s| s.display_cmd_fallback()),
+                second
+                    .get(k)
+                    .map(super::super::config::commands::CommandSpec::display_cmd_fallback),
                 Some(v.display_cmd_fallback()),
                 "memoized default_commands diverged at key {k}"
             );

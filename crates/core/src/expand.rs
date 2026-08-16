@@ -548,7 +548,7 @@ mod tests {
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap();
-        assert_eq!(result, format!("{}/config", home));
+        assert_eq!(result, format!("{home}/config"));
     }
 
     #[test]
@@ -558,7 +558,7 @@ mod tests {
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap();
-        assert_eq!(result, format!("{}/.config", home));
+        assert_eq!(result, format!("{home}/.config"));
     }
 
     /// PERF-3 / TASK-1183: two `from_env` calls with the same `ops_root`
@@ -657,7 +657,7 @@ mod tests {
         let vars = test_vars();
         let result = vars.expand("$TMPDIR/ops-test");
         let tmpdir = std::env::temp_dir().display().to_string();
-        assert_eq!(result, format!("{}/ops-test", tmpdir));
+        assert_eq!(result, format!("{tmpdir}/ops-test"));
     }
 
     #[test]
@@ -1060,7 +1060,7 @@ mod tests {
         let vars = test_vars();
         let result = vars.expand("$OPS_ROOT and $TMPDIR");
         let tmpdir = std::env::temp_dir().display().to_string();
-        assert_eq!(result, format!("/test/project and {}", tmpdir));
+        assert_eq!(result, format!("/test/project and {tmpdir}"));
     }
 
     /// Microbench-style regression: constructing `Variables::from_env` many

@@ -56,8 +56,7 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
 pub(super) fn canonicalize_cache_contains(start: &Path) -> bool {
     CANONICALIZE_CACHE
         .get()
-        .map(|c| crate::sync::lock_recover(c).contains_key(start))
-        .unwrap_or(false)
+        .is_some_and(|c| crate::sync::lock_recover(c).contains_key(start))
 }
 
 /// SEC-25: probe a manifest path with `try_exists` so transient errors are

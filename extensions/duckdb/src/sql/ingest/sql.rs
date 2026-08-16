@@ -52,7 +52,7 @@ pub(crate) fn table_exists(
                 (SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?) \
               + (SELECT COUNT(*) FROM information_schema.views  WHERE table_name = ?)",
             duckdb::params![table_name, table_name],
-            |row: &duckdb::Row| row.get(0),
+            |row: &duckdb::Row<'_>| row.get(0),
         )
         // ERR-7: render the identifier via Debug so any embedded control
         // characters (\n, \t, NULs, ANSI escapes …) are escaped and cannot
@@ -74,7 +74,7 @@ pub fn table_has_data(db: &DuckDb, table_name: &str) -> Result<bool, anyhow::Err
         .query_row(
             &format!("SELECT COUNT(*) FROM {quoted}"),
             [],
-            |row: &duckdb::Row| row.get(0),
+            |row: &duckdb::Row<'_>| row.get(0),
         )
         // ERR-7 (TASK-0521): Debug-format the table name to defang
         // control-character/log-injection.

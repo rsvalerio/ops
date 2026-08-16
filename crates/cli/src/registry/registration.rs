@@ -221,7 +221,7 @@ where
 /// structural duplication with [`register_extension_data_providers`] is
 /// removed.
 pub fn register_extension_commands(extensions: &[&dyn Extension], registry: &mut CommandRegistry) {
-    let mut owners = snapshot_initial_owners(registry.keys().map(|k| k.to_string()));
+    let mut owners = snapshot_initial_owners(registry.keys().map(std::string::ToString::to_string));
     for ext in extensions {
         debug!(extension = ext.name(), action = "commands", "registering");
         let mut local = CommandRegistry::new();

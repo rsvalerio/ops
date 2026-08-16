@@ -64,7 +64,7 @@ pub fn build_card_stats_line(unit: &ProjectUnit) -> Option<String> {
     let parts: Vec<String> = [
         unit.loc.map(|loc| format!("{} loc", format_number(loc))),
         unit.file_count
-            .map(|f| format!("{} file{}", format_number(f), if f != 1 { "s" } else { "" })),
+            .map(|f| format!("{} file{}", format_number(f), if f == 1 { "" } else { "s" })),
         unit.dep_count
             .map(|deps| format!("{} deps", format_number(deps))),
     ]
@@ -138,17 +138,17 @@ pub fn render_card(unit: &ProjectUnit, is_tty: bool) -> Vec<String> {
             tty_style(&pad_to_width_plain(&stats_text, inner_width), dim, is_tty)
         ));
     } else {
-        lines.push(format!("\u{2502}{}\u{2502}", empty_line));
+        lines.push(format!("\u{2502}{empty_line}\u{2502}"));
     }
 
     for i in 0..CardLayoutConfig::CARD_DESC_LINES {
-        let desc_line = desc_lines.get(i).map(|s| s.as_str()).unwrap_or("");
+        let desc_line = desc_lines.get(i).map_or("", std::string::String::as_str);
         let content = if desc_line.is_empty() {
             empty_line.clone()
         } else {
             tty_style(&pad_to_width_plain(desc_line, inner_width), white, is_tty)
         };
-        lines.push(format!("\u{2502}{}\u{2502}", content));
+        lines.push(format!("\u{2502}{content}\u{2502}"));
     }
 
     lines.push(bottom_border);
@@ -209,14 +209,14 @@ pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize)
     };
 
     for chunk in cards.chunks(cards_per_row) {
-        let max_lines = chunk.iter().map(|c| c.len()).max().unwrap_or(0);
+        let max_lines = chunk.iter().map(std::vec::Vec::len).max().unwrap_or(0);
 
         for line_idx in 0..max_lines {
             // Borrow card lines as &str instead of cloning per cell; the
             // resulting `[&str].join(&str)` allocates once for the row String.
             let row_parts: Vec<&str> = chunk
                 .iter()
-                .map(|card| card.get(line_idx).map(String::as_str).unwrap_or(""))
+                .map(|card| card.get(line_idx).map_or("", String::as_str))
                 .collect();
             result.push(format!("  {}{}", row_parts.join(SPACING), SPACING));
         }
@@ -224,7 +224,7 @@ pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize)
         result.push(String::new());
     }
 
-    if result.last().map(|s| s.is_empty()).unwrap_or(false) {
+    if result.last().is_some_and(std::string::String::is_empty) {
         result.pop();
     }
 

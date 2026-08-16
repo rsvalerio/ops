@@ -339,7 +339,7 @@ mod tests {
     #[test]
     fn step_result_debug_includes_fields() {
         let result = StepResult::failure("debug_cmd", Duration::from_millis(42), "oops".into());
-        let debug = format!("{:?}", result);
+        let debug = format!("{result:?}");
         assert!(debug.contains("debug_cmd"), "Debug should include id");
         assert!(debug.contains("oops"), "Debug should include message");
         assert!(
@@ -359,8 +359,7 @@ mod tests {
 
         assert!(
             truncated.contains("[ops] output truncated"),
-            "expected truncation marker, got: {:?}",
-            truncated
+            "expected truncation marker, got: {truncated:?}"
         );
         assert!(
             truncated.contains("dropped"),

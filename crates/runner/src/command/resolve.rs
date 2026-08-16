@@ -90,7 +90,7 @@ pub(super) fn record_store_walk() {
 
 #[cfg(test)]
 pub(super) fn store_walk_count() -> usize {
-    STORE_WALKS.with(|c| c.get())
+    STORE_WALKS.with(std::cell::Cell::get)
 }
 
 impl CommandRunner {
@@ -99,10 +99,22 @@ impl CommandRunner {
         self.config
             .commands
             .keys()
-            .map(|s| s.as_str())
-            .chain(self.stack_commands.keys().map(|k| k.as_str()))
-            .chain(self.extension_commands.keys().map(|k| k.as_str()))
-            .chain(self.builtin_commands.keys().map(|k| k.as_str()))
+            .map(std::string::String::as_str)
+            .chain(
+                self.stack_commands
+                    .keys()
+                    .map(ops_core::config::CommandId::as_str),
+            )
+            .chain(
+                self.extension_commands
+                    .keys()
+                    .map(ops_core::config::CommandId::as_str),
+            )
+            .chain(
+                self.builtin_commands
+                    .keys()
+                    .map(ops_core::config::CommandId::as_str),
+            )
     }
 
     /// Look up a command by ID across all stores (config → stack → extension → builtin).

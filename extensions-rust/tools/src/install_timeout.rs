@@ -25,40 +25,39 @@ pub fn run_with_timeout(
     timeout: Duration,
     label: &str,
 ) -> anyhow::Result<std::process::ExitStatus> {
-    match child
+    if let Some(status) = child
         .wait_timeout(timeout)
         .context("subprocess wait failed")?
     {
-        Some(status) => Ok(status),
-        None => {
-            // ERR-9 / TASK-1584: surface kill/wait failures via
-            // `tracing::warn!` instead of swallowing them. A failing
-            // `kill()` (e.g. process in an uninterruptible state) leaves
-            // a runaway cargo/rustup install eating disk I/O while the
-            // bailed error says only "timed out", so post-incident logs
-            // need this breadcrumb to explain the next install attempt
-            // seeing `already installing` / filesystem-lock contention.
-            if let Err(e) = child.kill() {
-                tracing::warn!(
-                    label,
-                    error = %e,
-                    pid = child.id(),
-                    "failed to kill child after timeout; install subprocess may be orphaned"
-                );
-            }
-            // Reap the killed child so it does not become a zombie. Wait
-            // can fail if the child was never reaped (e.g. kill above
-            // failed) — log so the orphaned-child case stays observable.
-            if let Err(e) = child.wait() {
-                tracing::warn!(
-                    label,
-                    error = %e,
-                    pid = child.id(),
-                    "failed to wait on child after timeout; child may not have been reaped"
-                );
-            }
-            anyhow::bail!("{} timed out after {} seconds", label, timeout.as_secs());
+        Ok(status)
+    } else {
+        // ERR-9 / TASK-1584: surface kill/wait failures via
+        // `tracing::warn!` instead of swallowing them. A failing
+        // `kill()` (e.g. process in an uninterruptible state) leaves
+        // a runaway cargo/rustup install eating disk I/O while the
+        // bailed error says only "timed out", so post-incident logs
+        // need this breadcrumb to explain the next install attempt
+        // seeing `already installing` / filesystem-lock contention.
+        if let Err(e) = child.kill() {
+            tracing::warn!(
+                label,
+                error = %e,
+                pid = child.id(),
+                "failed to kill child after timeout; install subprocess may be orphaned"
+            );
         }
+        // Reap the killed child so it does not become a zombie. Wait
+        // can fail if the child was never reaped (e.g. kill above
+        // failed) — log so the orphaned-child case stays observable.
+        if let Err(e) = child.wait() {
+            tracing::warn!(
+                label,
+                error = %e,
+                pid = child.id(),
+                "failed to wait on child after timeout; child may not have been reaped"
+            );
+        }
+        anyhow::bail!("{} timed out after {} seconds", label, timeout.as_secs());
     }
 }
 

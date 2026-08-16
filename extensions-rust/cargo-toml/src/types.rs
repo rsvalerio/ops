@@ -181,7 +181,7 @@ impl<T> InheritableField<T> {
 impl InheritableField<String> {
     /// Returns the string value as &str if present.
     pub fn as_str(&self) -> Option<&str> {
-        self.value().map(|s| s.as_str())
+        self.value().map(std::string::String::as_str)
     }
 }
 

@@ -170,7 +170,10 @@ fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<St
         // site (`audit_command_self_shadow`); the summary stays pure so
         // callers that just want the (types, commands) tuple don't have to
         // thread a dedupe set.
-        cmd_registry.keys().map(|s| s.to_string()).collect()
+        cmd_registry
+            .keys()
+            .map(std::string::ToString::to_string)
+            .collect()
     } else {
         info.command_names
             .iter()
@@ -222,7 +225,7 @@ fn build_extension_row(
 
     let data_provider = info
         .data_provider_name
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .unwrap_or_default();
 
     let data_cell = if table.is_tty() && !data_provider.is_empty() {
@@ -283,27 +286,26 @@ where
     // real cause regardless of whether stdout is attached to a terminal.
     // The TTY check is a precondition for the interactive picker; the
     // picker is only useful when there is something to pick.
-    let resolved_name: String = match name {
-        Some(n) => n.to_string(),
-        None => {
-            if compiled.is_empty() {
-                anyhow::bail!("no extensions compiled in");
-            }
-            if !is_tty() {
-                anyhow::bail!("extension show requires an interactive terminal (or pass a name)");
-            }
-
-            let options: Vec<SelectOption> = compiled
-                .iter()
-                .map(|(config_name, ext)| SelectOption {
-                    name: config_name.to_string(),
-                    description: ext.info().description.to_string(),
-                })
-                .collect();
-
-            let selected = inquire::Select::new("Select an extension:", options).prompt()?;
-            selected.name
+    let resolved_name: String = if let Some(n) = name {
+        n.to_string()
+    } else {
+        if compiled.is_empty() {
+            anyhow::bail!("no extensions compiled in");
         }
+        if !is_tty() {
+            anyhow::bail!("extension show requires an interactive terminal (or pass a name)");
+        }
+
+        let options: Vec<SelectOption> = compiled
+            .iter()
+            .map(|(config_name, ext)| SelectOption {
+                name: (*config_name).to_string(),
+                description: ext.info().description.to_string(),
+            })
+            .collect();
+
+        let selected = inquire::Select::new("Select an extension:", options).prompt()?;
+        selected.name
     };
 
     let resolved_idx = compiled
@@ -348,14 +350,13 @@ fn print_extension_details(
 
     let data_provider = info
         .data_provider_name
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "-".to_string());
+        .map_or_else(|| "-".to_string(), std::string::ToString::to_string);
 
     write_object_header(w, "EXTENSION", name, info.description, is_tty)?;
     writeln!(w, "  Shortname:     {}", info.shortname)?;
     writeln!(w, "  Types:         {}", format_list(&types))?;
     writeln!(w, "  Commands:      {}", format_list(&commands))?;
-    writeln!(w, "  Data provider: {}", data_provider)?;
+    writeln!(w, "  Data provider: {data_provider}")?;
 
     if let Some(provider_name) = info.data_provider_name {
         // Build the data registry from the already-collected `compiled`
@@ -510,10 +511,10 @@ mod tests {
     #[test]
     fn run_extension_show_no_extensions_wins_over_no_tty() {
         let (_dir, _guard) = crate::test_utils::with_temp_config(
-            r#"
+            r"
 [extensions]
 enabled = []
-"#,
+",
         );
         let config = ops_core::config::load_config_or_default("test");
         let mut buf = Vec::new();
@@ -616,10 +617,10 @@ enabled = []
     #[test]
     fn run_extension_list_with_no_extensions() {
         let (_dir, _guard) = crate::test_utils::with_temp_config(
-            r#"
+            r"
 [extensions]
 enabled = []
-"#,
+",
         );
         // With empty enabled list, collect_compiled_extensions still returns all,
         // but the list output should still work

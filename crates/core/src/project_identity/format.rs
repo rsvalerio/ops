@@ -82,6 +82,9 @@ fn short_language_name(name: &str) -> &str {
 
 /// Per-language glyph for the codebase breakdown. Falls back to a generic
 /// document icon when no specific mapping is known.
+// "Markdown" resolves to the same glyph as the fallback, but the explicit arm
+// records that it is a deliberate choice rather than a missing mapping.
+#[allow(clippy::match_same_arms)]
 fn language_emoji(name: &str) -> &'static str {
     match name {
         "Rust" => "\u{1f980}",                                   // 🦀
@@ -173,7 +176,7 @@ pub(super) fn compose_stack_value(id: &ProjectIdentity) -> Option<String> {
     push_non_empty(&mut parts, &id.stack_label);
     push_non_empty_opt(&mut parts, id.stack_detail.as_deref());
     if let Some(msrv) = id.msrv.as_deref().filter(|s| !s.is_empty()) {
-        parts.push(format!("{} (msrv)", msrv));
+        parts.push(format!("{msrv} (msrv)"));
     }
     if parts.is_empty() {
         None
@@ -188,7 +191,7 @@ pub(super) fn compose_project_value(id: &ProjectIdentity) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
     push_non_empty(&mut parts, &id.name);
     if let Some(v) = id.version.as_deref().filter(|s| !s.is_empty()) {
-        parts.push(format!("v{}", v));
+        parts.push(format!("v{v}"));
     }
     push_non_empty(&mut parts, &id.project_path);
     if parts.is_empty() {
@@ -217,7 +220,7 @@ pub(super) fn compose_codebase_value(id: &ProjectIdentity) -> Option<String> {
             parts.push(format!(
                 "{} file{}",
                 format_number(f),
-                if f != 1 { "s" } else { "" }
+                if f == 1 { "" } else { "s" }
             ));
             parts.extend(format_language_breakdown(
                 &id.languages,

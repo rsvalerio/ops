@@ -37,7 +37,7 @@ fn merge_config_overlay_overrides_existing_command() {
     merge_config(&mut base, overlay);
     match &base.commands["build"] {
         CommandSpec::Exec(e) => assert_eq!(e.args, vec!["build", "--release"]),
-        _ => panic!("expected Exec"),
+        CommandSpec::Composite(_) => panic!("expected Exec"),
     }
 }
 

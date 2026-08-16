@@ -172,7 +172,7 @@ pub(crate) fn open_refusing_symlinks(path: &Path) -> std::io::Result<std::fs::Fi
 
 #[cfg(unix)]
 fn is_symlink_refusal(e: &std::io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(libc::ELOOP) | Some(libc::EMLINK))
+    matches!(e.raw_os_error(), Some(libc::ELOOP | libc::EMLINK))
 }
 
 /// Read `path` to a `String`, capped at [`manifest_max_bytes`] bytes.

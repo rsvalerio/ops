@@ -266,7 +266,7 @@ mod exec_unit_tests {
     fn emit_output_events_crlf_handling() {
         let mut events: Vec<RunnerEvent> = Vec::new();
         emit("test", "line1\r\nline2\r\n", "err\r\n", &mut |e| {
-            events.push(e)
+            events.push(e);
         });
 
         let stdout_events: Vec<_> = events

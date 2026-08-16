@@ -161,11 +161,15 @@ fn format_totals_line(stats: &[&RustLocStat], files: i64) -> String {
             .iter()
             .map(|s| {
                 let (_, name) = region_display(&s.region);
+                // Line counts never approach f64's 2^53 exact-integer range,
+                // and the result is rendered to one decimal place anyway.
+                #[allow(clippy::cast_precision_loss)]
                 let pct = s.code as f64 * 100.0 / total_code as f64;
                 format!("{pct:.1}% {name}")
             })
             .collect();
-        line.push_str(&format!(" \u{2014} {}", shares.join(", ")));
+        use std::fmt::Write as _;
+        let _ = write!(line, " \u{2014} {}", shares.join(", "));
     }
 
     line

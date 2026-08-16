@@ -225,9 +225,11 @@ fn upgrade_legacy_hook(
 /// logged rather than returned because the install has already succeeded —
 /// surfacing a parent-dir fsync failure as a hard error would regress the
 /// success path on filesystems that do not support directory fsync.
-fn sync_parent_dir(_path: &Path) {
+fn sync_parent_dir(path: &Path) {
+    #[cfg(not(unix))]
+    let _ = path;
     #[cfg(unix)]
-    if let Some(parent) = _path.parent() {
+    if let Some(parent) = path.parent() {
         match File::open(parent) {
             Ok(dir) => {
                 if let Err(e) = dir.sync_all() {
@@ -261,11 +263,13 @@ fn write_hook_payload(file: &File, tmp_path: &Path, config: &HookConfig) -> anyh
     Ok(())
 }
 
-fn set_hook_executable(_path: &Path) -> anyhow::Result<()> {
+fn set_hook_executable(path: &Path) -> anyhow::Result<()> {
+    #[cfg(not(unix))]
+    let _ = path;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(_path, std::fs::Permissions::from_mode(0o755))
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
             .context("failed to make hook executable")?;
     }
     Ok(())
@@ -691,7 +695,7 @@ mod tests {
         // *aside from* the legacy orphan we explicitly seeded.
         let stray_random_stages = std::fs::read_dir(&hooks)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .filter(|n| n.starts_with(".pre-commit.ops-tmp."))
             .count();
@@ -781,7 +785,7 @@ mod tests {
         // is either renamed (winner) or dropped (loser).
         let stray = std::fs::read_dir(&hooks)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .filter(|n| n.starts_with(".pre-commit.ops-tmp."))
             .count();

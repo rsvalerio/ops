@@ -27,7 +27,7 @@ use std::sync::{Mutex, MutexGuard};
 /// dedup set with no broken invariant. Tests and seams that need a
 /// breadcrumb when poison was observed should use [`lock_recover_warn`]
 /// instead.
-pub(crate) fn lock_recover<'a, T>(m: &'a Mutex<T>) -> MutexGuard<'a, T> {
+pub(crate) fn lock_recover<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| {
         m.clear_poison();
         e.into_inner()

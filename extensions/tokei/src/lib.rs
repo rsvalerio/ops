@@ -1,6 +1,16 @@
 //! Tokei extension: code statistics (lines of code, comments, blanks) via the tokei library.
 //! Language-agnostic -- loads for any project regardless of stack.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 mod ingestor;
 #[cfg(test)]
 mod tests;

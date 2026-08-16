@@ -349,10 +349,10 @@ fn inheritable_field_value_and_inherited() {
 
 #[test]
 fn inheritable_field_default() {
-    let field: crate::types::InheritableString = Default::default();
+    let field = crate::types::InheritableString::default();
     assert_eq!(field.as_str(), Some(""));
 
-    let vec_field: crate::types::InheritableVec = Default::default();
+    let vec_field = crate::types::InheritableVec::default();
     assert_eq!(vec_field.value(), Some(&vec![]));
 }
 

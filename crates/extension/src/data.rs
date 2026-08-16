@@ -263,7 +263,7 @@ impl DataRegistry {
     }
 
     pub fn get(&self, name: &str) -> Option<&dyn DataProvider> {
-        self.providers.get(name).map(|b| b.as_ref())
+        self.providers.get(name).map(std::convert::AsRef::as_ref)
     }
 
     /// Returns the registered provider names in sorted order.
@@ -295,7 +295,7 @@ impl DataRegistry {
     /// Returns about-card field declarations from the named provider.
     pub fn about_fields(&self, provider_name: &str) -> Vec<AboutFieldDef> {
         self.get(provider_name)
-            .map(|p| p.about_fields())
+            .map(DataProvider::about_fields)
             .unwrap_or_default()
     }
 
@@ -439,6 +439,7 @@ impl Context {
     }
 
     /// Create a context with refresh mode enabled (forces data re-collection).
+    #[must_use]
     pub fn with_refresh(mut self) -> Self {
         self.refresh = true;
         self
@@ -465,6 +466,11 @@ impl Context {
     /// regression that became user-visible once TASK-0993 folded the cache
     /// onto the persistent runner `Context`, which lives across repeat
     /// queries within a single runner lifetime.
+    ///
+    /// # Panics
+    ///
+    /// If the `in_flight` entry inserted at the top of the call is missing by
+    /// the time the provider returns — an internal invariant violation.
     pub fn get_or_provide(
         &mut self,
         key: &str,

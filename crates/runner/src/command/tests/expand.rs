@@ -675,7 +675,7 @@ mod depth_limit_tests {
     fn create_nested_commands(depth: usize) -> HashMap<String, CommandSpec> {
         let mut commands = HashMap::new();
         for i in 0..depth {
-            let name = format!("level_{}", i);
+            let name = format!("level_{i}");
             let next_name = format!("level_{}", i + 1);
             commands.insert(
                 name,
@@ -683,7 +683,7 @@ mod depth_limit_tests {
             );
         }
         commands.insert(
-            format!("level_{}", depth),
+            format!("level_{depth}"),
             CommandSpec::Exec(exec_spec("echo", &["leaf"])),
         );
         commands

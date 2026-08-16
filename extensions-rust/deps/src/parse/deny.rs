@@ -53,7 +53,7 @@ pub fn run_cargo_deny(working_dir: &Path) -> anyhow::Result<DenyResult> {
         CARGO_DENY_TIMEOUT,
         "cargo deny check",
     )
-    .map_err(|e| anyhow::anyhow!("failed to run cargo deny: {}", e))?;
+    .map_err(|e| anyhow::anyhow!("failed to run cargo deny: {e}"))?;
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     interpret_deny_result(output.status.code(), &stderr)
@@ -176,17 +176,16 @@ fn decode_diagnostic(trimmed: &str) -> Option<DecodedDiagnostic> {
     }
     let fields = deny_line.fields;
     let code = fields.code?;
-    let severity = match fields.severity {
-        Some(s) => s,
-        None => {
-            tracing::warn!(
-                code = %code,
-                message = %truncate_for_log(fields.message.as_deref().unwrap_or("")),
-                "TASK-0845: cargo-deny diagnostic missing severity; substituting `<missing-severity>` sentinel \
-                 (treated as actionable / fail-closed by has_issues)"
-            );
-            MISSING_SEVERITY_SENTINEL.to_string()
-        }
+    let severity = if let Some(s) = fields.severity {
+        s
+    } else {
+        tracing::warn!(
+            code = %code,
+            message = %truncate_for_log(fields.message.as_deref().unwrap_or("")),
+            "TASK-0845: cargo-deny diagnostic missing severity; substituting `<missing-severity>` sentinel \
+             (treated as actionable / fail-closed by has_issues)"
+        );
+        MISSING_SEVERITY_SENTINEL.to_string()
     };
     Some(DecodedDiagnostic {
         code,

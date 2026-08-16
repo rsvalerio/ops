@@ -232,7 +232,7 @@ impl SidecarIngestorConfig {
             .query_row(
                 &format!("SELECT COUNT(*) FROM {quoted}"),
                 [],
-                |row: &duckdb::Row| row.get::<_, i64>(0),
+                |row: &duckdb::Row<'_>| row.get::<_, i64>(0),
             )
             .map_err(|e| {
                 crate::error::DbError::query_failed(

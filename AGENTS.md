@@ -27,6 +27,11 @@ during implementation — that mode is for formal reviews only.
 Run `cargo fmt`, `cargo clippy --all-targets --workspace -- -D warnings`, and
 `cargo test --workspace` before declaring the change done.
 
+Lint levels are centralized in `[workspace.lints]`; no crate sets its own. To
+silence a lint, grant the exception at the narrowest scope that works and write
+the reason next to it — see `docs/clippy.md`. Never run `cargo clippy --fix`
+without reading the diff: it has silently deleted load-bearing code here.
+
 ## Common Commands
 
 - Build: `cargo build --all-targets`
@@ -53,3 +58,4 @@ Run `cargo fmt`, `cargo clippy --all-targets --workspace -- -D warnings`, and
 
 - Releasing: `docs/releasing.md`
 - Visual components and theme comparison: `docs/components.md`
+- Lint policy, exceptions and how to add one: `docs/clippy.md`

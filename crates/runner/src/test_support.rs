@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Create a CommandRunner with the given commands for testing.
-pub fn test_runner(commands: HashMap<String, CommandSpec>) -> CommandRunner {
+pub fn test_runner<S: std::hash::BuildHasher>(
+    commands: HashMap<String, CommandSpec, S>,
+) -> CommandRunner {
     let config = ops_core::test_utils::test_config_with_commands(commands);
     CommandRunner::new(config, PathBuf::from("."))
 }

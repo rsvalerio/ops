@@ -139,6 +139,11 @@ pub const MAX_GIT_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 /// SEC-33 / TASK-0910: the read is capped at [`MAX_GIT_CONFIG_BYTES`]
 /// via `File::open` + `Read::take`. An oversized config returns `None`
 /// with a `tracing::warn!` rather than slurping the whole file.
+///
+/// # Panics
+///
+/// If the URL bytes fail `String::from_utf8` after having already been
+/// validated as UTF-8 — an internal invariant violation.
 #[must_use]
 pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
     use std::io::Read;
@@ -192,18 +197,17 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
         );
         return None;
     }
-    let content = match std::str::from_utf8(&bytes) {
-        Ok(_) => String::from_utf8(bytes).expect("validated above"),
-        Err(_) => {
-            // ERR-1 / TASK-1244: typed debug breadcrumb so operators chasing
-            // "remote_url is None" can tell a non-UTF-8 config apart from a
-            // generic IO error or a missing file.
-            tracing::debug!(
-                path = ?path.display(),
-                "git-config: non-UTF-8 bytes detected; decoding lossily so remote detection survives"
-            );
-            String::from_utf8_lossy(&bytes).into_owned()
-        }
+    let content = if std::str::from_utf8(&bytes).is_ok() {
+        String::from_utf8(bytes).expect("validated above")
+    } else {
+        // ERR-1 / TASK-1244: typed debug breadcrumb so operators chasing
+        // "remote_url is None" can tell a non-UTF-8 config apart from a
+        // generic IO error or a missing file.
+        tracing::debug!(
+            path = ?path.display(),
+            "git-config: non-UTF-8 bytes detected; decoding lossily so remote detection survives"
+        );
+        String::from_utf8_lossy(&bytes).into_owned()
     };
     parse_origin_url_inner(&content, Some(&path))
 }

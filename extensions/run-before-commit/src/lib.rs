@@ -1,5 +1,15 @@
 //! Run-before-commit hook extension: install and manage git pre-commit hooks.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 use std::time::Duration;
 
 use ops_extension::ExtensionType;

@@ -27,10 +27,6 @@ pub use timeout::ProbeOutcome;
 
 // Crate-internal re-exports for sibling modules and tests.
 pub(crate) use cargo::{cargo_list_index, is_in_cargo_list, is_in_cargo_set};
-#[cfg(test)]
-pub(crate) use path::{capture_path_index_from, find_on_path, find_on_path_in, is_in_path_index};
-#[cfg(test)]
-pub(crate) use rustup::{classify_active_toolchain, parse_active_toolchain};
 pub(crate) use rustup::{is_component_in_list, is_component_in_set, rustup_components_index};
 
 pub fn check_tool_status(name: &str, spec: &ToolSpec) -> ToolStatus {
@@ -164,5 +160,162 @@ mod probe_log_format_tests {
         let stderr = "x\n".repeat(10_000);
         let snippet = format_error_tail(stderr.as_bytes(), 10);
         assert_eq!(snippet.lines().count(), 10);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ToolStatus;
+    use ops_core::config::tools::{ExtendedToolSpec, ToolSource, ToolSpec};
+
+    #[test]
+    #[ignore = "requires rustup + cargo-fmt installed; run with: cargo test -- --ignored"]
+    fn check_tool_status_simple_installed() {
+        let spec = ToolSpec::Simple("Format code".to_string());
+        assert_eq!(check_tool_status("cargo-fmt", &spec), ToolStatus::Installed);
+    }
+
+    /// API / TASK-1200: when the underlying probe (`rustup component list
+    /// --installed`) cannot be answered (here: simulated by pointing
+    /// `$RUSTUP` at a script that exits non-zero), the tool's status must
+    /// surface as [`ToolStatus::ProbeFailed`] rather than silently
+    /// collapsing onto [`ToolStatus::NotInstalled`]. The CLI install path
+    /// (`run_tools_install`) filters strictly on `NotInstalled`, so a
+    /// `ProbeFailed` entry no longer triggers the reinstall mutation that
+    /// motivated this finding.
+    ///
+    /// We exercise the non-zero-exit branch (rather than a real timeout)
+    /// to keep the test fast and deterministic; the
+    /// `timeout_returns_none_quickly` test in `probe::timeout` already
+    /// pins that the timeout path itself surfaces as
+    /// `ProbeOutcome::Failed`, which `check_tool_status_with` then maps
+    /// to `ProbeFailed` via the same arm.
+    #[test]
+    #[cfg(unix)]
+    #[serial_test::serial]
+    fn check_tool_status_surfaces_probe_failed_on_wedged_rustup() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let fake = dir.path().join("rustup");
+        std::fs::write(&fake, "#!/bin/sh\necho 'rustup is wedged' >&2\nexit 1\n").unwrap();
+        let mut perms = std::fs::metadata(&fake).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&fake, perms).unwrap();
+
+        let spec = ToolSpec::Extended(ExtendedToolSpec {
+            description: "needs rustup".to_string(),
+            rustup_component: Some("clippy".to_string()),
+            package: None,
+            source: ToolSource::Cargo,
+        });
+
+        let prev_rustup = std::env::var_os("RUSTUP");
+        // SAFETY: serial_test::serial guards env-mutation; the probe spawned
+        // below honours `RUSTUP` synchronously.
+        unsafe { std::env::set_var("RUSTUP", &fake) };
+
+        let status = check_tool_status("clippy", &spec);
+
+        unsafe {
+            match prev_rustup {
+                Some(v) => std::env::set_var("RUSTUP", v),
+                None => std::env::remove_var("RUSTUP"),
+            }
+        };
+
+        assert_eq!(
+            status,
+            ToolStatus::ProbeFailed,
+            "a wedged rustup probe must surface as ProbeFailed, not NotInstalled (which would trigger reinstall)"
+        );
+    }
+
+    /// API / TASK-1200: pin the install-path policy: `run_tools_install`
+    /// filters strictly on `ToolStatus::NotInstalled`, so a `ProbeFailed`
+    /// entry must NOT be picked up for reinstall. The previous shape
+    /// collapsed timeout/IO errors onto `NotInstalled`, turning a transient
+    /// probe failure into a real `cargo install` / `rustup component add`
+    /// mutation.
+    #[test]
+    fn probe_failed_status_excluded_from_install_filter() {
+        let statuses = [
+            ToolStatus::Installed,
+            ToolStatus::NotInstalled,
+            ToolStatus::ProbeFailed,
+        ];
+        let to_install: Vec<_> = statuses
+            .iter()
+            .filter(|s| **s == ToolStatus::NotInstalled)
+            .collect();
+        assert_eq!(to_install.len(), 1);
+        assert_eq!(*to_install[0], ToolStatus::NotInstalled);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn check_tool_status_simple_not_installed() {
+        let spec = ToolSpec::Simple("desc".to_string());
+        assert_eq!(
+            check_tool_status("cargo-nonexistent-abc123", &spec),
+            ToolStatus::NotInstalled
+        );
+    }
+
+    #[test]
+    #[ignore = "requires rustup + clippy component installed; run with: cargo test -- --ignored"]
+    fn check_tool_status_extended_with_rustup_component() {
+        let spec = ToolSpec::Extended(ExtendedToolSpec {
+            description: "Clippy lints".to_string(),
+            rustup_component: Some("clippy".to_string()),
+            package: None,
+            source: ToolSource::Cargo,
+        });
+        assert_eq!(
+            check_tool_status("cargo-clippy", &spec),
+            ToolStatus::Installed
+        );
+    }
+
+    #[test]
+    #[ignore = "requires rustup installed; run with: cargo test -- --ignored"]
+    fn check_tool_status_system_binary() {
+        let spec = ToolSpec::Extended(ExtendedToolSpec {
+            description: "Rust toolchain manager".to_string(),
+            rustup_component: None,
+            package: None,
+            source: ToolSource::System,
+        });
+        assert_eq!(check_tool_status("rustup", &spec), ToolStatus::Installed);
+    }
+
+    #[test]
+    fn check_tool_status_system_missing() {
+        let spec = ToolSpec::Extended(ExtendedToolSpec {
+            description: "desc".to_string(),
+            rustup_component: None,
+            package: None,
+            source: ToolSource::System,
+        });
+        assert_eq!(
+            check_tool_status("nonexistent-abc123", &spec),
+            ToolStatus::NotInstalled
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn check_tool_status_missing_rustup_component() {
+        let spec = ToolSpec::Extended(ExtendedToolSpec {
+            description: "desc".to_string(),
+            rustup_component: Some("nonexistent-component-xyz".to_string()),
+            package: None,
+            source: ToolSource::Cargo,
+        });
+        assert_eq!(
+            check_tool_status("cargo-fmt", &spec),
+            ToolStatus::NotInstalled
+        );
     }
 }

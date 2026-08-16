@@ -5,6 +5,16 @@
 //! [`ConfigurableTheme`] wraps a `ThemeConfig` and renders step lines and
 //! error details.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 mod configurable;
 mod render;
 mod resolve;

@@ -257,32 +257,29 @@ fn run_with_timeout_inner(
     // TASK-0451: single OS-level wait, no polling loop. Returns Ok(None)
     // on timeout, Ok(Some(status)) on exit; the underlying syscall sleeps
     // the thread cooperatively, so idle waits do not burn CPU/battery.
-    let status = match child.wait_timeout(timeout)? {
-        Some(s) => s,
-        None => {
-            // Kill first so the drain threads can see EOF and unblock; then
-            // collect their results before returning the timeout error.
-            // ASYNC-6: the kill only closes the pipe ends the child itself
-            // holds — a surviving grandchild keeps its inherited copies open
-            // — so `drain_after_timeout` bounds that wait rather than
-            // blocking here for as long as the grandchild lives.
-            let _ = child.kill();
-            let _ = child.wait();
-            // ERR-1 / TASK-1466: the timeout branch used to swallow the
-            // collect_drain Result entirely via `let _ = ...`, defeating the
-            // ARCH-2 / ERR-1 hardening that made a panicking drain thread or
-            // mid-read EIO surface as RunError::Io. Now we tag each error
-            // with a "during timeout cleanup" breadcrumb so operators see a
-            // signal that the captured bytes were unrecoverable alongside
-            // the Timeout — the Timeout error itself still wins (the child
-            // outran the deadline) but the drain situation is no longer
-            // invisible.
-            drain_after_timeout(stdout_handle, stderr_handle, label);
-            return Err(RunError::Timeout(TimeoutError {
-                label: label.to_string(),
-                timeout,
-            }));
-        }
+    let Some(status) = child.wait_timeout(timeout)? else {
+        // Kill first so the drain threads can see EOF and unblock; then
+        // collect their results before returning the timeout error.
+        // ASYNC-6: the kill only closes the pipe ends the child itself
+        // holds — a surviving grandchild keeps its inherited copies open
+        // — so `drain_after_timeout` bounds that wait rather than
+        // blocking here for as long as the grandchild lives.
+        let _ = child.kill();
+        let _ = child.wait();
+        // ERR-1 / TASK-1466: the timeout branch used to swallow the
+        // collect_drain Result entirely via `let _ = ...`, defeating the
+        // ARCH-2 / ERR-1 hardening that made a panicking drain thread or
+        // mid-read EIO surface as RunError::Io. Now we tag each error
+        // with a "during timeout cleanup" breadcrumb so operators see a
+        // signal that the captured bytes were unrecoverable alongside
+        // the Timeout — the Timeout error itself still wins (the child
+        // outran the deadline) but the drain situation is no longer
+        // invisible.
+        drain_after_timeout(stdout_handle, stderr_handle, label);
+        return Err(RunError::Timeout(TimeoutError {
+            label: label.to_string(),
+            timeout,
+        }));
     };
 
     let stdout = collect_drain(stdout_handle, label, "stdout")?;
@@ -475,7 +472,7 @@ mod tests {
             CAP,
         )
         .expect("child should complete within timeout");
-        assert!(out.status.success(), "child exited non-zero: {:?}", out);
+        assert!(out.status.success(), "child exited non-zero: {out:?}");
         assert!(
             out.stdout.len() <= CAP,
             "captured stdout {} exceeded cap {}",

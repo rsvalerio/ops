@@ -27,7 +27,7 @@ pub fn run_cargo_upgrade_dry_run(working_dir: &Path) -> anyhow::Result<Vec<Upgra
         CARGO_UPGRADE_TIMEOUT,
         "cargo upgrade --dry-run",
     )
-    .map_err(|e| anyhow::anyhow!("failed to run cargo upgrade: {}", e))?;
+    .map_err(|e| anyhow::anyhow!("failed to run cargo upgrade: {e}"))?;
 
     interpret_upgrade_output(output.status.code(), &output.stdout, &output.stderr)
 }

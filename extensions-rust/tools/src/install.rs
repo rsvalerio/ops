@@ -151,8 +151,8 @@ pub fn install_cargo_tool_with_timeout(
         // identifiers (and the `--bin` redirection) so the failure points at
         // the actual cargo invocation.
         match package {
-            Some(pkg) => anyhow::bail!("cargo install {} --bin {} failed", pkg, name),
-            None => anyhow::bail!("cargo install {} failed", name),
+            Some(pkg) => anyhow::bail!("cargo install {pkg} --bin {name} failed"),
+            None => anyhow::bail!("cargo install {name} failed"),
         }
     }
 }
@@ -181,7 +181,7 @@ pub fn install_rustup_component_with_timeout(
     if status.success() {
         Ok(())
     } else {
-        anyhow::bail!("rustup component add {} failed", component)
+        anyhow::bail!("rustup component add {component} failed")
     }
 }
 
@@ -231,7 +231,7 @@ pub fn install_tool(name: &str, spec: &ToolSpec) -> anyhow::Result<()> {
         }
         ToolSource::System => {
             if !has_rustup_component {
-                anyhow::bail!("system tools cannot be auto-installed: {}", name);
+                anyhow::bail!("system tools cannot be auto-installed: {name}");
             }
         }
     }
@@ -250,3 +250,6 @@ pub(crate) fn should_run_cargo_install(spec: &ToolSpec) -> bool {
         (ToolSource::Cargo, Some(_))
     )
 }
+
+#[cfg(test)]
+mod tests;

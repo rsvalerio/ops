@@ -322,16 +322,13 @@ impl CommandRunner {
                 // invariant via `expect`, surface a descriptive failure
                 // so any future refactor that does drop the semaphore
                 // shows up as a clear error instead of a panic.
-                let permit = match sem.acquire().await {
-                    Ok(p) => p,
-                    Err(_) => {
-                        return StepResult::failure(
-                            task_id.as_str(),
-                            Duration::ZERO,
-                            "internal error: parallel semaphore closed before task could acquire a permit"
-                                .to_string(),
-                        );
-                    }
+                let Ok(permit) = sem.acquire().await else {
+                    return StepResult::failure(
+                        task_id.as_str(),
+                        Duration::ZERO,
+                        "internal error: parallel semaphore closed before task could acquire a permit"
+                            .to_string(),
+                    );
                 };
                 let _permit = permit;
                 exec_standalone(
@@ -388,7 +385,7 @@ impl CommandRunner {
         let steps = match self.resolve_exec_specs(command_ids) {
             Ok(s) => s,
             Err(id) => {
-                let msg = format!("internal error: composite in leaf plan: {}", id);
+                let msg = format!("internal error: composite in leaf plan: {id}");
                 let results = vec![resolution_failure(&id, msg, on_event)];
                 lifecycle.finish(results.iter().all(|r| r.success), on_event);
                 return results;

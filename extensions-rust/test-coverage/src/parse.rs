@@ -252,7 +252,7 @@ pub(crate) fn flatten_coverage_json(
         .map(|entry| {
             entry
                 .get("files")
-                .and_then(|f| f.as_array().map(|a| a.as_slice()))
+                .and_then(|f| f.as_array().map(std::vec::Vec::as_slice))
                 .context("missing or invalid 'files' array in coverage data")
         })
         .collect::<Result<_, _>>()?;
@@ -360,7 +360,7 @@ pub(crate) fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, 
             })
         }) {
             let tail = format_error_tail(&output.stderr, 5);
-            let marker = format_cargo_exit(&output.status);
+            let marker = format_cargo_exit(output.status);
             tracing::warn!(
                 exit = %marker,
                 stderr_tail = %tail,

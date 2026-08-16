@@ -6,6 +6,16 @@
 //! CLI can exit non-zero when at least one file was modified (matches the
 //! pre-commit contract that fails a commit on change).
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 pub mod binary;
 pub mod discovery;
 pub mod eof;
@@ -102,9 +112,8 @@ fn run_fixer(
     let mut report = FixerReport::default();
 
     for path in files {
-        let bytes = match std::fs::read(&path) {
-            Ok(b) => b,
-            Err(_) => continue,
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
         };
         report.files_scanned += 1;
 

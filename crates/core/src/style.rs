@@ -67,9 +67,7 @@ pub fn stdout_is_terminal_probe_count() -> usize {
 /// can route through the same env probe.
 #[must_use]
 pub fn no_color_env() -> bool {
-    std::env::var_os("NO_COLOR")
-        .map(|v| !v.is_empty())
-        .unwrap_or(false)
+    std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty())
 }
 
 macro_rules! ansi_style {

@@ -3,11 +3,11 @@ id: TASK-1567
 title: >-
   ARCH-1: extensions-rust/tools/src/tests.rs is 1196 lines mixing 9+ concerns in
   a flat module
-status: To Do
+status: Done
 assignee:
   - TASK-1578
 created_date: '2026-05-19 16:10'
-updated_date: '2026-08-15 00:00'
+updated_date: '2026-08-15 21:22'
 labels:
   - code-review-rust
   - architecture
@@ -48,10 +48,48 @@ ARCH-1 threshold (300 lines, mixing 3+ concerns) is exceeded by ~4x lines and 3x
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 tools/src/tests.rs is split so no file exceeds ~400 lines
-- [ ] #2 Each test group is co-located with the production module it covers (probe/cargo.rs, probe/rustup.rs, probe/path.rs, install.rs)
-- [ ] #3 All tests continue to pass under cargo test -p ops-tools
+- [x] #1 tools/src/tests.rs is split so no file exceeds ~400 lines
+- [x] #2 Each test group is co-located with the production module it covers (probe/cargo.rs, probe/rustup.rs, probe/path.rs, install.rs)
+- [x] #3 All tests continue to pass under cargo test -p ops-tools
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Done. `tools/src/tests.rs` went from 1367 lines to 242, and all 103 tests were
+relocated next to the code they cover.
+
+Routing (test count → destination):
+- 33 → `probe/rustup/tests.rs` — parse_active_toolchain, classify_active_toolchain, is_component_in_list, rustup integration probes
+- 15 → `probe/cargo/tests.rs` — is_in_cargo_list, check_cargo_tool_installed (incl. the CARGO-env test)
+- 11 → `probe/path/tests.rs` — find_on_path*, PERF-3 path index, check_binary_installed
+- 8 → `probe/mod.rs` — check_tool_status dispatcher (inline, the file is small)
+- 17 → `install/tests.rs` — install_tool policy, validate_cargo_tool_arg, validate_rustup_toolchain, install failure paths
+- 19 stay in `tests.rs` — the genuinely cross-cutting surface: ToolSpec deserialization, ToolStatus/ToolInfo, collect_tools, extension metadata
+
+On AC #1 vs AC #2: co-locating tests as inline `mod tests { .. }` blocks (the
+fix sketch's literal wording) satisfied AC #2 but pushed rustup.rs to 631 and
+path.rs to 524, breaking AC #1. Resolved by using the `display.rs` +
+`display/tests.rs` pattern already established in crates/runner and
+crates/core: each module keeps `#[cfg(test)] mod tests;` and its tests live in
+a child file. Both ACs now hold — largest file in the crate is 361 lines
+(probe/path.rs), and every test is still a child module of the code it covers.
+
+Also removed two `#[cfg(test)] pub(crate) use` re-export lines from
+`probe/mod.rs` that existed only to feed the old central tests.rs and became
+dead once the tests moved into the modules that own those items.
+
+Verification: test inventory diffed by name before vs after — all 103 present,
+the single absentee being `find_on_path_in_locates_executable_with_pathext_windows`,
+which is `#[cfg(windows)]` and correctly not listed on Linux. Crate total is
+114 (103 moved + 11 already in probe/install_timeout test modules).
+`cargo test -p ops-tools`: 105 passed / 9 ignored; `-- --ignored`: 9 passed.
+`ops verify` 7/7, `ops qa` 3/3.
+
+Unrelated finding while running the gate: `ops qa` failed once in ops-about,
+then passed unchanged. Pre-existing wall-clock ratio assertions, same class as
+the ones commit 98e9ef6 removed from core/runner. Filed as TASK-1667.
+<!-- SECTION:NOTES:END -->
 
 ---
 

@@ -8,7 +8,7 @@ use std::path::Path;
 pub fn init_schema(db: &DuckDb) -> DbResult<()> {
     let conn = db.lock()?;
     conn.execute_batch(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS data_sources (
             source_name    VARCHAR NOT NULL,
             workspace_root VARCHAR NOT NULL,
@@ -19,7 +19,7 @@ pub fn init_schema(db: &DuckDb) -> DbResult<()> {
             metadata       JSON,
             PRIMARY KEY (source_name, workspace_root)
         );
-        "#,
+        ",
     )
     .map_err(|e| DbError::query_failed("init_schema", e))?;
     Ok(())
@@ -147,7 +147,7 @@ pub fn upsert_data_source(db: &DuckDb, meta: &DataSourceMetadata<'_>) -> DbResul
         .map_err(|_| DbError::RecordCountOverflow(meta.record_count))?;
     let conn = db.lock()?;
     conn.execute(
-        r#"
+        r"
         INSERT INTO data_sources (source_name, workspace_root, source_path, record_count, checksum)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT (source_name, workspace_root) DO UPDATE SET
@@ -155,7 +155,7 @@ pub fn upsert_data_source(db: &DuckDb, meta: &DataSourceMetadata<'_>) -> DbResul
             source_path = excluded.source_path,
             record_count = excluded.record_count,
             checksum = excluded.checksum
-        "#,
+        ",
         duckdb::params![
             meta.source_name,
             workspace_root_str,

@@ -162,19 +162,17 @@ fn prompt_hook_install(config: &Config, hook: &HookOps) -> anyhow::Result<ExitCo
         return Ok(code);
     }
     let prompt_label = format!("Run `ops {hook_name} install` now?");
-    let answer = match classify_confirm_result(
+    let Some(answer) = classify_confirm_result(
         inquire::Confirm::new(&prompt_label)
             .with_default(true)
             .prompt(),
         &format!("`ops {hook_name} install` confirm"),
-    )? {
-        Some(b) => b,
-        None => {
-            // Ctrl-C / Esc at the install prompt is a
-            // user-initiated cancel — return the SIGINT exit code directly
-            // so `main` does not decorate it with the `ops: error:` frame.
-            return Ok(ExitCode::from(SIGINT_EXIT));
-        }
+    )?
+    else {
+        // Ctrl-C / Esc at the install prompt is a
+        // user-initiated cancel — return the SIGINT exit code directly
+        // so `main` does not decorate it with the `ops: error:` frame.
+        return Ok(ExitCode::from(SIGINT_EXIT));
     };
     if answer {
         (hook.install_fn)(config)?;
@@ -657,6 +655,8 @@ program = "true"
     fn prompt_hook_install_dispatches_via_install_fn_field() {
         use std::sync::atomic::{AtomicBool, Ordering};
         static CALLED: AtomicBool = AtomicBool::new(false);
+        // Signature is dictated by the `install_fn` field's fn-pointer type.
+        #[allow(clippy::unnecessary_wraps)]
         fn fake_install(_cfg: &Config) -> anyhow::Result<()> {
             CALLED.store(true, Ordering::SeqCst);
             Ok(())

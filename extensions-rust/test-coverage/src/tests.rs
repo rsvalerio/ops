@@ -311,8 +311,7 @@ fn coverage_summary_view_computes_percentages() {
     // 270 covered / 300 total = 90.0%
     assert!(
         (lines_percent - 90.0).abs() < 0.01,
-        "expected ~90.0%, got {}",
-        lines_percent
+        "expected ~90.0%, got {lines_percent}"
     );
 }
 

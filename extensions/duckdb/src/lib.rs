@@ -3,6 +3,16 @@
 //! Tests require `--all-features` or `--features duckdb` to compile.
 //! CI must enable the `duckdb` feature flag to run these tests.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 mod connection;
 mod error;
 mod ingestor;

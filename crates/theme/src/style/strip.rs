@@ -29,7 +29,7 @@ struct AnsiVisibleChars<'a> {
     chars: Chars<'a>,
 }
 
-impl<'a> Iterator for AnsiVisibleChars<'a> {
+impl Iterator for AnsiVisibleChars<'_> {
     type Item = char;
 
     fn next(&mut self) -> Option<char> {
@@ -51,7 +51,7 @@ impl<'a> Iterator for AnsiVisibleChars<'a> {
     }
 }
 
-impl<'a> AnsiVisibleChars<'a> {
+impl AnsiVisibleChars<'_> {
     fn consume_csi(&mut self) {
         for c in self.chars.by_ref() {
             if matches!(c, '\x40'..='\x7E') {
@@ -93,7 +93,7 @@ pub fn visible_width(s: &str) -> usize {
     use unicode_width::UnicodeWidthChar;
     ansi_visible_chars(s)
         .map(|c| c.width().unwrap_or(0))
-        .fold(0usize, |acc, w| acc.saturating_add(w))
+        .fold(0usize, usize::saturating_add)
 }
 
 pub fn strip_ansi(s: &str) -> String {

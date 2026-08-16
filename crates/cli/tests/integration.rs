@@ -277,7 +277,7 @@ fn cli_run_failing_command() {
         format!(
             "args = [{}]",
             args.iter()
-                .map(|a| format!("\"{}\"", a))
+                .map(|a| format!("\"{a}\""))
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -288,10 +288,9 @@ fn cli_run_failing_command() {
         &format!(
             r#"
 [commands.fail_cmd]
-program = "{}"
-{}
-"#,
-            program, args_toml
+program = "{program}"
+{args_toml}
+"#
         ),
     );
 
@@ -440,12 +439,11 @@ args = ["-f", "/dev/null"]"#
     write_ops_toml(
         dir.path(),
         &format!(
-            r#"
+            r"
 [commands.slow_cmd]
-{}
+{blocker}
 timeout_secs = 1
-"#,
-            blocker
+"
         ),
     );
 
@@ -637,7 +635,10 @@ timeout_secs = 5
 /// part of the rendered about-card contract — a regression where the about
 /// header silently fails to render would no longer satisfy this assertion.
 #[test]
-#[cfg_attr(not(feature = "stack-rust"), ignore)]
+#[cfg_attr(
+    not(feature = "stack-rust"),
+    ignore = "the about header is only populated by the rust stack provider"
+)]
 fn cli_about_shows_header() {
     let dir = temp_dir();
     write_ops_toml(
@@ -676,7 +677,10 @@ edition = "2021"
 /// `cli_about_shows_header` uses, and seed `.ops.toml` with `[about].fields`
 /// so the field-filter does not erase the marker.
 #[test]
-#[cfg_attr(not(feature = "stack-rust"), ignore)]
+#[cfg_attr(
+    not(feature = "stack-rust"),
+    ignore = "--refresh only has an observable effect with the rust stack provider"
+)]
 fn cli_about_refresh_flag() {
     let dir = temp_dir();
     write_ops_toml(
@@ -734,7 +738,7 @@ edition = "2021"
     std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
     std::fs::write(
         dir.path().join("src/lib.rs"),
-        r#"//! Demo crate.
+        r"//! Demo crate.
 
 pub fn add(a: i32, b: i32) -> i32 {
     a + b
@@ -749,7 +753,7 @@ mod tests {
         assert_eq!(add(1, 2), 3);
     }
 }
-"#,
+",
     )
     .expect("write lib.rs");
 

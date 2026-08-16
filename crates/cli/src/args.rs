@@ -395,7 +395,7 @@ mod tests {
             Some(CoreSubcommand::Extension {
                 action: ExtensionAction::Show { name },
             }) => assert_eq!(name, Some("metadata".to_string())),
-            other => panic!("expected Extension Show, got {:?}", other),
+            other => panic!("expected Extension Show, got {other:?}"),
         }
     }
 
@@ -406,7 +406,7 @@ mod tests {
             Some(CoreSubcommand::Extension {
                 action: ExtensionAction::Show { name },
             }) => assert_eq!(name, None),
-            other => panic!("expected Extension Show with None, got {:?}", other),
+            other => panic!("expected Extension Show with None, got {other:?}"),
         }
     }
 
@@ -607,7 +607,7 @@ mod tests {
                 assert!(refresh);
                 assert!(action.is_none());
             }
-            other => panic!("expected About with refresh, got {:?}", other),
+            other => panic!("expected About with refresh, got {other:?}"),
         }
     }
 
@@ -621,7 +621,7 @@ mod tests {
             Some(CoreSubcommand::About { action, .. }) => {
                 assert!(matches!(action, Some(AboutAction::Crates)));
             }
-            other => panic!("expected About::Crates via modules alias, got {:?}", other),
+            other => panic!("expected About::Crates via modules alias, got {other:?}"),
         }
     }
 
@@ -708,7 +708,7 @@ mod tests {
             Some(CoreSubcommand::About { action, .. }) => {
                 assert!(matches!(action, Some(AboutAction::Loc)));
             }
-            other => panic!("expected About::Loc, got {:?}", other),
+            other => panic!("expected About::Loc, got {other:?}"),
         }
     }
 
@@ -719,7 +719,7 @@ mod tests {
             Some(CoreSubcommand::About { action, .. }) => {
                 assert!(matches!(action, Some(AboutAction::Setup)));
             }
-            other => panic!("expected About Setup, got {:?}", other),
+            other => panic!("expected About Setup, got {other:?}"),
         }
     }
 
@@ -745,7 +745,7 @@ mod tests {
                 assert!(changed_only);
                 assert!(action.is_none());
             }
-            other => panic!("expected RunBeforeCommit, got {:?}", other),
+            other => panic!("expected RunBeforeCommit, got {other:?}"),
         }
     }
 
@@ -770,7 +770,7 @@ mod tests {
             Some(CoreSubcommand::RunBeforeCommit { action, .. }) => {
                 assert!(matches!(action, Some(RunBeforeCommitAction::Install)));
             }
-            other => panic!("expected RunBeforeCommit Install, got {:?}", other),
+            other => panic!("expected RunBeforeCommit Install, got {other:?}"),
         }
     }
 

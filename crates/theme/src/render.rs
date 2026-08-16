@@ -25,7 +25,7 @@ pub fn render_error_block(
     let mid = apply_style(&chars.mid, &chars.color);
     let bottom = apply_style(&chars.bottom, &chars.color);
     let mut lines = Vec::new();
-    lines.push(format!("{}{}{}", pad, gutter, top));
+    lines.push(format!("{pad}{gutter}{top}"));
     if !detail.message.is_empty() {
         lines.push(format!("{}{}{} {}", pad, gutter, mid, detail.message));
     }
@@ -38,9 +38,9 @@ pub fn render_error_block(
             detail.stderr_tail.len()
         ));
         for stderr_line in &detail.stderr_tail {
-            lines.push(format!("{}{}{}   {}", pad, gutter, mid, stderr_line));
+            lines.push(format!("{pad}{gutter}{mid}   {stderr_line}"));
         }
     }
-    lines.push(format!("{}{}{}", pad, gutter, bottom));
+    lines.push(format!("{pad}{gutter}{bottom}"));
     lines
 }

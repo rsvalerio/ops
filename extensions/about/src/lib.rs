@@ -4,6 +4,16 @@
 //! returning [`ops_core::project_identity::ProjectIdentity`] as JSON.
 //! When no provider is available, a minimal identity is built from the filesystem.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 pub mod cards;
 pub mod coverage;
 pub mod deps;
@@ -166,9 +176,8 @@ fn resolve_identity(
 /// card re-renders on every invocation, so a stale frame is self-correcting.
 #[cfg(feature = "duckdb")]
 fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) {
-    let db = match ops_duckdb::get_db(ctx) {
-        Some(db) => db,
-        None => return,
+    let Some(db) = ops_duckdb::get_db(ctx) else {
+        return;
     };
 
     if identity.loc.is_none() {
@@ -219,9 +228,7 @@ fn build_fallback_identity(cwd: &std::path::Path) -> ProjectIdentity {
     let name = dir_name(cwd).to_string();
 
     let stack = Stack::detect(cwd);
-    let stack_label = stack
-        .map(|s| capitalize(s.as_str()))
-        .unwrap_or_else(|| "Generic".to_string());
+    let stack_label = stack.map_or_else(|| "Generic".to_string(), |s| capitalize(s.as_str()));
 
     ProjectIdentity::new(name, stack_label, cwd.display().to_string(), "modules")
 }

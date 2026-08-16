@@ -3,6 +3,16 @@
 //! This is a data-source-only extension (no commands). It provides parsed update
 //! information that the about page consumes via the `--update` flag.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 #[cfg(test)]
 mod tests;
 

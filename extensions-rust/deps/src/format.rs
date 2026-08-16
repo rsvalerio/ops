@@ -61,7 +61,7 @@ impl SeverityClass {
     /// Color applied to the per-entry detail icon. The row-level result slot is
     /// colored by the theme from the row's [`ReportStatus`]; this only styles
     /// the inline detail glyph.
-    fn style<'a>(self, text: &'a str) -> Cow<'a, str> {
+    fn style(self, text: &str) -> Cow<'_, str> {
         use ops_core::style::{dim, red, yellow};
         match self {
             Self::Error | Self::Unknown => red(text),
@@ -118,8 +118,11 @@ fn status_rank(status: ReportStatus) -> u8 {
 fn rollup(classes: &[SeverityClass]) -> (ReportStatus, String) {
     let mut counts = [0usize; SUMMARY_CLASSES.len()];
     for c in classes {
-        let idx = SUMMARY_CLASSES.iter().position(|x| x == c).unwrap();
-        counts[idx] += 1;
+        // A class outside SUMMARY_CLASSES contributes no count rather than
+        // panicking the report over a presentation detail.
+        if let Some(idx) = SUMMARY_CLASSES.iter().position(|x| x == c) {
+            counts[idx] += 1;
+        }
     }
     let parts: Vec<String> = SUMMARY_CLASSES
         .iter()
@@ -313,7 +316,7 @@ where
         let mut line = String::new();
         let _ = write!(line, "{DETAIL_INDENT}{} ", class.style(class.icon()));
         if let Some(id) = row.id {
-            let _ = write!(line, "{:<id_w$}  ", id);
+            let _ = write!(line, "{id:<id_w$}  ");
         }
         let _ = write!(line, "{:<pkg_w$}  {}", row.package, dim(row.message));
         details.push(line);

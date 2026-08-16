@@ -221,9 +221,10 @@ pub fn gather_available_commands(
 }
 
 pub fn command_description(spec: &CommandSpec) -> String {
-    spec.help()
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| spec.display_cmd_fallback())
+    spec.help().map_or_else(
+        || spec.display_cmd_fallback(),
+        std::string::ToString::to_string,
+    )
 }
 
 #[cfg(test)]

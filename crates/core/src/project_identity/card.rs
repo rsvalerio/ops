@@ -39,8 +39,8 @@ struct FieldSpec {
 /// PERF-3 / TASK-1391: clone an `Option<String>` only when it has non-empty,
 /// non-whitespace content. Centralises the previously-duplicated
 /// `as_ref().filter(...).cloned()` idiom so a future tightening lands once.
-fn non_empty_clone(opt: &Option<String>) -> Option<String> {
-    opt.as_ref().filter(|s| !s.trim().is_empty()).cloned()
+fn non_empty_clone(opt: Option<&String>) -> Option<String> {
+    opt.filter(|s| !s.trim().is_empty()).cloned()
 }
 
 /// PERF-3 / TASK-1417 + TASK-1420: compute only those field specs the caller
@@ -74,7 +74,7 @@ fn shown_field_specs(id: &ProjectIdentity, show: &dyn Fn(&str) -> bool) -> Vec<F
             },
             "license" => FieldSpec {
                 label: "license".into(),
-                value: non_empty_clone(&id.license),
+                value: non_empty_clone(id.license.as_ref()),
             },
             "modules" => FieldSpec {
                 label: id.module_label.clone(),
@@ -94,17 +94,17 @@ fn shown_field_specs(id: &ProjectIdentity, show: &dyn Fn(&str) -> bool) -> Vec<F
                     format!(
                         "{} dependenc{}",
                         format_number(n),
-                        if c != 1 { "ies" } else { "y" }
+                        if c == 1 { "y" } else { "ies" }
                     )
                 }),
             },
             "repository" => FieldSpec {
                 label: "repository".into(),
-                value: non_empty_clone(&id.repository),
+                value: non_empty_clone(id.repository.as_ref()),
             },
             "homepage" => FieldSpec {
                 label: "homepage".into(),
-                value: non_empty_clone(&id.homepage),
+                value: non_empty_clone(id.homepage.as_ref()),
             },
             _ => unreachable!("ids array out of sync with match arms"),
         })
@@ -131,7 +131,7 @@ fn push_special_fields(
     // card stays compact for stacks that haven't wired up coverage yet.
     if show("coverage") {
         match id.coverage_percent {
-            Some(pct) => fields.push(("coverage".to_string(), format!("{:.1}%", pct))),
+            Some(pct) => fields.push(("coverage".to_string(), format!("{pct:.1}%"))),
             None if explicit_filter => {
                 fields.push(("coverage".to_string(), "not collected".to_string()));
             }
@@ -346,12 +346,12 @@ mod tests {
     /// the empty-field semantics lands in one place.
     #[test]
     fn non_empty_clone_treats_whitespace_as_none() {
-        assert_eq!(non_empty_clone(&None), None);
-        assert_eq!(non_empty_clone(&Some(String::new())), None);
-        assert_eq!(non_empty_clone(&Some("   ".to_string())), None);
-        assert_eq!(non_empty_clone(&Some("\t\n".to_string())), None);
+        assert_eq!(non_empty_clone(None), None);
+        assert_eq!(non_empty_clone(Some(&String::new())), None);
+        assert_eq!(non_empty_clone(Some(&"   ".to_string())), None);
+        assert_eq!(non_empty_clone(Some(&"\t\n".to_string())), None);
         assert_eq!(
-            non_empty_clone(&Some("foo".to_string())),
+            non_empty_clone(Some(&"foo".to_string())),
             Some("foo".to_string())
         );
     }
