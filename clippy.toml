@@ -1,3 +1,11 @@
 cognitive-complexity-threshold = 25
 too-many-arguments-threshold = 5
 type-complexity-threshold = 250
+# Keep equal to `rust-version` in the root Cargo.toml. Two jobs, both
+# load-bearing — do not delete this as redundant:
+#   1. `clippy::incompatible_msrv` fails the gate on stdlib calls newer than the
+#      floor, so the declared version cannot silently drift again (TASK-1669).
+#   2. MSRV-aware lints suppress suggestions the floor cannot accept. Removing
+#      this line makes `clippy::duration_suboptimal_units` fire 9 times, wanting
+#      `Duration::from_mins` (Rust ~1.92).
+msrv = "1.88"
