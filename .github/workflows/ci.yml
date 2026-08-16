@@ -49,6 +49,53 @@ jobs:
       - name: cargo check --all --all-features
         run: cargo check --all --all-features
 
+  # VER (TASK-1669): build on the *declared* floor, not on latest stable.
+  #
+  # Every other job installs the default toolchain, so for a long time
+  # `rust-version` was whatever the last person typed — it said 1.80 while the
+  # tree needed 1.82 and the dependency graph needed 1.88, and nothing noticed
+  # because CI never built on 1.80. `clippy::incompatible_msrv` (configured via
+  # `msrv` in clippy.toml) catches *library* calls above the floor, but it is
+  # blind to language features: the `unsafe extern "C"` blocks that forced 1.82
+  # would not have tripped it. Actually compiling on the floor is the only
+  # check that covers both.
+  #
+  # The version is read from Cargo.toml rather than written here on purpose.
+  # Hardcoding it would create a second place to drift, which is the bug this
+  # job exists to prevent.
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Resolve the declared MSRV
+        id: msrv
+        run: |
+          set -euo pipefail
+          declared=$(sed -nE 's/^rust-version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' Cargo.toml | head -1)
+          configured=$(sed -nE 's/^msrv[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' clippy.toml | head -1)
+          if [ -z "$declared" ]; then
+            echo "::error file=Cargo.toml::no [workspace.package] rust-version found"
+            exit 1
+          fi
+          # These two must agree or the lint and the build disagree about the
+          # floor, and each would let through what the other rejects.
+          if [ "$declared" != "$configured" ]; then
+            echo "::error::MSRV mismatch — Cargo.toml rust-version is '$declared' but clippy.toml msrv is '${configured:-unset}'"
+            exit 1
+          fi
+          echo "Building against the declared MSRV $declared."
+          echo "version=$declared" >> "$GITHUB_OUTPUT"
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+          rustflags: ""
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+      # --all-targets so test and bench code is type-checked too: test_utils.rs
+      # is where the 1.82 `unsafe extern "C"` blocks actually live.
+      - name: cargo check --all --all-features --all-targets
+        run: cargo check --all --all-features --all-targets
+
   clippy:
     name: Lint
     runs-on: ubuntu-latest

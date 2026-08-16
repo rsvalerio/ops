@@ -165,10 +165,19 @@ This is why no `duration_suboptimal_units = "allow"` entry exists. A
 hand-written allow would need revisiting by hand every time the floor moved;
 `msrv` states the constraint once and the lint follows it automatically.
 
-**`msrv` does not cover language features** — only library APIs. `unsafe extern
-"C"` blocks (Rust 1.82) are used in `crates/core/src/{test_utils.rs,config/edit.rs}`
-and no lint would flag them against a lower floor. A CI job pinned to the MSRV
-toolchain is the only thing that would.
+**`msrv` does not cover language features** — only library APIs. The `unsafe
+extern "C"` blocks (Rust 1.82) in
+`crates/core/src/{test_utils.rs,config/edit.rs}` would not be flagged against a
+lower floor by any lint. Only compiling on the floor catches those, which is
+what the **MSRV** job in `.github/workflows/ci.yml` does: it reads
+`rust-version` out of `Cargo.toml`, installs exactly that toolchain, and runs
+`cargo check --all --all-features --all-targets`.
+
+That job also asserts `clippy.toml`'s `msrv` equals `Cargo.toml`'s
+`rust-version`. If the two disagree, the lint and the build disagree about the
+floor and each lets through what the other rejects. It reads the version rather
+than hardcoding it, so the workflow cannot itself become a second place to
+drift.
 
 ## Current site-local allows
 
