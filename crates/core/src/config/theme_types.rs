@@ -108,6 +108,7 @@ impl Default for ReportTheme {
 
 impl ReportTheme {
     /// Icon glyph for a report status.
+    #[must_use]
     pub fn icon(&self, status: ReportStatus) -> &str {
         match status {
             ReportStatus::Ok => &self.icon_ok,
@@ -118,6 +119,7 @@ impl ReportTheme {
     }
 
     /// ANSI color spec for a report status's result slot.
+    #[must_use]
     pub fn color(&self, status: ReportStatus) -> &str {
         match status {
             ReportStatus::Ok => &self.color_ok,
@@ -174,7 +176,7 @@ pub struct ThemeConfig {
     /// Optional prefix printed before "Running:" in plain plan headers (e.g. "🚀 ").
     #[serde(default)]
     pub plan_header_prefix: String,
-    /// ANSI color spec for the plan header line (e.g. "bold bright_white").
+    /// ANSI color spec for the plan header line (e.g. "bold `bright_white`").
     #[serde(default)]
     pub header_color: String,
     /// ANSI color spec for the command label on completed/pending step lines.
@@ -204,6 +206,7 @@ fn default_left_pad() -> usize {
 
 impl ThemeConfig {
     #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
     pub fn classic() -> Self {
         Self {
             icon_pending: "\u{25C7}".into(),
@@ -240,6 +243,7 @@ impl ThemeConfig {
     }
 
     #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
     pub fn compact() -> Self {
         Self {
             icon_pending: "\u{25CB}".into(),
@@ -270,6 +274,7 @@ impl ThemeConfig {
     }
 
     /// Get the icon for a given step status.
+    #[must_use]
     pub fn status_icon(&self, status: StepStatus) -> &str {
         match status {
             StepStatus::Pending => &self.icon_pending,

@@ -67,6 +67,7 @@ impl Action {
         }
     }
 
+    #[must_use]
     pub fn color(self) -> comfy_table::Color {
         match self {
             Action::Create => comfy_table::Color::Green,
@@ -79,10 +80,12 @@ impl Action {
         }
     }
 
+    #[must_use]
     pub fn is_change(self) -> bool {
         !matches!(self, Action::NoOp)
     }
 
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Action::Create => "create",
@@ -98,6 +101,7 @@ impl Action {
     /// Sort priority for resource table ordering. Lower = listed first.
     /// `Unknown` sorts first so audit-relevant unrecognized changes are
     /// the first thing the operator sees (SEC-31).
+    #[must_use]
     pub fn sort_priority(self) -> u8 {
         match self {
             Action::Unknown => 0,

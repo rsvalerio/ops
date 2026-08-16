@@ -24,10 +24,12 @@ bitflags::bitflags! {
 }
 
 impl ExtensionType {
+    #[must_use]
     pub fn is_datasource(self) -> bool {
         self.contains(Self::DATASOURCE)
     }
 
+    #[must_use]
     pub fn is_command(self) -> bool {
         self.contains(Self::COMMAND)
     }
@@ -36,7 +38,7 @@ impl ExtensionType {
 /// Metadata describing an extension.
 ///
 /// API-9 / TASK-0349: marked `#[non_exhaustive]` so that adding a field
-/// here is not a SemVer break for downstream extensions. External callers
+/// here is not a `SemVer` break for downstream extensions. External callers
 /// should construct via [`ExtensionInfo::new`] (and adjust fields via
 /// direct field access — the fields stay `pub` for ergonomic struct
 /// updates inside this crate and for read access from outside).
@@ -70,7 +72,7 @@ impl ExtensionInfo {
     }
 }
 
-/// Registry of command ID → CommandSpec (from config + extensions).
+/// Registry of command ID → `CommandSpec` (from config + extensions).
 ///
 /// Wraps an [`IndexMap`] preserving insertion order. Commands are registered by:
 /// 1. Config file (`[commands.*]` sections)

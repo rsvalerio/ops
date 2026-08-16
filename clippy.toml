@@ -1,3 +1,10 @@
 cognitive-complexity-threshold = 25
 too-many-arguments-threshold = 5
 type-complexity-threshold = 250
+# Keep equal to `rust-version` in the root Cargo.toml, so
+# `clippy::incompatible_msrv` fails the gate on any standard-library call newer
+# than the declared floor and the declaration cannot silently drift (TASK-1669).
+# Note MSRV-aware lints also gate their *suggestions* on this value: at a floor
+# below 1.92 clippy suppresses `duration_suboptimal_units` because
+# `Duration::from_mins` would not be available.
+msrv = "1.97"

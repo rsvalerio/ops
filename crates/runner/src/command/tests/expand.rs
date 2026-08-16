@@ -1,4 +1,4 @@
-//! Tests for expand_to_leaves and alias resolution.
+//! Tests for `expand_to_leaves` and alias resolution.
 
 use super::*;
 
@@ -43,7 +43,7 @@ fn resolve_by_alias() {
     assert!(runner.resolve("unknown").is_none());
 }
 
-/// PERF-3 / TASK-0774: register_commands merges new aliases incrementally
+/// PERF-3 / TASK-0774: `register_commands` merges new aliases incrementally
 /// rather than rebuilding the full alias map on each batch. Verify that:
 /// - aliases registered across N successive 1-entry batches are all resolvable
 /// - re-registering the same id with different aliases prunes the stale ones
@@ -242,7 +242,7 @@ fn orphan_config_alias_falls_through_to_stack_default() {
 /// Built-in CLI subcommands (`end-of-file-fixer`, `trailing-whitespace`) and
 /// their visible aliases (`eof`, `tw`) must resolve through the composite
 /// resolver so users can list them in `commands = [...]`. Before the
-/// builtin_commands store was added the resolver only walked
+/// `builtin_commands` store was added the resolver only walked
 /// config / stack / extension, producing `unknown command: eof` for a
 /// run-before-commit composite that referenced the alias.
 #[test]
@@ -668,7 +668,7 @@ mod cycle_detection_tests {
     }
 }
 
-/// TQ-012: Tests for depth limit in expand_to_leaves.
+/// TQ-012: Tests for depth limit in `expand_to_leaves`.
 mod depth_limit_tests {
     use super::*;
 

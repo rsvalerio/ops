@@ -49,6 +49,10 @@ pub(crate) fn coverage_color(pct: f64) -> Color {
     }
 }
 
+/// # Errors
+///
+/// If the current directory cannot be determined, a required data provider
+/// fails, or writing the rendered output fails.
 pub fn run_about_coverage(data_registry: &DataRegistry) -> anyhow::Result<()> {
     let is_tty = std::io::stdout().is_terminal();
     run_about_coverage_with(data_registry, &mut std::io::stdout(), is_tty)
@@ -56,6 +60,11 @@ pub fn run_about_coverage(data_registry: &DataRegistry) -> anyhow::Result<()> {
 
 /// READ-5/TASK-0411: `is_tty` reflects the `writer` the caller hands in.
 /// See [`crate::units::run_about_units_with`] for the rationale.
+///
+/// # Errors
+///
+/// If the current directory cannot be determined, a required data provider
+/// fails, or writing the rendered output fails.
 pub fn run_about_coverage_with(
     data_registry: &DataRegistry,
     writer: &mut dyn Write,

@@ -34,6 +34,11 @@ pub fn warm_providers(
 /// Fetch a typed payload from the provider registry, returning a fresh
 /// `Default` if the provider is not registered (`NotFound`). Other errors
 /// are propagated so the subpage doesn't render zeros over a real failure.
+///
+/// # Errors
+///
+/// If the provider fails with anything other than `NotFound` (which yields
+/// `T::default()`), or if its payload does not deserialize into `T`.
 pub fn load_or_default<T>(
     ctx: &mut Context,
     registry: &DataRegistry,
@@ -89,7 +94,7 @@ mod tests {
         // failing-provider error and an unregistered (NotFound) provider.
     }
 
-    /// ERR-1 (TASK-0516): load_or_default surfaces non-NotFound errors so a
+    /// ERR-1 (TASK-0516): `load_or_default` surfaces non-NotFound errors so a
     /// failing provider doesn't render zeros over a real failure.
     #[test]
     fn load_or_default_propagates_real_failures() {
@@ -101,7 +106,7 @@ mod tests {
         assert!(result.is_err(), "real failure should propagate");
     }
 
-    /// load_or_default returns Default for unregistered providers (NotFound).
+    /// `load_or_default` returns Default for unregistered providers (`NotFound`).
     #[test]
     fn load_or_default_returns_default_for_unregistered_provider() {
         let registry = DataRegistry::new();

@@ -1,4 +1,4 @@
-//! RustLocIngestor: collect Rust LOC statistics and load into DuckDB.
+//! `RustLocIngestor`: collect Rust LOC statistics and load into `DuckDB`.
 
 use crate::views;
 use ops_duckdb::sql::external_err;

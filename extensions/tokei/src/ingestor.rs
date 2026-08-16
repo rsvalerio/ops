@@ -1,4 +1,4 @@
-//! TokeiIngestor: collect tokei statistics and load into DuckDB.
+//! `TokeiIngestor`: collect tokei statistics and load into `DuckDB`.
 
 use crate::views;
 use ops_duckdb::sql::external_err;

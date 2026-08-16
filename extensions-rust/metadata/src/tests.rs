@@ -2,7 +2,7 @@
 //!
 //! ARCH-1 / TASK-1545: the previous single-file `tests.rs` had grown past
 //! 1280 lines and fused four unrelated concerns (extension wiring, accessor
-//! coverage, edge-case JSON probes, DuckDB payload-cap behaviour, and
+//! coverage, edge-case JSON probes, `DuckDB` payload-cap behaviour, and
 //! duplicate-warning logging). Splitting into focused sibling modules keeps
 //! each file under the ARCH-1 guideline and isolates the rebuild blast
 //! radius — touching a payload-cap test no longer recompiles the accessor

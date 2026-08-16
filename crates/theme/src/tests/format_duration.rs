@@ -75,7 +75,7 @@ fn enormous_finite_input_does_not_panic() {
 }
 
 /// ERR-5 / TASK-0857: an enormous f64 (above the f64-representable u64
-/// range) must clamp to the u64::MAX-derived hours/minutes/seconds form
+/// range) must clamp to the `u64::MAX-derived` hours/minutes/seconds form
 /// without panicking under the new explicit clamp.
 #[test]
 fn enormous_finite_input_saturates_to_u64_max_form() {
@@ -93,7 +93,7 @@ fn one_second_past_one_hour_is_one_hour() {
     assert_eq!(format_duration(3601.0), "1h0m1s");
 }
 
-/// ERR-5 / TASK-0857: an f64 between u64::MAX and infinity must still
+/// ERR-5 / TASK-0857: an f64 between `u64::MAX` and infinity must still
 /// clamp (no UB from out-of-range `as u64` cast).
 #[test]
 fn above_u64_max_finite_does_not_overflow() {

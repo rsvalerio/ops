@@ -1,4 +1,4 @@
-//! MetadataIngestor: collect cargo metadata and load into DuckDB.
+//! `MetadataIngestor`: collect cargo metadata and load into `DuckDB`.
 
 use crate::views;
 use crate::{check_metadata_output, run_cargo_metadata};
@@ -127,7 +127,7 @@ fn extract_workspace_root(conn: &duckdb::Connection) -> DbResult<String> {
 
 /// FN-1 / TASK-1543: best-effort removal of the staged JSON file after a
 /// successful load. TASK-0510: a failure here must not propagate — the
-/// DuckDB row is already committed and a subsequent re-ingest would
+/// `DuckDB` row is already committed and a subsequent re-ingest would
 /// otherwise loop.
 fn cleanup_staged_file(path: &Path) {
     if let Err(e) = std::fs::remove_file(path) {
@@ -401,7 +401,7 @@ mod tests {
     /// `workspace_root` SELECT silently picked an arbitrary first row. The
     /// loader now emits a `tracing::warn!` carrying the row count so the
     /// discrepancy is observable. Drive the path with a JSON array of two
-    /// cargo-metadata objects (DuckDB's `read_json_auto` yields one row per
+    /// cargo-metadata objects (`DuckDB`'s `read_json_auto` yields one row per
     /// array element) and assert the warn fires.
     #[test]
     fn metadata_load_warns_when_metadata_raw_has_multiple_rows() {

@@ -1,4 +1,4 @@
-//! CoverageIngestor: collect LLVM coverage data and load into DuckDB.
+//! `CoverageIngestor`: collect LLVM coverage data and load into `DuckDB`.
 
 use crate::parse::collect_coverage;
 use crate::views;

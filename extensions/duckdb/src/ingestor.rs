@@ -1,4 +1,4 @@
-//! DataIngestor trait for loading data into DuckDb.
+//! `DataIngestor` trait for loading data into `DuckDb`.
 
 use crate::connection::DuckDb;
 use crate::error::DbResult;
@@ -85,9 +85,14 @@ impl SidecarIngestorConfig {
     /// hardened. A crash between the JSON write and the sidecar create
     /// previously left a torn or zero-byte file that
     /// `load_with_sidecar` would feed to `read_json_auto`, corrupting
-    /// the database with truncated input. With atomic_write the
+    /// the database with truncated input. With `atomic_write` the
     /// destination either holds the previous content or the full new
     /// payload — never a partial write.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Io`] if `data_dir` cannot be created or the sidecar cannot be
+    /// written, or [`DbError::Serialization`] if `data` fails to serialize.
     pub fn collect_sidecar(
         &self,
         data_dir: &Path,
@@ -113,7 +118,7 @@ impl SidecarIngestorConfig {
     ///    no lock held). Failure here aborts before any DB mutation.
     /// 3. Acquire the connection lock and execute `create_sql` then `view_sql`.
     ///    On failure, the table/view created up to the failing statement
-    ///    remain in DuckDB (partial state).
+    ///    remain in `DuckDB` (partial state).
     /// 4. `SELECT COUNT(*) FROM count_table` runs **under the same lock**
     ///    acquired in step 3 (CONC-2 / TASK-0364), so a concurrent ingestor
     ///    cannot interleave a `CREATE OR REPLACE TABLE` between create and
@@ -147,7 +152,7 @@ impl SidecarIngestorConfig {
     /// `upsert_data_source` row is durable but before `remove(json_path)`
     /// or `remove_workspace_sidecar` runs, the next invocation observes:
     ///
-    /// - DuckDB row says `(source, checksum)` is fresh.
+    /// - `DuckDB` row says `(source, checksum)` is fresh.
     /// - The staging JSON and sidecar are still on disk.
     /// - The next `provide_via_ingestor` short-circuits via
     ///   `table_has_data == true` and skips collect/load entirely.
@@ -168,6 +173,11 @@ impl SidecarIngestorConfig {
     /// rename is *not* implemented today because the lower-cost
     /// mitigation — operators can recognize debris from the checksum row
     /// — covers the audit-clarity concern this contract documents.
+    ///
+    /// # Errors
+    ///
+    /// If schema initialisation, the sidecar load, or the create/view SQL
+    /// fails; see [`DbError`] for the specific variants.
     pub fn load_with_sidecar(
         &self,
         db: &DuckDb,
@@ -246,7 +256,7 @@ impl SidecarIngestorConfig {
         })
     }
 
-    /// Step 3: upsert the data_sources tracking row. Computes the file
+    /// Step 3: upsert the `data_sources` tracking row. Computes the file
     /// checksum (no lock held) before delegating to `upsert_data_source`.
     fn persist_record(
         &self,
@@ -270,7 +280,7 @@ impl SidecarIngestorConfig {
 
     /// Step 4: delete the staged JSON file and the sidecar.
     ///
-    /// Both removals are best-effort: data is already persisted in DuckDB by
+    /// Both removals are best-effort: data is already persisted in `DuckDB` by
     /// the time we get here, so a leftover staged JSON or sidecar is a
     /// recoverable disk-hygiene issue, not a load failure. A transient
     /// permission error must not fail the whole ingest.
@@ -314,8 +324,8 @@ impl SidecarIngestorConfig {
 /// Returns the path that the subsequent unlink should target:
 /// * the `.done` path on successful rename,
 /// * the original path on EXDEV/permission failure (logged as debug) or
-///   when the source was already absent (NotFound, no log — the caller's
-///   NotFound branch will emit the appropriate breadcrumb).
+///   when the source was already absent (`NotFound`, no log — the caller's
+///   `NotFound` branch will emit the appropriate breadcrumb).
 fn rename_json_to_done(source: &'static str, original_json_path: &Path) -> std::path::PathBuf {
     let done_path = original_json_path.with_extension("json.done");
     match std::fs::rename(original_json_path, &done_path) {
@@ -346,7 +356,7 @@ fn rename_json_to_done(source: &'static str, original_json_path: &Path) -> std::
 /// place so `read_workspace_sidecar` can drive a clean recovery on the
 /// next run.
 ///
-/// ARCH-2 / TASK-1005: a NotFound on the unlink is operationally rare
+/// ARCH-2 / TASK-1005: a `NotFound` on the unlink is operationally rare
 /// (external scrubber, manual `rm`, mid-pipeline interruption). The
 /// ERR-1 post-condition ("sidecar removed only after JSON gone") is
 /// already satisfied if the JSON is absent, so the sidecar is removed
@@ -398,11 +408,11 @@ fn cleanup_artifacts_breadcrumb_paths(original: &Path, effective: &Path) -> Stri
     )
 }
 
-/// Trait for data sources that collect raw data and load it into DuckDB.
+/// Trait for data sources that collect raw data and load it into `DuckDB`.
 ///
 /// Implementations handle the full lifecycle of external data:
 /// 1. **Collect**: Run external commands or read files to produce JSON
-/// 2. **Load**: Parse JSON and load into DuckDB tables/views
+/// 2. **Load**: Parse JSON and load into `DuckDB` tables/views
 ///
 /// # Example
 ///
@@ -430,12 +440,20 @@ pub trait DataIngestor: Send + Sync {
     /// This method runs the external tool (e.g., `cargo metadata`) and
     /// writes the output to files in `data_dir`. It should not interact
     /// with the database.
+    ///
+    /// # Errors
+    ///
+    /// If the provider cannot gather its data or write it into `data_dir`.
     fn collect(&self, ctx: &Context, data_dir: &Path) -> DbResult<()>;
 
-    /// Load collected data into DuckDB tables/views.
+    /// Load collected data into `DuckDB` tables/views.
     ///
     /// This method reads files from `data_dir` and creates or replaces
     /// tables/views in the database. Should be idempotent.
+    ///
+    /// # Errors
+    ///
+    /// If `data_dir` cannot be read or the tables/views cannot be created.
     fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<LoadResult>;
 }
 
@@ -534,8 +552,8 @@ mod tests {
         assert!(temp_dir.path().join("data.json").exists());
     }
 
-    /// SEC-25 / TASK-0911: a successful collect_sidecar must leave no
-    /// `.tmp.*` leftover from the atomic_write sibling-temp pattern. Pin
+    /// SEC-25 / TASK-0911: a successful `collect_sidecar` must leave no
+    /// `.tmp.*` leftover from the `atomic_write` sibling-temp pattern. Pin
     /// the JSON path on the same crash-safe write helper that the
     /// workspace sidecar already uses.
     #[test]
@@ -795,7 +813,7 @@ mod tests {
             assert_eq!(res_b.record_count, 5, "ingB must observe its own 5 rows");
         }
 
-        /// SEC-12 / TASK-0856: an invalid count_table can no longer reach
+        /// SEC-12 / TASK-0856: an invalid `count_table` can no longer reach
         /// runtime — `TableName::from_static` asserts at compile time. The
         /// previous runtime-error test (which built `count_table: "bad;
         /// DROP TABLE users; --"`) is now structurally impossible: the

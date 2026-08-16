@@ -6,6 +6,7 @@ use ops_core::output::ErrorDetail;
 use super::style::apply_style;
 
 /// Shared helper for rendering error detail blocks with configurable box-drawing characters.
+#[must_use]
 pub fn render_error_block(
     detail: &ErrorDetail,
     icon_column_width: usize,

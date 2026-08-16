@@ -46,7 +46,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// each other's manifests, collapsing concurrent reads to single-threaded
 /// under daemon hosts (LSP/watchers).
 ///
-/// A `None` payload inside the OnceLock marks a previously-attempted read
+/// A `None` payload inside the `OnceLock` marks a previously-attempted read
 /// of a missing/unreadable manifest so the negative result is also
 /// amortised across calls.
 #[derive(Clone)]
@@ -305,7 +305,7 @@ mod tests {
     }
 
     /// ARCH-1 / TASK-1106: when the cap is hit, eviction must pick the LRU
-    /// entry, not full-flush the map. Warm CACHE_MAX_ENTRIES distinct paths,
+    /// entry, not full-flush the map. Warm `CACHE_MAX_ENTRIES` distinct paths,
     /// touch one of the early entries to make it most-recently-used, then
     /// trigger eviction by reading a fresh path. The recently-touched entry
     /// must survive while the never-touched LRU victim is dropped.

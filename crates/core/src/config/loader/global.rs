@@ -61,7 +61,7 @@ use super::super::{merge::merge_config, Config};
 /// `OnceLock` so the test-support reset hook
 /// [`reset_global_config_path_cache`] can clear the cache between scenarios
 /// in a single binary — the runtime contract used to be "tests MUST set env
-/// before any code path triggers load_config", enforced only by comment.
+/// before any code path triggers `load_config`", enforced only by comment.
 // The nesting is meaningful: the outer `Option` is "has the cache been
 // populated?", the inner one is "was a global config found?".
 #[allow(clippy::option_option)]
@@ -117,7 +117,7 @@ impl Default for GlobalConfigPathResetToken {
 /// READ-1 / TASK-1475: clear the `GLOBAL_CONFIG_PATH` cache so the next
 /// [`global_config_path`] call re-resolves from the live env. Test-support
 /// only — the runtime contract documented on `GLOBAL_CONFIG_PATH` ("tests
-/// MUST set env before any code path triggers load_config") was enforced
+/// MUST set env before any code path triggers `load_config`") was enforced
 /// only by comment; this hook makes the discipline mechanical.
 ///
 /// The `_token` parameter is a capability marker: see
@@ -232,7 +232,7 @@ mod tests {
     use super::*;
     use std::fs;
 
-    /// READ-1 / TASK-1475: after the GLOBAL_CONFIG_PATH cache has been
+    /// READ-1 / TASK-1475: after the `GLOBAL_CONFIG_PATH` cache has been
     /// resolved once, mutating `XDG_CONFIG_HOME` and then calling
     /// `global_config_path()` again returns the **old** value — the
     /// runtime contract is "set env before first call". The reset hook

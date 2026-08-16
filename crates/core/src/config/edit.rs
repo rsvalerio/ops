@@ -28,6 +28,11 @@ use anyhow::Context;
 /// fails fast with a typed bounded-read error rather than slurping the
 /// whole file. Cap is overridable via
 /// [`super::loader::OPS_TOML_MAX_BYTES_ENV`].
+///
+/// # Errors
+///
+/// If the file cannot be read (including exceeding the size cap), or its
+/// contents do not parse as TOML.
 pub fn read_ops_toml(path: &Path) -> anyhow::Result<toml_edit::DocumentMut> {
     let content = super::loader::read_capped_toml_file(path)?.unwrap_or_default();
     content.parse::<toml_edit::DocumentMut>().with_context(|| {
@@ -52,6 +57,10 @@ pub fn read_ops_toml(path: &Path) -> anyhow::Result<toml_edit::DocumentMut> {
 /// section: `about_cmd`, `theme_cmd`, and `new_command_cmd` previously each
 /// open-coded the `contains_key` + insert + `as_table_mut().context(...)`
 /// idiom, and `theme_cmd` did so incorrectly.
+///
+/// # Errors
+///
+/// If `key` already exists in the document but is not a table.
 pub fn ensure_table<'a>(
     doc: &'a mut toml_edit::DocumentMut,
     key: &str,
@@ -69,6 +78,10 @@ pub fn ensure_table<'a>(
 /// callers never plan an edit that the write path would then refuse.
 /// Owns the `[commands]`-table walk next to the writers ([`insert_command`])
 /// so the config layout is encoded in one module, not re-derived per caller.
+///
+/// # Errors
+///
+/// If `.ops.toml` cannot be read or parsed; see [`read_ops_toml`].
 pub fn command_names(path: &Path) -> anyhow::Result<Vec<String>> {
     let doc = read_ops_toml(path)?;
     Ok(doc
@@ -85,6 +98,11 @@ pub fn command_names(path: &Path) -> anyhow::Result<Vec<String>> {
 /// schema and the duplicate-rejection wording live in exactly one place —
 /// the same consolidation rationale as [`ensure_table`] (DUP-1). An empty
 /// `args` slice omits the `args` key entirely.
+///
+/// # Errors
+///
+/// If `commands` already contains an entry named `name`. The caller is
+/// expected to edit or remove it first rather than silently overwrite.
 pub fn insert_command<S: AsRef<str>>(
     commands: &mut toml_edit::Table,
     name: &str,
@@ -116,6 +134,11 @@ pub fn insert_command<S: AsRef<str>>(
 /// Atomically write the serialized `doc` back to `path` (sibling temp file +
 /// rename). Pair with [`read_ops_toml`] for a read / mutate / write pipeline
 /// where the caller wants to skip the write on some branches.
+///
+/// # Errors
+///
+/// If the atomic write fails — see [`atomic_write`] for the specific
+/// filesystem failure modes.
 pub fn write_ops_toml(path: &Path, doc: &toml_edit::DocumentMut) -> anyhow::Result<()> {
     atomic_write(path, doc.to_string().as_bytes())
         .with_context(|| format!("failed to write {:?}", path.display()))
@@ -157,6 +180,12 @@ where
 /// it directly from a runtime thread, mirroring the contract on
 /// `ops_core::subprocess::run_with_timeout`. The same applies to
 /// [`write_ops_toml`] and [`edit_ops_toml`], which delegate here.
+///
+/// # Errors
+///
+/// If `path` has no resolvable parent directory or file name, or if any
+/// step of the write fails: creating the temp file, writing, `fsync`,
+/// or the final rename. The temp file is cleaned up on failure.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let (parent, file_name) = resolve_parent_and_filename(path)?;
     let tmp = parent.join(build_tmp_basename(file_name));
@@ -367,7 +396,7 @@ mod tests {
 
     /// SEC-33 / TASK-0943: `read_ops_toml` must surface a bounded-read
     /// error when the on-disk file exceeds the configured byte cap,
-    /// rather than slurping the entire file into the toml_edit parser.
+    /// rather than slurping the entire file into the `toml_edit` parser.
     #[test]
     #[serial_test::serial]
     fn read_ops_toml_rejects_oversized_payload() {
@@ -582,7 +611,7 @@ mod tests {
     }
 
     /// SEC-25 / TASK-0898: a destination that the user previously
-    /// chmod'd to 0o600 must keep its mode after atomic_write replaces
+    /// chmod'd to 0o600 must keep its mode after `atomic_write` replaces
     /// the file. Pre-fix, the temp file inherited the process umask
     /// (commonly yielding 0o644) and the rename silently widened the
     /// ACL.
@@ -703,7 +732,7 @@ mod tests {
     /// SEC-25 / TASK-0837: two siblings whose names differ only in invalid
     /// UTF-8 bytes must produce distinct tmp basenames. Going through
     /// `to_string_lossy` collapses both to the same `?`/U+FFFD-substituted
-    /// string, which lets concurrent atomic_writes race on the same tmp.
+    /// string, which lets concurrent `atomic_writes` race on the same tmp.
     /// Verifying that each call writes its target byte-for-byte and that no
     /// tmp leftovers linger pins the OsStr-based concatenation path.
     // APFS (macOS) and many Windows filesystems reject non-UTF-8 file

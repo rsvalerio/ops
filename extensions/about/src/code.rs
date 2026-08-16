@@ -1,6 +1,6 @@
 //! Stack-agnostic `about code` subpage: language statistics table.
 //!
-//! Reads language LOC and file counts from the `tokei_files` DuckDB view
+//! Reads language LOC and file counts from the `tokei_files` `DuckDB` view
 //! (populated by the tokei data provider) and renders a table.
 
 use std::io::Write;
@@ -34,6 +34,7 @@ pub fn query_language_stats(
     }
 }
 
+#[must_use]
 pub fn format_language_stats_section(stats: Option<&[LanguageStat]>) -> Vec<String> {
     let stats = match stats {
         Some(s) if !s.is_empty() => s,
@@ -58,10 +59,18 @@ pub fn format_language_stats_section(stats: Option<&[LanguageStat]>) -> Vec<Stri
     lines
 }
 
+/// # Errors
+///
+/// If the current directory cannot be determined, a required data provider
+/// fails, or writing the rendered output fails.
 pub fn run_about_code(data_registry: &DataRegistry) -> anyhow::Result<()> {
     run_about_code_with(data_registry, &mut std::io::stdout())
 }
 
+/// # Errors
+///
+/// If the current directory cannot be determined, a required data provider
+/// fails, or writing the rendered output fails.
 pub fn run_about_code_with(
     data_registry: &DataRegistry,
     writer: &mut dyn Write,
@@ -104,7 +113,7 @@ mod tests {
         assert!(output.contains("100.0%"));
     }
 
-    /// Regression for ERR-4: a poisoned DuckDb mutex must produce graceful
+    /// Regression for ERR-4: a poisoned `DuckDb` mutex must produce graceful
     /// `None` (not a panic) and exercise the warn-and-continue path. We
     /// verify behavior; tracing assertion would require pulling in
     /// `tracing-subscriber` as a dev-dep, which we deliberately avoid for a

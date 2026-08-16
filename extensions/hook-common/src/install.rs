@@ -22,6 +22,11 @@ use crate::HookConfig;
 /// refused outright.
 ///
 /// Returns the path to the created hook file.
+///
+/// # Errors
+///
+/// If the git directory cannot be canonicalized, `.git/hooks` cannot be
+/// created, or the hook file cannot be written or made executable.
 pub fn install_hook(
     config: &HookConfig,
     git_dir: &Path,
@@ -647,7 +652,7 @@ mod tests {
     }
 
     /// ERR-1 (TASK-1113) + SEC-25 (TASK-1210): a prior `ops install` that
-    /// crashed between write_hook_payload and the rename now leaves a
+    /// crashed between `write_hook_payload` and the rename now leaves a
     /// **randomised** orphan (e.g. `.pre-commit.ops-tmp.AbCxYz`) rather
     /// than the previous fixed `.pre-commit.ops-tmp` sibling. The next
     /// upgrade must succeed regardless of the orphan: with randomised

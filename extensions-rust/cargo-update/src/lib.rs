@@ -66,7 +66,7 @@ pub struct CargoUpdateResult {
 
 /// Default timeout for `cargo update --dry-run`; overridable via
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`.
-pub const CARGO_UPDATE_TIMEOUT: Duration = Duration::from_secs(120);
+pub const CARGO_UPDATE_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// Run `cargo update --dry-run` in the given working directory.
 ///

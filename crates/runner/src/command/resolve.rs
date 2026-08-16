@@ -131,6 +131,7 @@ impl CommandRunner {
     }
 
     /// Resolve a command by ID or alias (config first, then stack defaults, then extension, then aliases).
+    #[must_use]
     pub fn resolve(&self, id: &str) -> Option<&CommandSpec> {
         self.find_in_stores(id).or_else(|| self.resolve_alias(id))
     }
@@ -280,7 +281,7 @@ impl CommandRunner {
         ids.into_iter().map(CommandId::from).collect()
     }
 
-    /// Expand to a flat list of exec-only command IDs (no composites), so run_plan need not recurse.
+    /// Expand to a flat list of exec-only command IDs (no composites), so `run_plan` need not recurse.
     ///
     /// Returns [`ExpandError`] distinguishing the three distinct failure modes
     /// — unknown id, cycle, depth exceeded — so callers can render accurate
@@ -294,6 +295,11 @@ impl CommandRunner {
     /// means a graph with N composites has at most N stack frames during expansion.
     ///
     /// An additional guard limits expansion to 100 levels to prevent pathological cases.
+    ///
+    /// # Errors
+    ///
+    /// [`ExpandError`] if `id` is unknown, the composite tree cycles, or
+    /// expansion exceeds the depth limit.
     pub fn expand_to_leaves(&self, id: &str) -> Result<Vec<CommandId>, ExpandError> {
         let (leaves, _has_parallel, _fail_fast_disabled) = self.expand_to_leaves_with_flags(id)?;
         Ok(leaves)
@@ -307,6 +313,12 @@ impl CommandRunner {
     /// `composite_tree_flags` to recompute the flags. Two independent
     /// traversals can drift in cycle/order semantics; folding them here
     /// keeps the leaves and the flags in sync by construction.
+    ///
+    /// # Errors
+    ///
+    /// [`ExpandError`] if `id` is unknown, the composite tree cycles, expansion
+    /// exceeds the depth limit, or the tree declares conflicting `parallel` /
+    /// `fail_fast` values.
     pub fn expand_to_leaves_with_flags(
         &self,
         id: &str,

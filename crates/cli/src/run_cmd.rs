@@ -25,7 +25,7 @@ use plan::{build_display_map, log_step_results, merge_plan};
 /// Options for a top-level `run` invocation, threaded through the
 /// `run_command` / `run_commands` helpers. Collapses five positional args
 /// (including three `bool`s) into a named struct so swap bugs like
-/// `run_command(name, true, false, …)` — was that dry_run or verbose? —
+/// `run_command(name, true, false, …)` — was that `dry_run` or verbose? —
 /// become impossible at call sites.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RunOptions {
@@ -51,6 +51,10 @@ pub(crate) fn run_external_command(
     // OsString silently vanished via `filter_map(OsStr::to_str)` and the
     // user saw a generic "missing command name" when that left zero args.
     let mut names: Vec<&str> = Vec::with_capacity(args.len());
+    // `{a:?}` is deliberate, as in `build.rs`/`identity.rs`: the argument is
+    // not valid UTF-8, which is precisely what this error reports, so `Debug`
+    // escapes the offending bytes where `display()` would render them lossily.
+    #[allow(clippy::unnecessary_debug_formatting)]
     for a in args {
         match a.to_str() {
             Some(s) => names.push(s),

@@ -11,7 +11,7 @@
 //! - **Secret** — always run. Every project can leak credentials.
 //! - **Vulnerability** — run when a dependency manifest/lockfile is present
 //!   (`Cargo.lock`, `package-lock.json`, `go.sum`, `requirements.txt`, …).
-//! - **Misconfiguration / IaC** — run when a Dockerfile or other
+//! - **Misconfiguration / `IaC`** — run when a Dockerfile or other
 //!   infrastructure-as-code marker is present (`*.tf`, `compose.yaml`,
 //!   `Chart.yaml`, `kustomization.yaml`, …).
 //!
@@ -132,9 +132,9 @@ fn is_vuln_marker(name: &str) -> bool {
     EXACT.iter().any(|m| m.eq_ignore_ascii_case(name))
 }
 
-/// Markers that justify a misconfiguration / IaC scan — Dockerfiles and common
+/// Markers that justify a misconfiguration / `IaC` scan — Dockerfiles and common
 /// infrastructure-as-code files. Trivy's `config` scan then walks the tree for
-/// every IaC file it understands; we only need one marker to switch it on.
+/// every `IaC` file it understands; we only need one marker to switch it on.
 // The comparisons below run against `name.to_ascii_lowercase()`, so the
 // case-sensitivity the lint warns about is already handled.
 #[allow(clippy::case_sensitive_file_extension_comparisons)]

@@ -21,13 +21,14 @@ use std::borrow::Cow;
 /// `NO_COLOR` is re-read on each call so runtime overrides (notably tests
 /// using `EnvGuard`) take effect after the TTY check has been cached.
 /// Tests should call [`apply_style_gated`] directly.
+#[must_use]
 pub fn apply_style<'a>(text: &'a str, spec: &str) -> Cow<'a, str> {
     apply_style_gated(text, spec, color_enabled())
 }
 
 /// DUP-3 / TASK-1188: routes through the shared
 /// [`ops_core::style::color_enabled`] resolver so both color subsystems
-/// agree under the same NO_COLOR / TTY conditions. The previous per-module
+/// agree under the same `NO_COLOR` / TTY conditions. The previous per-module
 /// `OnceLock<bool>` looked at a different stream than `core::style` and
 /// could silently disagree (stdout-only TTY etc.).
 fn color_enabled() -> bool {
@@ -35,6 +36,7 @@ fn color_enabled() -> bool {
 }
 
 /// Same as [`apply_style`] but with explicit TTY gating — used in tests.
+#[must_use]
 pub fn apply_style_gated<'a>(text: &'a str, spec: &str, enabled: bool) -> Cow<'a, str> {
     if !enabled || spec.is_empty() {
         return Cow::Borrowed(text);
@@ -73,6 +75,7 @@ pub fn precompute_sgr_prefix(spec: &str) -> Option<String> {
 /// API-2 / TASK-0893: takes `Option<&str>` rather than `&Option<String>`
 /// so callers aren't locked into `String` storage and can pass borrowed
 /// slices, `Cow`s, or accessor returns via `.as_deref()`.
+#[must_use]
 pub fn apply_with_prefix<'a>(text: &'a str, prefix: Option<&str>) -> Cow<'a, str> {
     if !color_enabled() {
         return Cow::Borrowed(text);
@@ -153,7 +156,7 @@ mod tests {
     }
 
     /// DUP-3 / TASK-1188: both color subsystems must agree on enablement
-    /// under the same NO_COLOR / TTY conditions. Pinning equivalence
+    /// under the same `NO_COLOR` / TTY conditions. Pinning equivalence
     /// directly via `apply_style_gated` and `cyan_gated` (the explicit-
     /// override variants) ensures the styled branches produce parallel
     /// output for the same `enabled` boolean — i.e. neither subsystem

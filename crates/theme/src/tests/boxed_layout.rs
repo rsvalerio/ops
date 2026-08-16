@@ -182,7 +182,7 @@ fn boxed_error_detail_aligns_mid_with_label_column() {
     );
 }
 
-/// FN-1 / TASK-1192 AC#2: pin gutter alignment for two step_indent widths
+/// FN-1 / TASK-1192 AC#2: pin gutter alignment for two `step_indent` widths
 /// (0 and 2) so a future refactor of `boxed_error_indent_columns` cannot
 /// silently mis-align the error glyph column.
 #[test]

@@ -106,6 +106,11 @@ impl CommandRunner {
     /// Run a named command (single or composite) with inherited stdio (raw mode).
     ///
     /// Mirrors [`CommandRunner::run`] but always sequential and without events.
+    ///
+    /// # Errors
+    ///
+    /// If `command_id` cannot be expanded, or if a step cannot be built or
+    /// spawned.
     pub async fn run_raw(&self, command_id: &str) -> anyhow::Result<Vec<StepResult>> {
         let plan = self
             .expand_to_leaves(command_id)

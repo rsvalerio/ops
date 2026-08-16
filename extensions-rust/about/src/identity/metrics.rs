@@ -5,7 +5,7 @@ use ops_duckdb::sql::query_or_warn;
 use ops_duckdb::DuckDb;
 use ops_extension::Context;
 
-/// Metrics queried from DuckDB (LOC, dependencies, coverage, languages).
+/// Metrics queried from `DuckDB` (LOC, dependencies, coverage, languages).
 pub(super) struct IdentityMetrics {
     pub loc: Option<i64>,
     pub file_count: Option<i64>,
@@ -15,9 +15,9 @@ pub(super) struct IdentityMetrics {
 }
 
 /// TASK-0530: resolve `get_db` once and thread the borrowed handle to each
-/// sub-query so we don't re-locate / re-lock the DuckDB handle three times
-/// per `provide()`. Same anti-pattern that about/units::enrich_from_db got
-/// fixed for. Falls back to all-`None` metrics when DuckDB is not available.
+/// sub-query so we don't re-locate / re-lock the `DuckDB` handle three times
+/// per `provide()`. Same anti-pattern that `about/units::enrich_from_db` got
+/// fixed for. Falls back to all-`None` metrics when `DuckDB` is not available.
 pub(super) fn query_identity_metrics(ctx: &Context) -> IdentityMetrics {
     let Some(db) = ops_duckdb::get_db(ctx) else {
         return IdentityMetrics {

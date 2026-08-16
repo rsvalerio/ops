@@ -26,6 +26,7 @@ use ops_core::style::{cyan, dim};
 /// padded to `name_width` display columns and rendered cyan; `description`
 /// and `suffix` are rendered dim. `gap` is the separator between the padded
 /// name and the description.
+#[derive(Clone, Copy)]
 pub(crate) struct ListRow<'a> {
     pub leading: &'a str,
     pub name: &'a str,

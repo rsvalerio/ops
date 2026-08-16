@@ -92,6 +92,7 @@ impl HookConfig {
 /// treated as "don't skip". This matches how most CLI env-var opt-outs are
 /// commonly typed; documenting only `"1"` previously surprised users who set
 /// `SKIP_OPS_RUN_BEFORE_COMMIT=true`.
+#[must_use]
 pub fn should_skip(config: &HookConfig) -> bool {
     std::env::var(config.skip_env_var)
         .ok()

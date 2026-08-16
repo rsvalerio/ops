@@ -72,7 +72,7 @@ pub struct Variables {
 ///
 /// PERF-3 / TASK-0967: stored as `Arc<str>` so `from_env` can hand out a
 /// reference-counted clone in O(1) instead of allocating a fresh `String`
-/// on every call. CLI entry / hooks / RunBeforeCommit invoke `from_env`
+/// on every call. CLI entry / hooks / `RunBeforeCommit` invoke `from_env`
 /// outside the parallel-runtime Arc-cloning boundary, so amortised
 /// per-call allocation matters here.
 ///
@@ -389,6 +389,12 @@ impl Variables {
     /// **not** be observed by later callers. If a test needs a specific
     /// `TMPDIR`, set it before any `Variables::from_env` runs in that
     /// process.
+    ///
+    /// # Errors
+    ///
+    /// [`ExpandError::NotUnicode`] if `ops_root` or `TMPDIR` is not valid
+    /// Unicode. ERR-1 / TASK-1462: surfaced rather than lossily rendered so a
+    /// corrupt root cannot flow into a spawned subprocess.
     pub fn from_env(ops_root: &Path) -> Result<Self, ExpandError> {
         let mut builtins: HashMap<&'static str, Arc<str>> = HashMap::with_capacity(2);
         // ERR-1 / TASK-1462: surface a non-UTF-8 workspace root as a
@@ -444,6 +450,11 @@ impl Variables {
     /// errors (e.g. `VarError::NotUnicode`) instead of falling back to the
     /// literal input. Use this on any path that turns the result into an
     /// argv element, cwd, or env value — see ERR-1 / TASK-0450.
+    ///
+    /// # Errors
+    ///
+    /// [`ExpandError`] if `input` references an undefined variable, or if a
+    /// referenced value is not valid Unicode.
     pub fn try_expand<'a>(&'a self, input: &'a str) -> Result<Cow<'a, str>, ExpandError> {
         // CL-3: delegate to the shared helper so `~` expansion stays in sync
         // with platform path conventions used by the config loader.
@@ -785,9 +796,9 @@ mod tests {
     /// `PathBuf` per call. We can't observe the absence of allocation
     /// directly, but the `Arc::ptr_eq` invariant pins the documented
     /// hit-path contract: a regression to `entry(to_path_buf())` would
-    /// still match `Arc::ptr_eq` but the per-call PathBuf allocation
+    /// still match `Arc::ptr_eq` but the per-call `PathBuf` allocation
     /// would surface in the microbench-style test below
-    /// (`from_env_amortises_tmpdir`'s OPS_ROOT sibling).
+    /// (`from_env_amortises_tmpdir`'s `OPS_ROOT` sibling).
     #[test]
     #[serial_test::serial(ops_root_cache)]
     fn ops_root_cache_hit_path_reuses_arc() {
@@ -840,7 +851,7 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-1465: once the OPS_ROOT cache has been warmed for a
+    /// PERF-3 / TASK-1465: once the `OPS_ROOT` cache has been warmed for a
     /// given workspace root, subsequent `from_env` calls must skip the
     /// `std::fs::canonicalize` syscall entirely — the hit path probes the
     /// cache by raw `&Path` before paying any IO.
@@ -1021,7 +1032,7 @@ mod tests {
 
     /// Microbench-style regression: constructing `Variables::from_env` many
     /// times must amortise to the cached `TMPDIR` lookup rather than re-running
-    /// the `std::env::temp_dir()` syscall on every call. Pins the OnceLock
+    /// the `std::env::temp_dir()` syscall on every call. Pins the `OnceLock`
     /// optimisation; if it regresses (TMPDIR resolved per call) the syscall
     /// cost becomes visible at scale.
     #[test]

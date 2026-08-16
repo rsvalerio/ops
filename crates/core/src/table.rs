@@ -1,4 +1,4 @@
-//! Centralized table rendering via `OpsTable` wrapper around comfy_table.
+//! Centralized table rendering via `OpsTable` wrapper around `comfy_table`.
 
 use std::fmt;
 
@@ -29,11 +29,13 @@ impl OpsTable {
     /// `style::stdout_is_terminal` cache so repeated constructions reuse
     /// a single `isatty` syscall per process and cannot disagree with
     /// `style::color_enabled` mid-render after a redirect.
+    #[must_use]
     pub fn new() -> Self {
         Self::with_tty(crate::style::stdout_is_terminal())
     }
 
     /// Create a new table with explicit TTY control (useful for tests).
+    #[must_use]
     pub fn with_tty(is_tty: bool) -> Self {
         let mut inner = Table::new();
         inner
@@ -53,11 +55,13 @@ impl OpsTable {
     }
 
     /// Whether this table is rendering for a TTY.
+    #[must_use]
     pub fn is_tty(&self) -> bool {
         self.is_tty
     }
 
     /// Create a cell that is colored only when outputting to a TTY.
+    #[must_use]
     pub fn cell(&self, value: &str, color: Color) -> Cell {
         if self.is_tty {
             Cell::new(value).fg(color)
@@ -160,7 +164,7 @@ mod tests {
 
     /// PERF-3 / TASK-1439: repeated `OpsTable::new` calls must not re-invoke
     /// `stdout().is_terminal()`. We assert the probe counter advances by at
-    /// most one across N constructions: zero when the OnceLock was already
+    /// most one across N constructions: zero when the `OnceLock` was already
     /// primed by another test in the same process, one when this test
     /// happens to be the first to call it.
     #[test]

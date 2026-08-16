@@ -15,7 +15,7 @@ use std::time::Duration;
 /// Default timeout for `cargo llvm-cov`; overridable via
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`. Coverage runs the full test suite, so this
 /// is the largest of the cargo-subprocess defaults.
-pub(crate) const CARGO_LLVM_COV_TIMEOUT: Duration = Duration::from_secs(900);
+pub(crate) const CARGO_LLVM_COV_TIMEOUT: Duration = Duration::from_mins(15);
 
 /// TEST-23 / TASK-1554: the argv list `cargo llvm-cov` runs with. Exposed
 /// so the regression guard for TASK-1057 (`--no-fail-fast` must remain

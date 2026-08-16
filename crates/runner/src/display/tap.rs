@@ -154,7 +154,7 @@ mod tests {
     /// CONC-7 / TASK-1176: when the prior write failure kind is
     /// `StorageFull` or `BrokenPipe`, `append_marker` must short-circuit
     /// rather than re-open the path. Re-opening can only repeat the
-    /// failure (ENOSPC) or hang on a stale mount (BrokenPipe). We pin
+    /// failure (ENOSPC) or hang on a stale mount (`BrokenPipe`). We pin
     /// the short-circuit by setting the recorded truncation kind and
     /// asserting that the marker line is *not* written to the file.
     #[test]

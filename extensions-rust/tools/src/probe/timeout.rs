@@ -23,7 +23,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 /// a perfectly working toolchain.
 ///
 /// API-1 / TASK-1615: marked `#[non_exhaustive]` so adding a future
-/// variant (e.g. splitting Failed into Timeout / Io / NonZero, foreshadowed
+/// variant (e.g. splitting Failed into Timeout / Io / `NonZero`, foreshadowed
 /// by [`run_probe_with_timeout_inner`]) is not a breaking change for
 /// downstream `match`. Mirrors the policy documented on [`crate::ToolStatus`].
 /// When adding a variant, also update in-crate matches in `probe/cargo.rs`,
@@ -87,15 +87,15 @@ fn run_probe_with_timeout_inner(
     }
 }
 
-/// DUP-3 / TASK-1564: shared scaffolding for "spawn → run_probe → fail on
-/// non-zero with stderr_tail → return stdout as String". The four call
+/// DUP-3 / TASK-1564: shared scaffolding for "spawn → `run_probe` → fail on
+/// non-zero with `stderr_tail` → return stdout as String". The four call
 /// sites in `probe/cargo.rs` and `probe/rustup.rs` (the cargo-list /
 /// rustup-components probes and their `capture_*` siblings) used to
 /// repeat the same 12–15-line shape inline.
 ///
 /// `label` flows into both the timeout/spawn warn (via
 /// [`run_probe_with_timeout`]) and the non-zero-exit warn here so a
-/// future policy change (stderr snippet line count, ProbeFailed nuance)
+/// future policy change (stderr snippet line count, `ProbeFailed` nuance)
 /// lives in one place.
 pub(super) fn run_probe_capturing(cmd: &mut Command, label: &'static str) -> ProbeOutcome<String> {
     let output = match run_probe_with_timeout(cmd, label) {

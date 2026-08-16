@@ -224,8 +224,8 @@ mod log_safety_tests {
     use std::path::Path;
 
     /// ERR-7 / TASK-1563: the warn paths in `capture_path_index_from` and
-    /// `find_on_path_in` render path fields via the `?` format. PathBuf /
-    /// OsStr's `Debug` impl escapes control bytes — assert this directly
+    /// `find_on_path_in` render path fields via the `?` format. `PathBuf` /
+    /// `OsStr`'s `Debug` impl escapes control bytes — assert this directly
     /// so a future revert that switches back to `%` (Display) lights up
     /// CI before reaching the log scraper.
     #[test]

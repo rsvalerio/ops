@@ -1,6 +1,6 @@
 //! Rust `project_dependencies` data provider.
 //!
-//! Queries DuckDB for per-crate direct dependencies via cargo metadata.
+//! Queries `DuckDB` for per-crate direct dependencies via cargo metadata.
 
 use ops_core::project_identity::{ProjectDependencies, UnitDeps};
 use ops_duckdb::sql::{query_crate_deps, query_or_warn};

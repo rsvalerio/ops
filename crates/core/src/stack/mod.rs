@@ -55,10 +55,12 @@ pub enum Stack {
 }
 
 impl Stack {
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         (*self).into()
     }
 
+    #[must_use]
     pub fn manifest_files(&self) -> &[&str] {
         metadata::metadata(*self).0
     }
@@ -103,6 +105,7 @@ impl Stack {
     /// invocation.
     pub const MAX_DETECT_DEPTH: usize = 64;
 
+    #[must_use]
     pub fn detect(start: &Path) -> Option<Self> {
         detect::detect(start)
     }
@@ -125,6 +128,7 @@ impl Stack {
     /// read-only callers; this owning form exists for callers that need
     /// to move the map into a mutable target (e.g. `ops init` scaffolds
     /// the result into a writable [`Config`]).
+    #[must_use]
     pub fn default_commands(&self) -> IndexMap<String, CommandSpec> {
         self.default_commands_ref().clone()
     }
@@ -143,6 +147,7 @@ impl Stack {
     ///
     /// If the cache is missing an entry for `self`, which can only happen if
     /// `Self::iter` stops yielding every `Stack` variant.
+    #[must_use]
     pub fn default_commands_ref(&self) -> &'static IndexMap<String, CommandSpec> {
         Self::default_commands_cache()
             .get(self)

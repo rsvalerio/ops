@@ -117,6 +117,9 @@ pub(crate) const TOKEI_DEFAULT_EXCLUDED: &[&str] = &[
     "build",
 ];
 
+/// # Errors
+///
+/// If the collected language statistics fail to serialize to JSON.
 pub fn collect_tokei(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
     let mut languages = Languages::new();
     let tokei_config = TokeiConfig::default();
@@ -125,6 +128,7 @@ pub fn collect_tokei(working_dir: &Path) -> Result<serde_json::Value, anyhow::Er
     Ok(flatten_tokei_to_json(&languages, working_dir))
 }
 
+#[must_use]
 pub fn flatten_tokei_to_json(languages: &Languages, workspace_root: &Path) -> serde_json::Value {
     let records: Vec<serde_json::Value> = languages
         .iter()
@@ -157,7 +161,7 @@ fn report_to_json(
 
 /// Render a tokei `Report.name` path as a workspace-relative UTF-8 string.
 ///
-/// READ-5 (TASK-0504): this is intentionally lossy. The DuckDB `tokei_files`
+/// READ-5 (TASK-0504): this is intentionally lossy. The `DuckDB` `tokei_files`
 /// view that consumes this column is read-only at the value level (it never
 /// round-trips the path back to disk), so corrupting an invalid UTF-8 byte
 /// to `U+FFFD` only affects display and join-by-string-prefix attribution.

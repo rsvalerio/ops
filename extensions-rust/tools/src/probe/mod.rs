@@ -29,6 +29,7 @@ pub use timeout::ProbeOutcome;
 pub(crate) use cargo::{cargo_list_index, is_in_cargo_list, is_in_cargo_set};
 pub(crate) use rustup::{is_component_in_list, is_component_in_set, rustup_components_index};
 
+#[must_use]
 pub fn check_tool_status(name: &str, spec: &ToolSpec) -> ToolStatus {
     check_tool_status_with(name, spec, None, None, None)
 }
@@ -43,6 +44,7 @@ pub fn check_tool_status(name: &str, spec: &ToolSpec) -> ToolStatus {
 /// collapses onto `NotInstalled` (which `tools_cmd::run_install` then
 /// reinstalls); it surfaces as [`ToolStatus::ProbeFailed`] so the
 /// install path skips the entry.
+#[must_use]
 pub fn check_tool_status_with(
     name: &str,
     spec: &ToolSpec,

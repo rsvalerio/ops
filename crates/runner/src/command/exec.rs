@@ -230,7 +230,7 @@ fn log_and_redact_spawn_error(program: &str, e: &std::io::Error, context: &'stat
     redact_spawn_error(program, e)
 }
 
-/// Emit StepOutput events for captured stdout and stderr.
+/// Emit `StepOutput` events for captured stdout and stderr.
 ///
 /// PERF-3 / TASK-0732: each capture buffer is wrapped in a single
 /// `Arc<str>` and per-line events carry an [`OutputLine`] view onto a byte
@@ -298,7 +298,7 @@ pub fn emit_output_events(
     }
 }
 
-/// Emit final step event (StepFinished or StepFailed) based on success.
+/// Emit final step event (`StepFinished` or `StepFailed`) based on success.
 pub fn emit_step_completion(
     id: &str,
     duration: Duration,
@@ -322,7 +322,7 @@ pub fn emit_step_completion(
     }
 }
 
-/// Build StepResult from command output.
+/// Build `StepResult` from command output.
 pub fn build_step_result(id: &str, duration: Duration, output: CommandOutput) -> StepResult {
     StepResult {
         id: id.into(),
@@ -533,7 +533,7 @@ pub async fn exec_command_raw(
 /// API / TASK-1233: `ExecTaskCtx` is `#[non_exhaustive]` (matching the
 /// runner's other public bag types like `RunnerEvent` and `StepResult`)
 /// so adding a new runner-scoped handle (e.g. per-task telemetry, a
-/// cancellation token, an execution budget) is *not* a SemVer break for
+/// cancellation token, an execution budget) is *not* a `SemVer` break for
 /// downstream embedders. Embedders MUST construct the struct via
 /// [`ExecTaskCtx::new`] (or `..` syntax over a value the runner
 /// provides) — the field-level public constructors stay public for
@@ -590,9 +590,9 @@ impl ExecTaskCtx {
 ///
 /// Drains `local_rx` into the outer `RunnerEvent` channel, racing each
 /// `outer.send(..)` against `abort.cancelled()` so a stuck display pump
-/// cannot keep the forwarder alive after fail_fast tripped. Returned in a
+/// cannot keep the forwarder alive after `fail_fast` tripped. Returned in a
 /// `JoinSet` so its Drop aborts the forwarder if the parent task is
-/// cancelled mid-flight (a bare `tokio::spawn` JoinHandle would not).
+/// cancelled mid-flight (a bare `tokio::spawn` `JoinHandle` would not).
 fn spawn_event_forwarder(
     mut local_rx: mpsc::Receiver<RunnerEvent>,
     outer: mpsc::Sender<RunnerEvent>,
@@ -617,9 +617,9 @@ fn spawn_event_forwarder(
     forwarders
 }
 
-/// CONC-9 / TASK-0459+0571: forward a terminal event (StepFinished /
-/// StepFailed / StepSkipped) on `tx`, dropping it if abort fires first so
-/// fail_fast can stop a sibling task without blocking on a full bounded
+/// CONC-9 / TASK-0459+0571: forward a terminal event (`StepFinished` /
+/// `StepFailed` / `StepSkipped`) on `tx`, dropping it if abort fires first so
+/// `fail_fast` can stop a sibling task without blocking on a full bounded
 /// channel.
 async fn forward_terminal_event_or_drop(
     tx: &mpsc::Sender<RunnerEvent>,
@@ -761,7 +761,7 @@ pub async fn exec_standalone(
     result
 }
 
-/// Emit a zero-duration StepFailed event for resolution errors (unknown or composite-in-leaf).
+/// Emit a zero-duration `StepFailed` event for resolution errors (unknown or composite-in-leaf).
 pub fn emit_instant_failure(id: &str, message: &str, on_event: &mut impl FnMut(RunnerEvent)) {
     on_event(RunnerEvent::StepFailed {
         id: id.into(),
@@ -771,7 +771,7 @@ pub fn emit_instant_failure(id: &str, message: &str, on_event: &mut impl FnMut(R
     });
 }
 
-/// Emit failure event and return a StepResult for resolution errors (unknown command or composite in leaf list).
+/// Emit failure event and return a `StepResult` for resolution errors (unknown command or composite in leaf list).
 pub fn resolution_failure(
     id: &str,
     message: String,

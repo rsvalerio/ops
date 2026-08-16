@@ -1,4 +1,4 @@
-//! DuckDb extension: per-project DuckDB database for data collection.
+//! `DuckDb` extension: per-project `DuckDB` database for data collection.
 //!
 //! Tests require `--all-features` or `--features duckdb` to compile.
 //! CI must enable the `duckdb` feature flag to run these tests.
@@ -36,10 +36,15 @@ fn downcast_duckdb(handle: Option<&Arc<dyn ops_extension::DuckDbHandle>>) -> Opt
     handle.and_then(|h| h.as_any().downcast_ref::<DuckDb>())
 }
 
-/// Try to provide data from DuckDB first, falling back to a direct computation.
+/// Try to provide data from `DuckDB` first, falling back to a direct computation.
 ///
 /// Clones `ctx.db` Arc to split the borrow so `db_fn` can hold `&DuckDb`
 /// while `ctx` is still accessible. Arc refcount bump is negligible vs I/O cost.
+///
+/// # Errors
+///
+/// [`DataProviderError`] if `db_fn` fails when a database is available, or
+/// if `fallback_fn` fails when it is not.
 pub fn try_provide_from_db<F, G>(
     ctx: &mut Context,
     db_fn: F,
@@ -57,6 +62,7 @@ where
 }
 
 /// Extract the [`DuckDb`] handle from a context by downcasting from the trait object.
+#[must_use]
 pub fn get_db(ctx: &Context) -> Option<&DuckDb> {
     downcast_duckdb(ctx.db.as_ref())
 }
@@ -79,6 +85,7 @@ pub struct DuckDbExtension {
 }
 
 impl DuckDbExtension {
+    #[must_use]
     pub fn new(db_path: PathBuf) -> Self {
         Self { db_path }
     }

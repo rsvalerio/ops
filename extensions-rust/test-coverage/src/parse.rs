@@ -206,7 +206,7 @@ fn build_record(
 ///
 /// PERF-3 / TASK-1598: uses `get` + conditional `insert` so the duplicate
 /// (Occupied) path avoids the filename clone that `entry()` would require.
-/// Only first-seen filenames incur one clone for the HashMap key.
+/// Only first-seen filenames incur one clone for the `HashMap` key.
 fn dedup_push(
     records: &mut Vec<CoverageRow>,
     idx_map: &mut std::collections::HashMap<String, usize>,

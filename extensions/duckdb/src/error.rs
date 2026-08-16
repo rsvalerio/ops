@@ -1,4 +1,4 @@
-//! Database error type for DuckDb.
+//! Database error type for `DuckDb`.
 
 use thiserror::Error;
 
@@ -7,7 +7,7 @@ use thiserror::Error;
 #[allow(dead_code)]
 #[non_exhaustive]
 pub enum DbError {
-    /// ERR-5 / TASK-1214: PoisonError's Display embeds the panic payload from
+    /// ERR-5 / TASK-1214: `PoisonError`'s Display embeds the panic payload from
     /// arbitrary user-supplied callbacks, which can contain newlines, ANSI
     /// escapes, or other operator-controlled bytes. Rendering via `{0:?}`
     /// (Debug) escapes control characters (`\n`, `\u{1b}`, …) so the captured

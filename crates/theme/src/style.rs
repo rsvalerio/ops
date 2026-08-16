@@ -50,7 +50,7 @@ mod tests {
     }
 
     /// PERF-3 / TASK-0746: `visible_width` must produce identical results to
-    /// `display_width(&strip_ansi(s))` across the strip_ansi corpus — that is
+    /// `display_width(&strip_ansi(s))` across the `strip_ansi` corpus — that is
     /// the contract that lets every hot-path call site swap the allocating
     /// pair for the inline scan without a behaviour change.
     /// DUP-1 / TASK-0978: with the ANSI grammar parser deduplicated, a

@@ -12,14 +12,19 @@ use std::time::Duration;
 use wait_timeout::ChildExt;
 
 /// Default timeout for cargo/rustup install subprocesses.
-pub const DEFAULT_INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
+pub const DEFAULT_INSTALL_TIMEOUT: Duration = Duration::from_mins(10);
 
 /// Wait for `child` to exit; kill it and bail if it exceeds `timeout`.
 ///
 /// Uses [`wait_timeout`] which sleeps on a platform-native primitive (signalfd /
-/// kqueue / WaitForSingleObject) so the calling thread is not woken until the
+/// kqueue / `WaitForSingleObject`) so the calling thread is not woken until the
 /// child exits or the deadline elapses. This avoids the 5 Hz busy-poll the old
 /// implementation imposed for the entire install duration (up to 10 minutes).
+///
+/// # Errors
+///
+/// If waiting on `child` fails, or if it does not exit within `timeout` — in
+/// which case it is killed and reaped before the error is returned.
 pub fn run_with_timeout(
     mut child: std::process::Child,
     timeout: Duration,

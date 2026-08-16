@@ -91,7 +91,7 @@ fn merge_config_partial_overlay_preserves_base() {
     );
 }
 
-/// TQ-015: DataConfigOverlay merging preserves base when overlay is None.
+/// TQ-015: `DataConfigOverlay` merging preserves base when overlay is None.
 #[test]
 fn merge_config_data_overlay_sets_path() {
     let mut base = base_config();
@@ -126,7 +126,7 @@ fn merge_config_data_overlay_none_path_preserves_base() {
     );
 }
 
-/// TQ-015: ExtensionConfigOverlay merging.
+/// TQ-015: `ExtensionConfigOverlay` merging.
 #[test]
 fn merge_config_extension_overlay_sets_enabled() {
     let mut base = base_config();

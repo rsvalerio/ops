@@ -8,7 +8,7 @@ version = "0.36.2"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Rodrigo Valeri"]
-rust-version = "1.80"
+rust-version = "1.97"
 description = "Batteries-included task runner for any stack"
 repository = "https://github.com/rsvalerio/ops"
 homepage = "https://github.com/rsvalerio/ops"
@@ -94,24 +94,12 @@ pedantic = { level = "warn", priority = -1 }
 # `unwrap` is banned in production code. Test code opts out per crate with
 # `#![cfg_attr(test, allow(clippy::unwrap_used))]` in the crate root.
 unwrap_used = "warn"
-# Deferred pedantic lints: enforcing these means writing ~500 doc comments and
-# `#[must_use]` attributes across 28 crates. Tracked separately so the rest of
-# `pedantic` can be enforced now instead of waiting on a documentation sweep.
-doc_markdown = "allow"
-missing_errors_doc = "allow"
-must_use_candidate = "allow"
-# `Duration::from_mins`/`from_hours` are newer than the declared
-# `rust-version = "1.80"`, so this lint's suggestion would raise the MSRV.
-duration_suboptimal_units = "allow"
 # Style preferences this codebase deliberately does not share: local `const`,
 # `type` and helper declarations are written at their point of use, and clap
 # flag structs are legitimately bool-heavy.
 items_after_statements = "allow"
 struct_excessive_bools = "allow"
 similar_names = "allow"
-# TASK-1666: 19 sites need signature *and* call-site changes, some constrained
-# by the `'static` bounds on the runner's tokio spawns. Tracked separately.
-needless_pass_by_value = "allow"
 
 [patch.crates-io]
 # RUSTSEC-2026-0037: patch quinn-proto to 0.11.14 (DoS fix)

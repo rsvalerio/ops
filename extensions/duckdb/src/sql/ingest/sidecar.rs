@@ -5,19 +5,24 @@ use std::path::{Path, PathBuf};
 
 /// Single source of truth for the workspace sidecar filename convention
 /// (DUP-3). All write/read/remove helpers route through here.
+#[must_use]
 pub fn sidecar_path(data_dir: &Path, name: &str) -> PathBuf {
     data_dir.join(format!("{name}_workspace.txt"))
 }
 
 /// Write a workspace root sidecar file alongside collected data.
 ///
-/// Used by ingestors that don't embed workspace_root in their JSON output
+/// Used by ingestors that don't embed `workspace_root` in their JSON output
 /// (e.g., tokei, coverage). The sidecar is read back during `load()` for
 /// `upsert_data_source`.
 ///
 /// Persists the path's raw OS bytes (via `as_encoded_bytes`) so that
 /// non-UTF-8 paths round-trip exactly rather than being silently corrupted
 /// to `U+FFFD` (READ-5).
+///
+/// # Errors
+///
+/// [`DbError::Io`] if the sidecar cannot be written atomically.
 pub fn write_workspace_sidecar(
     data_dir: &Path,
     name: &str,
@@ -46,6 +51,11 @@ pub const MAX_SIDECAR_BYTES: u64 = 4 * 1024 * 1024;
 /// SEC-21 / TASK-1217: rejects ASCII control bytes at the read boundary.
 /// UNSAFE-1 (TASK-1104): no `from_encoded_bytes_unchecked` — uses
 /// `OsString::from_vec` on Unix and validated UTF-8 elsewhere.
+///
+/// # Errors
+///
+/// [`DbError::Io`] if the sidecar is missing or unreadable, or
+/// [`DbError::SidecarTooLarge`] if it exceeds `MAX_SIDECAR_BYTES`.
 pub fn read_workspace_sidecar(data_dir: &Path, name: &str) -> DbResult<std::ffi::OsString> {
     use std::io::Read;
     let workspace_path = sidecar_path(data_dir, name);

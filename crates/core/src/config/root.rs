@@ -71,6 +71,11 @@ impl Config {
     /// here because composite commands may reference stack defaults or
     /// extension-registered commands that are not known at config load time —
     /// see [`Config::validate_commands`] for full composite validation.
+    ///
+    /// # Errors
+    ///
+    /// If any exec spec fails [`ExecCommandSpec::validate`]. Composite specs are
+    /// not checked here — see [`Config::validate_commands`].
     pub fn validate(&self) -> anyhow::Result<()> {
         for (name, spec) in &self.commands {
             if let CommandSpec::Exec(exec) = spec {
@@ -94,6 +99,12 @@ impl Config {
     /// passes in the externally-known ids explicitly, so this can run from
     /// tests or from any setup path that already knows the extra command
     /// stores.
+    ///
+    /// # Errors
+    ///
+    /// If any exec spec is invalid, a composite references an unknown command,
+    /// a composite cycles, expansion exceeds [`MAX_COMPOSITE_DEPTH`], or an
+    /// alias collides with a command name or with another command's alias.
     pub fn validate_commands(&self, externals: &[&str]) -> anyhow::Result<()> {
         self.validate()?;
 
@@ -207,6 +218,7 @@ impl Config {
     /// O(N·M) over commands × aliases. The alias lookup is called once per
     /// CLI invocation so an inline scan is still cheap in practice — each
     /// user has tens of commands and a handful of aliases.
+    #[must_use]
     pub fn resolve_alias(&self, alias: &str) -> Option<&str> {
         for (name, spec) in &self.commands {
             if spec.aliases().iter().any(|a| a == alias) {

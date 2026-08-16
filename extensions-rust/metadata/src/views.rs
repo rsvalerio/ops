@@ -49,11 +49,11 @@ pub fn crate_dependencies_view_sql() -> String {
 }
 
 /// ARCH-9 / TASK-1247: thread the `metadata_max_bytes()` knob into the
-/// DuckDB `read_json` options so the env-knob surface and the ingest-side
+/// `DuckDB` `read_json` options so the env-knob surface and the ingest-side
 /// `maximum_object_size` cap share one source of truth. The previous shape
-/// hardcoded 64 MiB on the DuckDB side; raising
+/// hardcoded 64 MiB on the `DuckDB` side; raising
 /// `OPS_METADATA_MAX_BYTES` in the post-ingest reader did not save memory
-/// because DuckDB still buffered up to the hardcoded ceiling during
+/// because `DuckDB` still buffered up to the hardcoded ceiling during
 /// ingest, and lowering it from the env left ingest unbounded.
 pub fn metadata_raw_create_sql(path: &Path) -> Result<String, SqlError> {
     metadata_raw_create_sql_with_cap(path, crate::metadata_max_bytes())
@@ -94,7 +94,7 @@ mod tests {
     ops_duckdb::test_create_sql_validation!(metadata_raw_create_sql, "metadata.json");
 
     /// ARCH-9 / TASK-1247 AC #3: a non-default cap must propagate into the
-    /// DuckDB `maximum_object_size` option so a single env knob governs
+    /// `DuckDB` `maximum_object_size` option so a single env knob governs
     /// both the post-ingest payload check and the ingest-time buffer
     /// ceiling.
     #[test]

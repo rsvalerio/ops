@@ -2,6 +2,7 @@
 //! line terminator (LF or CRLF). Returns `None` when the input is already
 //! clean so callers can skip the rewrite and preserve mtimes.
 
+#[must_use]
 pub fn fix_trailing(input: &[u8]) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(input.len());
     let mut changed = false;

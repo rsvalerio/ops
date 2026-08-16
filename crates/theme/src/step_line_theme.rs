@@ -8,6 +8,7 @@
 ///
 /// SEC-15 / TASK-0358: NaN, negative, and infinite inputs render as `"--"`
 /// rather than silently saturating through `as u64` casts.
+#[must_use]
 pub fn format_duration(secs: f64) -> String {
     if !secs.is_finite() || secs < 0.0 {
         return "--".to_string();
@@ -58,7 +59,7 @@ pub struct BoxSnapshot<'a> {
     /// Steps that ended in `StepStatus::Failed`. Used by the bottom border
     /// to surface "F failed of T" rather than the legacy "Done N/M" line.
     pub failed: usize,
-    /// Steps that ended in `StepStatus::Skipped` (cancelled, fail_fast
+    /// Steps that ended in `StepStatus::Skipped` (cancelled, `fail_fast`
     /// orphans, …). Distinguished from failed so summary lines can read
     /// "S succeeded, K skipped, F failed of T".
     pub skipped: usize,

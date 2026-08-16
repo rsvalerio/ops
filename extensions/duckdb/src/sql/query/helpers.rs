@@ -56,6 +56,7 @@ pub struct CrateCoverage {
 }
 
 impl CrateCoverage {
+    #[must_use]
     pub fn new(lines_count: i64, lines_covered: i64, lines_percent: f64) -> Self {
         Self {
             lines_count,
@@ -64,6 +65,7 @@ impl CrateCoverage {
         }
     }
 
+    #[must_use]
     pub fn zero() -> Self {
         Self {
             lines_count: 0,
@@ -141,8 +143,8 @@ where
 /// DUP-1 / TASK-1629: shared scaffolding for project-level queries that
 /// fetch a single row. Acquires the DB lock, returns `default` when the
 /// table is missing, otherwise runs `sql` with no parameters and maps the
-/// resulting row via `row_mapper`. Centralises the lock + table_exists +
-/// query_row + with_context prologue that `query_project_scalar` and the
+/// resulting row via `row_mapper`. Centralises the lock + `table_exists` +
+/// `query_row` + `with_context` prologue that `query_project_scalar` and the
 /// former hand-rolled `query_project_coverage` each implemented
 /// independently.
 pub(super) fn query_project_row<T, F>(
@@ -173,7 +175,7 @@ where
 /// Returns `Ok(0)` if the table doesn't exist.
 ///
 /// DUP-1 / TASK-1629: delegates to [`query_project_row`] so the lock +
-/// table-exists + with_context prologue lives in exactly one place.
+/// table-exists + `with_context` prologue lives in exactly one place.
 pub(super) fn query_project_scalar(
     db: &DuckDb,
     table: &str,
@@ -242,9 +244,9 @@ pub(super) enum Resolved<'a, T> {
     Continue(std::sync::MutexGuard<'a, duckdb::Connection>, String),
 }
 
-/// Single source of truth for the Empty / NoTable / Ready branching that every
+/// Single source of truth for the Empty / `NoTable` / Ready branching that every
 /// per-crate query needs. `default_fn` produces the value used to zero-fill the
-/// NoTable branch.
+/// `NoTable` branch.
 pub(super) fn resolve_per_crate<'a, T, F>(
     setup: PerCrateSetup<'a>,
     member_paths: &[&str],
@@ -331,8 +333,8 @@ pub(super) struct PerCrateI64Query<'a> {
 }
 
 /// Shared scaffolding: validate paths, lock db, check table exists, build VALUES CTE,
-/// LEFT JOIN on `starts_with`, GROUP BY, collect into HashMap<String, i64>.
-/// Returns zeroed map if table doesn't exist, empty map if no member_paths.
+/// LEFT JOIN on `starts_with`, GROUP BY, collect into `HashMap`<String, i64>.
+/// Returns zeroed map if table doesn't exist, empty map if no `member_paths`.
 pub(super) fn query_per_crate_i64(
     q: &PerCrateI64Query<'_>,
 ) -> anyhow::Result<HashMap<String, i64>> {
@@ -414,7 +416,7 @@ mod tests {
     /// signature is meant to provide.
     /// ERR-1: a query that returns the same key twice (e.g. dropped GROUP BY)
     /// must not silently produce a single row in the resulting map. Pinning
-    /// behaviour via in-memory DuckDB so the regression is visible without a
+    /// behaviour via in-memory `DuckDB` so the regression is visible without a
     /// tracing-subscriber dev-dep.
     #[test]
     fn collect_per_crate_map_keeps_one_entry_for_duplicate_keys() {

@@ -115,6 +115,7 @@ pub fn cached_byte_cap_env(slot: &OnceLock<u64>, env_var: &'static str, default:
 /// `for_each_trimmed_line`); changes after the first read are ignored.
 /// Unparseable / zero values fall back to [`MANIFEST_MAX_BYTES_DEFAULT`]
 /// with a one-shot `tracing::warn!` from the `OnceLock` initialiser.
+#[must_use]
 pub fn manifest_max_bytes() -> u64 {
     cached_byte_cap_env(
         &MANIFEST_MAX_BYTES,
@@ -183,6 +184,11 @@ fn is_symlink_refusal(e: &std::io::Error) -> bool {
 ///
 /// `NotFound` and other IO errors are returned verbatim so callers can
 /// classify (silent fall-through vs warn-and-skip vs hard fail).
+///
+/// # Errors
+///
+/// If `path` cannot be opened or read, if it is not valid UTF-8, or if it
+/// exceeds the configured byte cap.
 pub fn read_capped_to_string(path: &Path) -> std::io::Result<String> {
     read_capped_to_string_with(path, manifest_max_bytes())
 }
@@ -194,13 +200,13 @@ fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> 
     // ERR-4 / TASK-1393: attach the path to io::Error propagation so a
     // bare `PermissionDenied`/`NotFound`/`IsADirectory` surfaces with the
     // file name, matching the oversize InvalidData branch below.
-    let mut file = open_refusing_symlinks(path).map_err(|e| with_path(e, path))?;
+    let mut file = open_refusing_symlinks(path).map_err(|e| with_path(&e, path))?;
     let mut buf = String::new();
     let limit = cap.saturating_add(1);
     (&mut file)
         .take(limit)
         .read_to_string(&mut buf)
-        .map_err(|e| with_path(e, path))?;
+        .map_err(|e| with_path(&e, path))?;
     if buf.len() as u64 > cap {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -213,11 +219,12 @@ fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> 
     Ok(buf)
 }
 
-fn with_path(e: std::io::Error, path: &Path) -> std::io::Error {
+fn with_path(e: &std::io::Error, path: &Path) -> std::io::Error {
     std::io::Error::new(e.kind(), format!("{}: {e}", path.display()))
 }
 
 /// Capitalize the first character of a string.
+#[must_use]
 pub fn capitalize(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
@@ -227,6 +234,7 @@ pub fn capitalize(s: &str) -> String {
 }
 
 /// Format a number with comma separators (e.g. 1234 → "1,234").
+#[must_use]
 pub fn format_number(n: i64) -> String {
     if n < 0 {
         // checked_neg() returns None only for i64::MIN; format the magnitude
@@ -286,6 +294,7 @@ fn insert_thousands_separators(digits: &str) -> Cow<'_, str> {
 }
 
 /// Extract the last path component as a project name, falling back to `"project"`.
+#[must_use]
 pub fn dir_name(path: &Path) -> &str {
     path.file_name()
         .and_then(|n| n.to_str())
@@ -298,9 +307,9 @@ pub fn dir_name(path: &Path) -> &str {
 /// manifest parsers (`go.mod`, `go.work`, `gradle.properties`, etc.) to share
 /// the read-and-iterate skeleton.
 ///
-/// Non-NotFound IO errors (PermissionDenied, IsADirectory, oversize, etc.) are
+/// Non-NotFound IO errors (`PermissionDenied`, `IsADirectory`, oversize, etc.) are
 /// logged at `tracing::warn!` so operators can diagnose "manifest exists but is
-/// unreadable" without changing log levels. NotFound remains silent — a missing
+/// unreadable" without changing log levels. `NotFound` remains silent — a missing
 /// manifest is a normal condition for optional stacks.
 ///
 /// SEC-33 (TASK-0932): the read is byte-capped via [`read_capped_to_string`] so
@@ -506,7 +515,7 @@ mod tests {
         );
     }
 
-    /// ERR-4 / TASK-1393: PermissionDenied (and other propagated io
+    /// ERR-4 / TASK-1393: `PermissionDenied` (and other propagated io
     /// errors) must include the path in the message so callers that
     /// surface the bare error to users still get a useful diagnostic.
     #[cfg(unix)]
@@ -535,7 +544,7 @@ mod tests {
         }
     }
 
-    /// ARCH-9 / TASK-1228: pin the parse_byte_cap_env shared parser across
+    /// ARCH-9 / TASK-1228: pin the `parse_byte_cap_env` shared parser across
     /// the unset / zero / unparseable / valid matrix. Both
     /// `manifest_max_bytes` and `ops_toml_max_bytes` route through this so
     /// fixing the matrix here pins both surfaces.

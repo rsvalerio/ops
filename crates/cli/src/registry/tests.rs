@@ -24,7 +24,7 @@ fn builtin_extensions_rejects_unknown_extension() {
 
 /// The "available extensions" list in the
 /// "not compiled in" error message must be sorted alphabetically and
-/// deterministic across consecutive invocations. HashMap iteration order
+/// deterministic across consecutive invocations. `HashMap` iteration order
 /// is randomised per process, so an unsorted message would shuffle on
 /// every call and break snapshot tests / bug-report skim-ability.
 #[test]
@@ -159,8 +159,8 @@ fn collect_compiled_extensions_returns_entries() {
 /// and only asserted on `filtered`, so a regression that taught
 /// `collect_compiled_extensions` to honour `extensions.enabled` would
 /// still pass. We pin the unfiltered-superset shape: every name in the
-/// filtered set must appear in the unfiltered one, and `compiled.len()
-/// >= filtered.len()`.
+/// filtered set must appear in the unfiltered one, and
+/// `compiled.len() >= filtered.len()`.
 #[test]
 fn collect_compiled_extensions_unfiltered_by_config() {
     let config = Config {
@@ -287,7 +287,7 @@ fn register_extension_commands_detects_duplicate_command_id() {
 
 /// A single extension that calls `insert` twice for
 /// the same id must surface the self-shadow via a tracing warning. Prior
-/// to the fix the IndexMap silently overwrote the first registration and
+/// to the fix the `IndexMap` silently overwrote the first registration and
 /// the cross-extension warning loop only fires for foreign owners.
 #[test]
 fn register_extension_commands_warns_on_self_shadow() {

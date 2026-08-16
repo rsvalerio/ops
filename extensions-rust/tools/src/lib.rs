@@ -117,6 +117,7 @@ pub struct ToolInfo {
 }
 
 impl ToolInfo {
+    #[must_use]
     pub fn new(
         name: String,
         description: String,

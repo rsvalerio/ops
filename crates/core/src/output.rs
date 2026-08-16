@@ -5,6 +5,7 @@
 use unicode_width::UnicodeWidthStr;
 
 /// Display width of a string in terminal columns (e.g. checkmark/cross = 1, wide emoji = 2).
+#[must_use]
 pub fn display_width(s: &str) -> usize {
     s.width()
 }
@@ -95,6 +96,7 @@ pub fn tail_lines<T>(lines: &[T], n: usize) -> &[T] {
 /// - Within each emitted line, any trailing `\r` (from CRLF input) is
 ///   stripped and any embedded bare `\r` bytes are replaced with `\n` so
 ///   they cannot move the terminal cursor when the tail is rendered.
+#[must_use]
 pub fn format_error_tail(stderr: &[u8], n: usize) -> String {
     format_error_tail_with_stats(stderr, n).0
 }
@@ -432,7 +434,7 @@ mod tests {
     /// PERF-3 / TASK-1440: repeated `detect_terminal_width` calls must not
     /// re-invoke the underlying `terminal_size` ioctl. Probe counter
     /// advances by at most one across N calls (zero when another test in
-    /// the process already primed the OnceLock, one when this is first).
+    /// the process already primed the `OnceLock`, one when this is first).
     #[test]
     fn detect_terminal_width_memoises_probe() {
         let before = detect_terminal_width_probe_count();

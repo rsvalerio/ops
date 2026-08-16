@@ -44,6 +44,7 @@ pub struct HookOps {
 /// (hard-coded `io::stdout()` + `inquire::MultiSelect`) and the test-only
 /// `run_hook_install_with` (capturing buffer + fixed list) into one
 /// orchestration with a single selection-source seam.
+#[derive(Clone, Copy)]
 pub enum CommandSelector<'a> {
     /// Production path: present an `inquire::MultiSelect` of available
     /// commands. Requires a TTY.
@@ -310,8 +311,8 @@ mod tests {
         assert!(names.contains(&"verify"));
     }
 
-    /// gather_available_commands is a pure data reshape — it accepts a
-    /// pre-built CommandRegistry, so callers can inject a mock registry
+    /// `gather_available_commands` is a pure data reshape — it accepts a
+    /// pre-built `CommandRegistry`, so callers can inject a mock registry
     /// without compiling-in any extension state.
     #[test]
     fn gather_includes_injected_registry_commands() {

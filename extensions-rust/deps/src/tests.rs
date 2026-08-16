@@ -185,7 +185,7 @@ serde  1.0.100 1.0.228    1.0.228 1.0.228
 
 /// ERR-1 / TASK-1026: when stdout carries body content but no `====`
 /// separator row was detected (the header drifted hard enough that we
-/// can't even line up columns), the parser must emit a tracing::warn
+/// can't even line up columns), the parser must emit a `tracing::warn`
 /// breadcrumb instead of silently returning an empty Vec. We use the
 /// `tracing` test subscriber to assert the warn fires.
 #[test]
@@ -306,7 +306,7 @@ fn categorize_upgrades_perf3_parity_after_alloc_free_scan() {
 
 /// ERR-1 / TASK-0913: `cargo upgrade --dry-run` exit 1 (lockfile contention,
 /// network error, etc.) must surface as an error rather than parsing an
-/// empty stdout into an empty UpgradeResult. Mirrors the cargo-deny exit-1
+/// empty stdout into an empty `UpgradeResult`. Mirrors the cargo-deny exit-1
 /// fix in TASK-0612.
 #[test]
 fn interpret_upgrade_output_errs_on_exit_one() {
@@ -436,7 +436,7 @@ fn interpret_upgrade_output_bails_on_row_shape_drift() {
     );
 }
 
-/// TASK-1492: preamble lines before the header must not feed the body_lines
+/// TASK-1492: preamble lines before the header must not feed the `body_lines`
 /// counter. A recognised header + separator with zero real body rows must
 /// return Ok([]), not bail with row-shape-drift.
 #[test]
@@ -510,7 +510,7 @@ fn interpret_deny_result_errs_on_exit_1_with_non_json_stderr() {
     );
 }
 
-/// ERR-7 (TASK-0598): exit_code = None means cargo-deny was killed by
+/// ERR-7 (TASK-0598): `exit_code` = None means cargo-deny was killed by
 /// signal. Treating partial stderr as an authoritative diagnostic stream
 /// silently turns a SIGKILL/OOM into a "clean" run; the gate must error
 /// instead so CI does not score a killed run as green.
@@ -632,8 +632,8 @@ fn parse_deny_mixed_diagnostics() {
 
 /// TASK-0436: a diagnostic whose code is not in any of the four known sets
 /// (e.g. cargo-deny adds a new category) is dropped from the result, but
-/// still observable via tracing::debug — the entry must not silently change
-/// the DenyResult shape.
+/// still observable via `tracing::debug` — the entry must not silently change
+/// the `DenyResult` shape.
 #[test]
 fn parse_deny_unknown_code_does_not_appear_in_result() {
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"warning","message":"future schema","code":"hypothetical-new-category","labels":[],"graphs":[{"Krate":{"name":"some","version":"1.0.0"}}],"notes":[]}}"#;
@@ -649,7 +649,7 @@ fn parse_deny_unknown_code_does_not_appear_in_result() {
 /// indistinguishable from a real cargo-deny error and silently inverting
 /// the fail-closed schema-drift contract for informational diagnostics.
 /// The new behaviour preserves the missing severity as the
-/// `<missing-severity>` sentinel, which routes through has_issues's
+/// `<missing-severity>` sentinel, which routes through `has_issues`'s
 /// fail-closed `_other` branch (still fails the gate) but is observable
 /// in the parsed entry and via tracing.
 #[test]
@@ -728,7 +728,7 @@ fn parse_deny_no_code_field_skipped() {
 /// "error" value and prevents callers (and operators reading logs) from
 /// distinguishing "real error" from "schema drift, severity field gone".
 /// The new contract uses `<missing-severity>` as a distinct sentinel that
-/// has_issues routes through the fail-closed `_other` branch.
+/// `has_issues` routes through the fail-closed `_other` branch.
 #[test]
 fn parse_deny_no_severity_uses_missing_sentinel_not_error() {
     use crate::parse::MISSING_SEVERITY_SENTINEL;
@@ -969,7 +969,7 @@ fn format_report_duplicate_crates_shows_totals_only() {
 /// the relaxed gate (bans). Both branches now route through the same
 /// `is_actionable(severity, relax_warning)` helper instead of two
 /// near-identical match arms, so this test pins the contract by
-/// exercising both modes via the same DepsReport shape.
+/// exercising both modes via the same `DepsReport` shape.
 #[test]
 fn has_issues_warning_is_actionable_only_on_strict_gate() {
     // Strict gate (advisories): warning => actionable.

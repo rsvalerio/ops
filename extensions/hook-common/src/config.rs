@@ -39,6 +39,10 @@ use crate::HookConfig;
 ///    subsequent `ops <hook>-install` run will see the entry already exists
 ///    and leave the user's edit alone — the override is sticky across
 ///    reinstalls.
+///
+/// # Errors
+///
+/// If `.ops.toml` cannot be read, parsed, or written back.
 pub fn ensure_config_command(
     config: &HookConfig,
     config_dir: &Path,

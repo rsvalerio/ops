@@ -18,7 +18,7 @@ pub struct StepResult {
 }
 
 impl StepResult {
-    /// DUP-003: Private helper to construct base StepResult with common defaults.
+    /// DUP-003: Private helper to construct base `StepResult` with common defaults.
     fn new(id: impl Into<CommandId>, success: bool, duration: Duration) -> Self {
         Self {
             id: id.into(),
@@ -56,7 +56,7 @@ impl StepResult {
 
     /// ERR-1 / TASK-0408: a cancellation happens when a sibling task
     /// triggered `fail_fast` (parallel) or the abort flag was already set
-    /// before this task started (exec_standalone). Encoded as
+    /// before this task started (`exec_standalone`). Encoded as
     /// `success: false` so plan-success aggregation
     /// (`results.iter().all(|r| r.success)`) yields a non-zero exit code
     /// even in the (currently impossible but architecturally fragile)
@@ -142,12 +142,12 @@ static OUTPUT_BYTE_CAP: OnceLock<usize> = OnceLock::new();
 /// stays silent and only operator-driven escalations trip the alarm.
 const PEAK_CAPTURE_WARN_BYTES: usize = 1024 * 1024 * 1024;
 
-/// ERR-2 / TASK-0840: pure parser for the OPS_OUTPUT_BYTE_CAP env value.
+/// ERR-2 / TASK-0840: pure parser for the `OPS_OUTPUT_BYTE_CAP` env value.
 /// Returns the resolved cap and, when the input was present-but-unusable,
 /// a human message describing the fallback so the caller can emit a
 /// `tracing::warn!` outside the unit-test path. Factored out so the
 /// fallback semantics are unit-testable without poking the
-/// process-global OnceLock.
+/// process-global `OnceLock`.
 fn parse_output_byte_cap(raw: Option<&str>) -> (usize, Option<String>) {
     match raw {
         None => (DEFAULT_OUTPUT_BYTE_CAP, None),
@@ -315,7 +315,7 @@ mod tests {
         assert!(cmd_output.stdout.contains("dropped 9999 bytes"));
     }
 
-    /// TQ-009: StepResult clone produces equal copy.
+    /// TQ-009: `StepResult` clone produces equal copy.
     #[test]
     fn step_result_clone_produces_equal_copy() {
         let original = StepResult {
@@ -335,7 +335,7 @@ mod tests {
         assert_eq!(cloned.message, original.message);
     }
 
-    /// TQ-009: StepResult Debug output includes key fields.
+    /// TQ-009: `StepResult` Debug output includes key fields.
     #[test]
     fn step_result_debug_includes_fields() {
         let result = StepResult::failure("debug_cmd", Duration::from_millis(42), "oops".into());

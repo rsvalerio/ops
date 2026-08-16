@@ -318,7 +318,7 @@ mod tests {
 
     /// ERR-2 / TASK-1167: a `module    ` line (whitespace-only path) must
     /// drop to None so the directory-name fallback fires, matching the
-    /// trim_nonempty policy applied by the Node and Python identity providers.
+    /// `trim_nonempty` policy applied by the Node and Python identity providers.
     #[test]
     fn provide_whitespace_only_module_falls_back_to_dir_name() {
         let dir = tempfile::tempdir().unwrap();

@@ -1,4 +1,4 @@
-//! Tests for the parallel-execution plumbing (spawn / collect / handle_events).
+//! Tests for the parallel-execution plumbing (spawn / collect / `handle_events`).
 
 use super::*;
 
@@ -11,10 +11,10 @@ async fn spawn_parallel_tasks_creates_correct_count() {
     ];
     let (rx, _abort, join_set, id_map) = CommandRunner::spawn_parallel_tasks(
         steps,
-        Arc::new(PathBuf::from(".")),
-        Arc::new(test_vars()),
+        &Arc::new(PathBuf::from(".")),
+        &Arc::new(test_vars()),
         crate::command::CwdEscapePolicy::WarnAndAllow,
-        Arc::new(WorkspaceCanonicalCache::new()),
+        &Arc::new(WorkspaceCanonicalCache::new()),
     );
     drop(rx);
     let results = CommandRunner::collect_join_results(join_set, &id_map).await;
@@ -90,11 +90,11 @@ async fn handle_parallel_events_no_abort_without_fail_fast() {
     assert!(!abort.is_set(), "abort should NOT be set without fail_fast");
 }
 
-/// CONC-6 / TASK-1177: a panicked sibling under fail_fast must trip abort
+/// CONC-6 / TASK-1177: a panicked sibling under `fail_fast` must trip abort
 /// at the same point a `StepFailed` event would. Pre-fix the abort signal
 /// only fired on `RunnerEvent::StepFailed`, so a task that panicked rather
 /// than emitting a failure event kept its siblings running until the
-/// channel drained naturally — defeating fail_fast for the panic path.
+/// channel drained naturally — defeating `fail_fast` for the panic path.
 ///
 /// Spawn one task that panics immediately and one that holds an
 /// `AbortSignal::cancelled()` future the test checks; assert that the

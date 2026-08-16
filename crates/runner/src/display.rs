@@ -144,6 +144,10 @@ impl ProgressDisplay {
         std::io::stderr().is_terminal()
     }
 
+    /// # Errors
+    ///
+    /// If the configured theme name does not resolve to a built-in or
+    /// `[themes]` entry, or the tap file cannot be opened.
     pub fn new(opts: DisplayOptions<'_>) -> anyhow::Result<Self> {
         Self::new_with_tty_check(opts, Self::is_stderr_tty)
     }
@@ -201,6 +205,7 @@ impl ProgressDisplay {
 
     /// Returns a reference to the render config for testing.
     #[cfg(test)]
+    #[must_use]
     pub fn render_config(&self) -> &RenderConfig {
         &self.render
     }
@@ -239,7 +244,7 @@ impl ProgressDisplay {
         bar.finish_with_message(line);
     }
 
-    /// Dispatch a RunnerEvent to the appropriate handler method.
+    /// Dispatch a `RunnerEvent` to the appropriate handler method.
     ///
     /// CONC-5 / TASK-0331 — async-safety invariant: this method performs
     /// blocking I/O (synchronous `write(2)` on the tap file and stderr) and
@@ -259,7 +264,7 @@ impl ProgressDisplay {
         match event {
             RunnerEvent::PlanStarted { command_ids } => self.on_plan_started(&command_ids),
             RunnerEvent::StepStarted { id, .. } => self.on_step_started(&id),
-            RunnerEvent::StepOutput { id, line, stderr } => self.on_step_output(&id, line, stderr),
+            RunnerEvent::StepOutput { id, line, stderr } => self.on_step_output(&id, &line, stderr),
             RunnerEvent::StepFinished {
                 id,
                 duration_secs,
@@ -533,7 +538,7 @@ impl ProgressDisplay {
         }
     }
 
-    fn on_step_output(&mut self, id: &str, line: crate::command::OutputLine, stderr: bool) {
+    fn on_step_output(&mut self, id: &str, line: &crate::command::OutputLine, stderr: bool) {
         if stderr {
             self.state
                 .record_stderr(id, line.clone(), self.render.stderr_tail.cap());

@@ -133,7 +133,7 @@ pub(crate) fn read_capped_toml_file_with(path: &Path, cap: u64) -> anyhow::Resul
 /// Counter for `load_config` invocations. Used by the CLI regression test
 /// (TASK-0427) to assert that a typical `ops <cmd>` flow only loads
 /// `.ops.toml` once. Gated behind `cfg(any(test, feature = "test-support"))`
-/// so production CLI binaries do not carry the AtomicUsize or its symbols.
+/// so production CLI binaries do not carry the `AtomicUsize` or its symbols.
 ///
 /// CONC-7 (TASK-1093): this counter is **process-global**. Two parallel tests
 /// that both call `reset_load_config_call_count()` and assert
@@ -174,6 +174,11 @@ pub fn reset_load_config_call_count() {
 /// that spawns work across cwds, future async refactors) should call
 /// [`load_config_at`] with a known [`Path`] instead. The `#[serial_test::serial]`
 /// discipline on `tests/loader.rs` exists for the same reason.
+///
+/// # Errors
+///
+/// If the current directory cannot be resolved, or if any layer fails to
+/// load or parse; see [`load_config_at`].
 #[instrument(skip_all)]
 pub fn load_config() -> anyhow::Result<Config> {
     let cwd = std::env::current_dir().context("resolving workspace root from current_dir")?;
@@ -187,6 +192,12 @@ pub fn load_config() -> anyhow::Result<Config> {
 /// workspace root. Prefer this entry point in production callers so the
 /// cwd coupling lives in the type signature rather than in
 /// `Path::new(".ops.toml")` literals deep in the loader.
+///
+/// # Errors
+///
+/// If the embedded default config, the global config, `.ops.toml`, an
+/// `.ops.d/` fragment, or the `OPS__` env overlay fails to parse, or if a
+/// config file cannot be read.
 #[instrument(skip_all)]
 pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
     #[cfg(any(test, feature = "test-support"))]
@@ -232,6 +243,7 @@ pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
 /// READ-5 / TASK-1446: cwd-sensitive convenience that delegates to
 /// [`load_config_or_default_at`]; prefer the explicit form in production
 /// callers.
+#[must_use]
 pub fn load_config_or_default(context: &str) -> Config {
     load_config_or_default_with(load_config(), context)
 }
@@ -239,6 +251,7 @@ pub fn load_config_or_default(context: &str) -> Config {
 /// Workspace-root-aware variant of [`load_config_or_default`]. Use this in
 /// CLI entry points and extensions where the workspace root is captured
 /// explicitly (via `std::env::current_dir()`) at the boundary.
+#[must_use]
 pub fn load_config_or_default_at(workspace_root: &Path, context: &str) -> Config {
     load_config_or_default_with(load_config_at(workspace_root), context)
 }
@@ -256,6 +269,10 @@ fn load_config_or_default_with(result: anyhow::Result<Config>, context: &str) ->
     }
 }
 
+/// # Errors
+///
+/// If `path` cannot be read (including exceeding the byte cap) or its
+/// contents do not parse as a config overlay. A missing file is `Ok(None)`.
 pub fn read_config_file(path: &Path) -> anyhow::Result<Option<ConfigOverlay>> {
     // SEC-33 / TASK-0943: route through the byte-capped reader so a
     // multi-GB or symlink-to-/dev/zero `.ops.toml` cannot OOM the CLI.

@@ -42,7 +42,7 @@ pub(crate) struct ProgressState {
     /// PATTERN-1 (TASK-1109): the value is a queue of *remaining* step
     /// positions for that id, not a single position. A composite that fans
     /// the same leaf twice (TASK-0997: parallel orchestrator counts
-    /// occurrences instead of dedup'ing by HashSet) would otherwise
+    /// occurrences instead of dedup'ing by `HashSet`) would otherwise
     /// last-write-wins on duplicate ids, leaving the first bar permanently
     /// pending while the second received doubled `StepStarted`/`StepFinished`
     /// updates. [`Self::step_index`] now peeks the front of the queue (used
@@ -191,7 +191,7 @@ mod tests {
         assert_eq!(s.step_index("missing"), None);
     }
 
-    /// PERF-12 (TASK-0723): step_index hits the O(1) HashMap index instead
+    /// PERF-12 (TASK-0723): `step_index` hits the O(1) `HashMap` index instead
     /// of linearly scanning `steps`. We can't observe the scan directly, so
     /// we pin behavioural equivalence under a 32-step plan with many
     /// repeated lookups: every id resolves correctly, and unknown ids

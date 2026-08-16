@@ -151,10 +151,12 @@ impl AboutCard {
         AboutCardBuilder::default()
     }
 
+    #[must_use]
     pub fn from_identity(id: &ProjectIdentity) -> Self {
         Self::from_identity_filtered(id, None)
     }
 
+    #[must_use]
     pub fn from_identity_filtered(id: &ProjectIdentity, visible_fields: Option<&[String]>) -> Self {
         // PERF-3 / TASK-1420: hash the filter set once so every per-field
         // `show()` check is O(1) instead of O(N) linear scan. Mirrors the
@@ -184,6 +186,7 @@ impl AboutCard {
     /// Render the about card as styled text lines.
     ///
     /// Pass `is_tty = true` to enable ANSI colors in the output.
+    #[must_use]
     pub fn render(&self, is_tty: bool) -> String {
         let mut lines: Vec<String> = Vec::new();
 

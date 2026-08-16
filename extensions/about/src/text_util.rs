@@ -6,6 +6,7 @@ use ops_core::output::{detect_terminal_width, display_width};
 pub use ops_core::text::format_number;
 use std::io::IsTerminal;
 
+#[must_use]
 pub fn get_terminal_width() -> usize {
     // ARCH-2 / TASK-0667: when stdout is a TTY, ask the OS for the real
     // window size first; `COLUMNS` is unset in many shells until the user
@@ -22,6 +23,7 @@ pub fn get_terminal_width() -> usize {
 /// Parse a COLUMNS-style width source. Extracted from `get_terminal_width`
 /// so tests can exercise the parser without mutating process-global env,
 /// which otherwise races with any parallel test reading COLUMNS.
+#[must_use]
 pub fn parse_terminal_width(raw: Option<&str>) -> usize {
     raw.and_then(|s| s.parse().ok()).unwrap_or(120)
 }
@@ -40,10 +42,12 @@ pub fn trim_nonempty(value: Option<String>) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+#[must_use]
 pub fn char_display_width(c: char) -> usize {
     unicode_width::UnicodeWidthChar::width(c).unwrap_or(0)
 }
 
+#[must_use]
 pub fn pad_to_width_plain(s: &str, width: usize) -> String {
     // PATTERN-1 / TASK-1001: delegate to `display_width` so emoji ZWJ
     // sequences (`👨‍👩‍👧`), regional-indicator flag pairs, and variation
@@ -58,6 +62,7 @@ pub fn pad_to_width_plain(s: &str, width: usize) -> String {
     }
 }
 
+#[must_use]
 pub fn truncate_to_width(s: &str, max_width: usize) -> String {
     let mut result = String::new();
     let mut width = 0;
@@ -90,6 +95,7 @@ pub fn truncate_to_width(s: &str, max_width: usize) -> String {
 /// "ran out of lines" case.
 ///
 /// Empty input or `max_lines == 0` returns an empty vector unchanged.
+#[must_use]
 pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> {
     if text.is_empty() || max_lines == 0 {
         return vec![];
@@ -191,6 +197,7 @@ pub fn tty_style(
 
 /// Pad `left` and `right` with spaces so they span a content area of
 /// `target_content_width` columns (right-aligned right string, one trailing space).
+#[must_use]
 pub fn pad_header(left: &str, right: &str, target_content_width: usize) -> String {
     let left_display = display_width(left);
     let right_display = display_width(right);
@@ -295,7 +302,7 @@ mod tests {
         }
     }
 
-    /// PATTERN-1 / TASK-1105: when the input fits within max_lines exactly
+    /// PATTERN-1 / TASK-1105: when the input fits within `max_lines` exactly
     /// no ellipsis must be appended — only signal truncation when tail
     /// content was actually dropped.
     #[test]
@@ -379,7 +386,7 @@ mod tests {
 
     /// PATTERN-1 / TASK-1001: a string with an emoji ZWJ sequence
     /// (`👨‍👩‍👧`) must be padded based on `display_width` (cluster-aware),
-    /// matching how the rest of the about/text_util module measures text.
+    /// matching how the rest of the `about/text_util` module measures text.
     /// Char-summing over-counted the joiner / VS-16 glyphs and produced
     /// off-by-one cards under TTY rendering.
     #[test]

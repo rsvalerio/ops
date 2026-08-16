@@ -129,6 +129,12 @@ pub fn read_stderr_bounded(
 ///
 /// If the spawned child has no stderr pipe, which cannot happen because the
 /// command is configured with `Stdio::piped()`.
+///
+/// # Errors
+///
+/// [`HasStagedFilesError`] if `git` cannot be spawned, does not exit within
+/// `timeout`, or exits with a status that is neither "staged files" nor
+/// "none staged".
 pub fn has_staged_files_with_timeout(
     program: &str,
     dir: &Path,
@@ -262,7 +268,7 @@ mod tests {
         let _g = EnvGuard::set(TEST_ENV, "999999999");
         assert_eq!(
             git_timeout_from_env(TEST_ENV, 300),
-            Some(Duration::from_secs(300))
+            Some(Duration::from_mins(5))
         );
     }
 }

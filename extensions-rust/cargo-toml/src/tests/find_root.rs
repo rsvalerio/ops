@@ -169,7 +169,7 @@ fn find_root_not_found() {
         .contains("no Cargo.toml found"));
 }
 
-/// ARCH-2 / TASK-0871: NotFound and CanonicalizeFailed must be
+/// ARCH-2 / TASK-0871: `NotFound` and `CanonicalizeFailed` must be
 /// distinguishable via the typed error so consumers
 /// (`is_manifest_missing`) don't need to chain-walk an `io::Error`.
 #[test]
@@ -181,8 +181,8 @@ fn find_root_typed_not_found_variant() {
 }
 
 /// ARCH-2 / TASK-0918: a missing-or-deleted `start` path now routes
-/// through NotFound (matching the no-Cargo.toml branch), not
-/// CanonicalizeFailed. Pre-fix this surfaced as a confusing
+/// through `NotFound` (matching the no-Cargo.toml branch), not
+/// `CanonicalizeFailed`. Pre-fix this surfaced as a confusing
 /// "failed to canonicalize" error during transient cwd unlinks (CI
 /// volume eviction, watcher rename) when the user just wanted About
 /// to fall back gracefully.
@@ -265,7 +265,7 @@ fn find_root_strict_skips_off_chain_canonical_ancestor() {
 /// ARCH-2 / TASK-0918: a non-NotFound canonicalize failure still
 /// surfaces as a typed `FindWorkspaceRootError` variant so it remains
 /// investigable. Use a 0o000-permission directory on Unix to force a
-/// PermissionDenied at canonicalize time.
+/// `PermissionDenied` at canonicalize time.
 ///
 /// The exact variant (`CanonicalizeFailed` vs `NotFound`) depends on
 /// how the kernel surfaces EACCES on a descendant — Linux and macOS

@@ -66,26 +66,31 @@ impl CargoToml {
     }
 
     /// Returns `true` if this is a virtual workspace (no root package).
+    #[must_use]
     pub fn is_virtual_workspace(&self) -> bool {
         self.package.is_none() && self.workspace.is_some()
     }
 
     /// Returns `true` if this manifest defines a workspace.
+    #[must_use]
     pub fn is_workspace(&self) -> bool {
         self.workspace.is_some()
     }
 
     /// Returns the package name if present.
+    #[must_use]
     pub fn package_name(&self) -> Option<&str> {
         self.package.as_ref().map(|p| p.name.as_str())
     }
 
     /// Returns the package version if present and resolved.
+    #[must_use]
     pub fn package_version(&self) -> Option<&str> {
         self.package.as_ref().and_then(|p| p.version.as_str())
     }
 
     /// Returns workspace members if defined.
+    #[must_use]
     pub fn workspace_members(&self) -> Option<&[String]> {
         self.workspace.as_ref().map(|w| w.members.as_slice())
     }
@@ -248,6 +253,7 @@ impl PublishSpec {
     /// [`PublishSpec::None`] variant — *no* `publish` field at all —
     /// continues to map to `Some(true)` because that is Cargo's
     /// documented default and requires no resolution.
+    #[must_use]
     pub fn is_publishable(&self) -> Option<bool> {
         match self {
             PublishSpec::Bool(b) => Some(*b),
@@ -358,6 +364,7 @@ pub enum DepSpec {
 
 impl DepSpec {
     /// Returns the inner `DetailedDepSpec` if this is a `Detailed` variant.
+    #[must_use]
     pub fn detail(&self) -> Option<&DetailedDepSpec> {
         match self {
             DepSpec::Simple(_) => None,
@@ -366,11 +373,13 @@ impl DepSpec {
     }
 
     /// Returns `true` if this dependency inherits from workspace.
+    #[must_use]
     pub fn is_workspace_inherited(&self) -> bool {
         self.detail().is_some_and(|d| d.workspace == Some(true))
     }
 
     /// Returns the version requirement if specified.
+    #[must_use]
     pub fn version(&self) -> Option<&str> {
         match self {
             DepSpec::Simple(v) => Some(v),
@@ -379,16 +388,19 @@ impl DepSpec {
     }
 
     /// Returns the path if specified.
+    #[must_use]
     pub fn path(&self) -> Option<&str> {
         self.detail().and_then(|d| d.path.as_deref())
     }
 
     /// Returns the git URL if specified.
+    #[must_use]
     pub fn git(&self) -> Option<&str> {
         self.detail().and_then(|d| d.git.as_deref())
     }
 
     /// Returns enabled features.
+    #[must_use]
     pub fn features(&self) -> &[String] {
         match self.detail() {
             Some(d) => &d.features,
@@ -397,16 +409,19 @@ impl DepSpec {
     }
 
     /// Returns `true` if this is an optional dependency.
+    #[must_use]
     pub fn is_optional(&self) -> bool {
         self.detail().is_some_and(|d| d.optional)
     }
 
     /// Returns `true` if default features are enabled (default is true).
+    #[must_use]
     pub fn uses_default_features(&self) -> bool {
         self.detail().is_none_or(|d| d.default_features)
     }
 
     /// Returns the renamed package name if using `package = "original-name"`.
+    #[must_use]
     pub fn package(&self) -> Option<&str> {
         self.detail().and_then(|d| d.package.as_deref())
     }
@@ -452,7 +467,7 @@ pub struct DetailedDepSpec {
     /// Renamed package name.
     pub package: Option<String>,
 
-    /// Target platform (e.g., "cfg(target_os = \"linux\")").
+    /// Target platform (e.g., "`cfg(target_os` = \"linux\")").
     pub target: Option<String>,
 }
 

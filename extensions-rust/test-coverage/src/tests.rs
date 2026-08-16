@@ -251,9 +251,9 @@ fn write_coverage_fixture(data_dir: &Path) {
 
 /// DUP-3 / TASK-1562: collapses the 5-line `tempdir + open_in_memory +
 /// write_coverage_fixture + ingest` boilerplate that previously sat in
-/// five DuckDB integration tests. Returns the tempdir (kept alive so the
+/// five `DuckDB` integration tests. Returns the tempdir (kept alive so the
 /// sidecar paths remain valid for the lifetime of the test) and the
-/// loaded DuckDb handle.
+/// loaded `DuckDb` handle.
 pub(crate) fn setup_loaded_db() -> (tempfile::TempDir, DuckDb) {
     let data_dir = tempfile::tempdir().expect("tempdir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
@@ -575,7 +575,7 @@ fn flatten_coverage_json_keeps_distinct_filenames_across_exports() {
 }
 
 /// TASK-1599: when multiple files have the same wrong-shape field (e.g. count
-/// is a string), the DriftTracker ensures the warn fires only once per
+/// is a string), the `DriftTracker` ensures the warn fires only once per
 /// (section, field) pair. Two inserts of the same key → set grows by 1, not 2.
 #[test]
 fn drift_tracker_deduplicates_warnings_per_section_field_pair() {
@@ -595,7 +595,7 @@ fn drift_tracker_deduplicates_warnings_per_section_field_pair() {
     );
 }
 
-/// TASK-1599: flatten_coverage_json still produces correct output when fields
+/// TASK-1599: `flatten_coverage_json` still produces correct output when fields
 /// are wrong-shape across many files (drift-tracked, not spammed).
 #[test]
 fn flatten_coverage_json_wrong_shape_fields_still_flattens() {

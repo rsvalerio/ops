@@ -88,6 +88,11 @@ pub const MAX_ANCESTOR_DEPTH: usize = 64;
 ///
 /// Treat the returned path as "best-effort symlink-safe" rather than
 /// absolute.
+///
+/// # Errors
+///
+/// [`FindWorkspaceRootError`] if no `Cargo.toml` is found within the
+/// ancestor-depth bound, or if an ancestor cannot be read or canonicalized.
 pub fn find_workspace_root(start: &Path) -> Result<PathBuf, FindWorkspaceRootError> {
     find_workspace_root_with_depth(start, MAX_ANCESTOR_DEPTH)
 }
@@ -105,6 +110,11 @@ pub fn find_workspace_root(start: &Path) -> Result<PathBuf, FindWorkspaceRootErr
 /// bounds the blast radius but does not prevent mis-selection within that
 /// bound; callers wanting stronger guarantees should canonicalize each
 /// candidate `Cargo.toml` themselves.
+///
+/// # Errors
+///
+/// [`FindWorkspaceRootError`] if no `Cargo.toml` is found within the
+/// ancestor-depth bound, or if an ancestor cannot be read or canonicalized.
 pub fn find_workspace_root_with_depth(
     start: &Path,
     max_depth: usize,
@@ -137,6 +147,14 @@ pub fn find_workspace_root_with_depth(
 /// Lenient siblings remain available for callers that explicitly opt
 /// out (e.g. legacy `find_workspace_root` / `find_workspace_root_with_depth`),
 /// preserving behaviour for tools that rely on the lexical walk.
+///
+/// # Errors
+///
+/// [`FindWorkspaceRootError`] if no `Cargo.toml` is found within the
+/// ancestor-depth bound, or if an ancestor cannot be read or canonicalized.
+///
+/// The strict variant additionally rejects a candidate root that does not
+/// contain `start` after canonicalization (symlink-planting defence).
 pub fn find_workspace_root_strict(start: &Path) -> Result<PathBuf, FindWorkspaceRootError> {
     find_workspace_root_strict_with_depth(start, MAX_ANCESTOR_DEPTH)
 }
@@ -144,6 +162,14 @@ pub fn find_workspace_root_strict(start: &Path) -> Result<PathBuf, FindWorkspace
 /// Variant of [`find_workspace_root_strict`] with an explicit ancestor-depth
 /// bound. Exposed for tests and for callers whose layout legitimately needs
 /// a deeper walk.
+///
+/// # Errors
+///
+/// [`FindWorkspaceRootError`] if no `Cargo.toml` is found within the
+/// ancestor-depth bound, or if an ancestor cannot be read or canonicalized.
+///
+/// The strict variant additionally rejects a candidate root that does not
+/// contain `start` after canonicalization (symlink-planting defence).
 pub fn find_workspace_root_strict_with_depth(
     start: &Path,
     max_depth: usize,

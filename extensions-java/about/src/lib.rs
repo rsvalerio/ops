@@ -1,8 +1,8 @@
 //! Java stack `project_identity` providers (Maven and Gradle).
 //!
 //! Provides two extensions:
-//! - `AboutMavenExtension` (stack: JavaMaven) — parses `pom.xml`
-//! - `AboutGradleExtension` (stack: JavaGradle) — parses `settings.gradle` + `gradle.properties`
+//! - `AboutMavenExtension` (stack: `JavaMaven`) — parses `pom.xml`
+//! - `AboutGradleExtension` (stack: `JavaGradle`) — parses `settings.gradle` + `gradle.properties`
 //!
 //! Parse and read errors fall back to defaults; non-NotFound read errors and
 //! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed

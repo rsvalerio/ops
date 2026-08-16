@@ -68,6 +68,7 @@ pub struct FixerOptions {
 }
 
 impl FixerOptions {
+    #[must_use]
     pub fn new(root: PathBuf, tracked_only: bool) -> Self {
         Self { root, tracked_only }
     }
@@ -81,12 +82,19 @@ pub struct FixerReport {
 }
 
 impl FixerReport {
+    #[must_use]
     pub fn changed(&self) -> bool {
         !self.files_changed.is_empty()
     }
 }
 
 /// Strip trailing whitespace from every text file under `opts.root`.
+///
+/// # Errors
+///
+/// If the candidate file set cannot be discovered (including a failing
+/// `git ls-files` when `tracked_only` is set), or if a file that needs
+/// fixing cannot be written back.
 pub fn run_trailing_whitespace(
     opts: &FixerOptions,
     writer: &mut dyn Write,
@@ -95,6 +103,12 @@ pub fn run_trailing_whitespace(
 }
 
 /// Ensure every text file under `opts.root` ends with exactly one newline.
+///
+/// # Errors
+///
+/// If the candidate file set cannot be discovered (including a failing
+/// `git ls-files` when `tracked_only` is set), or if a file that needs
+/// fixing cannot be written back.
 pub fn run_end_of_file_fixer(
     opts: &FixerOptions,
     writer: &mut dyn Write,

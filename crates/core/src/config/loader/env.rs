@@ -14,7 +14,7 @@ use super::super::{merge::merge_config, Config, ConfigOverlay};
 ///
 /// Only applies overlay when OPS__ prefixed env vars exist.
 /// Without this guard, the `config` crate deserializes an empty config with
-/// all-default values, and merge_config unconditionally overwrites the local
+/// all-default values, and `merge_config` unconditionally overwrites the local
 /// config's intentional settings.
 ///
 /// Fails fast on deserialization errors (SEC-11 / ERR-1): a mistyped

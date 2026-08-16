@@ -36,6 +36,7 @@ const MAX_GITDIR_PARENT_TRAVERSAL: usize = 2;
 /// There is no caller-supplied root ceiling — the depth limit serves as the
 /// bound. Pass an already-canonicalised input if the caller has a stricter
 /// containment requirement.
+#[must_use]
 pub fn find_git_dir(from: &Path) -> Option<PathBuf> {
     let mut dir = from.to_path_buf();
     for _ in 0..FIND_GIT_DIR_MAX_DEPTH {

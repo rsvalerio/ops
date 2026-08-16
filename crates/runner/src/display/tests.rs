@@ -30,13 +30,13 @@ fn test_themes() -> IndexMap<String, ThemeConfig> {
     themes
 }
 
-/// DUP-004: Reduce repeated ProgressDisplay test setup.
+/// DUP-004: Reduce repeated `ProgressDisplay` test setup.
 fn test_display(entries: &[(&str, &str)]) -> ProgressDisplay {
-    test_display_with_config(config::OutputConfig::default(), entries)
+    test_display_with_config(&config::OutputConfig::default(), entries)
 }
 
 fn test_display_with_config(
-    output: config::OutputConfig,
+    output: &config::OutputConfig,
     entries: &[(&str, &str)],
 ) -> ProgressDisplay {
     let display_map: HashMap<String, String> = entries
@@ -45,7 +45,7 @@ fn test_display_with_config(
         .collect();
     let custom_themes = test_themes();
     ProgressDisplay::new(DisplayOptions {
-        output: &output,
+        output,
         display_map,
         custom_themes: &custom_themes,
         tap: None,
@@ -100,7 +100,7 @@ fn progress_display_handles_full_lifecycle() {
 #[test]
 fn progress_display_handles_failure_with_error_detail() {
     let mut display = test_display_with_config(
-        config::OutputConfig {
+        &config::OutputConfig {
             show_error_detail: true,
             ..config::OutputConfig::default()
         },
@@ -261,7 +261,7 @@ fn step_stderr_captures_output() {
 #[test]
 fn render_config_uses_output_settings() {
     let display = test_display_with_config(
-        config::OutputConfig {
+        &config::OutputConfig {
             columns: 100,
             show_error_detail: false,
             theme: "compact".into(),
@@ -445,7 +445,7 @@ mod concurrent_event_tests {
     #[test]
     fn handle_event_interleaved_failure_sequence() {
         let mut display = test_display_with_config(
-            config::OutputConfig {
+            &config::OutputConfig {
                 show_error_detail: true,
                 ..config::OutputConfig::default()
             },
@@ -496,7 +496,7 @@ mod concurrent_event_tests {
     }
 }
 
-/// TQ-005: Test ProgressDisplay error handling for invalid theme/template.
+/// TQ-005: Test `ProgressDisplay` error handling for invalid theme/template.
 mod error_path_tests {
     use super::*;
 
@@ -534,11 +534,11 @@ mod error_path_tests {
             ..config::OutputConfig::default()
         };
         // test_display_with_config uses test_themes() which includes "classic"
-        let _display = test_display_with_config(output, &[]);
+        let _display = test_display_with_config(&output, &[]);
     }
 }
 
-/// TQ-013: Test handle_event with unknown command IDs.
+/// TQ-013: Test `handle_event` with unknown command IDs.
 mod unknown_command_tests {
     use super::*;
 
@@ -668,7 +668,7 @@ mod unknown_command_tests {
         );
     }
 
-    /// TQ-012: finish_step with unknown step ID returns None.
+    /// TQ-012: `finish_step` with unknown step ID returns None.
     #[test]
     fn finish_step_unknown_id_returns_none() {
         let mut display = test_display(&[]);
@@ -689,7 +689,7 @@ mod unknown_command_tests {
     #[test]
     fn handle_event_step_failed_for_unknown_command_no_panic() {
         let mut display = test_display_with_config(
-            config::OutputConfig {
+            &config::OutputConfig {
                 show_error_detail: true,
                 ..config::OutputConfig::default()
             },

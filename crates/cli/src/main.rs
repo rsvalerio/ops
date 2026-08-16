@@ -254,7 +254,7 @@ fn dispatch(
             commands,
         }) => {
             let sections = ops_core::config::InitSections::from_flags(output, themes, commands);
-            init_cmd::run_init(force, sections)?;
+            init_cmd::run_init(force, &sections)?;
         }
         Some(CoreSubcommand::Theme { action }) => run_theme(early_config, action)?,
         Some(CoreSubcommand::Extension { action }) => run_extension(early_config, action)?,
@@ -285,7 +285,7 @@ fn dispatch(
             return run_tools(early_config, action);
         }
         #[cfg(feature = "stack-terraform")]
-        Some(CoreSubcommand::Plans(opts)) => return ops_tfplan::run_plan_pipeline(opts),
+        Some(CoreSubcommand::Plans(opts)) => return ops_tfplan::run_plan_pipeline(&opts),
         Some(CoreSubcommand::TrailingWhitespace { tracked }) => {
             return run_trailing_whitespace(tracked);
         }
@@ -349,7 +349,7 @@ mod cwd_tests {
     /// When `std::env::current_dir()` fails, the error surfaced to the
     /// user must carry the `failed to read current working directory`
     /// context rather than a bare `No such file or directory (os error 2)`.
-    /// Reproduce a failing current_dir() by cwd'ing into a tempdir and
+    /// Reproduce a failing `current_dir()` by cwd'ing into a tempdir and
     /// removing it from under ourselves. Linux/macOS only — Windows does
     /// not let you remove the active cwd, so the failure mode does not
     /// exist in this form.

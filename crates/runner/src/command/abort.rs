@@ -127,7 +127,7 @@ mod tests {
         assert!(signal.is_set());
     }
 
-    /// CONC-9 regression: many waiters under MAX_PARALLEL must all wake
+    /// CONC-9 regression: many waiters under `MAX_PARALLEL` must all wake
     /// from a single set, with no busy-polling.
     #[tokio::test]
     async fn many_waiters_all_wake_on_set() {

@@ -131,8 +131,8 @@ pub const MAX_GIT_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Read the URL of the `origin` remote from `<git_dir>/config`.
 ///
-/// NotFound is silent (no remotes configured is normal). Other IO errors
-/// (PermissionDenied, IsADirectory, etc.) log at `tracing::warn!` before
+/// `NotFound` is silent (no remotes configured is normal). Other IO errors
+/// (`PermissionDenied`, `IsADirectory`, etc.) log at `tracing::warn!` before
 /// returning None, matching the policy of `try_read_manifest` (TASK-0548)
 /// and `resolve_member_globs` (TASK-0517).
 ///
@@ -873,7 +873,7 @@ mod tests {
 
     /// ERR-1 / TASK-1620: the SEC-33 size cap is checked on raw bytes
     /// *before* lossy UTF-8 decoding. A `.git/config` whose raw size is at
-    /// or under MAX_GIT_CONFIG_BYTES but contains an invalid UTF-8 byte
+    /// or under `MAX_GIT_CONFIG_BYTES` but contains an invalid UTF-8 byte
     /// (each replaced by U+FFFD = 3 bytes on the lossy path) must still
     /// surface the `[remote "origin"]` URL — checking `content.len()` after
     /// lossy decode would spuriously inflate the size and false-reject.
@@ -911,8 +911,8 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-0910: a `.git/config` larger than MAX_GIT_CONFIG_BYTES
-    /// must NOT be parsed; the helper bails with a tracing::warn! and
+    /// SEC-33 / TASK-0910: a `.git/config` larger than `MAX_GIT_CONFIG_BYTES`
+    /// must NOT be parsed; the helper bails with a `tracing::warn`! and
     /// returns None instead of slurping the whole file into memory.
     #[test]
     fn read_origin_url_bails_on_oversized_config() {
@@ -1121,7 +1121,7 @@ mod tests {
     }
 
     /// Non-NotFound IO errors (e.g. unreadable config) must return None but
-    /// emit a tracing::warn so operators can diagnose ACL / permission drift.
+    /// emit a `tracing::warn` so operators can diagnose ACL / permission drift.
     #[cfg(unix)]
     #[test]
     fn read_origin_url_unreadable_config_returns_none() {
@@ -1152,7 +1152,7 @@ mod tests {
     /// detached-HEAD behaviour) rather than panicking. The warn-log emission
     /// itself is verified by the `tracing::warn!` shape — covering it
     /// requires a subscriber and is out of scope for this regression test;
-    /// pinning the `None` result is enough to catch a future ".ok()?" regression.
+    /// pinning the `None` result is enough to catch a future ".`ok()`?" regression.
     #[cfg(unix)]
     #[test]
     fn read_head_branch_returns_none_on_unreadable_head() {
@@ -1175,11 +1175,11 @@ mod tests {
         std::fs::set_permissions(&head, restore).unwrap();
     }
 
-    /// ERR-7 / TASK-1206: read_origin_url logs the .git/config path through
+    /// ERR-7 / TASK-1206: `read_origin_url` logs the .git/config path through
     /// the `?` (Debug) formatter so a hostile checkout path containing
     /// newlines or ANSI escapes cannot forge log entries or repaint the
     /// operator terminal. Pin the value-level escape contract directly,
-    /// mirroring the workspace-sidecar / manifest_io policy.
+    /// mirroring the workspace-sidecar / `manifest_io` policy.
     #[test]
     fn read_origin_url_path_debug_escapes_control_characters() {
         let p = std::path::Path::new("/tmp/dir\n\u{1b}[31m/.git/config");

@@ -61,7 +61,7 @@ struct TypedManifestEntry {
     /// PERF-3 / TASK-1572: `Arc<PathBuf>` key shared with the victim
     /// queue so the cache-hit path can `Arc::clone` instead of cloning
     /// the underlying `PathBuf` on every LRU tick refresh. The map key
-    /// is still `PathBuf` (HashMap doesn't accept `&Path` lookups via
+    /// is still `PathBuf` (`HashMap` doesn't accept `&Path` lookups via
     /// `Arc`); this is the same allocation, referenced twice.
     key: Arc<PathBuf>,
 }
@@ -289,7 +289,7 @@ fn typed_manifest_cache() -> &'static Mutex<TypedManifestCache> {
 /// mutex (caused by a panic in another provider while it held the lock)
 /// would otherwise degrade the cache to "always-miss" with zero diagnostic
 /// — exactly the invisibility class CONC-2 / TASK-0795 fought against in
-/// the previous thread_local refactor.
+/// the previous `thread_local` refactor.
 ///
 /// The cache value type is plain data (`SystemTime` + `LoadedManifest`,
 /// which itself is just `Arc<CargoToml>` + `Arc<Vec<String>>`); a panic in
@@ -587,7 +587,7 @@ fn classify_member(member: &str) -> MemberShape<'_> {
 /// Expand a `prefix/*` glob by walking `parent` and returning UTF-8
 /// workspace-relative paths to each subdirectory containing a `Cargo.toml`.
 /// FN-1 / TASK-1156: extracted from [`resolved_workspace_members`] so the
-/// orchestrator stays at the dispatch level and the read_dir + per-entry
+/// orchestrator stays at the dispatch level and the `read_dir` + per-entry
 /// boundary handling sits in one place.
 fn expand_member_glob(member: &str, parent: &Path, workspace_root: &Path) -> Vec<String> {
     let mut out = Vec::new();
@@ -699,8 +699,8 @@ mod tests {
         assert!(rendered.contains("\\n"));
     }
 
-    /// PERF-1 / TASK-0558: load_workspace_manifest caches the typed
-    /// CargoToml in a thread-local so identity / units / coverage do not
+    /// PERF-1 / TASK-0558: `load_workspace_manifest` caches the typed
+    /// `CargoToml` in a thread-local so identity / units / coverage do not
     /// each pay for a JSON clone + reparse. Verify (a) the second call in
     /// the same context returns an `Arc` that points to the same
     /// allocation as the first, and (b) `ctx.refresh = true` invalidates
@@ -971,8 +971,8 @@ mod tests {
 
     /// ERR-1 / TASK-0844: a poisoned cache mutex (caused by a panic in
     /// another provider while it held the lock) must NOT silently degrade
-    /// the cache to "always-miss". load_workspace_manifest must recover via
-    /// PoisonError::into_inner and emit a warn so operators see the signal
+    /// the cache to "always-miss". `load_workspace_manifest` must recover via
+    /// `PoisonError::into_inner` and emit a warn so operators see the signal
     /// instead of paying a silent perf cliff.
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
@@ -1106,7 +1106,7 @@ mod tests {
 
     /// CONC-2 / TASK-0843: cache size is soft-capped so a long-running
     /// process visiting many cwds never accumulates more than
-    /// MAX_TYPED_MANIFEST_CACHE_ENTRIES entries.
+    /// `MAX_TYPED_MANIFEST_CACHE_ENTRIES` entries.
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn typed_manifest_cache_is_bounded() {
@@ -1144,7 +1144,7 @@ mod tests {
     }
 
     /// CONC-2 / TASK-1023: eviction must pick the least-recently-used entry,
-    /// not an arbitrary HashMap bucket. Insert MAX entries, touch the very
+    /// not an arbitrary `HashMap` bucket. Insert MAX entries, touch the very
     /// first one to make it "hot", then insert one more to force eviction
     /// and assert (a) the hot key is still present, and (b) the victim is
     /// the actual coldest key — not the hot one and not the new one.

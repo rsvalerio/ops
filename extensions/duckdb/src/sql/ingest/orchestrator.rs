@@ -68,6 +68,10 @@ impl Drop for ReentryGuard {
 /// deadlocks silently. In `debug_assertions` builds we track the per-thread
 /// set of currently held tables and `debug_assert!` that the table is not
 /// already held; release builds do not pay the bookkeeping cost.
+///
+/// # Errors
+///
+/// If the ingestor cannot collect or load its data, or if `query_fn` fails.
 pub fn provide_via_ingestor<I, Q>(
     db: &DuckDb,
     ctx: &ops_extension::Context,
@@ -249,7 +253,7 @@ mod tests {
         );
     }
 
-    /// CONC-7 (TASK-0779): per-table ingest registry is scoped to the DuckDb
+    /// CONC-7 (TASK-0779): per-table ingest registry is scoped to the `DuckDb`
     /// instance and bounded by the table count.
     #[test]
     fn ingest_lock_map_is_scoped_to_duckdb_instance_and_bounded_by_table_count() {
@@ -482,7 +486,7 @@ mod tests {
         );
     }
 
-    /// CONC-2 (TASK-1073): refresh-driven DROP serializes behind in-flight query_fn.
+    /// CONC-2 (TASK-1073): refresh-driven DROP serializes behind in-flight `query_fn`.
     #[test]
     fn refresh_during_query_fn_is_serialized_by_ingest_mutex() {
         use crate::DataIngestor;

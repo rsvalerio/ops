@@ -1,4 +1,4 @@
-//! Tests for the cargo_update extension.
+//! Tests for the `cargo_update` extension.
 
 use super::*;
 
@@ -767,7 +767,7 @@ fn parse_ignores_unknown_lines() {
     assert_eq!(result.entries[0].name, "serde");
 }
 
-/// ERR-1 / TASK-0882: strip_ansi must round-trip non-ASCII UTF-8 input
+/// ERR-1 / TASK-0882: `strip_ansi` must round-trip non-ASCII UTF-8 input
 /// identically. The previous `bytes[i] as char` cast corrupted every
 /// continuation byte into a Latin-1 code point.
 #[test]
