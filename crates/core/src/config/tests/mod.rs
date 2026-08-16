@@ -12,8 +12,10 @@
 //! tests (e.g., running each test in a subprocess) to restore parallelism.
 
 use super::*;
+use crate::config::sections::{scale_columns, AUTO_COLUMNS};
 use crate::test_utils::{exec_spec, TestConfigBuilder};
 use indexmap::IndexMap;
+use std::path::PathBuf;
 
 mod merge_tests;
 mod serde_tests;
