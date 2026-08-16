@@ -348,38 +348,6 @@ pub fn categorize_upgrades(entries: Vec<UpgradeEntry>) -> UpgradeResult {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn classify_header() {
-        assert!(matches!(
-            classify_upgrade_line("name   old req compatible latest  new req"),
-            UpgradeLine::Header
-        ));
-        assert!(matches!(
-            classify_upgrade_line("Name   Old Req Compatible Latest  New Req"),
-            UpgradeLine::Header
-        ));
-    }
-
-    #[test]
-    fn classify_separator() {
-        assert!(matches!(
-            classify_upgrade_line("====   ======= ========== ======  ======="),
-            UpgradeLine::Separator
-        ));
-    }
-
-    #[test]
-    fn classify_body() {
-        assert!(matches!(
-            classify_upgrade_line("serde  1.0.100 1.0.228    1.0.228 1.0.228"),
-            UpgradeLine::Body
-        ));
-        assert!(matches!(
-            classify_upgrade_line("Updating crates.io index"),
-            UpgradeLine::Body
-        ));
-    }
-}
+mod exit_code_tests;
+#[cfg(test)]
+mod table_tests;

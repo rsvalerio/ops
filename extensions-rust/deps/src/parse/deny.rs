@@ -294,3 +294,6 @@ fn push_diagnostic(result: &mut DenyResult, class: DiagClass, mut diag: DecodedD
         })),
     }
 }
+
+#[cfg(test)]
+mod tests;
