@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-15 00:00'
-updated_date: '2026-08-15 00:00'
+updated_date: '2026-08-16 09:42'
 labels:
   - ci
   - testing
@@ -124,4 +124,26 @@ guessing at them.
 be intermittently red until AC #6 lands. That is strictly better information
 than a green check over 1% of the suite, but it is not a clean state and should
 not be left sitting.
+
+### ops-about wall-clock sites (folded in from TASK-1667, archived as a duplicate)
+
+Hit while running the gate for TASK-0137/0165/1567: `ops qa` failed once with
+`-p ops-about --lib`, then passed on re-run with no code change. Filed as
+TASK-1667 before spotting that AC #6 here already owns it — archived, with its
+site inventory kept below because it names two sites the table above does not.
+
+All three assert a *timing ratio* between a small and a large input to prove
+O(N) behaviour, so the denominator being scheduled out inflates the ratio past
+the threshold. The assertion measures the scheduler, not the algorithm:
+
+| Site | Shape |
+|---|---|
+| `extensions/about/src/cards.rs:394-407` | `layout_cards_in_grid_with_width`, asserts `ratio < 20.0` — this is the `layout_cards_handles_large_workspace` row in the table above |
+| `extensions/about/src/text_util.rs:336-349` | same ratio shape — **not** in the table above |
+| `extensions/about/src/manifest_cache.rs:398-415` | two `Instant::now()` measurements — **not** in the table above |
+
+Same conversion as the four already done: count the inner-loop operations
+through a seam and assert linear growth, rather than inferring it from elapsed
+time. Note `cards.rs` and `text_util.rs` are the same helper shape, so one
+conversion likely covers both.
 <!-- SECTION:NOTES:END -->
