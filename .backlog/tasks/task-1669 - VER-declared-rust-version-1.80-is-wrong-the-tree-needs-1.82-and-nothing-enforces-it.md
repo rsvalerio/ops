@@ -6,7 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-08-16 09:43'
-updated_date: '2026-08-16 11:24'
+updated_date: '2026-08-16 11:33'
 labels:
   - rust-code-review
   - ci
@@ -136,4 +136,33 @@ tree's newest stdlib usage is 1.82.
 
 `docs/clippy.md` and the `clippy.toml` comment were rewritten: the earlier text
 explained why the lint was *suppressed*, which is no longer the case.
+
+### CI now guards the floor
+
+Added an **MSRV** job to `.github/workflows/ci.yml`. Every other job installs
+the default toolchain, which is why the declaration drifted unnoticed for so
+long — CI never once built on the version it claimed to support.
+
+The job reads `rust-version` out of `Cargo.toml` rather than hardcoding it.
+Writing the version into the workflow would create a second place to drift,
+which is the bug the job exists to prevent. It installs exactly that toolchain
+and runs `cargo check --all --all-features --all-targets` — `--all-targets`
+because the 1.82 `unsafe extern "C"` blocks live in `test_utils.rs`, i.e. in
+target code the plain `check` job does not type-check.
+
+It also asserts `clippy.toml`'s `msrv` equals `Cargo.toml`'s `rust-version`.
+Nothing enforced that before, and if the two disagree the lint and the build
+disagree about the floor — each then lets through what the other rejects. All
+four paths of that guard were exercised locally (match, mismatch, `msrv`
+missing, `rust-version` missing) before landing.
+
+Worth being clear about what this proves *today*: the floor is 1.97 and CI's
+default toolchain is also 1.97, so the job is currently equivalent to the
+existing `Check` job. Its value is that it stops being equivalent the moment
+stable moves to 1.98 — which is precisely when drift would otherwise resume
+going unnoticed.
+
+Remaining gap: the job is not in the repo's required status checks. That is a
+branch-protection setting and needs repo admin, so it cannot be done from the
+tree.
 <!-- SECTION:NOTES:END -->
