@@ -64,6 +64,7 @@ pub struct ConfigurableTheme {
 }
 
 impl ConfigurableTheme {
+    #[must_use]
     pub fn new(config: ThemeConfig) -> Self {
         let left_pad_str = " ".repeat(config.left_pad);
         Self {
@@ -82,70 +83,87 @@ impl ConfigurableTheme {
         }
     }
 
+    #[must_use]
     pub fn left_pad(&self) -> usize {
         self.config.left_pad
     }
 
+    #[must_use]
     pub fn left_pad_str(&self) -> &str {
         &self.left_pad_str
     }
 
+    #[must_use]
     pub fn status_icon(&self, status: StepStatus) -> &str {
         self.config.status_icon(status)
     }
 
+    #[must_use]
     pub fn separator_char(&self) -> char {
         self.config.separator_char
     }
 
+    #[must_use]
     pub fn step_indent(&self) -> &str {
         &self.config.step_indent
     }
 
+    #[must_use]
     pub fn summary_prefix(&self) -> &str {
         &self.config.summary_prefix
     }
 
+    #[must_use]
     pub fn running_template(&self) -> &str {
         &self.config.running_template
     }
 
+    #[must_use]
     pub fn tick_chars(&self) -> &str {
         &self.config.tick_chars
     }
 
+    #[must_use]
     pub fn running_template_overhead(&self) -> usize {
         self.config.running_template_overhead
     }
 
+    #[must_use]
     pub fn header_color(&self) -> &str {
         &self.config.header_color
     }
 
+    #[must_use]
     pub fn label_color(&self) -> &str {
         &self.config.label_color
     }
 
+    #[must_use]
     pub fn separator_color(&self) -> &str {
         &self.config.separator_color
     }
 
+    #[must_use]
     pub fn duration_color(&self) -> &str {
         &self.config.duration_color
     }
 
+    #[must_use]
     pub fn summary_color(&self) -> &str {
         &self.config.summary_color
     }
 
+    #[must_use]
     pub fn plan_header_prefix(&self) -> &str {
         &self.config.plan_header_prefix
     }
 
+    #[must_use]
     pub fn format_elapsed(&self, secs: f64) -> String {
         format_duration(secs)
     }
 
+    #[must_use]
     pub fn icon_column_width(&self) -> usize {
         ALL_STATUSES
             .iter()
@@ -154,6 +172,7 @@ impl ConfigurableTheme {
             .unwrap_or(0)
     }
 
+    #[must_use]
     pub fn render_plan_header(&self, command_ids: &[String]) -> Vec<String> {
         let pad = self.left_pad_str();
         let ids = command_ids.join(", ");
@@ -176,6 +195,7 @@ impl ConfigurableTheme {
         }
     }
 
+    #[must_use]
     pub fn render_summary_separator(&self, _columns: u16) -> String {
         if self.config.summary_separator.is_empty() {
             String::new()
@@ -184,6 +204,7 @@ impl ConfigurableTheme {
         }
     }
 
+    #[must_use]
     pub fn render_error_detail(&self, detail: &ErrorDetail, columns: u16) -> Vec<String> {
         let lines = render_error_block(
             detail,
@@ -205,7 +226,7 @@ impl ConfigurableTheme {
             .into_iter()
             .map(|line| {
                 let reindented = inject_gutter_indent(&line, &prefix_with_rail, &inject);
-                right_pad_with_border(reindented, right_target)
+                right_pad_with_border(&reindented, right_target)
             })
             .collect()
     }
@@ -226,6 +247,7 @@ impl ConfigurableTheme {
         target_gutter.saturating_sub(rail_width + BOX_RAIL_PREFIX_PADDING)
     }
 
+    #[must_use]
     pub fn step_column_reserve(&self) -> u16 {
         match self.config.layout_kind {
             LayoutKind::Boxed => BOX_STEP_RESERVE,
@@ -233,6 +255,7 @@ impl ConfigurableTheme {
         }
     }
 
+    #[must_use]
     pub fn box_top_border(&self, snap: BoxSnapshot<'_>) -> Option<String> {
         if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
             return None;
@@ -252,6 +275,7 @@ impl ConfigurableTheme {
         }))
     }
 
+    #[must_use]
     pub fn box_bottom_border(&self, snap: BoxSnapshot<'_>) -> Option<String> {
         if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
             return None;
@@ -282,6 +306,7 @@ impl ConfigurableTheme {
         }))
     }
 
+    #[must_use]
     pub fn wrap_step_line(&self, inner: &str, progress_cell: &str, columns: u16) -> String {
         if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
             return inner.to_string();
@@ -322,6 +347,7 @@ impl ConfigurableTheme {
     /// `render_separator` derives layout math from `display_width(plain_prefix)`.
     /// Returning the components separately (rather than re-deriving them in
     /// each caller) makes drift impossible.
+    #[must_use]
     pub fn step_prefix_parts(&self, status: StepStatus, is_running: bool) -> StepPrefixParts<'_> {
         self.icon_prefix_parts(self.status_icon(status), is_running)
     }
@@ -331,6 +357,7 @@ impl ConfigurableTheme {
     /// block, not [`StepStatus`]) share the exact same icon-column alignment.
     /// `icon_column_width` still measures over [`ALL_STATUSES`], so report
     /// glyphs (✓ ⚠ ✘ ℹ, width 1) line up under the same column as step icons.
+    #[must_use]
     pub fn icon_prefix_parts<'a>(&'a self, icon: &'a str, is_running: bool) -> StepPrefixParts<'a> {
         let icon_width = display_width(icon);
         let max_icon_width = self.icon_column_width();
@@ -344,6 +371,7 @@ impl ConfigurableTheme {
     }
 
     /// Build the left portion of a step line: indent + icon + padding + label.
+    #[must_use]
     pub fn render_prefix(&self, step: &StepLine, is_running: bool) -> String {
         let parts = self.step_prefix_parts(step.status, is_running);
         format!("{}{}{} {}", parts.indent, parts.icon, parts.pad, step.label)
@@ -356,6 +384,7 @@ impl ConfigurableTheme {
     /// sep_count + space + duration`. We invert that equation to derive
     /// `sep_count`, with a floor of 3 so the separator is always at least
     /// three glyphs wide.
+    #[must_use]
     pub fn render_separator(
         &self,
         prefix: &str,
@@ -406,6 +435,7 @@ impl ConfigurableTheme {
     // [`render_slot`](Self::render_slot); `render` only maps a `StepLine` onto a
     // `SlotLine` (icon = status icon, trailing = formatted duration). Keep this
     // mapping mechanical so the runner output stays byte-identical.
+    #[must_use]
     pub fn render(&self, step: &StepLine, columns: u16) -> String {
         let is_running = step.status == StepStatus::Running;
         let trailing = step
@@ -429,6 +459,7 @@ impl ConfigurableTheme {
     /// (trailing = duration) and report rows (trailing = result string) call
     /// here so the prefix layout, dotted separator, and color application have a
     /// single source of truth.
+    #[must_use]
     pub fn render_slot(&self, slot: &SlotLine<'_>, columns: u16) -> String {
         let parts = self.icon_prefix_parts(slot.icon, slot.is_running);
         let plain_prefix = format!("{}{}{} {}", parts.indent, parts.icon, parts.pad, slot.label);
@@ -462,6 +493,7 @@ impl ConfigurableTheme {
 
     // TASK-0747: render_summary uses precomputed SGR prefix. Split so report
     // footers reuse the same chrome (`render_summary_text`) with their own body.
+    #[must_use]
     pub fn render_summary(&self, success: bool, elapsed_secs: f64) -> String {
         let label = if success { "Done" } else { "Failed" };
         self.render_summary_text(&format!("{} in {}", label, format_duration(elapsed_secs)))
@@ -470,6 +502,7 @@ impl ConfigurableTheme {
     /// Render an arbitrary summary body with the theme's summary chrome
     /// (left pad + summary glyph/separator + colored body). The runner passes
     /// `"Done in 1.20s"`; reports pass their `footer_text()`.
+    #[must_use]
     pub fn render_summary_text(&self, body: &str) -> String {
         let colored = apply_with_prefix(body, self.summary_prefix.as_deref());
         format!(
@@ -481,6 +514,7 @@ impl ConfigurableTheme {
     }
 
     /// Icon glyph for a [`ReportStatus`], from the theme's `[report]` block.
+    #[must_use]
     pub fn report_icon(&self, status: ReportStatus) -> &str {
         self.config.report.icon(status)
     }
@@ -507,6 +541,7 @@ impl ConfigurableTheme {
     /// Honors the active layout: flat themes render a bare title + rows +
     /// summary; boxed themes draw the same enclosing frame the runner uses,
     /// with the report title in the top border and the footer in the bottom.
+    #[must_use]
     pub fn render_report(&self, report: &Report, columns: u16) -> Vec<String> {
         if matches!(self.config.layout_kind, LayoutKind::Boxed) {
             return self.render_report_boxed(report, columns);
@@ -613,8 +648,8 @@ fn inject_gutter_indent(line: &str, rail_prefix: &str, indent: &str) -> String {
 
 /// Right-pad `line` with spaces up to `right_target` visible columns and
 /// append the closing ` │` frame border.
-fn right_pad_with_border(line: String, right_target: usize) -> String {
-    let visible = visible_width(&line);
+fn right_pad_with_border(line: &str, right_target: usize) -> String {
+    let visible = visible_width(line);
     let fill = right_target.saturating_sub(visible);
     let spaces = " ".repeat(fill);
     format!("{line}{spaces} │")
@@ -623,6 +658,7 @@ fn right_pad_with_border(line: String, right_target: usize) -> String {
 /// Inputs to [`build_horizontal_border`]. Grouping these as a struct keeps
 /// callers legible and avoids the positional-arg smell that
 /// `#[allow(clippy::too_many_arguments)]` would otherwise paper over.
+#[derive(Clone, Copy)]
 struct BorderArgs<'a> {
     title: &'a str,
     left_corner: &'a str,

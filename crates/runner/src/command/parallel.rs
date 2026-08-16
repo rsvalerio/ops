@@ -29,8 +29,8 @@ const DEFAULT_MAX_PARALLEL: usize = 32;
 
 /// Per-parallel-task event budget used to size the bounded event channel.
 ///
-/// Budget = StepStarted + N×StepOutput + (StepFinished | StepFailed |
-/// StepSkipped). Real commands rarely hit N=256 between display pumps;
+/// Budget = `StepStarted` + N×StepOutput + (`StepFinished` | `StepFailed` |
+/// `StepSkipped`). Real commands rarely hit N=256 between display pumps;
 /// when a burst does fill the channel the producer task awaits on
 /// `send`, which naturally back-pressures chatty children instead of
 /// letting the process drift toward OOM.
@@ -51,7 +51,7 @@ const MAX_EVENT_BUDGET_CEILING: usize = 65_536;
 /// behind `OnceLock<usize>` so repeated parallel-plan dispatches do not
 /// re-acquire the global env lock, re-`String`-allocate the raw value, and
 /// re-emit the warn-on-fallback diagnostic. Both env knobs are documented
-/// as process-global; this mirrors the OnceLock discipline already used by
+/// as process-global; this mirrors the `OnceLock` discipline already used by
 /// `output_byte_cap` (results.rs) and `manifest_max_bytes` (text.rs).
 static MAX_PARALLEL_CACHED: OnceLock<usize> = OnceLock::new();
 static EVENT_BUDGET_CACHED: OnceLock<usize> = OnceLock::new();
@@ -164,7 +164,7 @@ fn resolve_env_usize(var: &'static str, default: usize, ceiling: usize) -> usize
 }
 
 impl CommandRunner {
-    /// Collect results from a JoinSet, handling panics gracefully.
+    /// Collect results from a `JoinSet`, handling panics gracefully.
     ///
     /// # Panic Safety
     ///
@@ -188,7 +188,7 @@ impl CommandRunner {
     /// CONC-6 / TASK-1177: merge results harvested by
     /// `handle_parallel_events_with_cancel_inner` (which already drained
     /// completed tasks during the events loop so panics could trigger
-    /// fail_fast) with whatever still remains in the JoinSet.
+    /// `fail_fast`) with whatever still remains in the `JoinSet`.
     pub(crate) async fn collect_join_results_with_pre(
         pre: Vec<(TaskId, Result<StepResult, tokio::task::JoinError>)>,
         mut join_set: tokio::task::JoinSet<StepResult>,
@@ -255,16 +255,16 @@ impl CommandRunner {
         }
     }
 
-    /// Spawn parallel tasks into a JoinSet, returning the receiver and abort flag.
+    /// Spawn parallel tasks into a `JoinSet`, returning the receiver and abort flag.
     ///
     /// Concurrency is capped at `MAX_PARALLEL` via a semaphore to prevent
     /// resource exhaustion with large parallel groups.
     pub(crate) fn spawn_parallel_tasks(
         steps: Vec<(CommandId, ExecCommandSpec)>,
-        cwd: Arc<PathBuf>,
-        vars: Arc<Variables>,
+        cwd: &Arc<PathBuf>,
+        vars: &Arc<Variables>,
         policy: CwdEscapePolicy,
-        workspace_cache: Arc<super::build::WorkspaceCanonicalCache>,
+        workspace_cache: &Arc<super::build::WorkspaceCanonicalCache>,
     ) -> (
         mpsc::Receiver<RunnerEvent>,
         Arc<AbortSignal>,
@@ -307,9 +307,9 @@ impl CommandRunner {
             let spec = Arc::new(spec);
             let tx = tx.clone();
             let abort = Arc::clone(&abort);
-            let cwd = Arc::clone(&cwd);
-            let vars = Arc::clone(&vars);
-            let cache = Arc::clone(&workspace_cache);
+            let cwd = Arc::clone(cwd);
+            let vars = Arc::clone(vars);
+            let cache = Arc::clone(workspace_cache);
             let sem = Arc::clone(&semaphore);
             let task_id = id.clone();
             let cmd_id = id.clone();
@@ -355,7 +355,7 @@ impl CommandRunner {
         (rx, abort, join_set, id_map)
     }
 
-    /// Run a flat list of exec command IDs in parallel; events sent via channel. When fail_fast is true, abort flag is set on first failure.
+    /// Run a flat list of exec command IDs in parallel; events sent via channel. When `fail_fast` is true, abort flag is set on first failure.
     ///
     /// # Resource Considerations
     ///
@@ -394,10 +394,10 @@ impl CommandRunner {
 
         let (rx, abort, mut join_set, id_map) = Self::spawn_parallel_tasks(
             steps,
-            self.cwd.clone(),
-            self.vars.clone(),
+            &self.cwd,
+            &self.vars,
             self.cwd_escape_policy,
-            Arc::clone(&self.workspace_cache),
+            &self.workspace_cache,
         );
         // CONC-6 / TASK-0204: when fail_fast sees the first failure, set
         // the abort flag **and** actively `abort_all()` the JoinSet so
@@ -471,7 +471,7 @@ impl CommandRunner {
 
     /// Drain events, flipping `abort` on first failure under `fail_fast`.
     /// Kept as a thin wrapper around `handle_parallel_events_with_cancel`
-    /// (passing a disposable empty JoinSet) so older tests keep working;
+    /// (passing a disposable empty `JoinSet`) so older tests keep working;
     /// production uses the cancelling variant.
     #[cfg(test)]
     pub(crate) async fn handle_parallel_events(
@@ -487,11 +487,11 @@ impl CommandRunner {
     /// Drain events, and on first failure under `fail_fast` abort any
     /// in-flight parallel tasks via `JoinSet::abort_all`.
     ///
-    /// CONC-6 / TASK-1177: also poll the JoinSet alongside the events
+    /// CONC-6 / TASK-1177: also poll the `JoinSet` alongside the events
     /// channel so a task that **panics** (rather than returning a non-zero
-    /// exit code) trips fail_fast at the same point a `StepFailed` event
+    /// exit code) trips `fail_fast` at the same point a `StepFailed` event
     /// would. Pre-fix, a panicked sibling surfaced only after the channel
-    /// drained naturally — defeating fail_fast for the panic path while a
+    /// drained naturally — defeating `fail_fast` for the panic path while a
     /// 5-second sibling kept emitting output. Panic results captured here
     /// are stashed in `panic_results` and merged by [`collect_join_results`]
     /// so the caller still observes the synthesized failure.
@@ -518,7 +518,7 @@ impl CommandRunner {
     }
 
     /// CONC-6 / TASK-1177: inner select-loop variant that also drains
-    /// completed tasks from the JoinSet so panics trigger fail_fast.
+    /// completed tasks from the `JoinSet` so panics trigger `fail_fast`.
     /// Harvested `(task_id, result)` pairs are appended to
     /// `harvested_results` so callers can merge them into the
     /// `collect_join_results` output without losing the panic-aware
@@ -667,7 +667,7 @@ mod resolve_tests {
 
     /// PERF-3 / TASK-1171 AC #2: mutating the env between two
     /// `resolve_max_parallel()` calls must NOT change the second result —
-    /// it observes the value snapshotted by the OnceLock initialiser.
+    /// it observes the value snapshotted by the `OnceLock` initialiser.
     /// Runs in its own serial group so the cache snapshot is captured
     /// before any other test in this binary mutates `OPS_MAX_PARALLEL`
     /// without serial coordination.

@@ -25,7 +25,7 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub dry_run: bool,
 
-    /// Show full stderr output on failure (overrides stderr_tail_lines config).
+    /// Show full stderr output on failure (overrides `stderr_tail_lines` config).
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
@@ -207,7 +207,7 @@ pub enum CoreSubcommand {
     /// Run security scans via Trivy, auto-selected by detected file types.
     ///
     /// Always runs a secret scan; adds a vulnerability scan when a dependency
-    /// manifest/lockfile is present, and a misconfiguration (IaC) scan when a
+    /// manifest/lockfile is present, and a misconfiguration (`IaC`) scan when a
     /// Dockerfile, Kubernetes manifest, or other infrastructure-as-code file is
     /// present. Each scan shells out to the `trivy` CLI, which must be installed.
     ///
@@ -231,7 +231,7 @@ pub enum CoreSubcommand {
 }
 
 /// Theme management subcommands.
-#[derive(clap::Subcommand, Debug, Clone)]
+#[derive(clap::Subcommand, Debug, Clone, Copy)]
 pub enum ThemeAction {
     /// List available themes.
     List,
@@ -240,7 +240,7 @@ pub enum ThemeAction {
 }
 
 /// About subcommands.
-#[derive(clap::Subcommand, Debug, Clone)]
+#[derive(clap::Subcommand, Debug, Clone, Copy)]
 pub enum AboutAction {
     /// Interactively choose which fields to show on the about card.
     Setup,
@@ -248,7 +248,7 @@ pub enum AboutAction {
     Coverage,
     /// `about code` renders DuckDB-backed code statistics
     /// (LOC by language). Gating the variant under the `duckdb` feature
-    /// keeps the CLI surface honest — without DuckDB the binary has no way
+    /// keeps the CLI surface honest — without `DuckDB` the binary has no way
     /// to compute the stats, so the subcommand simply doesn't exist in help
     /// / parse / tab completion instead of bailing at runtime after a
     /// successful parse.
@@ -287,14 +287,14 @@ pub enum ExtensionAction {
 }
 
 /// Run-before-commit hook management subcommands.
-#[derive(clap::Subcommand, Debug, Clone)]
+#[derive(clap::Subcommand, Debug, Clone, Copy)]
 pub enum RunBeforeCommitAction {
     /// Install the git pre-commit hook and add a default command to `.ops.toml`.
     Install,
 }
 
 /// Run-before-push hook management subcommands.
-#[derive(clap::Subcommand, Debug, Clone)]
+#[derive(clap::Subcommand, Debug, Clone, Copy)]
 pub enum RunBeforePushAction {
     /// Install the git pre-push hook and add a default command to `.ops.toml`.
     Install,

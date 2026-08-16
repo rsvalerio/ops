@@ -54,12 +54,16 @@ pub struct PlanOptions {
     pub passthrough: Vec<String>,
 }
 
+/// # Errors
+///
+/// If `json` does not deserialize as a terraform plan document.
 pub fn parse_and_classify(json: &str) -> anyhow::Result<(Plan, Vec<ClassifiedChange>)> {
     let plan: Plan = serde_json::from_str(json).context("failed to parse terraform plan JSON")?;
     let changes = classify_plan(&plan);
     Ok((plan, changes))
 }
 
+#[must_use]
 pub fn has_changes(classified: &[ClassifiedChange]) -> bool {
     classified.iter().any(|c| c.action.is_change())
 }
@@ -70,7 +74,13 @@ pub fn has_changes(classified: &[ClassifiedChange]) -> bool {
 /// unchanged. PATTERN-1 / TASK-1017: real TTY-ness is detected on
 /// `stdout` here (via `IsTerminal`) and passed through explicitly,
 /// rather than being derived from `--no-color`.
-pub fn run_plan_pipeline(opts: PlanOptions) -> anyhow::Result<ExitCode> {
+///
+/// # Errors
+///
+/// If the plan JSON cannot be read (stdin, file, or a `terraform` invocation
+/// that fails or is not on `PATH`), is empty, or does not parse as a
+/// terraform plan; or if writing to the output sink fails.
+pub fn run_plan_pipeline(opts: &PlanOptions) -> anyhow::Result<ExitCode> {
     use std::io::IsTerminal;
     let is_tty = std::io::stdout().is_terminal();
     let stdout = std::io::stdout();
@@ -88,8 +98,14 @@ pub fn run_plan_pipeline(opts: PlanOptions) -> anyhow::Result<ExitCode> {
 /// probing must therefore stay disabled or snapshot output becomes
 /// environment-sensitive. Callers that *do* hand in a real TTY-backed
 /// writer should call [`run_plan_pipeline_to_with_tty`] explicitly.
+///
+/// # Errors
+///
+/// If the plan JSON cannot be read (stdin, file, or a `terraform` invocation
+/// that fails or is not on `PATH`), is empty, or does not parse as a
+/// terraform plan; or if writing to the output sink fails.
 pub fn run_plan_pipeline_to(
-    opts: PlanOptions,
+    opts: &PlanOptions,
     out: &mut dyn std::io::Write,
 ) -> anyhow::Result<ExitCode> {
     run_plan_pipeline_to_with_tty(opts, out, false)
@@ -100,8 +116,14 @@ pub fn run_plan_pipeline_to(
 /// (`opts.no_color`). `is_tty` drives terminal-width probing in
 /// `render_resource_table`; `!opts.no_color` drives whether
 /// `Action::color()` is applied to cells.
+///
+/// # Errors
+///
+/// If the plan JSON cannot be read (stdin, file, or a `terraform` invocation
+/// that fails or is not on `PATH`), is empty, or does not parse as a
+/// terraform plan; or if writing to the output sink fails.
 pub fn run_plan_pipeline_to_with_tty(
-    opts: PlanOptions,
+    opts: &PlanOptions,
     out: &mut dyn std::io::Write,
     is_tty: bool,
 ) -> anyhow::Result<ExitCode> {
@@ -110,7 +132,7 @@ pub fn run_plan_pipeline_to_with_tty(
     let json_str = match opts.json_file.as_deref() {
         Some("-") => read_stdin()?,
         Some(path) => read_json_file(path)?,
-        None => run_terraform_pipeline(&opts)?,
+        None => run_terraform_pipeline(opts)?,
     };
 
     if json_str.trim().is_empty() {
@@ -138,7 +160,7 @@ pub fn run_plan_pipeline_to_with_tty(
     }
 
     if !opts.keep_plan && opts.json_file.is_none() {
-        cleanup_artifacts(&opts);
+        cleanup_artifacts(opts);
     }
 
     let code = if opts.detailed_exitcode && changes_present {
@@ -413,7 +435,7 @@ mod tests {
 
     /// SEC-33 / TASK-0915: a plan JSON larger than the cap must be
     /// rejected without being slurped into memory. Override the cap to
-    /// 64 bytes via OPS_PLAN_JSON_MAX_BYTES so the test stays fast.
+    /// 64 bytes via `OPS_PLAN_JSON_MAX_BYTES` so the test stays fast.
     #[test]
     #[serial_test::serial(plan_json_max_bytes_env)]
     fn read_json_file_rejects_oversized_payload() {
@@ -487,9 +509,9 @@ mod tests {
         assert_eq!(result.expect("at-cap stdin payload reads ok"), "12345678");
     }
 
-    /// FN-9 / TASK-0850: run_plan_pipeline_to writes its rendered tables
+    /// FN-9 / TASK-0850: `run_plan_pipeline_to` writes its rendered tables
     /// to the provided sink instead of global stdout, and the pipeline
-    /// returns ExitCode based on detailed_exitcode + changes_present.
+    /// returns `ExitCode` based on `detailed_exitcode` + `changes_present`.
     #[test]
     #[serial_test::serial(plan_json_max_bytes_env)]
     fn run_plan_pipeline_to_writes_to_supplied_buffer() {
@@ -511,7 +533,7 @@ mod tests {
         };
 
         let mut buf: Vec<u8> = Vec::new();
-        let _code = run_plan_pipeline_to(opts, &mut buf).expect("pipeline ok");
+        let _code = run_plan_pipeline_to(&opts, &mut buf).expect("pipeline ok");
 
         let out = String::from_utf8(buf).expect("utf-8");
         // Summary table (always emitted) + resource table (changes
@@ -557,9 +579,9 @@ mod tests {
         };
 
         let mut buf_a: Vec<u8> = Vec::new();
-        run_plan_pipeline_to(make_opts(), &mut buf_a).expect("pipeline ok");
+        run_plan_pipeline_to(&make_opts(), &mut buf_a).expect("pipeline ok");
         let mut buf_b: Vec<u8> = Vec::new();
-        run_plan_pipeline_to(make_opts(), &mut buf_b).expect("pipeline ok");
+        run_plan_pipeline_to(&make_opts(), &mut buf_b).expect("pipeline ok");
 
         assert_eq!(
             buf_a, buf_b,
@@ -570,7 +592,7 @@ mod tests {
         // `_with_tty` form must match the default `_to` behaviour, so
         // there is one canonical "buffered sink" rendering.
         let mut buf_c: Vec<u8> = Vec::new();
-        run_plan_pipeline_to_with_tty(make_opts(), &mut buf_c, false).expect("pipeline ok");
+        run_plan_pipeline_to_with_tty(&make_opts(), &mut buf_c, false).expect("pipeline ok");
         assert_eq!(
             buf_a, buf_c,
             "run_plan_pipeline_to must default is_tty=false"

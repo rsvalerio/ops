@@ -8,14 +8,14 @@ use ops_core::config::atomic_write;
 
 pub(crate) fn run_init(
     force: bool,
-    sections: ops_core::config::InitSections,
+    sections: &ops_core::config::InitSections,
 ) -> anyhow::Result<()> {
     run_init_to(force, sections, &mut std::io::stdout())
 }
 
 fn run_init_to(
     force: bool,
-    sections: ops_core::config::InitSections,
+    sections: &ops_core::config::InitSections,
     w: &mut dyn Write,
 ) -> anyhow::Result<()> {
     // Capture cwd once and join to an absolute path so
@@ -25,7 +25,7 @@ fn run_init_to(
     // small TOCTOU window between the two filesystem ops.
     let cwd = std::env::current_dir()?;
     let path = cwd.join(".ops.toml");
-    let content = ops_core::config::init_template(&cwd, &sections)?;
+    let content = ops_core::config::init_template(&cwd, sections)?;
     match write_init(&path, content.as_bytes(), force) {
         Ok(()) => {}
         Err(e) if e.kind() == ErrorKind::AlreadyExists => {
@@ -169,7 +169,7 @@ mod tests {
     fn run_init_creates_minimal_ops_toml() {
         let dir = tempfile::tempdir().expect("tempdir");
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
-        run_init(false, default_sections()).expect("run_init should succeed");
+        run_init(false, &default_sections()).expect("run_init should succeed");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(
             content.contains("[output]"),
@@ -185,7 +185,7 @@ mod tests {
     fn run_init_all_sections_includes_themes() {
         let dir = tempfile::tempdir().expect("tempdir");
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
-        run_init(false, all_sections()).expect("run_init should succeed");
+        run_init(false, &all_sections()).expect("run_init should succeed");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(
             content.contains("[output]"),
@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn run_init_no_overwrite_without_force() {
         let (dir, _guard) = crate::test_utils::with_temp_config("existing");
-        run_init(false, default_sections()).expect("run_init should succeed (noop)");
+        run_init(false, &default_sections()).expect("run_init should succeed (noop)");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert_eq!(content, "existing", "file should not be overwritten");
     }
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn run_init_force_overwrites() {
         let (dir, _guard) = crate::test_utils::with_temp_config("existing");
-        run_init(true, default_sections()).expect("run_init should succeed");
+        run_init(true, &default_sections()).expect("run_init should succeed");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(
             content.contains("[output]"),
@@ -216,7 +216,7 @@ mod tests {
         );
     }
 
-    /// Both write_init branches must reach the parent
+    /// Both `write_init` branches must reach the parent
     /// fsync codepath and produce byte-identical output for the same input,
     /// so a crash between file-fsync and the next sync(2) is the only
     /// scenario in which the directory entry could be lost — and that
@@ -250,7 +250,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         let mut buf = Vec::new();
-        run_init_to(false, default_sections(), &mut buf).expect("run_init_to");
+        run_init_to(false, &default_sections(), &mut buf).expect("run_init_to");
         let output = String::from_utf8(buf).unwrap();
         assert!(
             output.contains("Created .ops.toml with output settings"),
@@ -264,7 +264,7 @@ mod tests {
         std::fs::write(dir.path().join(".ops.toml"), "existing").unwrap();
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         let mut buf = Vec::new();
-        run_init_to(true, default_sections(), &mut buf).expect("run_init_to");
+        run_init_to(true, &default_sections(), &mut buf).expect("run_init_to");
         let output = String::from_utf8(buf).unwrap();
         assert!(
             output.contains("Created .ops.toml"),
@@ -285,7 +285,7 @@ mod tests {
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         let mut buf = Vec::new();
         let sections = ops_core::config::InitSections::from_flags(true, false, true);
-        run_init_to(false, sections, &mut buf).expect("run_init_to");
+        run_init_to(false, &sections, &mut buf).expect("run_init_to");
         let output = String::from_utf8(buf).unwrap();
         assert!(
             output.contains("Add commands"),
@@ -310,7 +310,7 @@ mod tests {
         std::fs::create_dir(&sub).expect("mkdir sub");
         let _guard = CwdGuard::new(&sub).expect("CwdGuard sub");
 
-        run_init(false, default_sections()).expect("run_init should succeed");
+        run_init(false, &default_sections()).expect("run_init should succeed");
 
         let landed = sub.join(".ops.toml");
         assert!(
@@ -326,7 +326,7 @@ mod tests {
         );
     }
 
-    /// The warn / info / fsync-warn events in init_cmd
+    /// The warn / info / fsync-warn events in `init_cmd`
     /// format paths via the `?` (Debug) formatter so newlines / ANSI in a
     /// hostile cwd-derived path cannot forge log records. This pins the
     /// value-level escape contract directly without spinning up a tracing
@@ -343,7 +343,7 @@ mod tests {
 
     /// `ops init` over an existing `.ops.toml` must write a
     /// visible "already exists; pass --force" line through the test-injectable
-    /// writer, not only via tracing. Previously the AlreadyExists arm emitted a
+    /// writer, not only via tracing. Previously the `AlreadyExists` arm emitted a
     /// `tracing::warn!` and returned `Ok(())` with no stdout output, so users
     /// scripting `ops init 2>/dev/null` saw nothing at all and reasonably
     /// concluded the file had been created.
@@ -351,7 +351,7 @@ mod tests {
     fn run_init_to_already_exists_writes_hint_to_writer() {
         let (_dir, _guard) = crate::test_utils::with_temp_config("existing");
         let mut buf = Vec::new();
-        run_init_to(false, default_sections(), &mut buf)
+        run_init_to(false, &default_sections(), &mut buf)
             .expect("run_init_to (already-exists noop)");
         let output = String::from_utf8(buf).unwrap();
         assert!(
@@ -392,7 +392,7 @@ mod tests {
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         let mut buf = Vec::new();
         let sections = ops_core::config::InitSections::from_flags(true, false, true);
-        run_init_to(false, sections, &mut buf).expect("run_init_to");
+        run_init_to(false, &sections, &mut buf).expect("run_init_to");
         let output = String::from_utf8(buf).unwrap();
         assert!(
             output.contains("detected stack"),

@@ -265,6 +265,10 @@ pub(crate) fn test_default_workspace_cache() -> &'static Arc<WorkspaceCanonicalC
 /// `${OPS_TOKEN}`/`${ATTACKER_VAR}` reference cannot leak into uploaded
 /// CI logs. Operators chasing the leak follow the same `RUST_LOG=debug`
 /// path as for spawn-error redaction.
+// Taken by value so the four call sites can stay point-free
+// (`.map_err(expand_err_to_io)`); a `&ExpandError` parameter would force a
+// closure at each. Consuming the error also matches `From<E> for io::Error`.
+#[allow(clippy::needless_pass_by_value)]
 fn expand_err_to_io(err: ExpandError) -> std::io::Error {
     tracing::debug!(
         error = ?err,
@@ -629,9 +633,9 @@ mod tests {
 
     /// CONC-5 / TASK-0330: the async variant must dispatch the canonicalize
     /// work to the blocking pool so a single-threaded runtime can still
-    /// drive other tasks while build_command runs. This test uses a
+    /// drive other tasks while `build_command` runs. This test uses a
     /// `current_thread` runtime — the only worker — and asserts that a
-    /// concurrent counter task makes progress while build_command_async is
+    /// concurrent counter task makes progress while `build_command_async` is
     /// in flight.
     ///
     /// Under the previous synchronous `build_command` call from inside an
@@ -696,7 +700,7 @@ mod tests {
 
     /// Functional parity: the async wrapper must produce a Command with
     /// the same observable program as the sync version. Catches refactors
-    /// that accidentally rewrite the spec inside spawn_blocking.
+    /// that accidentally rewrite the spec inside `spawn_blocking`.
     #[tokio::test]
     async fn build_command_async_preserves_program_name() {
         let tmp = tempfile::tempdir().unwrap();
@@ -756,7 +760,7 @@ mod tests {
         assert_eq!(out, std::path::PathBuf::from("/tmp/ws/inside"));
     }
 
-    /// SEC-23 / TASK-0500: an absolute spec_cwd outside the workspace must
+    /// SEC-23 / TASK-0500: an absolute `spec_cwd` outside the workspace must
     /// be rejected under `Deny`. The previous bug short-circuited the policy
     /// check so a malicious `cwd = "/etc"` would silently spawn at /etc on
     /// the hook path.
@@ -777,7 +781,7 @@ mod tests {
         assert!(err.to_string().contains("SEC-14"));
     }
 
-    /// SEC-23: under WarnAndAllow the absolute path is still returned (the
+    /// SEC-23: under `WarnAndAllow` the absolute path is still returned (the
     /// interactive trust model lets `.ops.toml` choose its cwd) but the
     /// escape is logged.
     #[test]
@@ -847,7 +851,7 @@ mod tests {
     }
 
     /// READ-5 / TASK-0900: a non-UTF-8 cwd must surface a loud
-    /// InvalidInput error instead of being lossy-expanded into a
+    /// `InvalidInput` error instead of being lossy-expanded into a
     /// wrong-but-similar path that would chdir the child into the
     /// "wrong" directory.
     #[cfg(unix)]
@@ -912,9 +916,9 @@ mod tests {
         assert!(apply_escape_policy(CwdEscapePolicy::WarnAndAllow, spec, &ws, &joined).is_ok());
     }
 
-    /// READ-5 / TASK-0773: an absolute spec_cwd inside the workspace must go
+    /// READ-5 / TASK-0773: an absolute `spec_cwd` inside the workspace must go
     /// through the same canonicalize-under-Deny narrowing that relative
-    /// spec_cwd already enjoyed. Pins the symmetric behaviour after
+    /// `spec_cwd` already enjoyed. Pins the symmetric behaviour after
     /// TASK-0773 so a future refactor cannot silently regress to the
     /// asymmetric path that left absolute hook-path cwds unprotected.
     #[cfg(unix)]
@@ -1080,7 +1084,7 @@ mod tests {
         );
     }
 
-    /// SEC-23 / TASK-1140: WarnAndAllow must enjoy the same
+    /// SEC-23 / TASK-1140: `WarnAndAllow` must enjoy the same
     /// canonicalize-on-success narrowing as Deny. Prior to TASK-1140 the
     /// canonicalize block was gated on `Deny`, leaving the interactive
     /// path uniquely exposed to a symlink swap between the
@@ -1261,7 +1265,7 @@ mod tests {
     /// (including `var_name`) is logged at debug for operator follow-up,
     /// but the rendered `io::Error` message stays generic so a
     /// `${OPS_TOKEN}` typo or `${ATTACKER_VAR}` reference dropped into a
-    /// `.ops.toml` cannot surface in StepFailed message uploaded to CI.
+    /// `.ops.toml` cannot surface in `StepFailed` message uploaded to CI.
     #[test]
     fn expand_err_to_io_does_not_leak_variable_name_in_message() {
         let err = ops_core::expand::ExpandError {

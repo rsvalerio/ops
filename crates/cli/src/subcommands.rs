@@ -90,7 +90,7 @@ pub(crate) fn run_extension(config: &Config, action: ExtensionAction) -> anyhow:
 /// and `Err` for any other inquire failure.
 ///
 /// The real-error branch attaches an anyhow context naming the prompt
-/// source so a NotTTY / IO failure tells the user which prompt was in
+/// source so a `NotTTY` / IO failure tells the user which prompt was in
 /// flight rather than surfacing a bare `inquire: <variant>` line.
 fn classify_confirm_result(
     res: Result<bool, inquire::InquireError>,
@@ -341,7 +341,7 @@ pub(crate) fn run_end_of_file_fixer(tracked: bool) -> anyhow::Result<ExitCode> {
 /// failed to parse. Mirrors the `pre-commit-hooks` contract.
 fn run_config_checker<F>(
     label: &str,
-    opts: ops_config_checkers::CheckerOptions,
+    opts: &ops_config_checkers::CheckerOptions,
     checker: F,
 ) -> anyhow::Result<ExitCode>
 where
@@ -351,7 +351,7 @@ where
     ) -> anyhow::Result<ops_config_checkers::CheckerReport>,
 {
     let mut stdout = std::io::stdout();
-    let report = checker(&opts, &mut stdout)?;
+    let report = checker(opts, &mut stdout)?;
     ops_config_checkers::write_summary(&report, label, &mut stdout)
         .with_context(|| format!("{label}: writing summary failed"))?;
     if report.failed() {
@@ -364,13 +364,13 @@ where
 pub(crate) fn run_check_json(tracked: bool, allow_json5: bool) -> anyhow::Result<ExitCode> {
     let cwd = crate::cwd()?;
     let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked).with_allow_json5(allow_json5);
-    run_config_checker("check-json", opts, ops_config_checkers::run_check_json)
+    run_config_checker("check-json", &opts, ops_config_checkers::run_check_json)
 }
 
 pub(crate) fn run_check_yaml(tracked: bool) -> anyhow::Result<ExitCode> {
     let cwd = crate::cwd()?;
     let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked);
-    run_config_checker("check-yaml", opts, ops_config_checkers::run_check_yaml)
+    run_config_checker("check-yaml", &opts, ops_config_checkers::run_check_yaml)
 }
 
 #[cfg(feature = "stack-rust")]
@@ -561,7 +561,7 @@ program = "true"
 
     /// RAII helper: remove an env var for the scope of a test and restore
     /// the original value on drop. Local to this test module so the broader
-    /// test_utils surface does not grow another env-guard variant.
+    /// `test_utils` surface does not grow another env-guard variant.
     struct EnvVarGuard {
         name: &'static str,
         original: Option<std::ffi::OsString>,
@@ -626,7 +626,7 @@ program = "true"
 
     /// Both pre-* hook help screens must render with the
     /// same section structure. The previous `next_help_heading = "Setup"`
-    /// on RunBeforePush split the two hooks across help sections; this
+    /// on `RunBeforePush` split the two hooks across help sections; this
     /// pins that they no longer diverge.
     #[test]
     fn run_before_commit_and_push_help_share_structure() {

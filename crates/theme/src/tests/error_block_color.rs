@@ -5,7 +5,7 @@ use super::*;
 use crate::style::{apply_style_gated, visible_width};
 use ops_core::config::theme_types::ErrorBlockChars;
 
-fn render_with(chars: ErrorBlockChars, enabled: bool) -> Vec<String> {
+fn render_with(chars: &ErrorBlockChars, enabled: bool) -> Vec<String> {
     // Mirror render_error_block's structure but with explicit styling gate,
     // since apply_style itself consults stderr TTY state at runtime.
     let detail = ErrorDetail::new("exit status: 1".to_string(), vec![]);
@@ -34,7 +34,7 @@ fn error_block_color_wraps_top_mid_bottom_with_sgr_when_enabled() {
         rail: "│".into(),
         color: "red dim".into(),
     };
-    let lines = render_with(chars, true);
+    let lines = render_with(&chars, true);
     for line in &lines {
         assert!(
             line.contains('\x1b'),
@@ -52,7 +52,7 @@ fn error_block_rail_remains_unstyled_when_color_set() {
         rail: "│".into(),
         color: "red".into(),
     };
-    let lines = render_with(chars, true);
+    let lines = render_with(&chars, true);
     for line in &lines {
         assert!(
             line.starts_with('│'),
@@ -74,8 +74,8 @@ fn error_block_unknown_color_does_not_change_display_width() {
         color: "not-a-color zzz".into(),
         ..base.clone()
     };
-    let plain_lines = render_with(base, true);
-    let colored_lines = render_with(colored, true);
+    let plain_lines = render_with(&base, true);
+    let colored_lines = render_with(&colored, true);
     assert_eq!(plain_lines.len(), colored_lines.len());
     for (p, c) in plain_lines.iter().zip(colored_lines.iter()) {
         let pw = visible_width(p);
