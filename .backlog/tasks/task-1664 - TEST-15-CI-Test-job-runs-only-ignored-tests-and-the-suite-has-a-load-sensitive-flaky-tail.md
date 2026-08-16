@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-15 00:00'
-updated_date: '2026-08-16 12:10'
+updated_date: '2026-08-16 12:20'
 labels:
   - ci
   - testing
@@ -163,4 +163,37 @@ reproduced locally within 5).
 
 Net coverage: `ops-core` 325 → 327 tests. AC #6 is **not** complete — the
 environment-dependent tests in the table above are untouched.
+
+### Second instance: typed_manifest_cache in ops-about-rust
+
+The `ops-core` fix above exposed the next one. `Test` on PR #22 failed on
+`query::tests::typed_manifest_cache_recovers_from_poison_with_warn` — a
+different crate, and the test this task's table already lists as
+"thread scheduling, only seen under extreme load". PR #22 does not touch
+`ops-about` at all (its diff is `crates/core/src/{expand,sync}.rs` plus this
+file), so it is pre-existing.
+
+Same root cause, different shape. `lock_typed_manifest_cache` recovers via
+`clear_poison()`, so the breadcrumb is one-shot. The failing assertion was the
+*premise* check — `"mutex must be poisoned for the test premise"` — i.e.
+something had already recovered the lock before the test looked.
+
+The wrinkle: all 10 cache tests in `query.rs` **were** correctly serialised
+under `#[serial(typed_manifest_cache)]`. The racers are in sibling modules that
+reach the same static *indirectly*, through a provider's `provide()` →
+`load_workspace_manifest`: 13 tests in `identity/mod.rs` and 1 in `units.rs`,
+none serialised. Same test binary, so they interleave freely.
+
+Fix here is the serial group rather than the local-mutex rewrite used in
+`ops-core`, because the seam does not decompose the same way:
+`lock_typed_manifest_cache` takes `&'static Mutex<TypedManifestCache>` and its
+`recovery_count` lives in a process-global `AtomicU64`, so a stack-local mutex
+would not make the count-based assertions deterministic either. Added the
+attribute to all 14, bringing every cache-reaching test to 25/25 serialised,
+and documented the invariant at `typed_manifest_cache()` so a future test added
+to `identity/mod.rs` does not silently reopen the race.
+
+Caveat on evidence: this one does **not** reproduce locally (0/10 failures on 16
+cores before the change, 0/10 after), so unlike the `ops-core` fix the load
+test cannot distinguish. CI on a 2-core runner is the real check.
 <!-- SECTION:NOTES:END -->
