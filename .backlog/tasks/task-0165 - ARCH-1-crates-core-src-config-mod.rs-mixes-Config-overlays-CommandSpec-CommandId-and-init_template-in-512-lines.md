@@ -3,10 +3,10 @@ id: TASK-0165
 title: >-
   ARCH-1: crates/core/src/config/mod.rs mixes Config, overlays, CommandSpec,
   CommandId and init_template in 512 lines
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-22 21:24'
-updated_date: '2026-08-15 00:00'
+updated_date: '2026-08-15 20:55'
 labels:
   - rust-code-review
   - ARCH
@@ -26,15 +26,43 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Extract CommandId + impls to its own module (config/command_id.rs)
-- [ ] #2 Extract InitSections and init_template to config/init.rs
-- [ ] #3 Keep mod.rs as a thin re-export hub (<150 lines)
+- [x] #1 Extract CommandId + impls to its own module (config/command_id.rs)
+- [x] #2 Extract InitSections and init_template to config/init.rs
+- [x] #3 Keep mod.rs as a thin re-export hub (<150 lines)
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-Deferred: this is pure code reorganization (Extract CommandId to command_id.rs; Extract InitSections/init_template to init.rs). Low risk but high churn and needs re-exports across ops-core API; splitting into a dedicated wave keeps this high-value correctness wave (ERR-5 / SEC-32 / API-9) focused. Leaving In Progress for the next wave to pick up.
+Done. `config/mod.rs` went from 488 lines to 56.
+
+- AC #1: `CommandId` + its 11 trait impls moved out of `commands.rs` into
+  `config/command_id.rs` (84 lines), the destination the AC named. The triage
+  note asked whether `commands.rs` was an acceptable home — it was not,
+  `commands.rs` is about command *specs*, and the newtype has no dependency
+  on them.
+- AC #2: `default_ops_toml`, `InitSections` and `init_template` moved to
+  `config/init.rs` (69 lines).
+- AC #3: `mod.rs` is now 56 lines of module declarations and re-exports.
+
+Reaching AC #3 needed two extractions the original report listed but the ACs
+did not name, since `Config` and the section structs were most of the file:
+
+- `config/root.rs` (229) — `Config`, `MAX_COMPOSITE_DEPTH`, `validate`,
+  `validate_commands`, `walk_composite`, `resolve_alias`
+- `config/sections.rs` (170) — `ExtensionConfig`, `AboutConfig`,
+  `DataConfig`, `OutputConfig` and the terminal-width resolution
+
+Visibility changes forced by the split, all `pub(crate)` and none widening the
+public API: `{Extension,About,Data}Config::is_default` (named by
+`skip_serializing_if` from `root.rs`), `sections::scale_columns` and
+`Config::walk_composite` (both exercised by `config::tests`).
+
+The public `ops_core::config::*` surface is unchanged — every name is
+re-exported from the same path as before, so no downstream crate needed
+edits. Verified by building the workspace with --all-features.
+
+Gates: `ops verify` 7/7, `ops qa` 3/3.
 <!-- SECTION:NOTES:END -->
 
 ## Triage Notes
