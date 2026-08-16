@@ -106,7 +106,7 @@ where
 /// before the read failure.
 ///
 /// ERR-1 / TASK-0901: a *panicked* drain thread is now propagated as
-/// `RunError::Io` instead of an empty `Vec<u8>`. Returning Vec::new() on
+/// `RunError::Io` instead of an empty `Vec<u8>`. Returning `Vec::new()` on
 /// panic made a successful command appear to have produced no output —
 /// indistinguishable from a clean empty stream — and downstream cargo
 /// callers (cargo metadata / cargo update parsers) silently drove
@@ -320,7 +320,7 @@ mod tests {
     }
 
     /// PERF-3 / TASK-1473: a stream that dwarfs the cap (here, 16 MiB into
-    /// a 64 KiB cap) must drain to EOF promptly via the io::copy → io::sink
+    /// a 64 KiB cap) must drain to EOF promptly via the `io::copy` → `io::sink`
     /// path. Pre-fix this was a per-8 KiB user-space spin; the post-fix
     /// path returns once the kernel reports EOF. A 2-second budget is well
     /// over the realistic completion time but bounds a regression.

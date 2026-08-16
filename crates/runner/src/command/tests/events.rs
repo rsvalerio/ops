@@ -1,4 +1,4 @@
-//! Tests for emit_output_events.
+//! Tests for `emit_output_events`.
 
 use super::*;
 use std::sync::Arc;
@@ -25,7 +25,7 @@ fn emit_output_events_emits_stdout_and_stderr() {
     assert_eq!(stderr_events.len(), 1);
 }
 
-/// TQ-018: Tests for emit_output_events edge cases.
+/// TQ-018: Tests for `emit_output_events` edge cases.
 mod emit_output_edge_tests {
     use super::*;
 

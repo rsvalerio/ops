@@ -25,6 +25,11 @@ impl CargoToml {
     ///
     /// After calling this, all dependencies with `workspace = true` will have
     /// their values filled from `workspace.dependencies`.
+    ///
+    /// # Errors
+    ///
+    /// [`InheritanceError`] if a field declares `workspace = true` but the
+    /// workspace table has no corresponding entry to inherit from.
     pub fn resolve_inheritance(&mut self) -> Result<(), InheritanceError> {
         let Some(ws) = &self.workspace else {
             return Ok(());
@@ -216,7 +221,7 @@ fn resolve_from_simple_dep(version: &str, local: &DepSpec) -> DetailedDepSpec {
 ///   workspace dep marked `optional = true` stays optional even if the
 ///   member omits the flag, and a member can opt-in locally when the
 ///   workspace did not.
-/// - **default_features**: `ws.default_features && local_default_features`.
+/// - **`default_features`**: `ws.default_features && local_default_features`.
 ///   Cargo's documented footgun: once the workspace sets
 ///   `default-features = false`, members **cannot** re-enable them with
 ///   `default-features = true` (cargo emits a warning and keeps defaults

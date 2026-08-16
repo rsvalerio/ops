@@ -1,4 +1,4 @@
-//! Data provider system: DataProvider trait, DataRegistry, Context, DuckDbHandle.
+//! Data provider system: `DataProvider` trait, `DataRegistry`, Context, `DuckDbHandle`.
 
 use crate::error::DataProviderError;
 use indexmap::IndexMap;
@@ -49,6 +49,7 @@ impl DataField {
     ///
     /// All three arguments are `&'static str`; see the type-level docs for
     /// the rationale and guidance on runtime-generated descriptions.
+    #[must_use]
     pub const fn new(
         name: &'static str,
         type_name: &'static str,
@@ -83,6 +84,7 @@ impl DataProviderSchema {
     /// Construct a [`DataProviderSchema`].
     ///
     /// `description` is `&'static str`; see [`DataField`] for the rationale.
+    #[must_use]
     pub fn new(description: &'static str, fields: Vec<DataField>) -> Self {
         Self {
             description,
@@ -158,7 +160,7 @@ pub trait DataProvider: Send + Sync {
     }
 }
 
-/// Registry of provider name → DataProvider.
+/// Registry of provider name → `DataProvider`.
 ///
 /// API-9 / TASK-1179: backed by [`IndexMap`] so iteration (including the
 /// public [`IntoIterator`] impl) yields entries in registration order. The
@@ -282,6 +284,7 @@ impl DataRegistry {
     }
 
     /// Returns schemas for all providers that have non-empty descriptions.
+    #[must_use]
     pub fn schemas(&self) -> Vec<(&str, DataProviderSchema)> {
         let mut result: Vec<_> = self
             .providers
@@ -299,6 +302,10 @@ impl DataRegistry {
             .unwrap_or_default()
     }
 
+    /// # Errors
+    ///
+    /// [`DataProviderError::NotFound`] if no provider is registered under
+    /// `name`, or whatever error the provider itself returns.
     pub fn provide(
         &self,
         name: &str,
@@ -323,7 +330,7 @@ impl IntoIterator for DataRegistry {
     }
 }
 
-/// Erasure trait for the DuckDb handle so that extension.rs does not depend
+/// Erasure trait for the `DuckDb` handle so that extension.rs does not depend
 /// on duckdb types.
 ///
 /// # Downcast contract
@@ -372,7 +379,7 @@ impl<T: std::any::Any + Send + Sync> DuckDbHandle for T {
 /// Per-invocation context shared with data providers.
 ///
 /// API-9 / TASK-0349: marked `#[non_exhaustive]` so that adding a field is
-/// not a SemVer break for downstream providers. `data_cache` is no longer
+/// not a `SemVer` break for downstream providers. `data_cache` is no longer
 /// `pub`; reads go through [`Context::cached`] and writes go through
 /// [`Context::get_or_provide`] so callers cannot bypass the
 /// caching/provider contract by inserting raw values directly.
@@ -400,6 +407,7 @@ pub struct Context {
 }
 
 impl Context {
+    #[must_use]
     pub fn new(config: Arc<Config>, working_directory: PathBuf) -> Self {
         Self::from_cwd_arc(config, Arc::new(working_directory))
     }
@@ -409,6 +417,7 @@ impl Context {
     /// repeat provider lookups within the same runner share one heap
     /// allocation, mirroring the OWN-2 invariant established for the
     /// parallel-exec path in TASK-0462.
+    #[must_use]
     pub fn from_cwd_arc(config: Arc<Config>, working_directory: Arc<PathBuf>) -> Self {
         Self {
             config,
@@ -434,6 +443,7 @@ impl Context {
 
     /// Create a context for testing with default config.
     #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
     pub fn test_context(working_directory: PathBuf) -> Self {
         Self::new(Arc::new(Config::empty()), working_directory)
     }
@@ -471,6 +481,11 @@ impl Context {
     ///
     /// If the `in_flight` entry inserted at the top of the call is missing by
     /// the time the provider returns — an internal invariant violation.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the underlying provider returns; see [`DataRegistry::provide`].
+    /// A cache hit (when `refresh` is false) cannot fail.
     pub fn get_or_provide(
         &mut self,
         key: &str,

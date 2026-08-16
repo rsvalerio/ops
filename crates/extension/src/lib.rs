@@ -1,4 +1,4 @@
-//! Extension trait and registries: CommandRegistry, DataRegistry, Context.
+//! Extension trait and registries: `CommandRegistry`, `DataRegistry`, Context.
 
 #![cfg_attr(
     test,

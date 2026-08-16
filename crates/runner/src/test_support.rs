@@ -8,7 +8,7 @@ use ops_core::config::CommandSpec;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// Create a CommandRunner with the given commands for testing.
+/// Create a `CommandRunner` with the given commands for testing.
 pub fn test_runner<S: std::hash::BuildHasher>(
     commands: HashMap<String, CommandSpec, S>,
 ) -> CommandRunner {
@@ -26,13 +26,13 @@ pub trait EventAssertions {
     where
         F: Fn(&RunnerEvent) -> bool;
 
-    /// Check if a PlanStarted event exists.
+    /// Check if a `PlanStarted` event exists.
     #[allow(dead_code)]
     fn has_plan_started(&self) -> bool {
         self.has_event(|e| matches!(e, RunnerEvent::PlanStarted { .. }))
     }
 
-    /// Check if a StepFinished event exists for the given command ID.
+    /// Check if a `StepFinished` event exists for the given command ID.
     #[allow(dead_code)]
     fn has_step_finished(&self, id: &str) -> bool {
         self.has_event(
@@ -40,7 +40,7 @@ pub trait EventAssertions {
         )
     }
 
-    /// Check if a StepFailed event exists for the given command ID.
+    /// Check if a `StepFailed` event exists for the given command ID.
     #[allow(dead_code)]
     fn has_step_failed(&self, id: &str) -> bool {
         self.has_event(
@@ -48,7 +48,7 @@ pub trait EventAssertions {
         )
     }
 
-    /// Check if a StepSkipped event exists for the given command ID.
+    /// Check if a `StepSkipped` event exists for the given command ID.
     #[allow(dead_code)]
     fn has_step_skipped(&self, id: &str) -> bool {
         self.has_event(
@@ -56,13 +56,13 @@ pub trait EventAssertions {
         )
     }
 
-    /// Check if a RunFinished event exists with success=true.
+    /// Check if a `RunFinished` event exists with success=true.
     #[allow(dead_code)]
     fn has_run_finished_success(&self) -> bool {
         self.has_event(|e| matches!(e, RunnerEvent::RunFinished { success: true, .. }))
     }
 
-    /// Check if a RunFinished event exists with success=false.
+    /// Check if a `RunFinished` event exists with success=false.
     #[allow(dead_code)]
     fn has_run_finished_failure(&self) -> bool {
         self.has_event(|e| matches!(e, RunnerEvent::RunFinished { success: false, .. }))

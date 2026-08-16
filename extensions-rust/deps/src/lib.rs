@@ -198,6 +198,10 @@ pub(crate) fn check_tool_in(tool: &CargoTool, working_dir: &std::path::Path) -> 
     }
 }
 
+/// # Errors
+///
+/// If any tool in `REQUIRED_CARGO_TOOLS` is not installed, naming the tool
+/// and the command that installs it.
 pub fn ensure_tools() -> anyhow::Result<()> {
     for tool in REQUIRED_CARGO_TOOLS {
         check_tool(tool)?;
@@ -213,6 +217,10 @@ pub fn ensure_tools() -> anyhow::Result<()> {
 /// config file degrades to defaults with a logged warning instead of
 /// failing the command outright — matches the "tolerate broken config"
 /// posture of `cli/main.rs::early_config`.
+///
+/// # Errors
+///
+/// If the current working directory cannot be determined.
 pub fn build_user_context() -> anyhow::Result<Context> {
     let cwd =
         std::env::current_dir().context("deps: failed to determine current working directory")?;
@@ -226,6 +234,12 @@ pub struct DepsOptions {
 }
 
 /// Run the deps command: check tool availability, collect data, print report.
+///
+/// # Errors
+///
+/// If a required cargo tool is missing, if `cargo deny` / `cargo upgrade`
+/// cannot be run or returns output that fails to parse, or if writing the
+/// report fails.
 pub fn run_deps(
     data_registry: &ops_extension::DataRegistry,
     opts: &DepsOptions,

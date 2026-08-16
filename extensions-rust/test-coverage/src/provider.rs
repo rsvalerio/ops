@@ -1,4 +1,4 @@
-//! `CoverageProvider` impl and DuckDB readback path.
+//! `CoverageProvider` impl and `DuckDB` readback path.
 //!
 //! ARCH-1 / TASK-1559: lifted out of `lib.rs`.
 

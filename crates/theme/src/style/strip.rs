@@ -96,6 +96,7 @@ pub fn visible_width(s: &str) -> usize {
         .fold(0usize, usize::saturating_add)
 }
 
+#[must_use]
 pub fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     out.extend(ansi_visible_chars(s));

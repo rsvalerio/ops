@@ -1,4 +1,4 @@
-//! Tests for build_command and StepResult construction.
+//! Tests for `build_command` and `StepResult` construction.
 
 use super::*;
 
@@ -39,7 +39,7 @@ fn build_command_uses_spec_cwd_when_provided() {
     assert_eq!(cmd.as_std().get_current_dir(), Some(expected.as_path()));
 }
 
-/// TQ-005: Tests for build_command error paths.
+/// TQ-005: Tests for `build_command` error paths.
 mod build_command_error_tests {
     use super::*;
 

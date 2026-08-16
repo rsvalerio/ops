@@ -1,6 +1,7 @@
 //! Ensure the file ends with exactly one newline. Empty files are left alone.
 //! CRLF-dominant files keep CRLF; otherwise LF is appended.
 
+#[must_use]
 pub fn fix_eof(input: &[u8]) -> Option<Vec<u8>> {
     if input.is_empty() {
         return None;

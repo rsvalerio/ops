@@ -64,6 +64,12 @@ impl ParsedManifest {
 /// Go provider, which combines `go.mod` and `go.work`) can still call
 /// [`build_identity_value`] directly; this helper covers the common
 /// single-parser case.
+///
+/// # Errors
+///
+/// [`DataProviderError`] if the project root is not valid UTF-8 (SEC:
+/// rejected rather than lossily rendered), or if the identity fails to
+/// serialize.
 pub fn provide_identity_from_manifest<F>(
     cwd: &Path,
     parser: F,
@@ -86,8 +92,14 @@ where
 /// `project_root` JSON field. This mirrors the strict
 /// [`ops_duckdb::DbError::NonUtf8Path`] policy adopted in TASK-0928 for
 /// `upsert_data_source`: any path persisted into a downstream consumer
-/// (DuckDB row, JSON identity payload, audit log) must round-trip
+/// (`DuckDB` row, JSON identity payload, audit log) must round-trip
 /// faithfully, so the two paths now share the same fail-fast contract.
+///
+/// # Errors
+///
+/// [`DataProviderError`] if the project root is not valid UTF-8 (SEC:
+/// rejected rather than lossily rendered), or if the identity fails to
+/// serialize.
 pub fn build_identity_value(
     manifest: ParsedManifest,
     cwd: &Path,

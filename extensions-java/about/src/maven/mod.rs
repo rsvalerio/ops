@@ -86,8 +86,8 @@ mod tests {
         assert!(!name.is_empty());
     }
 
-    /// Provider-specific shape: empty modules yields null module_count, no
-    /// homepage is set, and stack_detail is always "Maven". Parser coverage
+    /// Provider-specific shape: empty modules yields null `module_count`, no
+    /// homepage is set, and `stack_detail` is always "Maven". Parser coverage
     /// lives in `pom::tests::parse_pom_basic`.
     #[test]
     fn maven_provider_provide_shape() {

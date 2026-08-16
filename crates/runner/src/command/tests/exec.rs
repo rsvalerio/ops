@@ -1,4 +1,4 @@
-//! Tests for exec / run_exec / unit-level helpers.
+//! Tests for exec / `run_exec` / unit-level helpers.
 
 use super::*;
 
@@ -109,7 +109,7 @@ mod exec_unit_tests {
     }
 
     /// CONC-9 / TASK-1064: when the surrounding parallel task is aborted while
-    /// the child is wedged (e.g. fail_fast tripped after a sibling failed and
+    /// the child is wedged (e.g. `fail_fast` tripped after a sibling failed and
     /// the current child is stuck on `child.wait()`), the per-stream pipe
     /// drains spawned inside `spawn_capped` must die with the parent rather
     /// than detach and keep reading until the wedged child finally exits.
@@ -343,9 +343,9 @@ mod exec_unit_tests {
         // the line addresses diverge.
     }
 
-    /// PERF-3 / TASK-0838: explicit Arc::ptr_eq + strong_count assertion.
+    /// PERF-3 / TASK-0838: explicit `Arc::ptr_eq` + `strong_count` assertion.
     /// All emitted lines must share *one* backing `Arc<str>` per stream and
-    /// the strong_count must reflect (1 buffer + N line events).
+    /// the `strong_count` must reflect (1 buffer + N line events).
     #[test]
     fn emit_output_events_arc_ptr_eq_per_stream() {
         let stdout = "a\nb\nc\n";
@@ -414,7 +414,7 @@ mod exec_unit_tests {
 }
 
 /// TASK-0450 / ERR-1: a non-UTF-8 env value referenced via `${VAR}` in argv
-/// or cwd must surface as a StepFailed with a user-visible message instead
+/// or cwd must surface as a `StepFailed` with a user-visible message instead
 /// of silently flowing the literal `${VAR}` into the spawned command.
 #[cfg(unix)]
 #[tokio::test]

@@ -3,6 +3,7 @@
 
 const SNIFF_LEN: usize = 8 * 1024;
 
+#[must_use]
 pub fn is_probably_binary(bytes: &[u8]) -> bool {
     let head = if bytes.len() > SNIFF_LEN {
         &bytes[..SNIFF_LEN]

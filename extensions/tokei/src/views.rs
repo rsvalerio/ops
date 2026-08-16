@@ -9,6 +9,10 @@
 use ops_duckdb::sql::{SqlError, TableName};
 use std::path::Path;
 
+/// # Errors
+///
+/// [`SqlError`] if `path` fails path validation; the table name is a valid
+/// static identifier.
 pub fn tokei_files_create_sql(path: &Path) -> Result<String, SqlError> {
     ops_duckdb::sql::create_table_from_json_sql("tokei_files", path, None)
 }
@@ -20,6 +24,7 @@ pub fn tokei_files_create_sql(path: &Path) -> Result<String, SqlError> {
 /// `from_static` would fire at build time on a typo, eliminating the
 /// pre-prod `Result<_, SqlError>` whose `Err` variant could never occur
 /// and the `expect("static idents must validate")` calls in tests.
+#[must_use]
 pub fn tokei_languages_view_sql() -> String {
     let view = TableName::from_static("tokei_languages").quoted();
     let table = TableName::from_static("tokei_files").quoted();

@@ -351,8 +351,8 @@ mod log_step_results_tests {
 
     /// Previously asserted only that the function didn't panic. Capture
     /// the tracing debug events so a mutation that dropped or swapped any
-    /// of the per-step fields (id, success, duration_ms, stdout_len,
-    /// stderr_len) is caught.
+    /// of the per-step fields (id, success, `duration_ms`, `stdout_len`,
+    /// `stderr_len`) is caught.
     #[test]
     fn log_step_results_emits_one_debug_event_per_step_with_fields() {
         let results = vec![
@@ -646,7 +646,7 @@ mod run_command_dry_run_tests {
         );
     }
 
-    /// A non-UTF-8 cwd PathBuf is rendered through a
+    /// A non-UTF-8 cwd `PathBuf` is rendered through a
     /// lossy conversion in the dry-run preview. Annotate explicitly so the
     /// user can tell the printed path is approximate, not byte-exact.
     #[cfg(unix)]
@@ -671,7 +671,7 @@ mod run_command_dry_run_tests {
         );
     }
 
-    /// print_exec_spec routes program / args / env
+    /// `print_exec_spec` routes program / args / env
     /// values / cwd through `sanitise_line` so an adversarial `.ops.toml`
     /// (or `${VAR}` expansion) carrying ANSI clear-screen / cursor-move
     /// bytes cannot repaint the operator's terminal during dry-run.

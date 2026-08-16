@@ -1,4 +1,4 @@
-//! DuckDb connection wrapper and path resolution.
+//! `DuckDb` connection wrapper and path resolution.
 
 use crate::error::{DbError, DbResult};
 use ops_core::config::DataConfig;
@@ -17,11 +17,11 @@ fn mint_db_id() -> u64 {
     COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Thread-safe DuckDB connection wrapper.
+/// Thread-safe `DuckDB` connection wrapper.
 ///
 /// # Concurrency Design (EFF-001)
 ///
-/// Uses `Mutex<Connection>` which serializes all database operations. DuckDB itself
+/// Uses `Mutex<Connection>` which serializes all database operations. `DuckDB` itself
 /// supports concurrent reads, but the Rust `duckdb` crate's `Connection` type is not
 /// thread-safe for concurrent use. This design choice:
 ///
@@ -39,7 +39,7 @@ pub struct DuckDb {
     #[allow(dead_code)]
     db_path: PathBuf,
     /// ARCH-9 / TASK-1155: stable per-instance identity used by callers
-    /// that key process-local caches by DuckDb identity. The previous
+    /// that key process-local caches by `DuckDb` identity. The previous
     /// pattern (`std::ptr::from_ref(db) as usize`) was vulnerable to
     /// pointer-address ABA — a dropped-and-replaced `DuckDb` could
     /// re-allocate at the same address and silently return a previous
@@ -66,6 +66,11 @@ pub struct DuckDb {
 #[allow(dead_code)]
 impl DuckDb {
     /// Open (or create) a database at the given path, read-write.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Io`] if the parent directory cannot be created, or
+    /// [`DbError::DuckDb`] if the database cannot be opened.
     pub fn open(path: &Path) -> DbResult<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(DbError::Io)?;
@@ -91,6 +96,11 @@ impl DuckDb {
     /// `open` is intentional and the resulting `DuckDb`-level error
     /// (rather than a more friendly mkdir error) is the price of that
     /// honesty.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::DuckDb`] if the read-only access mode cannot be configured or
+    /// the database cannot be opened.
     pub fn open_readonly(path: &Path) -> DbResult<Self> {
         let path = path.to_path_buf();
         let conn = duckdb::Connection::open_with_flags(
@@ -109,6 +119,10 @@ impl DuckDb {
     }
 
     /// Open an in-memory database (for tests).
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::DuckDb`] if the in-memory database cannot be opened.
     pub fn open_in_memory() -> DbResult<Self> {
         let conn = duckdb::Connection::open_in_memory().map_err(DbError::DuckDb)?;
         Ok(Self {
@@ -120,7 +134,7 @@ impl DuckDb {
     }
 
     /// ARCH-9 / TASK-1155: stable per-instance identity for keying
-    /// process-local caches by DuckDb identity. Distinct instances always
+    /// process-local caches by `DuckDb` identity. Distinct instances always
     /// receive distinct ids regardless of allocation reuse, eliminating
     /// the ABA hazard the prior pointer-address scheme had.
     pub fn id(&self) -> u64 {
@@ -133,6 +147,11 @@ impl DuckDb {
     }
 
     /// Lock the connection for exclusive use.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::MutexPoisoned`] if another thread panicked while holding the
+    /// connection lock.
     pub fn lock(&self) -> DbResult<std::sync::MutexGuard<'_, duckdb::Connection>> {
         // Intentionally no logging here: callers know the query/operation
         // context and are responsible for either propagating or logging
@@ -148,7 +167,7 @@ impl DuckDb {
     /// `into_inner` so a panic inside one ingestor's `collect`/`load` does
     /// not permanently brick every other ingest. The connection lock at
     /// `Self::lock` continues to surface poisoning as
-    /// [`DbError::MutexPoisoned`] because a poisoned DuckDB connection
+    /// [`DbError::MutexPoisoned`] because a poisoned `DuckDB` connection
     /// reflects partially applied state we cannot trust to keep using; a
     /// poisoned per-table coordination mutex only guards a `()`, so
     /// recovering is safe and avoids the documented denial-of-service.
@@ -178,8 +197,9 @@ impl DuckDb {
     }
 
     /// Resolve the DB path from config and workspace root.
-    /// If config.data.path is set, resolve it (absolute or relative to workspace_root).
-    /// Otherwise default to workspace_root/target/ops/data.duckdb.
+    /// If config.data.path is set, resolve it (absolute or relative to `workspace_root`).
+    /// Otherwise default to `workspace_root/target/ops/data.duckdb`.
+    #[must_use]
     pub fn resolve_path(config: &DataConfig, workspace_root: &Path) -> PathBuf {
         match &config.path {
             None => workspace_root
@@ -229,7 +249,7 @@ mod tests {
         assert_eq!(path, PathBuf::from("/absolute/shared.duckdb"));
     }
 
-    /// TQ-004: Test DuckDb error path handling.
+    /// TQ-004: Test `DuckDb` error path handling.
     mod error_path_tests {
         use super::*;
 

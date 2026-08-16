@@ -1,5 +1,5 @@
 //! Events emitted during command execution for plain-text (theme) output,
-//! plus the [`PlanLifecycle`] bookend that emits PlanStarted / RunFinished
+//! plus the [`PlanLifecycle`] bookend that emits `PlanStarted` / `RunFinished`
 //! around every plan run.
 
 use ops_core::config::CommandId;
@@ -28,6 +28,7 @@ pub struct OutputLine {
 
 impl OutputLine {
     /// Build an `OutputLine` over the entire `Arc<str>` buffer.
+    #[must_use]
     pub fn whole(buf: Arc<str>) -> Self {
         let len = buf.len();
         Self { buf, range: 0..len }
@@ -38,6 +39,7 @@ impl OutputLine {
     /// Caller is responsible for `range` being a valid byte slice that lands
     /// on UTF-8 boundaries (the normal case when `range` came from
     /// `str::lines` / split-on-newline byte indexing).
+    #[must_use]
     pub fn slice(buf: Arc<str>, range: Range<usize>) -> Self {
         debug_assert!(range.end <= buf.len());
         debug_assert!(buf.is_char_boundary(range.start));
@@ -46,6 +48,7 @@ impl OutputLine {
     }
 
     /// Visible bytes of this line.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.buf[self.range.clone()]
     }
@@ -106,7 +109,7 @@ impl From<String> for OutputLine {
     }
 }
 
-/// Tracks the lifecycle of a plan execution (PlanStarted → RunFinished bookends).
+/// Tracks the lifecycle of a plan execution (`PlanStarted` → `RunFinished` bookends).
 pub(crate) struct PlanLifecycle {
     start: Instant,
 }
@@ -138,7 +141,7 @@ impl PlanLifecycle {
 /// Events emitted during command execution for plain-text (theme) output.
 ///
 /// API-9 / TASK-0455: marked `#[non_exhaustive]` so adding new variants
-/// (e.g. `StepOutputDropped` from TASK-0457) is not a SemVer break for
+/// (e.g. `StepOutputDropped` from TASK-0457) is not a `SemVer` break for
 /// downstream matchers in display / CLI / extensions. Cross-crate `match`
 /// sites must include a wildcard arm.
 #[derive(Debug, Clone, Serialize)]

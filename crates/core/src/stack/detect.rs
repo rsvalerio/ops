@@ -51,7 +51,7 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
 /// Test seam (PERF-3 / TASK-1410 AC#3): returns `true` once `start` has
 /// been resolved and cached by [`canonicalize_cached`]. The previous
 /// counter-based seam was racy under parallel tests; querying the cache
-/// directly is per-path and unaffected by other tests' detect() calls.
+/// directly is per-path and unaffected by other tests' `detect()` calls.
 #[cfg(test)]
 pub(super) fn canonicalize_cache_contains(start: &Path) -> bool {
     CANONICALIZE_CACHE

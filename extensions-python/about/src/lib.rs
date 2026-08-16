@@ -303,13 +303,13 @@ fn extract_urls(
 /// pass the canonical kebab/space form for each variant — "home-page" and
 /// "home page" normalise identically, so passing both is dead weight.
 /// PERF-3 / TASK-0991: shared normalisation pass — once per About call,
-/// rather than once per pick_url candidate-set.
+/// rather than once per `pick_url` candidate-set.
 ///
 /// PATTERN-1 / TASK-1110: PEP 621 places no constraints on key casing or
 /// punctuation. Two source keys can collapse under `normalize_url_key` —
 /// e.g. `"Homepage"` and `"home page"`, or `"Source-Code"` and
-/// `"source code"`. A naive `.collect()` into a HashMap would silently
-/// keep an arbitrary winner (last-write-wins by BTreeMap iteration order)
+/// `"source code"`. A naive `.collect()` into a `HashMap` would silently
+/// keep an arbitrary winner (last-write-wins by `BTreeMap` iteration order)
 /// and discard the other URL with no diagnostic. Walk the map explicitly,
 /// keep the first-seen entry, and emit a `tracing::warn!` naming both
 /// raw keys and both URLs so the operator sees the schema drift instead

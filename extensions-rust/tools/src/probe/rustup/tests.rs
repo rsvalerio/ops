@@ -123,7 +123,7 @@ fn parse_active_toolchain_rejects_no_active_toolchain_message_returns_none() {
 }
 
 /// ERR-1 / TASK-1619 AC#3: probe-failed branch (rustup didn't answer at
-/// all — timeout, spawn IO, etc.) maps to ProbeFailed, distinct from
+/// all — timeout, spawn IO, etc.) maps to `ProbeFailed`, distinct from
 /// "answered but no toolchain configured".
 #[test]
 fn classify_active_toolchain_probe_failed_branch() {
@@ -134,7 +134,7 @@ fn classify_active_toolchain_probe_failed_branch() {
 }
 
 /// ERR-1 / TASK-1619 AC#3: rustup answered with a non-zero exit status —
-/// treated as ProbeFailed (the answer is not trustworthy), distinct from
+/// treated as `ProbeFailed` (the answer is not trustworthy), distinct from
 /// the "no active toolchain configured" case.
 #[test]
 fn classify_active_toolchain_non_zero_exit_is_probe_failed() {

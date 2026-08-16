@@ -107,7 +107,7 @@ pub(crate) fn validate_command_name(name: &str) -> anyhow::Result<()> {
 /// the entire derived clap command tree on every `validate_command_name`
 /// call — including from `inquire::Text::with_validator`, which fires on
 /// every keystroke at the `new-command` prompt. Aligned with the
-/// `theme_cmd::BUILTIN_THEME_NAMES` OnceLock idiom in the same crate.
+/// `theme_cmd::BUILTIN_THEME_NAMES` `OnceLock` idiom in the same crate.
 static BUILTIN_SUBCOMMAND_NAMES: OnceLock<HashSet<String>> = OnceLock::new();
 
 /// Names of every clap-registered built-in subcommand on

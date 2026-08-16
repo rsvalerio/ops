@@ -10,10 +10,15 @@ use std::path::Path;
 /// [`ExtraOpts`] (validated at construction) for additional
 /// `read_json_auto` parameters (e.g. `"maximum_object_size=67108864"`).
 ///
-/// SEC-12 / TASK-1623: the extra_opts argument is typed as `Option<ExtraOpts>`
+/// SEC-12 / TASK-1623: the `extra_opts` argument is typed as `Option<ExtraOpts>`
 /// rather than `Option<&str>` so the validation contract (`validate_extra_opts`)
 /// is encoded in the type system. Any future dynamic caller must route
 /// through [`ExtraOpts::new`] and cannot bypass the allowlist.
+///
+/// # Errors
+///
+/// [`SqlError`] if `table_name` is not a valid identifier, `path` fails
+/// path validation, or `extra_opts` is malformed.
 pub fn create_table_from_json_sql(
     table_name: &str,
     path: &Path,
@@ -38,7 +43,7 @@ pub fn create_table_from_json_sql(
 
 /// Check if a table or view exists in the database.
 ///
-/// `information_schema.tables` does **not** list views in DuckDB; we union
+/// `information_schema.tables` does **not** list views in `DuckDB`; we union
 /// with `information_schema.views` so that view-backed data sources (e.g.
 /// `crate_dependencies`) are detected (READ-5).
 pub(crate) fn table_exists(
@@ -62,6 +67,11 @@ pub(crate) fn table_exists(
 }
 
 /// Check if a table exists and has at least one row.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, `table_name` is not a valid
+/// identifier, or the count query fails. A missing table is `Ok(false)`.
 pub fn table_has_data(db: &DuckDb, table_name: &str) -> Result<bool, anyhow::Error> {
     use anyhow::Context;
 
@@ -82,7 +92,12 @@ pub fn table_has_data(db: &DuckDb, table_name: &str) -> Result<bool, anyhow::Err
     Ok(row_count > 0)
 }
 
-/// DUP-031: Generic helper to query rows from DuckDB and return as a JSON array.
+/// DUP-031: Generic helper to query rows from `DuckDB` and return as a JSON array.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, `sql` fails to prepare or execute, or
+/// `row_mapper` fails on any row.
 pub fn query_rows_to_json<F>(
     db: &DuckDb,
     sql: &str,

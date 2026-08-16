@@ -1,12 +1,12 @@
-//! Extension framework macros: impl_extension!, data_field!, test_datasource_extension!.
+//! Extension framework macros: `impl_extension`!, `data_field`!, `test_datasource_extension`!.
 
 /// Macro to reduce boilerplate when implementing the Extension trait.
 ///
 /// DUP-002: Single variant with optional `command_names` arm.
 ///
 /// Generates the simple accessor methods (name, description, shortname, types,
-/// data_provider_name) from the provided constants, and accepts custom blocks
-/// for register_commands and register_data_providers.
+/// `data_provider_name`) from the provided constants, and accepts custom blocks
+/// for `register_commands` and `register_data_providers`.
 ///
 /// # Example
 ///

@@ -1,4 +1,4 @@
-//! Tests for cargo_toml extension.
+//! Tests for `cargo_toml` extension.
 
 use super::*;
 

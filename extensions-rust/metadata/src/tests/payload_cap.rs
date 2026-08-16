@@ -32,7 +32,7 @@ fn query_metadata_raw_errors_on_multiple_rows() {
 }
 
 /// ERR-1 / TASK-0599: companion to the multi-row test — single-row
-/// metadata_raw flows through unchanged.
+/// `metadata_raw` flows through unchanged.
 #[test]
 fn query_metadata_raw_succeeds_on_single_row() {
     let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory");

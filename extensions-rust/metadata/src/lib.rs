@@ -1,5 +1,5 @@
 //! Metadata extension: runs `cargo metadata` and provides workspace info as JSON.
-//! DuckDB is the single source of truth - metadata is loaded into metadata_raw table.
+//! `DuckDB` is the single source of truth - metadata is loaded into `metadata_raw` table.
 
 #![cfg_attr(
     test,
@@ -41,7 +41,7 @@ pub(crate) const CARGO_METADATA_TIMEOUT: Duration = Duration::from_secs(120);
 /// `metadata_raw`. `query_metadata_raw` materialises the row as a
 /// `String` (via `to_json(m)::VARCHAR`) and then parses it into a
 /// `serde_json::Value`, which keeps two full copies live during the
-/// round-trip in addition to the DuckDB columnar buffer. A pathologically
+/// round-trip in addition to the `DuckDB` columnar buffer. A pathologically
 /// large workspace (10+ MiB cargo-metadata output is possible) could OOM
 /// the `ops about` process at this step. Cap the payload at 64 MiB by
 /// default — well above realistic workspace sizes — and fail with a

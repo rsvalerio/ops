@@ -82,6 +82,7 @@ pub enum DataProviderError {
 }
 
 impl DataProviderError {
+    #[must_use]
     pub fn not_found(name: &str) -> Self {
         Self::NotFound(name.to_string())
     }

@@ -1,4 +1,4 @@
-//! Query functions for extracting project and crate-level metrics from DuckDB.
+//! Query functions for extracting project and crate-level metrics from `DuckDB`.
 //!
 //! Split by query family for cohesion:
 //! - [`helpers`] — shared scaffolding (locking, `CrateCoverage`, per-crate builders)

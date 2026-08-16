@@ -1,4 +1,4 @@
-//! TQ-GAP-005: Tests for CommandRunner::query_data().
+//! TQ-GAP-005: Tests for `CommandRunner::query_data()`.
 
 use super::*;
 use ops_extension::{Context, DataProvider, DataProviderError, DataRegistry};
@@ -162,8 +162,8 @@ fn query_data_shares_inner_cache_across_outer_calls() {
     );
 }
 
-/// ARCH-9 / TASK-1128: register P1 -> query_data("x") -> register P2 with a
-/// different impl of "x" -> query_data("x") must return P2's value, not the
+/// ARCH-9 / TASK-1128: register P1 -> `query_data("x`") -> register P2 with a
+/// different impl of "x" -> `query_data("x`") must return P2's value, not the
 /// cached value produced by P1. Prior to TASK-1128 the runner replaced the
 /// `DataRegistry` but left `data_context.data_cache` populated, so the
 /// second call returned P1's stale `Arc<serde_json::Value>`.
@@ -199,7 +199,7 @@ fn re_registering_providers_invalidates_cache() {
 }
 
 /// PERF-3 / TASK-0890: capture the cwd `Arc<PathBuf>` inside a provider
-/// and assert its strong_count climbs above 1 — proof that `query_data`
+/// and assert its `strong_count` climbs above 1 — proof that `query_data`
 /// hands out shared `Arc::clone`s instead of deep-cloning the inner path.
 #[test]
 fn query_data_shares_cwd_arc_with_provider() {

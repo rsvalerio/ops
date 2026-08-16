@@ -51,6 +51,12 @@ pub enum SqlError {
 /// Used for table names and other identifiers that must be interpolated into SQL.
 /// All current call sites pass `&'static str` literals, but this provides
 /// defense-in-depth against future misuse.
+///
+/// # Errors
+///
+/// [`SqlError::InvalidIdentifier`] if `name` is empty, starts with anything
+/// other than an ASCII letter or `_`, or contains a character outside
+/// `[A-Za-z0-9_]`.
 pub fn validate_identifier(name: &str) -> Result<(), SqlError> {
     let mut chars = name.chars();
     let Some(first) = chars.next() else {
@@ -141,6 +147,10 @@ const fn is_valid_identifier_const(s: &str) -> bool {
 /// Use this helper at every site that interpolates a table or column name into
 /// a SQL string — it guarantees the identifier is validated before quoting,
 /// closing off forgotten-validation regressions.
+///
+/// # Errors
+///
+/// [`SqlError::InvalidIdentifier`] if `name` fails [`validate_identifier`].
 pub fn quoted_ident(name: &str) -> Result<String, SqlError> {
     validate_identifier(name)?;
     Ok(format!("\"{name}\""))
@@ -163,6 +173,13 @@ pub fn quoted_ident(name: &str) -> Result<String, SqlError> {
 /// future dynamic caller — without them an allowlist-conformant
 /// multi-megabyte input would pass char-by-char validation and reach the
 /// SQL builder unbounded.
+///
+/// # Errors
+///
+/// [`SqlError::InvalidExtraOpts`] if `opts` is empty, exceeds
+/// [`EXTRA_OPTS_MAX_BYTES`], declares more than [`EXTRA_OPTS_MAX_PAIRS`]
+/// pairs, or contains a pair that is not `key=value` with an identifier key
+/// and an alphanumeric value.
 pub fn validate_extra_opts(opts: &str) -> Result<(), SqlError> {
     if opts.is_empty() {
         return Err(SqlError::InvalidExtraOpts(opts.to_string()));
@@ -209,7 +226,11 @@ pub fn validate_extra_opts(opts: &str) -> Result<(), SqlError> {
 pub struct ExtraOpts<'a>(&'a str);
 
 impl<'a> ExtraOpts<'a> {
-    /// Construct from a validated extra_opts fragment.
+    /// Construct from a validated `extra_opts` fragment.
+    ///
+    /// # Errors
+    ///
+    /// [`SqlError::InvalidExtraOpts`] if `opts` fails [`validate_extra_opts`].
     pub fn new(opts: &'a str) -> Result<Self, SqlError> {
         validate_extra_opts(opts)?;
         Ok(Self(opts))
@@ -230,18 +251,18 @@ pub const EXTRA_OPTS_MAX_BYTES: usize = 4 * 1024;
 
 /// SEC-33 / TASK-1241: hard upper bound on the number of comma-separated
 /// `key=value` pairs in an `extra_opts` fragment. Sized to comfortably
-/// admit every option DuckDB's `read_json_auto` recognises today while
+/// admit every option `DuckDB`'s `read_json_auto` recognises today while
 /// still bounding resource exposure on the interpolated surface.
 pub const EXTRA_OPTS_MAX_PAIRS: usize = 32;
 
 /// Escape a string for safe interpolation into a SQL-standard single-quoted
 /// literal.
 ///
-/// SEC-12 (TASK-0729): backslashes are passed through unchanged. DuckDB
+/// SEC-12 (TASK-0729): backslashes are passed through unchanged. `DuckDB`
 /// SQL literals use SQL-standard semantics by default (no `E'…'` prefix);
 /// only `'` requires escaping (as `''`). The previous behaviour doubled
 /// every `\` to `\\`, which on Windows turned `C:\Users\file.json` into
-/// `C:\\Users\\file.json` — a path DuckDB could not open. NULs are still
+/// `C:\\Users\\file.json` — a path `DuckDB` could not open. NULs are still
 /// neutralised here (callers go through `sanitize_path_for_sql` first, so
 /// no NUL should normally reach this function, but the guard preserves
 /// the previous defense in depth).
@@ -274,6 +295,13 @@ pub fn sanitize_path_for_sql(path: &str) -> String {
 /// path support is ever a real requirement, document the allowed scripts
 /// explicitly and reject mixed-script identifiers; the current set
 /// (`extensions/*`, project / language / file names) is ASCII by policy.
+///
+/// # Errors
+///
+/// [`SqlError::EmptyPath`] if `path` is empty, or
+/// [`SqlError::InvalidPathChars`] if it contains a character outside the
+/// safe set (ASCII alphanumerics, `-`, `_`, `/`, `.`, and the platform
+/// separator).
 pub fn validate_path_chars(path: &str) -> Result<(), SqlError> {
     // READ-5 (TASK-0528): reject empty paths up front. The character-by-
     // character loop below trivially returns Ok for "", which let
@@ -306,6 +334,9 @@ pub fn validate_path_chars(path: &str) -> Result<(), SqlError> {
     Ok(())
 }
 
+/// # Errors
+///
+/// [`SqlError::PathTraversalNotAllowed`] if any component of `path` is `..`.
 pub fn validate_no_traversal(path: &Path) -> Result<(), SqlError> {
     for component in path.components() {
         if matches!(component, std::path::Component::ParentDir) {
@@ -320,6 +351,13 @@ pub fn validate_no_traversal(path: &Path) -> Result<(), SqlError> {
 /// Non-UTF-8 paths are rejected up front (SEC-14) — the previous lossy
 /// conversion silently replaced invalid bytes with `U+FFFD`, undermining
 /// defense-in-depth.
+///
+/// # Errors
+///
+/// [`SqlError::PathTraversalNotAllowed`] if `path` contains `..`,
+/// [`SqlError::InvalidUtf8Path`] if it is not valid UTF-8 (SEC-14: rejected
+/// rather than lossily converted), or [`SqlError::EmptyPath`] /
+/// [`SqlError::InvalidPathChars`] from [`validate_path_chars`].
 pub fn prepare_path_for_sql(path: &Path) -> Result<String, SqlError> {
     validate_no_traversal(path)?;
     let path_str = path
@@ -345,9 +383,9 @@ mod tests {
         assert_eq!(escape_sql_string("it's"), "it''s");
     }
 
-    /// SEC-12 (TASK-0729): DuckDB SQL literals are SQL-standard (no E''
+    /// SEC-12 (TASK-0729): `DuckDB` SQL literals are SQL-standard (no E''
     /// prefix), so backslashes must pass through unchanged. Doubling them
-    /// previously corrupted Windows paths interpolated into DuckDB SQL.
+    /// previously corrupted Windows paths interpolated into `DuckDB` SQL.
     #[test]
     fn escape_sql_string_backslash_is_preserved() {
         assert_eq!(escape_sql_string(r"path\to\file"), r"path\to\file");

@@ -71,6 +71,11 @@ const TIMEOUT_ENV_VAR: &str = "OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS";
 const MAX_GIT_TIMEOUT_SECS: u64 = 300;
 
 /// Returns `true` if there are any staged files in the git index.
+///
+/// # Errors
+///
+/// If the current directory cannot be read, or the `git` probe fails or
+/// times out; see [`has_staged_files_with_timeout`].
 pub fn has_staged_files() -> anyhow::Result<bool> {
     use anyhow::Context;
     let cwd = std::env::current_dir().context("failed to read current directory")?;

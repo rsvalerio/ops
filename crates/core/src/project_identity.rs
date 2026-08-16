@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// stack-native manifest fields to this struct. See `docs/components.md` §10
 /// for the full field reference per stack.
 ///
-/// Fields like `loc` and `file_count` come from tokei (via DuckDB) and are
+/// Fields like `loc` and `file_count` come from tokei (via `DuckDB`) and are
 /// enriched by the generic about command when the provider doesn't set them.
 // Downstream extensions cannot use struct-literal or `..Default::default()`
 // syntax once this type is `#[non_exhaustive]`; call [`ProjectIdentity::new`]
@@ -49,9 +49,9 @@ pub struct ProjectIdentity {
     pub module_count: Option<usize>,
     /// Stack-native label for modules: "crates", "packages", "modules", etc.
     pub module_label: String,
-    /// Total lines of code (from tokei via DuckDB).
+    /// Total lines of code (from tokei via `DuckDB`).
     pub loc: Option<i64>,
-    /// Total source file count (from tokei via DuckDB).
+    /// Total source file count (from tokei via `DuckDB`).
     pub file_count: Option<i64>,
     /// Author list. Rust: `[package].authors`, Node: `author` + `contributors`.
     pub authors: Vec<String>,
@@ -302,7 +302,7 @@ pub struct AboutFieldDef {
     pub id: &'static str,
     /// Human-readable label for interactive prompts.
     pub label: &'static str,
-    /// Short description shown in the MultiSelect prompt.
+    /// Short description shown in the `MultiSelect` prompt.
     pub description: &'static str,
 }
 
@@ -347,6 +347,7 @@ pub const BASE_ABOUT_FIELDS: &[AboutFieldDef] = &[
 ];
 
 /// Convert [`BASE_ABOUT_FIELDS`] into a `Vec<AboutFieldDef>`.
+#[must_use]
 pub fn base_about_fields() -> Vec<AboutFieldDef> {
     BASE_ABOUT_FIELDS.to_vec()
 }

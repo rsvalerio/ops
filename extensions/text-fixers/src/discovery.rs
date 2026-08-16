@@ -31,6 +31,10 @@ const SKIP_DIRS: &[&str] = &[
     ".terraform",
 ];
 
+/// # Errors
+///
+/// If the filesystem walk fails. A failing `git ls-files` under
+/// `tracked_only` is not an error — it falls back to the full walk.
 pub fn discover(root: &Path, tracked_only: bool) -> std::io::Result<Vec<PathBuf>> {
     if tracked_only {
         if let Some(paths) = tracked_files(root) {

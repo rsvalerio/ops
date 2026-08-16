@@ -1,17 +1,17 @@
-//! Shared SQL utilities for DuckDB extensions.
+//! Shared SQL utilities for `DuckDB` extensions.
 //!
 //! # Security (SEC-001)
 //!
-//! This module constructs SQL queries with string interpolation for DuckDB's
-//! `read_json_auto()` function. While parameterized queries are preferred, DuckDB
+//! This module constructs SQL queries with string interpolation for `DuckDB`'s
+//! `read_json_auto()` function. While parameterized queries are preferred, `DuckDB`
 //! requires a string literal for file paths in this context.
 //!
 //! We employ **defense-in-depth** validation to prevent SQL injection:
 //!
-//! 1. **validate_no_traversal()**: Blocks `..` path components
-//! 2. **validate_path_chars()**: Rejects dangerous characters (`;`, `$`, backticks)
-//! 3. **sanitize_path_for_sql()**: Removes null bytes
-//! 4. **escape_sql_string()**: Escapes quotes and backslashes
+//! 1. **`validate_no_traversal()`**: Blocks `..` path components
+//! 2. **`validate_path_chars()`**: Rejects dangerous characters (`;`, `$`, backticks)
+//! 3. **`sanitize_path_for_sql()`**: Removes null bytes
+//! 4. **`escape_sql_string()`**: Escapes quotes and backslashes
 //!
 //! These layers ensure that even if one check fails, others provide protection.
 //! The path is validated before any SQL is constructed.
@@ -31,7 +31,7 @@ pub mod validation;
 ///
 /// ERR-7 / TASK-0855 — severity routing:
 /// - [`DbError::MutexPoisoned`] and [`DbError::Timeout`] log at `error!`
-///   level. A poisoned DuckDB connection reflects partially-applied state
+///   level. A poisoned `DuckDB` connection reflects partially-applied state
 ///   the connection module explicitly chose not to trust (see
 ///   `connection.rs`'s rationale); a query timeout signals a real
 ///   concurrency / liveness problem rather than a transient miss. Both
@@ -42,7 +42,7 @@ pub mod validation;
 ///
 /// The function still returns `fallback` in every error case — escalating
 /// to error-log severity is about visibility, not propagation. A future
-/// refactor could surface MutexPoisoned to the caller via `Result`.
+/// refactor could surface `MutexPoisoned` to the caller via `Result`.
 ///
 /// [`DbError::MutexPoisoned`]: crate::error::DbError::MutexPoisoned
 /// [`DbError::Timeout`]: crate::error::DbError::Timeout
@@ -67,7 +67,7 @@ where
 }
 
 /// ERR-7 / TASK-0855: walk the anyhow error chain looking for a
-/// [`DbError`] variant that signals trust-broken state (MutexPoisoned)
+/// [`DbError`] variant that signals trust-broken state (`MutexPoisoned`)
 /// or a liveness failure (Timeout). Returns true → log at `error!` rather
 /// than `warn!`.
 fn is_hard_failure(err: &anyhow::Error) -> bool {
@@ -131,7 +131,7 @@ mod tests {
     }
 
     /// ERR-7 / TASK-0855: detection must walk through anyhow context
-    /// layers — a caller that wrapped DbError::MutexPoisoned with
+    /// layers — a caller that wrapped `DbError::MutexPoisoned` with
     /// `.context("...")` still triggers the hard-failure path.
     #[test]
     fn is_hard_failure_walks_anyhow_context_chain() {
@@ -142,10 +142,10 @@ mod tests {
         assert!(is_hard_failure(&err));
     }
 
-    /// ERR-7 / TASK-0855: query_or_warn still falls back on hard
+    /// ERR-7 / TASK-0855: `query_or_warn` still falls back on hard
     /// failures — the elevation is about log severity, not propagation.
     /// (Verifying the actual log level emitted requires a tracing
-    /// subscriber and is covered indirectly via is_hard_failure above.)
+    /// subscriber and is covered indirectly via `is_hard_failure` above.)
     #[test]
     fn query_or_warn_returns_fallback_on_mutex_poisoned() {
         let v = query_or_warn("test", "fallback used", 42i32, || {

@@ -19,7 +19,7 @@ fn parse_default_config() -> Result<ops_core::config::Config, anyhow::Error> {
 /// config. The previous shape rebuilt the entire `Config` on every
 /// `collect_theme_options` call (twice — once each from `run_theme_list`
 /// and `run_theme_select`) only to compute a `contains_key` boolean.
-/// Aligned with the OnceLock discipline used by
+/// Aligned with the `OnceLock` discipline used by
 /// `crates/core/src/expand.rs::TMPDIR_DISPLAY` and
 /// `crates/core/src/text.rs::MANIFEST_MAX_BYTES`.
 static BUILTIN_THEME_NAMES: OnceLock<HashSet<String>> = OnceLock::new();
@@ -225,7 +225,7 @@ impl std::fmt::Display for ThemeOption {
 /// threads through (`crate::cwd()` → `Stack::resolve(...)`), so running
 /// `ops theme select` from a subdirectory writes the file alongside the
 /// loaded config rather than next to the user's cwd. Mirrors the
-/// `save_about_fields` fix in about_cmd.
+/// `save_about_fields` fix in `about_cmd`.
 fn update_theme_in_config(workspace_root: &Path, theme_name: &str) -> anyhow::Result<()> {
     let config_path = workspace_root.join(".ops.toml");
     config::edit_ops_toml(&config_path, |doc| set_theme(doc, theme_name))
@@ -579,7 +579,7 @@ theme = "compact"
         /// combining marks) align the description column at the same
         /// visual column as ASCII names. Mirrors the
         /// `tools_list_aligns_wide_char_names_by_display_width` test in
-        /// tools_cmd.rs.
+        /// `tools_cmd.rs`.
         #[test]
         fn run_theme_list_aligns_wide_char_names_by_display_width() {
             // Build the config in-process: ThemeConfig has many required

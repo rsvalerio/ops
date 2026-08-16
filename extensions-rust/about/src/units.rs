@@ -2,7 +2,7 @@
 //!
 //! Reads `[workspace].members` from Cargo.toml and per-crate Cargo manifests
 //! for display metadata. LOC/file counts are enriched by the generic
-//! `run_about_units` runner when DuckDB is available.
+//! `run_about_units` runner when `DuckDB` is available.
 
 use ops_about::cards::format_unit_name;
 use ops_cargo_toml::CargoToml;
@@ -168,7 +168,7 @@ impl DataProvider for RustUnitsProvider {
 
 /// Read package name, version, and description from a crate's Cargo.toml.
 ///
-/// Returns an all-`None` [`CrateMetadata`] on read or parse failure. NotFound
+/// Returns an all-`None` [`CrateMetadata`] on read or parse failure. `NotFound`
 /// reads are silent (an absent member manifest is expected during workspace
 /// globbing); other read errors are logged at `debug` and parse errors at
 /// `warn` so a malformed Cargo.toml shows up in logs instead of silently
@@ -417,7 +417,7 @@ mod tests {
     /// cargo when the parent paths differ) must each resolve to a
     /// `ProjectUnit` rather than colliding on the bare `package.name` key
     /// the previous code used. The provider doesn't fail loudly on a
-    /// missing dep_count map (DuckDB is optional in this provider's
+    /// missing `dep_count` map (`DuckDB` is optional in this provider's
     /// contract), so the assertion here is structural — both units appear
     /// with their correct path metadata even when the names duplicate.
     #[test]

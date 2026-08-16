@@ -20,6 +20,11 @@ const CARGO_UPGRADE_TIMEOUT: Duration = Duration::from_secs(180);
 /// available". Surface non-zero exits as an error including the stderr
 /// tail so the deps gate fails loudly. Mirrors the cargo-update fix made
 /// in TASK-0502 and the cargo-deny exit-code handling below.
+///
+/// # Errors
+///
+/// If `cargo upgrade` cannot be spawned, exceeds its timeout, exits
+/// non-zero, or emits a table whose header or row shape is unrecognised.
 pub fn run_cargo_upgrade_dry_run(working_dir: &Path) -> anyhow::Result<Vec<UpgradeEntry>> {
     let output = run_cargo(
         &["upgrade", "--dry-run"],

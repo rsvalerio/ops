@@ -4,6 +4,7 @@ use crate::{DbError, DbResult, DuckDb};
 use std::path::{Path, PathBuf};
 
 /// Compute the ingest data directory from a DB path (appends `.ingest`).
+#[must_use]
 pub fn data_dir_for_db(db_path: &Path) -> PathBuf {
     let mut path = db_path.as_os_str().to_os_string();
     path.push(".ingest");
@@ -54,21 +55,23 @@ pub(super) fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Default DB path for a workspace root (using default DataConfig).
+/// Default DB path for a workspace root (using default `DataConfig`).
+#[must_use]
 pub fn default_db_path(workspace_root: &Path) -> PathBuf {
     DuckDb::resolve_path(&ops_core::config::DataConfig::default(), workspace_root)
 }
 
 /// Default data directory for a workspace root.
 #[allow(dead_code)]
+#[must_use]
 pub fn default_data_dir(workspace_root: &Path) -> PathBuf {
     data_dir_for_db(&default_db_path(workspace_root))
 }
 
 /// Convert a non-IO external error into [`DbError::External`].
 ///
-/// Callers that return `anyhow::Error` (collect_tokei, collect_coverage,
-/// check_metadata_output, etc.) should use this instead of the old `io_err`
+/// Callers that return `anyhow::Error` (`collect_tokei`, `collect_coverage`,
+/// `check_metadata_output`, etc.) should use this instead of the old `io_err`
 /// which misleadingly wrapped them as `DbError::Io`.
 ///
 /// SEC-21 (TASK-0862): Display renders via the alternate `{:#}` flag so
@@ -77,6 +80,7 @@ pub fn default_data_dir(workspace_root: &Path) -> PathBuf {
 /// ERR-2 / TASK-1209: passes the underlying `anyhow::Error` through as
 /// `#[source]` instead of flattening it via `format!`, so consumers walking
 /// `Error::source()` recover the cause graph (e.g. typed retry decisions).
+#[must_use]
 pub fn external_err(e: anyhow::Error) -> DbError {
     DbError::External(e)
 }
@@ -85,6 +89,10 @@ pub fn external_err(e: anyhow::Error) -> DbError {
 ///
 /// Streams the file in 64 KiB chunks so multi-megabyte ingests (coverage,
 /// tokei) do not allocate a full file-sized buffer (PERF-1).
+///
+/// # Errors
+///
+/// [`DbError::Io`] if `path` cannot be opened or read.
 pub fn checksum_file(path: &Path) -> DbResult<String> {
     use sha2::{Digest, Sha256};
     use std::io::{BufReader, Read};

@@ -69,12 +69,13 @@ use crate::config::{
     OutputConfig, OutputConfigOverlay,
 };
 
-/// Create an ExecCommandSpec with the given program and args.
+/// Create an `ExecCommandSpec` with the given program and args.
+#[must_use]
 pub fn exec_spec(program: &str, args: &[&str]) -> ExecCommandSpec {
     exec_spec_with_cwd(program, args, None)
 }
 
-/// Create an ExecCommandSpec with an optional cwd.
+/// Create an `ExecCommandSpec` with an optional cwd.
 pub fn exec_spec_with_cwd(
     program: &str,
     args: &[&str],
@@ -88,7 +89,8 @@ pub fn exec_spec_with_cwd(
     }
 }
 
-/// Create an ExecCommandSpec that works on both Unix and Windows.
+/// Create an `ExecCommandSpec` that works on both Unix and Windows.
+#[must_use]
 pub fn platform_exec_spec(unix: (&str, &[&str]), windows: (&str, &[&str])) -> ExecCommandSpec {
     if cfg!(windows) {
         exec_spec(windows.0, windows.1)
@@ -97,22 +99,26 @@ pub fn platform_exec_spec(unix: (&str, &[&str]), windows: (&str, &[&str])) -> Ex
     }
 }
 
-/// Create an ExecCommandSpec that echoes a message.
+/// Create an `ExecCommandSpec` that echoes a message.
+#[must_use]
 pub fn echo_cmd(msg: &str) -> ExecCommandSpec {
     platform_exec_spec(("echo", &[msg]), ("cmd", &["/C", "echo", msg]))
 }
 
-/// Create an ExecCommandSpec that exits with success (true).
+/// Create an `ExecCommandSpec` that exits with success (true).
+#[must_use]
 pub fn true_cmd() -> ExecCommandSpec {
     platform_exec_spec(("true", &[]), ("cmd", &["/C", "exit", "0"]))
 }
 
-/// Create an ExecCommandSpec that exits with failure (false).
+/// Create an `ExecCommandSpec` that exits with failure (false).
+#[must_use]
 pub fn false_cmd() -> ExecCommandSpec {
     platform_exec_spec(("false", &[]), ("cmd", &["/C", "exit", "1"]))
 }
 
-/// Create an ExecCommandSpec that sleeps for the given number of seconds.
+/// Create an `ExecCommandSpec` that sleeps for the given number of seconds.
+#[must_use]
 pub fn sleep_cmd(secs: u64) -> ExecCommandSpec {
     let secs_str = secs.to_string();
     if cfg!(windows) {
@@ -156,7 +162,7 @@ pub fn parallel_cmd(commands: &[&str]) -> CompositeCommandSpec {
 
 /// Builder for creating test configs.
 ///
-/// # DUP-002: Shared Pattern with ConfigOverlayBuilder
+/// # DUP-002: Shared Pattern with `ConfigOverlayBuilder`
 ///
 /// Both `TestConfigBuilder` and `ConfigOverlayBuilder` provide similar fluent APIs
 /// (`exec()`, `composite()`, `theme()`). While a shared trait could reduce duplication,
@@ -176,6 +182,7 @@ pub struct TestConfigBuilder {
 
 #[allow(dead_code)]
 impl TestConfigBuilder {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             output: OutputConfig::default(),
@@ -192,10 +199,11 @@ impl TestConfigBuilder {
         self
     }
 
-    /// DUP-002: Create a CommandSpec::Exec variant directly.
+    /// DUP-002: Create a `CommandSpec::Exec` variant directly.
     ///
-    /// This is useful when you need the CommandSpec variant for tests that
-    /// require the wrapped type rather than the inner ExecCommandSpec.
+    /// This is useful when you need the `CommandSpec` variant for tests that
+    /// require the wrapped type rather than the inner `ExecCommandSpec`.
+    #[must_use]
     pub fn raw_exec(_name: &str, program: &str, args: &[&str]) -> CommandSpec {
         CommandSpec::Exec(exec_spec(program, args))
     }
@@ -248,6 +256,7 @@ impl TestConfigBuilder {
         self
     }
 
+    #[must_use]
     pub fn build(self) -> crate::config::Config {
         crate::config::Config {
             output: self.output,
@@ -268,7 +277,7 @@ impl Default for TestConfigBuilder {
     }
 }
 
-/// DUP-001: Builder for creating ConfigOverlay in tests.
+/// DUP-001: Builder for creating `ConfigOverlay` in tests.
 ///
 /// Reduces boilerplate in config tests by providing a fluent API
 /// for constructing overlays with only the fields needed.
@@ -283,6 +292,7 @@ pub struct ConfigOverlayBuilder {
 
 #[allow(dead_code)]
 impl ConfigOverlayBuilder {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             output: None,
@@ -383,6 +393,7 @@ impl ConfigOverlayBuilder {
         })
     }
 
+    #[must_use]
     pub fn build(self) -> ConfigOverlay {
         ConfigOverlay {
             output: self.output,
@@ -418,6 +429,7 @@ pub fn test_config_with_commands<S: std::hash::BuildHasher>(
 ///
 /// Creates a `std::process::Output` with the given status code and output bytes.
 #[allow(dead_code)]
+#[must_use]
 pub fn make_test_output(status_code: i32, stdout: &[u8], stderr: &[u8]) -> std::process::Output {
     #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
@@ -534,6 +546,7 @@ impl EnvGuard {
 /// be `#[cfg(unix)]`-gated since the underlying chmod assertion is too.
 #[allow(dead_code)]
 #[cfg(unix)]
+#[must_use]
 pub fn is_root_euid() -> bool {
     // Avoid pulling in a libc dep just for one syscall: declare the FFI
     // signature locally. `geteuid` is async-signal-safe and infallible per

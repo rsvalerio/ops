@@ -108,9 +108,9 @@ pub(crate) fn json_bool_with_fallback(
     value.get_bool_or(field, default)
 }
 
-/// CQ-002 / TASK-0477: collect member IDs once into an owned HashSet so that
-/// repeat callers (members/default_members/is_member/is_default_member) do
-/// not pay the per-call HashSet build or O(n) scan.
+/// CQ-002 / TASK-0477: collect member IDs once into an owned `HashSet` so that
+/// repeat callers (`members/default_members/is_member/is_default_member`) do
+/// not pay the per-call `HashSet` build or O(n) scan.
 fn collect_member_ids_owned(metadata: &serde_json::Value, field: &str) -> HashSet<String> {
     metadata.array_str_iter(field).map(str::to_string).collect()
 }
@@ -126,12 +126,12 @@ fn collect_member_ids_owned(metadata: &serde_json::Value, field: &str) -> HashSe
 /// **Cache lifetime (PATTERN-1 / TASK-0603):** `member_ids` and
 /// `default_member_ids` live on this wrapper, not behind the `Arc`. Each call
 /// to [`Metadata::from_context`] / [`Metadata::from_value`] returns a fresh
-/// wrapper with empty `OnceLock`s. The HashSet build (one pass over
+/// wrapper with empty `OnceLock`s. The `HashSet` build (one pass over
 /// `workspace_members`) is therefore amortized within a single `Metadata`
 /// instance — callers that hit `members` / `is_member` / `default_members` /
 /// `is_default_member` repeatedly should hold the same `Metadata` value
 /// across those calls. Building a new wrapper per call still avoids the deep
-/// JSON clone (the dominant cost) but pays the HashSet build once. Moving
+/// JSON clone (the dominant cost) but pays the `HashSet` build once. Moving
 /// the caches behind the `Arc` would shrink that further but requires
 /// interior-mutability gymnastics that the current call sites don't justify.
 /// READ-5 / TASK-1548: lazy caches enumerated once in a small substruct so
@@ -188,6 +188,7 @@ impl std::fmt::Debug for Metadata {
 #[allow(dead_code)]
 impl Metadata {
     /// Parse from cargo metadata JSON. Assumes the JSON is valid cargo metadata output.
+    #[must_use]
     pub fn from_value(value: serde_json::Value) -> Self {
         Self {
             inner: Arc::new(value),
@@ -202,6 +203,11 @@ impl Metadata {
     /// rather than `anyhow::Error` so downstream consumers can match on the
     /// failure variant (`NotFound`, `ComputationFailed`, `Serialization`,
     /// `Cycle`) without string-sniffing the chain.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the `"metadata"` provider returns — typically a failing or
+    /// unparseable `cargo metadata` invocation.
     pub fn from_context(
         ctx: &mut Context,
         registry: &DataRegistry,
@@ -377,51 +383,61 @@ pub struct Package<'a> {
 #[allow(dead_code)]
 impl<'a> Package<'a> {
     /// Package name.
+    #[must_use]
     pub fn name(&self) -> &'a str {
         json_str_with_fallback(self.inner, "name", "")
     }
 
     /// Package version string.
+    #[must_use]
     pub fn version(&self) -> &'a str {
         json_str_with_fallback(self.inner, "version", "")
     }
 
-    /// Unique package ID (e.g., "path+file:///path#0.1.0").
+    /// Unique package ID (e.g., "<path+file:///path#0.1.0>").
+    #[must_use]
     pub fn id(&self) -> &'a str {
         json_str_with_fallback(self.inner, "id", "")
     }
 
     /// Rust edition.
+    #[must_use]
     pub fn edition(&self) -> &'a str {
         json_str_with_fallback(self.inner, "edition", "")
     }
 
     /// Absolute path to Cargo.toml.
+    #[must_use]
     pub fn manifest_path(&self) -> &'a str {
         json_str_with_fallback(self.inner, "manifest_path", "")
     }
 
     /// License string if specified.
+    #[must_use]
     pub fn license(&self) -> Option<&'a str> {
         self.inner["license"].as_str()
     }
 
     /// Repository URL if specified.
+    #[must_use]
     pub fn repository(&self) -> Option<&'a str> {
         self.inner["repository"].as_str()
     }
 
     /// Description if specified.
+    #[must_use]
     pub fn description(&self) -> Option<&'a str> {
         self.inner["description"].as_str()
     }
 
     /// True if this package is a workspace member.
+    #[must_use]
     pub fn is_member(&self) -> bool {
         self.metadata.member_ids().contains(self.id())
     }
 
     /// True if this package is a default workspace member.
+    #[must_use]
     pub fn is_default_member(&self) -> bool {
         self.metadata.default_member_ids().contains(self.id())
     }
@@ -509,16 +525,19 @@ pub struct Dependency<'a> {
 #[allow(dead_code)]
 impl<'a> Dependency<'a> {
     /// Dependency name.
+    #[must_use]
     pub fn name(&self) -> &'a str {
         json_str_with_fallback(self.inner, "name", "")
     }
 
     /// Version requirement (e.g., "^1.0", "0.1.0").
+    #[must_use]
     pub fn version_req(&self) -> &'a str {
         json_str_with_fallback(self.inner, "req", "")
     }
 
     /// Dependency kind (normal, dev, or build).
+    #[must_use]
     pub fn kind(&self) -> DependencyKind {
         match self.inner["kind"].as_str() {
             Some("dev") => DependencyKind::Dev,
@@ -528,11 +547,13 @@ impl<'a> Dependency<'a> {
     }
 
     /// Whether this is an optional dependency.
+    #[must_use]
     pub fn is_optional(&self) -> bool {
         json_bool_with_fallback(self.inner, "optional", false)
     }
 
     /// Whether default features are enabled.
+    #[must_use]
     pub fn uses_default_features(&self) -> bool {
         json_bool_with_fallback(self.inner, "uses_default_features", true)
     }
@@ -543,16 +564,19 @@ impl<'a> Dependency<'a> {
     }
 
     /// Renamed name if specified (e.g., `package = "original-name"`).
+    #[must_use]
     pub fn rename(&self) -> Option<&'a str> {
         self.inner["rename"].as_str()
     }
 
     /// Target platform if specified (e.g., "wasm32-unknown-unknown").
+    #[must_use]
     pub fn target(&self) -> Option<&'a str> {
         self.inner["target"].as_str()
     }
 
     /// Source registry or path.
+    #[must_use]
     pub fn source(&self) -> Option<&'a str> {
         self.inner["source"].as_str()
     }
@@ -572,11 +596,13 @@ pub struct Target<'a> {
 #[allow(dead_code)]
 impl<'a> Target<'a> {
     /// Target name.
+    #[must_use]
     pub fn name(&self) -> &'a str {
         json_str_with_fallback(self.inner, "name", "")
     }
 
     /// Source file path.
+    #[must_use]
     pub fn src_path(&self) -> &'a str {
         json_str_with_fallback(self.inner, "src_path", "")
     }
@@ -591,26 +617,31 @@ impl<'a> Target<'a> {
     }
 
     /// True if this is a library target.
+    #[must_use]
     pub fn is_lib(&self) -> bool {
         self.has_kind("lib")
     }
 
     /// True if this is a binary target.
+    #[must_use]
     pub fn is_bin(&self) -> bool {
         self.has_kind("bin")
     }
 
     /// True if this is a test target.
+    #[must_use]
     pub fn is_test(&self) -> bool {
         self.has_kind("test")
     }
 
     /// True if this is an example target.
+    #[must_use]
     pub fn is_example(&self) -> bool {
         self.has_kind("example")
     }
 
     /// True if this is a benchmark target.
+    #[must_use]
     pub fn is_bench(&self) -> bool {
         self.has_kind("bench")
     }
@@ -621,11 +652,13 @@ impl<'a> Target<'a> {
     }
 
     /// Edition override if specified.
+    #[must_use]
     pub fn edition(&self) -> Option<&'a str> {
         self.inner["edition"].as_str()
     }
 
     /// Documentation path if specified.
+    #[must_use]
     pub fn doc_path(&self) -> Option<&'a str> {
         self.inner["doc_path"].as_str()
     }

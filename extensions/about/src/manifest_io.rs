@@ -1,7 +1,7 @@
 //! Shared "read this manifest if it exists" helper for the about extensions.
 //!
 //! ERR-2 (TASK-0622): the per-stack about crates each had a near-identical
-//! `match std::fs::read_to_string` block that downgraded NotFound to silence
+//! `match std::fs::read_to_string` block that downgraded `NotFound` to silence
 //! and other IO errors to `tracing::debug!`. Six copies meant the next
 //! copy/paste would silently drift the policy (TASK-0467 already filed one
 //! such drift in the duckdb providers). This helper centralises the rule
@@ -120,7 +120,7 @@ mod tests {
         assert!(result.is_none());
     }
 
-    /// SEC-33 (TASK-0831): files larger than MAX_MANIFEST_BYTES must not be
+    /// SEC-33 (TASK-0831): files larger than `MAX_MANIFEST_BYTES` must not be
     /// slurped into memory. Use a sentinel-byte content larger than the cap
     /// and assert the helper bails to None.
     #[test]

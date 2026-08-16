@@ -20,7 +20,7 @@ pub fn resolve_stack(config: &Config, workspace_root: &Path) -> Option<Stack> {
     Stack::resolve(config.stack.as_deref(), workspace_root)
 }
 
-/// Returns all compiled-in extensions as (config_name, extension) pairs.
+/// Returns all compiled-in extensions as (`config_name`, extension) pairs.
 /// Does not filter by config or stack — caller decides what to do with disabled extensions.
 ///
 /// Extensions self-register via `impl_extension!` with a `factory:` arm,

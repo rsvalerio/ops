@@ -343,8 +343,8 @@ mod tests {
 
     /// ERR-1 (TASK-0517): an unreadable glob-prefix directory must not
     /// crash; resolution returns empty for that member while other globs
-    /// still resolve normally. The accompanying tracing::warn is exercised
-    /// by the read_dir failure path; pinning the value-level contract here
+    /// still resolve normally. The accompanying `tracing::warn` is exercised
+    /// by the `read_dir` failure path; pinning the value-level contract here
     /// keeps the test free of a tracing-subscriber dev-dep.
     #[cfg(unix)]
     #[test]

@@ -115,7 +115,7 @@ fn load_importable_targets<W: Write>(
     Ok(importable)
 }
 
-/// Run the interactive MultiSelect over the importable targets. Returns
+/// Run the interactive `MultiSelect` over the importable targets. Returns
 /// `None` when the user cancels (Esc / Ctrl-C — the help message advertises
 /// "esc to cancel", so honour it), `Some(chosen)` otherwise (possibly empty
 /// when everything was deselected).

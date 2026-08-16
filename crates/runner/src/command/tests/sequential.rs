@@ -41,7 +41,7 @@ async fn deny_policy_refuses_escaping_cwd_on_hook_path() {
 /// (the default for interactive `ops <cmd>`) the same escaping cwd
 /// must NOT be refused at the policy layer. The spawn may still fail
 /// (no /etc/true binary on most systems) but the failure shape must
-/// not be the SEC-14 PermissionDenied refusal — that is the precise
+/// not be the SEC-14 `PermissionDenied` refusal — that is the precise
 /// behaviour-change-free guarantee the hook split was designed for.
 #[tokio::test]
 async fn warn_policy_does_not_refuse_escaping_cwd_on_interactive_path() {

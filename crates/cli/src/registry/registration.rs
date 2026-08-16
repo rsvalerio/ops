@@ -114,7 +114,7 @@ const DATA_PROVIDER_AUDIT: AuditPolicy = AuditPolicy {
         "extension data provider would shadow an entry already present in the registry; first-write-wins keeps the existing one",
 };
 
-/// Classify one (key, ext_name) against the running `owners` map and
+/// Classify one (key, `ext_name`) against the running `owners` map and
 /// emit the matching warn under the
 /// chosen `policy`. Returns `true` if the caller should actually install
 /// the entry into the shared registry. The four collision cases that
@@ -267,9 +267,9 @@ pub fn register_extension_data_providers(
     }
 }
 
-/// Build a DataRegistry from all enabled extensions in one call.
+/// Build a `DataRegistry` from all enabled extensions in one call.
 ///
-/// Reduces the 4-line boilerplate of builtin_extensions + ext_refs + new registry + register.
+/// Reduces the 4-line boilerplate of `builtin_extensions` + `ext_refs` + new registry + register.
 pub fn build_data_registry(config: &Config, workspace_root: &Path) -> anyhow::Result<DataRegistry> {
     let exts = builtin_extensions(config, workspace_root)?;
     let mut registry = DataRegistry::new();

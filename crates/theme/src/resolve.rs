@@ -19,7 +19,11 @@ pub enum ThemeError {
 
 /// Resolve a theme name to a concrete [`ConfigurableTheme`].
 ///
-/// Looks up the theme in the provided IndexMap (includes built-in themes from default config).
+/// Looks up the theme in the provided `IndexMap` (includes built-in themes from default config).
+///
+/// # Errors
+///
+/// [`ThemeError::NotFound`] if `themes` has no entry named `name`.
 pub fn resolve_theme(
     name: &str,
     themes: &IndexMap<String, ThemeConfig>,
@@ -39,6 +43,10 @@ pub fn resolve_theme(
 /// the caller owns the theme map and does not need to look the entry up
 /// again — `swap_remove` removes the value from the map and hands ownership
 /// to the constructor.
+///
+/// # Errors
+///
+/// [`ThemeError::NotFound`] if `themes` has no entry named `name`.
 pub fn resolve_theme_owned(
     name: &str,
     themes: &mut IndexMap<String, ThemeConfig>,
@@ -51,6 +59,7 @@ pub fn resolve_theme_owned(
 
 /// List all available theme names.
 /// Note: Used by tests and available for programmatic access.
+#[must_use]
 pub fn list_theme_names(themes: &IndexMap<String, ThemeConfig>) -> Vec<String> {
     themes.keys().cloned().collect()
 }

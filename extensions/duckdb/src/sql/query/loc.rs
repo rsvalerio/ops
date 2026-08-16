@@ -13,6 +13,11 @@ use super::helpers::{
 };
 
 /// Query total file count across the whole project from `tokei_files`.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, or the query fails. A missing table
+/// is not an error — it yields `0`.
 pub fn query_project_file_count(db: &DuckDb) -> anyhow::Result<i64> {
     query_project_scalar(
         db,
@@ -26,6 +31,11 @@ pub fn query_project_file_count(db: &DuckDb) -> anyhow::Result<i64> {
 ///
 /// Returns a map of member path -> file count. Members with no matching
 /// files get 0.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, or the query fails. A missing table
+/// is not an error — every member maps to `0`.
 pub fn query_crate_file_count(
     db: &DuckDb,
     member_paths: &[&str],
@@ -42,6 +52,11 @@ pub fn query_crate_file_count(
 }
 
 /// Query total lines of code across the whole project from `tokei_files`.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, or the query fails. A missing table
+/// is not an error — it yields `0`.
 pub fn query_project_loc(db: &DuckDb) -> anyhow::Result<i64> {
     query_project_scalar(
         db,
@@ -61,6 +76,11 @@ pub fn query_project_loc(db: &DuckDb) -> anyhow::Result<i64> {
 /// "omit < 0.1%" contract and made it impossible for callers to
 /// distinguish "no tokei data" from "every language tiny". The empty
 /// return is now the only signal, matching the doc.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, or the query or row decode fails. A
+/// missing `tokei_files` table is not an error — it yields an empty vec.
 pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>> {
     use anyhow::Context;
 
@@ -148,6 +168,11 @@ pub struct RustLocStat {
 ///
 /// Rows come back in the view's own order (code descending); callers that
 /// need a fixed region order sort at the point of display.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, or the query or row decode fails. A
+/// missing `rust_loc_summary` table is not an error — it yields an empty vec.
 pub fn query_rust_loc_summary(db: &DuckDb) -> anyhow::Result<Vec<RustLocStat>> {
     use anyhow::Context;
 
@@ -193,6 +218,11 @@ pub fn query_rust_loc_summary(db: &DuckDb) -> anyhow::Result<Vec<RustLocStat>> {
 ///
 /// Returns 0 when the table is absent, matching
 /// [`query_rust_loc_summary`]'s empty result for the same workspace.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, or the query fails. A missing table
+/// is not an error — it yields `0`.
 pub fn query_rust_loc_file_count(db: &DuckDb) -> anyhow::Result<i64> {
     query_project_scalar(
         db,
@@ -206,6 +236,11 @@ pub fn query_rust_loc_file_count(db: &DuckDb) -> anyhow::Result<i64> {
 ///
 /// Returns a map of member path -> total code lines. Members with no matching
 /// files get 0.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, or the query fails. A missing table
+/// is not an error — every member maps to `0`.
 pub fn query_crate_loc(db: &DuckDb, member_paths: &[&str]) -> anyhow::Result<HashMap<String, i64>> {
     query_per_crate_i64(&PerCrateI64Query {
         db,

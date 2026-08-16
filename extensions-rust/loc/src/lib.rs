@@ -104,6 +104,11 @@ pub(crate) const EXCLUDED_DIRS: &[&str] = &["target", ".git"];
 /// and an unreadable path is not a data-integrity problem for a
 /// display-only statistic. Both failure modes warn, so a silently
 /// short count is always accompanied by a log line.
+///
+/// # Errors
+///
+/// If a discovered source file cannot be read, or the collected records
+/// fail to serialize.
 pub fn collect_rust_loc(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
     let mut records = Vec::new();
 

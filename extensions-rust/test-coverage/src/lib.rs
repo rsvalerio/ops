@@ -1,14 +1,14 @@
 //! Coverage extension: LLVM code coverage via `cargo llvm-cov`.
-//! Collects per-file coverage data and loads into DuckDB.
+//! Collects per-file coverage data and loads into `DuckDB`.
 //!
 //! ARCH-1 / TASK-1559: the previous monolithic `lib.rs` (412 lines) mixed
 //! six concerns. The crate is now split into:
 //!
 //! - [`subprocess`]: cargo argv + run/check helpers + exit formatter.
 //! - [`parse`]: llvm-cov JSON → `CoverageRow` flattening + soft-fail policy.
-//! - [`provider`]: `CoverageProvider` impl + DuckDB readback.
-//! - [`ingestor`]: `CoverageIngestor` (sidecar writer + DuckDB loader).
-//! - [`views`]: DuckDB view DDL.
+//! - [`provider`]: `CoverageProvider` impl + `DuckDB` readback.
+//! - [`ingestor`]: `CoverageIngestor` (sidecar writer + `DuckDB` loader).
+//! - [`views`]: `DuckDB` view DDL.
 //!
 //! `lib.rs` retains only wiring + `load_coverage` (the crate's public ingest
 //! entry point).
@@ -66,7 +66,7 @@ ops_extension::impl_extension! {
     },
 }
 
-/// Ingest coverage sidecar data into DuckDB and return the structured load
+/// Ingest coverage sidecar data into `DuckDB` and return the structured load
 /// report.
 ///
 /// READ-5 (TASK-0808): the previous signature returned `()` and silently
@@ -78,6 +78,11 @@ ops_extension::impl_extension! {
 /// API-5 / TASK-1561: `#[must_use]` carries that contract into the type
 /// system so a future caller writing `let _ = load_coverage(...)` lights
 /// up a lint.
+///
+/// # Errors
+///
+/// If the schema cannot be initialised, or the coverage sidecar in
+/// `data_dir` cannot be read or loaded into the database.
 #[must_use = "load report carries the record_count health signal (TASK-0808)"]
 pub fn load_coverage(data_dir: &Path, db: &DuckDb) -> Result<LoadResult, anyhow::Error> {
     init_schema(db)?;

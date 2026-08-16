@@ -10,6 +10,7 @@ pub enum ToolSpec {
 }
 
 impl ToolSpec {
+    #[must_use]
     pub fn description(&self) -> &str {
         match self {
             ToolSpec::Simple(desc) => desc,
@@ -17,6 +18,7 @@ impl ToolSpec {
         }
     }
 
+    #[must_use]
     pub fn rustup_component(&self) -> Option<&str> {
         match self {
             ToolSpec::Simple(_) => None,
@@ -24,6 +26,7 @@ impl ToolSpec {
         }
     }
 
+    #[must_use]
     pub fn package(&self) -> Option<&str> {
         match self {
             ToolSpec::Simple(_) => None,
@@ -31,6 +34,7 @@ impl ToolSpec {
         }
     }
 
+    #[must_use]
     pub fn source(&self) -> ToolSource {
         match self {
             ToolSpec::Simple(_) => ToolSource::Cargo,

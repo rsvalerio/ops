@@ -38,11 +38,11 @@ impl AboutConfig {
     }
 }
 
-/// Data storage settings (DuckDB path).
+/// Data storage settings (`DuckDB` path).
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DataConfig {
-    /// Optional path override for the DuckDB database.
+    /// Optional path override for the `DuckDB` database.
     /// Absolute paths are used as-is; relative paths resolve from workspace root.
     /// Default (when None): .ops/data.duckdb (stack-dependent)
     pub path: Option<PathBuf>,

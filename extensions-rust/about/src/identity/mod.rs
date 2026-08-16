@@ -1,6 +1,6 @@
 //! Rust-specific `project_identity` data provider.
 //!
-//! Reads Cargo.toml directly and queries DuckDB for LOC stats to build a
+//! Reads Cargo.toml directly and queries `DuckDB` for LOC stats to build a
 //! [`ProjectIdentity`](ops_core::project_identity::ProjectIdentity)
 //! with Rust-specific fields (crates, edition, etc.).
 

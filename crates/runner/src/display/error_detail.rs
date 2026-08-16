@@ -13,10 +13,12 @@ pub struct ErrorDetailRenderer<'a> {
 }
 
 impl<'a> ErrorDetailRenderer<'a> {
+    #[must_use]
     pub fn new(theme: &'a ConfigurableTheme, columns: u16) -> Self {
         Self { theme, columns }
     }
 
+    #[must_use]
     pub fn render(&self, message: &str, stderr_tail: &[String]) -> Vec<String> {
         let detail = ErrorDetail::new(message.to_string(), stderr_tail.to_vec());
         self.theme.render_error_detail(&detail, self.columns)
@@ -27,6 +29,7 @@ impl<'a> ErrorDetailRenderer<'a> {
     /// only ever needs the last `max_lines`, so we stringify the tail once
     /// here (small, bounded by `stderr_tail_lines`, default 5) rather than
     /// shouldering an allocation per stderr line on the hot path.
+    #[must_use]
     pub fn extract_stderr_tail(stderr_lines: &[OutputLine], max_lines: usize) -> Vec<String> {
         tail_lines(stderr_lines, max_lines)
             .iter()

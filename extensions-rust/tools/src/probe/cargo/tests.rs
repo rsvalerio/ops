@@ -52,7 +52,7 @@ fn cargo_list_similar_prefix_no_match() {
 
 /// TASK-0526: an empty-after-strip name (literal "cargo-" or "") must not
 /// match a line that begins with whitespace. The empty token from
-/// split_whitespace was previously equal to the empty stripped name, so any
+/// `split_whitespace` was previously equal to the empty stripped name, so any
 /// indented line was reported as installed.
 #[test]
 fn cargo_list_empty_name_after_strip_is_rejected() {

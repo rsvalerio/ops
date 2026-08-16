@@ -1,7 +1,7 @@
 //! Repository URL normalisation for `package.json::repository` values.
 //!
 //! ARCH-1 / TASK-0848: the `repository.url` rewriting surface is the
-//! highest-risk code in the package_json module — see SEC-14 / TASK-0811
+//! highest-risk code in the `package_json` module — see SEC-14 / TASK-0811
 //! for the path-traversal fix that motivated this split. Living in its
 //! own module makes future adversarial-input fixes have a clear test
 //! target and a documented boundary, separate from the serde model and

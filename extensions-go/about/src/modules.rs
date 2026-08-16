@@ -265,7 +265,7 @@ mod tests {
     /// project-wide LOC/file totals — matching Node (`package.json`) and
     /// Python (`pyproject.toml`) single-package behaviour. The unit `path`
     /// must NOT be the empty string (which previously documented itself
-    /// as "matches every file via starts_with" — a no-op filter that
+    /// as "matches every file via `starts_with`" — a no-op filter that
     /// happened to yield the same project-wide count, but obscured the
     /// invariant).
     #[test]

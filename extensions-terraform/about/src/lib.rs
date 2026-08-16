@@ -575,7 +575,7 @@ mod tests {
 
     /// PATTERN-1 / TASK-1025: a `.tf` file with a mixed-case extension
     /// (e.g. `Custom.TF`) carrying a `required_version` must be picked up
-    /// by the fallback walk. Pre-fix the OsStr comparison was case-sensitive
+    /// by the fallback walk. Pre-fix the `OsStr` comparison was case-sensitive
     /// and silently skipped these files on case-preserving filesystems.
     #[test]
     fn find_required_version_fallback_matches_uppercase_extension() {
@@ -713,8 +713,8 @@ provider "aws" {
         assert_eq!(extract_required_version(content), None);
     }
 
-    /// ERR-2 / TASK-0919: required_version nested deeper than depth 1
-    /// inside terraform (e.g. inside required_providers { … }) is also
+    /// ERR-2 / TASK-0919: `required_version` nested deeper than depth 1
+    /// inside terraform (e.g. inside `required_providers` { … }) is also
     /// rejected — the top-level depth-1 declaration is the only valid
     /// shape.
     #[test]
@@ -784,7 +784,7 @@ terraform {
     }
 
     /// SEC-11 / TASK-0853: an excessively long value is truncated to
-    /// REQUIRED_VERSION_MAX_LEN before being rendered into the About card.
+    /// `REQUIRED_VERSION_MAX_LEN` before being rendered into the About card.
     #[test]
     fn extract_required_version_caps_overlong_value() {
         let long = "v".repeat(200);

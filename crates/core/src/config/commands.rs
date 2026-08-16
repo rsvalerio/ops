@@ -87,21 +87,25 @@ impl CommandSpec {
     }
 
     /// Return the help text for this command, if any.
+    #[must_use]
     pub fn help(&self) -> Option<&str> {
         self.meta().help()
     }
 
     /// Return the category for this command, if any.
+    #[must_use]
     pub fn category(&self) -> Option<&str> {
         self.meta().category()
     }
 
     /// Return the aliases for this command.
+    #[must_use]
     pub fn aliases(&self) -> &[String] {
         self.meta().aliases()
     }
 
     /// Fallback description when no `help` text is set.
+    #[must_use]
     pub fn display_cmd_fallback(&self) -> String {
         match self {
             CommandSpec::Exec(e) => e.display_cmd().into_owned(),
@@ -178,6 +182,11 @@ impl ExecCommandSpec {
     /// ERR-1 / SEC (TASK-1431): rejects relative `cwd` containing `..`
     /// components — the symmetric SEC-25 hardening for `ops run <cmd>`
     /// under a hostile workspace config.
+    ///
+    /// # Errors
+    ///
+    /// If `program` is empty, `timeout_secs` is `Some(0)`, or any field
+    /// contains control characters.
     pub fn validate(&self, name: &str) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.program.is_empty(),
@@ -218,6 +227,7 @@ impl ExecCommandSpec {
     /// lines, and TAP files when auditing `.ops.toml` — a misleading
     /// space-only join could lead an operator to greenlight a config they
     /// would otherwise reject.
+    #[must_use]
     pub fn display_cmd(&self) -> Cow<'_, str> {
         if self.args.is_empty() {
             Cow::Borrowed(&self.program)
@@ -239,6 +249,11 @@ impl ExecCommandSpec {
     /// non-UTF-8 / unparsable env var produces a visible diagnostic in the
     /// dry-run preview rather than silently rendering the literal `${VAR}`
     /// while a `tracing` event hides in the log buffer.
+    ///
+    /// # Errors
+    ///
+    /// [`ExpandError`](crate::expand::ExpandError) if any argument references an
+    /// undefined variable or a value that is not valid Unicode.
     pub fn expanded_args_display(
         &self,
         vars: &crate::expand::Variables,

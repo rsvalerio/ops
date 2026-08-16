@@ -9,6 +9,10 @@
 use ops_duckdb::sql::{SqlError, TableName};
 use std::path::Path;
 
+/// # Errors
+///
+/// [`SqlError`] if `path` fails path validation; the table name is a valid
+/// static identifier.
 pub fn rust_loc_files_create_sql(path: &Path) -> Result<String, SqlError> {
     ops_duckdb::sql::create_table_from_json_sql("rust_loc_files", path, None)
 }

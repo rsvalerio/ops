@@ -208,6 +208,12 @@ impl CargoTomlProvider {
     /// to avoid the TOML→typed → JSON-Value → typed round-trip on every
     /// cache miss. The `provide()` JSON path remains for cross-extension
     /// consumers that read via `Context::cached` / `query_data`.
+    ///
+    /// # Errors
+    ///
+    /// [`DataProviderError`] if the workspace root cannot be found, `Cargo.toml`
+    /// cannot be read (including exceeding the SEC-33 byte cap), or the manifest
+    /// fails to parse or resolve its workspace inheritance.
     pub fn provide_typed(&self, ctx: &mut Context) -> Result<CargoToml, DataProviderError> {
         let root = self.resolve_root(&ctx.working_directory)?;
         let cargo_toml = root.join("Cargo.toml");

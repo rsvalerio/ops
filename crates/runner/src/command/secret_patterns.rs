@@ -62,6 +62,7 @@ pub fn warn_if_sensitive_env(key: &str, value: &str) {
 ///
 /// This is used by dry-run mode to redact sensitive values in output.
 /// Returns true if the key name suggests it contains a secret.
+#[must_use]
 pub fn is_sensitive_env_key(key: &str) -> bool {
     let key_bytes = key.as_bytes();
     SENSITIVE_REDACTION_PATTERNS
@@ -112,7 +113,8 @@ const SECRET_SCAN_LIMIT: usize = 4096;
 /// - `looks_like_uuid`: 36 chars with 4 hyphens in UUID format
 ///
 /// SEC-16: Scanning is bounded to the first [`SECRET_SCAN_LIMIT`] bytes so an
-/// oversized env value cannot turn this detector into a per-spawn DoS.
+/// oversized env value cannot turn this detector into a per-spawn `DoS`.
+#[must_use]
 pub fn looks_like_secret_value(value: &str) -> bool {
     if value.len() < 20 {
         return false;

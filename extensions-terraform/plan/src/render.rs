@@ -26,6 +26,7 @@ const ACTION_DISPLAY_ORDER: [Action; 7] = [
     Action::NoOp,
 ];
 
+#[must_use]
 pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> String {
     let mut counts: HashMap<Action, usize> = HashMap::new();
     for c in changes {
@@ -70,6 +71,7 @@ pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> St
 /// real TTY when `--no-color` was set. Callers must derive `is_tty`
 /// from `IsTerminal` on the actual writer (or pass `false` for buffered
 /// sinks) and `use_color` from the user's preference (e.g. `!no_color`).
+#[must_use]
 pub fn render_resource_table(
     changes: &[ClassifiedChange],
     is_tty: bool,
@@ -145,6 +147,7 @@ Inspect the rows marked `unknown` before applying.\n"
     format!("{banner}{table}\n")
 }
 
+#[must_use]
 pub fn render_outputs_table(
     outputs: &serde_json::Map<String, serde_json::Value>,
     use_color: bool,
@@ -271,10 +274,10 @@ mod tests {
         assert!(output.is_empty(), "only no-op should produce empty output");
     }
 
-    /// ARCH-2 / TASK-0849: render_resource_table(.., false) must be byte-
+    /// ARCH-2 / TASK-0849: `render_resource_table`(.., false) must be byte-
     /// identical regardless of the host TTY size, so snapshot tests stay
     /// reproducible across CI / local / piped invocations. The function
-    /// previously called terminal_size::terminal_size() unconditionally
+    /// previously called `terminal_size::terminal_size()` unconditionally
     /// which made output environment-sensitive.
     #[test]
     fn resource_table_non_tty_output_is_stable_across_term_widths() {

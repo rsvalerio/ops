@@ -1,6 +1,6 @@
 //! `about loc` subpage: Rust production / test / example line counts.
 //!
-//! Reads the `rust_loc_summary` DuckDB view (populated by the `rust-loc`
+//! Reads the `rust_loc_summary` `DuckDB` view (populated by the `rust-loc`
 //! data provider) and renders a per-region table plus a totals line.
 //!
 //! Complements [`crate::code`], which reports cross-language LOC from
@@ -40,7 +40,7 @@ fn region_display(region: &str) -> (usize, &str) {
         .map_or((REGION_ORDER.len(), region), |i| (i, REGION_ORDER[i].1))
 }
 
-/// Everything the page renders, read from one DuckDB snapshot.
+/// Everything the page renders, read from one `DuckDB` snapshot.
 ///
 /// `files` is a separate figure rather than a sum of the rows' own
 /// `files`: a module with a `#[cfg(test)]` block appears in both the
@@ -56,7 +56,7 @@ pub struct RustLocPage {
 ///
 /// `None` covers every "this workspace has no Rust LOC data" case —
 /// non-Rust stack (the provider is not registered), a build without
-/// DuckDB support, or a failed query — because the page renders the same
+/// `DuckDB` support, or a failed query — because the page renders the same
 /// message for all of them. Query failures are warn-logged so a real
 /// error is still diagnosable.
 pub fn query_rust_loc_stats(
@@ -92,6 +92,7 @@ pub fn query_rust_loc_stats(
 ///
 /// Returns `None` when there is nothing to show, signalling the caller to
 /// emit a user-facing message instead of an empty table.
+#[must_use]
 pub fn format_rust_loc_section(page: Option<&RustLocPage>) -> Option<Vec<String>> {
     let page = match page {
         Some(p) if !p.regions.is_empty() => p,
@@ -175,10 +176,18 @@ fn format_totals_line(stats: &[&RustLocStat], files: i64) -> String {
     line
 }
 
+/// # Errors
+///
+/// If the current directory cannot be determined, a required data provider
+/// fails, or writing the rendered output fails.
 pub fn run_about_loc(data_registry: &DataRegistry) -> anyhow::Result<()> {
     run_about_loc_with(data_registry, &mut std::io::stdout())
 }
 
+/// # Errors
+///
+/// If the current directory cannot be determined, a required data provider
+/// fails, or writing the rendered output fails.
 pub fn run_about_loc_with(
     data_registry: &DataRegistry,
     writer: &mut dyn Write,
@@ -350,7 +359,7 @@ mod tests {
     }
 
     /// Mirrors `code::query_language_stats_returns_none_when_db_lock_poisoned`:
-    /// a poisoned DuckDb mutex degrades to `None` (warn-logged), not a panic.
+    /// a poisoned `DuckDb` mutex degrades to `None` (warn-logged), not a panic.
     #[test]
     fn query_rust_loc_stats_returns_none_when_db_lock_poisoned() {
         use ops_core::config::Config;

@@ -6,7 +6,7 @@
 
 use super::Stack;
 
-/// Single source of truth for per-stack metadata: (manifest_files, default_commands_toml).
+/// Single source of truth for per-stack metadata: (`manifest_files`, `default_commands_toml`).
 ///
 /// Consolidates two parallel match blocks (CD-11) so adding a new stack
 /// updates exactly one match arm.

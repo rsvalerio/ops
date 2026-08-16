@@ -46,6 +46,11 @@ fn classify_code(code: &str) -> Option<DiagClass> {
 ///   empty `DenyResult` and silently masks the misconfiguration. Surface the
 ///   error instead so operators see "broken deny.toml" rather than a clean
 ///   bill of health.
+///
+/// # Errors
+///
+/// If `cargo deny` cannot be spawned, exceeds its timeout, or exits with a
+/// status that does not carry a parseable diagnostic stream.
 pub fn run_cargo_deny(working_dir: &Path) -> anyhow::Result<DenyResult> {
     let output = run_cargo(
         &["deny", "--format", "json", "check"],
@@ -61,6 +66,12 @@ pub fn run_cargo_deny(working_dir: &Path) -> anyhow::Result<DenyResult> {
 
 /// Map a cargo-deny `(exit_code, stderr)` pair to either a parsed
 /// `DenyResult` or a hard error.
+///
+/// # Errors
+///
+/// If `cargo deny` exited 1 with empty stderr (the binary crashed before
+/// printing diagnostics), was killed by a signal, or exited with an
+/// unrecognised status.
 pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Result<DenyResult> {
     match exit_code {
         Some(0) => Ok(parse_deny_output(stderr)),

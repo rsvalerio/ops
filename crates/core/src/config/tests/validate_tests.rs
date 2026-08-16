@@ -405,7 +405,7 @@ fn validate_commands_accepts_diamond_dag() {
 
 /// ERR-1 / TASK-1181: two commands declaring the same alias are silently
 /// resolved by `Config::resolve_alias` to whichever appears first in the
-/// IndexMap, with no diagnostic. `validate_commands` must catch this up
+/// `IndexMap`, with no diagnostic. `validate_commands` must catch this up
 /// front so the misconfiguration fails loud at config load instead of as
 /// ghost behaviour at invocation time.
 #[test]

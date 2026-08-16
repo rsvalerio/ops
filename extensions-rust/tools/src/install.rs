@@ -9,6 +9,11 @@ use std::time::Duration;
 use crate::install_timeout::{run_with_timeout, DEFAULT_INSTALL_TIMEOUT};
 use crate::probe::{get_active_toolchain, ActiveToolchain};
 
+/// # Errors
+///
+/// If `name` or `package` fails SEC-13 validation, `cargo` cannot be
+/// spawned, the install exceeds [`DEFAULT_INSTALL_TIMEOUT`], or `cargo
+/// install` exits non-zero.
 pub fn install_cargo_tool(name: &str, package: Option<&str>) -> anyhow::Result<()> {
     install_cargo_tool_with_timeout(name, package, DEFAULT_INSTALL_TIMEOUT)
 }
@@ -116,6 +121,11 @@ fn spawn_install_with_timeout(
 /// registry) without forking the crate. The default-timeout wrapper
 /// [`install_cargo_tool`] still delegates here with
 /// [`DEFAULT_INSTALL_TIMEOUT`].
+///
+/// # Errors
+///
+/// As [`install_cargo_tool`], but bounded by `timeout` rather than
+/// [`DEFAULT_INSTALL_TIMEOUT`].
 pub fn install_cargo_tool_with_timeout(
     name: &str,
     package: Option<&str>,
@@ -157,6 +167,11 @@ pub fn install_cargo_tool_with_timeout(
     }
 }
 
+/// # Errors
+///
+/// If `component` or `toolchain` fails SEC-13 validation, `rustup` cannot
+/// be spawned, the install exceeds [`DEFAULT_INSTALL_TIMEOUT`], or
+/// `rustup component add` exits non-zero.
 pub fn install_rustup_component(component: &str, toolchain: &str) -> anyhow::Result<()> {
     install_rustup_component_with_timeout(component, toolchain, DEFAULT_INSTALL_TIMEOUT)
 }
@@ -164,6 +179,10 @@ pub fn install_rustup_component(component: &str, toolchain: &str) -> anyhow::Res
 /// API-3 / TASK-1581: explicit-timeout sibling of
 /// [`install_rustup_component`]; see that function for the rationale on
 /// keeping the deadline configurable from downstream crates.
+///
+/// # Errors
+///
+/// As [`install_rustup_component`], but bounded by `timeout`.
 pub fn install_rustup_component_with_timeout(
     component: &str,
     toolchain: &str,
@@ -185,6 +204,12 @@ pub fn install_rustup_component_with_timeout(
     }
 }
 
+/// # Errors
+///
+/// If the spec names a rustup component and no active toolchain is
+/// configured or `rustup` could not be probed, if the spec is
+/// `ToolSource::System` (which ops cannot install), or if the underlying
+/// `cargo install` / `rustup component add` fails.
 pub fn install_tool(name: &str, spec: &ToolSpec) -> anyhow::Result<()> {
     let has_rustup_component = spec.rustup_component().is_some();
 

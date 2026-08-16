@@ -450,7 +450,7 @@ mod tests {
     }
 
     /// PATTERN-1 (TASK-1212): the scrub also affects `compute_module_count`
-    /// — a sole adversarial replace yields 0 local_replaces, so the
+    /// — a sole adversarial replace yields 0 `local_replaces`, so the
     /// single-module count returns None rather than `Some(2)`.
     #[test]
     fn compute_module_count_does_not_double_count_scrubbed_replace() {

@@ -25,7 +25,7 @@ pub use ops_runner::test_support::{test_runner, EventAssertions};
 /// 3. CWD restoration failure is non-critical (test isolation is best-effort)
 pub(crate) static CWD_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// RAII guard that acquires CWD_MUTEX, switches to a target directory,
+/// RAII guard that acquires `CWD_MUTEX`, switches to a target directory,
 /// and restores the original CWD on drop.
 ///
 /// # Test Isolation Note
@@ -99,7 +99,7 @@ pub fn register_extension(
 
 /// Helper to create a temp directory with .ops.toml content.
 ///
-/// Returns the temp directory (for cleanup) and the CwdGuard.
+/// Returns the temp directory (for cleanup) and the `CwdGuard`.
 #[cfg(test)]
 #[allow(dead_code)]
 pub fn with_temp_config(content: &str) -> (tempfile::TempDir, CwdGuard) {

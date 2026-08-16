@@ -87,7 +87,7 @@ pub(super) fn parse_subprocess_timeout(raw: Option<&str>) -> Option<u64> {
 /// value behind a `OnceLock<Option<u64>>` so each subprocess spawn does
 /// not re-acquire the global env lock and re-allocate the raw `String`.
 /// `None` means "env unset / zero / unparseable — fall back to
-/// op_default"; `Some(secs)` is the already-clamped override (the warn
+/// `op_default`"; `Some(secs)` is the already-clamped override (the warn
 /// fires once at cache init). Mirrors the `output_byte_cap` discipline
 /// one function above.
 fn cached_subprocess_timeout() -> Option<u64> {

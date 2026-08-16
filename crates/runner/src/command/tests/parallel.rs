@@ -1,4 +1,4 @@
-//! Tests for parallel plan execution and exec_standalone.
+//! Tests for parallel plan execution and `exec_standalone`.
 
 use super::*;
 
@@ -90,7 +90,7 @@ async fn run_plan_parallel_verify_event_content() {
 /// ASYNC-7 / TASK-0777: a parallel plan with a single command must produce
 /// the same observable event stream as the sequential `run_plan` — the
 /// fast-path delegates instead of spinning up the parallel infrastructure,
-/// so the order PlanStarted → StepStarted → … → StepFinished → RunFinished
+/// so the order `PlanStarted` → `StepStarted` → … → `StepFinished` → `RunFinished`
 /// must be identical.
 #[tokio::test(flavor = "multi_thread")]
 async fn run_plan_parallel_singleton_matches_sequential_event_order() {
@@ -297,10 +297,10 @@ async fn run_parallel_composite() {
     );
 }
 
-/// TASK-0328: exec_standalone routes terminal events past the bounded local
+/// TASK-0328: `exec_standalone` routes terminal events past the bounded local
 /// buffer via the awaited outer `tx.send`, specifically so the display can
 /// never orphan a progress bar when a noisy command floods the 256-slot
-/// LOCAL_BUF.
+/// `LOCAL_BUF`.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
@@ -476,7 +476,7 @@ async fn exec_standalone_emits_step_output_dropped_under_burst() {
 }
 
 /// ERR-1 / TASK-1174: when the outer receiver has been torn down (display
-/// shutdown race, fail_fast tear-down) before exec_standalone flushes its
+/// shutdown race, `fail_fast` tear-down) before `exec_standalone` flushes its
 /// `StepOutputDropped` event, the count must not vanish silently. The send
 /// fails with `SendError`, and the function logs a structured `tracing::warn!`
 /// carrying both the step id and the dropped count so the count survives in
@@ -559,10 +559,10 @@ async fn exec_standalone_logs_dropped_count_when_outer_receiver_closed() {
 }
 
 /// CONC-9 / TASK-0459: when the outer mpsc receiver stalls (display pump
-/// hung) and the abort flag is tripped (a sibling fail_fast'd),
-/// exec_standalone must abandon its terminal-event send instead of
+/// hung) and the abort flag is tripped (a sibling `fail_fast`'d),
+/// `exec_standalone` must abandon its terminal-event send instead of
 /// blocking on a full outer channel. Previously the task would hang
-/// indefinitely on `tx.send`, defeating fail_fast's promise.
+/// indefinitely on `tx.send`, defeating `fail_fast`'s promise.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn exec_standalone_terminal_send_aborts_on_full_outer_channel() {

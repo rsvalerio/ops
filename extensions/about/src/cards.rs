@@ -45,6 +45,7 @@ const _: () = assert!(
 );
 
 /// Capitalize the last path segment of a member-style string (e.g. "crates/foo" → "Foo").
+#[must_use]
 pub fn format_unit_name(member: &str) -> String {
     let name = member
         .strip_prefix("**/")
@@ -60,6 +61,7 @@ pub fn format_unit_name(member: &str) -> String {
     }
 }
 
+#[must_use]
 pub fn build_card_stats_line(unit: &ProjectUnit) -> Option<String> {
     let parts: Vec<String> = [
         unit.loc.map(|loc| format!("{} loc", format_number(loc))),
@@ -179,11 +181,11 @@ pub(crate) fn layout_cards_in_grid(cards: &[Vec<String>]) -> Vec<String> {
 /// always rendered at fixed [`CardLayoutConfig::CARD_WIDTH`] (32) columns —
 /// the underlying [`render_card`] is width-agnostic.
 ///
-/// Minimum supported terminal width is therefore CARD_WIDTH + 2 (the leading
+/// Minimum supported terminal width is therefore `CARD_WIDTH` + 2 (the leading
 /// indent), i.e. 34 columns. Below that, single-card rows still render at
 /// 32 columns and visibly overflow narrower terminals; the layout itself is
 /// preserved (no truncated borders or mangled rows). The grid does not
-/// further narrow CARD_WIDTH because render_card pre-computes its content
+/// further narrow `CARD_WIDTH` because `render_card` pre-computes its content
 /// against a fixed inner-width and reflowing it would invalidate the
 /// pre-rendered card lines.
 pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize) -> Vec<String> {
@@ -339,7 +341,7 @@ mod tests {
 
     /// READ-5 (TASK-0590): below the minimum supported terminal width the
     /// grid stays in single-card mode and renders each card at the fixed
-    /// CARD_WIDTH. Pin this so a future "responsive" refactor that picks
+    /// `CARD_WIDTH`. Pin this so a future "responsive" refactor that picks
     /// 0-cards-per-row or panics on small terminals fails the test rather
     /// than the user.
     #[test]

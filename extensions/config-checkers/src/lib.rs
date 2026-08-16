@@ -36,7 +36,7 @@ pub const SHORTNAME: &str = "config-checkers";
 /// Default per-file size cap (16 MiB). Files exceeding this are skipped and
 /// recorded in [`CheckerReport::files_skipped`] rather than read into memory
 /// and parsed — a defence against accidental or malicious oversized inputs
-/// triggering an allocator/parser DoS on CI runners and pre-commit hosts.
+/// triggering an allocator/parser `DoS` on CI runners and pre-commit hosts.
 pub const DEFAULT_MAX_BYTES: u64 = 16 * 1024 * 1024;
 
 pub struct ConfigCheckersExtension;

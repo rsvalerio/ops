@@ -89,6 +89,7 @@ pub struct AboutOptions {
 }
 
 impl AboutOptions {
+    #[must_use]
     pub fn new(refresh: bool, visible_fields: Option<Vec<String>>, is_tty: bool) -> Self {
         Self {
             refresh,
@@ -102,6 +103,12 @@ impl AboutOptions {
 ///
 /// Tries the `"project_identity"` data provider first. If no stack-specific
 /// provider is registered, builds a minimal identity from the filesystem.
+///
+/// # Errors
+///
+/// If the `"project_identity"` provider fails with anything other than
+/// `NotFound` (which falls back to a filesystem-derived identity), or if
+/// writing the rendered card fails.
 pub fn run_about(
     data_registry: &ops_extension::DataRegistry,
     opts: &AboutOptions,
@@ -163,7 +170,7 @@ fn resolve_identity(
     }
 }
 
-/// Enrich identity with LOC/file count from DuckDB if available.
+/// Enrich identity with LOC/file count from `DuckDB` if available.
 ///
 /// ERR-1 (TASK-1148, mirrors TASK-0431 in [`units::enrich_from_db`]): each of
 /// the five underlying queries acquires `db.lock()` independently, so a

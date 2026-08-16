@@ -18,7 +18,7 @@ pub(crate) const PROVIDER_NAME: &str = "project_coverage";
 /// `RustCoverageProvider::provide` and `identity::metrics::query_identity_metrics`
 /// both run during a single `ops about` invocation and historically each
 /// dispatched their own `query_project_coverage` call against the same
-/// DuckDB. That doubled the scan and — more visibly — fired any
+/// `DuckDB`. That doubled the scan and — more visibly — fired any
 /// `query_or_warn` schema-drift log line twice.
 ///
 /// ARCH-9 / TASK-1155: dedup with a tiny process-local cache keyed by the
@@ -46,7 +46,7 @@ fn project_coverage_cache() -> &'static Mutex<HashMap<u64, CoverageSlot>> {
 /// (including the cached `None` when the query failed and `query_or_warn`
 /// already logged the warn).
 ///
-/// CONC-2 / TASK-1193: keyed by an `Arc<OnceLock<...>>` per DuckDb id so
+/// CONC-2 / TASK-1193: keyed by an `Arc<OnceLock<...>>` per `DuckDb` id so
 /// concurrent first-callers race only on the inner `OnceLock::get_or_init`
 /// (which guarantees the closure runs exactly once). Pre-fix the outer
 /// mutex was acquired, the entry checked, the guard dropped, and
@@ -193,7 +193,7 @@ mod cache_tests {
 
     /// DUP-1 / TASK-1079: the identity-metrics and coverage providers used
     /// to dispatch their own `query_project_coverage` against the same
-    /// DuckDB during a single `ops about`, so any `query_or_warn`
+    /// `DuckDB` during a single `ops about`, so any `query_or_warn`
     /// schema-drift line fired twice. Pin that the per-process cache fires
     /// the underlying query (and its warn) exactly once across both call
     /// sites for a forced query failure.

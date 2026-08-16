@@ -63,7 +63,7 @@ fn data_registry_register_and_get() {
 /// SEC-31 / TASK-0350 + CL-5 / TASK-0756: registering two providers under
 /// the same name must (1) be rejected first-write-wins and (2) record the
 /// rejected name in the audit trail so the CLI wiring layer can emit a
-/// single tracing::warn from one place. The earlier
+/// single `tracing::warn` from one place. The earlier
 /// `debug_assert!(false, …)` panic was retired because it forced every
 /// in-extension duplicate to surface as a test panic instead of letting the
 /// wiring layer's per-extension scratch registry aggregate the audit trail.
@@ -98,7 +98,7 @@ fn data_registry_provide_returns_value() {
 }
 
 /// ERR-1 / TASK-1170: a Context built with `with_refresh()` (or any caller
-/// flipping `refresh = true`) must bypass the data_cache fast path so the
+/// flipping `refresh = true`) must bypass the `data_cache` fast path so the
 /// provider is re-invoked. Pre-fix, `get_or_provide` returned the cached
 /// value regardless of the refresh flag, making `--refresh` a no-op for any
 /// key already populated within the runner's persistent context lifetime.

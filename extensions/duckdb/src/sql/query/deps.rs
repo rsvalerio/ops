@@ -7,7 +7,7 @@ use super::helpers::{query_project_scalar, query_rows_fold, QuerySpec};
 
 /// Query total normal-dependency count from `crate_dependencies`.
 ///
-/// ERR-1 (TASK-0506): a negative i64 from COUNT (which DuckDB should never
+/// ERR-1 (TASK-0506): a negative i64 from COUNT (which `DuckDB` should never
 /// emit but a future cast or schema bug could) used to be silently coerced
 /// to 0. Now we surface the anomaly via `tracing::warn` before falling back
 /// so a misbehaving view doesn't impersonate "no dependencies".
@@ -21,6 +21,11 @@ use super::helpers::{query_project_scalar, query_rows_fold, QuerySpec};
 /// `query_crate_dep_counts` already filter on `dependency_kind =
 /// 'normal'`; this brings the project-total scalar into line with that
 /// policy.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, or the query or row decode fails. A
+/// missing `crate_dependencies` table is not an error.
 pub fn query_dependency_count(db: &DuckDb) -> anyhow::Result<usize> {
     let count = query_project_scalar(
         db,
@@ -34,7 +39,7 @@ pub fn query_dependency_count(db: &DuckDb) -> anyhow::Result<usize> {
 
 /// Convert a `COUNT(*)` scalar to `usize`, logging anomalous (negative)
 /// values via `tracing::warn` instead of silently returning 0. Negative
-/// values from DuckDB COUNT should be impossible; surfacing them lets a
+/// values from `DuckDB` COUNT should be impossible; surfacing them lets a
 /// schema bug be diagnosed instead of presenting as "no data".
 fn coerce_count_to_usize(count: i64) -> usize {
     match usize::try_from(count) {
@@ -50,10 +55,15 @@ fn coerce_count_to_usize(count: i64) -> usize {
     }
 }
 
-/// Query per-crate external dependencies (name + version_req) from `crate_dependencies` view.
+/// Query per-crate external dependencies (name + `version_req`) from `crate_dependencies` view.
 ///
-/// Returns a map of crate_name -> Vec<(dep_name, version_req)>, sorted by dep name.
+/// Returns a map of `crate_name` -> Vec<(`dep_name`, `version_req`)>, sorted by dep name.
 /// Returns an empty map if the view doesn't exist (graceful degradation).
+///
+/// # Errors
+///
+/// If the database lock is poisoned, or the query or row decode fails. A
+/// missing `crate_dependencies` table is not an error.
 pub fn query_crate_deps(db: &DuckDb) -> anyhow::Result<HashMap<String, Vec<(String, String)>>> {
     query_rows_fold(
         db,
@@ -91,8 +101,13 @@ pub fn query_crate_deps(db: &DuckDb) -> anyhow::Result<HashMap<String, Vec<(Stri
 /// mis-attributed counts for renamed packages (`[package] name = "alt-name"`)
 /// and collapsed members that share a `package.name` into a single map entry.
 /// When the same `crate_name` maps to multiple manifest paths we emit a
-/// `tracing::debug` breadcrumb so an operator chasing a None dep_count for a
+/// `tracing::debug` breadcrumb so an operator chasing a None `dep_count` for a
 /// duplicate-named member sees the diagnosis.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, or the query or row decode fails. A
+/// missing `crate_dependencies` table is not an error.
 pub fn query_crate_dep_counts(db: &DuckDb) -> anyhow::Result<HashMap<String, i64>> {
     let rows = query_rows_fold(
         db,

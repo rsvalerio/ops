@@ -525,7 +525,7 @@ fn query_rust_loc_summary_no_view() {
     );
 }
 
-/// The aggregate columns come back as DuckDB `SUM(BIGINT)` (a 128-bit
+/// The aggregate columns come back as `DuckDB` `SUM(BIGINT)` (a 128-bit
 /// HUGEINT), so this pins that they still decode into the `i64` fields of
 /// [`RustLocStat`] — a silent type mismatch here would surface as an
 /// unreadable "invalid column type" at the about page instead.

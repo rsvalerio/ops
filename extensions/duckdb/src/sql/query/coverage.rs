@@ -11,10 +11,15 @@ use super::helpers::{
 
 /// Query total coverage across the whole project from `coverage_files`.
 ///
-/// DUP-1 / TASK-1629: shares the lock + table_exists + query_row + with_context
+/// DUP-1 / TASK-1629: shares the lock + `table_exists` + `query_row` + `with_context`
 /// prologue with `query_project_scalar` via the generalised
 /// `query_project_row` helper. Both project-scalar (LOC, deps) and
 /// project-row (coverage) callers now flow through the same scaffolding.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, or the query or row decode fails. A
+/// missing `coverage_files` table is not an error.
 pub fn query_project_coverage(db: &DuckDb) -> anyhow::Result<CrateCoverage> {
     let sql = format!("SELECT {} FROM coverage_files", coverage_col_select(None));
     query_project_row(
@@ -31,7 +36,7 @@ pub fn query_project_coverage(db: &DuckDb) -> anyhow::Result<CrateCoverage> {
 
 /// Query per-crate coverage from `coverage_files`.
 ///
-/// Returns a map of member path -> CrateCoverage. Members with no matching
+/// Returns a map of member path -> `CrateCoverage`. Members with no matching
 /// files get zeroed coverage. Handles both absolute and relative filenames
 /// from LLVM coverage output.
 ///
@@ -39,6 +44,12 @@ pub fn query_project_coverage(db: &DuckDb) -> anyhow::Result<CrateCoverage> {
 ///
 /// If the static join alias `"c"` fails identifier validation, which can only
 /// happen if `ColumnAlias::new`'s rules change.
+///
+/// # Errors
+///
+/// If `workspace_root` contains control characters or parent-traversal
+/// segments, if the database lock is poisoned, or if the query or row decode
+/// fails.
 pub fn query_crate_coverage(
     db: &DuckDb,
     member_paths: &[&str],
@@ -169,7 +180,7 @@ mod tests {
         assert_eq!(foo.lines_covered, 50);
     }
 
-    /// SEC-12: workspace_root with and without a trailing '/' must yield
+    /// SEC-12: `workspace_root` with and without a trailing '/' must yield
     /// identical results. Before normalization a trailing '/' produced
     /// "/ws//crates/foo/" in the prefix join and silently zeroed coverage.
     #[test]

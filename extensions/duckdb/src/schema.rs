@@ -1,10 +1,15 @@
-//! Schema initialization and tracking for DuckDb.
+//! Schema initialization and tracking for `DuckDb`.
 
 use crate::connection::DuckDb;
 use crate::error::{DbError, DbResult};
 use std::path::Path;
 
-/// Create the data_sources tracking table if it does not exist.
+/// Create the `data_sources` tracking table if it does not exist.
+///
+/// # Errors
+///
+/// [`DbError::MutexPoisoned`] if the connection lock is poisoned, or
+/// [`DbError::DuckDb`] if the schema batch fails to execute.
 pub fn init_schema(db: &DuckDb) -> DbResult<()> {
     let conn = db.lock()?;
     conn.execute_batch(
@@ -98,6 +103,7 @@ pub struct DataSourceMetadata<'a> {
 }
 
 impl<'a> DataSourceMetadata<'a> {
+    #[must_use]
     pub fn new(
         source_name: SourceName<'a>,
         workspace_root: WorkspaceRoot<'a>,
@@ -115,7 +121,7 @@ impl<'a> DataSourceMetadata<'a> {
     }
 }
 
-/// Upsert a data_sources row after a load.
+/// Upsert a `data_sources` row after a load.
 ///
 /// Fails fast with [`DbError::NonUtf8Path`] when `source_path` is not valid
 /// UTF-8 — the previous lossy conversion silently stored a string that
@@ -125,10 +131,15 @@ impl<'a> DataSourceMetadata<'a> {
 /// `ops_about::identity::build_identity_value`, which rejects a non-UTF-8
 /// `cwd` with a typed [`ops_extension::DataProviderError`] instead of
 /// shipping `U+FFFD`-mangled bytes into the `project_root` JSON field.
-/// Any path persisted into a downstream consumer (this DuckDB row, the
+/// Any path persisted into a downstream consumer (this `DuckDB` row, the
 /// `ProjectIdentity` JSON, audit logs) must round-trip faithfully — so
 /// the two callsites share one policy: typed error on non-UTF-8, no
 /// lossy `Path::display` / `to_string_lossy` shortcut.
+///
+/// # Errors
+///
+/// [`DbError::NonUtf8Path`] if `source_path` or the workspace root is not
+/// valid UTF-8, or [`DbError::DuckDb`] if the upsert fails.
 pub fn upsert_data_source(db: &DuckDb, meta: &DataSourceMetadata<'_>) -> DbResult<()> {
     let path_str = meta
         .source_path

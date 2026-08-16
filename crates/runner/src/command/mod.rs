@@ -1,4 +1,4 @@
-//! Command execution engine: exec and composite commands, RunnerEvent stream.
+//! Command execution engine: exec and composite commands, `RunnerEvent` stream.
 //!
 //! # Architecture
 //!
@@ -134,7 +134,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{debug, instrument};
 
-/// Runs commands from config; emits RunnerEvent stream.
+/// Runs commands from config; emits `RunnerEvent` stream.
 pub struct CommandRunner {
     pub(super) config: Arc<Config>,
     // OWN-2 / TASK-0462: Arc-wrapped so the parallel hot path only does
@@ -194,6 +194,7 @@ pub struct CommandRunner {
 }
 
 impl CommandRunner {
+    #[must_use]
     pub fn new(config: Config, cwd: PathBuf) -> Self {
         Self::from_arc_config(Arc::new(config), cwd)
     }
@@ -359,26 +360,31 @@ impl CommandRunner {
     }
 
     /// Full config (for extensions that need data path, etc.).
+    #[must_use]
     pub fn config(&self) -> &Config {
         &self.config
     }
 
     /// Working directory (e.g. for resolving DB path).
+    #[must_use]
     pub fn working_directory(&self) -> &std::path::Path {
         &self.cwd
     }
 
     /// Output/theme config for formatting step lines.
+    #[must_use]
     pub fn output_config(&self) -> &OutputConfig {
         &self.config.output
     }
 
     /// Variable expansion context for command specs.
+    #[must_use]
     pub fn variables(&self) -> &Variables {
         &self.vars
     }
 
     /// Detected or configured stack.
+    #[must_use]
     pub fn stack(&self) -> Option<Stack> {
         self.detected_stack
     }
@@ -406,6 +412,10 @@ impl CommandRunner {
     /// calls inside a provider were always recomputed on subsequent
     /// `query_data` invocations. With a single cache, composed providers
     /// pay the inner cost once per runner.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the named provider returns; see [`Context::get_or_provide`].
     pub fn query_data(&mut self, name: &str) -> Result<Arc<serde_json::Value>, DataProviderError> {
         self.data_context.get_or_provide(name, &self.data_registry)
     }
@@ -462,6 +472,12 @@ impl CommandRunner {
     }
 
     /// Run a named command (single or composite); returns step results.
+    ///
+    /// # Errors
+    ///
+    /// If `command_id` resolves to nothing, if composite expansion fails
+    /// (unknown reference, cycle, depth limit, conflicting schedule flags), or
+    /// if a step cannot be built or spawned.
     pub async fn run(
         &self,
         command_id: &str,

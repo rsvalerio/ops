@@ -670,7 +670,7 @@ edition = "2021"
 }
 
 /// TEST-25 / TASK-1364: assert that `about --refresh` actually exercises the
-/// live about-render path (project_identity provider + card render). The
+/// live about-render path (`project_identity` provider + card render). The
 /// previous assertion-only-on-`.success()` shape would have passed a
 /// regression that silently ignored `--refresh` and emitted nothing; pin
 /// the rendered card content via the same stable `project` marker that
@@ -714,7 +714,7 @@ edition = "2021"
 
 /// TEST-31: `ops about loc` is documented in the README, so it is covered
 /// as a spawned command — the subpage only works if arg parsing, the
-/// `rust-loc` provider, the DuckDB ingest and the renderer all line up,
+/// `rust-loc` provider, the `DuckDB` ingest and the renderer all line up,
 /// and none of the unit tests exercise that chain end to end.
 ///
 /// The provider walks the workspace, so the fixture carries a `#[cfg(test)]`

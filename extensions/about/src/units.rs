@@ -14,6 +14,10 @@ use crate::text_util::get_terminal_width;
 
 pub const PROJECT_UNITS_PROVIDER: &str = "project_units";
 
+/// # Errors
+///
+/// If the current directory cannot be determined, a required data provider
+/// fails, or writing the rendered output fails.
 pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
     let is_tty = std::io::stdout().is_terminal();
     // ERR-1 / TASK-0784: only the direct-stdout entry point probes the
@@ -36,6 +40,11 @@ pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
 /// call sites pick a width matching their destination instead of inheriting
 /// the stdout TTY/`COLUMNS` probe, which silently falls back to 120 columns
 /// in non-TTY contexts.
+///
+/// # Errors
+///
+/// If the current directory cannot be determined, a required data provider
+/// fails, or writing the rendered output fails.
 pub fn run_about_units_with(
     data_registry: &DataRegistry,
     writer: &mut dyn Write,
@@ -175,7 +184,7 @@ fn enrich_from_db(_ctx: &Context, _units: &mut [ProjectUnit]) {}
 mod tests {
     use super::*;
 
-    /// Regression for TASK-0431: when no DuckDB is wired up, enrich_from_db is
+    /// Regression for TASK-0431: when no `DuckDB` is wired up, `enrich_from_db` is
     /// a no-op and leaves caller-supplied unit fields untouched. Codifies the
     /// "independent samples are acceptable" contract — the function never
     /// fails the render pipeline even if the underlying data is inconsistent
