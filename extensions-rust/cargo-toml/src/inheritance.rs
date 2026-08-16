@@ -58,14 +58,14 @@ impl CargoToml {
         // resolver. Adding a new inheritable field is one line here plus a
         // counterpart in `WorkspacePackage` — no risk of touching three
         // places to add a single field.
-        resolve_string_field(&mut pkg.version, &ws_pkg.version);
-        resolve_string_field(&mut pkg.edition, &ws_pkg.edition);
-        resolve_string_field(&mut pkg.rust_version, &ws_pkg.rust_version);
-        resolve_string_field(&mut pkg.description, &ws_pkg.description);
-        resolve_string_field(&mut pkg.documentation, &ws_pkg.documentation);
-        resolve_string_field(&mut pkg.homepage, &ws_pkg.homepage);
-        resolve_string_field(&mut pkg.repository, &ws_pkg.repository);
-        resolve_string_field(&mut pkg.license, &ws_pkg.license);
+        resolve_string_field(&mut pkg.version, ws_pkg.version.as_ref());
+        resolve_string_field(&mut pkg.edition, ws_pkg.edition.as_ref());
+        resolve_string_field(&mut pkg.rust_version, ws_pkg.rust_version.as_ref());
+        resolve_string_field(&mut pkg.description, ws_pkg.description.as_ref());
+        resolve_string_field(&mut pkg.documentation, ws_pkg.documentation.as_ref());
+        resolve_string_field(&mut pkg.homepage, ws_pkg.homepage.as_ref());
+        resolve_string_field(&mut pkg.repository, ws_pkg.repository.as_ref());
+        resolve_string_field(&mut pkg.license, ws_pkg.license.as_ref());
 
         resolve_vec_field(&mut pkg.keywords, &ws_pkg.keywords);
         resolve_vec_field(&mut pkg.categories, &ws_pkg.categories);
@@ -74,8 +74,8 @@ impl CargoToml {
             pkg.authors = InheritableField::Value(ws_pkg.authors.clone());
         }
 
-        resolve_optional_string(&mut pkg.license_file, &ws_pkg.license_file);
-        resolve_readme(&mut pkg.readme, &ws_pkg.readme);
+        resolve_optional_string(&mut pkg.license_file, ws_pkg.license_file.as_ref());
+        resolve_readme(&mut pkg.readme, ws_pkg.readme.as_ref());
         resolve_publish(&mut pkg.publish, &ws_pkg.publish);
     }
 }
@@ -88,7 +88,7 @@ impl CargoToml {
 /// semantics), but ops-cargo-toml treats the field as if it were absent so
 /// downstream tooling can still introspect malformed-but-readable
 /// manifests. See `inheritance::tests::resolve_string_field_workspace_false_is_ignored`.
-pub(crate) fn resolve_string_field(field: &mut InheritableString, ws_value: &Option<String>) {
+pub(crate) fn resolve_string_field(field: &mut InheritableString, ws_value: Option<&String>) {
     if let InheritableField::Inherited { workspace: true } = field {
         if let Some(v) = ws_value {
             *field = InheritableField::Value(v.clone());
@@ -117,7 +117,7 @@ pub(crate) fn resolve_vec_field(field: &mut InheritableVec, ws_value: &[String])
 /// `license-file`. Mirrors [`resolve_string_field`] but for `Option<InheritableString>`.
 pub(crate) fn resolve_optional_string(
     field: &mut Option<InheritableString>,
-    ws_value: &Option<String>,
+    ws_value: Option<&String>,
 ) {
     if let Some(inner) = field {
         resolve_string_field(inner, ws_value);
@@ -125,7 +125,7 @@ pub(crate) fn resolve_optional_string(
 }
 
 /// Resolve `readme = { workspace = true }` against the workspace's `readme`.
-pub(crate) fn resolve_readme(field: &mut Option<ReadmeSpec>, ws_value: &Option<ReadmeSpec>) {
+pub(crate) fn resolve_readme(field: &mut Option<ReadmeSpec>, ws_value: Option<&ReadmeSpec>) {
     if let Some(ReadmeSpec::Inherited { workspace: true }) = field {
         if let Some(v) = ws_value {
             *field = Some(v.clone());
@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn resolve_string_field_workspace_false_is_ignored() {
         let mut field: InheritableString = InheritableField::Inherited { workspace: false };
-        resolve_string_field(&mut field, &Some("1.0.0".to_string()));
+        resolve_string_field(&mut field, Some(&"1.0.0".to_string()));
         match field {
             InheritableField::Inherited { workspace } => assert!(!workspace),
             InheritableField::Value(_) => panic!("workspace=false should not pull in a value"),
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn resolve_string_field_workspace_true_substitutes() {
         let mut field: InheritableString = InheritableField::Inherited { workspace: true };
-        resolve_string_field(&mut field, &Some("1.0.0".to_string()));
+        resolve_string_field(&mut field, Some(&"1.0.0".to_string()));
         match field {
             InheritableField::Value(v) => assert_eq!(v, "1.0.0"),
             InheritableField::Inherited { .. } => panic!("workspace=true should substitute"),

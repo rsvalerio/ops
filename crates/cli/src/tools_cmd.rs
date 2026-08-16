@@ -128,7 +128,7 @@ pub(crate) fn install_command_description(tool: &ToolInfo, spec: &ToolSpec) -> O
     if tool.has_rustup_component {
         return spec
             .rustup_component()
-            .map(|c| format!("rustup component add {}", c));
+            .map(|c| format!("rustup component add {c}"));
     }
     match spec.source() {
         ToolSource::Cargo => {
@@ -157,7 +157,7 @@ fn run_tools_install_to(
         let spec = config
             .tools
             .get(tool_name)
-            .ok_or_else(|| anyhow::anyhow!("tool not found: {}", tool_name))?;
+            .ok_or_else(|| anyhow::anyhow!("tool not found: {tool_name}"))?;
         Some((tool_name, spec))
     } else {
         None
@@ -196,15 +196,13 @@ fn run_tools_install_to(
     if failed > 0 {
         writeln!(
             w,
-            "Done: {} installed, {} failed, {} already present",
-            installed, failed, already_present
+            "Done: {installed} installed, {failed} failed, {already_present} already present"
         )?;
         Ok(ExitCode::FAILURE)
     } else {
         writeln!(
             w,
-            "Done: {} installed, {} already present",
-            installed, already_present
+            "Done: {installed} installed, {already_present} already present"
         )?;
         Ok(ExitCode::SUCCESS)
     }
@@ -239,7 +237,7 @@ where
             writeln!(w, "    {}", dim("Skipping (system tool)"))?;
             continue;
         };
-        writeln!(w, "    Running: {}", cmd_desc)?;
+        writeln!(w, "    Running: {cmd_desc}")?;
 
         match install_tool(&tool.name, spec) {
             Ok(()) => {

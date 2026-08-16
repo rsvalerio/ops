@@ -489,6 +489,7 @@ mod tests {
     /// view must keep both — TASK-0982 fixed the inverse drop, this
     /// fixes the duplicate-collapse.
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn crate_dependencies_view_preserves_target_conditional_duplicates() {
         let data_dir = tempfile::tempdir().unwrap();
         let metadata_json = serde_json::json!({

@@ -44,7 +44,7 @@ const DEFAULT_STDERR_TAIL_LINES: usize = 5;
 #[inline]
 pub(super) fn write_stderr(line: Option<&str>) {
     let result = match line {
-        Some(text) => writeln!(io::stderr(), "{}", text),
+        Some(text) => writeln!(io::stderr(), "{text}"),
         None => writeln!(io::stderr()),
     };
     if let Err(e) = result {
@@ -266,7 +266,7 @@ impl ProgressDisplay {
                 display_cmd,
             } => self.on_step_finished(&id, duration_secs, display_cmd.as_deref()),
             RunnerEvent::StepSkipped { id, display_cmd } => {
-                self.on_step_skipped(&id, display_cmd.as_deref())
+                self.on_step_skipped(&id, display_cmd.as_deref());
             }
             RunnerEvent::StepFailed {
                 id,
@@ -357,8 +357,7 @@ impl ProgressDisplay {
     fn live_box_snapshot(&self) -> BoxSnapshot<'_> {
         let elapsed = self
             .run_started_at
-            .map(|t| t.elapsed().as_secs_f64())
-            .unwrap_or(0.0);
+            .map_or(0.0, |t| t.elapsed().as_secs_f64());
         let success_so_far = self.failed_steps == 0;
         BoxSnapshot {
             completed: self.completed_steps,
@@ -389,9 +388,9 @@ impl ProgressDisplay {
         match status {
             StepStatus::Pending => "░",
             StepStatus::Running => "▓",
-            StepStatus::Succeeded | StepStatus::Failed | StepStatus::Skipped => "█",
-            // API-9: StepStatus is #[non_exhaustive]; future variants
-            // render as a "done" glyph rather than break the build.
+            // Succeeded/Failed/Skipped all render as "done". API-9:
+            // StepStatus is #[non_exhaustive], so the wildcard also keeps
+            // future variants from breaking the build.
             _ => "█",
         }
     }
@@ -587,8 +586,7 @@ impl ProgressDisplay {
         // much CPU actually went to a cancelled task.
         let elapsed = self
             .step_index(id)
-            .map(|i| self.state.bars[i].elapsed().as_secs_f64())
-            .unwrap_or(0.0);
+            .map_or(0.0, |i| self.state.bars[i].elapsed().as_secs_f64());
         self.finish_step(id, StepStatus::Skipped, elapsed, display_cmd);
     }
 

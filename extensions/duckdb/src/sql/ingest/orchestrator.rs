@@ -327,9 +327,10 @@ mod tests {
                 "panicky"
             }
             fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
-                if self.should_panic.swap(false, Ordering::SeqCst) {
-                    panic!("simulated transient ingest panic");
-                }
+                assert!(
+                    !self.should_panic.swap(false, Ordering::SeqCst),
+                    "simulated transient ingest panic"
+                );
                 let path = data_dir.join("panicky.json");
                 std::fs::write(&path, "[{\"id\":1}]").map_err(DbError::Io)?;
                 Ok(())
@@ -411,9 +412,10 @@ mod tests {
                 "panicky_warn"
             }
             fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
-                if self.should_panic.swap(false, Ordering::SeqCst) {
-                    panic!("simulated transient ingest panic");
-                }
+                assert!(
+                    !self.should_panic.swap(false, Ordering::SeqCst),
+                    "simulated transient ingest panic"
+                );
                 let path = data_dir.join("panicky_warn.json");
                 std::fs::write(&path, "[{\"id\":1}]").map_err(DbError::Io)?;
                 Ok(())

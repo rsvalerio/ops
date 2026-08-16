@@ -1,6 +1,16 @@
 //! Metadata extension: runs `cargo metadata` and provides workspace info as JSON.
 //! DuckDB is the single source of truth - metadata is loaded into metadata_raw table.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 mod ingestor;
 #[cfg(test)]
 mod tests;
@@ -239,7 +249,7 @@ fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Valu
         .query_row(
             "SELECT count(*) FROM metadata_raw",
             [],
-            |row: &duckdb::Row| row.get(0),
+            |row: &duckdb::Row<'_>| row.get(0),
         )
         .context("counting metadata_raw rows")?;
     anyhow::ensure!(
@@ -264,7 +274,7 @@ fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Valu
                          THEN NULL ELSE to_json(m)::VARCHAR END AS payload \
              FROM metadata_raw m",
             duckdb::params![i64::try_from(cap).unwrap_or(i64::MAX)],
-            |row: &duckdb::Row| Ok((row.get(0)?, row.get(1)?)),
+            |row: &duckdb::Row<'_>| Ok((row.get(0)?, row.get(1)?)),
         )
         .context("reading metadata_raw payload with cap guard")?;
     drop(conn);

@@ -7,6 +7,16 @@
 //! `tokei` has no model for, since `#[cfg(test)]` blocks live in the
 //! same file as the code they exercise.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 pub mod counter;
 mod ingestor;
 #[cfg(test)]

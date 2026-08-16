@@ -65,7 +65,7 @@ impl EchoGuard {
             //   preserved byte-for-byte. `tcsetattr` only reads from this pointer.
             // - TCSANOW applies immediately without draining pending output, which
             //   is what we want while a progress bar is already on screen.
-            let ret = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &modified) };
+            let ret = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw const modified) };
             if ret != 0 {
                 tracing::debug!("tcsetattr failed, skipping echo suppression");
                 return Self { original: None };

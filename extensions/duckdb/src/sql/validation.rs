@@ -88,6 +88,11 @@ impl TableName {
     /// a valid SQL identifier (`[A-Za-z_][A-Za-z0-9_]*`). Designed to be
     /// called from `const fn` constructors so the static-table-name
     /// invariant is enforced at build time.
+    ///
+    /// # Panics
+    ///
+    /// If `s` is not a valid SQL identifier. In a `const` context this is a
+    /// compile-time error; at runtime it aborts the process.
     #[must_use]
     pub const fn from_static(s: &'static str) -> Self {
         assert!(
@@ -693,7 +698,7 @@ mod tests {
     /// guard from the byte-length guard.
     #[test]
     fn validate_extra_opts_rejects_excess_pair_count() {
-        let pairs: Vec<String> = (0..(EXTRA_OPTS_MAX_PAIRS + 1))
+        let pairs: Vec<String> = (0..=EXTRA_OPTS_MAX_PAIRS)
             .map(|i| format!("k{i}=v"))
             .collect();
         let big = pairs.join(",");

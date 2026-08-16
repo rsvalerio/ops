@@ -40,6 +40,9 @@ pub fn discover(root: &Path, tracked_only: bool) -> std::io::Result<Vec<PathBuf>
     walk(root)
 }
 
+// Returns `io::Result` to match `discover`'s signature and the tracked-file
+// walker it alternates with; per-entry IO errors are skipped, not surfaced.
+#[allow(clippy::unnecessary_wraps)]
 fn walk(root: &Path) -> std::io::Result<Vec<PathBuf>> {
     // `hidden(false)` keeps dotfiles (`.ops.toml`, `.gitignore`, …) in scope;
     // only ignore rules and the deny-list remove entries. Filesystem errors on
@@ -84,9 +87,8 @@ fn tracked_files(root: &Path) -> Option<Vec<PathBuf>> {
         if chunk.is_empty() {
             continue;
         }
-        let rel = match std::str::from_utf8(chunk) {
-            Ok(s) => s,
-            Err(_) => continue,
+        let Ok(rel) = std::str::from_utf8(chunk) else {
+            continue;
         };
         out.push(root.join(rel));
     }

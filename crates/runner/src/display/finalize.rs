@@ -162,7 +162,7 @@ impl ProgressDisplay {
             pb.finish_with_message(separator_message);
         } else if separator.is_empty() {
             write_stderr(None);
-        } else if let Err(e) = write!(io::stderr(), "{}", separator) {
+        } else if let Err(e) = write!(io::stderr(), "{separator}") {
             tracing::debug!(error = %e, "stderr write failed");
         }
     }

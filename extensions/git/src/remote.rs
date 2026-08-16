@@ -128,7 +128,7 @@ fn is_valid_host(host: &str) -> bool {
     if first == b'-' || first == b'.' || last == b'-' || last == b'.' {
         return false;
     }
-    if host.split('.').any(|label| label.is_empty()) {
+    if host.split('.').any(str::is_empty) {
         return false;
     }
     bytes

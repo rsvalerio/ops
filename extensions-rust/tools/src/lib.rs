@@ -5,6 +5,16 @@
 //! - [`probe`]   — detect toolchain + installed cargo tools / rustup components
 //! - [`install`] — install cargo tools and rustup components via subprocess
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 mod install;
 mod install_timeout;
 mod probe;

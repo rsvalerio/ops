@@ -231,7 +231,7 @@ readme = { file = "docs/README.md" }
     let manifest = CargoToml::parse(toml).expect("should parse");
     match manifest.package.unwrap().readme {
         Some(ReadmeSpec::Table { file }) => assert_eq!(file, "docs/README.md"),
-        other => panic!("expected Table variant, got {:?}", other),
+        other => panic!("expected Table variant, got {other:?}"),
     }
 }
 

@@ -74,7 +74,7 @@ pub(super) fn read_capped<R: Read>(
                     dropped = dropped.saturating_add((n - remaining) as u64);
                 }
             }
-            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
             Err(e) => return (dropped, Some(e)),
         }
     }
@@ -341,8 +341,7 @@ mod tests {
         );
         assert!(
             elapsed < std::time::Duration::from_secs(2),
-            "post-cap discard took {:?}; the io::copy fast path should keep this well under a second",
-            elapsed
+            "post-cap discard took {elapsed:?}; the io::copy fast path should keep this well under a second"
         );
     }
 

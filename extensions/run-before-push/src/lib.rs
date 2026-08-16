@@ -1,5 +1,15 @@
 //! Run-before-push hook extension: install and manage git pre-push hooks.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 use ops_extension::ExtensionType;
 
 pub const NAME: &str = "run-before-push";

@@ -76,7 +76,7 @@ pub(crate) fn run_cargo_llvm_cov(
 /// a regular non-zero exit (`status {code}`). Drifting between
 /// `"signal"` and `"exit_code = None"` previously broke grep-on-logs
 /// (TASK-1099).
-pub(crate) fn format_cargo_exit(status: &ExitStatus) -> String {
+pub(crate) fn format_cargo_exit(status: ExitStatus) -> String {
     match status.code() {
         Some(code) => format!("status {code}"),
         None => "exit_code = None (terminated by signal)".to_string(),
@@ -95,7 +95,7 @@ pub(crate) fn format_cargo_exit(status: &ExitStatus) -> String {
 pub(crate) fn check_llvm_cov_output(output: &Output) -> Result<(), anyhow::Error> {
     if !output.status.success() {
         let tail = format_error_tail(&output.stderr, 5);
-        let marker = format_cargo_exit(&output.status);
+        let marker = format_cargo_exit(output.status);
         // Preserve the historical "status 0" / "exit_code = None (terminated
         // by signal)" Display shape so log greps that pre-date TASK-1560
         // keep matching. PATTERN-1 / TASK-1099: keep "cargo llvm-cov" prefix

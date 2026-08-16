@@ -28,6 +28,7 @@ use crate::manifest_io::read_optional_text;
 /// unsupported and fails **closed** — the candidate is dropped (treated as
 /// matching) and a `tracing::warn` is emitted, rather than the previous
 /// fail-open behaviour that silently let the unit through.
+#[allow(clippy::too_many_lines)]
 pub fn resolve_member_globs(
     members: &[String],
     excludes: &[String],
@@ -116,44 +117,40 @@ pub fn resolve_member_globs(
                             // sides as a fallback, log a tracing breadcrumb
                             // either way, and fall back to the absolute
                             // path so the unit is not silently lost.
-                            let rel_string = match path.strip_prefix(root) {
-                                Ok(rel) => rel.to_string_lossy().to_string(),
-                                Err(_) => {
-                                    // PERF-3 / TASK-1149: hoist the
-                                    // root-canonicalize out of the per-entry
-                                    // loop so a 200-entry symlinked-root tree
-                                    // pays one canonicalize for the root
-                                    // (plus one per entry path) instead of
-                                    // 200 root canonicalizes.
-                                    let root_canon = root_canonical
-                                        .get_or_insert_with(|| std::fs::canonicalize(root).ok())
-                                        .as_deref();
-                                    let canonical_rel = root_canon.and_then(|root_canon| {
-                                        std::fs::canonicalize(&path).ok().and_then(|p_canon| {
-                                            p_canon
-                                                .strip_prefix(root_canon)
-                                                .ok()
-                                                .map(|r| r.to_string_lossy().to_string())
-                                        })
-                                    });
-                                    match canonical_rel {
-                                        Some(rel) => {
-                                            tracing::debug!(
-                                                root = ?root.display(),
-                                                path = ?path.display(),
-                                                "workspace strip_prefix failed; recovered via canonicalize"
-                                            );
-                                            rel
-                                        }
-                                        None => {
-                                            tracing::warn!(
-                                                root = ?root.display(),
-                                                path = ?path.display(),
-                                                "workspace strip_prefix failed and canonicalize did not recover; falling back to absolute path so manifest is not silently dropped"
-                                            );
-                                            path.to_string_lossy().to_string()
-                                        }
-                                    }
+                            let rel_string = if let Ok(rel) = path.strip_prefix(root) {
+                                rel.to_string_lossy().to_string()
+                            } else {
+                                // PERF-3 / TASK-1149: hoist the
+                                // root-canonicalize out of the per-entry
+                                // loop so a 200-entry symlinked-root tree
+                                // pays one canonicalize for the root
+                                // (plus one per entry path) instead of
+                                // 200 root canonicalizes.
+                                let root_canon = root_canonical
+                                    .get_or_insert_with(|| std::fs::canonicalize(root).ok())
+                                    .as_deref();
+                                let canonical_rel = root_canon.and_then(|root_canon| {
+                                    std::fs::canonicalize(&path).ok().and_then(|p_canon| {
+                                        p_canon
+                                            .strip_prefix(root_canon)
+                                            .ok()
+                                            .map(|r| r.to_string_lossy().to_string())
+                                    })
+                                });
+                                if let Some(rel) = canonical_rel {
+                                    tracing::debug!(
+                                        root = ?root.display(),
+                                        path = ?path.display(),
+                                        "workspace strip_prefix failed; recovered via canonicalize"
+                                    );
+                                    rel
+                                } else {
+                                    tracing::warn!(
+                                        root = ?root.display(),
+                                        path = ?path.display(),
+                                        "workspace strip_prefix failed and canonicalize did not recover; falling back to absolute path so manifest is not silently dropped"
+                                    );
+                                    path.to_string_lossy().to_string()
                                 }
                             };
                             resolved.push((rel_string, manifest));
@@ -562,8 +559,8 @@ mod tests {
     #[test]
     fn suffix_after_star_is_skipped_with_warning() {
         let dir = tempfile::tempdir().unwrap();
-        write(&dir.path().join("packages/a/package.json"), r#"{}"#);
-        write(&dir.path().join("apps/web/package.json"), r#"{}"#);
+        write(&dir.path().join("packages/a/package.json"), r"{}");
+        write(&dir.path().join("apps/web/package.json"), r"{}");
 
         let resolved = resolve_member_globs(
             &["packages/*/sub".to_string(), "apps/*".to_string()],
@@ -586,8 +583,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Populate top-level dirs that the pre-fix behaviour would have
         // brute-force enumerated when prefix collapsed to `""`.
-        write(&dir.path().join("a/package.json"), r#"{}"#);
-        write(&dir.path().join("b/package.json"), r#"{}"#);
+        write(&dir.path().join("a/package.json"), r"{}");
+        write(&dir.path().join("b/package.json"), r"{}");
 
         let resolved =
             resolve_member_globs(&["**/foo".to_string()], &[], dir.path(), "package.json");

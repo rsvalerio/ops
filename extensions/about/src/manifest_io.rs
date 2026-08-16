@@ -60,9 +60,11 @@ pub fn read_optional_text(path: &Path, kind: &str) -> Option<String> {
     let preallocate = file
         .metadata()
         .ok()
-        .map(|m| m.len().min(MAX_MANIFEST_BYTES))
-        .unwrap_or(0);
-    let mut buf = String::with_capacity(preallocate as usize);
+        .map_or(0, |m| m.len().min(MAX_MANIFEST_BYTES));
+    // `preallocate` is already clamped to MAX_MANIFEST_BYTES, so the only
+    // platform where this could truncate is one whose usize cannot hold the
+    // cap; saturating there just means a smaller preallocation.
+    let mut buf = String::with_capacity(usize::try_from(preallocate).unwrap_or(usize::MAX));
     let limit = MAX_MANIFEST_BYTES.saturating_add(1);
     match (&mut file).take(limit).read_to_string(&mut buf) {
         Ok(_) => {}

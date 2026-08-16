@@ -62,6 +62,9 @@ use super::super::{merge::merge_config, Config};
 /// [`reset_global_config_path_cache`] can clear the cache between scenarios
 /// in a single binary — the runtime contract used to be "tests MUST set env
 /// before any code path triggers load_config", enforced only by comment.
+// The nesting is meaningful: the outer `Option` is "has the cache been
+// populated?", the inner one is "was a global config found?".
+#[allow(clippy::option_option)]
 static GLOBAL_CONFIG_PATH: RwLock<Option<Option<PathBuf>>> = RwLock::new(None);
 
 fn global_config_path() -> Option<PathBuf> {
@@ -120,6 +123,10 @@ impl Default for GlobalConfigPathResetToken {
 /// The `_token` parameter is a capability marker: see
 /// [`GlobalConfigPathResetToken`]. Production builds (no `test-support`
 /// feature) cannot construct the token and therefore cannot call the hook.
+///
+/// # Panics
+///
+/// If the `GLOBAL_CONFIG_PATH` lock is poisoned by a panic in another test.
 #[cfg(any(test, feature = "test-support"))]
 pub fn reset_global_config_path_cache(_token: GlobalConfigPathResetToken) {
     let mut w = GLOBAL_CONFIG_PATH

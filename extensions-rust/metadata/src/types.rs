@@ -27,12 +27,11 @@ trait JsonValueExt {
     where
         F: FnOnce(&serde_json::Value) -> Option<T>,
     {
-        match self.get_field(field).and_then(extract) {
-            Some(v) => v,
-            None => {
-                tracing::debug!(field, "metadata field missing, using fallback");
-                default
-            }
+        if let Some(v) = self.get_field(field).and_then(extract) {
+            v
+        } else {
+            tracing::debug!(field, "metadata field missing, using fallback");
+            default
         }
     }
 
@@ -74,7 +73,7 @@ impl JsonValueExt for serde_json::Value {
     }
 
     fn get_bool_or(&self, field: &str, default: bool) -> bool {
-        self.get_or(field, |v| v.as_bool(), default)
+        self.get_or(field, serde_json::Value::as_bool, default)
     }
 
     fn array_iter<'a>(
@@ -161,6 +160,8 @@ pub struct Metadata {
     caches: MetadataCaches,
 }
 
+// The omission of `inner` and `caches` is the point of this impl.
+#[allow(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for Metadata {
     /// TRAIT-1 / TASK-1541: surface coarse summary counts rather than dumping
     /// the entire `Arc<Value>` payload (cargo metadata routinely exceeds 1 MB
@@ -460,27 +461,27 @@ impl<'a> Package<'a> {
 
     /// The library target if present.
     pub fn lib_target(&self) -> Option<Target<'a>> {
-        self.targets().find(|t| t.is_lib())
+        self.targets().find(Target::is_lib)
     }
 
     /// Binary targets only.
     pub fn bin_targets(&self) -> impl Iterator<Item = Target<'a>> {
-        self.targets().filter(|t| t.is_bin())
+        self.targets().filter(Target::is_bin)
     }
 
     /// Test targets only.
     pub fn test_targets(&self) -> impl Iterator<Item = Target<'a>> {
-        self.targets().filter(|t| t.is_test())
+        self.targets().filter(Target::is_test)
     }
 
     /// Example targets only.
     pub fn example_targets(&self) -> impl Iterator<Item = Target<'a>> {
-        self.targets().filter(|t| t.is_example())
+        self.targets().filter(Target::is_example)
     }
 
     /// Benchmark targets only.
     pub fn bench_targets(&self) -> impl Iterator<Item = Target<'a>> {
-        self.targets().filter(|t| t.is_bench())
+        self.targets().filter(Target::is_bench)
     }
 }
 
@@ -580,7 +581,7 @@ impl<'a> Target<'a> {
         json_str_with_fallback(self.inner, "src_path", "")
     }
 
-    /// Target kinds (e.g., ["lib"], ["bin"], ["test"]).
+    /// Target kinds (e.g., `["lib"]`, `["bin"]`, `["test"]`).
     pub fn kinds(&self) -> impl Iterator<Item = &'a str> {
         self.inner.array_str_iter("kind")
     }

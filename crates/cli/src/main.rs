@@ -1,5 +1,15 @@
 //! CLI entry point and orchestration for ops.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 // Force the linker to retain extension crates that only register via linkme
 // distributed slices (no other symbols are referenced from the main binary).
 #[cfg(feature = "stack-go")]
@@ -59,7 +69,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-use args::*;
+use args::{hide_irrelevant_commands, preprocess_args, Cli, CommandFactory, CoreSubcommand};
 use help::{is_toplevel_help, print_categorized_help};
 use subcommands::{
     run_about, run_before_commit, run_before_push, run_check_json, run_check_yaml,
@@ -266,7 +276,7 @@ fn dispatch(
             return run_before_push(std::sync::Arc::clone(early_config), action);
         }
         Some(CoreSubcommand::About { refresh, action }) => {
-            run_about(early_config, refresh, action)?
+            run_about(early_config, refresh, action)?;
         }
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Deps { refresh }) => run_deps(early_config, refresh)?,

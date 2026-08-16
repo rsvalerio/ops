@@ -117,6 +117,7 @@ pub fn build_identity_value(
     // corrupting the `project_root` field of every downstream identity
     // JSON. See module-level / fn-level docs for the shared contract
     // with `upsert_data_source`'s `NonUtf8Path`.
+    #[allow(clippy::unnecessary_debug_formatting)]
     let project_root = cwd.to_str().ok_or_else(|| {
         // ERR-1 / TASK-1211: render the offending OsStr via `Debug` so
         // invalid UTF-8 bytes are escaped as `\xNN` rather than replaced

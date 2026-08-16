@@ -173,7 +173,7 @@ impl DuckDb {
     pub(crate) fn ingest_lock_count(&self) -> usize {
         self.ingest_locks
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .len()
     }
 
@@ -280,8 +280,7 @@ mod tests {
             assert!(result.is_err(), "readonly open of nonexistent should fail");
             assert!(
                 !missing_parent.exists(),
-                "open_readonly must not mkdir parent: {:?}",
-                missing_parent
+                "open_readonly must not mkdir parent: {missing_parent:?}"
             );
         }
     }

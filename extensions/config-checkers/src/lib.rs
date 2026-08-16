@@ -7,6 +7,16 @@
 //! each file, and reports a [`CheckerReport`] so the CLI can exit non-zero
 //! when at least one file failed to parse. Files are never modified.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 pub mod json;
 pub mod yaml;
 

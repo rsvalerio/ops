@@ -164,7 +164,7 @@ args = ["/C", "exit", "1"]"#
 args = []"#
         };
         let (_dir, _guard) =
-            crate::test_utils::with_temp_config(&format!("[commands.fail_cmd]\n{}\n", fail_cmd));
+            crate::test_utils::with_temp_config(&format!("[commands.fail_cmd]\n{fail_cmd}\n"));
 
         let result = run_command(
             std::sync::Arc::new(ops_core::config::load_config_or_default("test")),

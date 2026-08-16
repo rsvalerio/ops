@@ -176,13 +176,13 @@ fn write_theme_select_result(
     workspace_root: &Path,
 ) -> anyhow::Result<()> {
     if selected_name == current_theme {
-        writeln!(w, "Theme already set to '{}'", selected_name)?;
+        writeln!(w, "Theme already set to '{selected_name}'")?;
         return Ok(());
     }
 
     update_theme_in_config(workspace_root, selected_name)?;
 
-    writeln!(w, "Theme set to '{}'", selected_name)?;
+    writeln!(w, "Theme set to '{selected_name}'")?;
     Ok(())
 }
 
@@ -306,9 +306,9 @@ columns = 80
 
     #[test]
     fn update_toml_theme_no_theme_key() {
-        let input = r#"[output]
+        let input = r"[output]
 columns = 80
-"#;
+";
         let result = update_toml_theme(input, "classic");
         assert!(result.contains(r#"theme = "classic""#));
         assert!(result.contains("columns = 80"));
@@ -331,7 +331,7 @@ build = "cargo build"
             description: "Bold tree-style".to_string(),
             is_custom: false,
         };
-        let display = format!("{}", opt);
+        let display = format!("{opt}");
         assert!(display.contains("classic"));
         assert!(display.contains("Bold tree-style"));
     }
@@ -343,7 +343,7 @@ build = "cargo build"
             description: "Custom theme".to_string(),
             is_custom: true,
         };
-        let display = format!("{}", opt);
+        let display = format!("{opt}");
         assert!(display.contains("(custom)"));
     }
 
@@ -373,7 +373,7 @@ build = "cargo build"
             description: "Custom theme".to_string(),
             is_custom: true,
         };
-        let display = format!("{}", opt);
+        let display = format!("{opt}");
 
         // Both surfaces produce the same `name   description (custom)` ordering.
         assert_eq!(display, "my-theme   Custom theme (custom)");

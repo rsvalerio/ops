@@ -127,7 +127,7 @@ mod tests {
         table.add_row(row);
         let output = table.to_string();
         assert!(output.contains("Name"));
-        assert!(output.contains("a"));
+        assert!(output.contains('a'));
     }
 
     #[test]

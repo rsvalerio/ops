@@ -475,11 +475,16 @@ impl CommandRunner {
             .map_err(anyhow::Error::from)?;
         debug!(command_id, steps = plan.len(), "running command");
 
+        // API-9: CommandSpec is #[non_exhaustive] in ops-core, so the
+        // wildcard arm below is required, not a lazy catch-all.
+        #[allow(clippy::match_wildcard_for_single_variants)]
         let results = match spec {
             CommandSpec::Composite(c) if c.parallel => {
                 self.run_plan_parallel(&plan, c.fail_fast, on_event).await
             }
             CommandSpec::Composite(c) => self.run_plan(&plan, c.fail_fast, on_event).await,
+            // API-9: CommandSpec is #[non_exhaustive]; Exec and any future
+            // variant run as a single fail-fast step.
             _ => self.run_plan(&plan, true, on_event).await,
         };
         Ok(results)

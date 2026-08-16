@@ -80,6 +80,11 @@ pub use tracing_capture::TracingBuf;
 /// Each `about` extension's per-provider test calls this with a value
 /// shaped like its own tracing site, so removing one provider's site
 /// does not weaken sweep coverage elsewhere.
+///
+/// # Panics
+///
+/// If `value`'s `Debug` rendering leaks a raw newline or ANSI escape — that
+/// is the assertion this helper exists to make.
 pub fn assert_debug_escapes_control_chars<T: std::fmt::Debug>(value: T) {
     let rendered = format!("{value:?}");
     assert!(

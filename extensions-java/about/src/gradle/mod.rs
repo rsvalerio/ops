@@ -104,9 +104,8 @@ fn parse_gradle_properties(project_root: &Path) -> Option<GradleProperties> {
             // .properties syntax: `key = value`, `key:value`, or `key value`
             // (we accept = and : here; trailing # / ! is a comment).
             let rest = rest.trim_start();
-            let rest = match rest.strip_prefix('=').or_else(|| rest.strip_prefix(':')) {
-                Some(r) => r,
-                None => return,
+            let Some(rest) = rest.strip_prefix('=').or_else(|| rest.strip_prefix(':')) else {
+                return;
             };
             let value = strip_properties_comment(rest).trim();
             if !value.is_empty() {
@@ -155,15 +154,12 @@ fn parse_include_line(line: &str, includes: &mut Vec<String>) {
     if stripped.starts_with("include(") {
         let mut remaining = stripped;
         while let Some(rest) = remaining.strip_prefix("include(") {
-            match split_at_unquoted_close_paren(rest) {
-                Some((args, after)) => {
-                    extract_quoted_list(args, includes);
-                    remaining = after.trim_start().trim_start_matches(';').trim_start();
-                }
-                None => {
-                    extract_quoted_list(rest, includes);
-                    break;
-                }
+            if let Some((args, after)) = split_at_unquoted_close_paren(rest) {
+                extract_quoted_list(args, includes);
+                remaining = after.trim_start().trim_start_matches(';').trim_start();
+            } else {
+                extract_quoted_list(rest, includes);
+                break;
             }
         }
     } else if let Some(rest) = stripped.strip_prefix("include ") {

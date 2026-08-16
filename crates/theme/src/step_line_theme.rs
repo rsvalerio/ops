@@ -13,25 +13,35 @@ pub fn format_duration(secs: f64) -> String {
         return "--".to_string();
     }
     if secs < 60.0 {
-        return format!("{:.2}s", secs);
+        return format!("{secs:.2}s");
     }
     // ERR-5 / TASK-0857: explicit clamp into the f64-representable u64 range
     // before the lossy `as u64` cast — replaces the prior `try_from(_ as i128)`
     // indirection whose intent (saturate huge f64 to u64::MAX) was hidden in
     // the cast chain. NaN was already rejected above; only finite, ≥ 0
     // values reach here.
-    let clamped = secs.trunc().clamp(0.0, u64::MAX as f64);
-    let total_secs = clamped as u64;
+    // The casts are the point: `u64::MAX as f64` rounds up to the nearest
+    // representable f64 (the clamp bound), and `clamped as u64` saturates
+    // there. Both directions are intended and bounded by the guards above.
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
+    let total_secs = {
+        let clamped = secs.trunc().clamp(0.0, u64::MAX as f64);
+        clamped as u64
+    };
     if total_secs < 3600 {
         let mins = total_secs / 60;
         let remaining = total_secs % 60;
-        format!("{}m{}s", mins, remaining)
+        format!("{mins}m{remaining}s")
     } else {
         let hours = total_secs / 3600;
         let remaining = total_secs % 3600;
         let mins = remaining / 60;
         let secs_part = remaining % 60;
-        format!("{}h{}m{}s", hours, mins, secs_part)
+        format!("{hours}h{mins}m{secs_part}s")
     }
 }
 

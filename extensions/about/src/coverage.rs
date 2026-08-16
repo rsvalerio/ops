@@ -132,7 +132,7 @@ fn format_coverage_table(units: &[&ops_core::project_identity::UnitCoverage]) ->
         let pct = u.stats.lines_percent;
         let color = coverage_color(pct);
         let icon = coverage_icon(pct);
-        let pct_str = format!("{:.1}%", pct);
+        let pct_str = format!("{pct:.1}%");
         table.add_row(vec![
             table.cell(icon, color),
             table.cell(&u.unit_name, color),
@@ -212,8 +212,7 @@ mod tests {
         // The blank separator sits immediately before the total.
         assert!(
             lines[lines.len() - 2].is_empty(),
-            "blank before total: {:?}",
-            lines
+            "blank before total: {lines:?}"
         );
         // Exactly one table block between the leading blank and the pre-total blank.
         let table_block: Vec<&String> = lines[1..lines.len() - 2].iter().collect();

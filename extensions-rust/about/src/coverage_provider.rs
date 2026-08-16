@@ -60,7 +60,7 @@ pub(crate) fn cached_query_project_coverage(db: &DuckDb) -> Option<CrateCoverage
     let slot: CoverageSlot = {
         let mut guard = project_coverage_cache()
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         Arc::clone(
             guard
                 .entry(key)
@@ -364,7 +364,7 @@ mod cache_tests {
             // Confirm the slot exists under id `a` after priming.
             let guard = super::project_coverage_cache()
                 .lock()
-                .unwrap_or_else(|p| p.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             assert!(
                 guard.contains_key(&id),
                 "priming must insert a slot for instance a's id"
@@ -387,7 +387,7 @@ mod cache_tests {
         // from it.
         let guard = super::project_coverage_cache()
             .lock()
-            .unwrap_or_else(|p| p.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         assert!(
             guard.contains_key(&b_id),
             "b's lookup must populate a slot under its own id"

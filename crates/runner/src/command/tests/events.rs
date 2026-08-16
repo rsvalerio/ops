@@ -46,7 +46,11 @@ mod emit_output_edge_tests {
     #[test]
     fn emit_output_events_with_many_lines() {
         let mut events: Vec<RunnerEvent> = Vec::new();
-        let many_lines: String = (0..1000).map(|i| format!("line{}\n", i)).collect();
+        let mut many_lines = String::new();
+        for i in 0..1000 {
+            use std::fmt::Write as _;
+            let _ = writeln!(many_lines, "line{i}");
+        }
         emit("test", &many_lines, "", &mut |e| events.push(e));
 
         assert_eq!(events.len(), 1000);

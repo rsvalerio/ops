@@ -23,7 +23,7 @@ fn resolve_field(
 ) -> Option<String> {
     pkg.and_then(&pkg_getter)
         .or_else(|| ws_pkg.and_then(&ws_getter))
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
 }
 
 pub(super) fn resolve_identity_fields(

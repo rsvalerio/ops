@@ -39,13 +39,14 @@ pub fn collect_compiled_extensions(
     ops_extension::EXTENSION_REGISTRY
         .iter()
         .enumerate()
-        .filter_map(|(slot, factory)| match factory(config, workspace_root) {
-            Some(pair) => Some(pair),
-            None => {
+        .filter_map(|(slot, factory)| {
+            if let Some(pair) = factory(config, workspace_root) {
+                Some(pair)
+            } else {
                 debug!(
-                    slot,
-                    "extension factory declined to construct (returned None); compiled in but inactive"
-                );
+                slot,
+                "extension factory declined to construct (returned None); compiled in but inactive"
+            );
                 None
             }
         })
@@ -247,7 +248,7 @@ pub(super) fn dedup_compiled_extensions(
 
 /// Convert boxed extensions to trait-object references.
 pub fn as_ext_refs(exts: &[Box<dyn Extension>]) -> Vec<&dyn Extension> {
-    exts.iter().map(|b| b.as_ref()).collect()
+    exts.iter().map(std::convert::AsRef::as_ref).collect()
 }
 
 /// Collect metadata/info for all extensions.

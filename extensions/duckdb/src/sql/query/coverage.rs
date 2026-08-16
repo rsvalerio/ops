@@ -34,6 +34,11 @@ pub fn query_project_coverage(db: &DuckDb) -> anyhow::Result<CrateCoverage> {
 /// Returns a map of member path -> CrateCoverage. Members with no matching
 /// files get zeroed coverage. Handles both absolute and relative filenames
 /// from LLVM coverage output.
+///
+/// # Panics
+///
+/// If the static join alias `"c"` fails identifier validation, which can only
+/// happen if `ColumnAlias::new`'s rules change.
 pub fn query_crate_coverage(
     db: &DuckDb,
     member_paths: &[&str],

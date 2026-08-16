@@ -9,6 +9,16 @@
 //! - [`install`]: hook file installation with symlink/out-of-tree defenses.
 //! - [`config`]: `.ops.toml` mutation to register the hook's composite command.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 pub mod config;
 pub mod git;
 pub mod git_state;

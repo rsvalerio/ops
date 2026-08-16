@@ -65,7 +65,7 @@ impl TapWriter {
         // strategy is documented as optional in the task. Subsequent lines
         // no-op rather than spamming.
         if let Some(ref mut f) = self.file {
-            if let Err(e) = writeln!(f, "{}", line) {
+            if let Err(e) = writeln!(f, "{line}") {
                 tracing::debug!(error = %e, "tap file write failed; disabling further tap writes");
                 self.truncation = Some((
                     step_id.unwrap_or("<unknown>").to_string(),
@@ -104,7 +104,7 @@ impl TapWriter {
         // existing append attempt.
         if matches!(
             self.truncation_kind,
-            Some(ErrorKind::StorageFull) | Some(ErrorKind::BrokenPipe)
+            Some(ErrorKind::StorageFull | ErrorKind::BrokenPipe)
         ) {
             tracing::debug!(
                 target: "ops::tap",

@@ -14,6 +14,16 @@
 //! Shared rendering for about subpages (units, coverage, dependencies, code)
 //! lives in the generic `ops_about` crate.
 
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 pub(crate) mod coverage_provider;
 pub(crate) mod deps_provider;
 pub(crate) mod identity;

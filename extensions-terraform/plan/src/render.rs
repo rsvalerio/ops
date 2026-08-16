@@ -139,7 +139,7 @@ Inspect the rows marked `unknown` before applying.\n"
             MODULE_COL_MIN_WIDTH,
             width.saturating_sub(NON_MODULE_COLS_RESERVED),
         );
-        table.set_max_width(3, capped as u16);
+        table.set_max_width(3, u16::try_from(capped).unwrap_or(u16::MAX));
     }
 
     format!("{banner}{table}\n")

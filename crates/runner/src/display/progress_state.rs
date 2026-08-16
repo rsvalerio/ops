@@ -149,7 +149,10 @@ impl ProgressState {
             .iter()
             .map(|id| self.resolve_step_display(id))
             .collect();
-        self.plan_command_ids = command_ids.iter().map(|id| id.to_string()).collect();
+        self.plan_command_ids = command_ids
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
         self.index_by_id.clear();
         self.index_by_id.reserve(self.steps.len());
         for (idx, (sid, _)) in self.steps.iter().enumerate() {

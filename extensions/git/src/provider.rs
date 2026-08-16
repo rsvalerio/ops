@@ -50,45 +50,45 @@ impl GitInfo {
         // ARCH-2 / TASK-0894: `raw` is a `RedactedUrl` so the type
         // system already guarantees userinfo has been stripped. Pull
         // the inner str only at the parse boundary.
-        match parse_remote_url(raw.as_str()) {
-            Some(RemoteInfo {
-                host,
-                owner,
-                repo,
-                url,
-            }) => Self {
+        if let Some(RemoteInfo {
+            host,
+            owner,
+            repo,
+            url,
+        }) = parse_remote_url(raw.as_str())
+        {
+            Self {
                 host: Some(host),
                 owner: Some(owner),
                 repo: Some(repo),
                 remote_url: Some(url),
                 branch,
-            },
-            None => {
-                // PATTERN-1 (TASK-0863): the parser intentionally rejects
-                // bracketed-IPv6 hosts and other shapes outside the reg-name
-                // allowlist. Without this breadcrumb the about card silently
-                // loses host/owner/repo with no operator clue why; debug-level
-                // keeps it out of the default log volume while remaining
-                // discoverable when someone goes looking.
-                //
-                // SEC-13 / TASK-1151: previously the fallback shipped the
-                // post-redaction `raw` string verbatim as `remote_url`. That
-                // adopts the same fail-open posture SEC-2 / TASK-1102 already
-                // closed for control-byte values: pathological scp-style
-                // inputs trim to a single segment after redaction and end up
-                // in operator-facing logs / about cards as a plausible URL.
-                // The parser is the canonical "this is a recognisable remote
-                // URL" gate, so when it rejects the value, drop `remote_url`
-                // entirely and let downstream surfaces render the absence
-                // instead of garbage.
-                tracing::debug!(
-                    raw_remote = %raw.as_str(),
-                    "git remote URL did not match parse_remote_url shape; host/owner/repo and remote_url will be omitted"
-                );
-                Self {
-                    branch,
-                    ..Self::default()
-                }
+            }
+        } else {
+            // PATTERN-1 (TASK-0863): the parser intentionally rejects
+            // bracketed-IPv6 hosts and other shapes outside the reg-name
+            // allowlist. Without this breadcrumb the about card silently
+            // loses host/owner/repo with no operator clue why; debug-level
+            // keeps it out of the default log volume while remaining
+            // discoverable when someone goes looking.
+            //
+            // SEC-13 / TASK-1151: previously the fallback shipped the
+            // post-redaction `raw` string verbatim as `remote_url`. That
+            // adopts the same fail-open posture SEC-2 / TASK-1102 already
+            // closed for control-byte values: pathological scp-style
+            // inputs trim to a single segment after redaction and end up
+            // in operator-facing logs / about cards as a plausible URL.
+            // The parser is the canonical "this is a recognisable remote
+            // URL" gate, so when it rejects the value, drop `remote_url`
+            // entirely and let downstream surfaces render the absence
+            // instead of garbage.
+            tracing::debug!(
+                raw_remote = %raw.as_str(),
+                "git remote URL did not match parse_remote_url shape; host/owner/repo and remote_url will be omitted"
+            );
+            Self {
+                branch,
+                ..Self::default()
             }
         }
     }

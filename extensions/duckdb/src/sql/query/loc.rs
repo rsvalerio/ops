@@ -87,7 +87,7 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>>
         .context("preparing query_project_languages")?;
 
     let rows = stmt
-        .query_map([], |row: &duckdb::Row| {
+        .query_map([], |row: &duckdb::Row<'_>| {
             Ok(LanguageStat::new(
                 row.get::<_, String>(0)?,
                 row.get(1)?,
@@ -167,7 +167,7 @@ pub fn query_rust_loc_summary(db: &DuckDb) -> anyhow::Result<Vec<RustLocStat>> {
         .context("preparing query_rust_loc_summary")?;
 
     let rows = stmt
-        .query_map([], |row: &duckdb::Row| {
+        .query_map([], |row: &duckdb::Row<'_>| {
             Ok(RustLocStat {
                 region: row.get(0)?,
                 files: row.get(1)?,

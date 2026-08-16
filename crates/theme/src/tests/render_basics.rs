@@ -54,7 +54,7 @@ fn classic_theme_success_with_duration() {
 fn compact_theme_success_icon() {
     let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let line = render_line(&theme, StepStatus::Succeeded, "cargo test", Some(1.50));
-    assert!(line.starts_with(" " /* left_pad */));
+    assert!(line.starts_with(' ' /* left_pad */));
     assert!(line.contains("✓ cargo test"));
     assert!(line.contains("1.50s"));
     assert!(line.contains('.'), "compact uses dot separator");
@@ -73,7 +73,7 @@ fn classic_theme_pending_no_duration() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let line = render_line(&theme, StepStatus::Pending, "cargo build", None);
     assert!(line.starts_with(" ├── ◇ cargo build"));
-    assert!(!line.contains("s"));
+    assert!(!line.contains('s'));
 }
 
 #[test]

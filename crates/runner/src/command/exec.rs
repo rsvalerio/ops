@@ -161,10 +161,10 @@ async fn spawn_capped(
         match drains.join_next_with_id().await {
             Some(Ok((id, val))) if id == stdout_handle.id() => stdout_result = Some(Ok(val)),
             Some(Ok((id, val))) if id == stderr_handle.id() => stderr_result = Some(Ok(val)),
-            Some(Ok(_)) => return Err(unexpected_drain()),
             Some(Err(e)) if e.id() == stdout_handle.id() => stdout_result = Some(Err(e)),
             Some(Err(e)) if e.id() == stderr_handle.id() => stderr_result = Some(Err(e)),
-            Some(Err(_)) => return Err(unexpected_drain()),
+            // Any join result whose id is neither drain: see `unexpected_drain`.
+            Some(_) => return Err(unexpected_drain()),
             None => return Err(missing_drain()),
         }
     }

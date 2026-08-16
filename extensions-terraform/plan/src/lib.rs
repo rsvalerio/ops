@@ -1,3 +1,13 @@
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )
+)]
+
 pub mod model;
 pub mod render;
 
@@ -268,7 +278,7 @@ fn run_terraform_pipeline(opts: &PlanOptions) -> anyhow::Result<String> {
 
     if opts.detailed_exitcode {
         match status.code() {
-            Some(0) | Some(2) => {}
+            Some(0 | 2) => {}
             _ => {
                 bail!(
                     "terraform plan failed with exit code {}",

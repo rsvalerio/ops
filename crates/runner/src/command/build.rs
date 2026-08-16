@@ -428,6 +428,9 @@ pub fn resolve_spec_cwd(
     // U+FFFD and then spawning the child in the wrong-but-similar
     // directory. Reject non-UTF-8 cwd values loudly so the operator
     // sees a real error instead of a quiet redirect.
+    // `{p:?}` is deliberate: the path is not valid UTF-8, which is exactly
+    // what this error reports, so `Display` is not available losslessly.
+    #[allow(clippy::unnecessary_debug_formatting)]
     let s = p.to_str().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,

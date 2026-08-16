@@ -323,7 +323,7 @@ fn progress_display_handles_step_skipped() {
         success: true,
     });
 
-    assert!(display.state.bars.len() == 1);
+    assert_eq!(display.state.bars.len(), 1);
 }
 
 mod edge_case_tests {
@@ -334,7 +334,7 @@ mod edge_case_tests {
     #[test]
     fn extract_stderr_tail_extracts_correct_count() {
         let lines: Vec<crate::command::OutputLine> =
-            (1..=10).map(|i| format!("line {}", i).into()).collect();
+            (1..=10).map(|i| format!("line {i}").into()).collect();
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, DEFAULT_STDERR_TAIL_LINES);
         assert_eq!(tail.len(), DEFAULT_STDERR_TAIL_LINES);
         assert_eq!(tail[0], "line 6");
@@ -360,7 +360,7 @@ mod edge_case_tests {
     #[test]
     fn extract_stderr_tail_unlimited_returns_all() {
         let lines: Vec<crate::command::OutputLine> =
-            (1..=100).map(|i| format!("line {}", i).into()).collect();
+            (1..=100).map(|i| format!("line {i}").into()).collect();
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, usize::MAX);
         assert_eq!(tail.len(), 100);
     }

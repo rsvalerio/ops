@@ -347,7 +347,9 @@ mod tests {
 
         // The map size never exceeds the cap.
         let mutex = cache.raw_mutex().expect("initialised");
-        let guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = mutex
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         assert!(
             guard.len() <= CACHE_MAX_ENTRIES,
             "cache size {} exceeds cap {CACHE_MAX_ENTRIES}",

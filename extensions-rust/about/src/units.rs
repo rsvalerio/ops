@@ -126,27 +126,24 @@ impl DataProvider for RustUnitsProvider {
                     // a debug breadcrumb rather than collapsing through
                     // `to_string_lossy` and silently keying on a U+FFFD
                     // corrupted name (sister-policy to TASK-0946).
-                    match canonical_manifest_path.to_str() {
-                        Some(key) => {
-                            let lookup = dep_counts.get(key).copied();
-                            if lookup.is_none() {
-                                tracing::debug!(
-                                    member,
-                                    manifest_path = %key,
-                                    "ERR-2 / TASK-1253: no dep_count row for canonical manifest_path"
-                                );
-                            }
-                            lookup
-                        }
-                        None => {
+                    if let Some(key) = canonical_manifest_path.to_str() {
+                        let lookup = dep_counts.get(key).copied();
+                        if lookup.is_none() {
                             tracing::debug!(
                                 member,
-                                manifest_path = ?canonical_manifest_path,
-                                "PERF-3 / TASK-1570: canonical manifest_path is not valid UTF-8; \
-                                 skipping dep_count lookup rather than collapsing through to_string_lossy"
+                                manifest_path = %key,
+                                "ERR-2 / TASK-1253: no dep_count row for canonical manifest_path"
                             );
-                            None
                         }
+                        lookup
+                    } else {
+                        tracing::debug!(
+                            member,
+                            manifest_path = ?canonical_manifest_path,
+                            "PERF-3 / TASK-1570: canonical manifest_path is not valid UTF-8; \
+                             skipping dep_count lookup rather than collapsing through to_string_lossy"
+                        );
+                        None
                     }
                 } else {
                     tracing::debug!(

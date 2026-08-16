@@ -250,7 +250,7 @@ async fn run_plan_parallel_no_fail_fast() {
     let mut events = Vec::new();
     let results = runner
         .run_plan_parallel(&["ok".into(), "fail".into()], false, &mut |e| {
-            events.push(e)
+            events.push(e);
         })
         .await;
     assert!(!results.iter().all(|r| r.success));
@@ -397,8 +397,7 @@ async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
         .expect("rx.recv must resolve — forwarder must have dropped its `outer` clone");
     assert!(
         outcome.is_none(),
-        "expected channel close (forwarder aborted, all senders dropped); got {:?}",
-        outcome
+        "expected channel close (forwarder aborted, all senders dropped); got {outcome:?}"
     );
 }
 
@@ -637,8 +636,7 @@ async fn exec_standalone_skips_when_abort_set() {
     let event = rx.recv().await.expect("should receive one event");
     assert!(
         matches!(event, RunnerEvent::StepSkipped { .. }),
-        "expected StepSkipped, got {:?}",
-        event
+        "expected StepSkipped, got {event:?}"
     );
 }
 
@@ -697,7 +695,7 @@ mod parallel_timing_tests {
         let mut events = Vec::new();
         let results = runner
             .run_plan_parallel(&["rdv_a".into(), "rdv_b".into()], true, &mut |e| {
-                events.push(e)
+                events.push(e);
             })
             .await;
 
@@ -720,7 +718,7 @@ mod parallel_failure_tests {
         let mut events = Vec::new();
         let results = runner
             .run_plan_parallel(&["fail1".into(), "fail2".into()], false, &mut |e| {
-                events.push(e)
+                events.push(e);
             })
             .await;
 

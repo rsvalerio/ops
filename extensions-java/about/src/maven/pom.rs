@@ -366,21 +366,18 @@ fn strip_xml_comments(line: &str, in_comment: &mut bool) -> String {
                 None => return out,
             }
         }
-        match rest.find("<!--") {
-            Some(start) => {
-                out.push_str(&rest[..start]);
-                // Insert a separator so e.g. `foo<!--x-->bar` doesn't
-                // collapse to `foobar` if a future caller relies on
-                // word-boundary parsing. Tag matching uses literal
-                // `<tag>` patterns so a stray space is harmless.
-                out.push(' ');
-                rest = &rest[start + 4..];
-                *in_comment = true;
-            }
-            None => {
-                out.push_str(rest);
-                return out;
-            }
+        if let Some(start) = rest.find("<!--") {
+            out.push_str(&rest[..start]);
+            // Insert a separator so e.g. `foo<!--x-->bar` doesn't
+            // collapse to `foobar` if a future caller relies on
+            // word-boundary parsing. Tag matching uses literal
+            // `<tag>` patterns so a stray space is harmless.
+            out.push(' ');
+            rest = &rest[start + 4..];
+            *in_comment = true;
+        } else {
+            out.push_str(rest);
+            return out;
         }
     }
 }
@@ -446,18 +443,15 @@ fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
             }
             _ => None,
         };
-        match decoded {
-            Some(c) => {
-                out.push(c);
-                rest = &after_amp[semi + 1..];
-            }
-            None => {
-                // Unknown entity: keep verbatim (`&entity;`) and advance.
-                out.push('&');
-                out.push_str(entity);
-                out.push(';');
-                rest = &after_amp[semi + 1..];
-            }
+        if let Some(c) = decoded {
+            out.push(c);
+            rest = &after_amp[semi + 1..];
+        } else {
+            // Unknown entity: keep verbatim (`&entity;`) and advance.
+            out.push('&');
+            out.push_str(entity);
+            out.push(';');
+            rest = &after_amp[semi + 1..];
         }
     }
     out.push_str(rest);
@@ -649,13 +643,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("pom.xml"),
-            r#"<project>
+            r"<project>
     <artifactId>mylib</artifactId>
     <scm>
         <url>https://github.com/user/mylib</url>
     </scm>
     <url>https://example.com</url>
-</project>"#,
+</project>",
         )
         .unwrap();
 
@@ -671,7 +665,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("pom.xml"),
-            r#"<project>
+            r"<project>
     <artifactId>multi</artifactId>
     <developers>
         <developer>
@@ -681,7 +675,7 @@ mod tests {
             <name>Bob</name>
         </developer>
     </developers>
-</project>"#,
+</project>",
         )
         .unwrap();
 
@@ -694,7 +688,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("pom.xml"),
-            r#"<project>
+            r"<project>
     <organization>
         <name>Acme</name>
         <url>https://acme.example</url>
@@ -702,7 +696,7 @@ mod tests {
     <scm>
         <url>https://github.com/user/myapp</url>
     </scm>
-</project>"#,
+</project>",
         )
         .unwrap();
 
@@ -744,14 +738,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("pom.xml"),
-            r#"<project>
+            r"<project>
     <licenses>
         <name>stray</name>
         <license>
             <name>Apache-2.0</name>
         </license>
     </licenses>
-</project>"#,
+</project>",
         )
         .unwrap();
 
@@ -836,10 +830,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("pom.xml"),
-            r#"<project>
+            r"<project>
     <!-- <artifactId>fake-snapshot</artifactId> -->
     <artifactId>real-release</artifactId>
-</project>"#,
+</project>",
         )
         .unwrap();
 
@@ -854,7 +848,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("pom.xml"),
-            r#"<project>
+            r"<project>
     <!--
     <artifactId>commented-out</artifactId>
     <scm>
@@ -865,7 +859,7 @@ mod tests {
     <scm>
         <url>https://example.com/new</url>
     </scm>
-</project>"#,
+</project>",
         )
         .unwrap();
 

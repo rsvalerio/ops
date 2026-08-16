@@ -83,7 +83,7 @@ pub(crate) fn log_step_results(results: &[StepResult]) {
         tracing::debug!(
             id = %r.id,
             success = r.success,
-            duration_ms = r.duration.as_millis() as u64,
+            duration_ms = u64::try_from(r.duration.as_millis()).unwrap_or(u64::MAX),
             stdout_len = r.stdout.len(),
             stderr_len = r.stderr.len(),
             message = ?r.message,

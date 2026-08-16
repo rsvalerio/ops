@@ -69,7 +69,7 @@ pub fn format_dependencies_section(deps: &ProjectDependencies, is_tty: bool) -> 
             lines.push(format!(
                 "  {}",
                 tty_style(
-                    &format!("\u{251c}\u{2500}\u{2500} {} {}", name, version),
+                    &format!("\u{251c}\u{2500}\u{2500} {name} {version}"),
                     dim,
                     is_tty,
                 )
@@ -79,7 +79,7 @@ pub fn format_dependencies_section(deps: &ProjectDependencies, is_tty: bool) -> 
         lines.push(format!(
             "  {}",
             tty_style(
-                &format!("\u{2514}\u{2500}\u{2500} {} {}", last_name, last_version),
+                &format!("\u{2514}\u{2500}\u{2500} {last_name} {last_version}"),
                 dim,
                 is_tty,
             )

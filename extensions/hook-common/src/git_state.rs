@@ -47,9 +47,8 @@ pub enum HasStagedFilesError {
 /// would revert the bounded-wait contract, so values past `max_secs` clamp
 /// down with a `tracing::warn!` breadcrumb.
 pub fn git_timeout_from_env(env_var: &str, max_secs: u64) -> Option<Duration> {
-    let raw = match std::env::var(env_var) {
-        Ok(v) => v,
-        Err(_) => return None,
+    let Ok(raw) = std::env::var(env_var) else {
+        return None;
     };
     match raw.parse::<u64>() {
         Ok(0) | Err(_) => {
@@ -125,6 +124,11 @@ pub fn read_stderr_bounded(
 /// unbounded buffer for the host's lifetime.** A future daemon caller
 /// must either close the pipe read end on `wait_timeout` return or move
 /// to a non-blocking drain that observes the parent's cancellation.
+///
+/// # Panics
+///
+/// If the spawned child has no stderr pipe, which cannot happen because the
+/// command is configured with `Stdio::piped()`.
 pub fn has_staged_files_with_timeout(
     program: &str,
     dir: &Path,

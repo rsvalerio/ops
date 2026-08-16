@@ -289,10 +289,9 @@ fn write_tmp_and_sync(tmp: &Path, dest: &Path, bytes: &[u8]) -> std::io::Result<
         let mode = std::fs::symlink_metadata(dest)
             .ok()
             .filter(|m| m.file_type().is_file())
-            .map(|m| {
+            .map_or(ATOMIC_WRITE_FALLBACK_MODE, |m| {
                 std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & ATOMIC_WRITE_MODE_MASK
-            })
-            .unwrap_or(ATOMIC_WRITE_FALLBACK_MODE);
+            });
         opts.mode(mode);
         mode
     };
@@ -307,7 +306,7 @@ fn write_tmp_and_sync(tmp: &Path, dest: &Path, bytes: &[u8]) -> std::io::Result<
     f.write_all(bytes)?;
     f.sync_all()?;
     #[cfg(test)]
-    if tests::FAIL_AFTER_SYNC.with(|c| c.get()) {
+    if tests::FAIL_AFTER_SYNC.with(std::cell::Cell::get) {
         return Err(std::io::Error::other("injected post-sync failure"));
     }
     Ok(())

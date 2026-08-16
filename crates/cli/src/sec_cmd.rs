@@ -135,6 +135,9 @@ fn is_vuln_marker(name: &str) -> bool {
 /// Markers that justify a misconfiguration / IaC scan — Dockerfiles and common
 /// infrastructure-as-code files. Trivy's `config` scan then walks the tree for
 /// every IaC file it understands; we only need one marker to switch it on.
+// The comparisons below run against `name.to_ascii_lowercase()`, so the
+// case-sensitivity the lint warns about is already handled.
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
 fn is_misconfig_marker(name: &str) -> bool {
     const EXACT: &[&str] = &[
         "Dockerfile",
@@ -160,6 +163,8 @@ fn is_misconfig_marker(name: &str) -> bool {
 
 /// Whether `name` is a YAML file by extension. Used to decide which files are
 /// worth sniffing for a Kubernetes manifest signature.
+// As in `is_misconfig_marker`: `name` is lowercased before comparison.
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
 fn is_yaml_file(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     lower.ends_with(".yaml") || lower.ends_with(".yml")
@@ -223,14 +228,12 @@ fn detect(root: &Path) -> Detected {
         if found.complete() {
             break;
         }
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(e) => e,
-            Err(_) => continue,
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
         };
         for entry in entries.flatten() {
-            let file_type = match entry.file_type() {
-                Ok(t) => t,
-                Err(_) => continue,
+            let Ok(file_type) = entry.file_type() else {
+                continue;
             };
             if file_type.is_symlink() {
                 continue;

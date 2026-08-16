@@ -289,7 +289,7 @@ fn run_commands_with_display(
         verbose,
     ))?;
 
-    let _echo_guard = EchoGuard::disable_echo();
+    let echo_guard = EchoGuard::disable_echo();
     // Parallel orchestration only pays off with >=2 leaves;
     // a 1-leaf plan with `parallel = true` shortcuts to `run_plan` in
     // `run_plan_parallel` (parallel.rs), so picking MultiThread here would
@@ -303,18 +303,18 @@ fn run_commands_with_display(
         Ok(if plan.any_parallel {
             runner
                 .run_plan_parallel(plan.leaf_ids, plan.fail_fast, &mut |event| {
-                    display.handle_event(event)
+                    display.handle_event(event);
                 })
                 .await
         } else {
             runner
                 .run_plan(plan.leaf_ids, plan.fail_fast, &mut |event| {
-                    display.handle_event(event)
+                    display.handle_event(event);
                 })
                 .await
         })
     })?;
-    drop(_echo_guard);
+    drop(echo_guard);
     log_step_results(&results);
     Ok(results)
 }

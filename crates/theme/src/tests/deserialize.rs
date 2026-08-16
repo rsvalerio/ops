@@ -59,20 +59,14 @@ fn theme_config_deserialize_invalid_field_type() {
 
 #[test]
 fn theme_config_deserialize_unknown_field() {
-    let toml = format!(
-        "{}\nunknown_field = \"this should fail\"\n",
-        MINIMAL_THEME_TOML
-    );
+    let toml = format!("{MINIMAL_THEME_TOML}\nunknown_field = \"this should fail\"\n");
     let result: Result<ThemeConfig, _> = toml::from_str(&toml);
     assert!(result.is_err(), "should fail with unknown field");
 }
 
 #[test]
 fn theme_config_deserialize_invalid_plan_header_style() {
-    let toml = format!(
-        "{}\nplan_header_style = \"invalid_style\"\n",
-        MINIMAL_THEME_TOML
-    );
+    let toml = format!("{MINIMAL_THEME_TOML}\nplan_header_style = \"invalid_style\"\n");
     let result: Result<ThemeConfig, _> = toml::from_str(&toml);
     assert!(
         result.is_err(),

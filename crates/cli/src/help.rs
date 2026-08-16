@@ -57,9 +57,7 @@ pub(crate) fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
 pub(crate) fn builtin_category(name: &str) -> &'static str {
     match name {
         "about" => "Insights",
-        "deps" => "Code Quality",
-        "trailing-whitespace" | "end-of-file-fixer" => "Code Quality",
-        "sec" => "Code Quality",
+        "deps" | "trailing-whitespace" | "end-of-file-fixer" | "sec" => "Code Quality",
         "init" | "theme" | "extension" | "tools" | "run-before-commit" | "run-before-push" => {
             "Setup"
         }
@@ -104,7 +102,10 @@ pub(crate) fn collect_command_entries(
             continue;
         }
         let name = sub.get_name().to_string();
-        let about = sub.get_about().map(|s| s.to_string()).unwrap_or_default();
+        let about = sub
+            .get_about()
+            .map(std::string::ToString::to_string)
+            .unwrap_or_default();
         let category = Some(builtin_category(&name).to_string());
         let aliases = sub.get_visible_aliases().map(String::from).collect();
         seen.insert(name.clone());
@@ -216,7 +217,8 @@ pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
         let cat = entry.category.as_deref();
         if !heading_state.matches(cat) {
             let heading = cat.unwrap_or("Commands");
-            grouped.push_str(&format!("\n{heading}:\n"));
+            use std::fmt::Write as _;
+            let _ = writeln!(grouped, "\n{heading}:");
             heading_state = HeadingState::Last(cat);
         }
         grouped.push_str("  ");
@@ -425,16 +427,16 @@ mod tests {
             name: name.to_string(),
             aliases: Vec::new(),
             about: String::new(),
-            category: category.map(|s| s.to_string()),
+            category: category.map(std::string::ToString::to_string),
         }
     }
 
     fn entry_with_aliases(name: &str, aliases: &[&str], category: Option<&str>) -> CmdEntry {
         CmdEntry {
             name: name.to_string(),
-            aliases: aliases.iter().map(|s| s.to_string()).collect(),
+            aliases: aliases.iter().map(|s| (*s).to_string()).collect(),
             about: String::new(),
-            category: category.map(|s| s.to_string()),
+            category: category.map(std::string::ToString::to_string),
         }
     }
 
@@ -781,7 +783,7 @@ mod tests {
                     Some(ops_core::output::display_width(
                         &l[..l.find("strip").unwrap()],
                     ))
-                } else if l.contains("deps") && !l.starts_with("\n") && l.starts_with("  ") {
+                } else if l.contains("deps") && !l.starts_with('\n') && l.starts_with("  ") {
                     // Skip the "Code Quality:" heading; find the about column,
                     // which is the second occurrence of "deps".
                     let idx = l.rfind("deps")?;

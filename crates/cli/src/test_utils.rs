@@ -55,7 +55,7 @@ impl CwdGuard {
         // unsafe required in Rust 2024 edition; allow unused_unsafe for 2021.
         #[allow(unused_unsafe)]
         unsafe {
-            std::env::set_current_dir(target)?
+            std::env::set_current_dir(target)?;
         };
         Ok(Self {
             _lock: lock,
@@ -207,6 +207,6 @@ mod cwd_guard_tests {
     fn cwd_guard_mutex_is_recoverable() {
         let _lock = CWD_MUTEX
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
     }
 }

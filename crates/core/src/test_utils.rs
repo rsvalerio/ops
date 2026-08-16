@@ -82,7 +82,7 @@ pub fn exec_spec_with_cwd(
 ) -> ExecCommandSpec {
     ExecCommandSpec {
         program: program.to_string(),
-        args: args.iter().map(|s| s.to_string()).collect(),
+        args: args.iter().map(std::string::ToString::to_string).collect(),
         cwd,
         ..Default::default()
     }
@@ -126,7 +126,10 @@ pub fn sleep_cmd(secs: u64) -> ExecCommandSpec {
 #[allow(dead_code)]
 pub fn composite_cmd(commands: &[&str]) -> CompositeCommandSpec {
     CompositeCommandSpec {
-        commands: commands.iter().map(|s| s.to_string()).collect(),
+        commands: commands
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect(),
         parallel: false,
         fail_fast: true,
         help: None,
@@ -139,7 +142,10 @@ pub fn composite_cmd(commands: &[&str]) -> CompositeCommandSpec {
 #[allow(dead_code)]
 pub fn parallel_cmd(commands: &[&str]) -> CompositeCommandSpec {
     CompositeCommandSpec {
-        commands: commands.iter().map(|s| s.to_string()).collect(),
+        commands: commands
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect(),
         parallel: true,
         fail_fast: true,
         help: None,
@@ -177,6 +183,7 @@ impl TestConfigBuilder {
         }
     }
 
+    #[must_use]
     pub fn exec(mut self, name: &str, program: &str, args: &[&str]) -> Self {
         self.commands.insert(
             name.to_string(),
@@ -193,11 +200,13 @@ impl TestConfigBuilder {
         CommandSpec::Exec(exec_spec(program, args))
     }
 
+    #[must_use]
     pub fn command(mut self, name: &str, spec: CommandSpec) -> Self {
         self.commands.insert(name.to_string(), spec);
         self
     }
 
+    #[must_use]
     pub fn composite(mut self, name: &str, commands: &[&str]) -> Self {
         self.commands.insert(
             name.to_string(),
@@ -206,6 +215,7 @@ impl TestConfigBuilder {
         self
     }
 
+    #[must_use]
     pub fn parallel_composite(mut self, name: &str, commands: &[&str]) -> Self {
         self.commands.insert(
             name.to_string(),
@@ -214,21 +224,25 @@ impl TestConfigBuilder {
         self
     }
 
+    #[must_use]
     pub fn theme(mut self, theme: &str) -> Self {
         self.output.theme = theme.to_string();
         self
     }
 
+    #[must_use]
     pub fn columns(mut self, columns: u16) -> Self {
         self.output.columns = columns;
         self
     }
 
+    #[must_use]
     pub fn show_error_detail(mut self, show: bool) -> Self {
         self.output.show_error_detail = show;
         self
     }
 
+    #[must_use]
     pub fn stderr_tail_lines(mut self, n: usize) -> Self {
         self.output.stderr_tail_lines = n;
         self
@@ -278,11 +292,13 @@ impl ConfigOverlayBuilder {
         }
     }
 
+    #[must_use]
     pub fn output(mut self, output: OutputConfigOverlay) -> Self {
         self.output = Some(output);
         self
     }
 
+    #[must_use]
     pub fn theme(self, theme: impl Into<String>) -> Self {
         self.output(OutputConfigOverlay {
             theme: Some(theme.into()),
@@ -290,6 +306,7 @@ impl ConfigOverlayBuilder {
         })
     }
 
+    #[must_use]
     pub fn columns(self, columns: u16) -> Self {
         self.output(OutputConfigOverlay {
             columns: Some(columns),
@@ -297,6 +314,7 @@ impl ConfigOverlayBuilder {
         })
     }
 
+    #[must_use]
     pub fn show_error_detail(self, show: bool) -> Self {
         self.output(OutputConfigOverlay {
             show_error_detail: Some(show),
@@ -304,11 +322,13 @@ impl ConfigOverlayBuilder {
         })
     }
 
+    #[must_use]
     pub fn commands(mut self, commands: IndexMap<String, CommandSpec>) -> Self {
         self.commands = Some(commands);
         self
     }
 
+    #[must_use]
     pub fn exec(self, name: &str, program: &str, args: &[&str]) -> Self {
         let mut cmds = self.commands.unwrap_or_default();
         cmds.insert(
@@ -321,6 +341,7 @@ impl ConfigOverlayBuilder {
         }
     }
 
+    #[must_use]
     pub fn composite(self, name: &str, commands: &[&str]) -> Self {
         let mut cmds = self.commands.unwrap_or_default();
         cmds.insert(
@@ -333,11 +354,13 @@ impl ConfigOverlayBuilder {
         }
     }
 
+    #[must_use]
     pub fn themes(mut self, themes: IndexMap<String, ThemeConfig>) -> Self {
         self.themes = Some(themes);
         self
     }
 
+    #[must_use]
     pub fn custom_theme(self, name: &str, theme: ThemeConfig) -> Self {
         let mut themes = self.themes.unwrap_or_default();
         themes.insert(name.to_string(), theme);
@@ -347,11 +370,13 @@ impl ConfigOverlayBuilder {
         }
     }
 
+    #[must_use]
     pub fn extensions(mut self, extensions: ExtensionConfigOverlay) -> Self {
         self.extensions = Some(extensions);
         self
     }
 
+    #[must_use]
     pub fn enabled_extensions(self, enabled: Vec<String>) -> Self {
         self.extensions(ExtensionConfigOverlay {
             enabled: Some(enabled),
@@ -379,7 +404,9 @@ impl Default for ConfigOverlayBuilder {
 }
 
 /// Create a simple test config with the given commands.
-pub fn test_config_with_commands(commands: HashMap<String, CommandSpec>) -> crate::config::Config {
+pub fn test_config_with_commands<S: std::hash::BuildHasher>(
+    commands: HashMap<String, CommandSpec, S>,
+) -> crate::config::Config {
     let mut builder = TestConfigBuilder::new();
     for (name, spec) in commands {
         builder = builder.command(&name, spec);
@@ -563,6 +590,10 @@ fn pin_global_dispatcher() {
 /// captures the formatted output (ANSI off) and returns it alongside `f`'s
 /// return value. Consolidates DUP-3: every in-process tracing-capture test
 /// in core was open-coding the same `BufWriter` + `MakeWriter` scaffold.
+///
+/// # Panics
+///
+/// If the capture buffer's lock is poisoned by a panic inside `f`.
 #[cfg(test)]
 pub fn capture_tracing<F, R>(level: tracing::Level, f: F) -> (String, R)
 where
