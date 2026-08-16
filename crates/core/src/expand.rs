@@ -496,50 +496,6 @@ mod tests {
             .expect("UTF-8 test path; from_env must succeed")
     }
 
-    /// ERR-1 / TASK-1474: when the `OPS_ROOT` cache mutex is poisoned (a
-    /// previous holder panicked), `ops_root_cache_len` must surface a
-    /// `tracing::warn!` breadcrumb pointing at the seam — the prior
-    /// implementation swallowed the poison via `unwrap_or_else(|e|
-    /// e.into_inner().map.len())` so a test would observe a "successful"
-    /// count rather than the poison that caused the flake.
-    #[test]
-    #[serial_test::serial(ops_root_cache)]
-    fn ops_root_cache_len_surfaces_poison_breadcrumb() {
-        // Populate the cache so the post-poison lookup has something to
-        // count and the test is robust to ordering.
-        let _ = cached_ops_root_arc(&PathBuf::from("/task-1474/seed"));
-
-        // Poison the lock from a thread that panics while holding it.
-        let cache: &'static Mutex<OpsRootCache> = ops_root_cache();
-        let poisoner = std::thread::spawn(move || {
-            let _guard = cache.lock().expect("lock");
-            panic!("synthetic poison for TASK-1474");
-        });
-        assert!(
-            poisoner.join().is_err(),
-            "poisoner thread must have panicked to poison the lock"
-        );
-
-        let (logs, len) =
-            crate::test_utils::capture_tracing(tracing::Level::WARN, ops_root_cache_len);
-
-        // Reset state so the rest of the test suite sees a clean cache.
-        reset_ops_root_cache();
-
-        assert!(
-            len >= 1,
-            "ops_root_cache_len must still return the recovered count, got {len}"
-        );
-        assert!(
-            logs.contains("ops_root_cache_len"),
-            "warn breadcrumb must name the recovery seam, got: {logs}"
-        );
-        assert!(
-            logs.contains("poisoned"),
-            "warn breadcrumb must mention the poison recovery, got: {logs}"
-        );
-    }
-
     #[test]
     fn expands_ops_root() {
         let vars = test_vars();

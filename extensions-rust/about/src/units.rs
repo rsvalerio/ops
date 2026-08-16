@@ -328,6 +328,7 @@ mod tests {
     /// `provide` together guarantee no `cwd.join(member)` reaches the
     /// adversarial path.
     #[test]
+    #[serial_test::serial(typed_manifest_cache)]
     fn provide_drops_absolute_and_traversal_members() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();

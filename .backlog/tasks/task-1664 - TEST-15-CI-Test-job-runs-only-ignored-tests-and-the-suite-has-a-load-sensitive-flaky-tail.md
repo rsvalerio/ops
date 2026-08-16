@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-08-15 00:00'
-updated_date: '2026-08-16 09:42'
+updated_date: '2026-08-16 12:20'
 labels:
   - ci
   - testing
@@ -146,4 +146,75 @@ Same conversion as the four already done: count the inner-loop operations
 through a seam and assert linear growth, rather than inferring it from elapsed
 time. Note `cards.rs` and `text_util.rs` are the same helper shape, so one
 conversion likely covers both.
+### AC #6 progress: the OPS_ROOT poison breadcrumb test (separate PR)
+
+Found while running CI for the lint-policy PR (#21): `Test` failed on
+`expand::tests::ops_root_cache_len_surfaces_poison_breadcrumb` and failed again
+on rerun, while main stayed green. It was **not** caused by that PR — the only
+behavioural changes it makes to `ops-core` are `from_secs(180)`→`from_mins(3)`
+(same value), `with_path` taking `&io::Error`, and one test constant;
+`expand.rs` got doc comments only and `sync.rs` was untouched.
+
+**Root cause.** `sync::lock_recover_warn` calls `Mutex::clear_poison` before
+warning, so a poisoned lock yields exactly *one* breadcrumb — whichever caller
+recovers first consumes it. The test poisoned the process-global `OPS_ROOT`
+cache and then asserted on the breadcrumb, so it was racing every other test
+that reaches that cache.
+
+**Why the obvious fix does not work.** The cache tests sat in
+`#[serial(ops_root_cache)]` while the env tests sat in the default `#[serial]`
+group, and those two groups do not serialise against each other — so the first
+attempt was to merge the groups. That is insufficient: of 27 tests in
+`expand`, **26 reach the cache and 15 of those are not serialised at all**
+(every `test_vars()` caller goes `test_vars` → `from_env` →
+`cached_ops_root_arc`). Measured, and confirmed by the merged-group build still
+failing under load on run 3 of 5.
+
+**Fix.** Deleted the racing test and moved its contract to `crates/core/src/sync.rs`,
+tested against a **stack-local** `Mutex` poisoned via `thread::scope` — nothing
+else can reach that lock, so the assertion cannot race. Three tests now cover
+the seam: the breadcrumb names the site, a healthy lock stays silent, and
+`lock_recover` recovers without warning and clears the poison.
+
+Held to this task's standard: verified the new test catches the regression it
+guards by deleting the `tracing::warn!` and confirming
+`lock_recover_warn_emits_breadcrumb_naming_the_seam` fails, then restoring it.
+20 consecutive `ops-core` runs under 16-core load: 0 failures (the old test
+reproduced locally within 5).
+
+Net coverage: `ops-core` 325 → 327 tests. AC #6 is **not** complete — the
+environment-dependent tests in the table above are untouched.
+
+### Second instance: typed_manifest_cache in ops-about-rust
+
+The `ops-core` fix above exposed the next one. `Test` on PR #22 failed on
+`query::tests::typed_manifest_cache_recovers_from_poison_with_warn` — a
+different crate, and the test this task's table already lists as
+"thread scheduling, only seen under extreme load". PR #22 does not touch
+`ops-about` at all (its diff is `crates/core/src/{expand,sync}.rs` plus this
+file), so it is pre-existing.
+
+Same root cause, different shape. `lock_typed_manifest_cache` recovers via
+`clear_poison()`, so the breadcrumb is one-shot. The failing assertion was the
+*premise* check — `"mutex must be poisoned for the test premise"` — i.e.
+something had already recovered the lock before the test looked.
+
+The wrinkle: all 10 cache tests in `query.rs` **were** correctly serialised
+under `#[serial(typed_manifest_cache)]`. The racers are in sibling modules that
+reach the same static *indirectly*, through a provider's `provide()` →
+`load_workspace_manifest`: 13 tests in `identity/mod.rs` and 1 in `units.rs`,
+none serialised. Same test binary, so they interleave freely.
+
+Fix here is the serial group rather than the local-mutex rewrite used in
+`ops-core`, because the seam does not decompose the same way:
+`lock_typed_manifest_cache` takes `&'static Mutex<TypedManifestCache>` and its
+`recovery_count` lives in a process-global `AtomicU64`, so a stack-local mutex
+would not make the count-based assertions deterministic either. Added the
+attribute to all 14, bringing every cache-reaching test to 25/25 serialised,
+and documented the invariant at `typed_manifest_cache()` so a future test added
+to `identity/mod.rs` does not silently reopen the race.
+
+Caveat on evidence: this one does **not** reproduce locally (0/10 failures on 16
+cores before the change, 0/10 after), so unlike the `ops-core` fix the load
+test cannot distinguish. CI on a 2-core runner is the real check.
 <!-- SECTION:NOTES:END -->
