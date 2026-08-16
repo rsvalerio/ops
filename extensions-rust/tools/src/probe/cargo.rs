@@ -268,3 +268,6 @@ mod cargo_builtins_drift_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

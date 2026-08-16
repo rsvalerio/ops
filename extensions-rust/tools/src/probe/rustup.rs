@@ -302,3 +302,6 @@ mod rustup_arch_drift_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;
