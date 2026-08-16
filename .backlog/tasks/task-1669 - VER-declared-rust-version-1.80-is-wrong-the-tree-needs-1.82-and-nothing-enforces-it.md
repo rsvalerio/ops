@@ -6,7 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-08-16 09:43'
-updated_date: '2026-08-16 10:31'
+updated_date: '2026-08-16 11:24'
 labels:
   - rust-code-review
   - ci
@@ -104,4 +104,36 @@ currently pins no toolchain at all, which is why this drifted unnoticed.
 Gates: `ops verify` 7/7, `ops qa` 3/3. One `ops-core` test failed on the first
 `ops qa` run and passed in isolation (325/325) and on re-run — the known
 load-sensitive tail tracked by TASK-1664 AC #6, not caused by this change.
+
+### Floor raised again to 1.97 (follow-up decision, same PR)
+
+The 1.88 above is the *dependency-forced* floor. On review the declared floor
+was set to **1.97** instead — a deliberate support-policy choice, not an
+accuracy fix: `ops` ships as prebuilt binaries and a homebrew formula, and CI
+only ever builds on latest stable, so `cargo install ops` (`crates/cli` is the
+only published crate) is the sole path MSRV actually gates.
+
+Consequence, and the reason this is not a one-line change: at a floor ≥ 1.92
+`clippy::duration_suboptimal_units` is no longer suppressed, so the nine
+timeout constants that TASK-0137 had reverted to `from_secs` are now written
+in their intended units:
+
+| Site | Was | Now |
+|---|---|---|
+| `test-coverage/src/subprocess.rs` | `from_secs(900)` | `from_mins(15)` |
+| `tools/src/install_timeout.rs` | `from_secs(600)` | `from_mins(10)` |
+| `core/src/subprocess/cap.rs`, `deps/parse/upgrade.rs` | `from_secs(180)` | `from_mins(3)` |
+| `deps/parse/deny.rs` | `from_secs(240)` | `from_mins(4)` |
+| `cargo-update/src/lib.rs`, `metadata/src/lib.rs` | `from_secs(120)` | `from_mins(2)` |
+| `hook-common/src/git_state.rs`, `core/config/tests/validate_tests.rs` | `from_secs(300)` | `from_mins(5)` |
+
+The 1.92 threshold was measured rather than assumed: with `msrv` at 1.90 the
+lint is silent, at 1.92 it fires.
+
+No lint other than `duration_suboptimal_units` changed behaviour between the
+1.88 and 1.97 floors — `incompatible_msrv` stays silent either way, since the
+tree's newest stdlib usage is 1.82.
+
+`docs/clippy.md` and the `clippy.toml` comment were rewritten: the earlier text
+explained why the lint was *suppressed*, which is no longer the case.
 <!-- SECTION:NOTES:END -->
