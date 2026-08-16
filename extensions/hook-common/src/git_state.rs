@@ -268,7 +268,7 @@ mod tests {
         let _g = EnvGuard::set(TEST_ENV, "999999999");
         assert_eq!(
             git_timeout_from_env(TEST_ENV, 300),
-            Some(Duration::from_secs(300))
+            Some(Duration::from_mins(5))
         );
     }
 }

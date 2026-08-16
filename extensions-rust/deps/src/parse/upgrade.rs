@@ -9,7 +9,7 @@ use super::truncate_for_log;
 
 /// Default timeout for `cargo upgrade --dry-run`; overridable via
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`.
-const CARGO_UPGRADE_TIMEOUT: Duration = Duration::from_secs(180);
+const CARGO_UPGRADE_TIMEOUT: Duration = Duration::from_mins(3);
 
 /// Run `cargo upgrade --dry-run` and parse the table output.
 ///

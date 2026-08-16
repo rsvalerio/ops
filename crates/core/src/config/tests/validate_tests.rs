@@ -7,7 +7,7 @@ use std::time::Duration;
 fn exec_spec_timeout_some() {
     let mut e = exec_spec("cargo", &["build"]);
     e.timeout_secs = Some(300);
-    assert_eq!(e.timeout(), Some(Duration::from_secs(300)));
+    assert_eq!(e.timeout(), Some(Duration::from_mins(5)));
 }
 
 #[test]

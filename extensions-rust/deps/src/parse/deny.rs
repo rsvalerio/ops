@@ -10,7 +10,7 @@ use super::truncate_for_log;
 
 /// Default timeout for `cargo deny check`; overridable via
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`. Advisory DB refresh can dominate runtime.
-const CARGO_DENY_TIMEOUT: Duration = Duration::from_secs(240);
+const CARGO_DENY_TIMEOUT: Duration = Duration::from_mins(4);
 
 /// FN-1 (TASK-0793): cargo-deny diagnostic class. Centralises the code →
 /// section mapping so adding a new class is one row in `CODE_CLASSES`

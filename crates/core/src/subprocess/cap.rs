@@ -31,7 +31,7 @@ pub const DEFAULT_OUTPUT_BYTE_CAP: usize = 4 * 1024 * 1024;
 
 /// Fallback timeout applied when a caller has no operation-specific default
 /// and `OPS_SUBPROCESS_TIMEOUT_SECS` is unset or unparseable.
-pub const FALLBACK_TIMEOUT: Duration = Duration::from_secs(180);
+pub const FALLBACK_TIMEOUT: Duration = Duration::from_mins(3);
 
 /// ASYNC-6 / TASK-0304: upper bound on `OPS_SUBPROCESS_TIMEOUT_SECS`.
 ///

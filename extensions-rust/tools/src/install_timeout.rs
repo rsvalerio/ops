@@ -12,7 +12,7 @@ use std::time::Duration;
 use wait_timeout::ChildExt;
 
 /// Default timeout for cargo/rustup install subprocesses.
-pub const DEFAULT_INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
+pub const DEFAULT_INSTALL_TIMEOUT: Duration = Duration::from_mins(10);
 
 /// Wait for `child` to exit; kill it and bail if it exceeds `timeout`.
 ///

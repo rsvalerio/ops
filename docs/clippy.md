@@ -137,7 +137,7 @@ concrete bug the lint would have caught.
 cognitive-complexity-threshold = 25
 too-many-arguments-threshold = 5
 type-complexity-threshold = 250
-msrv = "1.88"
+msrv = "1.97"
 ```
 
 `too-many-arguments-threshold = 5` is stricter than clippy's default of 7, which
@@ -151,15 +151,19 @@ It must stay equal to `rust-version` in the root `Cargo.toml`. It does two jobs:
 
 - `clippy::incompatible_msrv` fails the gate on any standard-library call newer
   than the declared floor, so the declaration stops silently drifting.
-- Many clippy lints are MSRV-aware and suppress a suggestion the floor cannot
-  accept. `duration_suboptimal_units` is the live example: it fires 9 times with
-  no `msrv` set, because it wants `Duration::from_mins` (Rust ~1.92), and is
-  silent with `msrv = "1.88"`.
+- MSRV-aware lints gate their *suggestions* on it, proposing a newer API only
+  once the floor can accept it.
 
-That second job is why there is no `duration_suboptimal_units = "allow"` entry.
-A hand-written allow would have to be revisited by hand when the floor rises;
-the `msrv` key states the constraint once, factually, and the lint re-enables
-itself when the floor passes 1.92.
+`duration_suboptimal_units` shows the second job. It wants
+`Duration::from_mins` / `from_hours`, stabilized in **1.92** — measured, not
+guessed: with the floor at 1.90 it is silent, at 1.92 it fires. While the floor
+sat at 1.88 the lint was suppressed and the timeout constants were written as
+`from_secs(900)`; at the current 1.97 floor it is enforced and they read
+`from_mins(15)`.
+
+This is why no `duration_suboptimal_units = "allow"` entry exists. A
+hand-written allow would need revisiting by hand every time the floor moved;
+`msrv` states the constraint once and the lint follows it automatically.
 
 **`msrv` does not cover language features** — only library APIs. `unsafe extern
 "C"` blocks (Rust 1.82) are used in `crates/core/src/{test_utils.rs,config/edit.rs}`

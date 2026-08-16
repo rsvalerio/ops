@@ -35,7 +35,7 @@ const DATA_PROVIDER_NAME: &str = "metadata";
 
 /// Default timeout for `cargo metadata`; overridable via
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`.
-pub(crate) const CARGO_METADATA_TIMEOUT: Duration = Duration::from_secs(120);
+pub(crate) const CARGO_METADATA_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// ERR-1 / TASK-1034: byte cap on the JSON payload read from
 /// `metadata_raw`. `query_metadata_raw` materialises the row as a
