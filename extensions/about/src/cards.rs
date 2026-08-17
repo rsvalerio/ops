@@ -188,6 +188,21 @@ pub(crate) fn layout_cards_in_grid(cards: &[Vec<String>]) -> Vec<String> {
 /// further narrow `CARD_WIDTH` because `render_card` pre-computes its content
 /// against a fixed inner-width and reflowing it would invalidate the
 /// pre-rendered card lines.
+/// The cells of one grid row, borrowed from the cards rather than cloned; the
+/// caller's `[&str].join(&str)` then allocates once for the whole row.
+///
+/// PERF-3 / TASK-0722: the pre-fix layout cloned every card line into an owned
+/// `String` per cell. TASK-1664 extracted this so that contract can be pinned
+/// by pointer identity in a test, rather than inferred from a wall-clock ratio
+/// that never had the resolution to see a per-cell clone (cloning is still
+/// linear — it only moves the constant).
+fn row_parts(chunk: &[Vec<String>], line_idx: usize) -> Vec<&str> {
+    chunk
+        .iter()
+        .map(|card| card.get(line_idx).map_or("", String::as_str))
+        .collect()
+}
+
 pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize) -> Vec<String> {
     if cards.is_empty() {
         return vec![];
@@ -214,13 +229,8 @@ pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize)
         let max_lines = chunk.iter().map(std::vec::Vec::len).max().unwrap_or(0);
 
         for line_idx in 0..max_lines {
-            // Borrow card lines as &str instead of cloning per cell; the
-            // resulting `[&str].join(&str)` allocates once for the row String.
-            let row_parts: Vec<&str> = chunk
-                .iter()
-                .map(|card| card.get(line_idx).map_or("", String::as_str))
-                .collect();
-            result.push(format!("  {}{}", row_parts.join(SPACING), SPACING));
+            let parts = row_parts(chunk, line_idx);
+            result.push(format!("  {}{}", parts.join(SPACING), SPACING));
         }
 
         result.push(String::new());
@@ -364,56 +374,67 @@ mod tests {
         assert_eq!(top_border_lines, cards_with_top);
     }
 
-    /// PERF-3 (TASK-0722) + TEST-15 (TASK-1044): rendering 100+ cards must
-    /// scale linearly. The pre-fix layout cloned every card line into an
-    /// owned String per cell.
+    fn build_cards(n: usize) -> Vec<Vec<String>> {
+        (0..n)
+            .map(|i| {
+                let name = format!("unit-{i}");
+                render_card(&unit(&name, &format!("crates/{name}")), false)
+            })
+            .collect()
+    }
+
+    /// PERF-3 (TASK-0722) + TEST-15 (TASK-1664): row cells must borrow the
+    /// card lines, not copy them.
     ///
-    /// TASK-1044: the previous form asserted an absolute wall-clock budget
-    /// (`elapsed < 250ms`) which is flaky on shared / coverage / sanitiser
-    /// runners. Replaced with a ratio check that compares 50-card and
-    /// 500-card runs — a 10x larger workspace must take less than ~20x as
-    /// long. The constant factor cancels so the bound holds across noisy
-    /// CI runners as well as fast developer laptops.
-    ///
-    /// TASK-1152: previous bound of 50x masked 2-3x regressions (e.g.
-    /// PERF-3 per-cell-clone drift). Tightened to 20x — still ample margin
-    /// for shared-runner jitter when combined with the min-of-3 timing
-    /// below, but small enough that a real-world 2-3x slowdown trips the
-    /// assertion.
+    /// This is the assertion that actually guards the regression. It replaces
+    /// the wall-clock half of `layout_cards_handles_large_workspace`, which
+    /// compared a 50-card and a 500-card run against a 20x bound: a per-cell
+    /// clone is still linear, so it moved the constant and never came near
+    /// that bound, while the timing itself was the most reliable failure in
+    /// the suite once tests ran in parallel. Pointer identity sees the clone
+    /// immediately and cannot flake — the same reasoning as
+    /// `emit_output_events_shares_buffer_across_lines` in ops-runner.
+    #[test]
+    fn layout_row_parts_borrow_card_lines_instead_of_cloning() {
+        let cards = build_cards(3);
+        let line_idx = 1;
+        let parts = row_parts(&cards, line_idx);
+
+        assert_eq!(parts.len(), cards.len());
+        for (card, part) in cards.iter().zip(&parts) {
+            assert_eq!(
+                part.as_ptr(),
+                card[line_idx].as_ptr(),
+                "row cell must borrow the card line; a per-cell clone would \
+                 point at fresh allocation"
+            );
+        }
+    }
+
+    /// PERF-3 (TASK-0722) + TEST-15 (TASK-1664): a large workspace lays out
+    /// into the documented grid shape — 3 cards per row at 120 columns, one
+    /// blank line between rows and none trailing — and the row count grows
+    /// with the number of card rows, not faster.
     #[test]
     fn layout_cards_handles_large_workspace() {
-        fn build_cards(n: usize) -> Vec<Vec<String>> {
-            (0..n)
-                .map(|i| {
-                    let name = format!("unit-{i}");
-                    render_card(&unit(&name, &format!("crates/{name}")), false)
-                })
-                .collect()
-        }
-        fn time_layout(cards: &[Vec<String>]) -> std::time::Duration {
-            (0..3)
-                .map(|_| {
-                    let start = std::time::Instant::now();
-                    let result = layout_cards_in_grid_with_width(cards, 120);
-                    assert!(!result.is_empty());
-                    start.elapsed()
-                })
-                .min()
-                .unwrap()
-        }
+        for n in [50_usize, 500] {
+            let cards = build_cards(n);
+            let card_height = cards[0].len();
+            let result = layout_cards_in_grid_with_width(&cards, 120);
 
-        let small_cards = build_cards(50);
-        let large_cards = build_cards(500);
-        let small = time_layout(&small_cards).max(std::time::Duration::from_micros(1));
-        let large = time_layout(&large_cards).max(std::time::Duration::from_micros(1));
-        let ratio = large.as_nanos() as f64 / small.as_nanos() as f64;
-        assert!(
-            ratio < 20.0,
-            "layout_cards_in_grid_with_width should be O(N): 10x workspace \
-             took {ratio:.1}x time (small={small:?}, large={large:?}); a \
-             per-cell-clone regression would push this well past linear. \
-             Bound tightened from 50x in TASK-1152 to catch 2-3x linear regressions."
-        );
+            // 120 >= MIN_WIDTH_3_CARDS, so cards land three to a row.
+            let rows = n.div_ceil(3);
+            assert_eq!(
+                result.len(),
+                rows * card_height + rows - 1,
+                "{n} cards should lay out as {rows} rows of {card_height} \
+                 lines separated by one blank line"
+            );
+            assert!(
+                !result.last().is_some_and(String::is_empty),
+                "trailing blank separator must be popped"
+            );
+        }
     }
 
     #[test]

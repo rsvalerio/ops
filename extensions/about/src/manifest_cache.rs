@@ -362,14 +362,19 @@ mod tests {
     /// `read_optional_text`, collapsing concurrent reads of unrelated
     /// manifests to single-threaded. With the per-key `OnceLock` design
     /// the outer lock only spans the get-or-insert; the file IO runs
-    /// outside it. We pin this by wedging two slow-readers behind a
-    /// barrier: if both can complete in less than 2× a single read's
-    /// minimum sleep, then they overlapped — i.e. the outer mutex did
-    /// not serialise them.
+    /// outside it.
+    ///
+    /// TEST-15 / TASK-1664: the timing half is gone. It bounded both threads'
+    /// warm loops at 5 seconds, which its own comment conceded was "a smoke
+    /// check that we didn't introduce a deadlock" — and a deadlock does not
+    /// present as slow elapsed time, it presents as `join` never returning.
+    /// The threads completing is the deadlock evidence; the `Arc::ptr_eq`
+    /// assertions below are what pin the dedup contract. Same call as the
+    /// wall-clock half of `emit_output_events_shares_buffer_across_lines` in
+    /// ops-runner: delete it rather than convert it, because it detected
+    /// nothing while being load-sensitive.
     #[test]
     fn concurrent_distinct_path_reads_do_not_block_each_other() {
-        use std::time::{Duration, Instant};
-
         // Two distinct uncached paths under the same cache instance.
         let cache = Arc::new(ArcTextCache::new("manifest.txt"));
         let dir = tempfile::tempdir().unwrap();
@@ -395,11 +400,9 @@ mod tests {
             let barrier = Arc::clone(&barrier);
             std::thread::spawn(move || {
                 barrier.wait();
-                let start = Instant::now();
                 for _ in 0..runs {
                     let _ = cache.read(&root).expect("text present");
                 }
-                start.elapsed()
             })
         };
         let h_b = {
@@ -408,16 +411,17 @@ mod tests {
             let barrier = Arc::clone(&barrier);
             std::thread::spawn(move || {
                 barrier.wait();
-                let start = Instant::now();
                 for _ in 0..runs {
                     let _ = cache.read(&root).expect("text present");
                 }
-                start.elapsed()
             })
         };
 
-        let elapsed_a = h_a.join().unwrap();
-        let elapsed_b = h_b.join().unwrap();
+        // Both threads returning is the deadlock evidence: a serialising
+        // outer lock plus a panicking reader would hang here rather than
+        // report a slow elapsed time.
+        h_a.join().expect("reader thread a must not panic");
+        h_b.join().expect("reader thread b must not panic");
 
         // After the first read each thread is on the warm path and
         // should not contend on IO. The behavioural assertion is the
@@ -432,15 +436,6 @@ mod tests {
 
         // And distinct paths must yield distinct Arcs.
         assert!(!Arc::ptr_eq(&a1, &b1));
-
-        // Sanity bound: the warm-loop work for both threads should
-        // complete in well under 5 seconds on any reasonable runner.
-        // The test mainly asserts the dedup + completion; the timings
-        // are a smoke check that we didn't introduce a deadlock.
-        assert!(
-            elapsed_a < Duration::from_secs(5) && elapsed_b < Duration::from_secs(5),
-            "warm reads must not deadlock; got a={elapsed_a:?} b={elapsed_b:?}"
-        );
     }
 
     /// ERR-5 / TASK-0878: a panic while holding the cache lock must not
