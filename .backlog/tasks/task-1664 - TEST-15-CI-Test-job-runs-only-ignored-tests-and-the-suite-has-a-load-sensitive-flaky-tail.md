@@ -217,4 +217,101 @@ to `identity/mod.rs` does not silently reopen the race.
 Caveat on evidence: this one does **not** reproduce locally (0/10 failures on 16
 cores before the change, 0/10 after), so unlike the `ops-core` fix the load
 test cannot distinguish. CI on a 2-core runner is the real check.
+
+### AC #6 progress: the three ops-about wall-clock sites
+
+All three sites from the inventory above are converted. Each conversion was
+verified the way this task requires — reintroduce the regression it guards and
+confirm the new assertion fails:
+
+- **`text_util.rs` `wrap_text`** — was a growth ratio (10x input under 20x
+  time). Replaced by a thread-local seam counting the characters handed to
+  `display_width`, asserted **exactly**: every word once, every emitted line
+  once, derived from the actual output rather than hardcoded. Reintroducing the
+  TASK-0709 `display_width(&current_line)` call reports 80,621 characters
+  against 14,300.
+- **`cards.rs` `layout_cards_in_grid_with_width`** — extracted `row_parts` and
+  asserted the borrow contract by pointer identity, mirroring
+  `emit_output_events_shares_buffer_across_lines`. Reintroducing the per-cell
+  `.cloned()` fails on the pointer comparison. The surviving
+  `layout_cards_handles_large_workspace` now asserts grid *shape* (3 cards per
+  row at 120 columns, one blank separator, none trailing) with no timing.
+- **`manifest_cache.rs`** — the 5-second bound was **deleted**, not converted,
+  for the reason its own comment gave: it was a deadlock smoke check, and a
+  deadlock presents as `join` never returning, not as slow elapsed time. The
+  threads completing is the evidence; the `Arc::ptr_eq` assertions are the
+  detector.
+
+**Two findings worth recording**, because they change how the remaining sites
+should be handled:
+
+1. **Both ratio assertions were guarding constant-factor regressions, which no
+   growth ratio can detect at any bound.** Re-measuring `current_line` is capped
+   by `max_width`, and a per-cell clone is still linear — each just moves the
+   constant. Measured: with the quadratic shape restored, the 10x-input ratio
+   came out 0.09% away from passing. The TASK-1152 note ("tightened 50x → 20x
+   to catch 2-3x regressions") was mistaken about what the shape could catch.
+   Assert the count exactly; do not tune a bound.
+2. **`wrap_text`'s O(N^2) framing was wrong** and is corrected in the source
+   comment. The pre-fix cost was `O(N * max_width)` — linear, 5.6x the constant.
+
+Also: with `max_lines` breaking the word loop after 50 lines, the old test's 1k-
+and 10k-word inputs consumed the same ~800 words, so the two sizes it compared
+did the same work. The new test sets `max_lines` past the line count so the
+whole input is measured.
+
+Evidence: `ops-about` 107 tests, **20/20 consecutive runs green under 16-core
+load** (`yes` on every core). Suite wall-clock dropped from timing-dominated to
+0.15s.
+
+### Third instance, and a new one: the ops-git tracing capture
+
+Found by running the full workspace suite 3x under 16-core load after the
+conversions above: run 3 failed on
+`config::tests::read_origin_url_warns_on_control_byte_drop_keeping_prior_valid`
+(`extensions/git/src/config.rs`), which is **not in the table above** — a new
+member of the flaky tail. Reproduced at 1/30 under load.
+
+**Root cause: `tracing`'s process-global callsite interest cache.** The parser
+assertion passed; only the captured buffer came back empty. `tracing` caches
+each callsite's `Interest` process-wide, computed against the dispatchers
+registered when that callsite is first hit. This test installed a *scoped*
+(`with_default`) subscriber only, so a parallel test thread that first-hits the
+same callsite with no dispatcher on its thread registers `Interest::never()`
+globally — and the `warn!` then short-circuits before consulting our
+thread-local subscriber.
+
+**This is already solved twice in this repo** and the ops-git test simply
+open-coded the capture scaffold without the fix: `ops_core::test_utils` and
+`ops_cli::test_utils` both carry a `pin_global_dispatcher()` that installs one
+permanently-registered sink and calls `rebuild_interest_cache()`, with the mechanism
+written up in `core/src/test_utils.rs`. Added the same pin to the ops-git test.
+
+**Evidence, both directions and deterministic** — not just a load-run count.
+The 1/30 base rate is too low to prove anything by repetition, so the race was
+made deterministic: install the scoped subscriber, then hit the same callsite
+from a spawned thread (which is what a parallel test does by accident), then
+emit. Without the pin that fails every time with the identical "empty capture"
+symptom; with the pin it passes every time. The scratch test was removed once
+both directions were confirmed. Load runs after the fix: **0/40** on 16 cores.
+
+Note the first attempt at a deterministic repro poisoned the callsite *before*
+installing the subscriber and did **not** fail — setting the first scoped
+dispatcher rebuilds the interest cache, which clears an earlier `never`. Only a
+poisoning that lands *after* the subscriber is installed sticks. Worth knowing
+before writing any similar test.
+
+**Follow-up worth considering (not done here):** this is now the third copy of
+`pin_global_dispatcher`. Collapsing them needs `tracing-subscriber` made an
+optional, `test-support`-gated dependency of `ops-core` rather than a
+dev-dependency — the module doc in `core/src/test_utils.rs` currently
+documents the exclusion as deliberate for that reason. That is a change to a
+shared crate's stability contract, so it wants a decision rather than being
+folded into a flake fix.
+
+AC #6 is still **open**: the environment-dependent tests
+(`cargo_builtins_list_is_in_sync`, `check_cargo_tool_installed_fmt`,
+`check_tool_status_simple_installed`) and `stack::tests::detect_finds_ansible`
+are untouched. Per the note above they are worth reading a real CI result on
+before guessing — deferred while CI is unavailable.
 <!-- SECTION:NOTES:END -->

@@ -80,6 +80,44 @@ pub fn truncate_to_width(s: &str, max_width: usize) -> String {
     result
 }
 
+// TEST-15 / TASK-1664: counts the characters `wrap_text` hands to
+// `display_width`.
+//
+// The measurement contract used to be pinned by a wall-clock ratio — a 10x
+// input had to wrap in under 20x the time. That assertion was load-dependent in
+// a debug build, and it could not have caught the regression it guarded twice
+// over: `max_lines` breaks the word loop after at most that many lines, so both
+// input sizes did nearly the same work; and the regression itself is a constant
+// factor rather than a growth change (see the seam below), which no ratio
+// bound can see. Counting the characters measured pins the property directly.
+//
+// **Thread-local**, not a process-wide counter, for the reason given at
+// `runner::command::resolve::STORE_WALKS`: test binaries run their tests in
+// parallel threads, so a global counter is incremented by unrelated tests
+// between a reader's two observations.
+//
+// Documented with `//` rather than `///`: a doc comment on a macro invocation
+// is dropped by rustdoc, which `-D unused-doc-comments` rejects.
+#[cfg(test)]
+thread_local! {
+    static WIDTH_CHARS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Single seam for every width measurement [`wrap_text`] makes, so a
+/// regression that re-measures the accumulated line once per word — the shape
+/// TASK-0709 fixed — shows up in the count above.
+fn measure_width(s: &str) -> usize {
+    #[cfg(test)]
+    WIDTH_CHARS.with(|c| c.set(c.get() + s.chars().count()));
+    display_width(s)
+}
+
+/// Read the characters measured since the last call and reset the counter.
+#[cfg(test)]
+fn take_width_chars() -> usize {
+    WIDTH_CHARS.with(|c| c.replace(0))
+}
+
 /// Wrap `text` into at most `max_lines` lines whose `display_width` is at
 /// most `max_width`.
 ///
@@ -104,8 +142,11 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
     let mut lines = Vec::new();
     let mut current_line = String::new();
     // Track current line width incrementally rather than re-scanning
-    // `current_line` via display_width on every iteration. Scanning was
-    // O(N) per word, making the overall wrap O(N^2) for long descriptions.
+    // `current_line` via display_width on every iteration. Scanning cost up to
+    // `max_width` columns per word — bounded, so the growth stayed linear, but
+    // the constant was 5.6x on the shape `wrap_text_measures_each_word_and_
+    // line_exactly_once` exercises (TASK-1664 measured it; the original
+    // TASK-0709 note called this O(N^2), which overstated it).
     let mut current_width: usize = 0;
     // PATTERN-1 / TASK-1105: track whether the input had more words than
     // `max_lines` could accommodate, so the post-loop fixup can append an
@@ -115,7 +156,7 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
     let mut truncated = false;
 
     for word in text.split_whitespace() {
-        let word_width = display_width(word);
+        let word_width = measure_width(word);
 
         if current_line.is_empty() {
             current_line.push_str(word);
@@ -161,7 +202,7 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
             // (e.g. an unbreakable word that was truncated mid-emit).
             if !last.ends_with('\u{2026}') {
                 let with_ellipsis = format!("{last}\u{2026}");
-                *last = if display_width(&with_ellipsis) <= max_width {
+                *last = if measure_width(&with_ellipsis) <= max_width {
                     with_ellipsis
                 } else {
                     truncate_to_width(last, max_width)
@@ -175,7 +216,7 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
     // line, so truncating only the last line lets earlier lines exceed the
     // contract. Enforce display_width(line) <= max_width on every line.
     for line in &mut lines {
-        if display_width(line) > max_width.saturating_sub(1) {
+        if measure_width(line) > max_width.saturating_sub(1) {
             *line = truncate_to_width(line, max_width);
         }
     }
@@ -312,55 +353,63 @@ mod tests {
         assert!(result.iter().all(|l| !l.ends_with('\u{2026}')));
     }
 
-    /// PERF-1 (TASK-0709) + TEST-15 (TASK-1044): pathological long
-    /// descriptions must wrap in linear time. Pre-fix this allocated
-    /// O(N^2) work because `display_width(&current_line)` was called
-    /// inside the per-word loop; a 10k-word input was visibly slow.
+    /// PERF-1 (TASK-0709) + TEST-15 (TASK-1044, TASK-1152, TASK-1664):
+    /// wrapping must measure each word once and each emitted line once, and
+    /// must never re-measure the line it is accumulating. Pre-fix,
+    /// `display_width(&current_line)` was called for every word.
     ///
-    /// TASK-1044: the previous form asserted an absolute wall-clock budget
-    /// (`elapsed < 250ms`) which is flaky under coverage / sanitiser /
-    /// shared-runner builds. Replaced with a ratio check: a 10x larger
-    /// input must take less than ~20x as long. A quadratic regression
-    /// would blow this by ~100x; a linear implementation lands well below
-    /// it. The constant factor cancels so noisy CI runners — including
-    /// debug, valgrind, miri, and qemu — converge on the same ratio.
+    /// TASK-1664 replaces the wall-clock ratio this used to assert (a 10x
+    /// input under 20x the time), which was wrong twice over. It timed a debug
+    /// build, so it failed under CPU contention — the normal state of a shared
+    /// runner. And it could not have caught the regression it guarded:
+    /// `max_lines` breaks the word loop after 50 lines, so the 1k-word and
+    /// 10k-word inputs consumed the same ~800 words and the ratio sat near 1
+    /// whatever the implementation did.
     ///
-    /// TASK-1152: previous bound of 50x masked 2-3x regressions (e.g.
-    /// PERF-3-class per-cell-clone drift). Tightened to 20x — still ample
-    /// margin for shared-runner jitter when combined with the min-of-3
-    /// timing below, but small enough that a real-world 2-3x slowdown
-    /// trips the assertion.
+    /// Note the old `O(N^2)` framing overstated the bug. `current_line` is
+    /// capped at `max_width`, so re-scanning it per word costs a bounded
+    /// constant per word — the growth stays linear and only the constant
+    /// moves (measured: 5.6x the characters). That is precisely the class of
+    /// regression a growth-ratio assertion cannot see, whatever its bound, so
+    /// the count is asserted exactly rather than compared between two sizes.
+    /// Re-introducing the call reports 80,621 characters against 14,300.
     #[test]
-    fn wrap_text_handles_very_long_input_in_linear_time() {
-        // Helper that times a wrap of `n` repeated tokens. Run each size
-        // a few times and take the min so a single GC / scheduler hiccup
-        // does not skew the ratio.
-        fn time_wrap(n: usize) -> std::time::Duration {
-            let words = std::iter::repeat_n("word", n).collect::<Vec<_>>();
-            let text = words.join(" ");
-            (0..3)
-                .map(|_| {
-                    let start = std::time::Instant::now();
-                    let lines = wrap_text(&text, 80, 50);
-                    assert!(!lines.is_empty());
-                    start.elapsed()
-                })
-                .min()
-                .unwrap()
+    fn wrap_text_measures_each_word_and_line_exactly_once() {
+        // 16 four-character words fit an 80-column line (16*4 + 15 spaces =
+        // 79), so both sizes below are multiples of 16 and pack into whole
+        // lines. `max_lines` is set past the resulting line count so neither
+        // run truncates — truncation caps the work and would hide a
+        // regression behind the early break.
+        fn assert_exact_ledger(words: usize) {
+            let text = std::iter::repeat_n("word", words)
+                .collect::<Vec<_>>()
+                .join(" ");
+            let _ = take_width_chars();
+            let lines = wrap_text(&text, 80, 10_000);
+            assert_eq!(
+                lines.len(),
+                words / 16,
+                "input must pack into whole lines without truncating"
+            );
+
+            let measured = take_width_chars();
+            // Every word, once (the per-word width), plus every emitted line,
+            // once (the READ-5 over-width sweep). Derived from the actual
+            // output rather than hardcoded, so the ledger stays honest if the
+            // packing changes.
+            let expected = words * 4 + lines.iter().map(|l| l.chars().count()).sum::<usize>();
+            assert_eq!(
+                measured, expected,
+                "wrap_text measured {measured} characters for {words} words \
+                 where {expected} accounts for every word and every emitted \
+                 line exactly once. Measuring the accumulated line per word — \
+                 the TASK-0709 regression — costs up to `max_width` extra \
+                 characters per word."
+            );
         }
 
-        // Floor each measurement at 1µs so a sub-microsecond fast path
-        // cannot inflate the ratio when the small case rounds to zero.
-        let small = time_wrap(1_000).max(std::time::Duration::from_micros(1));
-        let large = time_wrap(10_000).max(std::time::Duration::from_micros(1));
-        let ratio = large.as_nanos() as f64 / small.as_nanos() as f64;
-        assert!(
-            ratio < 20.0,
-            "wrap_text should be O(N): 10x input took {ratio:.1}x time \
-             (small={small:?}, large={large:?}); a quadratic regression \
-             would put this near 100x. Bound tightened from 50x in TASK-1152 \
-             to catch 2-3x linear regressions."
-        );
+        assert_exact_ledger(1_600);
+        assert_exact_ledger(16_000);
     }
 
     #[test]

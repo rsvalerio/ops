@@ -719,11 +719,46 @@ mod tests {
     /// ANSI escape), the previous valid URL must still be returned AND the
     /// drop must surface as a warn-level event with a rejected-line count
     /// so the operator can tell "stale URL" from "all URLs malformed".
+    /// Keep one globally-registered `tracing` dispatcher alive for the whole
+    /// test binary so the scoped capture subscriber below is never the only
+    /// one registered. `tracing` caches each callsite's `Interest`
+    /// process-wide against the dispatchers registered when the callsite is
+    /// first hit; with only a scoped subscriber, a parallel test thread can
+    /// first-hit a callsite while none is registered, caching
+    /// `Interest::never()` and silently dropping the event this test asserts
+    /// on. The global discards everything — the capture still comes from the
+    /// scoped subscriber.
+    ///
+    /// TEST-15 / TASK-1664: this test open-coded the capture scaffold without
+    /// the pin and failed 1 run in 30 under 16-core load, reporting an empty
+    /// buffer while the parser assertion above it passed. Third copy of the
+    /// helper, after `ops_core::test_utils` and `ops_cli::test_utils`: those
+    /// two are `#[cfg(test)]`-gated and deliberately not exported under
+    /// `test-support`, because `tracing-subscriber` is a dev-dependency of
+    /// both crates (see the stability contract in `core/src/test_utils.rs`).
+    /// Collapsing the three needs that dependency made optional-and-feature-
+    /// gated instead, which is a change to a shared crate's contract rather
+    /// than a flake fix.
+    fn pin_global_dispatcher() {
+        use std::sync::Once;
+        static INSTALL: Once = Once::new();
+        INSTALL.call_once(|| {
+            let sink = tracing_subscriber::fmt()
+                .with_writer(std::io::sink)
+                .with_max_level(tracing::Level::TRACE)
+                .finish();
+            let _ = tracing::subscriber::set_global_default(sink);
+            tracing::callsite::rebuild_interest_cache();
+        });
+    }
+
     #[test]
     fn read_origin_url_warns_on_control_byte_drop_keeping_prior_valid() {
         use tracing::subscriber::with_default;
         use tracing::Level;
         use tracing_subscriber::fmt::MakeWriter;
+
+        pin_global_dispatcher();
 
         #[derive(Clone, Default)]
         struct BufWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
