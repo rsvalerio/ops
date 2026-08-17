@@ -132,7 +132,6 @@ async fn fail_fast_aborts_siblings_when_a_task_panics() {
     let mut events = Vec::<RunnerEvent>::new();
     let mut harvested: Vec<(tokio::task::Id, Result<StepResult, tokio::task::JoinError>)> =
         Vec::new();
-    let start = std::time::Instant::now();
     CommandRunner::handle_parallel_events_with_cancel_inner(
         rx,
         true, // fail_fast
@@ -142,18 +141,18 @@ async fn fail_fast_aborts_siblings_when_a_task_panics() {
         &mut harvested,
     )
     .await;
-    let elapsed = start.elapsed();
 
     assert!(
         abort.is_set(),
         "abort signal must be tripped when a sibling task panics under fail_fast"
     );
-    // The sleeping sibling's nominal duration is 5s; the loop must
-    // complete well under that because abort fires first.
-    assert!(
-        elapsed < std::time::Duration::from_secs(4),
-        "fail_fast must abort siblings before the 5s sleep elapses; got {elapsed:?}"
-    );
+    // TEST-15 / TASK-1664: the `elapsed < 4s` assertion that used to sit here
+    // is deleted as redundant load-sensitive surface. If abort never fired,
+    // task B would fall through to its 5s sleep and return
+    // `StepResult::success("b", 5s)` — which the harvest assertion below
+    // already rejects, because it requires the sibling to be cancelled or an
+    // aborted `Err`. The timing assertion could therefore only ever fail
+    // alongside an assertion that states the contract directly.
     // Two harvested entries: the panic (Err) and the cancelled sibling
     // (Ok with success=false from `StepResult::cancelled`, OR Err with
     // is_cancelled — abort_all aborts the JoinSet which yields Err).

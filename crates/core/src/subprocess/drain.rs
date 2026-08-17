@@ -320,28 +320,40 @@ mod tests {
     }
 
     /// PERF-3 / TASK-1473: a stream that dwarfs the cap (here, 16 MiB into
-    /// a 64 KiB cap) must drain to EOF promptly via the `io::copy` → `io::sink`
-    /// path. Pre-fix this was a per-8 KiB user-space spin; the post-fix
-    /// path returns once the kernel reports EOF. A 2-second budget is well
-    /// over the realistic completion time but bounds a regression.
+    /// a 64 KiB cap) must drain to EOF via the `io::copy` → `io::sink` path,
+    /// keeping exactly `cap` bytes and accounting for every dropped byte.
+    ///
+    /// TEST-15 / TASK-1664: the `elapsed < 2s` assertion that used to close
+    /// this test is **deleted**, not converted, because it could not fail for
+    /// any reason except load. Three findings, in order:
+    ///
+    /// 1. It had no resolution for the regression it named. The "per-8 KiB
+    ///    user-space spin" it guarded is 2048 iterations over an in-memory
+    ///    cursor — milliseconds, nowhere near two seconds. Same defect as the
+    ///    `ops-about` ratio bounds: the assertion names a regression it cannot
+    ///    observe.
+    /// 2. It could not catch non-termination either. `elapsed` is read *after*
+    ///    `read_capped` returns, so a discard loop that never reaches EOF hangs
+    ///    the test rather than tripping the bound.
+    /// 3. There was never a shipped slow path to regress from: the `io::copy`
+    ///    discard and this test landed in the same commit (524af94).
+    ///
+    /// A counting seam is not the answer here either — wrapping the reader to
+    /// count reads would defeat the `BufRead` specialisation that makes
+    /// `io::copy` fast, so the measurement would change what it measures. The
+    /// byte accounting below is the contract that can actually be asserted.
     #[test]
-    fn read_capped_post_cap_discard_drains_promptly() {
+    fn read_capped_post_cap_discard_keeps_cap_and_accounts_for_the_rest() {
         let cap = 64 * 1024;
         let input: Vec<u8> = vec![b'a'; 16 * 1024 * 1024];
         let mut buf = Vec::new();
-        let start = std::time::Instant::now();
         let (dropped, err) = read_capped(std::io::Cursor::new(&input), &mut buf, cap);
-        let elapsed = start.elapsed();
         assert!(err.is_none(), "in-memory cursor must not error");
         assert_eq!(buf.len(), cap);
         assert_eq!(
             buf.len() as u64 + dropped,
             input.len() as u64,
             "kept + dropped must equal input length"
-        );
-        assert!(
-            elapsed < std::time::Duration::from_secs(2),
-            "post-cap discard took {elapsed:?}; the io::copy fast path should keep this well under a second"
         );
     }
 
