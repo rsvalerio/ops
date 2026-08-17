@@ -3,10 +3,10 @@ id: TASK-1664
 title: >-
   TEST-15: CI Test job runs only ignored tests, and the suite has a
   load-sensitive flaky tail
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-15 00:00'
-updated_date: '2026-08-16 12:20'
+updated_date: '2026-08-17 20:08'
 labels:
   - ci
   - testing
@@ -54,8 +54,8 @@ shared CI runner.
 - [x] #3 `command::tests::expand::...::expand_to_leaves_microbench_does_not_regress` no longer asserts on wall-clock time
 - [x] #4 `command::tests::exec::...::emit_output_events_shares_buffer_across_lines` no longer asserts on wall-clock time
 - [x] #5 `tmpdir_swap_after_from_env_is_not_observed` no longer breaks concurrent tempfile users
-- [ ] #6 The remaining load-sensitive / environment-dependent tests are stabilised so a full run is reliably green
-- [ ] #7 ops verify and ops qa pass
+- [x] #6 The remaining load-sensitive / environment-dependent tests are stabilised so a full run is reliably green
+- [x] #7 ops verify and ops qa pass
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -95,6 +95,11 @@ confirming a failure:
   this way. Now swaps to a real tempdir, which proves the same contract.
 
 ### Remaining — AC #6
+
+> **Superseded — see "AC #6 closeout" below.** Every row in the table here was
+> recorded from local runs before TASK-1665 landed, and each has since been
+> fixed or shown to be already-handled. Kept for the history of what the flag
+> flip surfaced; do not read it as current state.
 
 A full run is **not yet reliably green**. Over five full-suite runs with no
 artificial load, one round passed clean (2498/0) and the others failed 2–3
@@ -309,9 +314,71 @@ documents the exclusion as deliberate for that reason. That is a change to a
 shared crate's stability contract, so it wants a decision rather than being
 folded into a flake fix.
 
-AC #6 is still **open**: the environment-dependent tests
-(`cargo_builtins_list_is_in_sync`, `check_cargo_tool_installed_fmt`,
-`check_tool_status_simple_installed`) and `stack::tests::detect_finds_ansible`
-are untouched. Per the note above they are worth reading a real CI result on
-before guessing — deferred while CI is unavailable.
+### AC #6 closeout: reading the CI history, and the table was stale
+
+The note above said to read a real CI result before guessing at the
+environment-dependent tests. Done — every failed CI run since the flag flip
+(`gh run list --workflow CI`, 7 failures, all 2026-08-09..16):
+
+| Run | Test that failed | Status now |
+| --- | --- | --- |
+| 31902029618 | `cargo_builtins_list_is_in_sync` | fixed by TASK-1665 |
+| 31902399577 | `check_cargo_tool_installed_honours_cargo_env` | fixed by TASK-1665 |
+| 31902760742 | `command::tests::exec::run_plan_echo_success` | fixed by TASK-1664 |
+| 31944268138, 31944676883 | `ops_root_cache_len_surfaces_poison_breadcrumb` | fixed above |
+| 31946364881 | `typed_manifest_cache_recovers_from_poison_with_warn` | fixed above |
+| 31320181114 | (build failure, not a test) | n/a |
+
+Two things fall out of this.
+
+**The table in "Remaining — AC #6" was stale.** Its entries were recorded from
+local runs before TASK-1665 landed. Current state of each: `cargo_builtins_
+list_is_in_sync` no longer shells out at all (it asserts on the parser);
+`check_cargo_tool_installed_fmt` and `check_tool_status_simple_installed` are
+`#[ignore = "requires rustup + cargo-fmt installed"]` with the requirement
+documented per TEST-24; `detect_finds_ansible` was collateral damage from the
+`TMPDIR` swap fixed earlier in this task. None needed further work.
+
+**The cargo-colour bug was a live production defect, not a test problem.**
+`cargo --list` output is ANSI-wrapped when `CARGO_TERM_COLOR=always` (which
+this repo's CI sets), the whitespace-splitting parser then reads
+`\x1b[1m\x1b[96madd` as the subcommand name, and every cargo tool is reported
+as not installed. Any user with that variable exported got wrong answers from
+`ops`. It surfaced only because CI started running the full suite — which is
+the clearest argument available that AC #1 was worth doing.
+
+### AC #6: the four remaining wall-clock sites, judged
+
+The note above said these need judgement rather than blanket conversion. Each
+was read against what its assertion can actually detect:
+
+- **`crates/runner/src/command/tests/exec.rs`** — already converted (TASK-1664):
+  `as_millis() > 0` required the step to be at least a millisecond *slow*;
+  now `as_nanos() > 0`, which pins the invariant worth having (the duration was
+  measured at all). This is the site CI run 31902760742 failed on.
+- **`extensions-rust/tools/src/probe/timeout.rs`** — **kept as-is.** The
+  duration genuinely is the contract (ASYNC-6: the wrapper honours its
+  deadline), and the separation is real: `sleep 30` behind a 1-second timeout,
+  bounded at 10 seconds. Correct behaviour lands near 1s, a broken deadline
+  near 30s. This is what a well-formed timing assertion looks like.
+- **`crates/runner/src/command/tests/parallel_infra.rs`** — timing assertion
+  **deleted** as redundant. If abort never fired, task B falls through to its
+  5s sleep and returns `success`, which the harvest assertion already rejects;
+  `elapsed < 4s` could only fail alongside an assertion that states the
+  contract directly.
+- **`crates/core/src/subprocess/drain.rs`** — timing assertion **deleted**,
+  because it could not fail for any reason except load. It had no resolution
+  for the "per-8 KiB user-space spin" it named (2048 iterations over an
+  in-memory cursor is milliseconds, not seconds); it could not catch
+  non-termination either, since `elapsed` is read only after `read_capped`
+  returns; and there was never a shipped slow path to regress from — the
+  `io::copy` discard and the test landed in the same commit (524af94). A
+  counting seam is not available here: wrapping the reader would defeat the
+  `BufRead` specialisation that makes `io::copy` fast, so measuring would
+  change what is measured. The byte accounting is the contract that survives.
+
+Net: three of the four wall-clock sites named in this task are gone, and the
+one that remains earns its assertion.
+
+Evidence: 6 consecutive full-workspace runs under 16-core load, all green.
 <!-- SECTION:NOTES:END -->
