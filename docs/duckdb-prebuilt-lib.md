@@ -4,11 +4,11 @@ Smaller sibling of [`duckdb-cli-backend.md`](duckdb-cli-backend.md). Same goal �
 stop compiling the DuckDB C++ amalgamation on every cold build — but **zero Rust
 code changes**. The trade is build-system and release work instead of a refactor.
 
-> **Status: all phases done.** The static link — the one thing this plan was
-> gated on — was proven on `x86_64-unknown-linux-gnu` on 2026-08-18, and the
-> mechanism now serves dev (dynamic), CI (dynamic), and releases (static).
-> The one open acceptance step: the first `dry-run` dispatch exercising the
-> macOS and aarch64-linux release legs (Phase 3).
+> **Status: all phases done, verified end to end.** The static link — the one
+> thing this plan was gated on — was proven on `x86_64-unknown-linux-gnu` on
+> 2026-08-18, and a Release `dry-run` then built all four matrix legs green
+> (mac binaries link no `libduckdb`). The mechanism now serves dev (dynamic),
+> CI (dynamic), and releases (static).
 
 ## What `libduckdb-sys` actually supports
 
@@ -335,11 +335,19 @@ is all live: the archive members are built with function-sections, but
 it. If 5 MB of tarball ever matters more than ~9 min × 4 legs of release
 CI, the Phase 2 bridge in git history is the revert.
 
-The macOS legs (plain archive listing, see the Darwin note in Phase 1) and
-the aarch64-linux leg first exercise on the next `dry-run` dispatch of the
-Release workflow — that is the remaining acceptance step, cheap because
-dispatching with the default `tag=dry-run` input runs all four build legs
-without publishing.
+The macOS legs and the aarch64-linux leg were exercised by a `dry-run`
+dispatch of the Release workflow (2026-08-18, branch
+`build/prebuilt-libduckdb`): **all four legs green**, and the produced
+aarch64-macos binary links only system dylibs (`libSystem`, `libc++`,
+`libiconv` — no `libduckdb`), 53 MB. The plain-archive-listing Darwin
+default (see Phase 1) linked clean on the first attempt.
+
+That dry-run also surfaced a pre-existing breakage, fixed alongside: the
+release legs had no Rust toolchain step of their own and silently depended
+on the runner image staying ahead of the workspace `rust-version` — the
+macOS images ship 1.96.0, the workspace requires 1.97 (raised in bc5217d,
+after the last release dispatch, so nothing had noticed). The legs now
+install the pinned toolchain via rustup, deterministic against image drift.
 
 ## Phase 4 — document the developer setup (done)
 
