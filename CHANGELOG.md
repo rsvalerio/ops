@@ -2,6 +2,53 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.37.0](https://github.com/rsvalerio/ops/compare/7218bb2ec09f24e128bbbd10b57896648661598c..v0.37.0) - 2026-08-18
+#### 🚀 Features
+- adopt cargo-nextest as the workspace test runner - ([5ecdf13](https://github.com/rsvalerio/ops/commit/5ecdf13cdca8ac0930dda9193e8c525a366d8e53)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**clippy**) record the settled policy, MSRV rationale and exception census - ([92fbe0f](https://github.com/rsvalerio/ops/commit/92fbe0f0d63d1bbf1b2b873bb805db175490bb47)) - Rodrigo Valerio
+- (**clippy**) document lint policy, exceptions and how to add one - ([e6de2ac](https://github.com/rsvalerio/ops/commit/e6de2ac199ca5fd9a579d22766b8a520675a1828)) - Rodrigo Valerio
+- (**duckdb**) record the Phase 3 dry-run verification - ([afbc740](https://github.com/rsvalerio/ops/commit/afbc74015a7ebf844c88d1cf9aa9cf0a756ae5f8)) - Rodrigo Valerio, Claude
+- document error conditions and add must_use attributes workspace-wide - ([932c76f](https://github.com/rsvalerio/ops/commit/932c76f227cc958e9a884c8d73be17697ad4604e)) - Rodrigo Valerio
+#### 🧪 Testing
+- (**about**) assert operation counts instead of wall-clock time - ([7891deb](https://github.com/rsvalerio/ops/commit/7891deb42111946f8b5e3383ca1b862cc59ad708)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+- (**about**) serialize every test that reaches the typed manifest cache - ([29f5dab](https://github.com/rsvalerio/ops/commit/29f5dabe401df1f7300c830f7b08535481351282)) - Rodrigo Valerio
+- (**core**) test the poison breadcrumb on a local mutex, not the global cache - ([7aefde0](https://github.com/rsvalerio/ops/commit/7aefde0b7820ba126c893f2512ae26f58a18fcc5)) - Rodrigo Valerio
+- (**core,runner**) drop two wall-clock assertions that cannot fail except under load - ([71fb164](https://github.com/rsvalerio/ops/commit/71fb164063784cbdb972d6e3e49404ab9225cb2b)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+- (**git**) pin a global tracing dispatcher in the config capture test - ([e1704e5](https://github.com/rsvalerio/ops/commit/e1704e542a3562a2148562679af5028e3cf0d330)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+- (**tools**) co-locate tests with the modules they cover - ([1935793](https://github.com/rsvalerio/ops/commit/19357935f59cd282b960890908e143fe09c75fd8)) - Rodrigo Valerio
+#### 🔧 Build System
+- (**duckdb**) link a prebuilt libduckdb instead of compiling the amalgamation - ([a4884d6](https://github.com/rsvalerio/ops/commit/a4884d6ebe85cd46f7118f404939b49258733785)) - Rodrigo Valerio, Claude
+- (**lints**) raise rust-version to 1.88 and enforce the remaining pedantic lints - ([d6df7a3](https://github.com/rsvalerio/ops/commit/d6df7a3a5bbe81189eb9a3bba39e5a93ab769274)) - Rodrigo Valerio
+- (**lints**) centralize clippy and rustc policy in [workspace.lints] - ([7218bb2](https://github.com/rsvalerio/ops/commit/7218bb2ec09f24e128bbbd10b57896648661598c)) - Rodrigo Valerio
+- (**msrv**) declare rust-version 1.97 and write timeouts in minutes - ([bc5217d](https://github.com/rsvalerio/ops/commit/bc5217d5d1dc345e458a7b66ab1781e129d17542)) - Rodrigo Valerio
+#### 🔄 CI/CD
+- (**bump**) call forge's bump workflow at @v1 again - ([e300309](https://github.com/rsvalerio/ops/commit/e300309e17a14aac9c4eb05a9f43dd4039030da3)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+- (**msrv**) build on the declared rust-version and pin clippy.toml to it - ([a5bff04](https://github.com/rsvalerio/ops/commit/a5bff04a12f53b36f252f87577291c5bdcfbb89c)) - Rodrigo Valerio
+- (**release**) install the workspace-pinned Rust toolchain on build legs - ([4f733c2](https://github.com/rsvalerio/ops/commit/4f733c28572585f33b6af7ea8a7ccaee24ec6a86)) - Rodrigo Valerio, Claude
+#### 🚜 Refactoring
+- (**core**) split config/mod.rs into root, sections, command_id and init - ([d0c79f1](https://github.com/rsvalerio/ops/commit/d0c79f1b5da68a705f847aab636e17aa88c0c848)) - Rodrigo Valerio
+- (**deps**) co-locate tests with the modules they cover - ([cf1ce96](https://github.com/rsvalerio/ops/commit/cf1ce9674d155a0b843f2453c8b76d6873c2b931)) - Rodrigo Valerio
+- (**metadata**) build cargo-metadata test fixtures from a shared module - ([aa95980](https://github.com/rsvalerio/ops/commit/aa9598021f79af4f4fec6d2481642b0ccef1a8ac)) - Rodrigo Valerio
+- take parameters by reference or Copy where they are not consumed - ([27356eb](https://github.com/rsvalerio/ops/commit/27356eb2b2450ad9ca4fedb6cbb37d4cc7eadf0b)) - Rodrigo Valerio
+- satisfy clippy::pedantic across the workspace - ([cfb03a9](https://github.com/rsvalerio/ops/commit/cfb03a9343ab3336f228c648c839d89ee01d0892)) - Rodrigo Valerio
+#### ⚙️ Miscellaneous
+- (**backlog**) close TASK-1664 with the AC #6 closeout - ([2b20718](https://github.com/rsvalerio/ops/commit/2b207188795810277270a754cd8d517d3b5bce32)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+- (**backlog**) record AC #6 progress on TASK-1664 - ([570970f](https://github.com/rsvalerio/ops/commit/570970fa007796989c47f4c58933af17b2d82f67)) - Rodrigo Valerio, Claude Opus 5 (1M context)
+- (**backlog**) close TASK-1540 and code-review waves 122 and 124 - ([50333e4](https://github.com/rsvalerio/ops/commit/50333e42d54e0036aaf0fe121493e1a061a53f06)) - Rodrigo Valerio
+- (**backlog**) close TASK-1670 with the deps split write-up - ([b1281a7](https://github.com/rsvalerio/ops/commit/b1281a79d0868250f31c228e6328b4c7d33f44f1)) - Rodrigo Valerio
+- (**backlog**) record the typed-manifest-cache race on TASK-1664 - ([5d59cf7](https://github.com/rsvalerio/ops/commit/5d59cf786bc5b8a726b83e23c1eb83ab6c87f730)) - Rodrigo Valerio
+- (**backlog**) record the poison-breadcrumb fix on TASK-1664 - ([8d3e3c0](https://github.com/rsvalerio/ops/commit/8d3e3c01e77d638aa3e63b377b30bd4b14fd2852)) - Rodrigo Valerio
+- (**backlog**) record the MSRV CI guard on TASK-1669 - ([58a7819](https://github.com/rsvalerio/ops/commit/58a7819d492d1d7ebe03d8c552d6d7b5e22530f1)) - Rodrigo Valerio
+- (**backlog**) record the 1.97 floor decision on TASK-1669 - ([457c6a5](https://github.com/rsvalerio/ops/commit/457c6a5649efdd9aa7721e8b8d5312971fe3cd9c)) - Rodrigo Valerio
+- (**backlog**) close TASK-1666, TASK-1668, TASK-1669; file TASK-1670 - ([7b47f36](https://github.com/rsvalerio/ops/commit/7b47f36ee5e9a6971d60f1ce14978f6b85e5241b)) - Rodrigo Valerio
+- (**backlog**) close TASK-0137, TASK-0165, TASK-1567; file TASK-1666, TASK-1667 - ([a5f3039](https://github.com/rsvalerio/ops/commit/a5f3039e7f016c94b88c32c5c41b57294e8672e7)) - Rodrigo Valerio
+- Merge pull request #21 from rsvalerio/refactor/enforce-pedantic-and-raise-msrv - ([dc29fe5](https://github.com/rsvalerio/ops/commit/dc29fe54f4ee13c985bdbc9d6e0f1f485c22fb9b)) - [@rsvalerio](https://github.com/rsvalerio)
+- Merge pull request #22 from rsvalerio/fix/ops-root-cache-serial-group - ([47b75e3](https://github.com/rsvalerio/ops/commit/47b75e36ef32eb57df659bcce8fbcbde2b28f176)) - [@rsvalerio](https://github.com/rsvalerio)
+- Merge pull request #20 from rsvalerio/refactor/lint-policy-and-module-splits - ([ab6f2e5](https://github.com/rsvalerio/ops/commit/ab6f2e53949bc5c85ad512e37ed652034620044c)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.36.2](https://github.com/rsvalerio/ops/compare/60a78e001f3a2e9de8d8edb2b1573d96301ecf16..v0.36.2) - 2026-08-15
 #### 🐛 Bug Fixes
 - (**tools**) cargo --list probe misreads every tool as missing under forced colour - ([f54757e](https://github.com/rsvalerio/ops/commit/f54757e348ff2e464dc620f69702e4e6fbb04f91)) - Rodrigo Valerio
