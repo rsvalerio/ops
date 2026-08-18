@@ -60,11 +60,31 @@ pointed at on 2026-08-15 — a pin, not an upgrade.
 workflow and fails if any `uses:` is not a 40-hex SHA. Verified in both
 directions. Exemptions: local `uses: ./...` calls, and `rsvalerio/forge/...`.
 
-**`rsvalerio/forge/...@v0.2.0` left version-pinned** — first-party, and
-`bump.yml` documents intent to move back to `@v1`; a SHA pin would fight that.
-It is also an exact release tag rather than a moving major. Worth revisiting:
-this is the reference that receives `GH_APP_PRIVATE_KEY`, so pin it to a SHA if
-it moves to `@v1`.
+**`rsvalerio/forge/...` left version-pinned** — first-party, and a SHA pin
+would fight forge's moving-major design.
+
+**Update (2026-08-17): moved back to `@v1`**, per step 2 of forge's
+tags-and-versions plan — `v1` now points at `v0.2.1`, so the `release-workflow`
+input that motivated the exact pin resolves. The revisit this note asked for is
+answered here, and it turns out the original framing was incomplete:
+
+- The `@v0.2.0` pin **was never a pin of the code that runs.** forge's reusable
+  workflows cannot `uses:` their own composite actions (a `./` path inside a
+  reusable workflow resolves against the *caller's* workspace), so they check
+  forge out at `inputs.forge-ref`, which **defaults to `v1`**. For the whole
+  time `bump.yml` said `@v0.2.0`, `mint-app-token`, `app-bot-identity` and
+  `signed-commit` were being loaded from `v1` — i.e. from `v0.1.2`. The pin
+  covered the workflow file and nothing else.
+- So the advice "pin it to a SHA" is only half a control: pinning
+  `uses: ...@<sha>` without also passing `forge-ref: <sha>` still runs
+  whatever actions `v1` points at today. Any future decision to SHA-pin this
+  reference **must set both**, or it buys nothing for the reference that
+  receives `GH_APP_PRIVATE_KEY`.
+- Staying on `@v1` is the deliberate choice (forge's `versioning.md`: consumers
+  get fixes without editing anything). The residual exposure is that forge's
+  maintainer can change the code receiving that secret without a change here —
+  accepted because forge is first-party and single-maintainer, and because
+  `workflow-guard` still enforces SHA pinning on every third-party reference.
 
 **Required by the dist interaction.** `dist plan` asserts `release.yml`
 byte-matches its generated output, so the pins made it hard-fail. Resolved with
