@@ -151,11 +151,19 @@ jobs:
           eval "$(scripts/fetch-duckdb.sh)"
           echo "DUCKDB_LIB_DIR=$DUCKDB_LIB_DIR" >> "$GITHUB_ENV"
           echo "RUSTFLAGS=$RUSTFLAGS" >> "$GITHUB_ENV"
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
+        with:
+          tool: cargo-nextest
       # `-- --ignored` runs *only* ignored tests, so this job was executing 22
       # of the workspace's ~2500 and filtering out the rest — the Test check
-      # passed on roughly 1% of the suite. `--include-ignored` runs both.
-      - name: cargo test --all --all-features -- --include-ignored
-        run: cargo test --all --all-features -- --include-ignored
+      # passed on roughly 1% of the suite. `--run-ignored all` (nextest's
+      # --include-ignored) runs both. Doctests stay on cargo test: nextest
+      # does not run them.
+      - name: cargo nextest run --all --all-features --run-ignored all
+        run: cargo nextest run --all --all-features --run-ignored all
+      - name: cargo test --all --all-features --doc
+        run: cargo test --all --all-features --doc
 
   deps:
     name: Deps
