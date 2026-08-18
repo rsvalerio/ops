@@ -148,6 +148,19 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
+      # The runner images ship a preinstalled Rust that drifts independently
+      # of this repo's rust-version (macos-14 currently has 1.96.0; the
+      # workspace requires 1.97). dist invokes that preinstalled cargo, and
+      # before this step the release legs silently depended on the image
+      # staying ahead of the workspace MSRV. Install the pinned toolchain so
+      # the legs are deterministic instead.
+      - name: Install the workspace-pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          MSRV=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          [[ -n $MSRV ]] || { echo "::error::could not read rust-version from Cargo.toml"; exit 1; }
+          rustup toolchain install "$MSRV" --profile minimal
+          rustup default "$MSRV"
       - name: Install dist
         run: ${{ matrix.install_dist.run }}
       # Get the dist-manifest
