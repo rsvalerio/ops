@@ -56,7 +56,7 @@ hex = "0.4"
 tokei = "14.0"
 toml = "1"
 toml_edit = "0.25"
-duckdb = { version = "1.10502", features = ["bundled"] }
+duckdb = { version = "1.10502" }
 clap = { version = "4", features = ["derive"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 inquire = "0.9"

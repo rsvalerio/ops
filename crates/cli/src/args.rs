@@ -664,7 +664,7 @@ mod tests {
     }
 
     /// `about loc` is gated on `duckdb` exactly like `about code` — the
-    /// region breakdown lives in DuckDB, so a build without it must not
+    /// region breakdown lives in `DuckDB`, so a build without it must not
     /// offer a subcommand it cannot answer.
     #[cfg(not(feature = "duckdb"))]
     #[test]

@@ -13,6 +13,10 @@ brew install rsvalerio/tap/ops
 ### Local development
 
 ```bash
+# Links a prebuilt libduckdb instead of compiling it (needed for any
+# linking build; cargo check/clippy work without it)
+eval "$(scripts/fetch-duckdb.sh)"
+
 cargo install --path crates/cli
 ```
 

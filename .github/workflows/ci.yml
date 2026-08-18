@@ -118,6 +118,16 @@ jobs:
         with:
           rustflags: ""
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+      # Path A (docs/duckdb-prebuilt-lib.md, Phase 2): link the prebuilt
+      # libduckdb instead of compiling the amalgamation. Only jobs that LINK
+      # a binary need this — check/clippy/msrv never link and pass without
+      # the lib via build.rs's bare `-lduckdb` fallback.
+      - name: Fetch prebuilt libduckdb
+        run: |
+          set -euo pipefail
+          eval "$(scripts/fetch-duckdb.sh)"
+          echo "DUCKDB_LIB_DIR=$DUCKDB_LIB_DIR" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=$RUSTFLAGS" >> "$GITHUB_ENV"
       - name: cargo build --all --all-features
         run: cargo build --all --all-features
 
@@ -133,6 +143,14 @@ jobs:
         with:
           rustflags: ""
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+      # Path A (docs/duckdb-prebuilt-lib.md, Phase 2) — see the note in the
+      # Build job for why only linking jobs fetch the prebuilt lib.
+      - name: Fetch prebuilt libduckdb
+        run: |
+          set -euo pipefail
+          eval "$(scripts/fetch-duckdb.sh)"
+          echo "DUCKDB_LIB_DIR=$DUCKDB_LIB_DIR" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=$RUSTFLAGS" >> "$GITHUB_ENV"
       # `-- --ignored` runs *only* ignored tests, so this job was executing 22
       # of the workspace's ~2500 and filtering out the rest — the Test check
       # passed on roughly 1% of the suite. `--include-ignored` runs both.
