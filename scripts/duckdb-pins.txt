@@ -1,0 +1,24 @@
+# Prebuilt libduckdb archives — single source of truth for a version bump.
+#
+# The `version` line must match what the duckdb crate in Cargo.lock encodes:
+# crate 1.MAJOR_MINOR_PATCH.x  <=>  DuckDB vMAJOR.MINOR.PATCH
+# (currently libduckdb-sys 1.10505.0 => v1.5.5). fetch-duckdb.sh checks this
+# agreement and refuses to run on a mismatch, so bumping the duckdb dependency
+# without updating this file fails loudly instead of linking a skew archive.
+#
+# A version bump is exactly this file's diff: change `version`, replace every
+# hash. DuckDB publishes no checksums for these assets, so these are
+# self-computed pins (SEC-37/TASK-1663 posture) — verified on first pinning,
+# enforced on every fetch thereafter.
+version v1.5.5
+
+# Path A — dynamic (dev + CI)
+1fb8ce388157d84a25abe685a8a2520bf00c00321821968e4bb398fd766e7abb  libduckdb-linux-amd64.zip
+abe4f6f005ee0b448a058822f4263584b4bd1b6faf7ab4637b79eeaf978f8e9c  libduckdb-linux-arm64.zip
+7b5b8915cc382d0708636fe6385c0cdad5a61c9ff8ba2638b3e2141640783155  libduckdb-osx-universal.zip
+
+# Path B — static (releases)
+deb47c5300f3c99725e84cdb14d214c3b12bbd748b613b1698b938c894cb68eb  static-libs-linux-amd64.zip
+ea6a34cb49ec2db5ed23d9e8311237c53c32abf9cdbf5dd608c4176c3dd8bfeb  static-libs-linux-arm64.zip
+a27d36fa1247a3ffa1692e7aa0bf4ea4d1e0ee51da7c4df7a5db5217357b1b4d  static-libs-osx-amd64.zip
+d79ec66b8a4054b866faada82e9e31f859a713c555b3f1c4b71c4a43d3273e9c  static-libs-osx-arm64.zip

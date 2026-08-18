@@ -41,6 +41,21 @@ without reading the diff: it has silently deleted load-bearing code here.
 - Test: `cargo test`
 - Full local gate: `ops verify qa install`
 
+## DuckDB prebuilt library
+
+The workspace does not compile the DuckDB amalgamation (`bundled` is off).
+Linking builds instead use a prebuilt library, fetched and checksum-verified by
+`scripts/fetch-duckdb.sh` (pinned in `scripts/duckdb-pins.txt`; cached under
+`target/duckdb-prebuilt/`). Before `cargo build`, `cargo test`, or
+`ops verify qa`:
+
+    eval "$(scripts/fetch-duckdb.sh)"
+
+`cargo check`, `cargo clippy`, and `cargo fmt` work without it. If you skip it,
+ops-duckdb's build script warns, and linking fails with
+`library not found: duckdb`. The first fetch needs network; it is cached per
+DuckDB version. Details: `docs/duckdb-prebuilt-lib.md`.
+
 ## Code Map
 
 - `crates/core/src/config/`: TOML config parsing and theme config types.
@@ -59,3 +74,6 @@ without reading the diff: it has silently deleted load-bearing code here.
 - Releasing: `docs/releasing.md`
 - Visual components and theme comparison: `docs/components.md`
 - Lint policy, exceptions and how to add one: `docs/clippy.md`
+- DuckDB build-time reduction, option A (try first): `docs/duckdb-prebuilt-lib.md`
+- DuckDB build-time reduction, option B: `docs/duckdb-cli-backend.md`
+- DuckDB alternatives (SQLite, plain Rust): `docs/duckdb-alternatives.md`
