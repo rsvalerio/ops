@@ -1739,7 +1739,6 @@ dependencies = [
  "ops-text-fixers",
  "ops-tfplan",
  "ops-tokei",
- "ops-tools",
  "predicates",
  "serde_json",
  "serial_test",
@@ -1845,7 +1844,6 @@ dependencies = [
  "ops-duckdb",
  "ops-extension",
  "ops-git",
- "ops-tools",
  "serde",
  "serde_json",
  "serial_test",
@@ -2178,22 +2176,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokei",
-]
-
-[[package]]
-name = "ops-tools"
-version = "0.37.0"
-dependencies = [
- "anyhow",
- "indexmap",
- "linkme",
- "ops-core",
- "ops-extension",
- "serial_test",
- "tempfile",
- "toml 1.1.4+spec-1.1.0",
- "tracing",
- "wait-timeout",
 ]
 
 [[package]]

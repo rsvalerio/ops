@@ -6,14 +6,10 @@ use std::process::ExitCode;
 use anyhow::Context;
 use ops_core::config::Config;
 
-#[cfg(feature = "stack-rust")]
-use crate::args::ToolsAction;
 use crate::args::{
     AboutAction, ExtensionAction, RunBeforeCommitAction, RunBeforePushAction, ThemeAction,
 };
 use crate::hook_shared::HookOps;
-#[cfg(feature = "stack-rust")]
-use crate::tools_cmd;
 use crate::{about_cmd, extension_cmd, pre_hook_cmd, run_cmd, theme_cmd, SIGINT_EXIT};
 
 /// Shared cwd + registry preamble used by `run_about`, `run_deps`, and the
@@ -371,18 +367,6 @@ pub(crate) fn run_check_yaml(tracked: bool) -> anyhow::Result<ExitCode> {
     let cwd = crate::cwd()?;
     let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked);
     run_config_checker("check-yaml", &opts, ops_config_checkers::run_check_yaml)
-}
-
-#[cfg(feature = "stack-rust")]
-pub(crate) fn run_tools(config: &Config, action: ToolsAction) -> anyhow::Result<ExitCode> {
-    match action {
-        ToolsAction::List => {
-            tools_cmd::run_tools_list(config)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        ToolsAction::Check => tools_cmd::run_tools_check(config),
-        ToolsAction::Install { name } => tools_cmd::run_tools_install(config, name.as_deref()),
-    }
 }
 
 #[cfg(test)]

@@ -58,9 +58,7 @@ pub(crate) fn builtin_category(name: &str) -> &'static str {
     match name {
         "about" => "Insights",
         "deps" | "trailing-whitespace" | "end-of-file-fixer" | "sec" => "Code Quality",
-        "init" | "theme" | "extension" | "tools" | "run-before-commit" | "run-before-push" => {
-            "Setup"
-        }
+        "init" | "theme" | "extension" | "run-before-commit" | "run-before-push" => "Setup",
         _ => "Commands",
     }
 }
@@ -198,9 +196,9 @@ pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
     // Pair this with a manual space-pad below so `{:<width$}` (which sizes
     // in `char` count, not display width) cannot re-introduce the same
     // drift. Column padding routes through the shared
-    // [`ops_core::output::pad_to_display_width`] helper that the tools_cmd
-    // and theme_cmd list views also use, so the three help-style tables
-    // can't drift on the unicode-width measurement (CJK / wide emoji).
+    // [`ops_core::output::pad_to_display_width`] helper that the theme_cmd
+    // list view also uses, so the help-style tables can't drift on the
+    // unicode-width measurement (CJK / wide emoji).
     // Cache each entry's combined `name, alias…` label so we measure it once
     // (here) and reuse the same string for padding below, rather than
     // re-allocating per row in the loop.
@@ -408,7 +406,6 @@ mod tests {
             "init",
             "theme",
             "extension",
-            "tools",
             "run-before-commit",
             "run-before-push",
         ] {
@@ -443,7 +440,7 @@ mod tests {
     #[test]
     fn sort_entries_by_category_respects_order() {
         let mut entries = vec![
-            entry("tools", Some("Setup")),
+            entry("init", Some("Setup")),
             entry("build", Some("Commands")),
             entry("about", Some("Insights")),
         ];
@@ -455,7 +452,7 @@ mod tests {
         sort_entries_by_category(&mut entries, &order);
         assert_eq!(entries[0].name, "build");
         assert_eq!(entries[1].name, "about");
-        assert_eq!(entries[2].name, "tools");
+        assert_eq!(entries[2].name, "init");
     }
 
     #[test]

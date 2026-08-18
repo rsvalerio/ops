@@ -266,7 +266,6 @@ impl TestConfigBuilder {
             extensions: crate::config::ExtensionConfig::default(),
             about: crate::config::AboutConfig::default(),
             stack: None,
-            tools: IndexMap::new(),
         }
     }
 }
@@ -403,7 +402,6 @@ impl ConfigOverlayBuilder {
             extensions: self.extensions,
             about: None,
             stack: None,
-            tools: None,
         }
     }
 }

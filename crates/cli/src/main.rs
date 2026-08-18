@@ -54,8 +54,6 @@ mod run_cmd;
 mod sec_cmd;
 mod subcommands;
 mod theme_cmd;
-#[cfg(feature = "stack-rust")]
-mod tools_cmd;
 mod tty;
 
 #[cfg(test)]
@@ -71,12 +69,12 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use args::{hide_irrelevant_commands, preprocess_args, Cli, CommandFactory, CoreSubcommand};
 use help::{is_toplevel_help, print_categorized_help};
+#[cfg(feature = "stack-rust")]
+use subcommands::run_deps;
 use subcommands::{
     run_about, run_before_commit, run_before_push, run_check_json, run_check_yaml,
     run_end_of_file_fixer, run_extension, run_theme, run_trailing_whitespace,
 };
-#[cfg(feature = "stack-rust")]
-use subcommands::{run_deps, run_tools};
 
 /// Error sentinel that lets a fallible code path bubble a specific exit
 /// code through `anyhow::Error`. Attach it via
@@ -280,10 +278,6 @@ fn dispatch(
         }
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Deps { refresh }) => run_deps(early_config, refresh)?,
-        #[cfg(feature = "stack-rust")]
-        Some(CoreSubcommand::Tools { action }) => {
-            return run_tools(early_config, action);
-        }
         #[cfg(feature = "stack-terraform")]
         Some(CoreSubcommand::Plans(opts)) => return ops_tfplan::run_plan_pipeline(&opts),
         Some(CoreSubcommand::TrailingWhitespace { tracked }) => {

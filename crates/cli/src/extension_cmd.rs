@@ -475,14 +475,14 @@ mod tests {
 
     #[test]
     #[cfg(feature = "stack-rust")]
-    fn run_extension_show_tools_succeeds() {
+    fn run_extension_show_deps_succeeds() {
         let (_dir, _guard) = crate::test_utils::with_temp_config("");
 
         let config = ops_core::config::load_config_or_default("test");
-        let result = run_extension_show(&config, Some("tools"));
+        let result = run_extension_show(&config, Some("deps"));
         assert!(
             result.is_ok(),
-            "run_extension_show should succeed for 'tools' (requires stack-rust)"
+            "run_extension_show should succeed for 'deps' (requires stack-rust)"
         );
     }
 
@@ -556,11 +556,11 @@ enabled = []
         let (_dir, _guard) = crate::test_utils::with_temp_config("");
         let config = ops_core::config::load_config_or_default("test");
         let mut buf = Vec::new();
-        run_extension_show_to(&mut buf, &config, Some("tools"), || false)
+        run_extension_show_to(&mut buf, &config, Some("deps"), || false)
             .expect("show should succeed for compiled-in extension");
         let output = String::from_utf8(buf).unwrap();
         assert!(
-            output.contains("EXTENSION:") && output.contains("tools"),
+            output.contains("EXTENSION:") && output.contains("deps"),
             "captured buffer must contain the EXTENSION header, got: {output}"
         );
         assert!(

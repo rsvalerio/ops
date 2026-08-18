@@ -133,7 +133,7 @@ fn format_language_breakdown(
     // READ-5 (TASK-1187): align by display width, not byte length —
     // `short_language_name` falls back to the original name verbatim, so a
     // future non-ASCII LanguageStat would otherwise misalign the column.
-    // Pattern mirrors theme_cmd / tools_cmd / help.rs.
+    // Pattern mirrors theme_cmd / help.rs.
     let name_width = langs
         .iter()
         .take(top_n)

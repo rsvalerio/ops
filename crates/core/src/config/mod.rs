@@ -11,7 +11,7 @@
 //! - [`loader`] — the file/env resolution order described above.
 //! - [`init`] — `ops init` template rendering.
 //! - [`edit`] — in-place `.ops.toml` editing.
-//! - [`theme_types`] / [`tools`] — the `[themes]` and `[tools]` payload types.
+//! - [`theme_types`] — the `[themes]` payload types.
 
 pub(crate) mod command_id;
 pub(crate) mod commands;
@@ -23,7 +23,6 @@ pub(crate) mod overlay;
 pub(crate) mod root;
 pub(crate) mod sections;
 pub mod theme_types;
-pub mod tools;
 
 pub use command_id::CommandId;
 pub use commands::{CommandSpec, CompositeCommandSpec, ExecCommandSpec};

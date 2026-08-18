@@ -12,7 +12,6 @@ use serde::Deserialize;
 
 use super::commands::CommandSpec;
 use super::theme_types::ThemeConfig;
-use super::tools::ToolSpec;
 
 /// Overlay configuration with optional fields — only explicitly-set values
 /// overwrite the base config during merging.
@@ -33,8 +32,6 @@ pub struct ConfigOverlay {
     pub about: Option<AboutConfigOverlay>,
     #[serde(default)]
     pub stack: Option<String>,
-    #[serde(default)]
-    pub tools: Option<IndexMap<String, ToolSpec>>,
 }
 
 /// Generate a single-field overlay struct (DUP-3 collapse).

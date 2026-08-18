@@ -86,7 +86,7 @@ fn copy_optional_field<T: Clone>(dst: &mut Option<T>, src: Option<&Option<T>>) {
 /// handling it here causes a compile error.
 ///
 /// Takes the overlay by value so the contained `IndexMap`s
-/// (`commands`/`themes`/`tools`) move directly into the merge instead of
+/// (`commands`/`themes`) move directly into the merge instead of
 /// being cloned twice (once at the call site, once inside `merge_indexmap`).
 pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
     let ConfigOverlay {
@@ -97,7 +97,6 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
         extensions,
         about,
         stack,
-        tools,
     } = overlay;
 
     if let Some(output_overlay) = output {
@@ -114,7 +113,6 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
     if let Some(s) = stack {
         base.stack = Some(s);
     }
-    merge_indexmap(&mut base.tools, tools);
 }
 
 #[cfg(test)]

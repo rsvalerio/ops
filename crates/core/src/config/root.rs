@@ -6,7 +6,6 @@
 use super::commands::CommandSpec;
 use super::sections::{AboutConfig, DataConfig, ExtensionConfig, OutputConfig};
 use super::theme_types::ThemeConfig;
-use super::tools::ToolSpec;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -42,8 +41,6 @@ pub struct Config {
     pub about: AboutConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
-    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
-    pub tools: IndexMap<String, ToolSpec>,
 }
 
 impl Config {
@@ -61,7 +58,6 @@ impl Config {
             extensions: ExtensionConfig::default(),
             about: AboutConfig::default(),
             stack: None,
-            tools: IndexMap::default(),
         }
     }
 

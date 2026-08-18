@@ -12,12 +12,11 @@ pub fn display_width(s: &str) -> usize {
 
 /// Append spaces to `name` until its display width reaches `target_cols`.
 ///
-/// DUP-3 / TASK-1235: `help.rs::render_grouped_sections`,
-/// `tools_cmd.rs::run_tools_list_to`, and `theme_cmd.rs::run_theme_list_to`
-/// each implemented the same `display_width` measure + manual space-pad
-/// loop. Centralising here ensures any future tightening (e.g. tab
-/// expansion, ZWJ-emoji handling) lands once and the three list views stay
-/// column-aligned together.
+/// DUP-3 / TASK-1235: `help.rs::render_grouped_sections` and
+/// `theme_cmd.rs::run_theme_list_to` each implemented the same
+/// `display_width` measure + manual space-pad loop. Centralising here
+/// ensures any future tightening (e.g. tab expansion, ZWJ-emoji handling)
+/// lands once and the list views stay column-aligned together.
 ///
 /// Returns `name` unchanged when it already meets or exceeds `target_cols`,
 /// avoiding spurious allocations on the no-pad fast path. The padding
