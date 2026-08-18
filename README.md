@@ -131,7 +131,6 @@ invocation (`ops run verify qa`) expands each independently, so they may differ.
 | Command | Available on |
 |---------|--------------|
 | `ops deps` | Rust |
-| `ops tools list\|check\|install` | Rust |
 | `ops about coverage` / `dependencies` | Rust |
 | `ops about loc` | Rust |
 | `ops about crates` / `modules` | Rust, Go |
@@ -184,11 +183,10 @@ Stack flavors currently shipped:
 | `about loc` (production/test/example split)         | ✓   | ✗   | ✗   | ✗   | ✗   | ✗      |
 | `about coverage` (cargo llvm-cov)                   | ✓   | ✗   | ✗   | ✗   | ✗   | ✗      |
 | `about dependencies` / `ops deps`                   | ✓   | ✗   | ✗   | ✗   | ✗   | ✗      |
-| `tools` (manage stack tooling)                      | ✓   | ✗   | ✗   | ✗   | ✗   | ✗      |
 
 Ranked by closeness to Rust parity: **Node** and **Python+uv** (identity + units + baseline CLI), **Go** (~90%, weaker units provider), **Java-Maven** / **Java-Gradle** (identity + module counts, but no `project_units` provider yet for the `about modules` subpage).
 
-Rust-only extensions: `deps`, `tools`, `cargo-toml`, `cargo-update`, `metadata`, `test-coverage`, `rust-loc`. `about code` is stack-agnostic (tokei scans any language) and only gated by the compile-time `tokei` feature on the `ops` binary; `about coverage` and `about dependencies` are Rust-only because their providers shell out to `cargo llvm-cov` / cargo metadata.
+Rust-only extensions: `deps`, `cargo-toml`, `cargo-update`, `metadata`, `test-coverage`, `rust-loc`. `about code` is stack-agnostic (tokei scans any language) and only gated by the compile-time `tokei` feature on the `ops` binary; `about coverage` and `about dependencies` are Rust-only because their providers shell out to `cargo llvm-cov` / cargo metadata.
 
 `about code` and `about loc` answer different questions and are not expected to agree: tokei reports every language but has no model for test versus production code, while `rust-loc` parses only `.rs` files and splits `#[cfg(test)]` blocks out of the file that contains them, counting doc comments separately from ordinary ones. On a non-Rust workspace `ops about loc` prints `No Rust LOC data available.`
 
