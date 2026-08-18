@@ -136,18 +136,6 @@ pub enum CoreSubcommand {
         #[command(subcommand)]
         action: Option<RunBeforePushAction>,
     },
-    /// Install and manage cargo development tools.
-    ///
-    /// API-1 (TASK-1319): gated on `stack-rust` so the subcommand is
-    /// absent from clap's help/parse surface in builds that cannot
-    /// honour it. Previously the variant was unconditional and the
-    /// handler bailed at runtime with an anyhow chain, diverging from
-    /// the symmetric `Deps` / `Plans` shape.
-    #[cfg(feature = "stack-rust")]
-    Tools {
-        #[command(subcommand)]
-        action: ToolsAction,
-    },
     /// Summarized Terraform plans as two tables (actions + resource changes).
     ///
     /// The variant embeds a single clap-derived `PlanOptions` (defined in
@@ -300,29 +288,12 @@ pub enum RunBeforePushAction {
     Install,
 }
 
-/// Tools management subcommands.
-#[cfg(feature = "stack-rust")]
-#[derive(clap::Subcommand, Debug, Clone)]
-pub enum ToolsAction {
-    /// List configured tools and their installation status.
-    List,
-    /// Check if all tools are installed (exit 1 if missing).
-    Check,
-    /// Install missing tools.
-    Install {
-        /// Install a specific tool. If omitted, installs all missing tools.
-        name: Option<String>,
-    },
-}
-
 /// Subcommand names that are only relevant to a specific stack.
 /// Unlisted commands are always visible.
 fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
     &[
         #[cfg(feature = "stack-rust")]
         ("deps", Stack::Rust),
-        #[cfg(feature = "stack-rust")]
-        ("tools", Stack::Rust),
         #[cfg(feature = "stack-terraform")]
         ("plans", Stack::Terraform),
     ]

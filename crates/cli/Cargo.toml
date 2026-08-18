@@ -12,7 +12,7 @@ rust-version.workspace = true
 [features]
 default = []
 duckdb = ["dep:ops-duckdb", "ops-extension/duckdb", "ops-about/duckdb"]
-stack-rust = ["dep:ops-about-rust", "dep:ops-cargo-toml", "dep:ops-cargo-update", "dep:ops-deps", "dep:ops-metadata", "dep:ops-rust-loc", "dep:ops-tools", "duckdb"]
+stack-rust = ["dep:ops-about-rust", "dep:ops-cargo-toml", "dep:ops-cargo-update", "dep:ops-deps", "dep:ops-metadata", "dep:ops-rust-loc", "duckdb"]
 stack-node = ["dep:ops-about-node"]
 stack-vite = []
 stack-go = ["dep:ops-about-go"]
@@ -28,7 +28,6 @@ coverage = ["dep:ops-test-coverage", "duckdb"]
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
 ops-runner = { workspace = true }
-ops-tools = { workspace = true, optional = true }
 ops-duckdb = { workspace = true, optional = true }
 ops-tokei = { workspace = true, optional = true }
 ops-about = { workspace = true }
