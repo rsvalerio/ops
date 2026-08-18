@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.38.0](https://github.com/rsvalerio/ops/compare/49f140ea25fe972dc878cecc057a55161ae733bf..v0.38.0) - 2026-08-18
+#### 🚀 Features
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**tools**) remove the ops tools extension and its [tools] config section - ([49f140e](https://github.com/rsvalerio/ops/commit/49f140ea25fe972dc878cecc057a55161ae733bf)) - Rodrigo Valerio
+#### 📚 Documentation
+- drop ops tools references from the README - ([0cbdd69](https://github.com/rsvalerio/ops/commit/0cbdd690ee1058d9321949406ffd9e1b400e6b79)) - Rodrigo Valerio
+
+- - -
+
 ## [v0.37.0](https://github.com/rsvalerio/ops/compare/7218bb2ec09f24e128bbbd10b57896648661598c..v0.37.0) - 2026-08-18
 #### 🚀 Features
 - adopt cargo-nextest as the workspace test runner - ([5ecdf13](https://github.com/rsvalerio/ops/commit/5ecdf13cdca8ac0930dda9193e8c525a366d8e53)) - [@rsvalerio](https://github.com/rsvalerio)
