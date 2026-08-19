@@ -232,7 +232,7 @@ pub enum ThemeAction {
 pub enum AboutAction {
     /// Interactively choose which fields to show on the about card.
     Setup,
-    /// Display detailed test coverage table.
+    /// Display detailed test coverage table (requires cargo-llvm-cov).
     Coverage,
     /// `about code` renders DuckDB-backed code statistics
     /// (LOC by language). Gating the variant under the `duckdb` feature

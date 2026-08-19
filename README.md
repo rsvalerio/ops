@@ -188,6 +188,15 @@ Ranked by closeness to Rust parity: **Node** and **Python+uv** (identity + units
 
 Rust-only extensions: `deps`, `cargo-toml`, `cargo-update`, `metadata`, `test-coverage`, `rust-loc`. `about code` is stack-agnostic (tokei scans any language) and only gated by the compile-time `tokei` feature on the `ops` binary; `about coverage` and `about dependencies` are Rust-only because their providers shell out to `cargo llvm-cov` / cargo metadata.
 
+`about coverage` (and `about --refresh`, which re-collects coverage data) requires external tools that `ops` does not install for you:
+
+```sh
+cargo install cargo-llvm-cov
+rustup component add llvm-tools-preview
+```
+
+When they are missing, the coverage warning/error includes these same install commands as a hint.
+
 `about code` and `about loc` answer different questions and are not expected to agree: tokei reports every language but has no model for test versus production code, while `rust-loc` parses only `.rs` files and splits `#[cfg(test)]` blocks out of the file that contains them, counting doc comments separately from ordinary ones. On a non-Rust workspace `ops about loc` prints `No Rust LOC data available.`
 
 #### Not yet implemented
