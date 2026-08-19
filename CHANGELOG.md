@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.39.0](https://github.com/rsvalerio/ops/compare/43515288bf7adc89380ae8c7dc11076409703c83..v0.39.0) - 2026-08-19
+#### 🚀 Features
+- (**test-coverage**) hint how to install cargo-llvm-cov when coverage collect fails - ([30cdbd9](https://github.com/rsvalerio/ops/commit/30cdbd9c4da4ad41618ca9e651889b86ae75d0b5)) - Rodrigo Valerio, Claude
+#### 🐛 Bug Fixes
+- (**extension**) render the full error chain in DataProviderError display - ([4351528](https://github.com/rsvalerio/ops/commit/43515288bf7adc89380ae8c7dc11076409703c83)) - Rodrigo Valerio, Claude
+- apply CodeRabbit auto-fixes - ([6d600c3](https://github.com/rsvalerio/ops/commit/6d600c33da03e82e450d3b98d55a8875f775082d)) - coderabbitai[bot], CodeRabbit
+
+- - -
+
 ## [v0.38.0](https://github.com/rsvalerio/ops/compare/49f140ea25fe972dc878cecc057a55161ae733bf..v0.38.0) - 2026-08-18
 #### 🚀 Features
 - ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**tools**) remove the ops tools extension and its [tools] config section - ([49f140e](https://github.com/rsvalerio/ops/commit/49f140ea25fe972dc878cecc057a55161ae733bf)) - Rodrigo Valerio
