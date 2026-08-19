@@ -430,6 +430,55 @@ fn check_llvm_cov_output_failure_empty_stderr() {
     assert!(err.to_string().contains("cargo llvm-cov"));
 }
 
+/// When cargo-llvm-cov is not installed, cargo exits 101 with a
+/// "no such command" error for `llvm-cov` on stderr. The hard-fail error
+/// must append the actionable install commands (cargo's own hint points at
+/// `cargo search`, which names neither the real crate nor the
+/// `llvm-tools-preview` component).
+#[cfg(unix)]
+#[test]
+fn check_llvm_cov_output_missing_subcommand_appends_install_hint() {
+    use std::os::unix::process::ExitStatusExt;
+    let output = std::process::Output {
+        status: std::process::ExitStatus::from_raw(101 << 8),
+        stdout: Vec::new(),
+        stderr: b"error: no such command: `llvm-cov`\n\nhelp: view all installed \
+                  commands with `cargo --list`\nhelp: find a package to install \
+                  `llvm-cov` with `cargo search cargo-llvm-cov`"
+            .to_vec(),
+    };
+    let err = check_llvm_cov_output(&output).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("cargo install cargo-llvm-cov"),
+        "install command must appear: {msg}"
+    );
+    assert!(
+        msg.contains("rustup component add llvm-tools-preview"),
+        "toolchain component must appear: {msg}"
+    );
+    // PATTERN-1 / TASK-1099 shape survives ahead of the hint.
+    assert!(msg.starts_with("cargo llvm-cov exited with status 101"));
+}
+
+/// Ordinary cargo failures (compile errors, test failures) must not carry
+/// the missing-tool hint — it would misdirect operators.
+#[cfg(unix)]
+#[test]
+fn check_llvm_cov_output_ordinary_failure_has_no_install_hint() {
+    use std::os::unix::process::ExitStatusExt;
+    let output = std::process::Output {
+        status: std::process::ExitStatus::from_raw(101 << 8),
+        stdout: Vec::new(),
+        stderr: b"error: could not compile `ops`".to_vec(),
+    };
+    let msg = check_llvm_cov_output(&output).unwrap_err().to_string();
+    assert!(
+        !msg.contains("cargo install cargo-llvm-cov"),
+        "hint must not appear for non-missing-tool failures: {msg}"
+    );
+}
+
 /// PATTERN-1 / TASK-1099: non-zero exit codes must appear in the error
 /// string so exit 1 (issues), exit 101 (panic), and SIGKILL/None are
 /// distinguishable in operator logs.

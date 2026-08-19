@@ -335,6 +335,68 @@ fn shared_error_from_serde_json() {
     assert!(!shared.to_string().is_empty());
 }
 
+// --- SharedError / DataProviderError alternate-format chain rendering ---
+
+/// Regression guard for the diagnosability bug where
+/// `tracing::warn!("…: {e:#}")` on a `DataProviderError` showed only the
+/// outermost context (`provide_via_ingestor(coverage_files)`: ingestor
+/// collect) and silently dropped the root cause (`cargo llvm-cov exited
+/// with status 101: …`). The anyhow alternate flag never propagates
+/// through thiserror's nested `{0}` display, so `SharedError` must honor
+/// it itself by walking its source chain.
+#[test]
+fn computation_failed_alternate_display_surfaces_root_cause() {
+    let inner = anyhow::anyhow!("cargo llvm-cov exited with status 101: no such command")
+        .context("ingestor collect")
+        .context("provide_via_ingestor(coverage_files)");
+    let e = DataProviderError::from(inner);
+    let rendered = format!("{e:#}");
+    for layer in [
+        "data computation failed",
+        "provide_via_ingestor(coverage_files)",
+        "ingestor collect",
+        "cargo llvm-cov exited with status 101",
+    ] {
+        assert!(
+            rendered.contains(layer),
+            "alternate display must surface `{layer}`; got: {rendered}"
+        );
+    }
+}
+
+/// Plain display also flattens the chain: the `{0:#}` in the variant's
+/// format string applies the flag unconditionally (parity with
+/// `DbError::External`), so `to_string()` keeps the root cause visible on
+/// every display path, not just `{:#}`.
+#[test]
+fn computation_failed_plain_display_flattens_chain() {
+    let inner = anyhow::anyhow!("root cause").context("outer context");
+    let e = DataProviderError::from(inner);
+    assert_eq!(
+        e.to_string(),
+        "data computation failed: outer context: root cause"
+    );
+}
+
+/// `SharedError` itself is alternate-aware: `{:#}` walks the source chain,
+/// `{}` renders the top-level message only.
+#[test]
+fn shared_error_alternate_display_walks_source_chain() {
+    let inner = anyhow::anyhow!("root").context("middle").context("top");
+    let shared = SharedError::from(inner);
+    assert_eq!(shared.to_string(), "top");
+    assert_eq!(format!("{shared:#}"), "top: middle: root");
+}
+
+/// A sourceless error renders identically with and without the alternate
+/// flag — the chain walk must not append separators to nothing.
+#[test]
+fn shared_error_alternate_display_matches_plain_when_no_sources() {
+    let shared = SharedError(Arc::new(std::io::Error::other("disk full")));
+    assert_eq!(shared.to_string(), "disk full");
+    assert_eq!(format!("{shared:#}"), "disk full");
+}
+
 // --- ExtensionType tests ---
 
 #[test]

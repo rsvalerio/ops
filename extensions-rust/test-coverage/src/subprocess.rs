@@ -100,10 +100,30 @@ pub(crate) fn check_llvm_cov_output(output: &Output) -> Result<(), anyhow::Error
         // by signal)" Display shape so log greps that pre-date TASK-1560
         // keep matching. PATTERN-1 / TASK-1099: keep "cargo llvm-cov" prefix
         // intact so sister assertions still bind.
+        let hint = missing_tool_hint(&output.stderr);
         match output.status.code() {
-            Some(_) => anyhow::bail!("cargo llvm-cov exited with {marker}: {tail}"),
+            Some(_) => anyhow::bail!("cargo llvm-cov exited with {marker}: {tail}{hint}"),
             None => anyhow::bail!("cargo llvm-cov terminated by signal ({marker}): {tail}"),
         }
     }
     Ok(())
+}
+
+/// Actionable install hint appended to the hard-fail error when cargo
+/// reports the `llvm-cov` subcommand is missing. Cargo's own stderr hint
+/// (`cargo search …`) neither names the real crate nor the required
+/// `llvm-tools-preview` toolchain component, so operators hitting
+/// `ops about --refresh` on a machine without cargo-llvm-cov saw the
+/// failure with no remediation path.
+fn missing_tool_hint(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    if text.contains("no such command: `llvm-cov`") {
+        "\nhint: coverage data comes from `cargo llvm-cov`, which is not installed. \
+         Install with:\n  \
+         cargo install cargo-llvm-cov\n  \
+         rustup component add llvm-tools-preview"
+            .to_string()
+    } else {
+        String::new()
+    }
 }

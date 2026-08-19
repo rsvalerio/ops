@@ -11,7 +11,26 @@ pub struct SharedError(pub(crate) Arc<dyn std::error::Error + Send + Sync>);
 
 impl std::fmt::Display for SharedError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        self.0.fmt(f)?;
+        // anyhow-style alternate rendering: `{:#}` walks the source chain so
+        // the root cause (e.g. "cargo llvm-cov exited with status 101: …")
+        // reaches operator logs. Plain `{}` keeps the top-level message only.
+        // Without this, callers formatting `DataProviderError` with `{e:#}`
+        // saw just the outermost context — thiserror's nested `{0}` does not
+        // propagate the alternate flag, and the conversion to
+        // `Box<dyn Error>` in `From<anyhow::Error>` flattens anyhow's own
+        // alternate-aware Display to its top context. Note the chain may
+        // repeat a link whose Display already embeds its own sources
+        // (e.g. `DbError::External` renders via `{0:#}`); duplication is
+        // cosmetic, lost root causes are not.
+        if f.alternate() {
+            let mut source = self.0.source();
+            while let Some(err) = source {
+                write!(f, ": {err}")?;
+                source = err.source();
+            }
+        }
+        Ok(())
     }
 }
 
@@ -60,14 +79,20 @@ pub enum DataProviderError {
     /// The wrapped [`SharedError`] preserves the full source chain;
     /// `std::error::Error::source()` walks through to the originating cause.
     /// Use this variant to surface real failures (log + re-raise rather
-    /// than swallow).
-    #[error("data computation failed: {0}")]
+    /// than swallow). `{0:#}` makes every display path — plain `to_string()`
+    /// and `format!("{e:#}")` alike — render the whole chain down to the
+    /// root cause (parity with `DbError::External`); without it the anyhow
+    /// alternate flag cannot propagate through thiserror's nested display,
+    /// and operator logs lost everything past the outermost context.
+    #[error("data computation failed: {0:#}")]
     ComputationFailed(#[source] SharedError),
     /// Returned when a provider produced a value whose JSON shape could not
     /// be parsed back into the caller-expected struct (typically via
     /// `serde_json::from_value(...)`), or when constructing a JSON value
     /// itself failed.
-    #[error("data serialization error: {0}")]
+    /// Mirrors [`DataProviderError::ComputationFailed`]'s `{0:#}` chain
+    /// rendering so serialization root causes stay visible in logs too.
+    #[error("data serialization error: {0:#}")]
     Serialization(#[source] SharedError),
     /// SEC-38 / TASK-0744: returned when [`crate::Context::get_or_provide`]
     /// detects a re-entrant request for a key whose provider is still

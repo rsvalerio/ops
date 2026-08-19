@@ -42,8 +42,9 @@ use ops_extension::ExtensionType;
 use std::path::Path;
 
 pub const NAME: &str = "coverage";
-pub const DESCRIPTION: &str =
-    "LLVM code coverage provider (per-file line, function, region, branch coverage)";
+pub const DESCRIPTION: &str = "LLVM code coverage provider (per-file line, function, region, \
+     branch coverage); requires cargo-llvm-cov (cargo install cargo-llvm-cov + \
+     rustup component add llvm-tools-preview)";
 pub const SHORTNAME: &str = "cov";
 pub const DATA_PROVIDER_NAME: &str = "coverage";
 
