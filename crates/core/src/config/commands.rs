@@ -247,10 +247,10 @@ impl ExecCommandSpec {
     #[must_use]
     pub fn display_cmd(&self) -> Cow<'_, str> {
         if self.args.is_empty() {
-            return match &self.display_program {
-                Some(display) => Cow::Owned(display.clone()),
-                None => Cow::Borrowed(&self.program),
-            };
+            let program = self.display_program.as_deref().unwrap_or(&self.program);
+            if self.args.is_empty() {
+                return shell_quote(program);
+            }
         }
         let program = self.display_program.as_deref().unwrap_or(&self.program);
         Cow::Owned(format!(
