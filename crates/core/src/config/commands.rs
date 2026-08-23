@@ -138,6 +138,18 @@ pub struct ExecCommandSpec {
     /// Category for grouping in help output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    /// Display-only program name that overrides `program` in rendered
+    /// command lines (see [`Self::display_cmd`]). Spawn behaviour is
+    /// unchanged — `program` is still what executes.
+    ///
+    /// Internal: set by the runner's builtin registrations, which spawn via
+    /// `current_exe()` (an absolute path that would otherwise render as
+    /// `/home/…/bin/ops sec` instead of `ops sec`). Deliberately
+    /// `serde(skip)` + `deny_unknown_fields`, so a `.ops.toml` cannot set
+    /// it: a config-supplied display name diverging from the real program
+    /// is exactly the misleading-render hazard SEC-21 guards against.
+    #[serde(skip)]
+    pub display_program: Option<String>,
 }
 
 impl CommandMeta for ExecCommandSpec {
@@ -220,6 +232,11 @@ impl ExecCommandSpec {
 
     /// Format as a display string for CLI step lines (e.g. "cargo build --all-targets").
     ///
+    /// When [`Self::display_program`] is set, that name renders in place of
+    /// `program` — spawn still uses `program`. Builtins use this so a
+    /// `current_exe()`-spawned command displays as `ops sec`, matching the
+    /// extension-registered `ops check-json` style.
+    ///
     /// SEC-21: each argument is shell-quoted so an arg containing whitespace,
     /// quotes, `;`, newlines, or backticks renders unambiguously. The actual
     /// exec uses argv directly via `tokio::process::Command::args` (no shell
@@ -230,14 +247,17 @@ impl ExecCommandSpec {
     #[must_use]
     pub fn display_cmd(&self) -> Cow<'_, str> {
         if self.args.is_empty() {
-            Cow::Borrowed(&self.program)
-        } else {
-            Cow::Owned(format!(
-                "{} {}",
-                shell_quote(&self.program),
-                join_shell_quoted(&self.args)
-            ))
+            return match &self.display_program {
+                Some(display) => Cow::Owned(display.clone()),
+                None => Cow::Borrowed(&self.program),
+            };
         }
+        let program = self.display_program.as_deref().unwrap_or(&self.program);
+        Cow::Owned(format!(
+            "{} {}",
+            shell_quote(program),
+            join_shell_quoted(&self.args)
+        ))
     }
 
     /// Expand and join args for display; returns None when args is empty.

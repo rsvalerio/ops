@@ -28,6 +28,43 @@ fn exec_spec_display_cmd_no_args() {
     assert_eq!(e.display_cmd(), "make");
 }
 
+/// `display_program` overrides only the rendered program name; args (and
+/// their SEC-21 quoting) are unaffected. Builtins rely on this to render
+/// `ops sec` while spawning the absolute `current_exe()` path.
+#[test]
+fn exec_spec_display_cmd_prefers_display_program() {
+    let mut with_args = exec_spec("/home/me/.cargo/bin/ops", &["sec", "--skip", "vuln"]);
+    with_args.display_program = Some("ops".to_string());
+    assert_eq!(with_args.display_cmd(), "ops sec --skip vuln");
+
+    let mut no_args = exec_spec("/home/me/.cargo/bin/ops", &[]);
+    no_args.display_program = Some("ops".to_string());
+    assert_eq!(no_args.display_cmd(), "ops");
+
+    // An override containing shell metacharacters is quoted like any program.
+    let mut unsafe_display = exec_spec("/bin/echo", &["hi"]);
+    unsafe_display.display_program = Some("my ops".to_string());
+    assert_eq!(unsafe_display.display_cmd(), "'my ops' hi");
+}
+
+/// SEC-21: `display_program` is internal (builtins only). A `.ops.toml`
+/// supplying it must fail to load — a config-settable display name that
+/// diverges from the real program could disguise what actually runs.
+#[test]
+fn exec_spec_display_program_is_not_config_settable() {
+    let toml = r#"
+program = "cargo"
+args = ["build"]
+display_program = "harmless-looking"
+"#;
+    let err = toml::from_str::<ExecCommandSpec>(toml)
+        .expect_err("display_program must be rejected in config");
+    assert!(
+        err.to_string().contains("unknown field"),
+        "expected unknown-field error, got: {err}"
+    );
+}
+
 /// SEC-21 AC #3: an arg containing a space and a quote must round-trip
 /// through `display_cmd` in a form the user can disambiguate from two
 /// separate args. Without quoting, `["foo bar"]` and `["foo", "bar"]` would
