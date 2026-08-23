@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.40.0](https://github.com/rsvalerio/ops/compare/4d8397580e8db64922daba285883931ec6c82eac..v0.40.0) - 2026-08-23
+#### 🚀 Features
+- (**qa**) wire the sec scanner into the qa composite - ([4d83975](https://github.com/rsvalerio/ops/commit/4d8397580e8db64922daba285883931ec6c82eac)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**hook-common**) use is_ok_and for the skip env check - ([b3e09a2](https://github.com/rsvalerio/ops/commit/b3e09a2f4c1de9d2640883fe8711d41d99fb9be4)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.39.0](https://github.com/rsvalerio/ops/compare/43515288bf7adc89380ae8c7dc11076409703c83..v0.39.0) - 2026-08-19
 #### 🚀 Features
 - (**test-coverage**) hint how to install cargo-llvm-cov when coverage collect fails - ([30cdbd9](https://github.com/rsvalerio/ops/commit/30cdbd9c4da4ad41618ca9e651889b86ae75d0b5)) - Rodrigo Valerio, Claude
