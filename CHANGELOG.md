@@ -2,6 +2,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.42.0](https://github.com/rsvalerio/ops/compare/5495c49316e999739e910dd81188ab4428d6756d..v0.42.0) - 2026-08-23
+#### 📚 Documentation
+- update command-mappings references - ([2cfd78a](https://github.com/rsvalerio/ops/commit/2cfd78ad1b02b8a4e4c5e03d352b08a51df8c9c6)) - [@rsvalerio](https://github.com/rsvalerio)
+- sync README and AGENTS.md with the current CLI surface - ([fd94b64](https://github.com/rsvalerio/ops/commit/fd94b641c45cc77f6e6aa57963fab09cffdbe407)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚀 Features
+- (**qa**) fold nextest commands and qa legs into the rust stack defaults - ([5495c49](https://github.com/rsvalerio/ops/commit/5495c49316e999739e910dd81188ab4428d6756d)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- update run-before-push to use qax instead of qa - ([babc41b](https://github.com/rsvalerio/ops/commit/babc41b14f9df2d949e6154d30864af86e7ce280)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.41.0](https://github.com/rsvalerio/ops/compare/e4a3cd1b47e6efcba4003ce0e504f5b1c95ad8ee..v0.41.0) - 2026-08-23
 #### 🚀 Features
 - (**runner**) render builtin commands as ops subcommand - ([e4a3cd1](https://github.com/rsvalerio/ops/commit/e4a3cd1b47e6efcba4003ce0e504f5b1c95ad8ee)) - [@rsvalerio](https://github.com/rsvalerio)
