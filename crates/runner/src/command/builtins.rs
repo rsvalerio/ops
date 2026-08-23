@@ -62,6 +62,11 @@ fn builtin_exec(
     let mut spec = ExecCommandSpec::new(ops_bin.to_string(), [subcommand.to_string()]);
     spec.aliases = aliases.iter().map(|a| (*a).to_string()).collect();
     spec.category = Some("Code Quality".to_string());
+    // Spawn via `ops_bin` (current_exe, robust) but render as `ops <subcommand>`
+    // — the same display the extension-registered commands get from their
+    // literal `program = "ops"`. Without this, step lines show the full
+    // absolute path (`/home/…/bin/ops sec`).
+    spec.display_program = Some("ops".to_string());
     spec
 }
 
@@ -112,5 +117,17 @@ mod tests {
         };
         assert_eq!(exec.args, vec!["end-of-file-fixer".to_string()]);
         assert!(!exec.program.is_empty());
+    }
+
+    /// Builtins spawn via `current_exe()` (often an absolute path) but must
+    /// render like the extension-registered commands: `ops sec`, not
+    /// `/home/…/bin/ops sec`.
+    #[test]
+    fn builtin_exec_displays_as_ops_not_absolute_path() {
+        let map = builtin_commands();
+        let CommandSpec::Exec(exec) = map.get("sec").unwrap() else {
+            panic!("expected exec spec");
+        };
+        assert_eq!(exec.display_cmd(), "ops sec");
     }
 }
