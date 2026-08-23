@@ -6,35 +6,6 @@ theme = "compact"
 program = "cargo"
 args = ["install", "--path", "crates/cli", "--force", "--all-features"]
 
-# nextest runs unit/integration tests; it does not run doctests, so those stay
-# on cargo test (next-doc). Overrides the rust stack's test/test-ignored.
-[commands.next]
-program = "cargo"
-args = ["nextest", "run", "--workspace", "--all-features"]
-help = "Run unit and integration tests with nextest"
-category = "Code Quality"
-
-[commands.next-doc]
-program = "cargo"
-args = ["test", "--workspace", "--all-features", "--doc"]
-help = "Run doctests (nextest does not run them)"
-category = "Code Quality"
-
-[commands.next-ignored]
-program = "cargo"
-args = ["nextest", "run", "--workspace", "--all-features", "--run-ignored", "ignored-only"]
-help = "Run ignored tests with nextest"
-category = "Code Quality"
-
-# Replaces the rust stack default qa (deps, test, test-ignored) so the test
-# legs go through nextest.
-[commands.qa]
-commands = ["deps", "next", "next-doc", "next-ignored", "sec"]
-parallel = false
-fail_fast = true
-help = "Run deps, next, next-doc, next-ignored, sec"
-category = "Code Quality"
-
 [commands.run-before-commit]
 commands = ["verify","end-of-file-fixer","trailing-whitespace"]
 fail_fast = true

@@ -33,10 +33,28 @@ args = ["test", "--workspace", "--all-features"]
 help = "Run all tests (ignoring ignored tests)"
 category = "Code Quality"
 
+[commands.test-doc]
+program = "cargo"
+args = ["test", "--workspace", "--all-features", "--doc"]
+help = "Run doctests (nextest does not run them)"
+category = "Code Quality"
+
 [commands.test-ignored]
 program = "cargo"
 args = ["test", "--workspace", "--all-features", "--", "--ignored"]
 help = "Run all tests (including ignored tests)"
+category = "Code Quality"
+
+[commands.next]
+program = "cargo"
+args = ["nextest", "run", "--workspace", "--all-features"]
+help = "Run unit and integration tests with nextest"
+category = "Code Quality"
+
+[commands.next-ignored]
+program = "cargo"
+args = ["nextest", "run", "--workspace", "--all-features", "--run-ignored", "ignored-only"]
+help = "Run ignored tests with nextest"
 category = "Code Quality"
 
 [commands.clean]
@@ -68,8 +86,16 @@ help = "Run fmt, clippy, build, trailing-whitespace, end-of-file-fixer, check-js
 category = "Code Quality"
 
 [commands.qa]
-commands = ["deps", "test", "test-ignored"]
+commands = ["deps", "test", "test-ignored", "test-doc", "sec"]
 parallel = false
 fail_fast = true
-help = "Run deps, test, test-ignored"
+help = "Run deps, test, test-ignored, test-doc, sec"
+category = "Code Quality"
+
+[commands.qa-next]
+aliases = ["qax"]
+commands = ["deps", "next", "next-ignored", "test-doc",  "sec"]
+parallel = false
+fail_fast = true
+help = "Run deps, next, next-ignored, test-doc, sec"
 category = "Code Quality"
