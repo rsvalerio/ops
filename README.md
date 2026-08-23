@@ -118,19 +118,28 @@ invocation (`ops run verify qa`) expands each independently, so they may differ.
 | Command | Description |
 |---------|-------------|
 | `ops <name>` | Run a configured command or command group |
-| `ops init` | Create `.ops.toml` (use `--force` to overwrite; `--commands` emits stack defaults) |
+| `ops init` | Create `.ops.toml` (minimal by default; `--force` to overwrite; `--output`/`--themes`/`--commands` add those sections, with stack-detected commands under `--commands`) |
 | `ops new-command` | Add a new command from a command line string |
+| `ops import-makefile` | Import Makefile targets as `.ops.toml` commands (interactive picker) |
 | `ops theme list\|select` | List or select output themes |
 | `ops extension list\|show` | List compiled-in extensions |
-| `ops about [setup\|code\|loc\|coverage\|dependencies\|crates\|modules]` | Project identity card and subpages |
-| `ops run-before-commit [install]` | Pre-commit hook runner |
+| `ops about [setup\|code\|loc\|coverage\|dependencies\|crates\|modules]` | Project identity card and subpages (`--refresh` re-collects) |
+| `ops run-before-commit [install]` | Pre-commit hook runner (`--changed-only` skips when nothing is staged) |
 | `ops run-before-push [install]` | Pre-push hook runner |
+| `ops sec` | Security scans via Trivy — secrets always, vulnerability/misconfig auto-selected by file types (`--skip`/`--force` to override) |
+| `ops trailing-whitespace` (`tw`) | Strip trailing whitespace in place; non-zero when files changed (pre-commit contract) |
+| `ops end-of-file-fixer` (`eof`) | Ensure files end with exactly one newline; non-zero when files changed |
+| `ops check-json` / `check-yaml` | Verify every JSON/YAML file parses (`--tracked` limits to git files; `--allow-json5` for JSON5) |
+
+Global flags: `--dry-run` (preview the resolved plan), `--verbose` (full stderr on
+failure), `--tap <file>` (capture raw output), `--raw` (inherit child stdio, no ops output).
 
 ### Stack-gated CLI
 
 | Command | Available on |
 |---------|--------------|
 | `ops deps` | Rust |
+| `ops plans` | Terraform (plan summary tables) |
 | `ops about coverage` / `dependencies` | Rust |
 | `ops about loc` | Rust |
 | `ops about crates` / `modules` | Rust, Go |
@@ -153,6 +162,12 @@ as a suggestion you can uncomment and adjust.
 
 The Vite stack also ships a `typecheck` command (`bunx tsc -b --noEmit`) wired into its `verify`,
 and is detected before Node via `vite.config.*` so Vite/TypeScript projects get type-aware defaults.
+
+The Rust stack default goes beyond the contract: it also ships `next` / `next-ignored`
+(cargo-nextest; nextest does not run doctests), `test-doc` for those doctests, and a
+`qa-next` composite (alias `qax`) that runs the test legs through nextest. The Rust `qa`
+runs `deps`, `test`, `test-ignored`, `test-doc`, and `sec` — `sec` requires the
+[Trivy](https://trivy.dev) CLI on `PATH`.
 
 Commented suggestions show up verbatim when you run `ops init --commands`, so you can
 opt in by uncommenting, or remap to the tool your project actually uses.
@@ -206,19 +221,11 @@ When they are missing, the coverage warning/error includes these same install co
 
 ## Features
 
-- **Zero config** — works out of the box with sensible defaults; `ops init` and othere to scaffold the rest
+- **Zero config** — works out of the box with sensible defaults; `ops init` and friends scaffold the rest
 - **Declarative commands** — define commands and command groups in TOML
 - **Themed output** — step lines with timing; switch between themes easily
 - **Extension architecture** — compile-time extensions; build your own ops
 - **Parallel execution** — run command groups concurrently with `parallel = true`
-
-### Backlog
-
-- Review codebase looking for bad design, high cognitive load and lack of rust idioms and best practices
-- Support conventional commit related commands: check git-cliff and cocogitto
-- Support release related commands: check cargo-dist and go-releaser
-- Make the about page "themed"
-- Make the about page stack agnostic, with abstractions, each stack fill it up
 
 ## Contributing
 

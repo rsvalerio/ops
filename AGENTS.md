@@ -16,7 +16,9 @@ Instructions for AI coding agents working on this project.
 - Put tests next to the code they cover with `#[cfg(test)] mod tests` when practical.
 - Add or update tests for new behavior.
 
-- Rust edition is 2021. - Treat clippy warnings as errors. - After changing any `*.rs` file, run `ops verify` and `ops qa`,. - If those commands report errors or warnings, fix them and rerun the same gate.
+- Rust edition is 2021.
+- Treat clippy warnings as errors.
+- After changing any `*.rs` file, run `ops verify` and `ops qa`. If those commands report errors or warnings, fix them and rerun the same gate. (`qa` ends with `sec`, which needs the Trivy CLI on `PATH`.)
 
 ## Rust implementation guardrails
 
@@ -39,7 +41,7 @@ without reading the diff: it has silently deleted load-bearing code here.
 - Run: `cargo run -- <subcommand>` such as `cargo run -- verify`
 - Format: `cargo fmt`
 - Lint: `cargo clippy --all-targets -- -D warnings`
-- Test: `ops next` (nextest; doctests via `ops next-doc`)
+- Test: `ops next` (nextest; doctests via `ops test-doc`, or `ops qa-next` for the full nextest gate)
 - Full local gate: `ops verify qa install`
 
 ## DuckDB prebuilt library
@@ -60,19 +62,21 @@ DuckDB version. Details: `docs/duckdb-prebuilt-lib.md`.
 ## Code Map
 
 - `crates/core/src/config/`: TOML config parsing and theme config types.
-- `crates/core/src/stack.rs`: stack detection and embedded default command templates.
+- `crates/core/src/stack/`: stack detection (`detect.rs`) and the embedded `.default.<stack>.ops.toml` command templates.
 - `crates/core/src/output.rs`: step line data types and display width behavior.
 - `crates/theme/src/lib.rs`: `StepLineTheme` and configurable themes.
 - `crates/runner/src/command/`: command execution engine and event stream.
 - `crates/runner/src/display.rs`: progress rendering with `indicatif`.
 - `crates/extension/src/lib.rs`: extension, command registry, data registry, context APIs.
 - `crates/cli/src/theme_cmd.rs`: theme management CLI.
+- `crates/cli/src/sec_cmd.rs`: Trivy-based security scans (`ops sec`).
 - `extensions/`: generic extensions.
 - `extensions-<stack>/`: Each stack have its own code folder, e.g. extensions-java.
 
 ## Docs
 
 - Releasing: `docs/releasing.md`
+- Stack default command mappings: `docs/command-mappings.md`
 - Visual components and theme comparison: `docs/components.md`
 - Lint policy, exceptions and how to add one: `docs/clippy.md`
 - DuckDB build-time reduction, option A (try first): `docs/duckdb-prebuilt-lib.md`
