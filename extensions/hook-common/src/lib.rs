@@ -95,8 +95,7 @@ impl HookConfig {
 #[must_use]
 pub fn should_skip(config: &HookConfig) -> bool {
     std::env::var(config.skip_env_var)
-        .ok()
-        .is_some_and(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .is_ok_and(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
 }
 
 /// Generate the per-extension hook wrappers (`HOOK_CONFIG`, `should_skip`,

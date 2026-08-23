@@ -29,10 +29,10 @@ category = "Code Quality"
 # Replaces the rust stack default qa (deps, test, test-ignored) so the test
 # legs go through nextest.
 [commands.qa]
-commands = ["deps", "next", "next-doc", "next-ignored"]
+commands = ["deps", "next", "next-doc", "next-ignored", "sec"]
 parallel = false
 fail_fast = true
-help = "Run deps, next, next-doc, next-ignored"
+help = "Run deps, next, next-doc, next-ignored, sec"
 category = "Code Quality"
 
 [commands.run-before-commit]

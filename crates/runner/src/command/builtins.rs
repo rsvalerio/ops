@@ -47,6 +47,10 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
         CommandId::from("check-yaml"),
         CommandSpec::Exec(builtin_exec(&ops_bin, "check-yaml", &[])),
     );
+    map.insert(
+        CommandId::from("sec"),
+        CommandSpec::Exec(builtin_exec(&ops_bin, "sec", &[])),
+    );
     map
 }
 
@@ -88,6 +92,15 @@ mod tests {
         assert!(
             map.get("check-yaml").is_some(),
             "check-yaml must be registered as a builtin"
+        );
+    }
+
+    #[test]
+    fn registers_sec_scanner() {
+        let map = builtin_commands();
+        assert!(
+            map.get("sec").is_some(),
+            "sec must be registered as a builtin so composites can reference it"
         );
     }
 
