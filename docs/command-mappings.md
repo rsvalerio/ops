@@ -1,6 +1,6 @@
 # Stack default command mappings
 
-When no local `[commands]` override exists, `ops` merges **embedded stack defaults** from `crates/core/src/.default.<stack>.ops.toml` (wired in `crates/core/src/stack.rs`). Detection uses manifest files in the workspace (for example `Cargo.toml` for **rust**, `package.json` for **node**).
+When no local `[commands]` override exists, `ops` merges **embedded stack defaults** from `crates/core/src/.default.<stack>.ops.toml` (wired in `crates/core/src/stack/`). Detection uses manifest files in the workspace (for example `Cargo.toml` for **rust**, `package.json` for **node**).
 
 The **generic** stack has **no** embedded commands; define everything in `.ops.toml` or `.ops.d/*.toml`.
 
@@ -18,10 +18,14 @@ Below, **exec** lines are `program` plus `args` from config. **Composite** comma
 | `lint` | alias → `clippy` |
 | `build` | `cargo build --workspace --all-features --all-targets` |
 | `test` | `cargo test --workspace --all-features` |
+| `test-doc` | `cargo test --workspace --all-features --doc` |
 | `test-ignored` | `cargo test --workspace --all-features -- --ignored` |
+| `next` | `cargo nextest run --workspace --all-features` |
+| `next-ignored` | `cargo nextest run --workspace --all-features --run-ignored ignored-only` |
 | `clean` | `cargo clean` |
 | `verify` | composite: `fmt`, `clippy`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
-| `qa` | composite: `deps`, `test`, `test-ignored` (sequential, fail-fast) |
+| `qa` | composite: `deps`, `test`, `test-ignored`, `test-doc`, `sec` (sequential, fail-fast) |
+| `qa-next` (`qax`) | composite: `deps`, `next`, `next-ignored`, `test-doc`, `sec` (sequential, fail-fast) |
 
 **`--all-targets` on `test`:** deliberately absent. For `cargo test` the flag
 *disables* doctests ("Test all targets (does not include doctests)"), so adding
@@ -37,6 +41,10 @@ type-checks independently, so including it compiled the workspace a third time
 under a third fingerprint. It remains available standalone.
 
 **`deps`:** not defined in the embedded TOML; it is supplied by the **Rust `deps` extension** when built in. That command runs dependency health checks (notably `cargo upgrade --dry-run` and `cargo deny check`); see `extensions-rust/deps`.
+
+**`sec`:** also not defined in the embedded TOML; it is the built-in `ops sec` subcommand (Trivy security scans — secrets always, vulnerability/misconfig auto-selected). Requires the `trivy` CLI on `PATH`.
+
+**`next` / `next-ignored` vs `test` / `test-ignored`:** the `next*` commands run the same legs through cargo-nextest, which is faster but does not run doctests — hence `test-doc` in both `qa` and `qa-next`. Requires `cargo nextest` installed.
 
 ---
 
