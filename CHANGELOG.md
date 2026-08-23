@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.41.0](https://github.com/rsvalerio/ops/compare/e4a3cd1b47e6efcba4003ce0e504f5b1c95ad8ee..v0.41.0) - 2026-08-23
+#### 🚀 Features
+- (**runner**) render builtin commands as ops subcommand - ([e4a3cd1](https://github.com/rsvalerio/ops/commit/e4a3cd1b47e6efcba4003ce0e504f5b1c95ad8ee)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- Update crates/core/src/config/commands.rs 🐰 - ([f92b6f3](https://github.com/rsvalerio/ops/commit/f92b6f3f904057353472cba09533c17141c2d9cf)) - [@rsvalerio](https://github.com/rsvalerio), coderabbitai[bot]
+
+- - -
+
 ## [v0.40.0](https://github.com/rsvalerio/ops/compare/4d8397580e8db64922daba285883931ec6c82eac..v0.40.0) - 2026-08-23
 #### 🚀 Features
 - (**qa**) wire the sec scanner into the qa composite - ([4d83975](https://github.com/rsvalerio/ops/commit/4d8397580e8db64922daba285883931ec6c82eac)) - [@rsvalerio](https://github.com/rsvalerio)
