@@ -117,10 +117,7 @@ similar_names = "allow"
 # lands, and that task's last step is to delete its line here. Do not add to
 # this list: a new exception belongs at the call site with a reason, next to
 # the code it excuses (docs/clippy.md).
-redundant_pub_crate                 = "allow" # TASK-1676 — 195 sites, 60 files
 arithmetic_side_effects             = "allow" # TASK-1671 — 166 sites, 54 files
-missing_const_for_fn                = "allow" # TASK-1677 — 92 sites, 44 files
-use_self                            = "allow" # TASK-1678 — 87 sites, 22 files
 indexing_slicing                    = "allow" # TASK-1672 — 69 sites, 25 files
 string_slice                        = "allow" # TASK-1673 — 66 sites, 24 files
 as_conversions                      = "allow" # TASK-1674 — 61 sites, 29 files
