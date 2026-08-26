@@ -103,6 +103,8 @@ unchecked_time_subtraction = "deny"
 todo = "deny"
 panic = "deny"
 exit = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
 
 # Style preferences this codebase deliberately does not share: local `const`,
 # `type` and helper declarations are written at their point of use, and clap
@@ -118,8 +120,6 @@ similar_names = "allow"
 # this list: a new exception belongs at the call site with a reason, next to
 # the code it excuses (docs/clippy.md).
 arithmetic_side_effects             = "allow" # TASK-1671 — 166 sites, 54 files
-indexing_slicing                    = "allow" # TASK-1672 — 69 sites, 25 files
-string_slice                        = "allow" # TASK-1673 — 66 sites, 24 files
 as_conversions                      = "allow" # TASK-1674 — 61 sites, 29 files
 
 [patch.crates-io]

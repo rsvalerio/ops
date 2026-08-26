@@ -73,6 +73,8 @@ extension simply stops appearing in `ops extension list`.
 | `todo` | deny | |
 | `panic` | deny | |
 | `exit` | deny | Only `main` decides the process exit code |
+| `indexing_slicing` | deny | `v[i]` / `&v[a..b]` panic out of bounds. Use `get`, `first`, `last`, slice patterns (TASK-1672) |
+| `string_slice` | deny | `&s[a..b]` panics off a UTF-8 char boundary. Use `get`, `split_at_checked`, `split_once`, `char_indices` (TASK-1673) |
 
 The panic-adjacent lints are relaxed for test code through `clippy.toml` rather
 than through a crate-root attribute, because the relaxation is policy for the
@@ -84,6 +86,11 @@ allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true
 ```
+
+`string_slice` has no `allow-*-in-tests` key of its own, so the handful of test
+helpers that slice a `&str` by byte index go through `get(..idx).expect(..)`
+instead — `expect` in a test is already the sanctioned failure mechanism
+(layer 2 below).
 
 #### The temporary-allow block
 
