@@ -1,9 +1,11 @@
 ---
 id: TASK-1674
 title: 'CLIPPY: drop the workspace allow for `as_conversions`'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1684
 created_date: '2026-08-25 21:00'
+updated_date: '2026-08-26 21:18'
 labels:
   - code-review-rust
   - clippy

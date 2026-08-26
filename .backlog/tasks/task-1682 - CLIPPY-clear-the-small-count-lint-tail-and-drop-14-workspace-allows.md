@@ -1,9 +1,11 @@
 ---
 id: TASK-1682
 title: 'CLIPPY: clear the small-count lint tail and drop 14 workspace allows'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1685
 created_date: '2026-08-25 21:00'
+updated_date: '2026-08-26 21:18'
 labels:
   - code-review-rust
   - clippy

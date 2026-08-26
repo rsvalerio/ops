@@ -1,9 +1,11 @@
 ---
 id: TASK-1681
 title: 'CLIPPY: drop the workspace allow for `significant_drop_tightening` (nursery)'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1689
 created_date: '2026-08-25 21:00'
+updated_date: '2026-08-26 21:18'
 labels:
   - code-review-rust
   - clippy

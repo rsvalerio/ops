@@ -1,9 +1,11 @@
 ---
 id: TASK-1671
 title: 'CLIPPY: drop the workspace allow for `arithmetic_side_effects`'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1684
 created_date: '2026-08-25 21:00'
+updated_date: '2026-08-26 21:17'
 labels:
   - code-review-rust
   - clippy

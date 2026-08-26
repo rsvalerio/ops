@@ -1,9 +1,11 @@
 ---
 id: TASK-1672
 title: 'CLIPPY: drop the workspace allow for `indexing_slicing`'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1683
 created_date: '2026-08-25 21:00'
+updated_date: '2026-08-26 21:17'
 labels:
   - code-review-rust
   - clippy

@@ -1,9 +1,11 @@
 ---
 id: TASK-1676
 title: 'CLIPPY: drop the workspace allow for `redundant_pub_crate` (nursery)'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1686
 created_date: '2026-08-25 21:00'
+updated_date: '2026-08-26 21:18'
 labels:
   - code-review-rust
   - clippy
