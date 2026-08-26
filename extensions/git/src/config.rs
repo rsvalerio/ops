@@ -343,10 +343,7 @@ pub(crate) fn redact_userinfo(value: &str) -> String {
         None => (value, None),
     };
     if let Some((_userinfo, host)) = head.rsplit_once('@') {
-        return match rest {
-            Some(r) => format!("{host}/{r}"),
-            None => host.to_string(),
-        };
+        return rest.map_or_else(|| host.to_string(), |r| format!("{host}/{r}"));
     }
     value.to_string()
 }

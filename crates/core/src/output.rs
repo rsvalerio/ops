@@ -127,18 +127,14 @@ fn format_error_tail_with_stats(stderr: &[u8], n: usize) -> (String, usize) {
 /// at end-of-buffer would otherwise survive into the rendered tail and
 /// render as a cursor-control byte in operator terminals.
 const fn trim_trailing_terminator(stderr: &[u8]) -> usize {
-    let mut end = stderr.len();
-    match stderr.last().copied() {
-        Some(b'\n') => {
-            end -= 1;
-            if end > 0 && stderr.get(end - 1) == Some(&b'\r') {
-                end -= 1;
-            }
-        }
-        Some(b'\r') => end -= 1,
-        _ => {}
+    // Slice patterns rather than indexing: they read the tail bytes with no
+    // bounds check to get wrong, and unlike `slice::get` they are callable
+    // from a `const fn`.
+    match stderr {
+        [.., b'\r', b'\n'] => stderr.len() - 2,
+        [.., b'\n' | b'\r'] => stderr.len() - 1,
+        _ => stderr.len(),
     }
-    end
 }
 
 /// PERF-3 / TASK-1428: collect up to `n` tail line ranges, walking backwards
