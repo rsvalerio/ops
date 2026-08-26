@@ -124,21 +124,6 @@ use_self                            = "allow" # TASK-1678 — 87 sites, 22 files
 indexing_slicing                    = "allow" # TASK-1672 — 69 sites, 25 files
 string_slice                        = "allow" # TASK-1673 — 66 sites, 24 files
 as_conversions                      = "allow" # TASK-1674 — 61 sites, 29 files
-expect_used                         = "allow" # TASK-1675 — 22 sites, 14 files
-needless_collect                    = "allow" # TASK-1682 — 14 sites, 10 files
-collection_is_never_read            = "allow" # TASK-1682 — 8 sites, 4 files
-equatable_if_let                    = "allow" # TASK-1682 — 6 sites, 2 files
-literal_string_with_formatting_args = "allow" # TASK-1682 — 4 sites, 3 files
-needless_pass_by_ref_mut            = "allow" # TASK-1682 — 4 sites, 2 files
-unreachable                         = "allow" # TASK-1682 — 3 sites, 3 files
-future_not_send                     = "allow" # TASK-1682 — 2 sites, 2 files
-redundant_clone                     = "allow" # TASK-1682 — 2 sites, 2 files
-panic_in_result_fn                  = "allow" # TASK-1682 — 2 sites, 1 file
-single_option_map                   = "allow" # TASK-1682 — 1 site, 1 file
-derive_partial_eq_without_eq        = "allow" # TASK-1682 — 1 site, 1 file
-branches_sharing_code               = "allow" # TASK-1682 — 1 site, 1 file
-or_fun_call                         = "allow" # TASK-1682 — 1 site, 1 file
-iter_on_single_items                = "allow" # TASK-1682 — 1 site, 1 file
 
 [patch.crates-io]
 # RUSTSEC-2026-0037: patch quinn-proto to 0.11.14 (DoS fix)
