@@ -115,10 +115,7 @@ fn cached_subprocess_timeout() -> Option<u64> {
 /// cache.
 #[must_use]
 pub fn default_timeout(op_default: Duration) -> Duration {
-    match cached_subprocess_timeout() {
-        Some(secs) => Duration::from_secs(secs),
-        None => op_default,
-    }
+    cached_subprocess_timeout().map_or(op_default, Duration::from_secs)
 }
 
 #[cfg(test)]

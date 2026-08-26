@@ -32,10 +32,7 @@ pub fn create_table_from_json_sql(
     let escaped = prepare_path_for_sql(path)?;
     // READ-8 / TASK-1627: single `format!` site; the optional opts segment
     // is rendered inline so the SQL template lives in exactly one place.
-    let opts_segment = match extra_opts {
-        Some(opts) => format!(", {}", opts.as_str()),
-        None => String::new(),
-    };
+    let opts_segment = extra_opts.map_or_else(String::new, |opts| format!(", {}", opts.as_str()));
     Ok(format!(
         "CREATE OR REPLACE TABLE {quoted} AS SELECT * FROM read_json_auto('{escaped}'{opts_segment})",
     ))

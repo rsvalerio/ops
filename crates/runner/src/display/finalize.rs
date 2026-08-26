@@ -153,11 +153,10 @@ impl ProgressDisplay {
             } else {
                 separator
             };
-            let pb = if let Some(last_bar) = self.state.bars.last() {
-                self.multi.insert_after(last_bar, ProgressBar::new(0))
-            } else {
-                self.multi.add(ProgressBar::new(0))
-            };
+            let pb = self.state.bars.last().map_or_else(
+                || self.multi.add(ProgressBar::new(0)),
+                |last_bar| self.multi.insert_after(last_bar, ProgressBar::new(0)),
+            );
             pb.set_style(pending_style());
             pb.finish_with_message(separator_message);
         } else if separator.is_empty() {

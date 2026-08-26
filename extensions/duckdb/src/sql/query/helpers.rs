@@ -85,10 +85,7 @@ impl CrateCoverage {
 /// `TableName` / `ColumnAlias` / `ColumnName` newtype pattern adopted
 /// elsewhere in this module.
 pub(super) fn coverage_col_select(prefix: Option<&ColumnAlias>) -> String {
-    let prefix = match prefix {
-        Some(alias) => format!("{}.", alias.as_str()),
-        None => String::new(),
-    };
+    let prefix = prefix.map_or_else(String::new, |alias| format!("{}.", alias.as_str()));
     format!(
         "COALESCE(SUM({prefix}lines_count), 0), \
          COALESCE(SUM({prefix}lines_covered), 0), \

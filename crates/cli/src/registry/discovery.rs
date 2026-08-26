@@ -40,15 +40,14 @@ pub fn collect_compiled_extensions(
         .iter()
         .enumerate()
         .filter_map(|(slot, factory)| {
-            if let Some(pair) = factory(config, workspace_root) {
-                Some(pair)
-            } else {
+            let pair = factory(config, workspace_root);
+            if pair.is_none() {
                 debug!(
-                slot,
-                "extension factory declined to construct (returned None); compiled in but inactive"
-            );
-                None
+                    slot,
+                    "extension factory declined to construct (returned None); compiled in but inactive"
+                );
             }
+            pair
         })
         .collect()
 }
@@ -137,9 +136,9 @@ fn filter_by_stack(
 ) -> Vec<(&'static str, Box<dyn Extension>)> {
     compiled
         .into_iter()
-        .filter(|(_, ext)| match ext.stack() {
-            None => true,
-            Some(ext_stack) => detected == Some(ext_stack),
+        .filter(|(_, ext)| {
+            ext.stack()
+                .is_none_or(|ext_stack| detected == Some(ext_stack))
         })
         .collect()
 }

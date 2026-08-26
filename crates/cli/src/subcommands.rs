@@ -126,13 +126,10 @@ fn classify_confirm_result(
 /// rule produced exactly that inversion.
 fn env_flag_enabled(name: &str) -> bool {
     const FALSY: &[&str] = &["", "0", "false", "no", "off", "n"];
-    match std::env::var(name) {
-        Ok(v) => {
-            let t = v.trim();
-            !FALSY.iter().any(|f| t.eq_ignore_ascii_case(f))
-        }
-        Err(_) => false,
-    }
+    std::env::var(name).is_ok_and(|v| {
+        let t = v.trim();
+        !FALSY.iter().any(|f| t.eq_ignore_ascii_case(f))
+    })
 }
 
 /// Non-interactive policy lifted out of `prompt_hook_install`

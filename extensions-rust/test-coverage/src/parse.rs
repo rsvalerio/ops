@@ -144,9 +144,8 @@ fn read_field<T: Default>(
     type_name: &'static str,
     drift: &mut DriftTracker<'_>,
 ) -> T {
-    match section.get(field) {
-        None => T::default(),
-        Some(v) => accessor(v).unwrap_or_else(|| {
+    section.get(field).map_or_else(T::default, |v| {
+        accessor(v).unwrap_or_else(|| {
             if v.is_null() {
                 tracing::debug!(
                     section = drift.section_key,
@@ -157,8 +156,8 @@ fn read_field<T: Default>(
                 drift.warn_wrong_shape(field, v, type_name);
             }
             T::default()
-        }),
-    }
+        })
+    })
 }
 
 fn read_i64_field(section: &serde_json::Value, field: &str, drift: &mut DriftTracker<'_>) -> i64 {

@@ -124,7 +124,6 @@ use_self                            = "allow" # TASK-1678 — 87 sites, 22 files
 indexing_slicing                    = "allow" # TASK-1672 — 69 sites, 25 files
 string_slice                        = "allow" # TASK-1673 — 66 sites, 24 files
 as_conversions                      = "allow" # TASK-1674 — 61 sites, 29 files
-option_if_let_else                  = "allow" # TASK-1680 — 43 sites, 35 files
 expect_used                         = "allow" # TASK-1675 — 22 sites, 14 files
 needless_collect                    = "allow" # TASK-1682 — 14 sites, 10 files
 collection_is_never_read            = "allow" # TASK-1682 — 8 sites, 4 files

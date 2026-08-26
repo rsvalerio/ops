@@ -345,10 +345,10 @@ fn run_terraform_pipeline(opts: &PlanOptions) -> anyhow::Result<String> {
 }
 
 fn expand_path(path: &str) -> PathBuf {
-    match shellexpand::full(path) {
-        Ok(expanded) => PathBuf::from(expanded.as_ref()),
-        Err(_) => PathBuf::from(path),
-    }
+    shellexpand::full(path).map_or_else(
+        |_| PathBuf::from(path),
+        |expanded| PathBuf::from(expanded.as_ref()),
+    )
 }
 
 fn cleanup_artifacts(opts: &PlanOptions) {

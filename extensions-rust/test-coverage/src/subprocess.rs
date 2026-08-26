@@ -77,10 +77,10 @@ pub(crate) fn run_cargo_llvm_cov(
 /// `"signal"` and `"exit_code = None"` previously broke grep-on-logs
 /// (TASK-1099).
 pub(crate) fn format_cargo_exit(status: ExitStatus) -> String {
-    match status.code() {
-        Some(code) => format!("status {code}"),
-        None => "exit_code = None (terminated by signal)".to_string(),
-    }
+    status.code().map_or_else(
+        || "exit_code = None (terminated by signal)".to_string(),
+        |code| format!("status {code}"),
+    )
 }
 
 /// PATTERN-1 / TASK-1099: include the exit code (or `signal` for `None`)

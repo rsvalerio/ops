@@ -163,12 +163,8 @@ impl AboutCard {
         // already-closed TASK-1332 pattern in about_cmd.
         let visible: Option<HashSet<&str>> =
             visible_fields.map(|f| f.iter().map(String::as_str).collect());
-        let show = |field_id: &str| -> bool {
-            match &visible {
-                None => true,
-                Some(set) => set.contains(field_id),
-            }
-        };
+        let show =
+            |field_id: &str| -> bool { visible.as_ref().is_none_or(|set| set.contains(field_id)) };
 
         let mut fields: Vec<(String, String)> = shown_field_specs(id, &show)
             .into_iter()

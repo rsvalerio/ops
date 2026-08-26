@@ -79,10 +79,7 @@ fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, &str)> {
     // that pass through `read_origin_url_from`, so the parser must accept the
     // already-redacted form (`host:owner/repo`) as well.
     if !raw.contains("://") {
-        let after_user = match raw.find('@') {
-            Some(at) => &raw[at + 1..],
-            None => raw,
-        };
+        let after_user = raw.find('@').map_or(raw, |at| &raw[at + 1..]);
         let colon = after_user.find(':')?;
         // Reject scp form when a `/` appears before the `:` — per git URL
         // semantics, that path is a relative filesystem path, not a remote.

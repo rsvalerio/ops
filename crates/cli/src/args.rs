@@ -310,10 +310,7 @@ pub(crate) fn hide_irrelevant_commands(
     stack: Option<Stack>,
 ) -> clap::Command {
     for &(name, required_stack) in stack_specific_commands() {
-        let dominated = match stack {
-            Some(s) => s != required_stack,
-            None => true,
-        };
+        let dominated = stack.is_none_or(|s| s != required_stack);
         if dominated {
             cmd = cmd.mut_subcommand(name, |sub| sub.hide(true));
         }

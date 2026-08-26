@@ -59,6 +59,10 @@ pub(crate) fn parse_byte_cap_env(
     raw: Option<&str>,
     default: u64,
 ) -> (u64, Option<String>) {
+    // The `Some` arm is a four-arm classification match over `parse`; hoisting
+    // it into a `map_or_else` closure would put the trivial `None` default
+    // ahead of the logic it defaults for and bury the matrix one level deeper.
+    #[allow(clippy::option_if_let_else)]
     match raw {
         None => (default, None),
         Some(s) => match s.parse::<u64>() {
@@ -232,10 +236,9 @@ fn with_path(e: &std::io::Error, path: &Path) -> std::io::Error {
 #[must_use]
 pub fn capitalize(s: &str) -> String {
     let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-    }
+    c.next().map_or_else(String::new, |f| {
+        f.to_uppercase().collect::<String>() + c.as_str()
+    })
 }
 
 /// Format a number with comma separators (e.g. 1234 → "1,234").
@@ -244,10 +247,10 @@ pub fn format_number(n: i64) -> String {
     if n < 0 {
         // checked_neg() returns None only for i64::MIN; format the magnitude
         // via unsigned to avoid the overflow on negation.
-        let magnitude = match n.checked_neg() {
-            Some(positive) => positive.to_string(),
-            None => (n.unsigned_abs()).to_string(),
-        };
+        let magnitude = n.checked_neg().map_or_else(
+            || n.unsigned_abs().to_string(),
+            |positive| positive.to_string(),
+        );
         return format!("-{}", insert_thousands_separators(&magnitude));
     }
     // PERF-3 / TASK-1432: sub-1000 magnitudes (the dominant case in

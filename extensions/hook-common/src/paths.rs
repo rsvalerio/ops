@@ -71,8 +71,5 @@ fn has_accepted_filename(path: &Path) -> bool {
 /// TASK-0361.
 fn looks_like_git_dir(path: &Path) -> bool {
     let head = path.join("HEAD");
-    match std::fs::symlink_metadata(&head) {
-        Ok(meta) => meta.file_type().is_file(),
-        Err(_) => false,
-    }
+    std::fs::symlink_metadata(&head).is_ok_and(|meta| meta.file_type().is_file())
 }

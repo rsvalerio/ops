@@ -185,11 +185,10 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
     // the real path directly), reuse that `Arc<str>` so a real + symlink
     // pair collapses to one rendering. Without this branch the new entry
     // would shadow the existing one and break `Arc::ptr_eq`.
-    let arc = if let Some(existing) = guard.map.get(key) {
-        Arc::clone(existing)
-    } else {
-        Arc::<str>::from(rendered)
-    };
+    let arc = guard
+        .map
+        .get(key)
+        .map_or_else(|| Arc::<str>::from(rendered), Arc::clone);
     // CONC-1 / TASK-1418: evict the oldest entry when at cap so the new
     // distinct root still fits.
     if guard.map.len() >= OPS_ROOT_CACHE_CAP {

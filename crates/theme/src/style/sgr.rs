@@ -82,10 +82,9 @@ pub fn apply_with_prefix<'a>(text: &'a str, prefix: Option<&str>) -> Cow<'a, str
     if !color_enabled() {
         return Cow::Borrowed(text);
     }
-    match prefix {
-        Some(pfx) => Cow::Owned(format!("{pfx}{text}\x1b[0m")),
-        None => Cow::Borrowed(text),
-    }
+    prefix.map_or(Cow::Borrowed(text), |pfx| {
+        Cow::Owned(format!("{pfx}{text}\x1b[0m"))
+    })
 }
 
 fn token_code(token: &str) -> Option<&'static str> {

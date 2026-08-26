@@ -162,12 +162,11 @@ impl Stack {
         CACHE.get_or_init(|| {
             Self::iter()
                 .map(|stack| {
-                    let commands = match stack.default_commands_toml() {
-                        Some(toml) => {
+                    let commands = stack
+                        .default_commands_toml()
+                        .map_or_else(IndexMap::new, |toml| {
                             parse_default_commands(stack, toml, &mut std::io::stderr().lock())
-                        }
-                        None => IndexMap::new(),
-                    };
+                        });
                     (stack, commands)
                 })
                 .collect()

@@ -288,10 +288,7 @@ fn is_index_progress_line(line: &str) -> bool {
     // Anything after `index` must be the alternate-registry suffix in
     // parens, e.g. `(sparse+https://index.crates.io/)`. Crucially, a real
     // update would have ` -> vX.Y.Z` here.
-    match tokens.next() {
-        None => true,
-        Some(rest) => rest.starts_with('('),
-    }
+    tokens.next().is_none_or(|rest| rest.starts_with('('))
 }
 
 /// True when `line` starts with one of our recognised verb prefixes — used

@@ -53,6 +53,10 @@ async fn await_with_timeout<F, T>(future: F, timeout: Option<Duration>) -> Resul
 where
     F: std::future::Future<Output = Result<T, std::io::Error>>,
 {
+    // Both arms consume `future` and `.await` it. `map_or_else` would need two
+    // closures that each move the same future, and a non-async closure cannot
+    // await it at all.
+    #[allow(clippy::option_if_let_else)]
     if let Some(t) = timeout {
         match tokio::time::timeout(t, future).await {
             Ok(result) => result,
@@ -272,19 +276,16 @@ pub fn emit_output_events(
         let bytes = buf.as_bytes();
         while start < bytes.len() {
             let rel = bytes[start..].iter().position(|b| *b == b'\n');
-            let (line_end, next_start) = match rel {
-                Some(off) => {
-                    let end = start + off;
-                    // Mirror `str::lines` and strip an optional preceding `\r`.
-                    let trimmed_end = if end > start && bytes[end - 1] == b'\r' {
-                        end - 1
-                    } else {
-                        end
-                    };
-                    (trimmed_end, end + 1)
-                }
-                None => (bytes.len(), bytes.len()),
-            };
+            let (line_end, next_start) = rel.map_or((bytes.len(), bytes.len()), |off| {
+                let end = start + off;
+                // Mirror `str::lines` and strip an optional preceding `\r`.
+                let trimmed_end = if end > start && bytes[end - 1] == b'\r' {
+                    end - 1
+                } else {
+                    end
+                };
+                (trimmed_end, end + 1)
+            });
             emit(RunnerEvent::StepOutput {
                 id: id.into(),
                 line: crate::command::OutputLine::slice(

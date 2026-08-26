@@ -56,15 +56,15 @@ impl DataProvider for RustUnitsProvider {
         // workspace members.
         // ERR-2 / TASK-0376: query failures route through `query_or_warn` so
         // they don't manifest as a silent "no deps" on a misconfigured DB.
-        let dep_counts: std::collections::HashMap<String, i64> = match ops_duckdb::get_db(ctx) {
-            None => std::collections::HashMap::new(),
-            Some(db) => ops_duckdb::sql::query_or_warn(
-                "query_crate_dep_counts",
-                "per-crate dep_counts will be empty",
-                std::collections::HashMap::<String, i64>::new(),
-                || ops_duckdb::sql::query_crate_dep_counts(db),
-            ),
-        };
+        let dep_counts: std::collections::HashMap<String, i64> = ops_duckdb::get_db(ctx)
+            .map_or_else(std::collections::HashMap::new, |db| {
+                ops_duckdb::sql::query_or_warn(
+                    "query_crate_dep_counts",
+                    "per-crate dep_counts will be empty",
+                    std::collections::HashMap::<String, i64>::new(),
+                    || ops_duckdb::sql::query_crate_dep_counts(db),
+                )
+            });
 
         // PERF-3 / TASK-1569: prime the canonical-manifest-path cache once
         // per workspace (LoadedManifest is itself cached per cwd in the
@@ -126,6 +126,11 @@ impl DataProvider for RustUnitsProvider {
                     // a debug breadcrumb rather than collapsing through
                     // `to_string_lossy` and silently keying on a U+FFFD
                     // corrupted name (sister-policy to TASK-0946).
+                    //
+                    // Both branches log a distinct breadcrumb before yielding;
+                    // `map_or_else` would nest two multi-line closures inside
+                    // an already deeply indented `map` body.
+                    #[allow(clippy::option_if_let_else)]
                     if let Some(key) = canonical_manifest_path.to_str() {
                         let lookup = dep_counts.get(key).copied();
                         if lookup.is_none() {

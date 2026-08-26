@@ -118,6 +118,12 @@ pub fn resolve_member_globs(
                             // sides as a fallback, log a tracing breadcrumb
                             // either way, and fall back to the absolute
                             // path so the unit is not silently lost.
+                            // Both this fallback and the nested
+                            // canonicalize-recovery below are multi-statement
+                            // branches that log before yielding a value;
+                            // `map_or_else` would nest two multi-line closures
+                            // inside an already deeply indented loop body.
+                            #[allow(clippy::option_if_let_else)]
                             let rel_string = if let Ok(rel) = path.strip_prefix(root) {
                                 rel.to_string_lossy().to_string()
                             } else {

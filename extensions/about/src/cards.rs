@@ -55,10 +55,9 @@ pub fn format_unit_name(member: &str) -> String {
         .unwrap_or(member);
 
     let mut chars = name.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-    }
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().collect::<String>() + chars.as_str()
+    })
 }
 
 #[must_use]
@@ -89,10 +88,10 @@ pub fn render_card(unit: &ProjectUnit, is_tty: bool) -> Vec<String> {
     // Borrow `unit.name` directly when no version suffix is needed (PERF-3 /
     // OWN-8): the prior code cloned the name into an owned String even when
     // the format! call was unreachable.
-    let title: Cow<'_, str> = match &unit.version {
-        Some(v) => Cow::Owned(format!("{} v{}", unit.name, v)),
-        None => Cow::Borrowed(unit.name.as_str()),
-    };
+    let title: Cow<'_, str> = unit.version.as_ref().map_or_else(
+        || Cow::Borrowed(unit.name.as_str()),
+        |v| Cow::Owned(format!("{} v{}", unit.name, v)),
+    );
 
     let title_truncated: Cow<'_, str> = if display_width(&title) > inner_width {
         Cow::Owned(truncate_to_width(&title, inner_width))

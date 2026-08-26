@@ -27,12 +27,10 @@ trait JsonValueExt {
     where
         F: FnOnce(&serde_json::Value) -> Option<T>,
     {
-        if let Some(v) = self.get_field(field).and_then(extract) {
-            v
-        } else {
+        self.get_field(field).and_then(extract).unwrap_or_else(|| {
             tracing::debug!(field, "metadata field missing, using fallback");
             default
-        }
+        })
     }
 
     fn get_str_or<'a>(&'a self, field: &str, default: &'a str) -> &'a str;

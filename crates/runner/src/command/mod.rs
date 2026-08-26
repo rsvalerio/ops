@@ -209,20 +209,19 @@ impl CommandRunner {
     pub fn from_arc_config(config: Arc<Config>, cwd: PathBuf) -> Self {
         let detected_stack = Stack::resolve(config.stack.as_deref(), &cwd);
 
-        let stack_commands: IndexMap<CommandId, CommandSpec> = if let Some(stack) = detected_stack {
-            let defaults = stack.default_commands();
-            debug!(
-                stack = stack.as_str(),
-                command_count = defaults.len(),
-                "loaded stack default commands"
-            );
-            defaults
-                .into_iter()
-                .map(|(k, v)| (CommandId::from(k), v))
-                .collect()
-        } else {
-            IndexMap::new()
-        };
+        let stack_commands: IndexMap<CommandId, CommandSpec> =
+            detected_stack.map_or_else(IndexMap::new, |stack| {
+                let defaults = stack.default_commands();
+                debug!(
+                    stack = stack.as_str(),
+                    command_count = defaults.len(),
+                    "loaded stack default commands"
+                );
+                defaults
+                    .into_iter()
+                    .map(|(k, v)| (CommandId::from(k), v))
+                    .collect()
+            });
 
         // ERR-1 / TASK-1462: a non-UTF-8 workspace root would otherwise
         // lossy-render into the OPS_ROOT builtin and defeat the

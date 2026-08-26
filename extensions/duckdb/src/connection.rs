@@ -201,19 +201,21 @@ impl DuckDb {
     /// Otherwise default to `workspace_root/target/ops/data.duckdb`.
     #[must_use]
     pub fn resolve_path(config: &DataConfig, workspace_root: &Path) -> PathBuf {
-        match &config.path {
-            None => workspace_root
-                .join("target")
-                .join("ops")
-                .join("data.duckdb"),
-            Some(p) => {
+        config.path.as_ref().map_or_else(
+            || {
+                workspace_root
+                    .join("target")
+                    .join("ops")
+                    .join("data.duckdb")
+            },
+            |p| {
                 if p.is_absolute() {
                     p.clone()
                 } else {
                     workspace_root.join(p)
                 }
-            }
-        }
+            },
+        )
     }
 }
 

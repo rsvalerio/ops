@@ -43,10 +43,10 @@ const DEFAULT_STDERR_TAIL_LINES: usize = 5;
 /// as crashing on stderr write failures would be unexpected behavior.
 #[inline]
 pub(super) fn write_stderr(line: Option<&str>) {
-    let result = match line {
-        Some(text) => writeln!(io::stderr(), "{text}"),
-        None => writeln!(io::stderr()),
-    };
+    let result = line.map_or_else(
+        || writeln!(io::stderr()),
+        |text| writeln!(io::stderr(), "{text}"),
+    );
     if let Err(e) = result {
         tracing::debug!(error = %e, "stderr write failed");
     }

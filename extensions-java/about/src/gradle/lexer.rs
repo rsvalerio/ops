@@ -109,10 +109,7 @@ pub(super) fn split_at_unquoted_close_paren(s: &str) -> Option<(&str, &str)> {
 
 /// Strip a trailing `// ...` Groovy/Kotlin comment from a line fragment.
 pub(super) fn strip_trailing_comment(s: &str) -> &str {
-    match s.find("//") {
-        Some(i) => &s[..i],
-        None => s,
-    }
+    s.find("//").map_or(s, |i| &s[..i])
 }
 
 /// Strip a trailing `# ...` or `! ...` java.util.Properties comment.

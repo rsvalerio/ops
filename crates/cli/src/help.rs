@@ -158,13 +158,12 @@ pub(crate) fn sort_entries_by_category(entries: &mut [CmdEntry], category_order:
         Uncategorized,
     }
     let cat_rank = |cat: Option<&str>| -> CatRank {
-        match cat {
-            None => CatRank::Uncategorized,
-            Some(c) => category_order
+        cat.map_or(CatRank::Uncategorized, |c| {
+            category_order
                 .iter()
                 .position(|o| o == c)
-                .map_or(CatRank::Unknown, CatRank::Known),
-        }
+                .map_or(CatRank::Unknown, CatRank::Known)
+        })
     };
     entries.sort_by(|a, b| {
         let ra = cat_rank(a.category.as_deref());

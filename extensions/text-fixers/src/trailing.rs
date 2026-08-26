@@ -10,10 +10,9 @@ pub fn fix_trailing(input: &[u8]) -> Option<Vec<u8>> {
 
     while start < input.len() {
         let nl = input[start..].iter().position(|&b| b == b'\n');
-        let (line_end, next_start) = match nl {
-            Some(off) => (start + off, start + off + 1),
-            None => (input.len(), input.len()),
-        };
+        let (line_end, next_start) = nl.map_or((input.len(), input.len()), |off| {
+            (start + off, start + off + 1)
+        });
 
         let has_crlf = line_end > start && input[line_end - 1] == b'\r';
         let content_end = if has_crlf { line_end - 1 } else { line_end };

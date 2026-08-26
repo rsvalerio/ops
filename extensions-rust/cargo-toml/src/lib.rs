@@ -143,10 +143,10 @@ ops_extension::impl_extension! {
     stack: Some(ops_extension::Stack::Rust),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |this, registry| {
-        let provider = match &this.root {
-            Some(p) => CargoTomlProvider::with_root(p.clone()),
-            None => CargoTomlProvider::new(),
-        };
+        let provider = this
+            .root
+            .as_ref()
+            .map_or_else(CargoTomlProvider::new, |p| CargoTomlProvider::with_root(p.clone()));
         registry.register(DATA_PROVIDER_NAME, Box::new(provider));
     },
     factory: CARGO_TOML_FACTORY = |_, _| {

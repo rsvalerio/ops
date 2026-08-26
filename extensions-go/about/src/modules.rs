@@ -33,6 +33,10 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
             .collect();
     }
     let (module, go_version) = read_mod_info(cwd);
+    // The `Some` arm builds a `ProjectUnit` across several statements and
+    // carries the long PATTERN-1 rationale inline; a `map_or_else` closure
+    // would put the empty-vec default ahead of it and re-indent the comment.
+    #[allow(clippy::option_if_let_else)]
     match module {
         Some(m) => {
             let mut unit = ProjectUnit::new(
@@ -117,10 +121,10 @@ fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
     };
     let name = last_segment(module.as_deref()).unwrap_or_else(|| format_unit_name(&normalized));
     let description = if out_of_tree {
-        Some(match module {
-            Some(m) => format!("{m} (outside project root)"),
-            None => "(outside project root)".to_string(),
-        })
+        Some(module.map_or_else(
+            || "(outside project root)".to_string(),
+            |m| format!("{m} (outside project root)"),
+        ))
     } else {
         module
     };

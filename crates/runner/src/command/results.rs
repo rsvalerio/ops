@@ -149,6 +149,10 @@ const PEAK_CAPTURE_WARN_BYTES: usize = 1024 * 1024 * 1024;
 /// fallback semantics are unit-testable without poking the
 /// process-global `OnceLock`.
 fn parse_output_byte_cap(raw: Option<&str>) -> (usize, Option<String>) {
+    // The `Some` arm is a three-arm classification match over `parse`; hoisting
+    // it into a `map_or_else` closure would put the trivial `None` default
+    // ahead of the logic it defaults for and bury the matrix one level deeper.
+    #[allow(clippy::option_if_let_else)]
     match raw {
         None => (DEFAULT_OUTPUT_BYTE_CAP, None),
         Some(s) => match s.parse::<usize>() {

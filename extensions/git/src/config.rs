@@ -329,10 +329,10 @@ pub(crate) fn redact_userinfo(value: &str) -> String {
             None => (after, None),
         };
         let host = authority.rsplit('@').next().unwrap_or(authority);
-        return match rest {
-            Some(r) => format!("{scheme}://{host}/{r}"),
-            None => format!("{scheme}://{host}"),
-        };
+        return rest.map_or_else(
+            || format!("{scheme}://{host}"),
+            |r| format!("{scheme}://{host}/{r}"),
+        );
     }
     // scp-style: strip a `user[:password]@` prefix that appears before the
     // first `/`. Past the first `/` the `@` belongs to a path component, not
