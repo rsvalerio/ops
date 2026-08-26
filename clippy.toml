@@ -8,3 +8,9 @@ type-complexity-threshold = 250
 # below 1.92 clippy suppresses `duration_suboptimal_units` because
 # `Duration::from_mins` would not be available.
 msrv = "1.97"
+
+# Panic-adjacent lints are denied in production code but fine in tests.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
