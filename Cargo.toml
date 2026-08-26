@@ -98,6 +98,8 @@ nursery = { level = "deny", priority = -1 }
 # out through the `allow-*-in-tests` keys in clippy.toml (unwrap, expect, panic,
 # indexing) and through the crate-root `#![cfg_attr(test, allow(..))]` blocks.
 unwrap_used = "deny"
+arithmetic_side_effects = "deny"
+as_conversions = "deny"
 unimplemented = "deny"
 unchecked_time_subtraction = "deny"
 todo = "deny"
@@ -113,14 +115,12 @@ items_after_statements = "allow"
 struct_excessive_bools = "allow"
 similar_names = "allow"
 
-# --- Temporary allows -------------------------------------------------------
-# Enabling `nursery` and the panic/arithmetic lints above surfaced 948 pre-existing
-# sites. Each lint below is allowed workspace-wide only until its backlog task
-# lands, and that task's last step is to delete its line here. Do not add to
-# this list: a new exception belongs at the call site with a reason, next to
-# the code it excuses (docs/clippy.md).
-arithmetic_side_effects             = "allow" # TASK-1671 — 166 sites, 54 files
-as_conversions                      = "allow" # TASK-1674 — 61 sites, 29 files
+# The `# --- Temporary allows ---` block that used to sit here is gone: it held
+# the 948 pre-existing sites that turning on `nursery` and the panic/arithmetic
+# lints surfaced, and it only ever shrank. TASK-1671 through TASK-1682 drained
+# it. Nothing goes back in — a lint that fires on code written from now on is a
+# code problem, not a policy problem, so the exception belongs at the call site
+# with a reason next to the code it excuses (docs/clippy.md).
 
 [patch.crates-io]
 # RUSTSEC-2026-0037: patch quinn-proto to 0.11.14 (DoS fix)

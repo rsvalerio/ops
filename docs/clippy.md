@@ -68,6 +68,8 @@ extension simply stops appearing in `ops extension list`.
 | `pedantic` | deny | priority `-1`, same reason |
 | `nursery` | deny | priority `-1`, same reason |
 | `unwrap_used` | deny | Production code has no `unwrap`. See below |
+| `arithmetic_side_effects` | deny | Integer `+ - * / %` carries a `checked_*`/`saturating_*` form or a proof (TASK-1671) |
+| `as_conversions` | deny | `as` between integer widths is a `TryFrom`/`From` conversion or carries a proof (TASK-1674) |
 | `unimplemented` | deny | |
 | `unchecked_time_subtraction` | deny | |
 | `todo` | deny | |
@@ -92,11 +94,11 @@ helpers that slice a `&str` by byte index go through `get(..idx).expect(..)`
 instead — `expect` in a test is already the sanctioned failure mechanism
 (layer 2 below).
 
-#### The temporary-allow block
+#### The temporary-allow block (drained)
 
 Turning `nursery` on, together with the rest of the panic and arithmetic lints,
 surfaced 948 pre-existing sites. Rather than water the policy down, those lints
-sit in a clearly fenced `# --- Temporary allows ---` block at the bottom of
+sat in a clearly fenced `# --- Temporary allows ---` block at the bottom of
 `[workspace.lints.clippy]`, each line carrying its backlog task ID and its site
 count:
 
@@ -104,7 +106,7 @@ count:
 arithmetic_side_effects = "allow" # TASK-1671 — 166 sites, 54 files
 ```
 
-Two rules govern that block:
+Two rules governed that block:
 
 1. **It only shrinks.** Each task's final acceptance criterion is deleting its
    own line. A lint that leaves the block never comes back to it.
@@ -112,8 +114,19 @@ Two rules govern that block:
    code problem, not a policy problem — grant the exception at layer 2 or 3,
    next to the code that needs it, with the reason written down.
 
-The block is the one place in this policy where "fix it later" exists, and it
-is bounded: TASK-1671 through TASK-1682, and then it is empty.
+It was the one place in this policy where "fix it later" existed, and it was
+bounded: TASK-1671 through TASK-1682 drained it, and **the block is now gone**.
+Rule 2 outlives it — there is no longer anywhere in `Cargo.toml` for a new
+workspace-wide exception to go.
+
+Deleting a line was only ever enough for lints that a group already enables.
+The `restriction`-group entries — `arithmetic_side_effects`, `as_conversions`,
+`indexing_slicing`, `string_slice`, `expect_used`, `unreachable`,
+`panic_in_result_fn` — belong to no group `[workspace.lints.clippy]` turns on,
+so removing an `allow` line drops that lint back to clippy's default of `allow`
+and the gate stays silently green. Those lints had to leave the block by moving
+up to the explicit `deny` list above it, next to `unwrap_used` and `panic`. Any
+restriction lint this workspace adopts from now on goes there directly.
 
 ### Layer 2 — test code
 
