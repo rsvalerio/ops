@@ -67,15 +67,69 @@ pub(crate) fn next_daily_sequence(workspace_root: &Path, date: &str) -> u32 {
     let backlog_root = workspace_root.join(".backlog");
     let mut max = 0u32;
     for_each_task_file(&backlog_root, |_dir, file_name| {
-        let Some((_, rest)) = file_name.split_once(prefix.as_str()) else {
-            return;
-        };
-        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-        if let Ok(n) = digits.parse::<u32>() {
+        if let Some(n) = review_request_sequence(file_name, &prefix) {
             max = max.max(n);
         }
     });
     max.saturating_add(1)
+}
+
+/// The `<n>` of the `review-request-<date>-<n>` slug in `file_name`, where
+/// `prefix` is `review-request-<date>-`. `None` when the name carries no
+/// request for that date.
+fn review_request_sequence(file_name: &str, prefix: &str) -> Option<u32> {
+    let (_, rest) = file_name.split_once(prefix)?;
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse::<u32>().ok()
+}
+
+/// Identifiers one run has reserved by creating its main task file: the file
+/// itself, its main-task number, and its `review-request-<date>-<n>` title.
+/// FN-3: grouped rather than passed as four positional parameters.
+pub(crate) struct MainTaskClaim<'a> {
+    /// Name of the main task file this run created, inside `tasks`.
+    pub(crate) file_name: &'a str,
+    /// Main-task number the run allocated.
+    pub(crate) number: u32,
+    /// Main-task title the run allocated.
+    pub(crate) title: &'a str,
+}
+
+/// A task file, other than the claimant's own, that already claims the
+/// main-task number or the review-request title in `claim`. Returns the
+/// offending filename, or `None` when the claim is uncontested.
+///
+/// Allocation reads the tree twice — once for the number, once for the daily
+/// sequence — and those scans are not atomic with each other or with the
+/// write. A run that interleaves between them can reach a plan sharing this
+/// run's number or its sequence while landing on a *different* filename,
+/// which `create_new` cannot detect. Re-reading the tree once the main task
+/// file exists closes that gap: the file is a reservation every other run can
+/// see, so whichever run observes a conflict stands down. At most one run can
+/// miss the conflict, because whoever checks last necessarily sees both files.
+pub(crate) fn conflicting_claim(
+    workspace_root: &Path,
+    claim: &MainTaskClaim<'_>,
+) -> Option<String> {
+    let backlog_root = workspace_root.join(".backlog");
+    let own_slug = format!("{}.md", slugify(claim.title));
+    let mut conflict = None;
+    for_each_task_file(&backlog_root, |dir, file_name| {
+        // The claimant's own reservation lives in `tasks`; an identically
+        // named file in `completed` or an archive is somebody else's.
+        if conflict.is_some() || (dir == "tasks" && file_name == claim.file_name) {
+            return;
+        }
+        // A dotted subtask counts too: it means another run owns the number.
+        let claims_number = leading_task_number(file_name) == Some(claim.number);
+        let claims_title = file_name
+            .split_once(" - ")
+            .is_some_and(|(_, slug)| slug == own_slug);
+        if claims_number || claims_title {
+            conflict = Some(file_name.to_string());
+        }
+    });
+    conflict
 }
 
 /// The integer part of a `task-<n>` / `task-<n>.<mm>` filename, if the name
@@ -301,6 +355,82 @@ mod tests {
     fn daily_sequence_skips_non_numeric_suffix() {
         let dir = scratch_backlog(&[("tasks", "task-1600 - review-request-2026-08-20-notes.md")]);
         assert_eq!(next_daily_sequence(dir.path(), "2026-08-20"), 1);
+    }
+
+    /// The claim helper the concurrent commit path relies on. The
+    /// interleaving it guards against cannot be forced single-threaded, so
+    /// the predicate itself is pinned here.
+    #[test]
+    fn conflicting_claim_detects_number_and_title_squatters() {
+        const OWN: &str = "task-0001 - review-request-2026-08-20-1.md";
+
+        let claim = |dir: &tempfile::TempDir| {
+            conflicting_claim(
+                dir.path(),
+                &MainTaskClaim {
+                    file_name: OWN,
+                    number: 1,
+                    title: "review-request-2026-08-20-1",
+                },
+            )
+        };
+
+        // Uncontested: only the claimant's own reservation is present.
+        let dir = scratch_backlog(&[("tasks", OWN)]);
+        assert_eq!(claim(&dir), None, "own file must not count against itself");
+
+        // Unrelated tasks leave the claim alone.
+        let dir = scratch_backlog(&[
+            ("tasks", OWN),
+            ("tasks", "task-0002 - review-request-2026-08-20-2.md"),
+            ("tasks", "task-0003 - something-else.md"),
+        ]);
+        assert_eq!(
+            claim(&dir),
+            None,
+            "distinct number and title must not clash"
+        );
+
+        // Same main number under a different title — the case `create_new`
+        // cannot see, because the filenames differ.
+        let dir = scratch_backlog(&[
+            ("tasks", OWN),
+            ("tasks", "task-0001 - review-request-2026-08-20-4.md"),
+        ]);
+        assert_eq!(
+            claim(&dir).as_deref(),
+            Some("task-0001 - review-request-2026-08-20-4.md"),
+            "a second file claiming number 1 must be reported"
+        );
+
+        // A dotted subtask also claims its parent's number.
+        let dir = scratch_backlog(&[("tasks", OWN), ("tasks", "task-0001.01 - REVIEW-other.md")]);
+        assert_eq!(
+            claim(&dir).as_deref(),
+            Some("task-0001.01 - REVIEW-other.md"),
+            "another run's subtask claims the number too"
+        );
+
+        // Same title under a different main number — the duplicate-sequence
+        // case, likewise invisible to `create_new`.
+        let dir = scratch_backlog(&[
+            ("tasks", OWN),
+            ("tasks", "task-0009 - review-request-2026-08-20-1.md"),
+        ]);
+        assert_eq!(
+            claim(&dir).as_deref(),
+            Some("task-0009 - review-request-2026-08-20-1.md"),
+            "a duplicate review-request title must be reported"
+        );
+
+        // An identically named file outside `tasks` is somebody else's, not
+        // the claimant's own reservation.
+        let dir = scratch_backlog(&[("tasks", OWN), ("completed", OWN)]);
+        assert_eq!(
+            claim(&dir).as_deref(),
+            Some(OWN),
+            "the own-file exemption must not extend to completed/archive"
+        );
     }
 
     #[test]

@@ -211,11 +211,16 @@ fn plan_task_set<'a>(
 
 /// Allocate and write the whole task set, returning the plan that committed.
 ///
-/// SEC-25: ids come from a directory scan, so the gap between allocating and
-/// writing is a time-of-check-to-time-of-use window. Every file is created
+/// SEC-25: ids come from directory scans, so the gap between allocating and
+/// writing is a time-of-check-to-time-of-use window, and the two scans are not
+/// even atomic with each other. Two guards close it. Every file is created
 /// with `create_new`, which makes the filesystem — not the scan — decide who
-/// owns a number: the loser rolls back and rescans instead of truncating the
-/// winner's task file.
+/// owns a filename; and once the main task file exists,
+/// [`backlog::conflicting_claim`] re-reads the tree to catch a concurrent run
+/// that took the same main number or the same daily sequence under a
+/// *different* name. A loser on either guard rolls back and rescans instead of
+/// leaving a duplicate id or a duplicate `review-request-<date>-<n>` title
+/// behind.
 fn commit_task_set<'a>(
     workspace_root: &Path,
     targets: &'a ReviewTargets,
@@ -235,8 +240,9 @@ fn commit_task_set<'a>(
 }
 
 /// Write one attempt's task set. `Ok(true)` means every file committed;
-/// `Ok(false)` means a filename was already taken and the caller must
-/// reallocate. Either way — and on any error — the files this attempt created
+/// `Ok(false)` means another run already holds one of this attempt's
+/// identifiers — its filename, its main number, or its daily sequence — and
+/// the caller must reallocate. Either way — and on any error — the files this attempt created
 /// are gone by the time it returns.
 fn write_task_set(
     workspace_root: &Path,
@@ -253,6 +259,25 @@ fn write_task_set(
         subtask_of: None,
     };
     if !stage_task_file(&mut staged, &tasks_dir, &main, stamp)? {
+        return Ok(false);
+    }
+    // The main file now exists, so it is a reservation every concurrent run
+    // can see. Re-reading the tree here catches the allocations that `create_new`
+    // structurally cannot: a run that interleaved between this one's two id
+    // scans and landed on the same number or the same daily sequence under a
+    // different filename. Seeing a conflict always loses, so two runs never
+    // both keep — whichever checks last sees both files.
+    let claim = backlog::MainTaskClaim {
+        file_name: &main.name,
+        number: plan.main_number,
+        title: &plan.main_title,
+    };
+    if let Some(other) = backlog::conflicting_claim(workspace_root, &claim) {
+        tracing::debug!(
+            conflict = %other,
+            claimed = %plan.main_title,
+            "review-request id claimed concurrently; reallocating"
+        );
         return Ok(false);
     }
     for subtask in &plan.subtasks {
@@ -647,6 +672,51 @@ mod tests {
         );
     }
 
+    /// The duplicate-sequence case the post-reservation re-check exists for,
+    /// driven directly: a plan whose title is already claimed under a
+    /// *different* main number lands on an unused filename, so `create_new`
+    /// succeeds and only the re-check can reject it.
+    ///
+    /// It is driven at this level because the interleaving that produces such
+    /// a plan — one id scan landing either side of a concurrent rollback —
+    /// cannot be forced through the public entry point.
+    #[test]
+    fn write_task_set_rejects_a_claim_another_number_already_holds() {
+        let dir = scratch_backlog();
+        let tasks_dir = dir.path().join(".backlog").join("tasks");
+        let foreign = tasks_dir.join("task-0009 - review-request-2026-08-20-1.md");
+        std::fs::write(&foreign, "another run").expect("foreign file");
+
+        let targets: ReviewTargets = serde_json::from_value(sample_payload()).expect("payload");
+        let plan = TaskPlan {
+            main_number: 1,
+            main_id: "TASK-0001".to_string(),
+            main_title: "review-request-2026-08-20-1".to_string(),
+            subtasks: vec![PlannedSubtask {
+                index: 1,
+                id: "TASK-0001.01".to_string(),
+                title: "REVIEW: Run skill code-review-rust against ops-core".to_string(),
+                path: &targets.targets[0].path,
+            }],
+        };
+
+        let committed = write_task_set(dir.path(), &plan, &fixed_stamp()).expect("no io error");
+        assert!(
+            !committed,
+            "a title another main number already claims must be rejected"
+        );
+        assert_eq!(
+            std::fs::read_dir(&tasks_dir).expect("tasks dir").count(),
+            1,
+            "the rejected attempt must roll back, leaving only the foreign file"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&foreign).expect("foreign"),
+            "another run",
+            "the foreign file must be untouched"
+        );
+    }
+
     /// A failing task-file write must roll the whole set back and report
     /// nothing: a review request whose subtasks stop short of the targets it
     /// names is worse than no request at all.
@@ -705,18 +775,32 @@ mod tests {
                 .collect()
         });
 
+        /// `created TASK-0002 review-request-2026-08-20-1 (2 subtasks)` → the
+        /// whitespace-separated field at `field`.
+        fn reported(out: &str, field: usize) -> &str {
+            out.split_whitespace()
+                .nth(field)
+                .expect("report names the id and title")
+        }
+
         // Every run reported a distinct main id...
-        let mut main_ids: Vec<&str> = outputs
-            .iter()
-            .map(|out| {
-                out.split_whitespace()
-                    .nth(1)
-                    .expect("report names the main id")
-            })
-            .collect();
+        let mut main_ids: Vec<&str> = outputs.iter().map(|out| reported(out, 1)).collect();
         main_ids.sort_unstable();
         main_ids.dedup();
         assert_eq!(main_ids.len(), RUNS, "main ids must be unique across runs");
+
+        // ...and a distinct review-request title. This asserts the invariant
+        // end to end; it does not reproduce the interleaving that breaks it —
+        // `write_task_set_rejects_a_claim_another_number_already_holds` drives
+        // that case directly.
+        let mut titles: Vec<&str> = outputs.iter().map(|out| reported(out, 2)).collect();
+        titles.sort_unstable();
+        titles.dedup();
+        assert_eq!(
+            titles.len(),
+            RUNS,
+            "review-request titles must be unique across runs, got: {outputs:?}"
+        );
 
         // ...and every reported file is on disk, complete and unmangled.
         let tasks_dir = dir.path().join(".backlog").join("tasks");
