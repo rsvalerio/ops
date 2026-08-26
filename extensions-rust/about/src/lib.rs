@@ -35,6 +35,11 @@ pub const DESCRIPTION: &str = "Rust project identity and about pages";
 pub const SHORTNAME: &str = "about-rs";
 pub const DATA_PROVIDER_NAME: &str = "project_identity";
 
+/// Re-exported for sibling Rust-stack extension crates: the resolved
+/// `[workspace].members` view (glob-expanded, excluded, sorted, deduped)
+/// shared by the about providers. See [`query::resolved_workspace_members`].
+pub use query::resolved_workspace_members;
+
 pub struct AboutRustExtension;
 
 ops_extension::impl_extension! {

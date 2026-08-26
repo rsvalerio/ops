@@ -1726,6 +1726,8 @@ dependencies = [
  "ops-cargo-update",
  "ops-config-checkers",
  "ops-core",
+ "ops-create-review-tasks",
+ "ops-create-review-tasks-rust",
  "ops-deps",
  "ops-duckdb",
  "ops-extension",
@@ -1937,6 +1939,35 @@ dependencies = [
  "tracing-subscriber",
  "unicode-width",
  "wait-timeout",
+]
+
+[[package]]
+name = "ops-create-review-tasks"
+version = "0.42.0"
+dependencies = [
+ "anyhow",
+ "ops-core",
+ "ops-extension",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "ops-create-review-tasks-rust"
+version = "0.42.0"
+dependencies = [
+ "linkme",
+ "ops-about",
+ "ops-about-rust",
+ "ops-cargo-toml",
+ "ops-core",
+ "ops-create-review-tasks",
+ "ops-extension",
+ "serde_json",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

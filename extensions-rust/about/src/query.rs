@@ -498,10 +498,11 @@ pub(crate) fn load_workspace_manifest(
 /// are not expanded — they are passed through unchanged and a `tracing::warn!`
 /// is emitted so the unsupported shape is visible in logs rather than silently
 /// producing a wrong member list.
-pub(crate) fn resolved_workspace_members(
-    manifest: &CargoToml,
-    workspace_root: &Path,
-) -> Vec<String> {
+///
+/// Public so sibling Rust-stack extension crates (e.g.
+/// create-review-tasks-rust) can enumerate the same member view the about
+/// providers use, instead of each maintaining a glob expander.
+pub fn resolved_workspace_members(manifest: &CargoToml, workspace_root: &Path) -> Vec<String> {
     let Some(ws) = manifest.workspace.as_ref() else {
         return Vec::new();
     };
