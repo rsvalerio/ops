@@ -63,10 +63,21 @@ pub struct ReviewTarget {
     pub path: String,
 }
 
+/// Bound on allocation retries when another writer wins the race to a task
+/// filename. Every retry rescans the backlog tree, so the number it picks
+/// strictly advances past the winner; the bound only guards against a
+/// pathological writer creating tasks faster than this run can allocate them.
+const MAX_ALLOCATION_ATTEMPTS: u32 = 32;
+
 /// Create the review-request task set: one main task plus one subtask per
 /// review target, written as markdown files under `.backlog/tasks/`.
 /// [`RunMode::DryRun`] prints the same report with `would create` verbs and
 /// writes nothing.
+///
+/// The set is all-or-nothing: every file is created exclusively, a filename
+/// another run already took sends this one back to reallocate its ids, and
+/// any failure removes the files this run staged before returning. The
+/// report is printed only once the whole set is on disk.
 ///
 /// # Errors
 ///
@@ -76,6 +87,8 @@ pub struct ReviewTarget {
 ///   [`ReviewTargets`].
 /// - A task file could not be written (the error names the path;
 ///   [`RunMode::DryRun`] never takes this branch).
+/// - [`MAX_ALLOCATION_ATTEMPTS`] consecutive allocations all lost the race to
+///   a concurrent writer ([`RunMode::DryRun`] never takes this branch).
 pub fn run_create_review_tasks(
     registry: &DataRegistry,
     workspace_root: &Path,
@@ -102,48 +115,15 @@ fn run_create_review_tasks_at(
         );
     }
 
-    let main_number = backlog::next_main_task_number(workspace_root);
-    let sequence = backlog::next_daily_sequence(workspace_root, &stamp.date);
-    let main_title = format!("review-request-{}-{sequence}", stamp.date);
-    let main_id = backlog::main_task_id(main_number);
-    let verb = match mode {
-        RunMode::Write => "created",
-        RunMode::DryRun => "would create",
+    let plan = match mode {
+        // A dry run allocates exactly like a real run and stops there, so the
+        // ids it reports are the ones the next real run will try to take.
+        RunMode::DryRun => plan_task_set(workspace_root, &targets, stamp),
+        RunMode::Write => commit_task_set(workspace_root, &targets, stamp)?,
     };
-
-    let main_task = MainTaskFile {
-        number: main_number,
-        id: &main_id,
-        title: &main_title,
-    };
-    write_main_task(workspace_root, &main_task, stamp, mode)?;
-    writeln!(
-        out,
-        "{verb} {main_id} {main_title} ({} subtasks)",
-        targets.targets.len()
-    )?;
-
-    for (index, target) in targets.targets.iter().enumerate() {
-        let subtask_index = index + 1;
-        let title = format!(
-            "REVIEW: Run skill {} against {}",
-            targets.skill, target.name
-        );
-        let subtask_id = backlog::subtask_id(main_number, subtask_index);
-        let subtask = SubtaskFile {
-            main_number,
-            index: subtask_index,
-            main_id: &main_id,
-            subtask_id: &subtask_id,
-            title: &title,
-        };
-        write_subtask(workspace_root, &subtask, stamp, mode)?;
-        writeln!(out, "{verb} {subtask_id} {title} ({})", target.path)?;
-    }
-    // Printed in both modes: even a dry run shows the id the eventual real
-    // run will allocate, so the filter is usable as soon as the tasks exist.
-    writeln!(out, "list subtasks: backlog task list --parent {main_id}")?;
-    Ok(())
+    // Deferred until the set exists: the operator is never told a task was
+    // created that a rollback then removed.
+    report(out, &plan, mode)
 }
 
 /// Query the [`DATA_PROVIDER_NAME`] provider and decode its payload.
@@ -169,82 +149,240 @@ fn fetch_review_targets(
         .with_context(|| format!("decoding {DATA_PROVIDER_NAME} payload"))
 }
 
-/// Identity of the main task file. FN-3: grouped rather than passed as
-/// positional parameters, mirroring [`SubtaskFile`].
-struct MainTaskFile<'a> {
-    /// Main-task number (id and filename share it).
-    number: u32,
-    /// Zero-padded id, e.g. `TASK-0042`.
-    id: &'a str,
-    /// Main-task title.
-    title: &'a str,
-}
-
-/// Render and write the main task file. ERR-13: the write error names the
-/// exact file path. [`RunMode::DryRun`] returns before any filesystem touch.
-fn write_main_task(
-    workspace_root: &Path,
-    main: &MainTaskFile<'_>,
-    stamp: &UtcStamp,
-    mode: RunMode,
-) -> anyhow::Result<()> {
-    if mode == RunMode::DryRun {
-        return Ok(());
-    }
-    let file_name = backlog::main_task_file_name(main.number, main.title);
-    let path = workspace_root
-        .join(".backlog")
-        .join("tasks")
-        .join(&file_name);
-    let mut file =
-        std::fs::File::create(&path).with_context(|| format!("creating {}", path.display()))?;
-    backlog::render_task_file(&mut file, main.id, main.title, stamp, None)
-        .with_context(|| format!("writing {}", path.display()))?;
-    Ok(())
-}
-
-/// Render and write one subtask file. FN-3: the identity fields travel as
-/// one struct rather than six positional parameters.
-struct SubtaskFile<'a> {
-    /// Parent main-task number (id and filename share it).
+/// The task set one run allocates: the main task plus one subtask per review
+/// target, with every id fixed by a single scan of the backlog tree.
+struct TaskPlan<'a> {
+    /// Main-task number; the id and both filename families share it.
     main_number: u32,
+    /// Zero-padded main-task id, e.g. `TASK-0042`.
+    main_id: String,
+    /// Main-task title, `review-request-<date>-<n>`.
+    main_title: String,
+    /// Subtasks, index-aligned with the provider's targets.
+    subtasks: Vec<PlannedSubtask<'a>>,
+}
+
+/// One planned subtask. FN-3: the identity fields travel as one struct rather
+/// than as positional parameters.
+struct PlannedSubtask<'a> {
     /// 1-based position among the sibling subtasks.
     index: usize,
-    /// Parent's zero-padded id, e.g. `TASK-0042`.
-    main_id: &'a str,
-    /// This subtask's dotted id, e.g. `TASK-0042.03`.
-    subtask_id: &'a str,
+    /// Dotted id, e.g. `TASK-0042.03`.
+    id: String,
     /// Subtask title.
-    title: &'a str,
+    title: String,
+    /// Review target path; report context only, never part of a filename.
+    path: &'a str,
 }
 
-/// Render and write one subtask file. ERR-13: the write error names the
-/// exact file path. [`RunMode::DryRun`] returns before any filesystem touch.
-fn write_subtask(
+/// Allocate the ids for one attempt. Pure apart from the two directory scans,
+/// so a dry run and a real run reach identical plans from identical state.
+fn plan_task_set<'a>(
     workspace_root: &Path,
-    subtask: &SubtaskFile<'_>,
+    targets: &'a ReviewTargets,
     stamp: &UtcStamp,
-    mode: RunMode,
-) -> anyhow::Result<()> {
-    if mode == RunMode::DryRun {
-        return Ok(());
-    }
-    let SubtaskFile {
+) -> TaskPlan<'a> {
+    let main_number = backlog::next_main_task_number(workspace_root);
+    let sequence = backlog::next_daily_sequence(workspace_root, &stamp.date);
+    let subtasks = targets
+        .targets
+        .iter()
+        .enumerate()
+        .map(|(position, target)| {
+            let index = position + 1;
+            PlannedSubtask {
+                index,
+                id: backlog::subtask_id(main_number, index),
+                title: format!(
+                    "REVIEW: Run skill {} against {}",
+                    targets.skill, target.name
+                ),
+                path: &target.path,
+            }
+        })
+        .collect();
+    TaskPlan {
         main_number,
-        index,
-        main_id,
-        subtask_id,
-        title,
-    } = subtask;
-    let file_name = backlog::subtask_file_name(*main_number, *index, title);
-    let path = workspace_root
-        .join(".backlog")
-        .join("tasks")
-        .join(&file_name);
-    let mut file =
-        std::fs::File::create(&path).with_context(|| format!("creating {}", path.display()))?;
-    backlog::render_task_file(&mut file, subtask_id, title, stamp, Some((main_id, *index)))
+        main_id: backlog::main_task_id(main_number),
+        main_title: format!("review-request-{}-{sequence}", stamp.date),
+        subtasks,
+    }
+}
+
+/// Allocate and write the whole task set, returning the plan that committed.
+///
+/// SEC-25: ids come from a directory scan, so the gap between allocating and
+/// writing is a time-of-check-to-time-of-use window. Every file is created
+/// with `create_new`, which makes the filesystem — not the scan — decide who
+/// owns a number: the loser rolls back and rescans instead of truncating the
+/// winner's task file.
+fn commit_task_set<'a>(
+    workspace_root: &Path,
+    targets: &'a ReviewTargets,
+    stamp: &UtcStamp,
+) -> anyhow::Result<TaskPlan<'a>> {
+    for _ in 0..MAX_ALLOCATION_ATTEMPTS {
+        let plan = plan_task_set(workspace_root, targets, stamp);
+        if write_task_set(workspace_root, &plan, stamp)? {
+            return Ok(plan);
+        }
+    }
+    anyhow::bail!(
+        "gave up allocating a free review-request id after {MAX_ALLOCATION_ATTEMPTS} attempts — \
+         another process is creating tasks in {} concurrently",
+        workspace_root.join(".backlog").join("tasks").display()
+    )
+}
+
+/// Write one attempt's task set. `Ok(true)` means every file committed;
+/// `Ok(false)` means a filename was already taken and the caller must
+/// reallocate. Either way — and on any error — the files this attempt created
+/// are gone by the time it returns.
+fn write_task_set(
+    workspace_root: &Path,
+    plan: &TaskPlan<'_>,
+    stamp: &UtcStamp,
+) -> anyhow::Result<bool> {
+    let tasks_dir = workspace_root.join(".backlog").join("tasks");
+    let mut staged = StagedTasks::new();
+
+    let main = TaskFile {
+        name: backlog::main_task_file_name(plan.main_number, &plan.main_title),
+        id: &plan.main_id,
+        title: &plan.main_title,
+        subtask_of: None,
+    };
+    if !stage_task_file(&mut staged, &tasks_dir, &main, stamp)? {
+        return Ok(false);
+    }
+    for subtask in &plan.subtasks {
+        let file = TaskFile {
+            name: backlog::subtask_file_name(plan.main_number, subtask.index, &subtask.title),
+            id: &subtask.id,
+            title: &subtask.title,
+            subtask_of: Some((&plan.main_id, subtask.index)),
+        };
+        if !stage_task_file(&mut staged, &tasks_dir, &file, stamp)? {
+            return Ok(false);
+        }
+    }
+    staged.keep();
+    Ok(true)
+}
+
+/// One task file to create. FN-3: grouped rather than passed as five
+/// positional parameters.
+struct TaskFile<'a> {
+    /// Filename inside `.backlog/tasks/`.
+    name: String,
+    /// Zero-padded id, e.g. `TASK-0042` or `TASK-0042.03`.
+    id: &'a str,
+    /// Task title.
+    title: &'a str,
+    /// Parent id plus 1-based position for a subtask; `None` for a main task.
+    subtask_of: Option<(&'a str, usize)>,
+}
+
+/// Create and render one task file, registering it with `staged` first so a
+/// failure part-way through the render still rolls it back. `Ok(false)` means
+/// the name was taken between the id scan and the create.
+///
+/// ERR-13: both the create and the write errors name the exact file path.
+fn stage_task_file(
+    staged: &mut StagedTasks,
+    tasks_dir: &Path,
+    file: &TaskFile<'_>,
+    stamp: &UtcStamp,
+) -> anyhow::Result<bool> {
+    let path = tasks_dir.join(&file.name);
+    // SEC-25: `create_new` is the atomic check-and-create. `File::create`
+    // would silently truncate a task file another run just wrote.
+    let mut handle = match std::fs::File::create_new(&path) {
+        Ok(handle) => handle,
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+        Err(err) => {
+            return Err(anyhow::Error::new(err))
+                .with_context(|| format!("creating {}", path.display()))
+        }
+    };
+    staged.track(path.clone());
+    backlog::render_task_file(&mut handle, file.id, file.title, stamp, file.subtask_of)
         .with_context(|| format!("writing {}", path.display()))?;
+    Ok(true)
+}
+
+/// The task files one attempt has created. Dropping this without
+/// [`StagedTasks::keep`] deletes them, so neither a lost allocation race nor
+/// a failed write leaves a half-created set behind — and a half-created set
+/// is worse than none, because the backlog CLI would show a review request
+/// whose subtasks silently stop short of the targets it names.
+struct StagedTasks {
+    /// Paths created so far, in creation order.
+    paths: Vec<std::path::PathBuf>,
+    /// Set once the whole set is on disk; suppresses the rollback.
+    committed: bool,
+}
+
+impl StagedTasks {
+    /// An attempt with nothing staged yet.
+    fn new() -> Self {
+        Self {
+            paths: Vec::new(),
+            committed: false,
+        }
+    }
+
+    /// Register a file this attempt created.
+    fn track(&mut self, path: std::path::PathBuf) {
+        self.paths.push(path);
+    }
+
+    /// Keep every staged file: the set is complete.
+    fn keep(&mut self) {
+        self.committed = true;
+    }
+}
+
+impl Drop for StagedTasks {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        for path in self.paths.iter().rev() {
+            // Best effort: the caller is already returning an error or about
+            // to retry, and a failed cleanup must not mask that outcome.
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// Print the run report for a committed (or, in a dry run, planned) set.
+fn report(out: &mut dyn Write, plan: &TaskPlan<'_>, mode: RunMode) -> anyhow::Result<()> {
+    let verb = match mode {
+        RunMode::Write => "created",
+        RunMode::DryRun => "would create",
+    };
+    writeln!(
+        out,
+        "{verb} {} {} ({} subtasks)",
+        plan.main_id,
+        plan.main_title,
+        plan.subtasks.len()
+    )?;
+    for subtask in &plan.subtasks {
+        writeln!(
+            out,
+            "{verb} {} {} ({})",
+            subtask.id, subtask.title, subtask.path
+        )?;
+    }
+    // Printed in both modes: even a dry run shows the id the eventual real
+    // run will allocate, so the filter is usable as soon as the tasks exist.
+    writeln!(
+        out,
+        "list subtasks: backlog task list --parent {}",
+        plan.main_id
+    )?;
     Ok(())
 }
 
@@ -465,6 +603,148 @@ mod tests {
         let (out2, result2) = run(&dir, &registry, RunMode::DryRun);
         result2.expect("second dry run");
         assert_eq!(out1, out2);
+    }
+
+    /// A task filename taken between the id scan and the create must send the
+    /// run back to reallocate — never truncate the winner's file — and must
+    /// leave nothing behind from the attempt it abandoned. The pre-created
+    /// `task-0001.02` file stands in for the file a concurrent run wrote
+    /// after this one scanned the directory.
+    #[test]
+    fn taken_filename_reallocates_and_leaves_no_partial_set() {
+        let dir = scratch_backlog();
+        let tasks_dir = dir.path().join(".backlog").join("tasks");
+        let squatter =
+            tasks_dir.join("task-0001.02 - REVIEW-Run-skill-code-review-rust-against-ops-cli.md");
+        std::fs::write(&squatter, "not ours").expect("squatter file");
+
+        let registry = registry_with(sample_payload());
+        let (out, result) = run(&dir, &registry, RunMode::Write);
+        result.expect("run must reallocate around the taken name");
+
+        assert_eq!(
+            std::fs::read_to_string(&squatter).expect("squatter"),
+            "not ours",
+            "the foreign file must not be truncated"
+        );
+        assert!(
+            // The squatter is not a `review-request-` task, so it advances the
+            // main-task number but not the per-day sequence.
+            out.starts_with("created TASK-0002 review-request-2026-08-20-1 (2 subtasks)\n"),
+            "got: {out}"
+        );
+        assert!(
+            !tasks_dir
+                .join("task-0001 - review-request-2026-08-20-1.md")
+                .exists(),
+            "the abandoned attempt's main task must be rolled back"
+        );
+        assert!(
+            !tasks_dir
+                .join("task-0001.01 - REVIEW-Run-skill-code-review-rust-against-ops-core.md")
+                .exists(),
+            "the abandoned attempt's first subtask must be rolled back"
+        );
+    }
+
+    /// A failing task-file write must roll the whole set back and report
+    /// nothing: a review request whose subtasks stop short of the targets it
+    /// names is worse than no request at all.
+    ///
+    /// The failure is injected with a target name long enough that its subtask
+    /// filename exceeds the filesystem's per-component limit, so the *second*
+    /// subtask fails after the main task and the first subtask are on disk.
+    #[test]
+    fn failed_write_rolls_back_the_whole_set_and_reports_nothing() {
+        let dir = scratch_backlog();
+        let registry = registry_with(serde_json::json!({
+            "skill": "code-review-rust",
+            "targets": [
+                { "name": "ops-core", "path": "crates/core" },
+                { "name": "x".repeat(400), "path": "crates/too-long" }
+            ]
+        }));
+        let (out, result) = run(&dir, &registry, RunMode::Write);
+        let err = result.expect_err("the oversized filename must fail the run");
+        assert!(
+            format!("{err:#}").contains("creating "),
+            "error must name the file it could not create, got: {err:#}"
+        );
+
+        assert_eq!(out, "", "a rolled-back run must report no created tasks");
+        let tasks_dir = dir.path().join(".backlog").join("tasks");
+        assert_eq!(
+            std::fs::read_dir(&tasks_dir).expect("tasks dir").count(),
+            0,
+            "every staged task file must be removed"
+        );
+    }
+
+    /// Concurrent runs against one backlog must each get their own main-task
+    /// number and their own complete set of files — no truncation, no
+    /// interleaved ids, no missing subtask.
+    #[test]
+    fn concurrent_runs_allocate_disjoint_task_sets() {
+        const RUNS: usize = 8;
+
+        let dir = scratch_backlog();
+        let registry = registry_with(sample_payload());
+        let outputs: Vec<String> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..RUNS)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let (out, result) = run(&dir, &registry, RunMode::Write);
+                        result.expect("concurrent run must succeed");
+                        out
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("thread must not panic"))
+                .collect()
+        });
+
+        // Every run reported a distinct main id...
+        let mut main_ids: Vec<&str> = outputs
+            .iter()
+            .map(|out| {
+                out.split_whitespace()
+                    .nth(1)
+                    .expect("report names the main id")
+            })
+            .collect();
+        main_ids.sort_unstable();
+        main_ids.dedup();
+        assert_eq!(main_ids.len(), RUNS, "main ids must be unique across runs");
+
+        // ...and every reported file is on disk, complete and unmangled.
+        let tasks_dir = dir.path().join(".backlog").join("tasks");
+        assert_eq!(
+            std::fs::read_dir(&tasks_dir).expect("tasks dir").count(),
+            RUNS * 3,
+            "each run must leave exactly one main task plus two subtasks"
+        );
+        for main_id in main_ids {
+            let number = main_id
+                .strip_prefix("TASK-")
+                .expect("zero-padded main id")
+                .to_string();
+            let main = std::fs::read_dir(&tasks_dir)
+                .expect("tasks dir")
+                .flatten()
+                .map(|entry| entry.file_name().into_string().expect("utf8 name"))
+                .filter(|name| name.starts_with(&format!("task-{number} ")))
+                .count();
+            assert_eq!(main, 1, "exactly one main task file for {main_id}");
+            let subtasks = std::fs::read_dir(&tasks_dir)
+                .expect("tasks dir")
+                .flatten()
+                .map(|entry| entry.file_name().into_string().expect("utf8 name"))
+                .filter(|name| name.starts_with(&format!("task-{number}.")))
+                .count();
+            assert_eq!(subtasks, 2, "both subtask files present for {main_id}");
+        }
     }
 
     /// A dry run after a real run previews the *next* allocation, mirroring
