@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Typed stderr tail policy — replaces the old `usize::MAX` sentinel.
+///
 /// TASK-0762: the display layer decides unbounded vs capped; the config
 /// field stores the user's value verbatim and is never mutated post-load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

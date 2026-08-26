@@ -46,12 +46,13 @@ pub use results::StepResult;
 pub use secret_patterns::is_sensitive_env_key;
 pub use secret_patterns::looks_like_secret_value as looks_like_secret_value_public;
 
-/// Shared "id not found in any store" failure. DUP-3 / TASK-0769:
-/// [`ResolveExecError`] and [`ExpandError`] previously each defined an
-/// `Unknown(String)` variant with identical Display strings. Both now wrap
-/// this single struct so the message lives in one place and a future
-/// caller can convert between the parent enums via `#[from]` without
-/// reconstructing the inner string.
+/// Shared "id not found in any store" failure.
+///
+/// DUP-3 / TASK-0769: [`ResolveExecError`] and [`ExpandError`] previously
+/// each defined an `Unknown(String)` variant with identical Display
+/// strings. Both now wrap this single struct so the message lives in one
+/// place and a future caller can convert between the parent enums via
+/// `#[from]` without reconstructing the inner string.
 #[derive(Debug, thiserror::Error, PartialEq, Eq, Clone)]
 #[error("unknown command: {0}")]
 pub struct UnknownCommand(pub String);

@@ -57,11 +57,13 @@ pub fn get_source_checksum(
 }
 
 /// API-2 / TASK-0912: distinct newtypes for the two adjacent `&str`
-/// parameters of [`DataSourceMetadata::new`]. Both halves of the
-/// `(source_name, workspace_root)` primary key were silently swappable
-/// before; a swap silently wrote rows under the wrong key, producing
-/// duplicate ingest records and divergent checksums no future run could
-/// reconcile. Swap is now a compile error.
+/// parameters of [`DataSourceMetadata::new`].
+///
+/// Both halves of the `(source_name, workspace_root)` primary key were
+/// silently swappable before; a swap silently wrote rows under the
+/// wrong key, producing duplicate ingest records and divergent
+/// checksums no future run could reconcile. Swap is now a compile
+/// error.
 #[derive(Debug, Clone, Copy)]
 pub struct SourceName<'a>(&'a str);
 

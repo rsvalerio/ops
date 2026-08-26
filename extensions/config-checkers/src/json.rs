@@ -1,7 +1,9 @@
-//! Parse-only JSON validation. Strict mode uses `serde_json`; lenient mode
-//! (`allow_json5 = true`) uses the `json5` crate, which is a strict superset
-//! of JSONC and additionally accepts unquoted keys, single-quoted strings,
-//! hex/`Infinity`/`NaN` numbers, and other JSON5 extensions.
+//! Parse-only JSON validation.
+//!
+//! Strict mode uses `serde_json`; lenient mode (`allow_json5 = true`) uses
+//! the `json5` crate, which is a strict superset of JSONC and additionally
+//! accepts unquoted keys, single-quoted strings, hex/`Infinity`/`NaN`
+//! numbers, and other JSON5 extensions.
 
 use crate::CheckError;
 

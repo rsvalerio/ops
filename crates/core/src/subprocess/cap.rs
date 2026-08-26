@@ -13,20 +13,23 @@ use std::time::Duration;
 pub const TIMEOUT_ENV: &str = "OPS_SUBPROCESS_TIMEOUT_SECS";
 
 /// SEC-33 / TASK-1050: environment variable used to override the per-stream
-/// byte cap applied by [`super::run_with_timeout`]'s drain threads. Mirrors
-/// the runner's `command::exec::read_capped` shape (PERF-1 / TASK-0764) so a
-/// runaway cargo subprocess cannot grow the in-memory capture buffer
-/// without bound. Reuses the same env var name the runner already
-/// documents — `ops` users only have one knob to tune.
+/// byte cap applied by [`super::run_with_timeout`]'s drain threads.
+///
+/// Mirrors the runner's `command::exec::read_capped` shape (PERF-1 /
+/// TASK-0764) so a runaway cargo subprocess cannot grow the in-memory
+/// capture buffer without bound. Reuses the same env var name the runner
+/// already documents — `ops` users only have one knob to tune.
 pub const OUTPUT_CAP_ENV: &str = "OPS_OUTPUT_BYTE_CAP";
 
 /// Default per-stream byte cap applied to captured stdout/stderr in
-/// [`super::run_with_timeout`]. Matches the runner's
-/// `DEFAULT_OUTPUT_BYTE_CAP` (4 MiB) so the cap is consistent across the
-/// project's two subprocess paths. Once the cap is reached the drain
-/// thread keeps reading from the pipe (so the child does not block on a
-/// full pipe and risk a timeout) but discards the bytes and increments a
-/// `dropped` counter that surfaces via `tracing::warn!`.
+/// [`super::run_with_timeout`].
+///
+/// Matches the runner's `DEFAULT_OUTPUT_BYTE_CAP` (4 MiB) so the cap is
+/// consistent across the project's two subprocess paths. Once the cap is
+/// reached the drain thread keeps reading from the pipe (so the child
+/// does not block on a full pipe and risk a timeout) but discards the
+/// bytes and increments a `dropped` counter that surfaces via
+/// `tracing::warn!`.
 pub const DEFAULT_OUTPUT_BYTE_CAP: usize = 4 * 1024 * 1024;
 
 /// Fallback timeout applied when a caller has no operation-specific default
@@ -95,9 +98,11 @@ fn cached_subprocess_timeout() -> Option<u64> {
     *CACHED.get_or_init(|| parse_subprocess_timeout(std::env::var(TIMEOUT_ENV).ok().as_deref()))
 }
 
-/// Resolve an effective timeout: `OPS_SUBPROCESS_TIMEOUT_SECS` overrides the
-/// caller-provided default if present and parses to a non-zero u64; otherwise
-/// the operation-specific default is returned unchanged.
+/// Resolve an effective timeout for a subprocess wait.
+///
+/// `OPS_SUBPROCESS_TIMEOUT_SECS` overrides the caller-provided default if
+/// present and parses to a non-zero u64; otherwise the operation-specific
+/// default is returned unchanged.
 ///
 /// ASYNC-6 / TASK-0304: the override is clamped to [`MAX_TIMEOUT_SECS`] and
 /// emits a warning when it had to be clamped, so an accidental

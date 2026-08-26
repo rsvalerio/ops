@@ -13,8 +13,10 @@ use ops_core::text::dir_name;
 use ops_extension::DataProviderError;
 
 /// Stack-agnostic projection of a parsed manifest, ready to be turned into
-/// a [`ProjectIdentity`] via [`build_identity_value`]. Fields with no
-/// equivalent in a given stack should remain at their `Default` value.
+/// a [`ProjectIdentity`] via [`build_identity_value`].
+///
+/// Fields with no equivalent in a given stack should remain at their
+/// `Default` value.
 ///
 /// `#[non_exhaustive]`: out-of-crate construction must go through
 /// [`ParsedManifest::build`] so new identity fields can be added without
@@ -55,10 +57,11 @@ impl ParsedManifest {
 }
 
 /// Run a stack's manifest parser against the working directory and serialise
-/// the result via [`build_identity_value`]. Captures the
-/// `let cwd = ...; let parsed = parser(&cwd); build_identity_value(parsed, &cwd)`
-/// scaffold every stack `*IdentityProvider::provide` was duplicating
-/// (DUP-1 / TASK-0484).
+/// the result via [`build_identity_value`].
+///
+/// Captures the `let cwd = ...; let parsed = parser(&cwd);
+/// build_identity_value(parsed, &cwd)` scaffold every stack
+/// `*IdentityProvider::provide` was duplicating (DUP-1 / TASK-0484).
 ///
 /// Stack providers that need to merge data from multiple manifests (e.g. the
 /// Go provider, which combines `go.mod` and `go.work`) can still call

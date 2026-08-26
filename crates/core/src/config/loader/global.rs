@@ -88,10 +88,11 @@ fn global_config_path() -> Option<PathBuf> {
 }
 
 /// READ-1 / TASK-1475: zero-sized capability token for
-/// [`reset_global_config_path_cache`]. Constructable only via
-/// [`GlobalConfigPathResetToken::new`], which is itself gated to
-/// `#[cfg(any(test, feature = "test-support"))]` so an accidental
-/// production caller cannot compile the reset path.
+/// [`reset_global_config_path_cache`].
+///
+/// Constructable only via [`GlobalConfigPathResetToken::new`], which is
+/// itself gated to `#[cfg(any(test, feature = "test-support"))]` so an
+/// accidental production caller cannot compile the reset path.
 #[cfg(any(test, feature = "test-support"))]
 #[non_exhaustive]
 pub struct GlobalConfigPathResetToken {
@@ -115,10 +116,12 @@ impl Default for GlobalConfigPathResetToken {
 }
 
 /// READ-1 / TASK-1475: clear the `GLOBAL_CONFIG_PATH` cache so the next
-/// [`global_config_path`] call re-resolves from the live env. Test-support
-/// only — the runtime contract documented on `GLOBAL_CONFIG_PATH` ("tests
-/// MUST set env before any code path triggers `load_config`") was enforced
-/// only by comment; this hook makes the discipline mechanical.
+/// [`global_config_path`] call re-resolves from the live env.
+///
+/// Test-support only — the runtime contract documented on
+/// `GLOBAL_CONFIG_PATH` ("tests MUST set env before any code path triggers
+/// `load_config`") was enforced only by comment; this hook makes the
+/// discipline mechanical.
 ///
 /// The `_token` parameter is a capability marker: see
 /// [`GlobalConfigPathResetToken`]. Production builds (no `test-support`

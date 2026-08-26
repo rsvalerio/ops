@@ -65,12 +65,14 @@ pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> St
 
 /// PATTERN-1 / TASK-1017: `is_tty` drives terminal-width probing
 /// (right-sizing the `Module` column); `use_color` drives whether
-/// `Action::color()` is applied to cells. The two were previously
-/// conflated under one boolean, which (a) made piped-but-coloured
-/// output environment-sensitive and (b) disabled width probing on a
-/// real TTY when `--no-color` was set. Callers must derive `is_tty`
-/// from `IsTerminal` on the actual writer (or pass `false` for buffered
-/// sinks) and `use_color` from the user's preference (e.g. `!no_color`).
+/// `Action::color()` is applied to cells.
+///
+/// The two were previously conflated under one boolean, which (a) made
+/// piped-but-coloured output environment-sensitive and (b) disabled
+/// width probing on a real TTY when `--no-color` was set. Callers must
+/// derive `is_tty` from `IsTerminal` on the actual writer (or pass
+/// `false` for buffered sinks) and `use_color` from the user's
+/// preference (e.g. `!no_color`).
 #[must_use]
 pub fn render_resource_table(
     changes: &[ClassifiedChange],

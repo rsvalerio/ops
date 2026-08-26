@@ -228,9 +228,11 @@ pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
 
 /// Load config and degrade to an empty [`Config`] on failure, surfacing the
 /// error via both `tracing::warn!` (structured log) and [`crate::ui::warn`]
-/// (user-visible). `context` describes the caller path (`"hook install"`,
-/// `"about"`, `"early"`) and is included verbatim in both messages so logs
-/// can be filtered and the user can correlate the warning to what they ran.
+/// (user-visible).
+///
+/// `context` describes the caller path (`"hook install"`, `"about"`,
+/// `"early"`) and is included verbatim in both messages so logs can be
+/// filtered and the user can correlate the warning to what they ran.
 ///
 /// The fallback is [`Config::empty`] (no commands, themes, or stack), not
 /// [`Config::default`]: TRAIT-4 / TASK-0872 gated `default()` to test

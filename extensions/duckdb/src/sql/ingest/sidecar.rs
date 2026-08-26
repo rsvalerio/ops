@@ -39,10 +39,11 @@ pub fn write_workspace_sidecar(
     .map_err(DbError::Io)
 }
 
-/// SEC-33 / TASK-0951: hard cap on workspace sidecar read size. A real
-/// sidecar holds a single filesystem path (kilobytes at most); an
-/// adversarial or `/dev/zero`-symlinked sidecar could otherwise OOM the
-/// CLI before the unsafe `from_encoded_bytes_unchecked` boundary.
+/// SEC-33 / TASK-0951: hard cap on workspace sidecar read size.
+///
+/// A real sidecar holds a single filesystem path (kilobytes at most);
+/// an adversarial or `/dev/zero`-symlinked sidecar could otherwise OOM
+/// the CLI before the unsafe `from_encoded_bytes_unchecked` boundary.
 pub const MAX_SIDECAR_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Read a workspace root sidecar file written during collect.

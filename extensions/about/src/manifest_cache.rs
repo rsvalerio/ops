@@ -55,13 +55,17 @@ pub struct CacheEntry {
     last_accessed: u64,
 }
 
+/// Entry map plus the LRU victim queue that bounds it.
+///
 /// PERF-1 / TASK-1240: pair the canonical entry map with a min-heap of
 /// `(last_accessed, path)` so cap-bound eviction picks the least-recently-
 /// used entry in `O(log n)` (heap pop with lazy invalidation) instead of an
-/// `O(n)` `min_by_key` scan over the whole map. The heap may contain stale
-/// `(tick, path)` pairs (a hit pushes a fresh entry but leaves the older
-/// one in place); the eviction loop discards those by comparing the popped
-/// tick against `map[path].last_accessed` before removing.
+/// `O(n)` `min_by_key` scan over the whole map.
+///
+/// The heap may contain stale `(tick, path)` pairs (a hit pushes a fresh
+/// entry but leaves the older one in place); the eviction loop discards
+/// those by comparing the popped tick against `map[path].last_accessed`
+/// before removing.
 pub struct CacheMap {
     map: HashMap<PathBuf, CacheEntry>,
     victim_queue: LruVictimQueue<PathBuf>,
@@ -92,16 +96,20 @@ impl CacheMap {
     }
 }
 
-/// Hard cap on cached manifests. Far above the realistic distinct-root
-/// count of a single `ops` invocation, so the cap never trips on the CLI
-/// happy path; long-running embedders see a bounded high-water mark
-/// instead of an unbounded leak.
+/// Hard cap on cached manifests.
+///
+/// Far above the realistic distinct-root count of a single `ops`
+/// invocation, so the cap never trips on the CLI happy path;
+/// long-running embedders see a bounded high-water mark instead of an
+/// unbounded leak.
 pub const CACHE_MAX_ENTRIES: usize = 1024;
 
 /// Process-local cache mapping `<root>/<filename>` → `Arc<str>` of the raw
-/// file text. Construct once as a `static` per consumer (e.g. one per
-/// stack) so the dedup spans calls within a process; tests should
-/// construct a fresh local instance for isolation.
+/// file text.
+///
+/// Construct once as a `static` per consumer (e.g. one per stack) so the
+/// dedup spans calls within a process; tests should construct a fresh
+/// local instance for isolation.
 pub struct ArcTextCache {
     filename: &'static str,
     cache: OnceLock<Mutex<CacheMap>>,
@@ -220,13 +228,14 @@ impl ArcTextCache {
 }
 
 /// DUP-3 / TASK-1166: per-process accessor returning the cached text for
-/// `<root>/<filename>`. Lifts the per-stack `manifest_cache.rs` wrappers
-/// (`package_json_text`, `pyproject_text`) onto a single entry point so a
-/// future stack (e.g. `go.mod`) doesn't grow a third byte-equivalent
-/// shim. The static `OnceLock` map is keyed by `&'static str` filename, so
-/// every consumer naming the same filename shares the same `ArcTextCache`
-/// — preserving the per-process Arc dedup contract that PERF-3 / TASK-0854
-/// relies on.
+/// `<root>/<filename>`.
+///
+/// Lifts the per-stack `manifest_cache.rs` wrappers (`package_json_text`,
+/// `pyproject_text`) onto a single entry point so a future stack (e.g.
+/// `go.mod`) doesn't grow a third byte-equivalent shim. The static
+/// `OnceLock` map is keyed by `&'static str` filename, so every consumer
+/// naming the same filename shares the same `ArcTextCache` — preserving
+/// the per-process Arc dedup contract that PERF-3 / TASK-0854 relies on.
 ///
 /// The two extant filenames (`package.json`, `pyproject.toml`) bind eagerly
 /// at first call; subsequent calls reuse the same `ArcTextCache` instance.

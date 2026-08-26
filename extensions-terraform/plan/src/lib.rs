@@ -23,9 +23,11 @@ const DEFAULT_BINARY_PLAN: &str = ".ops/tfplan.binary";
 const DEFAULT_JSON_PLAN: &str = ".ops/tfplan.json";
 
 /// FN-3 / TASK-1281: a single clap-derived struct is the canonical
-/// definition of every `ops plans` flag. The CLI variant carries one
-/// `PlanOptions` and the dispatch arm forwards it directly to
-/// `run_plan_pipeline`, so adding a new flag only edits this struct.
+/// definition of every `ops plans` flag.
+///
+/// The CLI variant carries one `PlanOptions` and the dispatch arm
+/// forwards it directly to `run_plan_pipeline`, so adding a new flag
+/// only edits this struct.
 #[derive(clap::Args, Debug, Clone)]
 pub struct PlanOptions {
     /// Read plan JSON from a file instead of running terraform. Use `-` for stdin.
@@ -69,11 +71,12 @@ pub fn has_changes(classified: &[ClassifiedChange]) -> bool {
 }
 
 /// FN-9 / TASK-0850: thin wrapper that locks `io::stdout()` and delegates
-/// to [`run_plan_pipeline_to_with_tty`]. Preserves the previous public
-/// signature so the binary entry point and downstream callers stay
-/// unchanged. PATTERN-1 / TASK-1017: real TTY-ness is detected on
-/// `stdout` here (via `IsTerminal`) and passed through explicitly,
-/// rather than being derived from `--no-color`.
+/// to [`run_plan_pipeline_to_with_tty`].
+///
+/// Preserves the previous public signature so the binary entry point and
+/// downstream callers stay unchanged. PATTERN-1 / TASK-1017: real
+/// TTY-ness is detected on `stdout` here (via `IsTerminal`) and passed
+/// through explicitly, rather than being derived from `--no-color`.
 ///
 /// # Errors
 ///
@@ -90,6 +93,7 @@ pub fn run_plan_pipeline(opts: &PlanOptions) -> anyhow::Result<ExitCode> {
 
 /// FN-9 / TASK-0850: orchestration entry point that writes rendered
 /// summary / resource / outputs tables to `out` instead of global stdout.
+///
 /// Library callers (LSP plugin, web UI, dry-run) and tests can supply
 /// their own `Vec<u8>` / file / pipe sink without spawning a subprocess.
 ///
@@ -113,7 +117,9 @@ pub fn run_plan_pipeline_to(
 
 /// PATTERN-1 / TASK-1017: explicit form that accepts the writer's
 /// TTY-ness as a separate argument from the user's colour preference
-/// (`opts.no_color`). `is_tty` drives terminal-width probing in
+/// (`opts.no_color`).
+///
+/// `is_tty` drives terminal-width probing in
 /// `render_resource_table`; `!opts.no_color` drives whether
 /// `Action::color()` is applied to cells.
 ///

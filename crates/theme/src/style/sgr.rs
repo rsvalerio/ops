@@ -55,9 +55,11 @@ fn parse_spec(spec: &str) -> Vec<&'static str> {
         .collect()
 }
 
-/// Precompute the SGR prefix for `spec` (e.g. `"\x1b[1;32m"` for `"bold green"`).
-/// Returns `None` when the spec contains no recognized tokens.
-/// TASK-0747: callers store this once at construction and reuse per render.
+/// Precompute the SGR prefix for `spec`.
+///
+/// For example `"\x1b[1;32m"` for `"bold green"`. Returns `None` when the
+/// spec contains no recognized tokens. TASK-0747: callers store this once
+/// at construction and reuse per render.
 #[must_use]
 pub fn precompute_sgr_prefix(spec: &str) -> Option<String> {
     let codes = parse_spec(spec);

@@ -14,11 +14,13 @@
 use std::io::Read;
 use std::path::Path;
 
-/// SEC-33 (TASK-0831): hard cap on manifest size. `ops about` runs in
-/// user-controlled working directories where an adversarial repository
-/// (or a `/dev/zero` symlink) could otherwise force an unbounded
-/// allocation. 4 MiB is well above any real `package.json` / `pom.xml`
-/// / `pnpm-workspace.yaml` while keeping a single oversize read bounded.
+/// SEC-33 (TASK-0831): hard cap on manifest size.
+///
+/// `ops about` runs in user-controlled working directories where an
+/// adversarial repository (or a `/dev/zero` symlink) could otherwise
+/// force an unbounded allocation. 4 MiB is well above any real
+/// `package.json` / `pom.xml` / `pnpm-workspace.yaml` while keeping a
+/// single oversize read bounded.
 pub const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Read a manifest's text content if the file exists.

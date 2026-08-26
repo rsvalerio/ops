@@ -533,12 +533,13 @@ impl EnvGuard {
 }
 
 /// TEST-19 (TASK-1033): true when the current effective UID is 0 on Unix.
+///
 /// Tests that rely on DAC permission denial (`chmod 0o000` + assert read
 /// fails) silently invert their assertion when run as root because the
 /// kernel skips the permission check for UID 0. Container CI (Docker
 /// default UID 0, rootful devcontainers, privileged self-hosted runners)
-/// hits this routinely. Callers should `if is_root_euid() { return; }`
-/// at the top of the test and explain inline why the guard is mandatory.
+/// hits this routinely. Callers should `if is_root_euid() { return; }` at
+/// the top of the test and explain inline why the guard is mandatory.
 ///
 /// On non-Unix targets this always returns `false`; callers should also
 /// be `#[cfg(unix)]`-gated since the underlying chmod assertion is too.
@@ -597,6 +598,7 @@ fn pin_global_dispatcher() {
 }
 
 /// Shared tracing-event capture helper for tests across the core crate.
+///
 /// Installs a thread-local subscriber at `level` for the duration of `f`,
 /// captures the formatted output (ANSI off) and returns it alongside `f`'s
 /// return value. Consolidates DUP-3: every in-process tracing-capture test

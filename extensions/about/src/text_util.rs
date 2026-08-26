@@ -20,9 +20,11 @@ pub fn get_terminal_width() -> usize {
     parse_terminal_width(std::env::var("COLUMNS").ok().as_deref())
 }
 
-/// Parse a COLUMNS-style width source. Extracted from `get_terminal_width`
-/// so tests can exercise the parser without mutating process-global env,
-/// which otherwise races with any parallel test reading COLUMNS.
+/// Parse a COLUMNS-style width source.
+///
+/// Extracted from `get_terminal_width` so tests can exercise the parser
+/// without mutating process-global env, which otherwise races with any
+/// parallel test reading COLUMNS.
 #[must_use]
 pub fn parse_terminal_width(raw: Option<&str>) -> usize {
     raw.and_then(|s| s.parse().ok()).unwrap_or(120)

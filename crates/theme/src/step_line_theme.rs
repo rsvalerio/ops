@@ -105,8 +105,10 @@ pub struct SlotLine<'a> {
 }
 
 /// Plain layout pieces that make up the left portion of a step line:
-/// `{indent}{icon}{pad} `. Returned by `ConfigurableTheme::step_prefix_parts`
-/// so `render` and `render_prefix` cannot drift in width or composition.
+/// `{indent}{icon}{pad} `.
+///
+/// Returned by `ConfigurableTheme::step_prefix_parts` so `render` and
+/// `render_prefix` cannot drift in width or composition.
 pub struct StepPrefixParts<'a> {
     /// Leading indent (empty for running rows; spinner template emits its own indent).
     pub indent: &'a str,

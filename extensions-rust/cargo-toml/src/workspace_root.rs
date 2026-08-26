@@ -7,11 +7,13 @@ use ops_core::text::read_capped_to_string;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// ARCH-2 / TASK-0871: typed errors for [`find_workspace_root`]. Replaces
-/// the previously synthesised `io::Error::new(NotFound, …)`, so consumers
-/// (notably `is_manifest_missing` in `extensions-rust/about`) can match a
-/// typed variant instead of walking the source chain looking for an
-/// `io::ErrorKind::NotFound` shape that another wrapping layer would mask.
+/// ARCH-2 / TASK-0871: typed errors for [`find_workspace_root`].
+///
+/// Replaces the previously synthesised `io::Error::new(NotFound, …)`, so
+/// consumers (notably `is_manifest_missing` in `extensions-rust/about`)
+/// can match a typed variant instead of walking the source chain looking
+/// for an `io::ErrorKind::NotFound` shape that another wrapping layer
+/// would mask.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum FindWorkspaceRootError {
@@ -98,9 +100,11 @@ pub fn find_workspace_root(start: &Path) -> Result<PathBuf, FindWorkspaceRootErr
 }
 
 /// Variant of [`find_workspace_root`] that takes the ancestor-depth bound as
-/// a parameter. TASK-0963: lets tests verify the bound without crafting a
-/// 64-deep directory hierarchy, and gives callers an escape hatch if their
-/// layout legitimately needs a deeper walk.
+/// a parameter.
+///
+/// TASK-0963: lets tests verify the bound without crafting a 64-deep
+/// directory hierarchy, and gives callers an escape hatch if their layout
+/// legitimately needs a deeper walk.
 ///
 /// The same symlink threat model documented on [`find_workspace_root`]
 /// applies here: the start path is canonicalized once and ancestors are
@@ -129,8 +133,10 @@ pub fn find_workspace_root_with_depth(
 
 /// Strict variant of [`find_workspace_root`] that re-canonicalises each
 /// candidate `Cargo.toml`'s parent before accepting it as the workspace
-/// root. Rejects (with [`tracing::warn`]) any candidate whose canonical
-/// path does not lie on the canonical start's ancestor chain — i.e. a
+/// root.
+///
+/// Rejects (with [`tracing::warn`]) any candidate whose canonical path
+/// does not lie on the canonical start's ancestor chain — i.e. a
 /// symlink in the lexical walk that would otherwise redirect the
 /// discovered root outside the user's intended logical path.
 ///

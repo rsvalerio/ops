@@ -40,15 +40,17 @@ const DATA_PROVIDER_NAME: &str = "metadata";
 pub(crate) const CARGO_METADATA_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// ERR-1 / TASK-1034: byte cap on the JSON payload read from
-/// `metadata_raw`. `query_metadata_raw` materialises the row as a
-/// `String` (via `to_json(m)::VARCHAR`) and then parses it into a
-/// `serde_json::Value`, which keeps two full copies live during the
-/// round-trip in addition to the `DuckDB` columnar buffer. A pathologically
-/// large workspace (10+ MiB cargo-metadata output is possible) could OOM
-/// the `ops about` process at this step. Cap the payload at 64 MiB by
-/// default — well above realistic workspace sizes — and fail with a
-/// clear error when exceeded so operators learn before the OS kills
-/// the process. Override via `OPS_METADATA_MAX_BYTES`.
+/// `metadata_raw`.
+///
+/// `query_metadata_raw` materialises the row as a `String` (via
+/// `to_json(m)::VARCHAR`) and then parses it into a `serde_json::Value`,
+/// which keeps two full copies live during the round-trip in addition to
+/// the `DuckDB` columnar buffer. A pathologically large workspace (10+ MiB
+/// cargo-metadata output is possible) could OOM the `ops about` process at
+/// this step. Cap the payload at 64 MiB by default — well above realistic
+/// workspace sizes — and fail with a clear error when exceeded so operators
+/// learn before the OS kills the process. Override via
+/// `OPS_METADATA_MAX_BYTES`.
 pub const METADATA_MAX_BYTES_DEFAULT: u64 = 64 * 1024 * 1024;
 
 /// Environment variable that overrides [`METADATA_MAX_BYTES_DEFAULT`].

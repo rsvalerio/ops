@@ -339,9 +339,11 @@ pub fn resolve_cargo_bin() -> std::ffi::OsString {
 }
 
 /// Resolve the rustup binary, honouring `$RUSTUP` for symmetry with
-/// [`resolve_cargo_bin`]. PORT (TASK-0792): keeps direct rustup spawns in
-/// extensions on the same toolchain layout the parent process selected
-/// rather than forcing a fresh `$PATH` lookup.
+/// [`resolve_cargo_bin`].
+///
+/// PORT (TASK-0792): keeps direct rustup spawns in extensions on the same
+/// toolchain layout the parent process selected rather than forcing a
+/// fresh `$PATH` lookup.
 #[must_use]
 pub fn resolve_rustup_bin() -> std::ffi::OsString {
     std::env::var_os("RUSTUP").unwrap_or_else(|| "rustup".into())

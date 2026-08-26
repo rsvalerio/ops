@@ -100,7 +100,9 @@ pub fn should_skip(config: &HookConfig) -> bool {
 
 /// Generate the per-extension hook wrappers (`HOOK_CONFIG`, `should_skip`,
 /// `find_git_dir`, `install_hook`, `ensure_config_command`) from a single
-/// declarative description. Keeps the two hook extension crates in lockstep.
+/// declarative description.
+///
+/// Keeps the two hook extension crates in lockstep.
 #[macro_export]
 macro_rules! impl_hook_wrappers {
     (

@@ -21,8 +21,10 @@ pub struct GitInfo {
 }
 
 /// Resolve a project repository URL by preferring the manifest-declared value
-/// (when non-empty) and falling back to the local git remote. Shared helper so
-/// every language's `project_identity` provider applies the same precedence.
+/// (when non-empty) and falling back to the local git remote.
+///
+/// Shared helper so every language's `project_identity` provider applies the
+/// same precedence.
 #[must_use]
 pub fn resolve_repository_with_git_fallback(
     cwd: &Path,

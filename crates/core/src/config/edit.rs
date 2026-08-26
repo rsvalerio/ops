@@ -47,11 +47,13 @@ pub fn read_ops_toml(path: &Path) -> anyhow::Result<toml_edit::DocumentMut> {
 }
 
 /// DUP-1 / TASK-1278: ensure a top-level table named `key` exists in `doc`
-/// and return a mutable reference to it. If the key is absent, an empty
-/// `Table` is inserted. If the key is present but holds a non-table value
-/// (e.g. `output = "classic"`), an `anyhow::Error` is returned rather than
-/// panicking — this is the failure mode TASK-1300 hit on the
-/// `doc["output"]["theme"] = …` indexer path in `theme_cmd::set_theme`.
+/// and return a mutable reference to it.
+///
+/// If the key is absent, an empty `Table` is inserted. If the key is
+/// present but holds a non-table value (e.g. `output = "classic"`), an
+/// `anyhow::Error` is returned rather than panicking — this is the failure
+/// mode TASK-1300 hit on the `doc["output"]["theme"] = …` indexer path in
+/// `theme_cmd::set_theme`.
 ///
 /// Use this anywhere `.ops.toml` writers need to land a key under a top-level
 /// section: `about_cmd`, `theme_cmd`, and `new_command_cmd` previously each
@@ -74,10 +76,11 @@ pub fn ensure_table<'a>(
 }
 
 /// Names already present under `[commands]` in the `.ops.toml` at `path`.
+///
 /// A missing file means no commands; a malformed one is a hard error so
-/// callers never plan an edit that the write path would then refuse.
-/// Owns the `[commands]`-table walk next to the writers ([`insert_command`])
-/// so the config layout is encoded in one module, not re-derived per caller.
+/// callers never plan an edit that the write path would then refuse. Owns
+/// the `[commands]`-table walk next to the writers ([`insert_command`]) so
+/// the config layout is encoded in one module, not re-derived per caller.
 ///
 /// # Errors
 ///
@@ -132,8 +135,10 @@ pub fn insert_command<S: AsRef<str>>(
 }
 
 /// Atomically write the serialized `doc` back to `path` (sibling temp file +
-/// rename). Pair with [`read_ops_toml`] for a read / mutate / write pipeline
-/// where the caller wants to skip the write on some branches.
+/// rename).
+///
+/// Pair with [`read_ops_toml`] for a read / mutate / write pipeline where
+/// the caller wants to skip the write on some branches.
 ///
 /// # Errors
 ///

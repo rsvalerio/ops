@@ -19,10 +19,11 @@ use std::path::{Component, Path};
 
 use crate::manifest_io::read_optional_text;
 
-/// Resolve workspace member globs against `root`, looking for `marker`
-/// (e.g. `"package.json"`, `"pyproject.toml"`) inside each candidate
-/// directory. Excludes are matched with the same single-`*`-per-pattern glob
-/// shape and applied after expansion.
+/// Resolve workspace member globs against `root`, looking for `marker` (e.g.
+/// `"package.json"`, `"pyproject.toml"`) inside each candidate directory.
+///
+/// Excludes are matched with the same single-`*`-per-pattern glob shape and
+/// applied after expansion.
 ///
 /// PATTERN-1 (TASK-1052): an exclude pattern with more than one `*` is
 /// unsupported and fails **closed** — the candidate is dropped (treated as
@@ -230,9 +231,11 @@ fn matches_exclude(pattern: &str, candidate: &str) -> bool {
     !middle.is_empty() && !middle.contains('/')
 }
 
-/// Manifest-level identity fields surfaced by the units providers. Replaces
-/// the old positional `(Option<String>, Option<String>, Option<String>)` so
-/// argument-order errors at call sites become compile errors.
+/// Manifest-level identity fields surfaced by the units providers.
+///
+/// Replaces the old positional `(Option<String>, Option<String>,
+/// Option<String>)` so argument-order errors at call sites become compile
+/// errors.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PackageMetadata {
     pub name: Option<String>,

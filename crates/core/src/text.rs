@@ -7,6 +7,7 @@ use std::sync::OnceLock;
 
 /// SEC-33 (TASK-0932): default cap on manifest-style file reads
 /// (`Cargo.toml`, `go.mod`, `package.json`, `requirements.txt`, …).
+///
 /// `ops` runs in user-controlled working directories where an adversarial
 /// repository could otherwise force unbounded allocations via an oversized
 /// or `/dev/zero`-symlinked manifest. 4 MiB is well above any realistic
@@ -85,11 +86,13 @@ pub(crate) fn parse_byte_cap_env(
 }
 
 /// ARCH-9 / TASK-1228: resolve a positive byte-cap-from-env value once per
-/// process. Both [`manifest_max_bytes`] and
-/// [`crate::config::loader::ops_toml_max_bytes`] (and any future sibling
-/// caps) route through this so the cache discipline, fallback semantics,
-/// and one-shot warn diagnostic stay aligned across the codebase. The
-/// shared shape mirrors `crates/runner/src/command/results.rs::output_byte_cap`
+/// process.
+///
+/// Both [`manifest_max_bytes`] and
+/// [`crate::config::loader::ops_toml_max_bytes`] (and any future sibling caps)
+/// route through this so the cache discipline, fallback semantics, and
+/// one-shot warn diagnostic stay aligned across the codebase. The shared shape
+/// mirrors `crates/runner/src/command/results.rs::output_byte_cap`
 /// (TASK-0542).
 ///
 /// Unset / zero / unparseable values fall back to `default` with a one-shot
@@ -107,14 +110,16 @@ pub fn cached_byte_cap_env(slot: &OnceLock<u64>, env_var: &'static str, default:
     })
 }
 
-/// Effective manifest read cap. Resolved from the env knob on the first
-/// call and cached behind a `OnceLock<u64>` for the remainder of the
-/// process — subsequent calls do not touch `std::env`. Tests that need to
-/// override the cap must set `OPS_MANIFEST_MAX_BYTES` before any call to
-/// `manifest_max_bytes` (directly or via `read_capped_to_string` /
-/// `for_each_trimmed_line`); changes after the first read are ignored.
-/// Unparseable / zero values fall back to [`MANIFEST_MAX_BYTES_DEFAULT`]
-/// with a one-shot `tracing::warn!` from the `OnceLock` initialiser.
+/// Effective manifest read cap.
+///
+/// Resolved from the env knob on the first call and cached behind a
+/// `OnceLock<u64>` for the remainder of the process — subsequent calls do
+/// not touch `std::env`. Tests that need to override the cap must set
+/// `OPS_MANIFEST_MAX_BYTES` before any call to `manifest_max_bytes`
+/// (directly or via `read_capped_to_string` / `for_each_trimmed_line`);
+/// changes after the first read are ignored. Unparseable / zero values
+/// fall back to [`MANIFEST_MAX_BYTES_DEFAULT`] with a one-shot
+/// `tracing::warn!` from the `OnceLock` initialiser.
 #[must_use]
 pub fn manifest_max_bytes() -> u64 {
     cached_byte_cap_env(
@@ -301,8 +306,10 @@ pub fn dir_name(path: &Path) -> &str {
         .unwrap_or("project")
 }
 
-/// Read `path` as UTF-8 text and invoke `f` on each line, with surrounding whitespace
-/// trimmed. Returns `Some(())` when the file was read, `None` if it was missing,
+/// Read `path` as UTF-8 text and invoke `f` on each line, with surrounding
+/// whitespace trimmed.
+///
+/// Returns `Some(())` when the file was read, `None` if it was missing,
 /// unreadable, or larger than [`manifest_max_bytes`] bytes. Used by line-based
 /// manifest parsers (`go.mod`, `go.work`, `gradle.properties`, etc.) to share
 /// the read-and-iterate skeleton.

@@ -71,6 +71,7 @@ const MAX_ALLOCATION_ATTEMPTS: u32 = 32;
 
 /// Create the review-request task set: one main task plus one subtask per
 /// review target, written as markdown files under `.backlog/tasks/`.
+///
 /// [`RunMode::DryRun`] prints the same report with `would create` verbs and
 /// writes nothing.
 ///

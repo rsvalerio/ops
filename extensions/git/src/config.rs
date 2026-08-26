@@ -5,12 +5,14 @@ use std::path::Path;
 pub use ops_hook_common::find_git_dir;
 
 /// ARCH-2 / SEC-13 / TASK-0894: type-system-enforced "this URL has been
-/// scrubbed of `user[:password]@` userinfo". The only ways to construct
-/// one are [`RedactedUrl::redact`] (runs `redact_userinfo`) and the
-/// `From<&str>` impl that delegates to it. Carrying a `RedactedUrl`
-/// through the call chain means a future refactor cannot accidentally
-/// route a raw URL into [`crate::GitInfo::remote_url`] / about cards /
-/// JSON output without a visible `RedactedUrl::redact` call.
+/// scrubbed of `user[:password]@` userinfo".
+///
+/// The only ways to construct one are [`RedactedUrl::redact`] (runs
+/// `redact_userinfo`) and the `From<&str>` impl that delegates to it.
+/// Carrying a `RedactedUrl` through the call chain means a future
+/// refactor cannot accidentally route a raw URL into
+/// [`crate::GitInfo::remote_url`] / about cards / JSON output without a
+/// visible `RedactedUrl::redact` call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RedactedUrl(String);
 
@@ -121,10 +123,11 @@ impl std::fmt::Display for RedactedUrl {
     }
 }
 
-/// SEC-33 / TASK-0910: hard cap on `.git/config` read size. A real-world
-/// git config is well under 64 KiB; an adversarial repo (cloned for
-/// inspection) could otherwise OOM the CLI through a multi-GB file or a
-/// symlink to `/dev/zero`. Mirrors the
+/// SEC-33 / TASK-0910: hard cap on `.git/config` read size.
+///
+/// A real-world git config is well under 64 KiB; an adversarial repo
+/// (cloned for inspection) could otherwise OOM the CLI through a
+/// multi-GB file or a symlink to `/dev/zero`. Mirrors the
 /// `ops_about::manifest_io::MAX_MANIFEST_BYTES` posture for project
 /// manifests.
 pub const MAX_GIT_CONFIG_BYTES: u64 = 4 * 1024 * 1024;

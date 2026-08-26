@@ -244,15 +244,19 @@ impl<'a> ExtraOpts<'a> {
 }
 
 /// SEC-33 / TASK-1241: hard upper bound on the byte length of an
-/// `extra_opts` fragment. Sized well above realistic static call-site
-/// values (today's longest is on the order of 100 bytes) so the cap
-/// never fires for legitimate input.
+/// `extra_opts` fragment.
+///
+/// Sized well above realistic static call-site values (today's
+/// longest is on the order of 100 bytes) so the cap never fires for
+/// legitimate input.
 pub const EXTRA_OPTS_MAX_BYTES: usize = 4 * 1024;
 
 /// SEC-33 / TASK-1241: hard upper bound on the number of comma-separated
-/// `key=value` pairs in an `extra_opts` fragment. Sized to comfortably
-/// admit every option `DuckDB`'s `read_json_auto` recognises today while
-/// still bounding resource exposure on the interpolated surface.
+/// `key=value` pairs in an `extra_opts` fragment.
+///
+/// Sized to comfortably admit every option `DuckDB`'s `read_json_auto`
+/// recognises today while still bounding resource exposure on the
+/// interpolated surface.
 pub const EXTRA_OPTS_MAX_PAIRS: usize = 32;
 
 /// Escape a string for safe interpolation into a SQL-standard single-quoted
@@ -284,17 +288,19 @@ pub fn sanitize_path_for_sql(path: &str) -> String {
     path.replace('\0', "")
 }
 
-/// READ-5 / TASK-1002: ASCII-only allowlist. Non-ASCII identifiers are
-/// rejected because the SQL-safety contract is over the byte representation
-/// of the path, not over Unicode general categories. Letting `is_alphanumeric`
-/// (which spans ~140k codepoints across L*/Nd) widen the gate admitted
-/// homoglyphs (Cyrillic `а` U+0430), bidi tricks at the rendering layer, and
-/// ligatures (`ﬀ` U+FB00) — none of which the downstream `escape_sql_string`
-/// neutralises (it only handles `'` and `\\0`). Cross-references SEC-12 /
-/// TASK-0729 for the broader interpolated-path threat model. If non-ASCII
-/// path support is ever a real requirement, document the allowed scripts
-/// explicitly and reject mixed-script identifiers; the current set
-/// (`extensions/*`, project / language / file names) is ASCII by policy.
+/// READ-5 / TASK-1002: ASCII-only allowlist.
+///
+/// Non-ASCII identifiers are rejected because the SQL-safety contract is over
+/// the byte representation of the path, not over Unicode general categories.
+/// Letting `is_alphanumeric` (which spans ~140k codepoints across L*/Nd) widen
+/// the gate admitted homoglyphs (Cyrillic `а` U+0430), bidi tricks at the
+/// rendering layer, and ligatures (`ﬀ` U+FB00) — none of which the downstream
+/// `escape_sql_string` neutralises (it only handles `'` and `\\0`).
+/// Cross-references SEC-12 / TASK-0729 for the broader interpolated-path
+/// threat model. If non-ASCII path support is ever a real requirement,
+/// document the allowed scripts explicitly and reject mixed-script
+/// identifiers; the current set (`extensions/*`, project / language / file
+/// names) is ASCII by policy.
 ///
 /// # Errors
 ///

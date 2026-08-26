@@ -16,10 +16,13 @@ use strum::{IntoEnumIterator, VariantNames};
 mod detect;
 mod metadata;
 
+/// The set of project stacks `ops` can detect and accept.
+///
 /// READ-6 (TASK-1404): the enum is the single source of truth for both the
 /// list of stacks accepted in `config.stack` overrides (`Stack::VARIANTS`,
 /// derived by `strum::VariantNames`) and the priority order used by
 /// `Stack::detect` (declaration order, iterated via `strum::EnumIter`).
+///
 /// Variant order matters: detection probes earlier variants first, so
 /// `JavaGradle` is declared before `JavaMaven` to win on mixed Gradle/Maven
 /// workspaces (see `gradle_prioritized_over_maven` test). `Vite` is declared
