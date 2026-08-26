@@ -1,11 +1,11 @@
 ---
 id: TASK-1684
 title: code-review-plan-wave142
-status: To Do
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-08-26 21:17'
-updated_date: '2026-08-26 21:17'
+updated_date: '2026-08-26 22:57'
 labels:
   - code-review-wave
 dependencies:
@@ -104,4 +104,6 @@ Silent integer corruption: `arithmetic_side_effects` + `as_conversions`. Both ar
 Overlaps: TASK-1683 [wave141] 35 files (Cargo.toml, crates/cli/src/help.rs...); TASK-1685 [wave143] 18 files (Cargo.toml, crates/cli/src/help.rs...); TASK-1686 [wave144] 36 files (Cargo.toml, crates/cli/src/help.rs...); TASK-1687 [wave145] 19 files (Cargo.toml, crates/cli/src/help.rs...); TASK-1688 [wave146] 17 files (Cargo.toml, crates/core/src/config/edit.rs...); TASK-1689 [wave147] 5 files (Cargo.toml, crates/core/src/expand.rs...)
 
 Every wave in this batch edits the `# --- Temporary allows ---` block in the root `Cargo.toml`, so a one-line merge there is expected on each landing.
+
+Branch: code-review/TASK-1684
 <!-- SECTION:NOTES:END -->
