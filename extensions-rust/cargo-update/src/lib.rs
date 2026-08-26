@@ -300,11 +300,8 @@ fn starts_with_known_verb(line: &str) -> bool {
     // after the verb so prefix-without-boundary matches like `Updatingxyz ...`
     // do not classify as a known verb and emit false-positive drift warnings.
     let matches_verb = ACTION_PREFIXES.iter().any(|(prefix, _, _)| {
-        line.starts_with(prefix)
-            && line[prefix.len()..]
-                .chars()
-                .next()
-                .is_none_or(char::is_whitespace)
+        line.strip_prefix(prefix)
+            .is_some_and(|rest| rest.chars().next().is_none_or(char::is_whitespace))
     });
     if !matches_verb {
         return false;

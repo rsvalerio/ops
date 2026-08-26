@@ -23,10 +23,17 @@ pub fn truncate_for_log(s: &str) -> String {
     if s.len() <= MAX {
         s.to_string()
     } else {
+        // Walk back from MAX to the nearest char boundary: `get` yields
+        // `None` while `end` sits inside a multi-byte codepoint, so the head
+        // can never split one. Index 0 is always a boundary, which bounds
+        // the walk.
         let mut end = MAX;
-        while !s.is_char_boundary(end) {
+        let head = loop {
+            if let Some(head) = s.get(..end) {
+                break head;
+            }
             end -= 1;
-        }
-        format!("{}…", &s[..end])
+        };
+        format!("{head}…")
     }
 }

@@ -105,7 +105,13 @@ pub fn checksum_file(path: &Path) -> DbResult<String> {
         if n == 0 {
             break;
         }
-        hasher.update(&buf[..n]);
+        // A `Read` impl never reports more bytes than the buffer holds; surface a
+        // violation as an I/O error instead of panicking on the slice.
+        let chunk = buf
+            .get(..n)
+            .ok_or_else(|| std::io::Error::other("read reported more bytes than the buffer holds"))
+            .map_err(DbError::Io)?;
+        hasher.update(chunk);
     }
     let digest = hasher.finalize();
     Ok(hex::encode(digest.as_ref() as &[u8]))

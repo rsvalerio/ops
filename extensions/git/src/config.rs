@@ -338,12 +338,15 @@ pub(crate) fn redact_userinfo(value: &str) -> String {
     // scp-style: strip a `user[:password]@` prefix that appears before the
     // first `/`. Past the first `/` the `@` belongs to a path component, not
     // userinfo.
-    let head_end = value.find('/').unwrap_or(value.len());
-    let head = &value[..head_end];
-    if let Some(at_idx) = head.rfind('@') {
-        let mut redacted = String::with_capacity(value.len() - at_idx);
-        redacted.push_str(&value[at_idx + 1..]);
-        return redacted;
+    let (head, rest) = match value.split_once('/') {
+        Some((h, r)) => (h, Some(r)),
+        None => (value, None),
+    };
+    if let Some((_userinfo, host)) = head.rsplit_once('@') {
+        return match rest {
+            Some(r) => format!("{host}/{r}"),
+            None => host.to_string(),
+        };
     }
     value.to_string()
 }
@@ -367,8 +370,10 @@ fn strip_url_key(line: &str) -> Option<std::borrow::Cow<'_, str>> {
     // READ-2 (TASK-0726): unquoted form — drop trailing inline comments
     // (`#`, `;`) so the returned value matches `git config --get
     // remote.origin.url`.
-    let comment_start = value.find(['#', ';']).unwrap_or(value.len());
-    Some(std::borrow::Cow::Borrowed(value[..comment_start].trim()))
+    let uncommented = value
+        .split_once(['#', ';'])
+        .map_or(value, |(before, _comment)| before);
+    Some(std::borrow::Cow::Borrowed(uncommented.trim()))
 }
 
 fn is_origin_header(line: &str) -> bool {
@@ -446,16 +451,18 @@ enum QuotedBodyError {
 /// has to land in one place.
 fn decode_quoted_body(body: &str) -> Result<(String, &str), QuotedBodyError> {
     let mut decoded = String::with_capacity(body.len());
-    let mut chars = body.char_indices();
-    while let Some((idx, c)) = chars.next() {
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
         match c {
             '"' => {
-                let rest = &body[idx + c.len_utf8()..];
+                // `Chars::as_str` yields the remainder after the closing
+                // quote without re-slicing `body` by byte index.
+                let rest = chars.as_str();
                 return Ok((decoded, rest));
             }
             '\\' => match chars.next() {
-                Some((_, '\\')) => decoded.push('\\'),
-                Some((_, '"')) => decoded.push('"'),
+                Some('\\') => decoded.push('\\'),
+                Some('"') => decoded.push('"'),
                 Some(_) => return Err(QuotedBodyError::UnknownEscape),
                 None => return Err(QuotedBodyError::UnterminatedEscape),
             },

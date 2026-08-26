@@ -36,8 +36,11 @@ const REGION_ORDER: &[(&str, &str)] = &[
 fn region_display(region: &str) -> (usize, &str) {
     REGION_ORDER
         .iter()
-        .position(|(key, _)| *key == region)
-        .map_or((REGION_ORDER.len(), region), |i| (i, REGION_ORDER[i].1))
+        .enumerate()
+        .find(|(_, (key, _))| *key == region)
+        .map_or((REGION_ORDER.len(), region), |(i, (_, display))| {
+            (i, *display)
+        })
 }
 
 /// Everything the page renders, read from one `DuckDB` snapshot.

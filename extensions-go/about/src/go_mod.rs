@@ -63,8 +63,8 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
 }
 
 fn parse_replace_directive(rest: &str) -> Option<String> {
-    let pos = rest.find("=>")?;
-    let target = rest[pos + 2..].trim();
+    let (_, target) = rest.split_once("=>")?;
+    let target = target.trim();
     if target.is_empty() {
         return None;
     }
@@ -160,11 +160,10 @@ fn looks_like_module_version(s: &str) -> bool {
 }
 
 const fn is_windows_absolute(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && (bytes[2] == b'\\' || bytes[2] == b'/')
+    matches!(
+        s.as_bytes(),
+        [drive, b':', b'\\' | b'/', ..] if drive.is_ascii_alphabetic()
+    )
 }
 
 #[cfg(test)]

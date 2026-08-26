@@ -120,8 +120,15 @@ fn rollup(classes: &[SeverityClass]) -> (ReportStatus, String) {
     for c in classes {
         // A class outside SUMMARY_CLASSES contributes no count rather than
         // panicking the report over a presentation detail.
-        if let Some(idx) = SUMMARY_CLASSES.iter().position(|x| x == c) {
-            counts[idx] += 1;
+        // `counts` is sized from SUMMARY_CLASSES, so `get_mut` can only miss
+        // if that pairing is ever broken; that degrades to "no count", the
+        // same as an unknown class.
+        if let Some(slot) = SUMMARY_CLASSES
+            .iter()
+            .position(|x| x == c)
+            .and_then(|idx| counts.get_mut(idx))
+        {
+            *slot += 1;
         }
     }
     let parts: Vec<String> = SUMMARY_CLASSES

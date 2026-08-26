@@ -59,7 +59,7 @@ pub fn resolve_member_globs(
             tracing::warn!(member, "workspace member contains `..` traversal; skipping");
             continue;
         }
-        if let Some(idx) = member.find('*') {
+        if let Some((prefix, suffix)) = member.split_once('*') {
             // PATTERN-1 (TASK-1069): the original implementation found the
             // first `*` and treated everything before it as the prefix,
             // silently ignoring any suffix after it. That meant `**/foo`
@@ -67,7 +67,6 @@ pub fn resolve_member_globs(
             // `prefix/*/suffix` silently flattened to `prefix/*`. Reject
             // both shapes explicitly with a `tracing::warn` so the
             // divergence is observable rather than silent.
-            let suffix = &member[idx + 1..];
             let is_recursive = member.contains("**");
             let suffix_is_trivial = suffix.is_empty() || !suffix.contains('/');
             if is_recursive || !suffix_is_trivial {
@@ -77,7 +76,6 @@ pub fn resolve_member_globs(
                 );
                 continue;
             }
-            let prefix = &member[..idx];
             let parent = root.join(prefix);
             // ERR-1 (TASK-0517): a read_dir error here used to silently
             // produce "No project units found". Log at warn so a permissions

@@ -214,7 +214,10 @@ fn extract_required_version(content: &str) -> Option<String> {
         // a `terraform` block. Anywhere else (top level, nested deeper,
         // or inside a different block) the key is HCL-valid but not
         // the terraform stack constraint we want to render.
-        if block_stack.len() != 1 || block_stack[0] != "terraform" {
+        let [only_block] = block_stack.as_slice() else {
+            continue;
+        };
+        if only_block != "terraform" {
             continue;
         }
 
@@ -229,15 +232,15 @@ fn extract_required_version(content: &str) -> Option<String> {
         let Some(after_open) = rest.strip_prefix('"') else {
             continue;
         };
-        let Some(end) = after_open.find('"') else {
+        let Some((value, after_close)) = after_open.split_once('"') else {
             continue;
         };
-        let after_close = after_open[end + 1..].trim();
+        let after_close = after_close.trim();
         let after_close_trimmed = strip_inline_comment(after_close).trim();
         if !after_close_trimmed.is_empty() {
             continue;
         }
-        let v = after_open[..end].trim();
+        let v = value.trim();
         if v.is_empty() {
             continue;
         }
@@ -265,8 +268,7 @@ fn block_open_ident(line: &str) -> Option<&str> {
     // Identifier = leading run of [A-Za-z_][A-Za-z0-9_-]*
     let bytes = line.as_bytes();
     let mut end = 0usize;
-    while end < bytes.len() {
-        let b = bytes[end];
+    while let Some(&b) = bytes.get(end) {
         let ok = if end == 0 {
             b.is_ascii_alphabetic() || b == b'_'
         } else {
@@ -280,12 +282,15 @@ fn block_open_ident(line: &str) -> Option<&str> {
     if end == 0 {
         return None;
     }
-    let ident = &line[..end];
+    // `end` counts ASCII identifier bytes from the start, so it is always a
+    // char boundary; `split_at_checked` returning `None` is unreachable and
+    // degrades to "not a block opener".
+    let (ident, rest) = line.split_at_checked(end)?;
     // Reject lines that look like an assignment (`required_version = …`)
     // — they may end with `{` only inside a string, which we don't try
     // to parse here. The simple guard: a `=` between the identifier and
     // the trailing `{` means this is not a block opener.
-    let tail = &line[end..line.len() - 1]; // exclude trailing `{`
+    let tail = rest.strip_suffix('{').unwrap_or(rest); // exclude trailing `{`
     if tail.contains('=') {
         return None;
     }
@@ -364,7 +369,10 @@ fn strip_inline_comment(s: &str) -> &str {
     if let Some(i) = s.find("//") {
         end = end.min(i);
     }
-    &s[..end]
+    // `end` is either `s.len()` or the byte offset of an ASCII `#` / `//`, so
+    // it is always a char boundary. The `None` arm is unreachable; keep the
+    // fragment intact rather than panicking if that ever stops holding.
+    s.get(..end).unwrap_or(s)
 }
 
 /// Count local modules under `modules/*/main.tf`.

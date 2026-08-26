@@ -285,7 +285,10 @@ mod tests {
         let mut u = unit("My-lib", "crates/my-lib");
         u.version = Some("0.1.0".to_string());
         let card = render_card(&u, false);
-        let inner = &card[3][3..card[3].len() - 3];
+        let stats_line = &card[3];
+        let inner = stats_line
+            .get(3..stats_line.len() - 3)
+            .expect("stats line is wider than its two box borders");
         assert!(inner.trim().is_empty());
     }
 

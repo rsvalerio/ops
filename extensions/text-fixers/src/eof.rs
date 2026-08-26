@@ -9,7 +9,9 @@ pub fn fix_eof(input: &[u8]) -> Option<Vec<u8>> {
 
     let mut end = input.len();
     while end > 0 {
-        let b = input[end - 1];
+        // `end - 1` is always in bounds: `end` starts at `input.len()` and only
+        // shrinks. Stopping on `None` keeps the current `end` instead of panicking.
+        let Some(&b) = input.get(end - 1) else { break };
         if b == b'\n' || b == b'\r' {
             end -= 1;
         } else {
@@ -17,11 +19,14 @@ pub fn fix_eof(input: &[u8]) -> Option<Vec<u8>> {
         }
     }
 
-    let uses_crlf = detect_crlf(&input[..end.min(input.len())]);
+    // `end <= input.len()` by construction; `?` (i.e. "leave the file alone")
+    // is the safe fallback if that invariant ever broke.
+    let body = input.get(..end)?;
+    let uses_crlf = detect_crlf(body);
     let terminator: &[u8] = if uses_crlf { b"\r\n" } else { b"\n" };
 
     let mut out = Vec::with_capacity(end + terminator.len());
-    out.extend_from_slice(&input[..end]);
+    out.extend_from_slice(body);
     out.extend_from_slice(terminator);
 
     if out == input {
@@ -36,7 +41,7 @@ fn detect_crlf(body: &[u8]) -> bool {
     let mut crlf = 0usize;
     for (i, &b) in body.iter().enumerate() {
         if b == b'\n' {
-            if i > 0 && body[i - 1] == b'\r' {
+            if i > 0 && body.get(i - 1) == Some(&b'\r') {
                 crlf += 1;
             } else {
                 lf += 1;

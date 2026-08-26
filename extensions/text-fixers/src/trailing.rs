@@ -9,17 +9,22 @@ pub fn fix_trailing(input: &[u8]) -> Option<Vec<u8>> {
     let mut start = 0usize;
 
     while start < input.len() {
-        let nl = input[start..].iter().position(|&b| b == b'\n');
+        // Offset of the next `\n` relative to `start`, same as indexing `input[start..]`.
+        let nl = input.iter().skip(start).position(|&b| b == b'\n');
         let (line_end, next_start) = nl.map_or((input.len(), input.len()), |off| {
             (start + off, start + off + 1)
         });
 
-        let has_crlf = line_end > start && input[line_end - 1] == b'\r';
+        let has_crlf = line_end > start && input.get(line_end - 1) == Some(&b'\r');
         let content_end = if has_crlf { line_end - 1 } else { line_end };
 
         let mut trim_to = content_end;
         while trim_to > start {
-            let b = input[trim_to - 1];
+            // `trim_to - 1` is always in bounds (`trim_to <= input.len()` and only
+            // shrinks); stopping on `None` leaves the line as-is rather than panicking.
+            let Some(&b) = input.get(trim_to - 1) else {
+                break;
+            };
             if b == b' ' || b == b'\t' {
                 trim_to -= 1;
             } else {
@@ -31,7 +36,10 @@ pub fn fix_trailing(input: &[u8]) -> Option<Vec<u8>> {
             changed = true;
         }
 
-        out.extend_from_slice(&input[start..trim_to]);
+        // `start <= trim_to <= input.len()` by construction; bailing with `None`
+        // (i.e. "no change", leaving the file untouched) is the safe fallback if
+        // that invariant ever broke, since a short write would corrupt the file.
+        out.extend_from_slice(input.get(start..trim_to)?);
         if has_crlf {
             out.extend_from_slice(b"\r\n");
         } else if nl.is_some() {

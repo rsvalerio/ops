@@ -207,7 +207,9 @@ fn parse_upgrade_table_inner(stdout: &str) -> (Vec<UpgradeEntry>, UpgradeParseDi
 fn slice_column<'a>(line: &'a str, cols: &[(usize, usize)], idx: usize) -> Option<&'a str> {
     let &(start, end) = cols.get(idx)?;
     let (start, end) = clamp_to_char_boundaries(line, start, end)?;
-    let trimmed = line[start..end].trim();
+    // `clamp_to_char_boundaries` already guarantees the range; `get` keeps
+    // that a skipped column rather than a panic if it ever stops holding.
+    let trimmed = line.get(start..end)?.trim();
     if trimmed.is_empty() {
         None
     } else {
@@ -228,7 +230,9 @@ fn slice_fixed_columns<'a>(line: &'a str, cols: &[(usize, usize)]) -> Option<[&'
 fn slice_note(line: &str, cols: &[(usize, usize)]) -> Option<String> {
     let &(start, _) = cols.get(5)?;
     let (start, end) = clamp_to_char_boundaries(line, start, line.len())?;
-    let trimmed = line[start..end].trim();
+    // As in `slice_column`: the range is already clamped, so `get` only
+    // degrades to "no note" if that invariant is ever broken.
+    let trimmed = line.get(start..end)?.trim();
     if trimmed.is_empty() {
         None
     } else {
@@ -293,9 +297,9 @@ fn separator_columns(line: &str) -> Vec<(usize, usize)> {
     let mut cols = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'=' {
+        if matches!(bytes.get(i), Some(b'=')) {
             let start = i;
-            while i < bytes.len() && bytes[i] == b'=' {
+            while matches!(bytes.get(i), Some(b'=')) {
                 i += 1;
             }
             cols.push((start, i));

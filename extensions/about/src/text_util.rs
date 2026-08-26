@@ -537,7 +537,9 @@ mod tests {
         // target_content_width is far smaller than left+right+1, forcing the
         // overflow / saturating-sub branch.
         let result = pad_header(left, right, 4);
-        let between = &result[left.len()..result.len() - right.len() - 1];
+        let between = result
+            .get(left.len()..result.len() - right.len() - 1)
+            .expect("result is the left half, a separator, then the right half");
         assert!(
             between.contains(' '),
             "expected at least one space between left and right halves; got {result:?}"

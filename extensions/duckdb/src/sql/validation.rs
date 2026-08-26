@@ -123,21 +123,20 @@ impl TableName {
 }
 
 const fn is_valid_identifier_const(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    if bytes.is_empty() {
-        return false;
-    }
-    let first = bytes[0];
+    // Slice patterns walk the bytes without any indexing, so the empty and
+    // out-of-bounds cases are handled by construction.
+    let (first, mut rest) = match s.as_bytes() {
+        [] => return false,
+        [first, rest @ ..] => (*first, rest),
+    };
     if !(first.is_ascii_alphabetic() || first == b'_') {
         return false;
     }
-    let mut i = 1;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if !(b.is_ascii_alphanumeric() || b == b'_') {
+    while let [b, tail @ ..] = rest {
+        if !(b.is_ascii_alphanumeric() || *b == b'_') {
             return false;
         }
-        i += 1;
+        rest = tail;
     }
     true
 }

@@ -564,11 +564,12 @@ enum MemberShape<'a> {
 /// the metacharacter scan so [`resolved_workspace_members`] reads as a flat
 /// dispatch instead of a nested-if state machine.
 fn classify_member(member: &str) -> MemberShape<'_> {
-    // ERR-5 / TASK-1491: bind the `*` position with `let-else` so the
+    // ERR-5 / TASK-1491: split on the first `*` with `let-else` so the
     // happy path falls through without an `is_none()` + `.expect()`
     // round-trip whose "checked above" invariant a future edit could
-    // silently invalidate.
-    let Some(idx) = member.find('*') else {
+    // silently invalidate. `split_once` also hands both halves out
+    // directly, so no byte index is ever sliced back into `member`.
+    let Some((prefix, after_star)) = member.split_once('*') else {
         // PATTERN-1 (TASK-0803): detect glob shapes that lack `*` but still
         // contain class/alternation metacharacters (`crates/{core,cli}`,
         // `crates/[abc]`).
@@ -578,12 +579,10 @@ fn classify_member(member: &str) -> MemberShape<'_> {
             MemberShape::Literal
         };
     };
-    if is_unsupported_glob(member, idx) {
+    if is_unsupported_glob(member, after_star) {
         return MemberShape::Unsupported;
     }
-    MemberShape::Glob {
-        prefix: &member[..idx],
-    }
+    MemberShape::Glob { prefix }
 }
 
 /// Expand a `prefix/*` glob by walking `parent` and returning UTF-8
@@ -652,8 +651,7 @@ fn expand_member_glob(member: &str, parent: &Path, workspace_root: &Path) -> Vec
 /// `?`, and `[`, so without these checks it would slip through as
 /// "supported" and silently produce an empty member list when `read_dir`
 /// failed on the literal-as-directory path.
-fn is_unsupported_glob(member: &str, first_star: usize) -> bool {
-    let after_star = &member[first_star + 1..];
+fn is_unsupported_glob(member: &str, after_star: &str) -> bool {
     if !after_star.is_empty() {
         return true;
     }

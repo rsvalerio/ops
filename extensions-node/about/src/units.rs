@@ -264,13 +264,19 @@ fn split_inline_list(inner: &str) -> Vec<&str> {
             b'\'' if !in_double => in_single = !in_single,
             b'"' if !in_single => in_double = !in_double,
             b',' if !in_single && !in_double => {
-                out.push(&inner[start..i]);
+                // `i` is the offset of an ASCII `,` and `start` is either 0 or
+                // one past a previous `,`, so both are char boundaries and
+                // `get` cannot fail; skip the piece rather than panic if that
+                // ever stops holding.
+                if let Some(piece) = inner.get(start..i) {
+                    out.push(piece);
+                }
                 start = i + 1;
             }
             _ => {}
         }
     }
-    out.push(&inner[start..]);
+    out.push(inner.get(start..).unwrap_or(""));
     out
 }
 
@@ -326,7 +332,10 @@ fn strip_trailing_yaml_comment(s: &str) -> &str {
             b'\'' if !in_double => in_single = !in_single,
             b'"' if !in_single => in_double = !in_double,
             b'#' if !in_single && !in_double && prev_ws => {
-                return s[..i].trim_end();
+                // `i` is the offset of an ASCII `#`, so it is a char boundary
+                // and `get` cannot fail; on the unreachable `None` keep the
+                // value intact rather than panicking.
+                return s.get(..i).unwrap_or(s).trim_end();
             }
             _ => {}
         }

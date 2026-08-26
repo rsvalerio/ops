@@ -66,10 +66,11 @@ pub fn ensure_config_command(
         }
     }
 
-    if !doc.contains_key("commands") {
-        doc["commands"] = toml_edit::Item::Table(toml_edit::Table::new());
-    }
-    let commands = doc["commands"]
+    // Insert an empty `[commands]` table only when the key is absent; an existing
+    // non-table `commands` is left alone and reported as an error, as before.
+    let commands = doc
+        .entry("commands")
+        .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
         .as_table_mut()
         .context("commands is not a table")?;
 

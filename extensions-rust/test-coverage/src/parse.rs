@@ -213,12 +213,16 @@ fn dedup_push(
     duplicate_count: &mut usize,
 ) {
     if let Some(&idx) = idx_map.get(&record.filename) {
-        records[idx] = record;
+        // `idx_map` only ever holds indices handed out by the `else` arm, so
+        // a miss here would mean the two fell out of sync: keep the earlier
+        // row instead of panicking the whole coverage ingest.
+        if let Some(slot) = records.get_mut(idx) {
+            *slot = record;
+        }
         *duplicate_count += 1;
     } else {
-        let idx = records.len();
+        idx_map.insert(record.filename.clone(), records.len());
         records.push(record);
-        idx_map.insert(records[idx].filename.clone(), idx);
     }
 }
 

@@ -309,7 +309,11 @@ impl Metadata {
 
     /// Build directory if present.
     pub fn build_directory(&self) -> Option<&str> {
-        self.inner["build_directory"].as_str()
+        // `get` matches the `Value` index behaviour for a missing key (both
+        // yield `None` here) without the panic on a non-object `inner`.
+        self.inner
+            .get("build_directory")
+            .and_then(serde_json::Value::as_str)
     }
 
     /// Iterator over all packages in the dependency graph.

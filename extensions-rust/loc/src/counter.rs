@@ -188,8 +188,8 @@ pub fn count_source(src: &str, base: Region) -> FileCounts {
 
     // Any line still Blank was not covered by a token, so it lies in a
     // gap: whitespace or a comment, nothing else is possible.
-    for (idx, kind) in kinds.iter_mut().enumerate() {
-        if *kind == LineKind::Blank && !lines[idx].trim().is_empty() {
+    for (kind, line) in kinds.iter_mut().zip(&lines) {
+        if *kind == LineKind::Blank && !line.trim().is_empty() {
             *kind = LineKind::Comment;
         }
     }
@@ -202,8 +202,8 @@ pub fn count_source(src: &str, base: Region) -> FileCounts {
     }
 
     let mut counts = FileCounts::default();
-    for (idx, kind) in kinds.into_iter().enumerate() {
-        counts.bucket_mut(regions[idx]).add(kind);
+    for (kind, region) in kinds.into_iter().zip(regions) {
+        counts.bucket_mut(region).add(kind);
     }
     counts
 }
