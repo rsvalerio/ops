@@ -175,10 +175,8 @@ fn tap_file_captures_raw_output() {
     let dir = tempfile::tempdir().expect("tempdir");
     let tap_path = dir.path().join("ops_tap_test.log");
     let output = config::OutputConfig::default();
-    let display_map: HashMap<String, String> = [("cmd", "echo hello")]
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
+    let display_map: HashMap<String, String> =
+        HashMap::from([("cmd".to_string(), "echo hello".to_string())]);
     let custom_themes = test_themes();
     let mut display = ProgressDisplay::new(DisplayOptions {
         output: &output,

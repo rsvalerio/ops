@@ -106,7 +106,13 @@ fn shown_field_specs(id: &ProjectIdentity, show: &dyn Fn(&str) -> bool) -> Vec<F
                 label: "homepage".into(),
                 value: non_empty_clone(id.homepage.as_ref()),
             },
-            _ => unreachable!("ids array out of sync with match arms"),
+            // Unreachable: `ids` is the array literal a few lines above and
+            // every entry has an arm. Rendering an empty field keeps the
+            // helper total if the two ever drift.
+            _ => FieldSpec {
+                label: (*fid).to_string(),
+                value: None,
+            },
         })
         .collect()
 }

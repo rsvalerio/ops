@@ -196,7 +196,7 @@ mod cwd_guard_tests {
         let dir_canonical = dir
             .path()
             .canonicalize()
-            .unwrap_or(dir.path().to_path_buf());
+            .unwrap_or_else(|_| dir.path().to_path_buf());
         assert_eq!(
             current_canonical, dir_canonical,
             "should change to target directory"

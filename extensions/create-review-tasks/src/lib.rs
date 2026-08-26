@@ -761,6 +761,9 @@ mod tests {
         let dir = scratch_backlog();
         let registry = registry_with(sample_payload());
         let outputs: Vec<String> = std::thread::scope(|scope| {
+            // The collect is load-bearing: spawn all RUNS threads before
+            // joining any, or the runs serialise and stop racing.
+            #[allow(clippy::needless_collect)]
             let handles: Vec<_> = (0..RUNS)
                 .map(|_| {
                     scope.spawn(|| {

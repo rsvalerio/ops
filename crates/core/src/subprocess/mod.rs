@@ -251,8 +251,8 @@ fn run_with_timeout_inner(
     // cap are still read off the pipe (so the child does not block on a
     // full pipe and we don't false-positive into a timeout) but discarded;
     // the count is reported by `collect_drain` via `tracing::warn!`.
-    let stdout_handle = spawn_drain(child.stdout.take(), cap);
-    let stderr_handle = spawn_drain(child.stderr.take(), cap);
+    let stdout_handle = child.stdout.take().map(|p| spawn_drain(p, cap));
+    let stderr_handle = child.stderr.take().map(|p| spawn_drain(p, cap));
 
     // TASK-0451: single OS-level wait, no polling loop. Returns Ok(None)
     // on timeout, Ok(Some(status)) on exit; the underlying syscall sleeps

@@ -204,7 +204,7 @@ impl ExecCommandSpec {
             !self.program.is_empty(),
             "command '{name}': program must not be empty"
         );
-        if let Some(0) = self.timeout_secs {
+        if self.timeout_secs == Some(0) {
             anyhow::bail!("command '{name}': timeout_secs must be greater than 0");
         }
         check_control_chars(name, "program", &self.program)?;

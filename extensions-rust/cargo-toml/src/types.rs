@@ -164,7 +164,7 @@ pub struct Package {
 }
 
 /// A field that can be inherited from workspace.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum InheritableField<T> {
     /// Direct value.

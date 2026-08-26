@@ -12,17 +12,17 @@ fn emit_output_events_emits_stdout_and_stderr() {
     let mut events: Vec<RunnerEvent> = Vec::new();
     emit("test", "line1\nline2\n", "err1\n", &mut |e| events.push(e));
 
-    let stdout_events: Vec<_> = events
+    let stdout_events = events
         .iter()
         .filter(|e| matches!(e, RunnerEvent::StepOutput { stderr: false, .. }))
-        .collect();
-    let stderr_events: Vec<_> = events
+        .count();
+    let stderr_events = events
         .iter()
         .filter(|e| matches!(e, RunnerEvent::StepOutput { stderr: true, .. }))
-        .collect();
+        .count();
 
-    assert_eq!(stdout_events.len(), 2);
-    assert_eq!(stderr_events.len(), 1);
+    assert_eq!(stdout_events, 2);
+    assert_eq!(stderr_events, 1);
 }
 
 /// TQ-018: Tests for `emit_output_events` edge cases.

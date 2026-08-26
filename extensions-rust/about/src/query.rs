@@ -890,7 +890,7 @@ mod tests {
         let path = dir.path().to_path_buf();
         let path_for_thread = path.clone();
         let primer = std::thread::spawn(move || {
-            let mut ctx = Context::test_context(path_for_thread.clone());
+            let mut ctx = Context::test_context(path_for_thread);
             load_workspace_manifest(&mut ctx).expect("primer load")
         });
         let first = primer.join().expect("primer thread");

@@ -299,6 +299,10 @@ mod tests {
         let cache = Arc::new(ArcTextCache::new("manifest.txt"));
         let root: Arc<PathBuf> = Arc::new(dir.path().to_path_buf());
         let barrier = Arc::new(std::sync::Barrier::new(8));
+        // The collect is load-bearing: every thread must be spawned before any
+        // is joined, or the barrier below deadlocks and the test stops proving
+        // concurrent reads.
+        #[allow(clippy::needless_collect)]
         let handles: Vec<_> = (0..8)
             .map(|_| {
                 let cache = Arc::clone(&cache);

@@ -206,7 +206,10 @@ fn handle_section_line(section: &mut PomSection, line: &str, data: &mut PomData)
         PomSection::Scm => handle_scm(line, data),
         PomSection::Licenses { in_license } => handle_licenses(line, in_license, data),
         PomSection::Skip { close } => line == *close,
-        PomSection::TopLevel => unreachable!(),
+        // `dispatch_started_line` returns before calling this for
+        // `TopLevel`; `false` ("no closing tag on this line") keeps the
+        // dispatcher total instead of panicking if that guard ever moves.
+        PomSection::TopLevel => false,
     }
 }
 
@@ -445,14 +448,13 @@ fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
         };
         if let Some(c) = decoded {
             out.push(c);
-            rest = &after_amp[semi + 1..];
         } else {
-            // Unknown entity: keep verbatim (`&entity;`) and advance.
+            // Unknown entity: keep verbatim (`&entity;`).
             out.push('&');
             out.push_str(entity);
             out.push(';');
-            rest = &after_amp[semi + 1..];
         }
+        rest = &after_amp[semi + 1..];
     }
     out.push_str(rest);
     std::borrow::Cow::Owned(out)

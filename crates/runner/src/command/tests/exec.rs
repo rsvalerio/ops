@@ -74,8 +74,7 @@ async fn run_exec_timeout() {
 #[tokio::test]
 async fn run_unknown_command_returns_error() {
     let runner = test_runner(HashMap::new());
-    let mut events = Vec::new();
-    let result = runner.run("nonexistent", &mut |e| events.push(e)).await;
+    let result = runner.run("nonexistent", &mut |_| {}).await;
     assert!(result.is_err());
 }
 
@@ -269,17 +268,17 @@ mod exec_unit_tests {
             events.push(e);
         });
 
-        let stdout_events: Vec<_> = events
+        let stdout_events = events
             .iter()
             .filter(|e| matches!(e, RunnerEvent::StepOutput { stderr: false, .. }))
-            .collect();
-        let stderr_events: Vec<_> = events
+            .count();
+        let stderr_events = events
             .iter()
             .filter(|e| matches!(e, RunnerEvent::StepOutput { stderr: true, .. }))
-            .collect();
+            .count();
 
-        assert_eq!(stdout_events.len(), 2);
-        assert_eq!(stderr_events.len(), 1);
+        assert_eq!(stdout_events, 2);
+        assert_eq!(stderr_events, 1);
     }
 
     /// PERF-3 / TASK-0732: a 10k-line stderr step must reuse a single
@@ -387,14 +386,13 @@ mod exec_unit_tests {
         let mut events: Vec<RunnerEvent> = Vec::new();
         emit("test", "line1\nline2\n\n", "", &mut |e| events.push(e));
 
-        let stdout_events: Vec<_> = events
+        let stdout_events = events
             .iter()
             .filter(|e| matches!(e, RunnerEvent::StepOutput { stderr: false, .. }))
-            .collect();
+            .count();
 
         assert_eq!(
-            stdout_events.len(),
-            3,
+            stdout_events, 3,
             "should include empty line from trailing newline"
         );
     }
@@ -481,10 +479,7 @@ mod error_path_tests {
             &["test"],
             Some(PathBuf::from("/nonexistent/directory/xyz123")),
         ));
-        let mut events = Vec::new();
-        let result = runner
-            .run_exec("bad_cwd", &spec, &mut |e| events.push(e))
-            .await;
+        let result = runner.run_exec("bad_cwd", &spec, &mut |_| {}).await;
         assert!(!result.success, "should fail for invalid cwd");
         assert!(result.message.is_some());
     }

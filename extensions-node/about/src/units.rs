@@ -578,8 +578,7 @@ mod tests {
             r#"{ "name": "foo" }"#,
         );
         let units = collect_units(dir.path());
-        let names: Vec<&str> = units.iter().map(|u| u.name.as_str()).collect();
-        assert!(names.contains(&"foo"));
+        assert!(units.iter().any(|u| u.name == "foo"));
     }
 
     #[test]

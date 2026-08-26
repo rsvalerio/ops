@@ -363,6 +363,13 @@ impl CommandRunner {
     /// this may consume significant system resources (file descriptors, memory, CPU).
     /// Consider splitting large parallel groups into smaller batches if resource
     /// exhaustion is a concern.
+    // CONC / TASK-1682: the returned future is `!Send` because `on_event` is a
+    // bare `FnMut` sink that the CLI backs with `indicatif` state, which is not
+    // `Send`. Adding a `+ Send` bound here would push that requirement onto
+    // every caller and rule out the display sink the binary actually uses; the
+    // runner is driven on a current-thread runtime, so `Send` buys nothing
+    // (docs/clippy.md layer 3).
+    #[allow(clippy::future_not_send)]
     #[instrument(skip(self, on_event))]
     pub async fn run_plan_parallel(
         &self,

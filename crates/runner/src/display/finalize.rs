@@ -65,7 +65,7 @@ impl ProgressDisplay {
     /// Finalize the boxed layout: locks the live header to "Done" and emits
     /// the bottom border. Returns `true` when the active theme renders a
     /// boxed layout and no further finalization is needed.
-    pub(super) fn finalize_boxed_layout(&mut self, duration_secs: f64, success: bool) -> bool {
+    pub(super) fn finalize_boxed_layout(&self, duration_secs: f64, success: bool) -> bool {
         let Some(bottom) = self.render.theme.box_bottom_border(BoxSnapshot {
             completed: self.completed_steps,
             failed: self.failed_steps,
@@ -94,7 +94,7 @@ impl ProgressDisplay {
     /// Finalize the flat (non-boxed) layout: emit the summary line into the
     /// existing footer bar, or as a fallback create a separator + summary
     /// pair when no plan was ever started.
-    pub(super) fn finalize_flat_layout(&mut self, duration_secs: f64, success: bool) {
+    pub(super) fn finalize_flat_layout(&self, duration_secs: f64, success: bool) {
         let summary = self.format_summary(duration_secs, success);
 
         if let Some(ref fb) = self.footer_bar {

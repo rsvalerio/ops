@@ -244,11 +244,14 @@ pub(crate) fn render_categorized_help(
     sort_entries_by_category(&mut entries, &config.output.category_order);
     let grouped = render_grouped_sections(&entries);
 
-    for name in cmd
+    // The `collect` ends the immutable borrow of `cmd` before the loop body
+    // reassigns it via `mut_subcommand`; iterating lazily would not compile.
+    #[allow(clippy::needless_collect)]
+    let names: Vec<String> = cmd
         .get_subcommands()
         .map(|s| s.get_name().to_string())
-        .collect::<Vec<_>>()
-    {
+        .collect();
+    for name in names {
         cmd = cmd.mut_subcommand(&name, |sub| sub.hide(true));
     }
 

@@ -84,16 +84,14 @@ pub(super) fn read_capped<R: Read>(
 /// captures the bytes a child wrote to one pipe, bounded by `cap`. Both
 /// stdout and stderr go through this one entry point so the two halves
 /// cannot diverge on the next change to read-cap or panic semantics.
-pub(super) fn spawn_drain<R>(pipe: Option<R>, cap: usize) -> Option<thread::JoinHandle<DrainResult>>
+pub(super) fn spawn_drain<R>(mut pipe: R, cap: usize) -> thread::JoinHandle<DrainResult>
 where
     R: Read + Send + 'static,
 {
-    pipe.map(|mut s| {
-        thread::spawn(move || -> DrainResult {
-            let mut buf = Vec::new();
-            let (dropped, err) = read_capped(&mut s, &mut buf, cap);
-            (buf, dropped, err)
-        })
+    thread::spawn(move || -> DrainResult {
+        let mut buf = Vec::new();
+        let (dropped, err) = read_capped(&mut pipe, &mut buf, cap);
+        (buf, dropped, err)
     })
 }
 

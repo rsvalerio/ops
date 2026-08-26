@@ -498,7 +498,7 @@ impl ProgressDisplay {
         )
     }
 
-    fn on_step_started(&mut self, id: &str) {
+    fn on_step_started(&self, id: &str) {
         let Some(i) = self.step_index(id) else {
             return;
         };
@@ -595,7 +595,7 @@ impl ProgressDisplay {
         self.finish_step(id, StepStatus::Skipped, elapsed, display_cmd);
     }
 
-    fn render_error_details_tty(&mut self, bar_index: usize, detail_lines: &[String]) {
+    fn render_error_details_tty(&self, bar_index: usize, detail_lines: &[String]) {
         let mut anchor = self.state.bars[bar_index].clone();
         for detail_line in detail_lines {
             let pb = self.multi.insert_after(&anchor, ProgressBar::new(0));

@@ -163,8 +163,7 @@ mod tests {
     #[test]
     fn about_fields_include_homepage() {
         let fields = NodeIdentityProvider.about_fields();
-        let ids: Vec<&str> = fields.iter().map(|f| f.id).collect();
-        assert!(ids.contains(&"homepage"));
+        assert!(fields.iter().any(|f| f.id == "homepage"));
     }
 
     #[test]

@@ -692,11 +692,8 @@ mod parallel_timing_tests {
             CommandSpec::Exec(rendezvous_cmd(&marker_b, &marker_a)),
         );
         let runner = test_runner(commands);
-        let mut events = Vec::new();
         let results = runner
-            .run_plan_parallel(&["rdv_a".into(), "rdv_b".into()], true, &mut |e| {
-                events.push(e);
-            })
+            .run_plan_parallel(&["rdv_a".into(), "rdv_b".into()], true, &mut |_| {})
             .await;
 
         assert!(
@@ -728,15 +725,11 @@ mod parallel_failure_tests {
         );
         assert_eq!(results.len(), 2, "both commands should have results");
 
-        let failed_events: Vec<_> = events
+        let failed_events = events
             .iter()
             .filter(|e| matches!(e, RunnerEvent::StepFailed { .. }))
-            .collect();
-        assert_eq!(
-            failed_events.len(),
-            2,
-            "both failures should emit StepFailed"
-        );
+            .count();
+        assert_eq!(failed_events, 2, "both failures should emit StepFailed");
 
         assert!(
             events

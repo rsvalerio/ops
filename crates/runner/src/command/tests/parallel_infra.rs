@@ -59,9 +59,7 @@ async fn handle_parallel_events_sets_abort_on_fail_fast() {
     .unwrap();
     drop(tx);
 
-    let mut events = Vec::new();
-    CommandRunner::handle_parallel_events(rx, true, Arc::clone(&abort), &mut |e| events.push(e))
-        .await;
+    CommandRunner::handle_parallel_events(rx, true, Arc::clone(&abort), &mut |_| {}).await;
 
     assert!(
         abort.is_set(),
@@ -83,9 +81,7 @@ async fn handle_parallel_events_no_abort_without_fail_fast() {
     .unwrap();
     drop(tx);
 
-    let mut events = Vec::new();
-    CommandRunner::handle_parallel_events(rx, false, Arc::clone(&abort), &mut |e| events.push(e))
-        .await;
+    CommandRunner::handle_parallel_events(rx, false, Arc::clone(&abort), &mut |_| {}).await;
 
     assert!(!abort.is_set(), "abort should NOT be set without fail_fast");
 }
@@ -129,7 +125,6 @@ async fn fail_fast_aborts_siblings_when_a_task_panics() {
     // accounted for; the loop continues draining the JoinSet until empty.
     drop(tx);
 
-    let mut events = Vec::<RunnerEvent>::new();
     let mut harvested: Vec<(tokio::task::Id, Result<StepResult, tokio::task::JoinError>)> =
         Vec::new();
     CommandRunner::handle_parallel_events_with_cancel_inner(
@@ -137,7 +132,7 @@ async fn fail_fast_aborts_siblings_when_a_task_panics() {
         true, // fail_fast
         Arc::clone(&abort),
         &mut join_set,
-        &mut |e| events.push(e),
+        &mut |_| {},
         &mut harvested,
     )
     .await;

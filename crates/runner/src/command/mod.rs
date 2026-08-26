@@ -478,6 +478,9 @@ impl CommandRunner {
     /// If `command_id` resolves to nothing, if composite expansion fails
     /// (unknown reference, cycle, depth limit, conflicting schedule flags), or
     /// if a step cannot be built or spawned.
+    // Same `!Send` reasoning as `run_plan_parallel`: the `on_event` sink is
+    // backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
+    #[allow(clippy::future_not_send)]
     pub async fn run(
         &self,
         command_id: &str,

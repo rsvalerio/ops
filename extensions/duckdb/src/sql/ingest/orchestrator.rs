@@ -331,6 +331,9 @@ mod tests {
             fn name(&self) -> &'static str {
                 "panicky"
             }
+            // The panic *is* the behaviour under test: this mock stands in for
+            // an ingestor that blows up mid-collect.
+            #[allow(clippy::panic_in_result_fn)]
             fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
                 assert!(
                     !self.should_panic.swap(false, Ordering::SeqCst),
@@ -416,6 +419,9 @@ mod tests {
             fn name(&self) -> &'static str {
                 "panicky_warn"
             }
+            // The panic *is* the behaviour under test: this mock stands in for
+            // an ingestor that blows up mid-collect.
+            #[allow(clippy::panic_in_result_fn)]
             fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
                 assert!(
                     !self.should_panic.swap(false, Ordering::SeqCst),
@@ -620,7 +626,7 @@ mod tests {
                 )))
             }
             fn load(&self, _data_dir: &Path, _db: &DuckDb) -> DbResult<crate::LoadResult> {
-                unreachable!("collect failed before load")
+                panic!("load must not run: collect failed first")
             }
         }
 
