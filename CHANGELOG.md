@@ -2,6 +2,25 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.43.0](https://github.com/rsvalerio/ops/compare/d64661547d9e54fe1af1f1e8fc56094510a50aaf..v0.43.0) - 2026-08-26
+#### 🚀 Features
+- (**cli**) wire the create-review-tasks subcommand - ([3625b59](https://github.com/rsvalerio/ops/commit/3625b59ab479eaf9fc9c49368a7dceab01905469)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**create-review-tasks**) add the backlog review-request task engine - ([24a3e6b](https://github.com/rsvalerio/ops/commit/24a3e6b1725e32dda8a46c1769d909453180f7d6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**create-review-tasks-rust**) provide cargo workspace members as review targets - ([c937668](https://github.com/rsvalerio/ops/commit/c937668aa25dd21b2806432738ce3757510f75dd)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**create-review-tasks**) re-check the id claim after reserving the main task - ([16bd3c1](https://github.com/rsvalerio/ops/commit/16bd3c18081f77b44ae99e78dee588b6814f6bee)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**create-review-tasks**) make task-set creation collision- and failure-safe - ([0261793](https://github.com/rsvalerio/ops/commit/026179344bcb831071b04359455fd1cdb8c42e1e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+#### 📚 Documentation
+- (**clippy**) document the deny levels and the temporary-allow block - ([3b8fe31](https://github.com/rsvalerio/ops/commit/3b8fe31c106d29a646a11ffefcaa46ab91c0f926)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**lints**) enable clippy pedantic and nursery at deny - ([d646615](https://github.com/rsvalerio/ops/commit/d64661547d9e54fe1af1f1e8fc56094510a50aaf)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about-rust**) export the resolved workspace member view - ([a1aa792](https://github.com/rsvalerio/ops/commit/a1aa792537362f8e8cfc87f4549d1635dca95c21)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) file TASK-1671..1682 to empty the clippy allow block - ([0eb6c71](https://github.com/rsvalerio/ops/commit/0eb6c712a58777c761015b69ba9899cd8c580996)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.42.0](https://github.com/rsvalerio/ops/compare/5495c49316e999739e910dd81188ab4428d6756d..v0.42.0) - 2026-08-23
 #### 📚 Documentation
 - update command-mappings references - ([2cfd78a](https://github.com/rsvalerio/ops/commit/2cfd78ad1b02b8a4e4c5e03d352b08a51df8c9c6)) - [@rsvalerio](https://github.com/rsvalerio)
