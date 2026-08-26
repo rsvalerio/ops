@@ -135,8 +135,10 @@ fixture generator carries no risk and no information.
 All 28 crate roots carry this block. **Integration test targets under `tests/`
 are separate crates** and are not covered by the library's crate root — if one
 ever needs `unwrap`, it needs its own inner attribute at the top of that file.
-`crates/cli/tests/integration.rs` currently uses `expect` throughout, so it
-needs nothing.
+`crates/cli/tests/integration.rs` uses `expect` in its helper functions, which
+sit outside `#[test]` bodies and so are not covered by `allow-expect-in-tests`
+either; it carries its own `#![allow(clippy::expect_used)]` for that reason
+(TASK-1675).
 
 ### Layer 3 — call site
 
