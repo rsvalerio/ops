@@ -625,6 +625,12 @@ mod tests {
                     "simulated collect failure",
                 )))
             }
+            // The panic *is* the assertion: this double exists to prove `load` is
+            // never reached once `collect` fails. Returning an `Err` instead would
+            // let a regression that calls `load` anyway flow into the error-chain
+            // assertions below and pass. `allow-panic-in-tests` does not cover
+            // `panic_in_result_fn`, so the exception is spelled here.
+            #[allow(clippy::panic_in_result_fn)]
             fn load(&self, _data_dir: &Path, _db: &DuckDb) -> DbResult<crate::LoadResult> {
                 panic!("load must not run: collect failed first")
             }

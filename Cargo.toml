@@ -107,6 +107,9 @@ panic = "deny"
 exit = "deny"
 indexing_slicing = "deny"
 string_slice = "deny"
+expect_used = "deny"
+unreachable = "deny"
+panic_in_result_fn = "deny"
 
 # Style preferences this codebase deliberately does not share: local `const`,
 # `type` and helper declarations are written at their point of use, and clap
