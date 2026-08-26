@@ -96,6 +96,11 @@ pub enum CoreSubcommand {
         #[arg(long)]
         refresh: bool,
     },
+    /// Create backlog review-request tasks: a `review-request-<date>-<n>`
+    /// main task plus one `REVIEW: Run skill code-review-<stack> against
+    /// <crate>` subtask per workspace review target. Use the global
+    /// `--dry-run` flag to preview the report without writing files.
+    CreateReviewTasks,
     /// Interactively add a new command to `.ops.toml`.
     NewCommand,
     /// Import Makefile targets as `.ops.toml` commands (interactive picker).
@@ -580,6 +585,27 @@ mod tests {
             }
             other => panic!("expected About with refresh, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_create_review_tasks() {
+        let cli = Cli::parse_from(["ops", "create-review-tasks"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(CoreSubcommand::CreateReviewTasks)
+        ));
+    }
+
+    /// The global `--dry-run` flag must parse after the subcommand and reach
+    /// the dispatch (`cli.dry_run`), mirroring `ops sec --dry-run`.
+    #[test]
+    fn parse_create_review_tasks_dry_run() {
+        let cli = Cli::parse_from(["ops", "create-review-tasks", "--dry-run"]);
+        assert!(matches!(
+            cli.subcommand,
+            Some(CoreSubcommand::CreateReviewTasks)
+        ));
+        assert!(cli.dry_run);
     }
 
     /// `ops about modules` must continue to parse — it is

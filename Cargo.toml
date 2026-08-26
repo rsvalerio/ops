@@ -22,6 +22,8 @@ ops-duckdb = { path = "extensions/duckdb" }
 ops-tokei = { path = "extensions/tokei" }
 ops-about = { path = "extensions/about" }
 ops-about-rust = { path = "extensions-rust/about" }
+ops-create-review-tasks = { path = "extensions/create-review-tasks" }
+ops-create-review-tasks-rust = { path = "extensions-rust/create-review-tasks" }
 ops-about-go = { path = "extensions-go/about" }
 ops-about-node = { path = "extensions-node/about" }
 ops-about-java = { path = "extensions-java/about" }

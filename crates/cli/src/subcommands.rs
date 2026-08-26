@@ -61,6 +61,16 @@ pub(crate) fn run_deps(config: &Config, refresh: bool) -> anyhow::Result<()> {
     ops_deps::run_deps(&registry, &opts)
 }
 
+pub(crate) fn run_create_review_tasks(config: &Config, dry_run: bool) -> anyhow::Result<()> {
+    let (cwd, registry) = cli_data_context(config)?;
+    let mode = if dry_run {
+        ops_create_review_tasks::RunMode::DryRun
+    } else {
+        ops_create_review_tasks::RunMode::Write
+    };
+    ops_create_review_tasks::run_create_review_tasks(&registry, &cwd, &mut std::io::stdout(), mode)
+}
+
 pub(crate) fn run_theme(config: &Config, action: ThemeAction) -> anyhow::Result<()> {
     match action {
         ThemeAction::List => theme_cmd::run_theme_list(config),

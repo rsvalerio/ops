@@ -28,6 +28,9 @@ extern crate ops_about_terraform;
 extern crate ops_cargo_toml;
 #[cfg(feature = "stack-rust")]
 extern crate ops_cargo_update;
+extern crate ops_create_review_tasks;
+#[cfg(feature = "stack-rust")]
+extern crate ops_create_review_tasks_rust;
 extern crate ops_git;
 #[cfg(feature = "stack-rust")]
 extern crate ops_metadata;
@@ -278,6 +281,9 @@ fn dispatch(
         }
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Deps { refresh }) => run_deps(early_config, refresh)?,
+        Some(CoreSubcommand::CreateReviewTasks) => {
+            subcommands::run_create_review_tasks(early_config, cli.dry_run)?;
+        }
         #[cfg(feature = "stack-terraform")]
         Some(CoreSubcommand::Plans(opts)) => return ops_tfplan::run_plan_pipeline(&opts),
         Some(CoreSubcommand::TrailingWhitespace { tracked }) => {
