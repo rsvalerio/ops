@@ -295,7 +295,9 @@ pub fn emit_output_events(
                 let end = start.saturating_add(off);
                 // Mirror `str::lines` and strip an optional preceding `\r`.
                 let trimmed_end = if end > start
-                    && bytes.get(end.saturating_sub(1)).is_some_and(|b| *b == b'\r')
+                    && bytes
+                        .get(end.saturating_sub(1))
+                        .is_some_and(|b| *b == b'\r')
                 {
                     end.saturating_sub(1)
                 } else {

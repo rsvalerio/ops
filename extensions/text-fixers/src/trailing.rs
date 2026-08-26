@@ -20,8 +20,7 @@ pub fn fix_trailing(input: &[u8]) -> Option<Vec<u8>> {
 
         // `line_end > start >= 0` guards both reads, so `saturating_sub(1)` here is
         // exactly `- 1`; `content_end` only subtracts when `has_crlf` proved it.
-        let has_crlf =
-            line_end > start && input.get(line_end.saturating_sub(1)) == Some(&b'\r');
+        let has_crlf = line_end > start && input.get(line_end.saturating_sub(1)) == Some(&b'\r');
         let content_end = if has_crlf {
             line_end.saturating_sub(1)
         } else {
