@@ -310,7 +310,7 @@ pub fn shell_quote(value: &str) -> Cow<'_, str> {
     if safe {
         Cow::Borrowed(value)
     } else {
-        let mut out = String::with_capacity(value.len() + 2);
+        let mut out = String::with_capacity(value.len().saturating_add(2));
         out.push('\'');
         for c in value.chars() {
             if c == '\'' {
@@ -332,11 +332,11 @@ fn check_control_chars(name: &str, field: &str, value: &str) -> anyhow::Result<(
     if let Some((idx, ch)) = value
         .chars()
         .enumerate()
-        .find(|(_, c)| (*c as u32) < 0x20 && *c != '\t')
+        .find(|(_, c)| u32::from(*c) < 0x20 && *c != '\t')
     {
         anyhow::bail!(
             "command '{name}': {field} contains control character U+{code:04X} at position {idx}",
-            code = ch as u32,
+            code = u32::from(ch),
         );
     }
     Ok(())
@@ -352,7 +352,10 @@ fn join_shell_quoted(parts: &[String]) -> String {
     // plus a separating space. The unsafe-quoting path pushes a few more
     // bytes; treating that as a rare overflow keeps the common dry-run
     // render to a single allocation.
-    let cap = parts.iter().map(|p| p.len() + 1).sum::<usize>();
+    let cap = parts
+        .iter()
+        .map(|p| p.len().saturating_add(1))
+        .sum::<usize>();
     let mut out = String::with_capacity(cap);
     for (i, part) in parts.iter().enumerate() {
         if i > 0 {

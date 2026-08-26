@@ -148,7 +148,7 @@ fn boxed_theme_frames_the_report() {
         let plain = strip_ansi(line);
         assert_eq!(
             ops_core::output::display_width(&plain),
-            cols as usize,
+            usize::from(cols),
             "framed line must span full width: {plain:?}"
         );
     }

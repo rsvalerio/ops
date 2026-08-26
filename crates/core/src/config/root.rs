@@ -197,7 +197,8 @@ impl Config {
                 // internal cycles, if any, would be caught by their own
                 // validate path, not this one.
                 if let Some(CommandSpec::Composite(_)) = self.commands.get(sub_str) {
-                    if let Err(e) = self.walk_composite(sub_str, known, visiting, depth + 1) {
+                    let next = depth.saturating_add(1);
+                    if let Err(e) = self.walk_composite(sub_str, known, visiting, next) {
                         result = Err(e);
                         break;
                     }

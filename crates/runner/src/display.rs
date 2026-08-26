@@ -580,11 +580,14 @@ impl ProgressDisplay {
         let step = StepLine::new(status, display.to_string(), Some(duration_secs));
         // Count the step as complete before rendering so its row's progress
         // cell shows the "done" glyph (█) instead of the "current" glyph (▓).
-        self.completed_steps += 1;
+        // Each counter advances at most once per terminal event, and
+        // `consume_step_index` above only yields one index per queued
+        // occurrence of a plan step, so these are exactly equal to `+= 1`.
+        self.completed_steps = self.completed_steps.saturating_add(1);
         if matches!(status, StepStatus::Failed) {
-            self.failed_steps += 1;
+            self.failed_steps = self.failed_steps.saturating_add(1);
         } else if matches!(status, StepStatus::Skipped) {
-            self.skipped_steps += 1;
+            self.skipped_steps = self.skipped_steps.saturating_add(1);
         }
         let line = self.render_and_wrap_step(&step);
         self.finish_bar(bar, line);

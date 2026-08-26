@@ -93,7 +93,11 @@ async fn read_capped<R: AsyncRead + Unpin>(
     cap: usize,
 ) -> std::io::Result<(Vec<u8>, u64)> {
     let mut head = Vec::new();
-    let mut limited = reader.take(cap as u64);
+    // `usize` is at most 64 bits on every target this builds for, so the
+    // conversion is exact and the fallback is unreachable; `u64::MAX` is
+    // nonetheless the right saturation value here — it is `take`'s "no
+    // additional limit", which is what a cap wider than u64 would mean.
+    let mut limited = reader.take(u64::try_from(cap).unwrap_or(u64::MAX));
     limited.read_to_end(&mut head).await?;
     let mut inner = limited.into_inner();
     let dropped = tokio::io::copy(&mut inner, &mut tokio::io::sink()).await?;
@@ -283,15 +287,21 @@ pub fn emit_output_events(
             };
             let rel = rest.iter().position(|b| *b == b'\n');
             let (line_end, next_start) = rel.map_or((bytes.len(), bytes.len()), |off| {
-                let end = start + off;
+                // `off` indexes into `bytes[start..]`, so `start + off` is a
+                // valid index into `bytes` and the saturating forms below are
+                // exactly equal to `+`/`-` here: the sum is `< bytes.len()`,
+                // the `end > start` guard makes `end >= 1`, and `end` is a
+                // newline index so `end + 1 <= bytes.len()`.
+                let end = start.saturating_add(off);
                 // Mirror `str::lines` and strip an optional preceding `\r`.
-                let trimmed_end = if end > start && bytes.get(end - 1).is_some_and(|b| *b == b'\r')
+                let trimmed_end = if end > start
+                    && bytes.get(end.saturating_sub(1)).is_some_and(|b| *b == b'\r')
                 {
-                    end - 1
+                    end.saturating_sub(1)
                 } else {
                     end
                 };
-                (trimmed_end, end + 1)
+                (trimmed_end, end.saturating_add(1))
             });
             emit(RunnerEvent::StepOutput {
                 id: id.into(),

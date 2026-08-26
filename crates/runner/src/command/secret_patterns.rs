@@ -142,7 +142,9 @@ fn bounded_prefix(value: &str, limit: usize) -> &str {
     }
     let mut end = limit;
     while end > 0 && !value.is_char_boundary(end) {
-        end -= 1;
+        // Guarded by `end > 0`, so this is exactly `-= 1` and the loop
+        // still walks back to the same char boundary.
+        end = end.saturating_sub(1);
     }
     // `end` is a char boundary by construction (the loop bottoms out at 0,
     // which always is), so this always yields `Some`. Degrade to an empty
@@ -163,19 +165,27 @@ const HIGH_ENTROPY_MIN_LOWERCASE: usize = 3;
 const HIGH_ENTROPY_MIN_UPPERCASE: usize = 3;
 
 pub fn has_high_entropy(value: &str) -> bool {
-    let (mut alphanumeric, mut digits, mut lowercase, mut uppercase) = (0usize, 0, 0, 0);
+    // All four are `usize` (as before: they are compared against the `usize`
+    // thresholds below); spelled out so the `saturating_add` calls resolve.
+    let (mut alphanumeric, mut digits, mut lowercase, mut uppercase) =
+        (0usize, 0usize, 0usize, 0usize);
+    // Each counter is incremented at most once per `char` of an in-memory
+    // `&str`, so every count is bounded by `value.len() <= isize::MAX`.
+    // These `saturating_add`s can never saturate and are exactly equal to
+    // `+= 1`, leaving the thresholds below — and therefore which values are
+    // classified as secrets — unchanged.
     for c in value.chars() {
         if c.is_ascii_digit() {
-            digits += 1;
-            alphanumeric += 1;
+            digits = digits.saturating_add(1);
+            alphanumeric = alphanumeric.saturating_add(1);
         } else if c.is_ascii_lowercase() {
-            lowercase += 1;
-            alphanumeric += 1;
+            lowercase = lowercase.saturating_add(1);
+            alphanumeric = alphanumeric.saturating_add(1);
         } else if c.is_ascii_uppercase() {
-            uppercase += 1;
-            alphanumeric += 1;
+            uppercase = uppercase.saturating_add(1);
+            alphanumeric = alphanumeric.saturating_add(1);
         } else if c.is_alphanumeric() {
-            alphanumeric += 1;
+            alphanumeric = alphanumeric.saturating_add(1);
         }
     }
     alphanumeric > HIGH_ENTROPY_MIN_ALPHANUMERIC

@@ -164,7 +164,8 @@ fn format_language_breakdown(
         })
         .collect();
     if langs.len() > top_n {
-        lines.push(format!("  (+{} more)", langs.len() - top_n));
+        // Guarded by `langs.len() > top_n`, so the subtraction is exact.
+        lines.push(format!("  (+{} more)", langs.len().saturating_sub(top_n)));
     }
     lines
 }

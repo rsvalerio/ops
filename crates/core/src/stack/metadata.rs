@@ -15,7 +15,7 @@ pub(super) const fn metadata(stack: Stack) -> (&'static [&'static str], Option<&
     macro_rules! meta {
         ($files:expr, $toml:literal) => {
             (
-                $files as &[&str],
+                $files,
                 Some(include_str!(concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/src/",

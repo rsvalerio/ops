@@ -49,7 +49,7 @@ pub fn run_command_dry_run_to(
     writeln!(w, "Resolved to {} step(s):", leaf_ids.len())?;
 
     for (i, id) in leaf_ids.iter().enumerate() {
-        writeln!(w, "\n  [{}] {}", i + 1, audit_safe(id))?;
+        writeln!(w, "\n  [{}] {}", i.saturating_add(1), audit_safe(id))?;
         match runner.resolve(id) {
             Some(CommandSpec::Exec(e)) => print_exec_spec(w, e, runner.variables())?,
             Some(CommandSpec::Composite(_)) => {

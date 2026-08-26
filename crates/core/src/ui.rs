@@ -31,8 +31,8 @@ pub fn sanitise_line(line: &str, out: &mut String) {
     for ch in line.chars() {
         match ch {
             '\t' => out.push('\t'),
-            c if (c as u32) < 0x20 || c == '\x7f' || c == '\u{1b}' => {
-                let _ = write!(out, "\\x{:02x}", c as u32);
+            c if u32::from(c) < 0x20 || c == '\x7f' || c == '\u{1b}' => {
+                let _ = write!(out, "\\x{:02x}", u32::from(c));
             }
             c => out.push(c),
         }
@@ -57,7 +57,8 @@ pub(crate) fn emit_to<W: Write>(level: &str, message: &str, w: &mut W) {
     // emit it with one `write_all`. Stderr is unbuffered when piped (the
     // typical CI / capture path), so a writeln-per-line loop issued N
     // separate syscalls and risked interleaving with parallel writers.
-    let mut buf = String::with_capacity(message.len() + level.len() + 8);
+    let mut buf =
+        String::with_capacity(message.len().saturating_add(level.len()).saturating_add(8));
     let mut first = true;
     for line in message.split('\n') {
         let prefix = if first { "" } else { "  " };

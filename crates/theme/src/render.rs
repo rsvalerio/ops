@@ -18,7 +18,7 @@ pub fn render_error_block(
     }
     let pad = " ".repeat(left_pad);
     let gutter = if chars.rail.is_empty() {
-        " ".repeat(icon_column_width + 3)
+        " ".repeat(icon_column_width.saturating_add(3))
     } else {
         format!("{}   ", chars.rail)
     };

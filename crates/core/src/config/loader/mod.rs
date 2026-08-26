@@ -119,7 +119,11 @@ pub fn read_capped_toml_file_with(path: &Path, cap: u64) -> anyhow::Result<Optio
         .take(limit)
         .read_to_string(&mut content)
         .with_context(|| format!("failed to read config file: {:?}", path.display()))?;
-    if content.len() as u64 > cap {
+    // `usize` is never wider than `u64` on any target rustc supports, so the
+    // widening is total and the fallback is unreachable; saturating to
+    // `u64::MAX` would report the file as oversize, which is the safe
+    // direction for a size cap.
+    if u64::try_from(content.len()).unwrap_or(u64::MAX) > cap {
         // SEC-21 (TASK-1472): same Debug-format policy for the bounded-read
         // bail. The `?` debug repr keeps newlines / ANSI escapes inert.
         anyhow::bail!(

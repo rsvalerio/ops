@@ -275,7 +275,11 @@ const VALUE_SEP_COLS: usize = 1;
 /// [`render_field`] so a future column-width tweak lands in one place.
 fn continuation_indent(max_key_len: usize) -> String {
     " ".repeat(
-        LEADING_COLS + EMOJI_COLS + KEY_SEP_COLS + (max_key_len + KEY_PAD_COLS) + VALUE_SEP_COLS,
+        LEADING_COLS
+            .saturating_add(EMOJI_COLS)
+            .saturating_add(KEY_SEP_COLS)
+            .saturating_add(max_key_len.saturating_add(KEY_PAD_COLS))
+            .saturating_add(VALUE_SEP_COLS),
     )
 }
 
@@ -303,7 +307,7 @@ fn render_field(
     let first = value_lines.next().unwrap_or("");
     // DUP-3 / TASK-1390: route through the shared pad helper so a future
     // tightening of width-aware padding lands once.
-    let padded_key = pad_to_display_width(key, max_key_len + KEY_PAD_COLS);
+    let padded_key = pad_to_display_width(key, max_key_len.saturating_add(KEY_PAD_COLS));
     let mut out = vec![format!(
         "  {} {} {}",
         emoji,

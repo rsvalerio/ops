@@ -216,7 +216,11 @@ fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> 
         .take(limit)
         .read_to_string(&mut buf)
         .map_err(|e| with_path(&e, path))?;
-    if buf.len() as u64 > cap {
+    // `usize` is never wider than `u64` on any target rustc supports, so the
+    // widening is total and the fallback is unreachable; saturating to
+    // `u64::MAX` would report the file as oversize, which is the safe
+    // direction for a size cap.
+    if u64::try_from(buf.len()).unwrap_or(u64::MAX) > cap {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(
@@ -284,7 +288,9 @@ fn insert_thousands_separators(digits: &str) -> Cow<'_, str> {
         // they already own without a second allocation.
         return Cow::Borrowed(digits);
     }
-    let mut result = String::with_capacity(len + (len - 1) / 3);
+    // `len > 3` here (the `len <= 3` fast path returned above), so
+    // `len - 1` is exact.
+    let mut result = String::with_capacity(len.saturating_add(len.saturating_sub(1) / 3));
     let head = match len % 3 {
         0 => 3,
         n => n,

@@ -56,8 +56,15 @@ pub const MAX_TIMEOUT_SECS: u64 = 3600;
 /// clamp was added to prevent.
 pub(super) fn output_byte_cap() -> usize {
     static CAP: OnceLock<u64> = OnceLock::new();
-    let resolved =
-        crate::text::cached_byte_cap_env(&CAP, OUTPUT_CAP_ENV, DEFAULT_OUTPUT_BYTE_CAP as u64);
+    // `DEFAULT_OUTPUT_BYTE_CAP` is 4 MiB, so widening it to the `u64` default
+    // `cached_byte_cap_env` takes cannot fail on any target; the fallback is
+    // unreachable and names the shared 1 GiB ceiling rather than `u64::MAX`
+    // so even an impossible failure leaves the SEC-33 cap bounded.
+    let resolved = crate::text::cached_byte_cap_env(
+        &CAP,
+        OUTPUT_CAP_ENV,
+        u64::try_from(DEFAULT_OUTPUT_BYTE_CAP).unwrap_or(crate::text::BYTE_CAP_ENV_MAX),
+    );
     // `cached_byte_cap_env` clamps to `BYTE_CAP_ENV_MAX` (1 GiB) which fits
     // in `usize` on every target we build for (32-bit and 64-bit), so the
     // `try_from` is total. The fallback is defence-in-depth for a
@@ -181,8 +188,13 @@ mod tests {
         // mutation window. Restored before any assertion.
         unsafe { std::env::set_var(OUTPUT_CAP_ENV, u64::MAX.to_string()) };
         static SLOT: OnceLock<u64> = OnceLock::new();
-        let resolved =
-            crate::text::cached_byte_cap_env(&SLOT, OUTPUT_CAP_ENV, DEFAULT_OUTPUT_BYTE_CAP as u64);
+        // Same total 4 MiB -> `u64` widening as `output_byte_cap`; the fallback
+        // is unreachable.
+        let resolved = crate::text::cached_byte_cap_env(
+            &SLOT,
+            OUTPUT_CAP_ENV,
+            u64::try_from(DEFAULT_OUTPUT_BYTE_CAP).unwrap_or(crate::text::BYTE_CAP_ENV_MAX),
+        );
         match prev {
             Some(v) => unsafe { std::env::set_var(OUTPUT_CAP_ENV, v) },
             None => unsafe { std::env::remove_var(OUTPUT_CAP_ENV) },

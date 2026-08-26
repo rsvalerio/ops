@@ -118,7 +118,7 @@ fn boxed_step_with_duration_matches_border_width() {
     let plain = strip_ansi(&wrapped);
     assert_eq!(
         ops_core::output::display_width(&plain),
-        columns as usize,
+        usize::from(columns),
         "wrapped width: {plain}"
     );
 

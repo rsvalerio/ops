@@ -283,7 +283,12 @@ fn build_tmp_basename(file_name: &OsStr) -> OsString {
     // PERF-3 / TASK-1223: one allocation for the suffix, one for the OsString.
     let mut suffix = String::with_capacity(48);
     let _ = write!(suffix, ".tmp.{pid}.{counter}.{nanos}");
-    let mut tmp_name = OsString::with_capacity(name_bytes.len() + suffix.len() + 1);
+    let mut tmp_name = OsString::with_capacity(
+        name_bytes
+            .len()
+            .saturating_add(suffix.len())
+            .saturating_add(1),
+    );
     tmp_name.push(".");
     tmp_name.push(stem);
     tmp_name.push(&suffix);
@@ -580,7 +585,8 @@ mod tests {
     fn insert_command_writes_schema_and_omits_empty_args() {
         let mut doc = toml_edit::DocumentMut::new();
         let commands = ensure_table(&mut doc, "commands").unwrap();
-        insert_command(commands, "lint", "make", &[] as &[&str], None).unwrap();
+        let no_args: &[&str] = &[];
+        insert_command(commands, "lint", "make", no_args, None).unwrap();
         insert_command(commands, "build", "make", &["build"], Some("Compile")).unwrap();
 
         let rendered = doc.to_string();

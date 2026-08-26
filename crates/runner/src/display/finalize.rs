@@ -36,8 +36,11 @@ impl ProgressDisplay {
             bar.disable_steady_tick();
             let elapsed = bar.elapsed().as_secs_f64();
             let step = StepLine::new(StepStatus::Skipped, display.clone(), Some(elapsed));
-            self.completed_steps += 1;
-            self.skipped_steps += 1;
+            // Both counters advance at most once per element of
+            // `self.state.bars`, an in-memory `Vec`, so these are exactly
+            // equal to `+= 1`.
+            self.completed_steps = self.completed_steps.saturating_add(1);
+            self.skipped_steps = self.skipped_steps.saturating_add(1);
             let line = self.render_and_wrap_step(&step);
             self.finish_bar(bar, line);
         }

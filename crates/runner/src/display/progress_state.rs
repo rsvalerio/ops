@@ -165,9 +165,11 @@ impl ProgressState {
             // operators can correlate display oddities with plan shape.
             let entry = self.index_by_id.entry(sid.clone()).or_default();
             if !entry.is_empty() {
+                // The occurrence number is bounded by `self.steps.len()`, an
+                // in-memory `Vec`, so this is exactly equal to `+ 1`.
                 tracing::warn!(
                     id = %sid,
-                    occurrence = entry.len() + 1,
+                    occurrence = entry.len().saturating_add(1),
                     "ProgressState::reset_for_plan: duplicate command id; allocating an additional bar (TASK-1109)"
                 );
             }

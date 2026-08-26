@@ -265,7 +265,7 @@ pub fn render_categorized_help(
 }
 
 fn splice_grouped_into_help(help_str: &str, grouped: &str) -> String {
-    let mut out = String::with_capacity(help_str.len() + grouped.len());
+    let mut out = String::with_capacity(help_str.len().saturating_add(grouped.len()));
     // Anchor on the blank line + heading-at-column-0 form
     // (`\n\nOptions:`) so a subcommand `about` that itself contains the
     // substring "Options:" cannot win the search and have the grouped
@@ -273,9 +273,12 @@ fn splice_grouped_into_help(help_str: &str, grouped: &str) -> String {
     // always emits a blank line before each top-level section heading; if
     // that ever changes the splice falls through to the append branch
     // rather than corrupting the help layout silently.
+    // `pos` indexes the start of a 10-byte `"\n\nOptions:"` match inside
+    // `help_str`, so `pos + 1` is at most `help_str.len() - 9` and can never
+    // overflow; `saturating_add` is exactly equal here.
     if let Some((head, tail)) = help_str
         .find("\n\nOptions:")
-        .and_then(|pos| help_str.split_at_checked(pos + 1))
+        .and_then(|pos| help_str.split_at_checked(pos.saturating_add(1)))
     {
         out.push_str(head);
         out.push_str(grouped);

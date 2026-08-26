@@ -85,7 +85,9 @@ thread_local! {
 
 #[cfg(test)]
 pub(super) fn record_store_walk() {
-    STORE_WALKS.with(|c| c.set(c.get() + 1));
+    // Test-only traversal counter: bounded by the walks one test thread
+    // performs, so `saturating_add` is exactly equal to `+ 1` here.
+    STORE_WALKS.with(|c| c.set(c.get().saturating_add(1)));
 }
 
 #[cfg(test)]
@@ -399,11 +401,16 @@ impl CommandRunner {
                     ctx.fail_fast_disabled = true;
                 }
                 let mut out = Vec::new();
-                ctx.depth += 1;
+                // `expand_inner` returns early above unless `ctx.depth <=
+                // ctx.max_depth` (`MAX_DEPTH`), so the increment stays far
+                // below `usize::MAX`, and the matching decrement only runs
+                // after it, on a depth `>= 1`. Both saturating forms are
+                // therefore exactly equal to `+= 1` / `-= 1` here.
+                ctx.depth = ctx.depth.saturating_add(1);
                 for sub in &c.commands {
                     out.extend(self.expand_inner(sub, ctx)?);
                 }
-                ctx.depth -= 1;
+                ctx.depth = ctx.depth.saturating_sub(1);
                 ctx.visited.remove(canonical);
                 Ok(out)
             }

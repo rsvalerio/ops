@@ -414,7 +414,7 @@ fn shell_quote(p: &Path) -> String {
 fn toml_string(s: &str) -> String {
     // Minimal basic-string escaper sufficient for the shell snippets
     // above (no control chars, no unicode escapes needed).
-    let mut out = String::with_capacity(s.len() + 2);
+    let mut out = String::with_capacity(s.len().saturating_add(2));
     out.push('"');
     for c in s.chars() {
         match c {

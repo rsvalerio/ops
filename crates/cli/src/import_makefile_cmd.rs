@@ -233,7 +233,7 @@ fn observe_recipe_prefix(trimmed: &str, recipe_prefix: &mut char) -> bool {
 /// line such as `>include extra.conf` is not miscounted as a directive.
 pub fn count_include_directives(content: &str) -> usize {
     let mut recipe_prefix = '\t';
-    let mut count = 0;
+    let mut count: usize = 0;
     for line in content.lines() {
         if is_recipe_line(line, recipe_prefix) {
             continue;
@@ -245,7 +245,7 @@ pub fn count_include_directives(content: &str) -> usize {
             line.split_whitespace().next(),
             Some("include" | "-include" | "sinclude")
         ) {
-            count += 1;
+            count = count.saturating_add(1);
         }
     }
     count

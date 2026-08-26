@@ -433,7 +433,11 @@ impl CommandRunner {
                     RunnerEvent::StepFinished { id, .. }
                     | RunnerEvent::StepFailed { id, .. }
                     | RunnerEvent::StepSkipped { id, .. } => {
-                        *terminal_counts.entry(id.clone()).or_insert(0) += 1;
+                        // Counts terminal events for one in-flight plan, so
+                        // it is bounded by the number of spawned tasks and
+                        // `saturating_add` is exactly equal to `+= 1` here.
+                        let seen = terminal_counts.entry(id.clone()).or_insert(0);
+                        *seen = seen.saturating_add(1);
                     }
                     _ => {}
                 }
@@ -462,7 +466,8 @@ impl CommandRunner {
         for id in command_ids {
             let entry = terminal_counts.entry(id.clone()).or_insert(0);
             if *entry > 0 {
-                *entry -= 1;
+                // Guarded by `*entry > 0`, so this is exactly `-= 1`.
+                *entry = entry.saturating_sub(1);
             } else {
                 on_event(RunnerEvent::StepSkipped {
                     id: id.clone(),

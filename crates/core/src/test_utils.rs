@@ -122,7 +122,10 @@ pub fn false_cmd() -> ExecCommandSpec {
 pub fn sleep_cmd(secs: u64) -> ExecCommandSpec {
     let secs_str = secs.to_string();
     if cfg!(windows) {
-        exec_spec("ping", &["-n", &format!("{}", secs + 1), "127.0.0.1"])
+        exec_spec(
+            "ping",
+            &["-n", &format!("{}", secs.saturating_add(1)), "127.0.0.1"],
+        )
     } else {
         exec_spec("sleep", &[&secs_str])
     }

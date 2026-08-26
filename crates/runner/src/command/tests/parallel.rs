@@ -459,7 +459,12 @@ async fn exec_standalone_emits_step_output_dropped_under_burst() {
             _ => None,
         })
         .sum();
-    let total = stdout_lines as u64 + dropped;
+    // `usize` never exceeds u64 on a supported target, so the widening is
+    // exact; the fallback cannot be reached for a count bounded by 1500, and
+    // `u64::MAX` would fail the assertion below rather than mask a mismatch.
+    let total = u64::try_from(stdout_lines)
+        .unwrap_or(u64::MAX)
+        .saturating_add(dropped);
     assert_eq!(
         total, 1500,
         "every produced line must either be delivered or counted as dropped — got {stdout_lines} delivered + {dropped} dropped"

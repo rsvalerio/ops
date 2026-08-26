@@ -266,9 +266,12 @@ fn canonicalize_calls() -> &'static Mutex<std::collections::HashMap<PathBuf, usi
 
 #[cfg(test)]
 fn record_canonicalize_call(path: &Path) {
-    *crate::sync::lock_recover(canonicalize_calls())
+    // Test-only probe counter: one increment per `canonicalize` call inside a
+    // single test binary, so the count cannot approach `usize::MAX`.
+    crate::sync::lock_recover(canonicalize_calls())
         .entry(path.to_path_buf())
-        .or_insert(0) += 1;
+        .and_modify(|n| *n = n.saturating_add(1))
+        .or_insert(1);
 }
 
 #[cfg(test)]

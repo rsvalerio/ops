@@ -317,11 +317,11 @@ mod exec_unit_tests {
 
         // Every line must point at *the same* underlying str buffer — the
         // canary that verifies Arc-sharing rather than per-line allocs.
-        let first_addr = lines[0].as_str().as_ptr() as usize;
+        let first_addr = lines[0].as_str().as_ptr().addr();
         let buf_lo = first_addr.saturating_sub(payload.len());
         let buf_hi = first_addr.saturating_add(payload.len());
         for (i, line) in lines.iter().enumerate() {
-            let addr = line.as_str().as_ptr() as usize;
+            let addr = line.as_str().as_ptr().addr();
             assert!(
                 addr >= buf_lo && addr <= buf_hi,
                 "line {i} points outside the shared buffer (addr {addr:x}, range {buf_lo:x}..{buf_hi:x})"
