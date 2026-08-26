@@ -3,9 +3,10 @@ id: TASK-1691
 title: >-
   CLIPPY: expect_used, unreachable and panic_in_result_fn left the
   temporary-allow block without reaching deny
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-08-26 22:41'
+updated_date: '2026-08-26 23:04'
 labels:
   - code-review-rust
   - clippy
@@ -63,3 +64,13 @@ already gone unnoticed.
 - [ ] #2 cargo clippy --workspace --all-features --all-targets -- -D warnings passes with all three at deny
 - [ ] #3 docs/clippy.md layer-1 table lists the three lints
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed on the run integration branch code-review/run-20260826 as commit 7a7e1f3, not deferred: all three lints are now in the [workspace.lints.clippy] deny list beside the other panic bans.
+
+The single site this surfaced is the FailingIngestor test double in extensions/duckdb/src/sql/ingest/orchestrator.rs, whose load() must never run once collect() fails. allow-panic-in-tests does not cover panic_in_result_fn, so it carries a layer-3 #[allow] with the reason at the call site rather than being weakened to an Err return.
+
+Verified: cargo clippy --workspace --all-targets --all-features clean; ops verify 7/7; 2405/2405 nextest; doctests clean.
+<!-- SECTION:NOTES:END -->
