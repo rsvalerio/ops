@@ -1,11 +1,11 @@
 ---
 id: TASK-1689
 title: code-review-plan-wave147
-status: To Do
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-08-26 21:17'
-updated_date: '2026-08-26 21:18'
+updated_date: '2026-08-26 21:51'
 labels:
   - code-review-wave
 dependencies:
@@ -49,4 +49,8 @@ code-review-plan-wave147
 Overlaps: TASK-1683 [wave141] 2 files (Cargo.toml, extensions-rust/about/src/query.rs); TASK-1684 [wave142] 5 files (Cargo.toml, crates/core/src/expand.rs...); TASK-1685 [wave143] 4 files (Cargo.toml, extensions-rust/about/src/query.rs...); TASK-1686 [wave144] 10 files (Cargo.toml, crates/runner/src/command/build.rs...); TASK-1687 [wave145] 5 files (Cargo.toml, crates/core/src/expand.rs...); TASK-1688 [wave146] 3 files (Cargo.toml, extensions/about/src/manifest_cache.rs...)
 
 Every wave in this batch edits the `# --- Temporary allows ---` block in the root `Cargo.toml`, so a one-line merge there is expected on each landing.
+
+Branch: code-review/TASK-1689
+
+Landed on code-review/run-20260826 (ea459d5, 9c0c729). Member TASK-1681 Done: all 36 significant_drop_tightening sites fixed, workspace allow removed. Pre-merge and integration ops verify both clean; rebase onto the landing branch merged cleanly with wave146.
 <!-- SECTION:NOTES:END -->
