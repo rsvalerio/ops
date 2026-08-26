@@ -1,11 +1,11 @@
 ---
 id: TASK-1678
 title: 'CLIPPY: drop the workspace allow for `use_self` (nursery)'
-status: To Do
+status: Done
 assignee:
   - TASK-1686
 created_date: '2026-08-25 21:00'
-updated_date: '2026-08-26 21:18'
+updated_date: '2026-08-26 22:22'
 labels:
   - code-review-rust
   - clippy
@@ -53,8 +53,22 @@ Enabling `clippy::nursery` and the panic/arithmetic lints from the photo config 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
-- [ ] #2 The line(s) for `use_self` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
-- [ ] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
-- [ ] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
+- [x] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
+- [x] #2 The line(s) for `use_self` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
+- [x] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
+- [x] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed under TASK-1686 (wave144), branch code-review/TASK-1686.
+
+87 sites cleared, matching the scope table. `cargo clippy --fix` was NOT used: per AGENTS.md and docs/clippy.md it has silently deleted load-bearing code in this repo. Instead the machine-applicable spans were extracted from clippy's JSON output and applied directly, then the whole diff was audited token-by-token - every changed pair differs only by an identifier replaced with `Self`, with no other edits. `ops extension list` still lists `git` and `text-fixers`, confirming the `extern crate` lines in `crates/cli/src/main.rs` are intact.
+
+One case worth recording: in `extensions-rust/metadata/src/types.rs` the impl is `impl JsonValueExt for serde_json::Value`, so `serde_json::Value::as_str` became `Self::as_str`. That is correct - `Self` is `serde_json::Value` there - and resolves to the same inherent method.
+
+No `#[allow]` was needed anywhere.
+
+Verified: `ops verify` clean, `cargo nextest run --workspace --all-features` 2405 passed, `cargo test --workspace --doc` clean.
+<!-- SECTION:NOTES:END -->

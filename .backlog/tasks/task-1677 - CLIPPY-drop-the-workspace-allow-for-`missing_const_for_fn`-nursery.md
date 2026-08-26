@@ -1,11 +1,11 @@
 ---
 id: TASK-1677
 title: 'CLIPPY: drop the workspace allow for `missing_const_for_fn` (nursery)'
-status: To Do
+status: Done
 assignee:
   - TASK-1686
 created_date: '2026-08-25 21:00'
-updated_date: '2026-08-26 21:18'
+updated_date: '2026-08-26 22:22'
 labels:
   - code-review-rust
   - clippy
@@ -75,8 +75,22 @@ Functions that could be `const fn`. Mechanical, but adding `const` is a semver-v
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
-- [ ] #2 The line(s) for `missing_const_for_fn` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
-- [ ] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
-- [ ] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
+- [x] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
+- [x] #2 The line(s) for `missing_const_for_fn` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
+- [x] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
+- [x] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed under TASK-1686 (wave144), branch code-review/TASK-1686.
+
+99 sites cleared across 46 files (92/44 in the scope table; the extra sites are in `extensions/create-review-tasks`, which landed after triage). Applied iteratively to a fixpoint: const-ifying a callee makes its callers const-able, which surfaced 4 further sites on the second pass.
+
+On the semver caution in the description: every library crate in the workspace carries `publish = false`, so none of these functions is on an externally consumed API surface and `const` is not a public promise here. Ordering with TASK-1676 was respected - visibility was settled first, and the `pub(crate)` -> `pub` rewrites only affect items inside modules that are not publicly reachable, so they did not widen anything that `const` would then have frozen.
+
+No `#[allow]` was needed anywhere.
+
+Verified: `ops verify` clean, `cargo nextest run --workspace --all-features` 2405 passed, `cargo test --workspace --doc` clean.
+<!-- SECTION:NOTES:END -->
