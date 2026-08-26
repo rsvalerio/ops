@@ -70,7 +70,7 @@ fn write_added_confirmation<W: Write>(w: &mut W, name: &str) -> io::Result<()> {
 /// ERR-10 (TASK-1316): returns `anyhow::Result<()>` so callers compose
 /// directly via `?` and the inquire validator can format the error chain
 /// with `{e:#}` without an intermediate `String` round-trip.
-pub(crate) fn validate_command_name(name: &str) -> anyhow::Result<()> {
+pub fn validate_command_name(name: &str) -> anyhow::Result<()> {
     if name.is_empty() {
         anyhow::bail!("command name cannot be empty");
     }

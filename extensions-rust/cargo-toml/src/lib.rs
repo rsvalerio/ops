@@ -117,13 +117,13 @@ pub struct CargoTomlExtension {
 impl CargoTomlExtension {
     /// Create extension that auto-discovers workspace root from working directory.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { root: None }
     }
 
     /// Create extension with an explicit workspace root path.
     #[must_use]
-    pub fn with_root(root: PathBuf) -> Self {
+    pub const fn with_root(root: PathBuf) -> Self {
         Self { root: Some(root) }
     }
 }
@@ -171,13 +171,13 @@ pub struct CargoTomlProvider {
 impl CargoTomlProvider {
     /// Create provider that auto-discovers workspace root.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { root: None }
     }
 
     /// Create provider with an explicit workspace root path.
     #[must_use]
-    pub fn with_root(root: PathBuf) -> Self {
+    pub const fn with_root(root: PathBuf) -> Self {
         Self { root: Some(root) }
     }
 

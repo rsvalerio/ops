@@ -498,7 +498,7 @@ async fn exec_standalone_logs_dropped_count_when_outer_receiver_closed() {
         }
     }
     impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
-        type Writer = VecWriter;
+        type Writer = Self;
         fn make_writer(&'a self) -> Self::Writer {
             self.clone()
         }

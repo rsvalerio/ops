@@ -11,7 +11,7 @@
 /// delimiter only when it follows whitespace or starts the line. A bare
 /// `line.find("//")` truncates module paths or replace targets that contain
 /// a literal `//` (e.g. `module example.com/foo//bar`).
-pub(crate) fn strip_line_comment(line: &str) -> &str {
+pub fn strip_line_comment(line: &str) -> &str {
     let bytes = line.as_bytes();
     let mut i = 0;
     while i + 1 < bytes.len() {
@@ -31,7 +31,7 @@ pub(crate) fn strip_line_comment(line: &str) -> &str {
 /// between the keyword and the opening paren. Both `use (` and `use(` are
 /// accepted by cmd/go; the parser must accept either to avoid silently
 /// skipping block-form entries.
-pub(crate) fn is_block_opener(line: &str, keyword: &str) -> bool {
+pub fn is_block_opener(line: &str, keyword: &str) -> bool {
     let Some(rest) = line.strip_prefix(keyword) else {
         return false;
     };

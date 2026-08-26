@@ -81,8 +81,8 @@ pub trait CommandMeta {
 impl CommandSpec {
     fn meta(&self) -> &dyn CommandMeta {
         match self {
-            CommandSpec::Exec(e) => e,
-            CommandSpec::Composite(c) => c,
+            Self::Exec(e) => e,
+            Self::Composite(c) => c,
         }
     }
 
@@ -108,8 +108,8 @@ impl CommandSpec {
     #[must_use]
     pub fn display_cmd_fallback(&self) -> String {
         match self {
-            CommandSpec::Exec(e) => e.display_cmd().into_owned(),
-            CommandSpec::Composite(c) => c.commands.join(", "),
+            Self::Exec(e) => e.display_cmd().into_owned(),
+            Self::Composite(c) => c.commands.join(", "),
         }
     }
 }
@@ -301,7 +301,7 @@ impl ExecCommandSpec {
 /// `sh -c` as one word identical to `value`. Keeps the common case (flags,
 /// paths) uncluttered while ensuring `cargo build --config evil="; rm -rf /"`
 /// renders as a single word in dry-run output.
-pub(crate) fn shell_quote(value: &str) -> Cow<'_, str> {
+pub fn shell_quote(value: &str) -> Cow<'_, str> {
     let safe = !value.is_empty()
         && value.chars().all(|c| {
             c.is_ascii_alphanumeric()

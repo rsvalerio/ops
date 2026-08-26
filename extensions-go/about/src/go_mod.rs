@@ -11,13 +11,13 @@ use std::path::Path;
 use crate::go_syntax::{is_block_opener, strip_line_comment};
 
 #[derive(Debug, Default)]
-pub(crate) struct GoMod {
+pub struct GoMod {
     pub(crate) module: Option<String>,
     pub(crate) go_version: Option<String>,
     pub(crate) local_replaces: Vec<String>,
 }
 
-pub(crate) fn parse(dir: &Path) -> Option<GoMod> {
+pub fn parse(dir: &Path) -> Option<GoMod> {
     let path = dir.join("go.mod");
     let content = ops_about::manifest_io::read_optional_text(&path, "go.mod")?;
 
@@ -159,7 +159,7 @@ fn looks_like_module_version(s: &str) -> bool {
     true
 }
 
-fn is_windows_absolute(s: &str) -> bool {
+const fn is_windows_absolute(s: &str) -> bool {
     let bytes = s.as_bytes();
     bytes.len() >= 3
         && bytes[0].is_ascii_alphabetic()

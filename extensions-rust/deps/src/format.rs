@@ -49,7 +49,7 @@ impl SeverityClass {
         }
     }
 
-    fn icon(self) -> &'static str {
+    const fn icon(self) -> &'static str {
         match self {
             Self::Error => "\u{2718}",   // ✘
             Self::Warning => "\u{26a0}", // ⚠
@@ -70,7 +70,7 @@ impl SeverityClass {
         }
     }
 
-    fn label(self) -> (&'static str, &'static str) {
+    const fn label(self) -> (&'static str, &'static str) {
         match self {
             Self::Error => ("error", "errors"),
             Self::Warning => ("warning", "warnings"),
@@ -82,7 +82,7 @@ impl SeverityClass {
     /// Map to the report status that drives the row icon + color.
     /// Unknown severities are treated as errors (fail-loud), mirroring the
     /// `has_issues` gate's fail-closed posture.
-    fn report_status(self) -> ReportStatus {
+    const fn report_status(self) -> ReportStatus {
         match self {
             Self::Error | Self::Unknown => ReportStatus::Error,
             Self::Warning => ReportStatus::Warning,
@@ -100,7 +100,7 @@ const SUMMARY_CLASSES: [SeverityClass; 4] = [
 ];
 
 /// Severity rank for picking the most severe [`ReportStatus`] in a section.
-fn status_rank(status: ReportStatus) -> u8 {
+const fn status_rank(status: ReportStatus) -> u8 {
     match status {
         ReportStatus::Error => 3,
         ReportStatus::Warning => 2,

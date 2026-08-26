@@ -206,7 +206,7 @@ impl ProgressDisplay {
     /// Returns a reference to the render config for testing.
     #[cfg(test)]
     #[must_use]
-    pub fn render_config(&self) -> &RenderConfig {
+    pub const fn render_config(&self) -> &RenderConfig {
         &self.render
     }
 
@@ -389,7 +389,7 @@ impl ProgressDisplay {
     /// Driven by the step's own status rather than row vs. completed-count, so
     /// parallel plans where steps finish out of order still show the right
     /// glyph per row.
-    fn progress_cell(status: StepStatus) -> &'static str {
+    const fn progress_cell(status: StepStatus) -> &'static str {
         match status {
             StepStatus::Pending => "░",
             StepStatus::Running => "▓",

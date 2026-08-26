@@ -11,14 +11,14 @@ pub use deny::{interpret_deny_result, parse_deny_output, run_cargo_deny};
 pub use upgrade::{categorize_upgrades, parse_upgrade_table, run_cargo_upgrade_dry_run};
 
 #[cfg(test)]
-pub(crate) use deny::MISSING_SEVERITY_SENTINEL;
+pub use deny::MISSING_SEVERITY_SENTINEL;
 #[cfg(test)]
-pub(crate) use upgrade::interpret_upgrade_output;
+pub use upgrade::interpret_upgrade_output;
 
 /// Truncate a log line for tracing — operators get enough context to
 /// diagnose schema drift without flooding logs with multi-KB cargo-deny
 /// diagnostics.
-pub(crate) fn truncate_for_log(s: &str) -> String {
+pub fn truncate_for_log(s: &str) -> String {
     const MAX: usize = 200;
     if s.len() <= MAX {
         s.to_string()

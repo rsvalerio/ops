@@ -200,7 +200,7 @@ pub struct ThemeConfig {
     pub report: ReportTheme,
 }
 
-fn default_left_pad() -> usize {
+const fn default_left_pad() -> usize {
     1
 }
 

@@ -121,7 +121,7 @@ impl TypedManifestCache {
 /// immutable post-parse while preserving the PERF-3 / TASK-0969 contract that
 /// resolved members survive across calls without re-walking the filesystem.
 #[derive(Clone)]
-pub(crate) struct LoadedManifest {
+pub struct LoadedManifest {
     pub(crate) manifest: Arc<CargoToml>,
     pub(crate) resolved_members: Arc<Vec<String>>,
     /// PERF-3 / TASK-1569: lazy map from workspace member (as listed in
@@ -196,7 +196,7 @@ fn cargo_toml_freshness(workspace_root: &Path) -> Option<ManifestFreshness> {
 /// Log a `load_workspace_manifest` failure differentiating "no manifest /
 /// not a Rust project" (silent debug) from a real read/parse error (warn),
 /// mirroring `read_crate_metadata` (TASK-0433).
-pub(crate) fn log_manifest_load_failure(err: &DataProviderError) {
+pub fn log_manifest_load_failure(err: &DataProviderError) {
     if is_manifest_missing(err) {
         tracing::debug!("Cargo.toml not found; Rust providers will produce empty results: {err:#}");
     } else {
@@ -338,9 +338,7 @@ fn lock_typed_manifest_cache(
 /// untouched so the original spec (e.g. `["crates/*"]`) is preserved on the
 /// cached `Arc<CargoToml>`. Consumers that want the post-glob-expansion list
 /// must read [`LoadedManifest::resolved_members`].
-pub(crate) fn load_workspace_manifest(
-    ctx: &mut Context,
-) -> Result<LoadedManifest, DataProviderError> {
+pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, DataProviderError> {
     // PERF-3 / TASK-1572: borrow the cwd as `&Path` for the cache
     // probe (HashMap lookup + freshness stat) and the cold-path
     // workspace-root walk so the cache-hit path never allocates a
@@ -674,7 +672,7 @@ fn contains_unsupported_glob_meta(member: &str) -> bool {
 /// root. Rejecting those shapes up front matches the
 /// `append_tree_directory` (SEC-14 / TASK-0811) and `scrub_path_segments`
 /// (SEC-14 / TASK-1111) policies on the rendering side.
-pub(crate) fn member_path_is_workspace_safe(member: &str) -> bool {
+pub fn member_path_is_workspace_safe(member: &str) -> bool {
     use std::path::Component;
     let p = Path::new(member);
     if p.is_absolute() {

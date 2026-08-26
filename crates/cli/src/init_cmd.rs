@@ -6,10 +6,7 @@ use std::path::Path;
 
 use ops_core::config::atomic_write;
 
-pub(crate) fn run_init(
-    force: bool,
-    sections: &ops_core::config::InitSections,
-) -> anyhow::Result<()> {
+pub fn run_init(force: bool, sections: &ops_core::config::InitSections) -> anyhow::Result<()> {
     run_init_to(force, sections, &mut std::io::stdout())
 }
 

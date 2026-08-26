@@ -36,7 +36,7 @@ use super::{default_ops_toml, Config, ConfigOverlay};
 use crate::text::{cached_byte_cap_env, open_refusing_symlinks};
 
 #[cfg(test)]
-pub(crate) use global::resolve_global_config_path;
+pub use global::resolve_global_config_path;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use global::{reset_global_config_path_cache, GlobalConfigPathResetToken};
@@ -85,7 +85,7 @@ pub fn ops_toml_max_bytes() -> u64 {
 /// otherwise. Errors include both real IO failures and the bounded-read
 /// rejection — an oversized file fails with a typed message naming the
 /// cap and the override env var, rather than being slurped into memory.
-pub(crate) fn read_capped_toml_file(path: &Path) -> anyhow::Result<Option<String>> {
+pub fn read_capped_toml_file(path: &Path) -> anyhow::Result<Option<String>> {
     read_capped_toml_file_with(path, ops_toml_max_bytes())
 }
 
@@ -94,7 +94,7 @@ pub(crate) fn read_capped_toml_file(path: &Path) -> anyhow::Result<Option<String
 /// `read_capped_toml_file`; tests use this to bypass the
 /// `ops_toml_max_bytes` `OnceLock` (which is process-global and cannot be
 /// re-initialised once another test has populated it).
-pub(crate) fn read_capped_toml_file_with(path: &Path, cap: u64) -> anyhow::Result<Option<String>> {
+pub fn read_capped_toml_file_with(path: &Path, cap: u64) -> anyhow::Result<Option<String>> {
     // SEC-25 (TASK-1468): refuse to follow symlinks at config paths. An
     // adversarial repo planting `.ops.toml -> /etc/shadow` would otherwise
     // be slurped into the TOML parser and echoed back through diagnostics.

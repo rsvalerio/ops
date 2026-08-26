@@ -10,9 +10,9 @@ use ops_about::cards::format_unit_name;
 use ops_core::project_identity::ProjectUnit;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
-pub(crate) const PROVIDER_NAME: &str = "project_units";
+pub const PROVIDER_NAME: &str = "project_units";
 
-pub(crate) struct GoUnitsProvider;
+pub struct GoUnitsProvider;
 
 impl DataProvider for GoUnitsProvider {
     fn name(&self) -> &'static str {
@@ -163,7 +163,7 @@ fn normalize_module_path(dir: &str) -> String {
 /// - `last_segment("module v2")` → `"module v2"` (no `/`, returned unchanged)
 /// - `last_segment("github.com/foo/bar")` → `"bar"`
 /// - `last_segment("foo/v")` → `"v"` (no digits, not a version suffix)
-pub(crate) fn last_segment(module: Option<&str>) -> Option<String> {
+pub fn last_segment(module: Option<&str>) -> Option<String> {
     let m = module?;
     let mut segments: Vec<&str> = m.split('/').collect();
     if segments.len() >= 2 {

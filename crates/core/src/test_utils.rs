@@ -239,19 +239,19 @@ impl TestConfigBuilder {
     }
 
     #[must_use]
-    pub fn columns(mut self, columns: u16) -> Self {
+    pub const fn columns(mut self, columns: u16) -> Self {
         self.output.columns = columns;
         self
     }
 
     #[must_use]
-    pub fn show_error_detail(mut self, show: bool) -> Self {
+    pub const fn show_error_detail(mut self, show: bool) -> Self {
         self.output.show_error_detail = show;
         self
     }
 
     #[must_use]
-    pub fn stderr_tail_lines(mut self, n: usize) -> Self {
+    pub const fn stderr_tail_lines(mut self, n: usize) -> Self {
         self.output.stderr_tail_lines = n;
         self
     }
@@ -292,7 +292,7 @@ pub struct ConfigOverlayBuilder {
 #[allow(dead_code)]
 impl ConfigOverlayBuilder {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             output: None,
             commands: None,
@@ -628,7 +628,7 @@ where
         }
     }
     impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
+        type Writer = Self;
         fn make_writer(&'a self) -> Self::Writer {
             self.clone()
         }

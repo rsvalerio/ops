@@ -15,7 +15,7 @@ use std::path::Path;
 
 use crate::go_syntax::{is_block_opener, strip_line_comment};
 
-pub(crate) fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
+pub fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
     let path = root.join("go.work");
     let content = ops_about::manifest_io::read_optional_text(&path, "go.work")?;
     let mut dirs = Vec::new();

@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 /// `id` and `manifest_path` are derived from the name and version so the two
 /// places a package id appears — the entry itself and `workspace_members` —
 /// cannot drift apart.
-pub(crate) struct PkgFixture {
+pub struct PkgFixture {
     name: String,
     version: String,
     id: Option<String>,
@@ -43,7 +43,7 @@ pub(crate) struct PkgFixture {
 
 /// Start a package fixture. Emits `name`, `version`, a derived `id` and
 /// `manifest_path`, and empty `dependencies` / `targets`; nothing else.
-pub(crate) fn pkg(name: &str, version: &str) -> PkgFixture {
+pub fn pkg(name: &str, version: &str) -> PkgFixture {
     PkgFixture {
         name: name.to_owned(),
         version: version.to_owned(),
@@ -114,7 +114,7 @@ impl PkgFixture {
 }
 
 /// A cargo-metadata document under construction.
-pub(crate) struct WsFixture {
+pub struct WsFixture {
     root: String,
     build_directory: Option<String>,
     /// `(name, id)` per package, in insertion order; members only.
@@ -124,7 +124,7 @@ pub(crate) struct WsFixture {
 }
 
 /// Start a workspace rooted at `/workspace` with no packages.
-pub(crate) fn workspace() -> WsFixture {
+pub fn workspace() -> WsFixture {
     WsFixture {
         root: "/workspace".to_owned(),
         build_directory: None,
@@ -210,7 +210,7 @@ impl WsFixture {
 
 /// The two-package workspace most accessor tests read from: a member `pkg-a`
 /// carrying the optional-field set, plus `serde` as a registry package.
-pub(crate) fn sample_metadata() -> Value {
+pub fn sample_metadata() -> Value {
     workspace()
         .build_directory("/workspace/target/debug/build")
         .member(
@@ -268,11 +268,11 @@ pub(crate) fn sample_metadata() -> Value {
         .value()
 }
 
-pub(crate) fn test_pkg_a(metadata: &crate::Metadata) -> crate::Package<'_> {
+pub fn test_pkg_a(metadata: &crate::Metadata) -> crate::Package<'_> {
     metadata.package_by_name("pkg-a").expect("fixture: pkg-a")
 }
 
-pub(crate) fn test_pkg_serde(metadata: &crate::Metadata) -> crate::Package<'_> {
+pub fn test_pkg_serde(metadata: &crate::Metadata) -> crate::Package<'_> {
     metadata.package_by_name("serde").expect("fixture: serde")
 }
 
@@ -282,14 +282,14 @@ const REGISTRY: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
 /// A dependency entry for the ingest path. Every nullable string is an
 /// explicit `""` — see the module docs on `DuckDB` schema inference.
-pub(crate) struct IngestDep {
+pub struct IngestDep {
     name: String,
     req: String,
     source: Value,
     target: String,
 }
 
-pub(crate) fn ingest_dep(name: &str, req: &str) -> IngestDep {
+pub fn ingest_dep(name: &str, req: &str) -> IngestDep {
     IngestDep {
         name: name.to_owned(),
         req: req.to_owned(),
@@ -329,14 +329,14 @@ impl IngestDep {
 }
 
 /// A single-package cargo-metadata document for the ingest path.
-pub(crate) struct IngestMetadata {
+pub struct IngestMetadata {
     root: String,
     source: Value,
     deps: Vec<IngestDep>,
 }
 
 /// Start a `test-crate 0.1.0` document rooted at `/test`.
-pub(crate) fn ingest_metadata() -> IngestMetadata {
+pub fn ingest_metadata() -> IngestMetadata {
     IngestMetadata {
         root: "/test".to_owned(),
         source: json!(REGISTRY),
@@ -404,7 +404,7 @@ impl IngestMetadata {
 }
 
 /// Write a fixture to `<dir>/metadata.json`, where the loader looks for it.
-pub(crate) fn write_metadata_json(dir: &Path, value: &Value) -> PathBuf {
+pub fn write_metadata_json(dir: &Path, value: &Value) -> PathBuf {
     let json_path = dir.join("metadata.json");
     std::fs::write(&json_path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
     json_path

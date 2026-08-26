@@ -351,7 +351,7 @@ struct StagedTasks {
 
 impl StagedTasks {
     /// An attempt with nothing staged yet.
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             paths: Vec::new(),
             committed: false,
@@ -364,7 +364,7 @@ impl StagedTasks {
     }
 
     /// Keep every staged file: the set is complete.
-    fn keep(&mut self) {
+    const fn keep(&mut self) {
         self.committed = true;
     }
 }

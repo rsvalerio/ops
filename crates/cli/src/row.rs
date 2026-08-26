@@ -27,7 +27,7 @@ use ops_core::style::{cyan, dim};
 /// and `suffix` are rendered dim. `gap` is the separator between the padded
 /// name and the description.
 #[derive(Clone, Copy)]
-pub(crate) struct ListRow<'a> {
+pub struct ListRow<'a> {
     pub leading: &'a str,
     pub name: &'a str,
     pub name_width: usize,
@@ -36,7 +36,7 @@ pub(crate) struct ListRow<'a> {
     pub suffix: &'a str,
 }
 
-pub(crate) fn write_list_row(w: &mut dyn Write, row: ListRow<'_>) -> std::io::Result<()> {
+pub fn write_list_row(w: &mut dyn Write, row: ListRow<'_>) -> std::io::Result<()> {
     let padded = pad_to_display_width(row.name, row.name_width);
     writeln!(
         w,

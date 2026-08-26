@@ -11,7 +11,7 @@ use ops_extension::{Context, DataProvider, DataProviderError};
 use super::java_about_fields;
 use pom::parse_pom_xml;
 
-pub(crate) struct MavenIdentityProvider;
+pub struct MavenIdentityProvider;
 
 impl DataProvider for MavenIdentityProvider {
     fn name(&self) -> &'static str {

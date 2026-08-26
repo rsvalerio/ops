@@ -69,7 +69,7 @@ pub struct FixerOptions {
 
 impl FixerOptions {
     #[must_use]
-    pub fn new(root: PathBuf, tracked_only: bool) -> Self {
+    pub const fn new(root: PathBuf, tracked_only: bool) -> Self {
         Self { root, tracked_only }
     }
 }
@@ -83,7 +83,7 @@ pub struct FixerReport {
 
 impl FixerReport {
     #[must_use]
-    pub fn changed(&self) -> bool {
+    pub const fn changed(&self) -> bool {
         !self.files_changed.is_empty()
     }
 }

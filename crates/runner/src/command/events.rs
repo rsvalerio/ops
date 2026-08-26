@@ -59,7 +59,7 @@ impl OutputLine {
     /// representation is an implementation detail of how per-line events
     /// avoid per-line allocations.
     #[cfg(test)]
-    pub(crate) fn buf_arc(&self) -> &Arc<str> {
+    pub(crate) const fn buf_arc(&self) -> &Arc<str> {
         &self.buf
     }
 }
@@ -110,7 +110,7 @@ impl From<String> for OutputLine {
 }
 
 /// Tracks the lifecycle of a plan execution (`PlanStarted` → `RunFinished` bookends).
-pub(crate) struct PlanLifecycle {
+pub struct PlanLifecycle {
     start: Instant,
 }
 

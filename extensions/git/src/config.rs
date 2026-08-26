@@ -80,7 +80,7 @@ impl RedactedUrl {
 /// NULs, and ANSI escapes from a hostile `.git/config` would otherwise
 /// forge log lines or recolor terminal output downstream.
 #[inline]
-fn is_ascii_control_byte(b: u8) -> bool {
+const fn is_ascii_control_byte(b: u8) -> bool {
     b < 0x20 || b == 0x7f
 }
 
@@ -97,7 +97,7 @@ fn is_ascii_control_byte(b: u8) -> bool {
 /// `extensions-node/about::repo_url::contains_control_chars` (TASK-1165)
 /// and `extensions-python/about::contains_control_chars` (TASK-1207).
 #[inline]
-fn is_unicode_format_or_separator(c: char) -> bool {
+const fn is_unicode_format_or_separator(c: char) -> bool {
     if c.is_control() {
         return true;
     }
@@ -776,7 +776,7 @@ mod tests {
             }
         }
         impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriter;
+            type Writer = Self;
             fn make_writer(&'a self) -> Self::Writer {
                 self.clone()
             }

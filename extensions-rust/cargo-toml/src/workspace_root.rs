@@ -34,7 +34,7 @@ impl FindWorkspaceRootError {
     /// finding any `Cargo.toml`. Mirrors the legacy `io::ErrorKind::NotFound`
     /// signal that `is_manifest_missing` consumed.
     #[must_use]
-    pub fn is_not_found(&self) -> bool {
+    pub const fn is_not_found(&self) -> bool {
         matches!(self, Self::NotFound { .. })
     }
 }
@@ -322,7 +322,7 @@ fn manifest_declares_workspace(path: &Path) -> bool {
 /// Skips lines that fall inside triple-quoted multi-line strings (`"""` or
 /// `'''`). A bare `[workspace]` on a line that is not inside such a string is
 /// enough to declare the manifest as workspace-bearing.
-pub(crate) fn content_declares_workspace(content: &str) -> bool {
+pub fn content_declares_workspace(content: &str) -> bool {
     let mut in_multiline_string = false;
     let mut multiline_delim: &str = "\"\"\"";
 

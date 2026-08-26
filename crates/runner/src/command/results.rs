@@ -174,7 +174,7 @@ fn parse_output_byte_cap(raw: Option<&str>) -> (usize, Option<String>) {
     }
 }
 
-pub(crate) fn output_byte_cap() -> usize {
+pub fn output_byte_cap() -> usize {
     *OUTPUT_BYTE_CAP.get_or_init(|| {
         let raw = std::env::var(OUTPUT_CAP_ENV).ok();
         let (cap, warn_msg) = parse_output_byte_cap(raw.as_deref());

@@ -84,7 +84,7 @@ impl ConfigurableTheme {
     }
 
     #[must_use]
-    pub fn left_pad(&self) -> usize {
+    pub const fn left_pad(&self) -> usize {
         self.config.left_pad
     }
 
@@ -99,7 +99,7 @@ impl ConfigurableTheme {
     }
 
     #[must_use]
-    pub fn separator_char(&self) -> char {
+    pub const fn separator_char(&self) -> char {
         self.config.separator_char
     }
 
@@ -124,7 +124,7 @@ impl ConfigurableTheme {
     }
 
     #[must_use]
-    pub fn running_template_overhead(&self) -> usize {
+    pub const fn running_template_overhead(&self) -> usize {
         self.config.running_template_overhead
     }
 
@@ -248,7 +248,7 @@ impl ConfigurableTheme {
     }
 
     #[must_use]
-    pub fn step_column_reserve(&self) -> u16 {
+    pub const fn step_column_reserve(&self) -> u16 {
         match self.config.layout_kind {
             LayoutKind::Boxed => BOX_STEP_RESERVE,
             LayoutKind::Flat => 0,

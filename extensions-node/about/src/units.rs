@@ -17,9 +17,9 @@ use ops_core::project_identity::ProjectUnit;
 use ops_extension::{Context, DataProvider, DataProviderError};
 use serde::Deserialize;
 
-pub(crate) const PROVIDER_NAME: &str = "project_units";
+pub const PROVIDER_NAME: &str = "project_units";
 
-pub(crate) struct NodeUnitsProvider;
+pub struct NodeUnitsProvider;
 
 impl DataProvider for NodeUnitsProvider {
     fn name(&self) -> &'static str {

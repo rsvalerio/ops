@@ -145,7 +145,7 @@ fn write_extension_table(
 /// The set is an in-handler cache only; passing it explicitly lets callers
 /// construct fresh state per invocation without unsafe `reset_for_tests`
 /// dances.
-pub(crate) type SelfShadowWarnedSet = std::collections::HashSet<(String, String)>;
+pub type SelfShadowWarnedSet = std::collections::HashSet<(String, String)>;
 
 /// Prefer the static `command_names()` accessor (set via
 /// `impl_extension! { command_names: &[..] }`) so list/show paths do not

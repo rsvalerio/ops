@@ -463,7 +463,7 @@ mod tests {
             }
         }
         impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriter;
+            type Writer = Self;
             fn make_writer(&'a self) -> Self::Writer {
                 self.clone()
             }

@@ -81,7 +81,7 @@ pub fn default_data_dir(workspace_root: &Path) -> PathBuf {
 /// `#[source]` instead of flattening it via `format!`, so consumers walking
 /// `Error::source()` recover the cause graph (e.g. typed retry decisions).
 #[must_use]
-pub fn external_err(e: anyhow::Error) -> DbError {
+pub const fn external_err(e: anyhow::Error) -> DbError {
     DbError::External(e)
 }
 

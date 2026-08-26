@@ -64,7 +64,7 @@ impl Stack {
     }
 
     #[must_use]
-    pub fn manifest_files(&self) -> &[&str] {
+    pub const fn manifest_files(&self) -> &[&str] {
         metadata::metadata(*self).0
     }
 
@@ -117,7 +117,7 @@ impl Stack {
     // `&self` for consistency with the sibling `default_commands_*` methods,
     // which cannot take `self` by value.
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn default_commands_toml(&self) -> Option<&'static str> {
+    const fn default_commands_toml(&self) -> Option<&'static str> {
         metadata::metadata(*self).1
     }
 
@@ -161,7 +161,7 @@ impl Stack {
             .expect("default_commands_cache must contain an entry for every Stack variant")
     }
 
-    fn default_commands_cache() -> &'static HashMap<Stack, IndexMap<String, CommandSpec>> {
+    fn default_commands_cache() -> &'static HashMap<Self, IndexMap<String, CommandSpec>> {
         static CACHE: OnceLock<HashMap<Stack, IndexMap<String, CommandSpec>>> = OnceLock::new();
         CACHE.get_or_init(|| {
             Self::iter()

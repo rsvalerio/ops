@@ -13,7 +13,7 @@ macro_rules! sql_ident_newtype {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
         #[derive(Debug, Clone)]
-        pub(crate) struct $name(&'static str);
+        pub struct $name(&'static str);
 
         impl $name {
             /// Construct from a `&'static str`, validating the identifier shape.
@@ -22,7 +22,7 @@ macro_rules! sql_ident_newtype {
                 Ok(Self(s))
             }
 
-            pub(crate) fn as_str(&self) -> &'static str {
+            pub(crate) const fn as_str(&self) -> &'static str {
                 self.0
             }
         }
@@ -57,7 +57,7 @@ pub struct CrateCoverage {
 
 impl CrateCoverage {
     #[must_use]
-    pub fn new(lines_count: i64, lines_covered: i64, lines_percent: f64) -> Self {
+    pub const fn new(lines_count: i64, lines_covered: i64, lines_percent: f64) -> Self {
         Self {
             lines_count,
             lines_covered,
@@ -66,7 +66,7 @@ impl CrateCoverage {
     }
 
     #[must_use]
-    pub fn zero() -> Self {
+    pub const fn zero() -> Self {
         Self {
             lines_count: 0,
             lines_covered: 0,

@@ -15,9 +15,9 @@ use crate::query::load_workspace_manifest;
 use metrics::query_identity_metrics;
 use resolver::resolve_identity_fields;
 
-pub(crate) const PROVIDER_NAME: &str = "project_identity";
+pub const PROVIDER_NAME: &str = "project_identity";
 
-pub(crate) struct RustIdentityProvider;
+pub struct RustIdentityProvider;
 
 impl DataProvider for RustIdentityProvider {
     fn name(&self) -> &'static str {

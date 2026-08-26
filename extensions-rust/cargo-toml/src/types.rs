@@ -67,13 +67,13 @@ impl CargoToml {
 
     /// Returns `true` if this is a virtual workspace (no root package).
     #[must_use]
-    pub fn is_virtual_workspace(&self) -> bool {
+    pub const fn is_virtual_workspace(&self) -> bool {
         self.package.is_none() && self.workspace.is_some()
     }
 
     /// Returns `true` if this manifest defines a workspace.
     #[must_use]
-    pub fn is_workspace(&self) -> bool {
+    pub const fn is_workspace(&self) -> bool {
         self.workspace.is_some()
     }
 
@@ -175,10 +175,10 @@ pub enum InheritableField<T> {
 
 impl<T> InheritableField<T> {
     /// Returns the value if this is a direct value, otherwise None.
-    pub fn value(&self) -> Option<&T> {
+    pub const fn value(&self) -> Option<&T> {
         match self {
-            InheritableField::Value(v) => Some(v),
-            InheritableField::Inherited { .. } => None,
+            Self::Value(v) => Some(v),
+            Self::Inherited { .. } => None,
         }
     }
 }
@@ -192,7 +192,7 @@ impl InheritableField<String> {
 
 impl<T: Default> Default for InheritableField<T> {
     fn default() -> Self {
-        InheritableField::Value(T::default())
+        Self::Value(T::default())
     }
 }
 
@@ -254,12 +254,12 @@ impl PublishSpec {
     /// continues to map to `Some(true)` because that is Cargo's
     /// documented default and requires no resolution.
     #[must_use]
-    pub fn is_publishable(&self) -> Option<bool> {
+    pub const fn is_publishable(&self) -> Option<bool> {
         match self {
-            PublishSpec::Bool(b) => Some(*b),
-            PublishSpec::Registries(v) => Some(!v.is_empty()),
-            PublishSpec::Inherited { .. } => None,
-            PublishSpec::None => Some(true),
+            Self::Bool(b) => Some(*b),
+            Self::Registries(v) => Some(!v.is_empty()),
+            Self::Inherited { .. } => None,
+            Self::None => Some(true),
         }
     }
 }
@@ -365,10 +365,10 @@ pub enum DepSpec {
 impl DepSpec {
     /// Returns the inner `DetailedDepSpec` if this is a `Detailed` variant.
     #[must_use]
-    pub fn detail(&self) -> Option<&DetailedDepSpec> {
+    pub const fn detail(&self) -> Option<&DetailedDepSpec> {
         match self {
-            DepSpec::Simple(_) => None,
-            DepSpec::Detailed(d) => Some(d),
+            Self::Simple(_) => None,
+            Self::Detailed(d) => Some(d),
         }
     }
 
@@ -382,8 +382,8 @@ impl DepSpec {
     #[must_use]
     pub fn version(&self) -> Option<&str> {
         match self {
-            DepSpec::Simple(v) => Some(v),
-            DepSpec::Detailed(d) => d.version.as_deref(),
+            Self::Simple(v) => Some(v),
+            Self::Detailed(d) => d.version.as_deref(),
         }
     }
 

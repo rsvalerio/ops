@@ -568,7 +568,7 @@ impl ExecTaskCtx {
     /// call site.
     #[must_use]
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub const fn new(
         cwd: Arc<PathBuf>,
         vars: Arc<Variables>,
         tx: mpsc::Sender<RunnerEvent>,

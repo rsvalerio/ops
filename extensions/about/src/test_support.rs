@@ -62,7 +62,7 @@ mod tracing_capture {
     }
 
     impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for TracingBuf {
-        type Writer = TracingBuf;
+        type Writer = Self;
         fn make_writer(&'a self) -> Self::Writer {
             self.clone()
         }

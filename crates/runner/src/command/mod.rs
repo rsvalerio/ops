@@ -290,7 +290,7 @@ impl CommandRunner {
     /// `run-before-push`) call this with `CwdEscapePolicy::Deny` so a
     /// `.ops.toml` `cwd = "/etc"` or `cwd = "../../"` is refused at spawn
     /// time instead of producing a tracing warning and proceeding.
-    pub fn set_cwd_escape_policy(&mut self, policy: CwdEscapePolicy) {
+    pub const fn set_cwd_escape_policy(&mut self, policy: CwdEscapePolicy) {
         self.cwd_escape_policy = policy;
     }
 
@@ -385,7 +385,7 @@ impl CommandRunner {
 
     /// Detected or configured stack.
     #[must_use]
-    pub fn stack(&self) -> Option<Stack> {
+    pub const fn stack(&self) -> Option<Stack> {
         self.detected_stack
     }
 

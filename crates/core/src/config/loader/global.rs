@@ -108,7 +108,7 @@ pub struct GlobalConfigPathResetToken {
 impl GlobalConfigPathResetToken {
     /// Mint a token. Test-support / cfg(test) only.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _private: () }
     }
 }
@@ -156,7 +156,7 @@ pub fn reset_global_config_path_cache(_token: GlobalConfigPathResetToken) {
 /// matrix (XDG vs HOME vs APPDATA) can bypass the
 /// [`GLOBAL_CONFIG_PATH`] `OnceLock` — production callers should always go
 /// through [`global_config_path`] so the cache discipline holds.
-pub(crate) fn resolve_global_config_path() -> Option<PathBuf> {
+pub fn resolve_global_config_path() -> Option<PathBuf> {
     let (config_dir, source) = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         (PathBuf::from(xdg), "XDG_CONFIG_HOME")
     } else if cfg!(windows) {

@@ -8,7 +8,7 @@
 
 use crate::HookConfig;
 
-pub(crate) fn commit_config() -> HookConfig {
+pub fn commit_config() -> HookConfig {
     HookConfig {
         name: "run-before-commit",
         hook_filename: "pre-commit",
@@ -23,7 +23,7 @@ pub(crate) fn commit_config() -> HookConfig {
     }
 }
 
-pub(crate) fn push_config() -> HookConfig {
+pub fn push_config() -> HookConfig {
     HookConfig {
         name: "run-before-push",
         hook_filename: "pre-push",

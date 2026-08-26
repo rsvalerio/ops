@@ -254,7 +254,7 @@ fn write_coverage_fixture(data_dir: &Path) {
 /// five `DuckDB` integration tests. Returns the tempdir (kept alive so the
 /// sidecar paths remain valid for the lifetime of the test) and the
 /// loaded `DuckDb` handle.
-pub(crate) fn setup_loaded_db() -> (tempfile::TempDir, DuckDb) {
+pub fn setup_loaded_db() -> (tempfile::TempDir, DuckDb) {
     let data_dir = tempfile::tempdir().expect("tempdir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
     write_coverage_fixture(data_dir.path());

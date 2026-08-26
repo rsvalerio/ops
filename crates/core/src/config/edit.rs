@@ -237,7 +237,7 @@ fn resolve_parent_and_filename(path: &Path) -> std::io::Result<(&Path, &OsStr)> 
 /// perms — 0o600 is the conservative "owner-only" default that keeps
 /// `.ops.toml`-style configs out of world-readable mode.
 #[cfg(unix)]
-pub(crate) const ATOMIC_WRITE_FALLBACK_MODE: u32 = 0o600;
+pub const ATOMIC_WRITE_FALLBACK_MODE: u32 = 0o600;
 
 /// READ-5 / TASK-1467: Unix permission-bit mask (sticky + setuid + setgid
 /// plus the standard rwxrwxrwx triplet). Applied to the mode probed from
@@ -245,7 +245,7 @@ pub(crate) const ATOMIC_WRITE_FALLBACK_MODE: u32 = 0o600;
 /// bits only, not the file-type bits that `stat(2)` packs into the same
 /// `u32`.
 #[cfg(unix)]
-pub(crate) const ATOMIC_WRITE_MODE_MASK: u32 = 0o7777;
+pub const ATOMIC_WRITE_MODE_MASK: u32 = 0o7777;
 
 // SEC-25 / TASK-0837: build the tmp basename from raw OsStr bytes so two
 // non-UTF-8 siblings whose lossy renders collide do not race on the same

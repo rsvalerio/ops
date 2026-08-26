@@ -137,7 +137,7 @@ impl DuckDb {
     /// process-local caches by `DuckDb` identity. Distinct instances always
     /// receive distinct ids regardless of allocation reuse, eliminating
     /// the ABA hazard the prior pointer-address scheme had.
-    pub fn id(&self) -> u64 {
+    pub const fn id(&self) -> u64 {
         self.id
     }
 

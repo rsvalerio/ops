@@ -295,7 +295,7 @@ pub enum RunBeforePushAction {
 
 /// Subcommand names that are only relevant to a specific stack.
 /// Unlisted commands are always visible.
-fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
+const fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
     &[
         #[cfg(feature = "stack-rust")]
         ("deps", Stack::Rust),
@@ -305,10 +305,7 @@ fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
 }
 
 /// Hide subcommands whose required stack doesn't match the detected one.
-pub(crate) fn hide_irrelevant_commands(
-    mut cmd: clap::Command,
-    stack: Option<Stack>,
-) -> clap::Command {
+pub fn hide_irrelevant_commands(mut cmd: clap::Command, stack: Option<Stack>) -> clap::Command {
     for &(name, required_stack) in stack_specific_commands() {
         let dominated = stack.is_none_or(|s| s != required_stack);
         if dominated {
@@ -318,7 +315,7 @@ pub(crate) fn hide_irrelevant_commands(
     cmd
 }
 
-pub(crate) fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
+pub fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
     if args.len() > 1 && args[1] == "ops" {
         // Drop the redundant `ops` token in `ops ops <cmd>` (cargo-style
         // invocation) without needing to re-assert that argv[0] exists.

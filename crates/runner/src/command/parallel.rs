@@ -41,7 +41,7 @@ const DEFAULT_PARALLEL_EVENT_BUDGET_PER_TASK: usize = 256;
 /// Hard ceiling on the env-overridable parallel cap. Rejects pathological
 /// values (e.g. `OPS_MAX_PARALLEL=1000000`) that would defeat the
 /// resource-pressure contract this knob exists to enforce.
-pub(crate) const MAX_PARALLEL_CEILING: usize = 1024;
+pub const MAX_PARALLEL_CEILING: usize = 1024;
 
 /// Hard ceiling on the env-overridable per-task event budget. Same
 /// rationale as [`MAX_PARALLEL_CEILING`].
@@ -70,7 +70,7 @@ static EVENT_BUDGET_CACHED: OnceLock<usize> = OnceLock::new();
 /// without re-reading `std::env`. Tests exercising the parse/clamp matrix
 /// must call [`resolve_env_usize`] directly (the pure helper) to bypass
 /// the cache.
-pub(crate) fn resolve_max_parallel() -> usize {
+pub fn resolve_max_parallel() -> usize {
     *MAX_PARALLEL_CACHED.get_or_init(|| {
         resolve_env_usize(
             "OPS_MAX_PARALLEL",
@@ -86,7 +86,7 @@ pub(crate) fn resolve_max_parallel() -> usize {
 /// `event_budget` so an empty plan still yields a non-zero capacity). The
 /// previous shape used `max_parallel × event_budget` unconditionally, which
 /// pre-allocated 32-step worth of slots even on a 2-step plan.
-pub(crate) fn compute_channel_capacity(
+pub fn compute_channel_capacity(
     steps_len: usize,
     max_parallel: usize,
     event_budget: usize,
@@ -118,7 +118,7 @@ fn resolve_event_budget() -> usize {
 /// a unit test can assert the operator-facing diagnostic — distinguishing
 /// "explicit 0 (sequential intent)" from a generic parse failure — does
 /// not silently regress.
-pub(crate) const ZERO_NOT_ALLOWED_MSG: &str =
+pub const ZERO_NOT_ALLOWED_MSG: &str =
     "zero is not allowed; use 1 for sequential execution; falling back to default";
 
 fn resolve_env_usize(var: &'static str, default: usize, ceiling: usize) -> usize {

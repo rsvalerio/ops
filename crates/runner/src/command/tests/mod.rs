@@ -1,29 +1,29 @@
 //! Tests for command execution, split per concern (TASK-0423).
 
-pub(crate) use super::*;
-pub(crate) use crate::command::abort::AbortSignal;
-pub(crate) use crate::command::build::{build_command, WorkspaceCanonicalCache};
-pub(crate) use crate::command::events::RunnerEvent;
-pub(crate) use crate::command::exec::{emit_output_events, exec_standalone, ExecTaskCtx};
-pub(crate) use crate::command::results::StepResult;
-pub(crate) use crate::test_support::{test_runner, EventAssertions};
-pub(crate) use ops_core::config::CommandSpec;
-pub(crate) use ops_core::expand::Variables;
-pub(crate) use ops_core::test_utils::{
+pub use super::*;
+pub use crate::command::abort::AbortSignal;
+pub use crate::command::build::{build_command, WorkspaceCanonicalCache};
+pub use crate::command::events::RunnerEvent;
+pub use crate::command::exec::{emit_output_events, exec_standalone, ExecTaskCtx};
+pub use crate::command::results::StepResult;
+pub use crate::test_support::{test_runner, EventAssertions};
+pub use ops_core::config::CommandSpec;
+pub use ops_core::expand::Variables;
+pub use ops_core::test_utils::{
     composite_cmd, echo_cmd, exec_spec, exec_spec_with_cwd, false_cmd, parallel_cmd, sleep_cmd,
     true_cmd,
 };
-pub(crate) use std::collections::HashMap;
-pub(crate) use std::path::PathBuf;
-pub(crate) use std::sync::Arc;
-pub(crate) use std::time::Duration;
-pub(crate) use tokio::sync::mpsc;
+pub use std::collections::HashMap;
+pub use std::path::PathBuf;
+pub use std::sync::Arc;
+pub use std::time::Duration;
+pub use tokio::sync::mpsc;
 
-pub(crate) fn test_vars() -> Variables {
+pub fn test_vars() -> Variables {
     Variables::from_env(std::path::Path::new(".")).expect("UTF-8 path")
 }
 
-pub(crate) fn runner_with_test_commands() -> CommandRunner {
+pub fn runner_with_test_commands() -> CommandRunner {
     let mut commands = HashMap::new();
     commands.insert(
         "build".to_string(),

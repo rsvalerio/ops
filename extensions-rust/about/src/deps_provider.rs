@@ -6,9 +6,9 @@ use ops_core::project_identity::{ProjectDependencies, UnitDeps};
 use ops_duckdb::sql::{query_crate_deps, query_or_warn};
 use ops_extension::{Context, DataProvider, DataProviderError};
 
-pub(crate) const PROVIDER_NAME: &str = "project_dependencies";
+pub const PROVIDER_NAME: &str = "project_dependencies";
 
-pub(crate) struct RustDepsProvider;
+pub struct RustDepsProvider;
 
 impl DataProvider for RustDepsProvider {
     fn name(&self) -> &'static str {

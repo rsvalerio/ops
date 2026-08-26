@@ -25,14 +25,14 @@ fn audit_safe(value: &str) -> String {
 /// - Verifying config changes before running
 /// - Auditing what commands are defined
 /// - Debugging composite command expansion
-pub(crate) fn run_command_dry_run(
+pub fn run_command_dry_run(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
 ) -> anyhow::Result<ExitCode> {
     run_command_dry_run_to(runner, name, &mut std::io::stdout())
 }
 
-pub(crate) fn run_command_dry_run_to(
+pub fn run_command_dry_run_to(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
     w: &mut dyn Write,
@@ -64,7 +64,7 @@ pub(crate) fn run_command_dry_run_to(
     Ok(ExitCode::SUCCESS)
 }
 
-pub(crate) fn print_exec_spec(
+pub fn print_exec_spec(
     w: &mut dyn Write,
     e: &ops_core::config::ExecCommandSpec,
     vars: &ops_core::expand::Variables,

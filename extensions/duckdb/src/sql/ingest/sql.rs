@@ -43,10 +43,7 @@ pub fn create_table_from_json_sql(
 /// `information_schema.tables` does **not** list views in `DuckDB`; we union
 /// with `information_schema.views` so that view-backed data sources (e.g.
 /// `crate_dependencies`) are detected (READ-5).
-pub(crate) fn table_exists(
-    conn: &duckdb::Connection,
-    table_name: &str,
-) -> Result<bool, anyhow::Error> {
+pub fn table_exists(conn: &duckdb::Connection, table_name: &str) -> Result<bool, anyhow::Error> {
     use anyhow::Context;
     let count: i64 = conn
         .query_row(

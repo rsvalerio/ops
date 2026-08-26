@@ -88,7 +88,7 @@ impl Locs {
         self.lines() == 0
     }
 
-    fn add(&mut self, kind: LineKind) {
+    const fn add(&mut self, kind: LineKind) {
         match kind {
             LineKind::Code => self.code += 1,
             LineKind::Doc => self.docs += 1,
@@ -108,7 +108,7 @@ pub struct FileCounts {
 }
 
 impl FileCounts {
-    fn bucket_mut(&mut self, region: Region) -> &mut Locs {
+    const fn bucket_mut(&mut self, region: Region) -> &mut Locs {
         match region {
             Region::Main => &mut self.main,
             Region::Test => &mut self.test,
@@ -425,7 +425,7 @@ fn extend(range: &mut Option<(usize, usize)>, span: proc_macro2::Span) {
     });
 }
 
-fn item_attrs(item: &syn::Item) -> Option<&Vec<syn::Attribute>> {
+const fn item_attrs(item: &syn::Item) -> Option<&Vec<syn::Attribute>> {
     Some(match item {
         syn::Item::Const(i) => &i.attrs,
         syn::Item::Enum(i) => &i.attrs,

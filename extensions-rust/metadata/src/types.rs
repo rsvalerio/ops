@@ -54,7 +54,7 @@ trait JsonValueExt {
 /// PATTERN-1 / TASK-1544: concrete iterator returned by
 /// [`JsonValueExt::array_str_iter`]. Carried as a nameable type so call sites
 /// can be ascribed in tests and trait helpers if needed.
-pub(crate) type ArrayStrIter<'a> = std::iter::FilterMap<
+pub type ArrayStrIter<'a> = std::iter::FilterMap<
     std::iter::Flatten<std::option::IntoIter<std::slice::Iter<'a, serde_json::Value>>>,
     fn(&serde_json::Value) -> Option<&str>,
 >;
@@ -66,12 +66,12 @@ impl JsonValueExt for serde_json::Value {
 
     fn get_str_or<'a>(&'a self, field: &str, default: &'a str) -> &'a str {
         self.get_field(field)
-            .and_then(serde_json::Value::as_str)
+            .and_then(Self::as_str)
             .unwrap_or(default)
     }
 
     fn get_bool_or(&self, field: &str, default: bool) -> bool {
-        self.get_or(field, serde_json::Value::as_bool, default)
+        self.get_or(field, Self::as_bool, default)
     }
 
     fn array_iter<'a>(
@@ -79,18 +79,18 @@ impl JsonValueExt for serde_json::Value {
         field: &str,
     ) -> std::iter::Flatten<std::option::IntoIter<std::slice::Iter<'a, serde_json::Value>>> {
         self.get_field(field)
-            .and_then(serde_json::Value::as_array)
+            .and_then(Self::as_array)
             .map(|a| a.iter())
             .into_iter()
             .flatten()
     }
 
     fn array_str_iter<'a>(&'a self, field: &str) -> ArrayStrIter<'a> {
-        self.array_iter(field).filter_map(serde_json::Value::as_str)
+        self.array_iter(field).filter_map(Self::as_str)
     }
 }
 
-pub(crate) fn json_str_with_fallback<'a>(
+pub fn json_str_with_fallback<'a>(
     value: &'a serde_json::Value,
     field: &str,
     default: &'a str,
@@ -98,11 +98,7 @@ pub(crate) fn json_str_with_fallback<'a>(
     value.get_str_or(field, default)
 }
 
-pub(crate) fn json_bool_with_fallback(
-    value: &serde_json::Value,
-    field: &str,
-    default: bool,
-) -> bool {
+pub fn json_bool_with_fallback(value: &serde_json::Value, field: &str, default: bool) -> bool {
     value.get_bool_or(field, default)
 }
 

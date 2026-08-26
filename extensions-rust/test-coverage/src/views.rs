@@ -9,11 +9,11 @@
 use ops_duckdb::sql::SqlError;
 use std::path::Path;
 
-pub(crate) fn coverage_files_create_sql(path: &Path) -> Result<String, SqlError> {
+pub fn coverage_files_create_sql(path: &Path) -> Result<String, SqlError> {
     ops_duckdb::sql::create_table_from_json_sql("coverage_files", path, None)
 }
 
-pub(crate) fn coverage_summary_view_sql() -> String {
+pub fn coverage_summary_view_sql() -> String {
     "CREATE OR REPLACE VIEW coverage_summary AS \
      SELECT \
      SUM(lines_count) AS lines_count, \

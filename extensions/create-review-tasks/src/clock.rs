@@ -7,7 +7,7 @@
 
 /// UTC calendar stamp at minute resolution, pre-formatted for frontmatter.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct UtcStamp {
+pub struct UtcStamp {
     /// `YYYY-MM-DD`
     pub(crate) date: String,
     /// `HH:MM`
@@ -53,7 +53,7 @@ impl UtcStamp {
 /// Days since 1970-01-01 → `(year, month, day)` in the proleptic Gregorian
 /// calendar (Howard Hinnant, "chrono-Compatible Dates"). `u64` arithmetic is
 /// sufficient because the input is non-negative by construction.
-fn civil_from_days(days: u64) -> (u64, u64, u64) {
+const fn civil_from_days(days: u64) -> (u64, u64, u64) {
     let z = days + 719_468;
     let era = z / 146_097;
     let doe = z % 146_097; // [0, 146096]

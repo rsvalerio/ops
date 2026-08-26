@@ -28,7 +28,7 @@ use std::collections::{HashMap, VecDeque};
 /// in `record_stderr`. PERF-1 / TASK-0539: prior implementation held every
 /// captured stderr line for the plan's lifetime even though only the
 /// configured tail (`stderr_tail_lines`, default 5) is ever rendered.
-pub(crate) struct ProgressState {
+pub struct ProgressState {
     pub bars: Vec<ProgressBar>,
     pub steps: Vec<(String, String)>,
     pub step_stderr: HashMap<String, VecDeque<OutputLine>>,

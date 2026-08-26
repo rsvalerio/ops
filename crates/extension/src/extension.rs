@@ -25,12 +25,12 @@ bitflags::bitflags! {
 
 impl ExtensionType {
     #[must_use]
-    pub fn is_datasource(self) -> bool {
+    pub const fn is_datasource(self) -> bool {
         self.contains(Self::DATASOURCE)
     }
 
     #[must_use]
-    pub fn is_command(self) -> bool {
+    pub const fn is_command(self) -> bool {
         self.contains(Self::COMMAND)
     }
 }
@@ -59,7 +59,7 @@ impl ExtensionInfo {
     /// downstream extensions because the struct is `#[non_exhaustive]` and
     /// cannot be constructed via struct-literal syntax.
     #[must_use]
-    pub fn new(name: &'static str) -> Self {
+    pub const fn new(name: &'static str) -> Self {
         Self {
             name,
             shortname: name,

@@ -85,7 +85,7 @@ impl DataProviderSchema {
     ///
     /// `description` is `&'static str`; see [`DataField`] for the rationale.
     #[must_use]
-    pub fn new(description: &'static str, fields: Vec<DataField>) -> Self {
+    pub const fn new(description: &'static str, fields: Vec<DataField>) -> Self {
         Self {
             description,
             fields,
@@ -450,7 +450,7 @@ impl Context {
 
     /// Create a context with refresh mode enabled (forces data re-collection).
     #[must_use]
-    pub fn with_refresh(mut self) -> Self {
+    pub const fn with_refresh(mut self) -> Self {
         self.refresh = true;
         self
     }

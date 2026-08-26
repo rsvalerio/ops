@@ -116,7 +116,7 @@ fn register_commands_warns_on_cross_store_alias_collision_with_config() {
         }
     }
     impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
-        type Writer = VecWriter;
+        type Writer = Self;
         fn make_writer(&'a self) -> Self::Writer {
             self.clone()
         }

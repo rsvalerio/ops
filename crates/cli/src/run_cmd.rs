@@ -28,7 +28,7 @@ use plan::{build_display_map, log_step_results, merge_plan};
 /// `run_command(name, true, false, …)` — was that `dry_run` or verbose? —
 /// become impossible at call sites.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct RunOptions {
+pub struct RunOptions {
     pub dry_run: bool,
     pub verbose: bool,
     pub tap: Option<PathBuf>,
@@ -42,7 +42,7 @@ pub(crate) struct RunOptions {
     pub cwd_escape_policy: ops_runner::command::CwdEscapePolicy,
 }
 
-pub(crate) fn run_external_command(
+pub fn run_external_command(
     config: std::sync::Arc<ops_core::config::Config>,
     args: &[OsString],
     opts: RunOptions,
@@ -377,7 +377,7 @@ fn run_command_raw(
 }
 
 #[cfg(test)]
-pub(super) fn composite_tree_has_parallel(
+pub fn composite_tree_has_parallel(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
 ) -> bool {
@@ -393,7 +393,7 @@ pub(super) fn composite_tree_has_parallel(
 /// warning; callers that need the same semantics for `fail_fast` use the
 /// second tuple element.
 #[cfg(test)]
-pub(super) fn composite_tree_flags(
+pub fn composite_tree_flags(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
 ) -> (bool, bool) {

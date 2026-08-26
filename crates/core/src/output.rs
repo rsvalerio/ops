@@ -126,7 +126,7 @@ fn format_error_tail_with_stats(stderr: &[u8], n: usize) -> (String, usize) {
 /// or bare CR). Returns the new logical end index of `stderr`. A stray `\r`
 /// at end-of-buffer would otherwise survive into the rendered tail and
 /// render as a cursor-control byte in operator terminals.
-fn trim_trailing_terminator(stderr: &[u8]) -> usize {
+const fn trim_trailing_terminator(stderr: &[u8]) -> usize {
     let mut end = stderr.len();
     match stderr.last().copied() {
         Some(b'\n') => {
@@ -221,11 +221,11 @@ impl TailRanges {
         }
     }
 
-    fn len(&self) -> usize {
+    const fn len(&self) -> usize {
         self.stack_len + self.spill.len()
     }
 
-    fn is_empty(&self) -> bool {
+    const fn is_empty(&self) -> bool {
         self.stack_len == 0 && self.spill.is_empty()
     }
 

@@ -9,9 +9,9 @@ use ops_cargo_toml::{find_workspace_root_strict, CargoToml, CargoTomlProvider};
 use ops_extension::{Context, DataProvider, DataProviderError};
 
 /// Review skill the subtask titles reference.
-pub(crate) const SKILL_NAME: &str = "code-review-rust";
+pub const SKILL_NAME: &str = "code-review-rust";
 
-pub(crate) struct RustReviewTargetsProvider;
+pub struct RustReviewTargetsProvider;
 
 impl DataProvider for RustReviewTargetsProvider {
     fn name(&self) -> &'static str {

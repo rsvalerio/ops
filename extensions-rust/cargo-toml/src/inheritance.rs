@@ -96,7 +96,7 @@ impl CargoToml {
 /// semantics), but ops-cargo-toml treats the field as if it were absent so
 /// downstream tooling can still introspect malformed-but-readable
 /// manifests. See `inheritance::tests::resolve_string_field_workspace_false_is_ignored`.
-pub(crate) fn resolve_string_field(field: &mut InheritableString, ws_value: Option<&String>) {
+pub fn resolve_string_field(field: &mut InheritableString, ws_value: Option<&String>) {
     if matches!(field, InheritableField::Inherited { workspace: true }) {
         if let Some(v) = ws_value {
             *field = InheritableField::Value(v.clone());
@@ -113,7 +113,7 @@ pub(crate) fn resolve_string_field(field: &mut InheritableString, ws_value: Opti
 /// indistinguishable from `keywords = []`. Treat an empty workspace value as
 /// "not declared" and leave the member field as `Inherited`, so member intent
 /// is not silently overwritten with a forced empty Vec.
-pub(crate) fn resolve_vec_field(field: &mut InheritableVec, ws_value: &[String]) {
+pub fn resolve_vec_field(field: &mut InheritableVec, ws_value: &[String]) {
     if matches!(field, InheritableField::Inherited { workspace: true }) && !ws_value.is_empty() {
         *field = InheritableField::Value(ws_value.to_vec());
     }
@@ -121,17 +121,14 @@ pub(crate) fn resolve_vec_field(field: &mut InheritableVec, ws_value: &[String])
 
 /// Resolve `license-file = { workspace = true }` against the workspace's
 /// `license-file`. Mirrors [`resolve_string_field`] but for `Option<InheritableString>`.
-pub(crate) fn resolve_optional_string(
-    field: &mut Option<InheritableString>,
-    ws_value: Option<&String>,
-) {
+pub fn resolve_optional_string(field: &mut Option<InheritableString>, ws_value: Option<&String>) {
     if let Some(inner) = field {
         resolve_string_field(inner, ws_value);
     }
 }
 
 /// Resolve `readme = { workspace = true }` against the workspace's `readme`.
-pub(crate) fn resolve_readme(field: &mut Option<ReadmeSpec>, ws_value: Option<&ReadmeSpec>) {
+pub fn resolve_readme(field: &mut Option<ReadmeSpec>, ws_value: Option<&ReadmeSpec>) {
     if matches!(field, Some(ReadmeSpec::Inherited { workspace: true })) {
         if let Some(v) = ws_value {
             *field = Some(v.clone());
@@ -140,7 +137,7 @@ pub(crate) fn resolve_readme(field: &mut Option<ReadmeSpec>, ws_value: Option<&R
 }
 
 /// Resolve `publish = { workspace = true }` against the workspace's `publish`.
-pub(crate) fn resolve_publish(field: &mut PublishSpec, ws_value: &PublishSpec) {
+pub fn resolve_publish(field: &mut PublishSpec, ws_value: &PublishSpec) {
     if matches!(field, PublishSpec::Inherited { workspace: true }) {
         *field = ws_value.clone();
     }

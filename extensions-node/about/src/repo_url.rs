@@ -48,7 +48,7 @@ fn contains_control_chars(raw: &str) -> bool {
 /// SSH form, scrubbing) still allocate; only the fall-through clean path
 /// stays alloc-free, where it dominates the per-`parse_package_json`
 /// invocation count.
-pub(crate) fn normalize_repo_url(raw: &str) -> std::borrow::Cow<'_, str> {
+pub fn normalize_repo_url(raw: &str) -> std::borrow::Cow<'_, str> {
     /// (shorthand prefix, host) for npm hostname shortcuts.
     const HOST_PREFIXES: &[(&str, &str)] = &[
         ("github:", "github.com"),
@@ -146,7 +146,7 @@ fn is_bare_github_shorthand(s: &str) -> bool {
 /// verbatim, producing a clickable but malformed link from any hostile
 /// or typoed `package.json::repository.url`. Same operator-surface
 /// concern as TASK-1080 (control chars) and TASK-1111 (traversal).
-pub(crate) fn ssh_to_https(rest: &str) -> String {
+pub fn ssh_to_https(rest: &str) -> String {
     let no_user = rest.strip_prefix("git@").unwrap_or(rest);
     let trimmed = no_user.trim_end_matches(".git");
     // API / TASK-1256: drop hostless inputs deterministically.
@@ -175,7 +175,7 @@ pub(crate) fn ssh_to_https(rest: &str) -> String {
 /// segments and `.` segments are also collapsed for the same reason. If
 /// every component is filtered out, the directory suffix is omitted and the
 /// base URL is returned unchanged.
-pub(crate) fn append_tree_directory(base: &str, directory: &str) -> String {
+pub fn append_tree_directory(base: &str, directory: &str) -> String {
     let normalized = directory.trim().trim_start_matches("./");
     let cleaned = scrub_path_segments(normalized);
     if cleaned.is_empty() {
@@ -233,7 +233,7 @@ fn scrub_full_url_path(url: &str) -> String {
     }
 }
 
-pub(crate) fn is_numeric_port_prefix(path: &str) -> bool {
+pub fn is_numeric_port_prefix(path: &str) -> bool {
     let port = path.split('/').next().unwrap_or("");
     !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())
 }

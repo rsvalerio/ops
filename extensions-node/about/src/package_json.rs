@@ -8,7 +8,7 @@ use super::repo_url::{append_tree_directory, normalize_repo_url};
 
 #[derive(Debug, Default)]
 #[non_exhaustive]
-pub(crate) struct PackageJson {
+pub struct PackageJson {
     pub(crate) name: Option<String>,
     pub(crate) version: Option<String>,
     pub(crate) description: Option<String>,
@@ -75,7 +75,7 @@ struct Engines {
     node: Option<String>,
 }
 
-pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
+pub fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
     // DUP-3 (TASK-0931): route the read through the shared cache so the
     // sister `workspace_member_globs` site does not pay for a second IO +
     // re-parse on the same `package.json`. Mirrors the Python
@@ -154,7 +154,7 @@ pub(crate) fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
 /// short name. Both about-node and about-python previously redefined this
 /// helper verbatim; the shared definition is the single drift surface for
 /// future tightening of ERR-2 trim semantics.
-pub(crate) use ops_about::text_util::trim_nonempty;
+pub use ops_about::text_util::trim_nonempty;
 
 fn format_person(p: PersonField) -> Option<String> {
     // ERR-2 (TASK-0566): trim and re-check empty so whitespace-only authors do

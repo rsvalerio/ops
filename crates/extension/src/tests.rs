@@ -811,7 +811,7 @@ fn provider_name_field_debug_escapes_control_characters() {
         }
     }
     impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
+        type Writer = Self;
         fn make_writer(&'a self) -> Self::Writer {
             self.clone()
         }

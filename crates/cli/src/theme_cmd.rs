@@ -200,7 +200,7 @@ struct ThemeOption {
 /// render `ThemeOption` — the `theme list` table (`run_theme_list_to`) and the
 /// `theme select` picker (`Display`). Centralising prevents the two surfaces
 /// from drifting on marker text / position.
-fn theme_custom_marker(is_custom: bool) -> &'static str {
+const fn theme_custom_marker(is_custom: bool) -> &'static str {
     if is_custom {
         " (custom)"
     } else {

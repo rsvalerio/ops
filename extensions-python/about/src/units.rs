@@ -10,9 +10,9 @@ use ops_core::project_identity::ProjectUnit;
 use ops_extension::{Context, DataProvider, DataProviderError};
 use serde::Deserialize;
 
-pub(crate) const PROVIDER_NAME: &str = "project_units";
+pub const PROVIDER_NAME: &str = "project_units";
 
-pub(crate) struct PythonUnitsProvider;
+pub struct PythonUnitsProvider;
 
 impl DataProvider for PythonUnitsProvider {
     fn name(&self) -> &'static str {

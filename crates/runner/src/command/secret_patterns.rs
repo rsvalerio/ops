@@ -159,7 +159,7 @@ const HIGH_ENTROPY_MIN_DIGITS: usize = 3;
 const HIGH_ENTROPY_MIN_LOWERCASE: usize = 3;
 const HIGH_ENTROPY_MIN_UPPERCASE: usize = 3;
 
-pub(crate) fn has_high_entropy(value: &str) -> bool {
+pub fn has_high_entropy(value: &str) -> bool {
     let (mut alphanumeric, mut digits, mut lowercase, mut uppercase) = (0usize, 0, 0, 0);
     for c in value.chars() {
         if c.is_ascii_digit() {
@@ -181,11 +181,11 @@ pub(crate) fn has_high_entropy(value: &str) -> bool {
         && uppercase > HIGH_ENTROPY_MIN_UPPERCASE
 }
 
-pub(crate) fn looks_like_jwt(value: &str) -> bool {
+pub fn looks_like_jwt(value: &str) -> bool {
     value.starts_with("eyJ") && value.contains('.')
 }
 
-pub(crate) fn looks_like_aws_key(value: &str) -> bool {
+pub fn looks_like_aws_key(value: &str) -> bool {
     if value.len() != 40 {
         return false;
     }
@@ -207,7 +207,7 @@ pub(crate) fn looks_like_aws_key(value: &str) -> bool {
     has_non_hex
 }
 
-pub(crate) fn looks_like_uuid(value: &str) -> bool {
+pub fn looks_like_uuid(value: &str) -> bool {
     if value.len() != 36 {
         return false;
     }

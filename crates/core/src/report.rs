@@ -137,7 +137,7 @@ impl Report {
     }
 }
 
-fn pluralize(n: usize, singular: &'static str, plural: &'static str) -> &'static str {
+const fn pluralize(n: usize, singular: &'static str, plural: &'static str) -> &'static str {
     if n == 1 {
         singular
     } else {

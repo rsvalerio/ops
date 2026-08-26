@@ -15,7 +15,7 @@ use crate::hook_shared;
 /// current flag is a known value-taking global so the path argument is
 /// classified as the flag's value, not a positional. `--tap=path` was
 /// already handled because clap folds the value into the same argv entry.
-pub(crate) fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
+pub fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
     /// Global flags declared in `Cli` that take a value as a separate
     /// argv entry. Mirrors the `#[arg(long, global = true)]` declarations
     /// in `args.rs`; if a new value-taking global is added there it must
@@ -54,7 +54,7 @@ pub(crate) fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
 /// to "Commands". Returns a plain `&'static str` rather than `Option` because
 /// no caller ever needs to distinguish "unmapped" from a default — the former
 /// is simply a name this function does not yet know about.
-pub(crate) fn builtin_category(name: &str) -> &'static str {
+pub fn builtin_category(name: &str) -> &'static str {
     match name {
         "about" => "Insights",
         "deps" | "trailing-whitespace" | "end-of-file-fixer" | "sec" => "Code Quality",
@@ -64,7 +64,7 @@ pub(crate) fn builtin_category(name: &str) -> &'static str {
 }
 
 /// A command entry used for categorized help output.
-pub(crate) struct CmdEntry {
+pub struct CmdEntry {
     pub name: String,
     pub aliases: Vec<String>,
     pub about: String,
@@ -84,7 +84,7 @@ impl CmdEntry {
 
 /// Collect built-in clap subcommands and dynamic config/stack commands into a
 /// unified list of [`CmdEntry`] values.
-pub(crate) fn collect_command_entries(
+pub fn collect_command_entries(
     cmd: &clap::Command,
     config: &ops_core::config::Config,
     stack: Option<ops_core::stack::Stack>,
@@ -143,7 +143,7 @@ pub(crate) fn collect_command_entries(
 /// Sort command entries by category rank (per `category_order`), then by
 /// category name, then alphabetically by command name.  Uncategorized entries
 /// sort last.
-pub(crate) fn sort_entries_by_category(entries: &mut [CmdEntry], category_order: &[String]) {
+pub fn sort_entries_by_category(entries: &mut [CmdEntry], category_order: &[String]) {
     /// Explicit rank classes for `cat_rank`. Higher values sort later.
     /// Known categories map to their index in `category_order`; unknown
     /// categories sort after all known ones; `None` sorts last of all.
@@ -187,7 +187,7 @@ impl<'a> HeadingState<'a> {
 
 /// Render sorted command entries into a grouped-sections string suitable for
 /// insertion into the help output.
-pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
+pub fn render_grouped_sections(entries: &[CmdEntry]) -> String {
     use ops_core::output::{display_width, pad_to_display_width};
     // Width must be measured in display columns, not bytes — `String::len`
     // undercounts CJK / wide / combining characters and mis-aligns the
@@ -232,7 +232,7 @@ pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
 /// `Options:` section (or appended if no `Options:` block exists). Extracted
 /// from [`print_categorized_help`] so it's exercised directly in unit tests
 /// rather than only via stdout.
-pub(crate) fn render_categorized_help(
+pub fn render_categorized_help(
     mut cmd: clap::Command,
     config: &ops_core::config::Config,
     stack: Option<ops_core::stack::Stack>,
@@ -288,7 +288,7 @@ fn splice_grouped_into_help(help_str: &str, grouped: &str) -> String {
 /// Render categorized help and write it to `writer`. Extracted from
 /// [`print_categorized_help`] so the write path can be exercised against a
 /// failing writer without needing to redirect stdout.
-pub(crate) fn write_categorized_help(
+pub fn write_categorized_help(
     writer: &mut dyn Write,
     cmd: clap::Command,
     config: &ops_core::config::Config,
@@ -300,7 +300,7 @@ pub(crate) fn write_categorized_help(
 }
 
 /// Print help with all commands (built-in and dynamic) grouped by category.
-pub(crate) fn print_categorized_help(
+pub fn print_categorized_help(
     cmd: clap::Command,
     config: &ops_core::config::Config,
     stack: Option<ops_core::stack::Stack>,

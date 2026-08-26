@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-pub(crate) fn canonical_git_dir(git_dir: &Path) -> anyhow::Result<PathBuf> {
+pub fn canonical_git_dir(git_dir: &Path) -> anyhow::Result<PathBuf> {
     let canonical = std::fs::canonicalize(git_dir)
         .with_context(|| format!("failed to canonicalize git_dir {}", git_dir.display()))?;
     if !is_accepted_git_dir(&canonical) {
@@ -20,7 +20,7 @@ pub(crate) fn canonical_git_dir(git_dir: &Path) -> anyhow::Result<PathBuf> {
     Ok(canonical)
 }
 
-pub(crate) fn canonical_subdir(parent: &Path, child: &Path) -> anyhow::Result<PathBuf> {
+pub fn canonical_subdir(parent: &Path, child: &Path) -> anyhow::Result<PathBuf> {
     let canonical = std::fs::canonicalize(child)
         .with_context(|| format!("failed to canonicalize {}", child.display()))?;
     let symlink_meta = std::fs::symlink_metadata(child)

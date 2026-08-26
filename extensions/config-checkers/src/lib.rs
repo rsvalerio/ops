@@ -117,7 +117,7 @@ pub struct CheckerOptions {
 
 impl CheckerOptions {
     #[must_use]
-    pub fn new(root: PathBuf, tracked_only: bool) -> Self {
+    pub const fn new(root: PathBuf, tracked_only: bool) -> Self {
         Self {
             root,
             tracked_only,
@@ -127,13 +127,13 @@ impl CheckerOptions {
     }
 
     #[must_use]
-    pub fn with_allow_json5(mut self, allow: bool) -> Self {
+    pub const fn with_allow_json5(mut self, allow: bool) -> Self {
         self.allow_json5 = allow;
         self
     }
 
     #[must_use]
-    pub fn with_max_bytes(mut self, max_bytes: u64) -> Self {
+    pub const fn with_max_bytes(mut self, max_bytes: u64) -> Self {
         self.max_bytes = max_bytes;
         self
     }
@@ -159,7 +159,7 @@ pub struct CheckerReport {
 
 impl CheckerReport {
     #[must_use]
-    pub fn failed(&self) -> bool {
+    pub const fn failed(&self) -> bool {
         !self.files_failed.is_empty()
     }
 }

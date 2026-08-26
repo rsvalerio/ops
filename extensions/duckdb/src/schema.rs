@@ -111,7 +111,7 @@ pub struct DataSourceMetadata<'a> {
 
 impl<'a> DataSourceMetadata<'a> {
     #[must_use]
-    pub fn new(
+    pub const fn new(
         source_name: SourceName<'a>,
         workspace_root: WorkspaceRoot<'a>,
         source_path: &'a Path,

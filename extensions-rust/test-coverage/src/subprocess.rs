@@ -15,7 +15,7 @@ use std::time::Duration;
 /// Default timeout for `cargo llvm-cov`; overridable via
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`. Coverage runs the full test suite, so this
 /// is the largest of the cargo-subprocess defaults.
-pub(crate) const CARGO_LLVM_COV_TIMEOUT: Duration = Duration::from_mins(15);
+pub const CARGO_LLVM_COV_TIMEOUT: Duration = Duration::from_mins(15);
 
 /// TEST-23 / TASK-1554: the argv list `cargo llvm-cov` runs with. Exposed
 /// so the regression guard for TASK-1057 (`--no-fail-fast` must remain
@@ -23,7 +23,7 @@ pub(crate) const CARGO_LLVM_COV_TIMEOUT: Duration = Duration::from_mins(15);
 /// authoritative slice instead of grepping the source text via
 /// `include_str!`, which rotted silently under rustfmt re-wraps and
 /// helper-function moves.
-pub(crate) const LLVM_COV_ARGS: &[&str] = &[
+pub const LLVM_COV_ARGS: &[&str] = &[
     "llvm-cov",
     "--workspace",
     "--no-cfg-coverage",
@@ -39,7 +39,7 @@ pub(crate) const LLVM_COV_ARGS: &[&str] = &[
 /// grows with the workspace (~8 MB here already) and blows past the
 /// `OPS_OUTPUT_BYTE_CAP` stdout cap, which silently truncates it into
 /// unparseable JSON and kills the entire coverage signal.
-pub(crate) fn llvm_cov_argv(output_path: &str) -> Vec<&str> {
+pub fn llvm_cov_argv(output_path: &str) -> Vec<&str> {
     let mut args = LLVM_COV_ARGS.to_vec();
     args.extend(["--output-path", output_path]);
     args
@@ -57,10 +57,7 @@ pub(crate) fn llvm_cov_argv(output_path: &str) -> Vec<&str> {
 /// per-file coverage data for the passing slice is preserved; the
 /// `check_llvm_cov_output` helper then tolerates a non-zero exit when
 /// the report file still contains a parseable llvm-cov JSON document.
-pub(crate) fn run_cargo_llvm_cov(
-    working_dir: &Path,
-    output_path: &str,
-) -> Result<Output, RunError> {
+pub fn run_cargo_llvm_cov(working_dir: &Path, output_path: &str) -> Result<Output, RunError> {
     run_cargo(
         &llvm_cov_argv(output_path),
         working_dir,
@@ -76,7 +73,7 @@ pub(crate) fn run_cargo_llvm_cov(
 /// a regular non-zero exit (`status {code}`). Drifting between
 /// `"signal"` and `"exit_code = None"` previously broke grep-on-logs
 /// (TASK-1099).
-pub(crate) fn format_cargo_exit(status: ExitStatus) -> String {
+pub fn format_cargo_exit(status: ExitStatus) -> String {
     status.code().map_or_else(
         || "exit_code = None (terminated by signal)".to_string(),
         |code| format!("status {code}"),
@@ -92,7 +89,7 @@ pub(crate) fn format_cargo_exit(status: ExitStatus) -> String {
 /// soft failure (warn + continue) so the per-file coverage for the
 /// passing slice of the workspace is preserved. This helper still
 /// surfaces the non-zero exit; the caller decides whether to demote it.
-pub(crate) fn check_llvm_cov_output(output: &Output) -> Result<(), anyhow::Error> {
+pub fn check_llvm_cov_output(output: &Output) -> Result<(), anyhow::Error> {
     if !output.status.success() {
         let tail = format_error_tail(&output.stderr, 5);
         let marker = format_cargo_exit(output.status);
