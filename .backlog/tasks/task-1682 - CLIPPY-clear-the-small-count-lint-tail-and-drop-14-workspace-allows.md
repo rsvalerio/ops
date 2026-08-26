@@ -1,11 +1,11 @@
 ---
 id: TASK-1682
 title: 'CLIPPY: clear the small-count lint tail and drop 14 workspace allows'
-status: To Do
+status: Done
 assignee:
   - TASK-1685
 created_date: '2026-08-25 21:00'
-updated_date: '2026-08-26 21:18'
+updated_date: '2026-08-26 21:52'
 labels:
   - code-review-rust
   - clippy
@@ -63,8 +63,14 @@ One caveat: `future_not_send` (2 sites, `crates/runner/src/command/`) is the onl
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
-- [ ] #2 The line(s) for `needless_collect`, `collection_is_never_read`, `equatable_if_let`, `literal_string_with_formatting_args`, `needless_pass_by_ref_mut`, `unreachable`, `future_not_send`, `redundant_clone`, `panic_in_result_fn`, `single_option_map`, `derive_partial_eq_without_eq`, `branches_sharing_code`, `or_fun_call`, `iter_on_single_items` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
-- [ ] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
-- [ ] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
+- [x] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
+- [x] #2 The line(s) for `needless_collect`, `collection_is_never_read`, `equatable_if_let`, `literal_string_with_formatting_args`, `needless_pass_by_ref_mut`, `unreachable`, `future_not_send`, `redundant_clone`, `panic_in_result_fn`, `single_option_map`, `derive_partial_eq_without_eq`, `branches_sharing_code`, `or_fun_call`, `iter_on_single_items` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
+- [x] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
+- [x] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1685 (wave143): all 14 lines deleted from the temporary-allow block, including `future_not_send`. Notable calls: `future_not_send` was not made `Send` — the `on_event: &mut impl FnMut(RunnerEvent)` sink is backed by non-`Send` indicatif state in the CLI, so a `+ Send` bound would rule out the display the binary actually uses; the two futures carry `#[allow(clippy::future_not_send)]` at layer 3 with that reason instead of keeping the workspace allow. `unreachable!` removed at all 3 sites by making the fallback total (card.rs renders an empty field, pom.rs returns `false`, the duckdb test mock uses `panic!`, which `allow-panic-in-tests` covers). `needless_collect` kept with a documented `#[allow]` at 3 sites where the collect is load-bearing (ends a borrow before a reassignment; spawns all threads before joining). `panic_in_result_fn` allowed at the two duckdb test mocks where the panic is the behaviour under test. Everything else fixed outright: `equatable_if_let` -> `matches!`/`==`, `single_option_map` -> caller-side `.map()`, `needless_pass_by_ref_mut` -> `&self`, `collection_is_never_read` -> no-op event sinks, plus `redundant_clone`, `or_fun_call`, `iter_on_single_items`, `branches_sharing_code`, `derive_partial_eq_without_eq`. `literal_string_with_formatting_args` allowed with a reason at the 4 indicatif-template sites.
+<!-- SECTION:NOTES:END -->

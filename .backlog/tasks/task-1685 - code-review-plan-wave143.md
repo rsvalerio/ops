@@ -1,11 +1,11 @@
 ---
 id: TASK-1685
 title: code-review-plan-wave143
-status: To Do
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-08-26 21:17'
-updated_date: '2026-08-26 21:18'
+updated_date: '2026-08-26 22:02'
 labels:
   - code-review-wave
 dependencies:
@@ -75,4 +75,6 @@ The residual small allows: `expect_used` plus the fourteen-lint tail (which carr
 Overlaps: TASK-1683 [wave141] 15 files (Cargo.toml, crates/cli/src/args.rs...); TASK-1684 [wave142] 18 files (Cargo.toml, crates/cli/src/help.rs...); TASK-1686 [wave144] 22 files (Cargo.toml, crates/cli/src/args.rs...); TASK-1687 [wave145] 10 files (Cargo.toml, crates/cli/src/args.rs...); TASK-1688 [wave146] 7 files (Cargo.toml, crates/core/src/config/loader/global.rs...); TASK-1689 [wave147] 4 files (Cargo.toml, extensions-rust/about/src/query.rs...)
 
 Every wave in this batch edits the `# --- Temporary allows ---` block in the root `Cargo.toml`, so a one-line merge there is expected on each landing.
+
+Branch: code-review/TASK-1685
 <!-- SECTION:NOTES:END -->
