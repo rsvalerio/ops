@@ -316,7 +316,7 @@ pub fn hide_irrelevant_commands(mut cmd: clap::Command, stack: Option<Stack>) ->
 }
 
 pub fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
-    if args.len() > 1 && args[1] == "ops" {
+    if args.get(1).is_some_and(|arg| arg == "ops") {
         // Drop the redundant `ops` token in `ops ops <cmd>` (cargo-style
         // invocation) without needing to re-assert that argv[0] exists.
         let mut args = args;

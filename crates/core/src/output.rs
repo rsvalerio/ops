@@ -75,7 +75,7 @@ pub fn detect_terminal_width_probe_count() -> usize {
 /// Return the last `n` lines from a slice, or all lines if fewer than `n`.
 pub fn tail_lines<T>(lines: &[T], n: usize) -> &[T] {
     let start = lines.len().saturating_sub(n);
-    &lines[start..]
+    lines.get(start..).unwrap_or(lines)
 }
 
 /// Format the last `n` lines of stderr for error display.
@@ -112,7 +112,7 @@ fn format_error_tail_with_stats(stderr: &[u8], n: usize) -> (String, usize) {
     // FN-1 / TASK-1405: each phase (trim, collect, decode) is now an
     // isolated helper so its byte/line invariants can be read in isolation.
     let trimmed_end = trim_trailing_terminator(stderr);
-    let buf = &stderr[..trimmed_end];
+    let buf = stderr.get(..trimmed_end).unwrap_or(stderr);
     let mut ranges = TailRanges::new(n);
     let line_scans = collect_tail_ranges(buf, n, &mut ranges);
     if ranges.is_empty() {
@@ -131,7 +131,7 @@ const fn trim_trailing_terminator(stderr: &[u8]) -> usize {
     match stderr.last().copied() {
         Some(b'\n') => {
             end -= 1;
-            if end > 0 && stderr[end - 1] == b'\r' {
+            if end > 0 && stderr.get(end - 1) == Some(&b'\r') {
                 end -= 1;
             }
         }
@@ -149,13 +149,14 @@ fn collect_tail_ranges(buf: &[u8], n: usize, ranges: &mut TailRanges) -> usize {
     let mut line_scans = 0usize;
     while tail_end > 0 && ranges.len() < n {
         line_scans += 1;
-        let start = buf[..tail_end]
+        let start = buf
             .iter()
+            .take(tail_end)
             .rposition(|b| *b == b'\n')
             .map_or(0, |idx| idx + 1);
         // Strip a trailing CR so CRLF-terminated lines render cleanly.
         let mut line_end = tail_end;
-        if line_end > start && buf[line_end - 1] == b'\r' {
+        if line_end > start && buf.get(line_end - 1) == Some(&b'\r') {
             line_end -= 1;
         }
         ranges.push_oldest_front((start, line_end));
@@ -178,11 +179,15 @@ fn decode_with_cr_normalisation(buf: &[u8], ranges: &TailRanges) -> String {
     let mut out = String::with_capacity(total_len + ranges.len());
     let mut first = true;
     for &(s, e) in ranges.iter() {
+        // Ranges are produced by `collect_tail_ranges` from this same buffer,
+        // so `get` always hits; skipping on a miss keeps the decode total,
+        // rather than panicking, if that invariant ever drifts.
+        let Some(line) = buf.get(s..e) else { continue };
         if !first {
             out.push('\n');
         }
         first = false;
-        let decoded = String::from_utf8_lossy(&buf[s..e]);
+        let decoded = String::from_utf8_lossy(line);
         for ch in decoded.chars() {
             out.push(if ch == '\r' { '\n' } else { ch });
         }
@@ -249,7 +254,9 @@ impl TailRanges {
     }
 
     fn iter(&self) -> impl Iterator<Item = &(usize, usize)> {
-        self.spill.iter().chain(self.stack[..self.stack_len].iter())
+        self.spill
+            .iter()
+            .chain(self.stack.iter().take(self.stack_len))
     }
 }
 

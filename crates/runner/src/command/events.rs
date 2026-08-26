@@ -50,7 +50,11 @@ impl OutputLine {
     /// Visible bytes of this line.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.buf[self.range.clone()]
+        // `slice` debug-asserts that `range` is in bounds and lands on char
+        // boundaries, so a well-formed value always yields `Some`. If that
+        // invariant ever broke we degrade to an empty line rather than
+        // panicking mid-render.
+        self.buf.get(self.range.clone()).unwrap_or("")
     }
 
     /// PERF-3 / TASK-0838: crate-internal handle on the backing buffer so

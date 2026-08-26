@@ -275,11 +275,17 @@ pub fn emit_output_events(
         let mut start = 0usize;
         let bytes = buf.as_bytes();
         while start < bytes.len() {
-            let rel = bytes[start..].iter().position(|b| *b == b'\n');
+            // `start < bytes.len()` holds by the loop guard, so the tail
+            // slice always exists; stop scanning rather than panicking if
+            // that ever stops being true.
+            let Some(rest) = bytes.get(start..) else {
+                break;
+            };
+            let rel = rest.iter().position(|b| *b == b'\n');
             let (line_end, next_start) = rel.map_or((bytes.len(), bytes.len()), |off| {
                 let end = start + off;
                 // Mirror `str::lines` and strip an optional preceding `\r`.
-                let trimmed_end = if end > start && bytes[end - 1] == b'\r' {
+                let trimmed_end = if end > start && bytes.get(end - 1).is_some_and(|b| *b == b'\r') {
                     end - 1
                 } else {
                     end

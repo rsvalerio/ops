@@ -273,11 +273,13 @@ fn splice_grouped_into_help(help_str: &str, grouped: &str) -> String {
     // always emits a blank line before each top-level section heading; if
     // that ever changes the splice falls through to the append branch
     // rather than corrupting the help layout silently.
-    if let Some(pos) = help_str.find("\n\nOptions:") {
-        let split = pos + 1;
-        out.push_str(&help_str[..split]);
+    if let Some((head, tail)) = help_str
+        .find("\n\nOptions:")
+        .and_then(|pos| help_str.split_at_checked(pos + 1))
+    {
+        out.push_str(head);
         out.push_str(grouped);
-        out.push_str(&help_str[split..]);
+        out.push_str(tail);
     } else {
         out.push_str(help_str);
         out.push_str(grouped);
@@ -546,7 +548,7 @@ mod tests {
             .iter()
             .map(|l| {
                 let idx = l.find("desc").expect("desc present");
-                ops_core::output::display_width(&l[..idx])
+                ops_core::output::display_width(l.get(..idx).expect("char boundary"))
             })
             .collect();
         assert_eq!(
@@ -598,7 +600,7 @@ mod tests {
             .filter(|l| l.contains("about-") || l.contains("rocket"))
             .map(|l| {
                 let idx = l.find("about-").or_else(|| l.find("rocket")).unwrap();
-                ops_core::output::display_width(&l[..idx])
+                ops_core::output::display_width(l.get(..idx).expect("char boundary"))
             })
             .collect();
         assert_eq!(
@@ -779,14 +781,17 @@ mod tests {
             .lines()
             .filter_map(|l| {
                 if l.contains("strip") {
+                    let idx = l.find("strip").unwrap();
                     Some(ops_core::output::display_width(
-                        &l[..l.find("strip").unwrap()],
+                        l.get(..idx).expect("char boundary"),
                     ))
                 } else if l.contains("deps") && !l.starts_with('\n') && l.starts_with("  ") {
                     // Skip the "Code Quality:" heading; find the about column,
                     // which is the second occurrence of "deps".
                     let idx = l.rfind("deps")?;
-                    Some(ops_core::output::display_width(&l[..idx]))
+                    Some(ops_core::output::display_width(
+                        l.get(..idx).expect("char boundary"),
+                    ))
                 } else {
                     None
                 }

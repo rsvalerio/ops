@@ -290,7 +290,7 @@ mod tests {
             let idx = line
                 .find(|c: char| c.is_ascii_digit())
                 .expect("value digit present");
-            display_width(&line[..idx])
+            display_width(line.get(..idx).expect("find returns a char boundary"))
         };
         assert_eq!(col(&lines[0]), col(&lines[1]));
     }

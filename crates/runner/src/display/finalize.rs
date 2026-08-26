@@ -26,21 +26,20 @@ impl ProgressDisplay {
     /// finished — defeating the very disagreement this routine was added to
     /// fix.
     pub(super) fn finalize_orphan_bars(&mut self) {
-        for i in 0..self.state.bars.len() {
-            if self.state.bars[i].is_finished() {
+        // `bars` and `steps` are filled in lock-step by `create_pending_bars`,
+        // so zipping visits exactly the rows the index loop used to; if the
+        // two ever diverged we finalize the common prefix instead of panicking.
+        for (bar, (_, display)) in self.state.bars.iter().zip(self.state.steps.iter()) {
+            if bar.is_finished() {
                 continue;
             }
-            self.state.bars[i].disable_steady_tick();
-            let elapsed = self.state.bars[i].elapsed().as_secs_f64();
-            let step = StepLine::new(
-                StepStatus::Skipped,
-                self.state.steps[i].1.clone(),
-                Some(elapsed),
-            );
+            bar.disable_steady_tick();
+            let elapsed = bar.elapsed().as_secs_f64();
+            let step = StepLine::new(StepStatus::Skipped, display.clone(), Some(elapsed));
             self.completed_steps += 1;
             self.skipped_steps += 1;
             let line = self.render_and_wrap_step(&step);
-            self.finish_bar(&self.state.bars[i], line);
+            self.finish_bar(bar, line);
         }
     }
 

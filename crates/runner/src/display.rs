@@ -502,16 +502,24 @@ impl ProgressDisplay {
         let Some(i) = self.step_index(id) else {
             return;
         };
-        let step = StepLine::new(StepStatus::Running, self.state.steps[i].1.clone(), None);
+        // `steps` and `bars` are filled in lock-step by `create_pending_bars`,
+        // so a valid `step_index` always addresses both. If that invariant
+        // ever broke we skip the row update instead of panicking mid-run.
+        let Some(display) = self.state.steps.get(i).map(|(_, d)| d.clone()) else {
+            return;
+        };
+        let step = StepLine::new(StepStatus::Running, display, None);
         // Running rows: the running_template owns the full line (left chrome,
         // spinner, elapsed, right chrome). `running_template_overhead` already
         // reserves width for every fixed part, so we pass the full terminal
         // `columns` — subtracting `step_column_reserve` would double-count
         // chrome that the template itself emits and make the row under-fill.
         let line = self.render.theme.render(&step, self.render.columns);
-        self.state.bars[i].set_style(self.running_style.clone());
-        self.state.bars[i].set_message(line);
-        self.state.bars[i].enable_steady_tick(Duration::from_millis(SPINNER_TICK_INTERVAL_MS));
+        if let Some(bar) = self.state.bars.get(i) {
+            bar.set_style(self.running_style.clone());
+            bar.set_message(line);
+            bar.enable_steady_tick(Duration::from_millis(SPINNER_TICK_INTERVAL_MS));
+        }
         self.refresh_header_bar();
         self.refresh_footer_bar();
     }
@@ -559,8 +567,16 @@ impl ProgressDisplay {
         // `StepStarted`/`StepFinished` pair to the second bar instead of
         // last-write-wins'ing onto the same row.
         let i = self.state.consume_step_index(id)?;
-        self.state.bars[i].disable_steady_tick();
-        let display = display_cmd.unwrap_or(self.state.steps[i].1.as_str());
+        // `bars` and `steps` are filled in lock-step by `create_pending_bars`,
+        // so a consumed index always addresses both. A missing bar means the
+        // row no longer exists: report "not finished" (None) rather than
+        // panicking, which also stops the caller anchoring error detail to it.
+        let bar = self.state.bars.get(i)?;
+        bar.disable_steady_tick();
+        // Same invariant for the label; the id is the same fallback
+        // `resolve_step_display` uses when no display override exists.
+        let fallback = self.state.steps.get(i).map_or(id, |step| step.1.as_str());
+        let display = display_cmd.unwrap_or(fallback);
         let step = StepLine::new(status, display.to_string(), Some(duration_secs));
         // Count the step as complete before rendering so its row's progress
         // cell shows the "done" glyph (█) instead of the "current" glyph (▓).
@@ -571,7 +587,7 @@ impl ProgressDisplay {
             self.skipped_steps += 1;
         }
         let line = self.render_and_wrap_step(&step);
-        self.finish_bar(&self.state.bars[i], line);
+        self.finish_bar(bar, line);
         if let Some(ref fb) = self.footer_bar {
             let msg = self.render_footer_message();
             fb.set_message(msg);
@@ -591,12 +607,18 @@ impl ProgressDisplay {
         // much CPU actually went to a cancelled task.
         let elapsed = self
             .step_index(id)
-            .map_or(0.0, |i| self.state.bars[i].elapsed().as_secs_f64());
+            .and_then(|i| self.state.bars.get(i))
+            .map_or(0.0, |bar| bar.elapsed().as_secs_f64());
         self.finish_step(id, StepStatus::Skipped, elapsed, display_cmd);
     }
 
     fn render_error_details_tty(&self, bar_index: usize, detail_lines: &[String]) {
-        let mut anchor = self.state.bars[bar_index].clone();
+        // `bar_index` comes from `finish_step`, which only returns an index it
+        // resolved against `bars`. Without an anchor row there is nothing to
+        // insert the detail lines after, so skip rather than panic.
+        let Some(mut anchor) = self.state.bars.get(bar_index).cloned() else {
+            return;
+        };
         for detail_line in detail_lines {
             let pb = self.multi.insert_after(&anchor, ProgressBar::new(0));
             pb.set_style(pending_style());

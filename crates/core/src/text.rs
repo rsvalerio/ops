@@ -289,14 +289,15 @@ fn insert_thousands_separators(digits: &str) -> Cow<'_, str> {
         0 => 3,
         n => n,
     };
-    // SAFETY-equivalent: `bytes` are ASCII digits (caller passes
-    // `i64::to_string` magnitude), so byte slicing aligns with char boundaries.
-    result.push_str(&digits[..head]);
-    let mut i = head;
-    while i < len {
+    // `digits` are ASCII (the caller passes an `i64::to_string` magnitude), so
+    // the group boundaries are always char boundaries; `split_at_checked` keeps
+    // that assumption from turning into a panic if it ever stops holding.
+    let (first_group, mut rest) = digits.split_at_checked(head).unwrap_or((digits, ""));
+    result.push_str(first_group);
+    while let Some((group, tail)) = rest.split_at_checked(3) {
         result.push(',');
-        result.push_str(&digits[i..i + 3]);
-        i += 3;
+        result.push_str(group);
+        rest = tail;
     }
     Cow::Owned(result)
 }

@@ -67,10 +67,13 @@ pub(super) fn read_capped<R: Read>(
             Ok(0) => return (dropped, None),
             Ok(n) => {
                 let remaining = cap - buf.len();
-                if n <= remaining {
-                    buf.extend_from_slice(&chunk[..n]);
-                } else {
-                    buf.extend_from_slice(&chunk[..remaining]);
+                // `Read::read` never reports more than `chunk.len()`, so `get`
+                // always hits; going through it keeps a misbehaving reader from
+                // turning into a panic here.
+                if let Some(slice) = chunk.get(..n.min(remaining)) {
+                    buf.extend_from_slice(slice);
+                }
+                if n > remaining {
                     dropped = dropped.saturating_add((n - remaining) as u64);
                 }
             }

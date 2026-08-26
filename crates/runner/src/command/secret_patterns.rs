@@ -144,7 +144,10 @@ fn bounded_prefix(value: &str, limit: usize) -> &str {
     while end > 0 && !value.is_char_boundary(end) {
         end -= 1;
     }
-    &value[..end]
+    // `end` is a char boundary by construction (the loop bottoms out at 0,
+    // which always is), so this always yields `Some`. Degrade to an empty
+    // prefix rather than panicking if that ever stops holding.
+    value.get(..end).unwrap_or("")
 }
 
 /// CQ-005: Extracted helper predicates for secret detection.
@@ -212,12 +215,16 @@ pub fn looks_like_uuid(value: &str) -> bool {
         return false;
     }
     let parts: Vec<&str> = value.split('-').collect();
-    parts.len() == 5
-        && parts[0].len() == 8
-        && parts[1].len() == 4
-        && parts[2].len() == 4
-        && parts[3].len() == 4
-        && parts[4].len() == 12
+    // The slice pattern subsumes the old `parts.len() == 5` guard: it matches
+    // exactly when there are five groups, and binds them without indexing.
+    let [group1, group2, group3, group4, group5] = parts.as_slice() else {
+        return false;
+    };
+    group1.len() == 8
+        && group2.len() == 4
+        && group3.len() == 4
+        && group4.len() == 4
+        && group5.len() == 12
         && parts
             .iter()
             .all(|p| p.chars().all(|c| c.is_ascii_hexdigit()))

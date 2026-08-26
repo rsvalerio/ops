@@ -337,7 +337,7 @@ mod tests {
         let cjk_line = lines.iter().find(|l| l.contains("beta")).unwrap();
         let value_col = |line: &str, value: &str| -> usize {
             let idx = line.find(value).unwrap();
-            display_width(&line[..idx])
+            display_width(line.get(..idx).expect("find returns a char boundary"))
         };
         assert_eq!(
             value_col(name_line, "alpha"),

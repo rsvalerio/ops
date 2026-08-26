@@ -344,7 +344,9 @@ fn print_extension_details(
     let is_tty = table.is_tty();
 
     let (name, info, types, commands) = {
-        let (config_name, boxed) = &compiled[ext_idx];
+        let (config_name, boxed) = compiled
+            .get(ext_idx)
+            .ok_or_else(|| anyhow::anyhow!("extension index {ext_idx} is out of range"))?;
         let ext = boxed.as_ref();
         let mut warned: SelfShadowWarnedSet = SelfShadowWarnedSet::new();
         audit_command_self_shadow(ext, &mut warned);

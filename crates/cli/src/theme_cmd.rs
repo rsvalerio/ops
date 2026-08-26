@@ -618,8 +618,10 @@ theme = "compact"
                 .iter()
                 .find(|l| l.contains("plain") && l.contains("ASCII name"))
                 .unwrap_or_else(|| panic!("ascii line not found in:\n{output}"));
-            let wide_col = display_width(&wide[..wide.find("Wide name").unwrap()]);
-            let ascii_col = display_width(&ascii[..ascii.find("ASCII name").unwrap()]);
+            let wide_idx = wide.find("Wide name").unwrap();
+            let ascii_idx = ascii.find("ASCII name").unwrap();
+            let wide_col = display_width(wide.get(..wide_idx).expect("char boundary"));
+            let ascii_col = display_width(ascii.get(..ascii_idx).expect("char boundary"));
             assert_eq!(
                 wide_col, ascii_col,
                 "description columns should align by display width: ビルド at {wide_col}, plain at {ascii_col}"

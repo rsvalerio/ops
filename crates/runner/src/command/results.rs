@@ -372,7 +372,9 @@ mod tests {
         assert!(
             truncated.starts_with("abcdefghijklmnopqrstuvwxyzabcdef"),
             "head must be preserved, got prefix: {:?}",
-            &truncated[..40.min(truncated.len())]
+            truncated
+                .get(..40.min(truncated.len()))
+                .unwrap_or(&truncated)
         );
     }
 

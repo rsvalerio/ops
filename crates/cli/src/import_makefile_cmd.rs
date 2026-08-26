@@ -272,16 +272,14 @@ pub fn parse_targets(content: &str) -> Vec<MakeTarget> {
         if DIRECTIVES.contains(&trimmed.split_whitespace().next().unwrap_or("")) {
             continue;
         }
-        let Some(colon) = line.find(':') else {
+        let Some((head, after)) = line.split_once(':') else {
             continue;
         };
         // `FOO := bar` / `FOO ::= bar` are assignments, not rules.
-        let after = &line[colon + 1..];
         let after = after.strip_prefix(':').unwrap_or(after); // double-colon rule
         if after.starts_with('=') {
             continue;
         }
-        let head = &line[..colon];
         // `FOO ?= a:b` style assignments put `=` before the colon.
         if head.contains('=') {
             continue;
