@@ -10,8 +10,9 @@ exception, records that exception next to the code with a reason.
 cargo clippy --workspace --all-features --all-targets -- -D warnings
 ```
 
-Warnings are errors. There is no "fix it later" tier — either the code changes
-or the exception is written down.
+Warnings are errors. Either the code changes or the exception is written down.
+The one bounded exception is the temporary-allow block described below, which
+only ever shrinks.
 
 ## Where policy lives
 
@@ -63,9 +64,49 @@ extension simply stops appearing in `ops extension list`.
 
 | Lint | Level | Notes |
 |---|---|---|
-| `all` | warn | priority `-1` so specific entries can override |
-| `pedantic` | warn | priority `-1`, same reason |
-| `unwrap_used` | warn | Production code has no `unwrap`. See below |
+| `all` | deny | priority `-1` so specific entries can override |
+| `pedantic` | deny | priority `-1`, same reason |
+| `nursery` | deny | priority `-1`, same reason |
+| `unwrap_used` | deny | Production code has no `unwrap`. See below |
+| `unimplemented` | deny | |
+| `unchecked_time_subtraction` | deny | |
+| `todo` | deny | |
+| `panic` | deny | |
+| `exit` | deny | Only `main` decides the process exit code |
+
+The panic-adjacent lints are relaxed for test code through `clippy.toml` rather
+than through a crate-root attribute, because the relaxation is policy for the
+whole workspace:
+
+```toml
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+```
+
+#### The temporary-allow block
+
+Turning `nursery` on, together with the rest of the panic and arithmetic lints,
+surfaced 948 pre-existing sites. Rather than water the policy down, those lints
+sit in a clearly fenced `# --- Temporary allows ---` block at the bottom of
+`[workspace.lints.clippy]`, each line carrying its backlog task ID and its site
+count:
+
+```toml
+redundant_pub_crate = "allow" # TASK-1676 — 195 sites, 60 files
+```
+
+Two rules govern that block:
+
+1. **It only shrinks.** Each task's final acceptance criterion is deleting its
+   own line. A lint that leaves the block never comes back to it.
+2. **Nothing new goes in.** A lint that fires on code written from now on is a
+   code problem, not a policy problem — grant the exception at layer 2 or 3,
+   next to the code that needs it, with the reason written down.
+
+The block is the one place in this policy where "fix it later" exists, and it
+is bounded: TASK-1671 through TASK-1682, and then it is empty.
 
 ### Layer 2 — test code
 
