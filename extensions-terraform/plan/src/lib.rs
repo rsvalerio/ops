@@ -217,7 +217,10 @@ fn read_stdin_capped<R: std::io::Read>(reader: &mut R) -> anyhow::Result<String>
         .take(limit)
         .read_to_string(&mut buf)
         .context("failed to read from stdin")?;
-    if buf.len() as u64 > cap {
+    // `usize` is at most 64 bits on every supported target, so this widening
+    // never actually saturates; the `u64::MAX` fallback would compare as
+    // over-cap, which is the safe direction if that ever changed.
+    if u64::try_from(buf.len()).unwrap_or(u64::MAX) > cap {
         anyhow::bail!(
             "plan JSON on stdin exceeds {cap} bytes (override via {PLAN_JSON_MAX_BYTES_ENV})"
         );
@@ -255,7 +258,10 @@ fn read_json_file(path: &str) -> anyhow::Result<String> {
         .take(limit)
         .read_to_string(&mut content)
         .with_context(|| format!("failed to read plan JSON from {path}"))?;
-    if content.len() as u64 > cap {
+    // `usize` is at most 64 bits on every supported target, so this widening
+    // never actually saturates; the `u64::MAX` fallback would compare as
+    // over-cap, which is the safe direction if that ever changed.
+    if u64::try_from(content.len()).unwrap_or(u64::MAX) > cap {
         anyhow::bail!(
             "plan JSON at {path} exceeds {cap} bytes (override via {PLAN_JSON_MAX_BYTES_ENV})"
         );

@@ -277,7 +277,9 @@ fn block_open_ident(line: &str) -> Option<&str> {
         if !ok {
             break;
         }
-        end += 1;
+        // The loop guard keeps `end < bytes.len()`, so this increment stays
+        // within `usize` and `saturating_add` is exactly `+ 1`.
+        end = end.saturating_add(1);
     }
     if end == 0 {
         return None;

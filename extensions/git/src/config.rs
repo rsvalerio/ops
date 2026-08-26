@@ -191,7 +191,10 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
     // `read_origin_url_survives_non_utf8_byte_in_unrelated_section` exists
     // to support. `take(limit)` already returned ≤ limit bytes, so the file
     // is in-cap iff `bytes.len() <= MAX_GIT_CONFIG_BYTES`.
-    if bytes.len() as u64 > MAX_GIT_CONFIG_BYTES {
+    // A length that does not fit in a `u64` is necessarily far above the
+    // 4 MiB cap, so saturating to `u64::MAX` keeps this comparison exact for
+    // every value the check can actually distinguish.
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_GIT_CONFIG_BYTES {
         // ERR-7 / TASK-1206: Debug-format path; see comment above.
         tracing::warn!(
             path = ?path.display(),
@@ -274,7 +277,8 @@ fn parse_origin_url_inner(content: &str, path: Option<&Path>) -> Option<Redacted
                         // SEC-2 / TASK-1102: a `url = ...` line with embedded
                         // ASCII control bytes (raw newline, ANSI escape, NUL)
                         // is dropped rather than propagated.
-                        rejected_count += 1;
+                        // One increment per line of `content`; cannot saturate a `usize`.
+                        rejected_count = rejected_count.saturating_add(1);
                     }
                 }
             }
@@ -539,6 +543,16 @@ pub fn read_head_branch(git_dir: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `MAX_GIT_CONFIG_BYTES` as a `usize`, for sizing test payloads.
+    ///
+    /// The cap is 4 MiB, which fits every `usize` these tests run on. On a
+    /// hypothetical platform whose `usize` were narrower, `usize::MAX` would
+    /// itself be below the cap, so the saturating fallback still yields an
+    /// allocatable size rather than an unwrap or a panic.
+    fn cap_bytes_as_usize() -> usize {
+        usize::try_from(MAX_GIT_CONFIG_BYTES).unwrap_or(usize::MAX)
+    }
 
     #[test]
     fn find_git_dir_in_current() {
@@ -932,7 +946,7 @@ mod tests {
         // raw while pushing the lossy-decoded length past it.
         let header = b"[remote \"origin\"]\n\turl = https://github.com/o/r.git\n[user]\n\temail = ";
         let trailer = b"@example.com\n";
-        let raw_target = (MAX_GIT_CONFIG_BYTES as usize) - header.len() - trailer.len() - 16;
+        let raw_target = cap_bytes_as_usize() - header.len() - trailer.len() - 16;
         // Half of the trailing block is invalid bytes — lossy expansion 3x
         // takes total decoded length well above MAX_GIT_CONFIG_BYTES even
         // though the raw file is comfortably under the cap.
@@ -942,7 +956,7 @@ mod tests {
         bytes.extend_from_slice(&invalid_block);
         bytes.extend_from_slice(trailer);
         assert!(
-            (bytes.len() as u64) <= MAX_GIT_CONFIG_BYTES,
+            u64::try_from(bytes.len()).unwrap_or(u64::MAX) <= MAX_GIT_CONFIG_BYTES,
             "test payload must be within the SEC-33 cap"
         );
         std::fs::write(git_dir.join("config"), &bytes).unwrap();
@@ -966,7 +980,7 @@ mod tests {
         // bytes are arbitrary `; comment` padding; the cap check fires
         // before the parser ever sees them.
         let header = "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n";
-        let pad_size = (MAX_GIT_CONFIG_BYTES as usize)
+        let pad_size = cap_bytes_as_usize()
             .saturating_sub(header.len())
             .saturating_add(64);
         let mut body = String::with_capacity(header.len() + pad_size);

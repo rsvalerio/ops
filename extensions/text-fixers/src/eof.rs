@@ -10,10 +10,14 @@ pub fn fix_eof(input: &[u8]) -> Option<Vec<u8>> {
     let mut end = input.len();
     while end > 0 {
         // `end - 1` is always in bounds: `end` starts at `input.len()` and only
-        // shrinks. Stopping on `None` keeps the current `end` instead of panicking.
-        let Some(&b) = input.get(end - 1) else { break };
+        // shrinks, and `end > 0` is the loop condition, so `saturating_sub(1)`
+        // is exactly `- 1`. Stopping on `None` keeps the current `end` instead
+        // of panicking.
+        let Some(&b) = input.get(end.saturating_sub(1)) else {
+            break;
+        };
         if b == b'\n' || b == b'\r' {
-            end -= 1;
+            end = end.saturating_sub(1);
         } else {
             break;
         }
@@ -25,7 +29,9 @@ pub fn fix_eof(input: &[u8]) -> Option<Vec<u8>> {
     let uses_crlf = detect_crlf(body);
     let terminator: &[u8] = if uses_crlf { b"\r\n" } else { b"\n" };
 
-    let mut out = Vec::with_capacity(end + terminator.len());
+    // `end <= input.len()` and the terminator is at most 2 bytes, so the sum is
+    // bounded by `input.len() + 2` and can never saturate a `usize`.
+    let mut out = Vec::with_capacity(end.saturating_add(terminator.len()));
     out.extend_from_slice(body);
     out.extend_from_slice(terminator);
 
@@ -41,10 +47,12 @@ fn detect_crlf(body: &[u8]) -> bool {
     let mut crlf = 0usize;
     for (i, &b) in body.iter().enumerate() {
         if b == b'\n' {
-            if i > 0 && body.get(i - 1) == Some(&b'\r') {
-                crlf += 1;
+            // Guarded by `i > 0`, so `saturating_sub(1)` is exactly `- 1`; the two
+            // counters are bounded by `body.len()` and cannot saturate a `usize`.
+            if i > 0 && body.get(i.saturating_sub(1)) == Some(&b'\r') {
+                crlf = crlf.saturating_add(1);
             } else {
-                lf += 1;
+                lf = lf.saturating_add(1);
             }
         }
     }

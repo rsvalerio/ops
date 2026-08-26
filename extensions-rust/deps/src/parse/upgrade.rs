@@ -179,9 +179,12 @@ fn parse_upgrade_table_inner(stdout: &str) -> (Vec<UpgradeEntry>, UpgradeParseDi
                 saw_separator = true;
             }
             UpgradeLine::Body => {
-                total_content_lines += 1;
+                // Both counters take at most one increment per line of the
+                // in-memory `stdout` string, whose length is bounded by
+                // `isize::MAX`, so `saturating_add` equals `+= 1` exactly.
+                total_content_lines = total_content_lines.saturating_add(1);
                 if saw_separator {
-                    body_lines += 1;
+                    body_lines = body_lines.saturating_add(1);
                     if let Some(cols) = columns.as_deref() {
                         if let Some(entry) = parse_upgrade_row(line, cols) {
                             entries.push(entry);
@@ -269,12 +272,16 @@ fn clamp_to_char_boundaries(line: &str, start: usize, end: usize) -> Option<(usi
     }
     let clamped_end = end.min(len);
     let mut s = start;
+    // Loop guard keeps `s < clamped_end <= line.len()`, so `saturating_add`
+    // equals `+= 1` exactly.
     while s < clamped_end && !line.is_char_boundary(s) {
-        s += 1;
+        s = s.saturating_add(1);
     }
     let mut e = clamped_end;
+    // Loop guard keeps `e > s >= 0`, so `saturating_sub` equals `-= 1`
+    // exactly.
     while e > s && !line.is_char_boundary(e) {
-        e -= 1;
+        e = e.saturating_sub(1);
     }
     if s >= e {
         return None;
@@ -296,15 +303,17 @@ fn separator_columns(line: &str) -> Vec<(usize, usize)> {
     let bytes = line.as_bytes();
     let mut cols = Vec::new();
     let mut i = 0;
+    // Every increment is guarded by `i < bytes.len()`, so `i` never exceeds
+    // `bytes.len() <= isize::MAX` and `saturating_add` equals `+= 1` exactly.
     while i < bytes.len() {
         if matches!(bytes.get(i), Some(b'=')) {
             let start = i;
             while matches!(bytes.get(i), Some(b'=')) {
-                i += 1;
+                i = i.saturating_add(1);
             }
             cols.push((start, i));
         } else {
-            i += 1;
+            i = i.saturating_add(1);
         }
     }
     let len = line.len();

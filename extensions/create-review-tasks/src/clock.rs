@@ -53,17 +53,44 @@ impl UtcStamp {
 /// Days since 1970-01-01 → `(year, month, day)` in the proleptic Gregorian
 /// calendar (Howard Hinnant, "chrono-Compatible Dates"). `u64` arithmetic is
 /// sufficient because the input is non-negative by construction.
+///
+/// Every operation below is spelled `saturating_*` so the reduction is total,
+/// and every one of them is *exactly* the checked result for the inputs this
+/// module can produce. `days` comes from `secs / 86_400`, so it is at most
+/// `u64::MAX / 86_400` (~2.1e14) and the epoch shift cannot overflow; each
+/// product stays far below `u64::MAX` because `era`, `yoe`, `doy` and `mp` are
+/// bounded by the ranges annotated on their lines; and each subtraction's right
+/// operand is provably no larger than its left one — the invariants Hinnant's
+/// derivation establishes (`doe <= 146_096` makes `doe / 146_096 <= 1` while
+/// `doe - doe / 1_460 + doe / 36_524 >= 146_000` there, `yoe <= 399` makes the
+/// day-count of whole years before `yoe` at most `doe`, and `mp <= 11` makes
+/// `(153 * mp + 2) / 5 <= 337 <= doy` whenever `mp` was derived from `doy`).
 const fn civil_from_days(days: u64) -> (u64, u64, u64) {
-    let z = days + 719_468;
+    let z = days.saturating_add(719_468);
     let era = z / 146_097;
     let doe = z % 146_097; // [0, 146096]
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
-    let mp = (5 * doy + 2) / 153; // [0, 11]
-    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
-    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
-    let y = if m <= 2 { y + 1 } else { y };
+    let yoe_numerator = doe
+        .saturating_sub(doe / 1_460)
+        .saturating_add(doe / 36_524)
+        .saturating_sub(doe / 146_096);
+    let yoe = yoe_numerator / 365; // [0, 399]
+    let y = yoe.saturating_add(era.saturating_mul(400));
+    // Days occupied by the whole years preceding `yoe` within this era.
+    let days_before_yoe = yoe
+        .saturating_mul(365)
+        .saturating_add(yoe / 4)
+        .saturating_sub(yoe / 100);
+    let doy = doe.saturating_sub(days_before_yoe); // [0, 365]
+    let mp = doy.saturating_mul(5).saturating_add(2) / 153; // [0, 11]
+    let d = doy
+        .saturating_sub(mp.saturating_mul(153).saturating_add(2) / 5)
+        .saturating_add(1); // [1, 31]
+    let m = if mp < 10 {
+        mp.saturating_add(3)
+    } else {
+        mp.saturating_sub(9)
+    }; // [1, 12]
+    let y = if m <= 2 { y.saturating_add(1) } else { y };
     (y, m, d)
 }
 

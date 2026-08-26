@@ -81,7 +81,10 @@ pub fn read_optional_text(path: &Path, kind: &str) -> Option<String> {
         }
     }
 
-    if buf.len() as u64 > MAX_MANIFEST_BYTES {
+    // A length that does not fit in a `u64` is necessarily far above the
+    // 4 MiB cap, so saturating to `u64::MAX` keeps this comparison exact for
+    // every value the check can actually distinguish.
+    if u64::try_from(buf.len()).unwrap_or(u64::MAX) > MAX_MANIFEST_BYTES {
         tracing::warn!(
             path = ?path.display(),
             kind = kind,
@@ -97,6 +100,17 @@ pub fn read_optional_text(path: &Path, kind: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `MAX_MANIFEST_BYTES` (plus `extra`) as a `usize`, for sizing test
+    /// buffers.
+    ///
+    /// The cap is 4 MiB, which fits every `usize` these tests run on. On a
+    /// hypothetical platform whose `usize` were narrower, `usize::MAX` would
+    /// itself be below the cap, so the saturating fallback still yields a
+    /// buffer the tests can allocate rather than an unwrap or a panic.
+    fn cap_bytes_as_usize(extra: u64) -> usize {
+        usize::try_from(MAX_MANIFEST_BYTES.saturating_add(extra)).unwrap_or(usize::MAX)
+    }
 
     #[test]
     fn missing_file_returns_none_silently() {
@@ -129,7 +143,7 @@ mod tests {
     fn oversize_file_returns_none() {
         let dir = tempfile::tempdir().expect("tempdir");
         let p = dir.path().join("huge.toml");
-        let oversize = (MAX_MANIFEST_BYTES + 1) as usize;
+        let oversize = cap_bytes_as_usize(1);
         let content = vec![b'a'; oversize];
         std::fs::write(&p, &content).expect("write");
         assert!(read_optional_text(&p, "test").is_none());
@@ -139,10 +153,10 @@ mod tests {
     fn at_cap_file_returns_content() {
         let dir = tempfile::tempdir().expect("tempdir");
         let p = dir.path().join("at_cap.toml");
-        let content = vec![b'a'; MAX_MANIFEST_BYTES as usize];
+        let content = vec![b'a'; cap_bytes_as_usize(0)];
         std::fs::write(&p, &content).expect("write");
         let got = read_optional_text(&p, "test").expect("Some");
-        assert_eq!(got.len(), MAX_MANIFEST_BYTES as usize);
+        assert_eq!(got.len(), cap_bytes_as_usize(0));
     }
 
     /// ERR-7 (TASK-0665): paths must be Debug-formatted in log fields so

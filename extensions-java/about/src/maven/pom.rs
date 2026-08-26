@@ -401,7 +401,9 @@ fn extract_xml_value<'a>(
 ) -> Option<std::borrow::Cow<'a, str>> {
     let start = line.find(open)?;
     let end = line.find(close)?;
-    let val_start = start + open.len();
+    // `start` is the offset of a match of `open` inside `line`, so
+    // `start + open.len()` is at most `line.len()`.
+    let val_start = start.saturating_add(open.len());
     if val_start < end {
         // `start`/`end` come from `find`, and `open` matched at `start`, so
         // `val_start` is a char boundary too — `get` never returns `None`

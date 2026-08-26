@@ -226,7 +226,7 @@ pub(super) fn prepare_per_crate<'a>(
     // intermediate `Vec<&'static str>` per call, which is hit once per
     // per-crate query and multiple times per about-units render.
     let n = member_paths.len();
-    let mut placeholders = String::with_capacity(n * 5); // "(?), " is 5 bytes
+    let mut placeholders = String::with_capacity(n.saturating_mul(5)); // "(?), " is 5 bytes
     for i in 0..n {
         if i > 0 {
             placeholders.push_str(", ");

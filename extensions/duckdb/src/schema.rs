@@ -239,7 +239,9 @@ mod tests {
     fn record_count_over_i32_max_round_trips() {
         let db = DuckDb::open_in_memory().unwrap();
         init_schema(&db).unwrap();
-        let big = (i32::MAX as u64) + 7;
+        // `i32::MAX` is positive, so `unsigned_abs` is an exact widening to
+        // `u32` and `u64::from` an exact widening from there.
+        let big = u64::from(i32::MAX.unsigned_abs()) + 7;
         upsert_data_source(
             &db,
             &DataSourceMetadata::new(
@@ -260,7 +262,9 @@ mod tests {
             )
             .unwrap();
         drop(conn);
-        assert_eq!(stored as u64, big);
+        // The stored BIGINT must be exactly `big`; an out-of-`u64` (i.e.
+        // negative) value fails the assertion instead of wrapping silently.
+        assert_eq!(u64::try_from(stored).ok(), Some(big));
     }
 
     #[test]

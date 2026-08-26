@@ -74,10 +74,12 @@ pub(super) fn extract_quoted_list(s: &str, out: &mut Vec<String>) {
             return;
         };
         // `end` is a char boundary produced by `find_unescaped` and the quote
-        // it points at is ASCII, so both slices always exist. The bail-out is
-        // unreachable in practice; it degrades like a malformed remainder
-        // (keep what was already pushed) instead of panicking.
-        let (Some(token), Some(tail)) = (after.get(..end), after.get(end + 1..)) else {
+        // it points at is ASCII, so both slices always exist and `end + 1` is
+        // at most `after.len()` — `saturating_add` is exactly `+ 1`. The
+        // bail-out is unreachable in practice; it degrades like a malformed
+        // remainder (keep what was already pushed) instead of panicking.
+        let (Some(token), Some(tail)) = (after.get(..end), after.get(end.saturating_add(1)..))
+        else {
             tracing::debug!(
                 line = original,
                 remainder = rest,
@@ -111,9 +113,10 @@ pub(super) fn split_at_unquoted_close_paren(s: &str) -> Option<(&str, &str)> {
             None => match b {
                 b'"' | b'\'' => quote = Some(b),
                 // `)` is ASCII, so `i` and `i + 1` are always char
-                // boundaries here; `?` can only bail on an impossible
-                // state, and does so as "no closing paren found".
-                b')' => return Some((s.get(..i)?, s.get(i + 1..)?)),
+                // boundaries here and `saturating_add` is exactly `+ 1`; `?`
+                // can only bail on an impossible state, and does so as "no
+                // closing paren found".
+                b')' => return Some((s.get(..i)?, s.get(i.saturating_add(1)..)?)),
                 _ => {}
             },
         }
@@ -143,7 +146,7 @@ pub(super) fn strip_properties_comment(s: &str) -> &str {
             // "no comment stripped", which is the safe degradation.
             return s.get(..i).unwrap_or(s);
         }
-        prev_ws = (b as char).is_whitespace();
+        prev_ws = char::from(b).is_whitespace();
     }
     s
 }

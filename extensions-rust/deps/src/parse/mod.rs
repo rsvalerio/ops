@@ -28,11 +28,13 @@ pub fn truncate_for_log(s: &str) -> String {
         // can never split one. Index 0 is always a boundary, which bounds
         // the walk.
         let mut end = MAX;
+        // Index 0 is always a boundary, so the loop stops at or above 0 and
+        // `saturating_sub(1)` equals `-= 1` exactly.
         let head = loop {
             if let Some(head) = s.get(..end) {
                 break head;
             }
-            end -= 1;
+            end = end.saturating_sub(1);
         };
         format!("{head}…")
     }

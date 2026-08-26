@@ -165,9 +165,11 @@ fn format_totals_line(stats: &[&RustLocStat], files: i64) -> String {
             .iter()
             .map(|s| {
                 let (_, name) = region_display(&s.region);
-                // Line counts never approach f64's 2^53 exact-integer range,
-                // and the result is rendered to one decimal place anyway.
-                #[allow(clippy::cast_precision_loss)]
+                // `i64 -> f64` has no `From` impl, so these two casts stay.
+                // Line counts never approach f64's 2^53 exact-integer range
+                // (~9e15 lines of Rust), so both conversions are exact, and
+                // the result is rendered to one decimal place anyway.
+                #[allow(clippy::cast_precision_loss, clippy::as_conversions)]
                 let pct = s.code as f64 * 100.0 / total_code as f64;
                 format!("{pct:.1}% {name}")
             })

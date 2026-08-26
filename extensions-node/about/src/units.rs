@@ -267,11 +267,12 @@ fn split_inline_list(inner: &str) -> Vec<&str> {
                 // `i` is the offset of an ASCII `,` and `start` is either 0 or
                 // one past a previous `,`, so both are char boundaries and
                 // `get` cannot fail; skip the piece rather than panic if that
-                // ever stops holding.
+                // ever stops holding. `i + 1` is at most `inner.len()`, so
+                // `saturating_add` is exactly `+ 1`.
                 if let Some(piece) = inner.get(start..i) {
                     out.push(piece);
                 }
-                start = i + 1;
+                start = i.saturating_add(1);
             }
             _ => {}
         }
@@ -339,7 +340,7 @@ fn strip_trailing_yaml_comment(s: &str) -> &str {
             }
             _ => {}
         }
-        prev_ws = (b as char).is_whitespace();
+        prev_ws = char::from(b).is_whitespace();
     }
     s
 }

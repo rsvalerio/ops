@@ -190,7 +190,9 @@ fn plan_task_set<'a>(
         .iter()
         .enumerate()
         .map(|(position, target)| {
-            let index = position + 1;
+            // `position` indexes an in-memory slice, so it is at most
+            // `len - 1` and `saturating_add(1)` is exact.
+            let index = position.saturating_add(1);
             PlannedSubtask {
                 index,
                 id: backlog::subtask_id(main_number, index),

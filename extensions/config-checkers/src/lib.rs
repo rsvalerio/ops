@@ -229,6 +229,9 @@ where
         })?;
     let mut report = CheckerReport::default();
 
+    // The counters below tally entries of `files`, an in-memory `Vec` produced
+    // by one discovery walk, so their totals are bounded by its length and the
+    // `saturating_add` guards can never actually saturate.
     for path in files {
         if !ext_ok(path.extension()) {
             continue;
@@ -239,7 +242,7 @@ where
         // memory just to discover the parser would OOM on it.
         match std::fs::metadata(&path) {
             Ok(md) if md.len() > opts.max_bytes => {
-                report.files_skipped += 1;
+                report.files_skipped = report.files_skipped.saturating_add(1);
                 writeln!(
                     writer,
                     "{label}: {}: skipped (size {} exceeds cap {})",
@@ -252,7 +255,7 @@ where
             }
             Ok(_) => {}
             Err(e) => {
-                report.files_scanned += 1;
+                report.files_scanned = report.files_scanned.saturating_add(1);
                 let msg = format!("metadata: {e}");
                 writeln!(writer, "{label}: {}: {msg}", display.display())
                     .with_context(|| format!("{label}: writing failure line failed"))?;
@@ -267,7 +270,7 @@ where
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
             Err(e) => {
-                report.files_scanned += 1;
+                report.files_scanned = report.files_scanned.saturating_add(1);
                 let msg = format!("read: {e}");
                 writeln!(writer, "{label}: {}: {msg}", display.display())
                     .with_context(|| format!("{label}: writing failure line failed"))?;
@@ -278,7 +281,7 @@ where
                 continue;
             }
         };
-        report.files_scanned += 1;
+        report.files_scanned = report.files_scanned.saturating_add(1);
         if let Err(err) = check(&bytes) {
             let msg = err.to_string();
             writeln!(writer, "{label}: {}: {msg}", display.display())

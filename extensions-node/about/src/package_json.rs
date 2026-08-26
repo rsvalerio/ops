@@ -97,7 +97,9 @@ pub fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
 
     // PERF-2 / TASK-0819: bound is `1 (author) + contributors.len()`; allocate
     // once instead of growing through repeated `push`.
-    let mut authors = Vec::with_capacity(1 + raw.contributors.len());
+    // `contributors` came from a deserialised in-memory `Vec`, so its length
+    // is at most `isize::MAX` and the `+ 1` cannot overflow `usize`.
+    let mut authors = Vec::with_capacity(raw.contributors.len().saturating_add(1));
     if let Some(a) = raw.author {
         if let Some(s) = format_person(a) {
             authors.push(s);

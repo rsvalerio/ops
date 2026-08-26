@@ -138,10 +138,13 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
         }
 
         if let Some(entry) = parse_action_line(clean) {
+            // At most one increment per line of the in-memory `stdout`
+            // string, whose length is bounded by `isize::MAX`, so
+            // `saturating_add` equals `+= 1` exactly.
             match entry.action {
-                UpdateAction::Update => update_count += 1,
-                UpdateAction::Add => add_count += 1,
-                UpdateAction::Remove => remove_count += 1,
+                UpdateAction::Update => update_count = update_count.saturating_add(1),
+                UpdateAction::Add => add_count = add_count.saturating_add(1),
+                UpdateAction::Remove => remove_count = remove_count.saturating_add(1),
             }
             entries.push(entry);
         } else if starts_with_known_verb(clean) {
@@ -202,7 +205,7 @@ fn strip_ansi(s: &str) -> std::borrow::Cow<'_, str> {
             for _ in 0..CSI_SCAN_CAP {
                 match chars.next() {
                     Some(next) => {
-                        let cp = next as u32;
+                        let cp = u32::from(next);
                         buffered.push(next);
                         if (0x40..=0x7E).contains(&cp) {
                             terminated = true;

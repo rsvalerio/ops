@@ -30,7 +30,11 @@ const ACTION_DISPLAY_ORDER: [Action; 7] = [
 pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> String {
     let mut counts: HashMap<Action, usize> = HashMap::new();
     for c in changes {
-        *counts.entry(c.action).or_default() += 1;
+        // Each tally counts a distinct element of the in-memory `changes`
+        // slice, so no count can exceed `changes.len()` (at most `isize::MAX`)
+        // and `saturating_add` is exactly `+ 1`.
+        let count = counts.entry(c.action).or_default();
+        *count = count.saturating_add(1);
     }
 
     if changes.is_empty() {
@@ -53,8 +57,13 @@ pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> St
     }
 
     let adds = counts.get(&Action::Create).copied().unwrap_or(0);
-    let changes_count = counts.get(&Action::Update).copied().unwrap_or(0)
-        + counts.get(&Action::Replace).copied().unwrap_or(0);
+    // Disjoint tallies over the same slice, so the sum is at most
+    // `changes.len()` and `saturating_add` is exactly `+`.
+    let changes_count = counts
+        .get(&Action::Update)
+        .copied()
+        .unwrap_or(0)
+        .saturating_add(counts.get(&Action::Replace).copied().unwrap_or(0));
     let destroys = counts.get(&Action::Delete).copied().unwrap_or(0);
 
     let summary =
@@ -122,7 +131,7 @@ Inspect the rows marked `unknown` before applying.\n"
     // tests, CI snapshots) made render output environment-sensitive and
     // broke byte-identical snapshot reproducibility.
     let term_width = if is_tty {
-        terminal_size::terminal_size().map(|(w, _)| w.0 as usize)
+        terminal_size::terminal_size().map(|(w, _)| usize::from(w.0))
     } else {
         None
     };

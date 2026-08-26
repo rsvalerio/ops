@@ -114,7 +114,7 @@ pub fn checksum_file(path: &Path) -> DbResult<String> {
         hasher.update(chunk);
     }
     let digest = hasher.finalize();
-    Ok(hex::encode(digest.as_ref() as &[u8]))
+    Ok(hex::encode(digest.as_slice()))
 }
 
 #[cfg(test)]
@@ -272,13 +272,15 @@ mod tests {
         use sha2::{Digest, Sha256};
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("big.bin");
-        let data: Vec<u8> = (0..200 * 1024).map(|i| (i % 256) as u8).collect();
+        // Same byte sequence as `|i| i % 256`, built without a cast: 200 KiB
+        // is an exact multiple of 256, so the cycle ends on a full period.
+        let data: Vec<u8> = (0..=u8::MAX).cycle().take(200 * 1024).collect();
         std::fs::write(&path, &data).expect("write");
 
         let streamed = checksum_file(&path).expect("stream");
         let mut hasher = Sha256::new();
         hasher.update(&data);
-        let in_memory = hex::encode(hasher.finalize().as_ref() as &[u8]);
+        let in_memory = hex::encode(hasher.finalize().as_slice());
         assert_eq!(streamed, in_memory);
     }
 

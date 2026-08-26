@@ -129,7 +129,8 @@ fn run_fixer(
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
-        report.files_scanned += 1;
+        // One increment per discovered file on disk; cannot saturate a `usize`.
+        report.files_scanned = report.files_scanned.saturating_add(1);
 
         if binary::is_probably_binary(&bytes) {
             continue;

@@ -195,7 +195,10 @@ pub fn render_task_file<W: Write>(
         None => (MAIN_LABELS, MAIN_ORDINAL),
         Some((_parent_id, index)) => (
             SUBTASK_LABELS,
-            SUBTASK_ORDINAL_BASE + u32::try_from(index).unwrap_or(u32::MAX),
+            // Ordinals only order sibling rows, so pinning an absurd `index` at
+            // `u32::MAX` (the sort-last slot) is the correct degraded value —
+            // the same one the `try_from` fallback already picks.
+            SUBTASK_ORDINAL_BASE.saturating_add(u32::try_from(index).unwrap_or(u32::MAX)),
         ),
     };
     writeln!(w, "---")?;
@@ -222,7 +225,7 @@ pub fn render_task_file<W: Write>(
 /// The backlog CLI quotes titles containing `: `; quoting unconditionally is
 /// byte-compatible for our titles and safe for any future label/title shape.
 fn yaml_single_quoted(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
+    let mut out = String::with_capacity(value.len().saturating_add(2));
     out.push('\'');
     out.push_str(&value.replace('\'', "''"));
     out.push('\'');

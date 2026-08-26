@@ -188,7 +188,9 @@ pub fn validate_extra_opts(opts: &str) -> Result<(), SqlError> {
     }
     let mut pair_count = 0usize;
     for pair in opts.split(',') {
-        pair_count += 1;
+        // The check on the next line returns as soon as the count passes
+        // `EXTRA_OPTS_MAX_PAIRS`, so `pair_count` never exceeds that cap + 1.
+        pair_count = pair_count.saturating_add(1);
         if pair_count > EXTRA_OPTS_MAX_PAIRS {
             return Err(SqlError::InvalidExtraOpts(opts.to_string()));
         }

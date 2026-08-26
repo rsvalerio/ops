@@ -219,7 +219,10 @@ fn dedup_push(
         if let Some(slot) = records.get_mut(idx) {
             *slot = record;
         }
-        *duplicate_count += 1;
+        // At most one increment per element of the in-memory `files` arrays,
+        // whose combined length is bounded by `isize::MAX`, so
+        // `saturating_add` equals `+= 1` exactly.
+        *duplicate_count = duplicate_count.saturating_add(1);
     } else {
         idx_map.insert(record.filename.clone(), records.len());
         records.push(record);
@@ -270,7 +273,10 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
         std::collections::HashSet::new();
     for file in file_arrays.into_iter().flat_map(|f| f.iter()) {
         let Some(record) = build_record(file, &mut drift_warned) else {
-            skipped_count += 1;
+            // At most one increment per element of the in-memory `files`
+            // arrays, whose combined length is bounded by `isize::MAX`, so
+            // `saturating_add` equals `+= 1` exactly.
+            skipped_count = skipped_count.saturating_add(1);
             continue;
         };
         dedup_push(

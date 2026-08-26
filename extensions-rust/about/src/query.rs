@@ -310,7 +310,12 @@ fn lock_typed_manifest_cache(
     match cache.lock() {
         Ok(g) => g,
         Err(poison) => {
-            let recovery_count = POISON_RECOVERY_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            // `saturating_add` is exact here: the counter advances once per
+            // observed poisoning, so reaching `u64::MAX` would take 2^64
+            // panics inside a single process.
+            let recovery_count = POISON_RECOVERY_COUNT
+                .fetch_add(1, Ordering::Relaxed)
+                .saturating_add(1);
             tracing::warn!(
                 recovery_count,
                 "typed_manifest_cache mutex was poisoned by a panic in another provider; \
@@ -923,7 +928,9 @@ mod tests {
         evict_cache_for(dir.path());
 
         // Drive the first n-1 poison-recover cycles untraced.
-        for _ in 0..(n_cycles - 1) {
+        // `n_cycles >= 1` is asserted above, so `saturating_sub(1)` equals
+        // `- 1` exactly.
+        for _ in 0..n_cycles.saturating_sub(1) {
             let _ = std::thread::spawn(|| {
                 let _g = typed_manifest_cache().lock().unwrap();
                 panic!("poison cycle (warmup)");
@@ -1088,7 +1095,12 @@ mod tests {
         // with even-coarser resolution (NFS); an explicit timestamp two
         // seconds in the future is deterministic in microseconds.
         std::fs::write(&manifest_path, "[package]\nname=\"y\"\nversion=\"0.2.0\"\n").unwrap();
-        let bumped = std::time::SystemTime::now() + std::time::Duration::from_secs(2);
+        // `checked_add` cannot fail for `now + 2s` on any real clock. The
+        // `UNIX_EPOCH` fallback still yields an mtime that differs from the
+        // one the cache captured, which is all the assertion below needs.
+        let bumped = std::time::SystemTime::now()
+            .checked_add(std::time::Duration::from_secs(2))
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
         std::fs::OpenOptions::new()
             .write(true)
             .open(&manifest_path)

@@ -67,7 +67,10 @@ pub fn read_workspace_sidecar(data_dir: &Path, name: &str) -> DbResult<std::ffi:
         .take(limit)
         .read_to_end(&mut bytes)
         .map_err(DbError::Io)?;
-    if bytes.len() as u64 > MAX_SIDECAR_BYTES {
+    // A length that does not fit in a `u64` is necessarily far above the
+    // 4 MiB cap, so saturating to `u64::MAX` keeps this comparison exact for
+    // every value the check can actually distinguish.
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_SIDECAR_BYTES {
         return Err(DbError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("workspace sidecar exceeds {MAX_SIDECAR_BYTES} byte cap; refusing to load"),
@@ -194,7 +197,10 @@ mod tests {
     fn read_workspace_sidecar_rejects_oversize_input() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = sidecar_path(dir.path(), "huge");
-        let oversize = (MAX_SIDECAR_BYTES + 1) as usize;
+        // The 4 MiB cap fits every `usize` these tests run on; on a narrower
+        // platform `usize::MAX` would itself be below the cap, so the
+        // fallback still yields an allocatable buffer instead of an unwrap.
+        let oversize = usize::try_from(MAX_SIDECAR_BYTES.saturating_add(1)).unwrap_or(usize::MAX);
         std::fs::write(&path, vec![b'a'; oversize]).expect("plant oversize sidecar");
 
         let err =

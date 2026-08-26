@@ -122,13 +122,15 @@ fn rollup(classes: &[SeverityClass]) -> (ReportStatus, String) {
         // panicking the report over a presentation detail.
         // `counts` is sized from SUMMARY_CLASSES, so `get_mut` can only miss
         // if that pairing is ever broken; that degrades to "no count", the
-        // same as an unknown class.
+        // same as an unknown class. One increment per element of the in-memory
+        // `classes` slice, whose length is bounded by `isize::MAX`, so
+        // `saturating_add` equals `+= 1` exactly.
         if let Some(slot) = SUMMARY_CLASSES
             .iter()
             .position(|x| x == c)
             .and_then(|idx| counts.get_mut(idx))
         {
-            *slot += 1;
+            *slot = slot.saturating_add(1);
         }
     }
     let parts: Vec<String> = SUMMARY_CLASSES
@@ -237,7 +239,9 @@ fn upgrade_row(title: &str, entries: &[UpgradeEntry], kind: UpgradeKind) -> Repo
         UpgradeKind::Compatible => 0,
     };
 
-    let mut details = Vec::with_capacity(entries.len() + 1);
+    // A live slice length is at most `isize::MAX`, so `saturating_add` here
+    // equals `+ 1` exactly.
+    let mut details = Vec::with_capacity(entries.len().saturating_add(1));
     for e in entries {
         let suffix = match kind {
             UpgradeKind::Breaking => format!(
@@ -308,7 +312,9 @@ where
         .max()
         .unwrap_or(0);
 
-    let mut details = Vec::with_capacity(entries.len() + 2);
+    // A live slice length is at most `isize::MAX`, so `saturating_add` here
+    // equals `+ 2` exactly.
+    let mut details = Vec::with_capacity(entries.len().saturating_add(2));
     let mut warned_unknown = false;
     for entry in entries {
         let row = extract(entry);
