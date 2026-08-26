@@ -73,6 +73,10 @@ const PROVIDER_DESC_TRUNCATION_WIDTH: u16 = 50;
 
 /// Shared helper for the "Description" column lookup used by both
 /// `write_extension_table` and `print_provider_info`.
+// Both callers pass a header array literal from this module that contains
+// "Description"; a miss is a compile-time editing mistake, not a runtime
+// condition (docs/clippy.md layer 3).
+#[allow(clippy::expect_used)]
 fn description_col(headers: &[&str]) -> usize {
     headers
         .iter()

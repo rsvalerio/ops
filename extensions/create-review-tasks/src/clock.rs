@@ -32,9 +32,11 @@ impl UtcStamp {
         // String instead of `format!` intermediates.
         use std::fmt::Write as _;
         let mut date = String::new();
-        write!(date, "{year:04}-{month:02}-{day:02}").expect("infallible String write");
+        // `fmt::Write for String` never returns `Err`, so there is nothing to
+        // report and nothing to panic on.
+        let _ = write!(date, "{year:04}-{month:02}-{day:02}");
         let mut minutes = String::new();
-        write!(minutes, "{hour:02}:{minute:02}").expect("infallible String write");
+        let _ = write!(minutes, "{hour:02}:{minute:02}");
         Self { date, minutes }
     }
 

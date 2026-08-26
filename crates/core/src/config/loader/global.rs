@@ -67,6 +67,11 @@ use super::super::{merge::merge_config, Config};
 #[allow(clippy::option_option)]
 static GLOBAL_CONFIG_PATH: RwLock<Option<Option<PathBuf>>> = RwLock::new(None);
 
+// A poisoned `GLOBAL_CONFIG_PATH` means another thread panicked while holding
+// the lock, leaving the cache in an unknown state. There is no `Option` value
+// that honestly represents that, and this fn's signature has no error channel,
+// so propagating the panic is the correct behaviour (docs/clippy.md layer 3).
+#[allow(clippy::expect_used)]
 fn global_config_path() -> Option<PathBuf> {
     {
         let r = GLOBAL_CONFIG_PATH
@@ -130,6 +135,9 @@ impl Default for GlobalConfigPathResetToken {
 /// # Panics
 ///
 /// If the `GLOBAL_CONFIG_PATH` lock is poisoned by a panic in another test.
+// Same poisoned-lock reasoning as `global_config_path`; the `# Panics` section
+// above is the documented contract (docs/clippy.md layer 3).
+#[allow(clippy::expect_used)]
 #[cfg(any(test, feature = "test-support"))]
 pub fn reset_global_config_path_cache(_token: GlobalConfigPathResetToken) {
     let mut w = GLOBAL_CONFIG_PATH

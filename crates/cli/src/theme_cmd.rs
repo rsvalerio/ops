@@ -33,6 +33,10 @@ static BUILTIN_THEME_NAMES: OnceLock<HashSet<String>> = OnceLock::new();
 /// the process lifetime.
 const EMBEDDED_DEFAULT_CONFIG_PARSE_EXPECT: &str = "embedded default config must parse";
 
+// See `EMBEDDED_DEFAULT_CONFIG_PARSE_EXPECT` above: the config is compiled
+// into the binary, so a parse failure is a build-time invariant violation
+// and crashing loud is the intended behaviour (docs/clippy.md layer 3).
+#[allow(clippy::expect_used)]
 fn builtin_theme_names() -> &'static HashSet<String> {
     BUILTIN_THEME_NAMES.get_or_init(|| {
         parse_default_config()

@@ -150,6 +150,10 @@ impl Stack {
     ///
     /// If the cache is missing an entry for `self`, which can only happen if
     /// `Self::iter` stops yielding every `Stack` variant.
+    // The cache is built from `Self::iter()`, so every `Stack` variant has an
+    // entry by construction; a miss is an unreachable invariant violation, not a
+    // runtime condition to report (docs/clippy.md layer 3).
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn default_commands_ref(&self) -> &'static IndexMap<String, CommandSpec> {
         Self::default_commands_cache()

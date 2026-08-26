@@ -320,10 +320,11 @@ pub(crate) fn hide_irrelevant_commands(
 
 pub(crate) fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
     if args.len() > 1 && args[1] == "ops" {
-        let mut it = args.into_iter();
-        let program = it.next().expect("len > 1 implies a program arg");
-        let _ops_prefix = it.next();
-        std::iter::once(program).chain(it).collect()
+        // Drop the redundant `ops` token in `ops ops <cmd>` (cargo-style
+        // invocation) without needing to re-assert that argv[0] exists.
+        let mut args = args;
+        args.remove(1);
+        args
     } else {
         args
     }
@@ -459,7 +460,7 @@ mod tests {
             .filter(|s| s.is_hide_set())
             .map(|s| s.get_name().to_string())
             .collect();
-        let result = hide_irrelevant_commands(original.clone(), None);
+        let result = hide_irrelevant_commands(original, None);
         // Compute the set of stack-specific subcommand names once, then assert
         // that every *other* visible, non-hidden subcommand remains visible —
         // future non-stack built-ins are covered automatically without having

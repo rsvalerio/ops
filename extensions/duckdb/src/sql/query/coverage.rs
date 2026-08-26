@@ -85,6 +85,10 @@ pub fn query_crate_coverage(
     let cte = members_cte_prefix(&placeholders);
     // SEC-12: the join alias `c` is constructed via the validated newtype so
     // its presence in the formatted SQL cannot be a regression vector.
+    // The alias is the string literal "c", which the validator accepts by
+    // construction; there is no runtime input here to report on
+    // (docs/clippy.md layer 3).
+    #[allow(clippy::expect_used)]
     let join_alias = ColumnAlias::new("c").expect("static alias 'c' is a valid identifier");
     let sql = format!(
         "{cte} \

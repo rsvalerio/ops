@@ -145,6 +145,9 @@ fn prompt_target_selection(importable: &[MakeTarget]) -> anyhow::Result<Option<V
             return Err(anyhow::Error::new(e).context("target selection prompt failed"));
         }
     };
+    // Every option handed to the prompt was cloned out of `importable`, so
+    // the lookup below always hits (docs/clippy.md layer 3).
+    #[allow(clippy::expect_used)]
     let chosen = selected
         .iter()
         .map(|opt| {

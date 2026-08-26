@@ -223,11 +223,11 @@ fn matches_exclude(pattern: &str, candidate: &str) -> bool {
         );
         return true;
     }
-    let idx = pattern
-        .find('*')
-        .expect("star_count == 1 implies a `*` exists");
-    let prefix = &pattern[..idx];
-    let suffix = &pattern[idx + 1..];
+    let Some((prefix, suffix)) = pattern.split_once('*') else {
+        // Unreachable: `star_count == 0` returned above. Falling back to the
+        // exact-match rule keeps the helper total instead of panicking.
+        return pattern == candidate;
+    };
     let Some(rest) = candidate.strip_prefix(prefix) else {
         return false;
     };

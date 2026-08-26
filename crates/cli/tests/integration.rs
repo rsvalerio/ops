@@ -19,6 +19,16 @@
 //! 2. The helpers are 3-10 lines each
 //! 3. Each test file having its own helpers is idiomatic for Rust integration tests
 
+// docs/clippy.md layer 2: an integration-test target is its own crate, so the
+// library crate roots' `#![cfg_attr(test, allow(..))]` block does not reach it
+// and `allow-expect-in-tests` only covers `#[test]` bodies. The helpers below
+// are test scaffolding where a panic on a broken fixture is the desired
+// failure mode.
+#![allow(clippy::expect_used)]
+// The `{spinner}` / `{msg}` / `{elapsed}` tokens in the theme fixtures below are
+// `indicatif` template placeholders, not Rust format arguments.
+#![allow(clippy::literal_string_with_formatting_args)]
+
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::path::{Path, PathBuf};

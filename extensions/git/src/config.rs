@@ -200,17 +200,18 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
         );
         return None;
     }
-    let content = if std::str::from_utf8(&bytes).is_ok() {
-        String::from_utf8(bytes).expect("validated above")
-    } else {
-        // ERR-1 / TASK-1244: typed debug breadcrumb so operators chasing
-        // "remote_url is None" can tell a non-UTF-8 config apart from a
-        // generic IO error or a missing file.
-        tracing::debug!(
-            path = ?path.display(),
-            "git-config: non-UTF-8 bytes detected; decoding lossily so remote detection survives"
-        );
-        String::from_utf8_lossy(&bytes).into_owned()
+    let content = match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(err) => {
+            // ERR-1 / TASK-1244: typed debug breadcrumb so operators chasing
+            // "remote_url is None" can tell a non-UTF-8 config apart from a
+            // generic IO error or a missing file.
+            tracing::debug!(
+                path = ?path.display(),
+                "git-config: non-UTF-8 bytes detected; decoding lossily so remote detection survives"
+            );
+            String::from_utf8_lossy(err.as_bytes()).into_owned()
+        }
     };
     parse_origin_url_inner(&content, Some(&path))
 }
