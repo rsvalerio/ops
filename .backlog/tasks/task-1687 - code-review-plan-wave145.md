@@ -1,11 +1,11 @@
 ---
 id: TASK-1687
 title: code-review-plan-wave145
-status: To Do
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-08-26 21:17'
-updated_date: '2026-08-26 21:18'
+updated_date: '2026-08-26 21:55'
 labels:
   - code-review-wave
 dependencies:
@@ -67,4 +67,8 @@ code-review-plan-wave145
 Overlaps: TASK-1683 [wave141] 18 files (Cargo.toml, crates/cli/src/args.rs...); TASK-1684 [wave142] 19 files (Cargo.toml, crates/cli/src/help.rs...); TASK-1685 [wave143] 10 files (Cargo.toml, crates/cli/src/args.rs...); TASK-1686 [wave144] 20 files (Cargo.toml, crates/cli/src/args.rs...); TASK-1688 [wave146] 9 files (Cargo.toml, crates/core/src/stack/mod.rs...); TASK-1689 [wave147] 5 files (Cargo.toml, crates/core/src/expand.rs...)
 
 Every wave in this batch edits the `# --- Temporary allows ---` block in the root `Cargo.toml`, so a one-line merge there is expected on each landing.
+
+Branch: code-review/TASK-1687
+
+Landed on code-review/run-20260826 as b843254. Member TASK-1680 Done. Rebase conflict in the root Cargo.toml temporary-allow block resolved by keeping every wave removal (option_if_let_else, too_long_first_doc_paragraph, significant_drop_tightening). Pre-merge and integration `ops verify` both clean.
 <!-- SECTION:NOTES:END -->
