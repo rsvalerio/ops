@@ -137,6 +137,10 @@ where
         let v = row.with_context(|| format!("reading {label} row"))?;
         fold_fn(&mut acc, v);
     }
+    // CONC-1: release the connection guard before handing the accumulator
+    // back to the caller. `stmt` borrows `conn`, so it has to go first.
+    drop(stmt);
+    drop(conn);
     Ok(acc)
 }
 

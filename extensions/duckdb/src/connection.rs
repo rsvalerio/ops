@@ -272,8 +272,7 @@ mod tests {
         #[test]
         fn duck_db_lock_returns_guard() {
             let db = DuckDb::open_in_memory().expect("open");
-            let guard = db.lock();
-            assert!(guard.is_ok(), "lock should succeed");
+            assert!(db.lock().is_ok(), "lock should succeed");
         }
 
         #[test]

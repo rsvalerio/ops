@@ -308,6 +308,7 @@ fn tokei_collect_and_load_cycle() {
     let lang_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM tokei_languages", [], |row| row.get(0))
         .expect("lang count query");
+    drop(conn);
     assert!(lang_count > 0, "should have language aggregations");
 
     // Verify staged files cleaned up
@@ -365,6 +366,7 @@ fn load_tokei_succeeds_after_collect() {
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM tokei_files", [], |row| row.get(0))
         .expect("count query");
+    drop(conn);
     assert!(count > 0);
 }
 
@@ -530,6 +532,7 @@ fn tokei_languages_view_aggregates_correctly() {
     let view_langs: i64 = conn
         .query_row("SELECT COUNT(*) FROM tokei_languages", [], |row| row.get(0))
         .expect("view lang count");
+    drop(conn);
     assert_eq!(
         distinct_langs, view_langs,
         "view should have one row per language"

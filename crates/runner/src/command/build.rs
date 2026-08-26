@@ -191,6 +191,9 @@ impl WorkspaceCanonicalCache {
             "workspace canonicalize cache exceeded cap of {}",
             self.cap
         );
+        // CONC-1: release the cache lock before returning; `canonical` is an
+        // owned clone and needs no further access to the map.
+        drop(guard);
         canonical
     }
 }

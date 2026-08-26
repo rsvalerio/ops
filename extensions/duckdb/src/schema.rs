@@ -27,6 +27,7 @@ pub fn init_schema(db: &DuckDb) -> DbResult<()> {
         ",
     )
     .map_err(|e| DbError::query_failed("init_schema", e))?;
+    drop(conn);
     Ok(())
 }
 
@@ -49,6 +50,10 @@ pub fn get_source_checksum(
     let row = stmt.query_row(duckdb::params![source_name, workspace_root], |r| {
         r.get::<_, String>(0)
     });
+    // CONC-1: release the connection guard before mapping the row outcome.
+    // `stmt` borrows `conn`, so it has to go first.
+    drop(stmt);
+    drop(conn);
     match row {
         Ok(s) => Ok(Some(s)),
         Err(duckdb::Error::QueryReturnedNoRows) => Ok(None),
@@ -178,6 +183,7 @@ pub fn upsert_data_source(db: &DuckDb, meta: &DataSourceMetadata<'_>) -> DbResul
         ],
     )
     .map_err(|e| DbError::query_failed("upsert_data_source", e))?;
+    drop(conn);
     Ok(())
 }
 
@@ -253,6 +259,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
+        drop(conn);
         assert_eq!(stored as u64, big);
     }
 

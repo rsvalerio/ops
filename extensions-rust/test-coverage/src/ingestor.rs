@@ -118,6 +118,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
+        drop(conn);
         assert_eq!(lines_count, 100);
 
         // Verify JSON file was cleaned up

@@ -169,6 +169,10 @@ impl ArcTextCache {
                 entry.last_accessed = tick;
                 let arc = Arc::clone(&entry.text);
                 guard.victim_queue.push(tick, path.clone());
+                // CONC-1: release the outer mutex before leaving the
+                // get-or-insert block; the slot Arc carries everything the
+                // read path still needs.
+                drop(guard);
                 arc
             } else {
                 // ARCH-1 / TASK-1106: cap-eviction picks the entry with
@@ -206,6 +210,9 @@ impl ArcTextCache {
                     guard.len() <= CACHE_MAX_ENTRIES,
                     "manifest cache exceeded cap of {CACHE_MAX_ENTRIES}"
                 );
+                // CONC-1: release the outer mutex before the file read below
+                // — the whole point of the per-key `OnceLock` design.
+                drop(guard);
                 slot
             }
         };
@@ -359,10 +366,13 @@ mod tests {
         let guard = mutex
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cached_len = guard.len();
+        // CONC-1: release the cache mutex before asserting so a failing
+        // assert panics without holding it.
+        drop(guard);
         assert!(
-            guard.len() <= CACHE_MAX_ENTRIES,
-            "cache size {} exceeds cap {CACHE_MAX_ENTRIES}",
-            guard.len()
+            cached_len <= CACHE_MAX_ENTRIES,
+            "cache size {cached_len} exceeds cap {CACHE_MAX_ENTRIES}"
         );
     }
 

@@ -239,6 +239,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
+        drop(conn);
         assert_eq!(dep_count, 1);
 
         // Verify JSON file was cleaned up
@@ -277,6 +278,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
+        drop(conn);
         assert_eq!(path_dep_count, 1, "path dep (source=null) must be retained");
     }
 
@@ -377,6 +379,9 @@ mod tests {
         for r in rows {
             targets.push(r.unwrap());
         }
+        // `stmt` borrows `conn`, so it has to go first.
+        drop(stmt);
+        drop(conn);
         assert_eq!(targets, vec!["cfg(unix)", "cfg(windows)"]);
     }
 
@@ -395,6 +400,7 @@ mod tests {
             .expect("seed row");
         let err = super::extract_workspace_root(&conn)
             .expect_err("INTEGER workspace_root cannot deserialise to String");
+        drop(conn);
         let rendered = format!("{err:#}");
         assert!(
             rendered.contains("observed type: INTEGER"),

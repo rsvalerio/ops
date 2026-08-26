@@ -212,6 +212,9 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
         guard.map.insert(canon_owned.clone(), Arc::clone(&arc));
         guard.order.push_back(canon_owned);
     }
+    // CONC-1: release the cache lock before returning; the `Arc` is already
+    // cloned out and the caller does no further cache work.
+    drop(guard);
     Ok(arc)
 }
 

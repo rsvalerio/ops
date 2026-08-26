@@ -389,6 +389,9 @@ pub(crate) fn load_workspace_manifest(
                 let key = Arc::clone(&entry.key);
                 let loaded = entry.loaded.clone();
                 guard.victim_queue.push(tick, key);
+                // CONC-1: release the cache lock before returning the cached
+                // value to the caller.
+                drop(guard);
                 return Ok(loaded);
             }
         }
@@ -1057,6 +1060,7 @@ mod tests {
                 mtime: new_mtime,
                 len: pre_len,
             });
+            drop(guard);
         }
 
         let second = load_workspace_manifest(&mut ctx).expect("load2");

@@ -365,10 +365,9 @@ mod cache_tests {
             let guard = super::project_coverage_cache()
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            assert!(
-                guard.contains_key(&id),
-                "priming must insert a slot for instance a's id"
-            );
+            let primed = guard.contains_key(&id);
+            drop(guard);
+            assert!(primed, "priming must insert a slot for instance a's id");
             id
         };
         // After `a` drops, a fresh instance must mint a new id even if
@@ -388,8 +387,10 @@ mod cache_tests {
         let guard = super::project_coverage_cache()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let has_b_slot = guard.contains_key(&b_id);
+        drop(guard);
         assert!(
-            guard.contains_key(&b_id),
+            has_b_slot,
             "b's lookup must populate a slot under its own id"
         );
         assert_ne!(

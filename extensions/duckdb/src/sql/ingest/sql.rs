@@ -89,6 +89,7 @@ pub fn table_has_data(db: &DuckDb, table_name: &str) -> Result<bool, anyhow::Err
         // ERR-7 (TASK-0521): Debug-format the table name to defang
         // control-character/log-injection.
         .with_context(|| format!("counting rows in {table_name:?}"))?;
+    drop(conn);
     Ok(row_count > 0)
 }
 
@@ -116,6 +117,10 @@ where
     for row in rows {
         results.push(row.context("reading row")?);
     }
+    // CONC-1: release the connection guard before building the JSON value.
+    // `stmt` borrows `conn`, so it has to go first.
+    drop(stmt);
+    drop(conn);
     Ok(serde_json::Value::Array(results))
 }
 
@@ -173,6 +178,7 @@ mod tests {
         assert!(table_exists(&conn, "base").expect("table"));
         assert!(table_exists(&conn, "only_view").expect("view"));
         assert!(!table_exists(&conn, "nope").expect("missing"));
+        drop(conn);
     }
 
     #[test]

@@ -491,6 +491,7 @@ fn rust_loc_collect_and_load_cycle() {
             row.get(0)
         })
         .expect("region count");
+    drop(conn);
     assert!(regions >= 2, "fixture spans main, test and example");
 }
 

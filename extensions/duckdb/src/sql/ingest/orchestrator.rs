@@ -143,6 +143,7 @@ pub(super) fn drop_table_if_exists(db: &DuckDb, table_name: &str) -> Result<(), 
     let conn = db.lock().context("acquiring db lock for drop")?;
     conn.execute_batch(&format!("DROP TABLE IF EXISTS {quoted}"))
         .with_context(|| format!("dropping table {table_name}"))?;
+    drop(conn);
     Ok(())
 }
 
@@ -546,6 +547,7 @@ mod tests {
                 let count: i64 = conn
                     .query_row("SELECT COUNT(*) FROM race_table", [], |r| r.get(0))
                     .expect("table must still exist mid-query");
+                drop(conn);
                 done1.store(true, Ordering::SeqCst);
                 Ok(serde_json::json!({ "count": count }))
             })

@@ -293,6 +293,7 @@ fn coverage_load_creates_table_and_view() {
             row.get(0)
         })
         .expect("summary query");
+    drop(conn);
     assert_eq!(summary_lines, 300, "summary should aggregate lines");
 
     // Verify staged files cleaned up
@@ -308,6 +309,7 @@ fn coverage_summary_view_computes_percentages() {
             row.get(0)
         })
         .expect("lines_percent query");
+    drop(conn);
     // 270 covered / 300 total = 90.0%
     assert!(
         (lines_percent - 90.0).abs() < 0.01,
@@ -347,6 +349,7 @@ fn coverage_summary_view_handles_zero_counts() {
             row.get(0)
         })
         .expect("lines_percent query");
+    drop(conn);
     assert!(
         (lines_percent - 0.0).abs() < 0.01,
         "zero counts should give 0% not NaN"
@@ -914,6 +917,7 @@ fn coverage_summary_view_all_metric_percentages() {
             |row| row.get(0),
         )
         .expect("branches_notcovered");
+    drop(conn);
     assert_eq!(branches_notcovered, 3);
 }
 
@@ -931,5 +935,6 @@ fn coverage_load_is_idempotent() {
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM coverage_files", [], |row| row.get(0))
         .expect("count");
+    drop(conn);
     assert_eq!(count, 2, "idempotent load should not duplicate rows");
 }
