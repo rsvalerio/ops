@@ -94,7 +94,7 @@ sit in a clearly fenced `# --- Temporary allows ---` block at the bottom of
 count:
 
 ```toml
-redundant_pub_crate = "allow" # TASK-1676 — 195 sites, 60 files
+arithmetic_side_effects = "allow" # TASK-1671 — 166 sites, 54 files
 ```
 
 Two rules govern that block:
