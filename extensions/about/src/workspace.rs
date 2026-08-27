@@ -122,48 +122,18 @@ pub fn resolve_member_globs(
                             // sides as a fallback, log a tracing breadcrumb
                             // either way, and fall back to the absolute
                             // path so the unit is not silently lost.
-                            // Both this fallback and the nested
-                            // canonicalize-recovery below are multi-statement
-                            // branches that log before yielding a value;
-                            // `map_or_else` would nest two multi-line closures
-                            // inside an already deeply indented loop body.
-                            #[allow(clippy::option_if_let_else)]
-                            let rel_string = if let Ok(rel) = path.strip_prefix(root) {
-                                rel.to_string_lossy().to_string()
-                            } else {
-                                // PERF-3 / TASK-1149: hoist the
-                                // root-canonicalize out of the per-entry
-                                // loop so a 200-entry symlinked-root tree
-                                // pays one canonicalize for the root
-                                // (plus one per entry path) instead of
-                                // 200 root canonicalizes.
-                                let root_canon = root_canonical
-                                    .get_or_insert_with(|| std::fs::canonicalize(root).ok())
-                                    .as_deref();
-                                let canonical_rel = root_canon.and_then(|root_canon| {
-                                    std::fs::canonicalize(&path).ok().and_then(|p_canon| {
-                                        p_canon
-                                            .strip_prefix(root_canon)
-                                            .ok()
-                                            .map(|r| r.to_string_lossy().to_string())
-                                    })
-                                });
-                                if let Some(rel) = canonical_rel {
-                                    tracing::debug!(
-                                        root = ?root.display(),
-                                        path = ?path.display(),
-                                        "workspace strip_prefix failed; recovered via canonicalize"
-                                    );
-                                    rel
-                                } else {
-                                    tracing::warn!(
-                                        root = ?root.display(),
-                                        path = ?path.display(),
-                                        "workspace strip_prefix failed and canonicalize did not recover; falling back to absolute path so manifest is not silently dropped"
-                                    );
-                                    path.to_string_lossy().to_string()
-                                }
-                            };
+                            let rel_string = path.strip_prefix(root).map_or_else(
+                                |_| {
+                                    // PERF-3 (TASK-1149): memoise the
+                                    // canonicalised root across the whole
+                                    // member loop, not per entry.
+                                    let root_canon = root_canonical
+                                        .get_or_insert_with(|| std::fs::canonicalize(root).ok())
+                                        .as_deref();
+                                    recover_relative_path(&path, root, root_canon)
+                                },
+                                |rel| rel.to_string_lossy().to_string(),
+                            );
                             resolved.push((rel_string, manifest));
                         }
                     }
@@ -196,6 +166,47 @@ pub fn resolve_member_globs(
     resolved.sort_by(|a, b| a.0.cmp(&b.0));
     resolved.dedup_by(|a, b| a.0 == b.0);
     resolved
+}
+
+/// ERR-1 (TASK-1070): recover a workspace-relative path when
+/// `path.strip_prefix(root)` misses, which happens when `root` and the entry
+/// path disagree on symlink resolution (commonly macOS `/var` vs
+/// `/private/var`). Falls back to the absolute path so a
+/// successfully-read manifest is never silently dropped.
+///
+/// `root_canon` is the caller's memoised canonicalised root (PERF-3 /
+/// TASK-1149), or `None` when canonicalising the root itself failed — the
+/// strip cannot succeed without it, so recovery goes straight to the fallback.
+///
+/// Split out of the loop body so the caller's `map_or_else` keeps the common
+/// `strip_prefix` success on one line instead of trailing 25 lines of recovery.
+fn recover_relative_path(path: &Path, root: &Path, root_canon: Option<&Path>) -> String {
+    let canonical_rel = root_canon.and_then(|root_canon| {
+        std::fs::canonicalize(path).ok().and_then(|p_canon| {
+            p_canon
+                .strip_prefix(root_canon)
+                .ok()
+                .map(|r| r.to_string_lossy().to_string())
+        })
+    });
+    canonical_rel.map_or_else(
+        || {
+            tracing::warn!(
+                root = ?root.display(),
+                path = ?path.display(),
+                "workspace strip_prefix failed and canonicalize did not recover; falling back to absolute path so manifest is not silently dropped"
+            );
+            path.to_string_lossy().to_string()
+        },
+        |rel| {
+            tracing::debug!(
+                root = ?root.display(),
+                path = ?path.display(),
+                "workspace strip_prefix failed; recovered via canonicalize"
+            );
+            rel
+        },
+    )
 }
 
 fn try_read_manifest(dir: &Path, marker: &str) -> Option<String> {
