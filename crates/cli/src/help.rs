@@ -15,7 +15,7 @@ use crate::hook_shared;
 /// current flag is a known value-taking global so the path argument is
 /// classified as the flag's value, not a positional. `--tap=path` was
 /// already handled because clap folds the value into the same argv entry.
-pub(crate) fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
+pub fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
     /// Global flags declared in `Cli` that take a value as a separate
     /// argv entry. Mirrors the `#[arg(long, global = true)]` declarations
     /// in `args.rs`; if a new value-taking global is added there it must
@@ -54,7 +54,7 @@ pub(crate) fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
 /// to "Commands". Returns a plain `&'static str` rather than `Option` because
 /// no caller ever needs to distinguish "unmapped" from a default — the former
 /// is simply a name this function does not yet know about.
-pub(crate) fn builtin_category(name: &str) -> &'static str {
+pub fn builtin_category(name: &str) -> &'static str {
     match name {
         "about" => "Insights",
         "deps" | "trailing-whitespace" | "end-of-file-fixer" | "sec" => "Code Quality",
@@ -64,7 +64,7 @@ pub(crate) fn builtin_category(name: &str) -> &'static str {
 }
 
 /// A command entry used for categorized help output.
-pub(crate) struct CmdEntry {
+pub struct CmdEntry {
     pub name: String,
     pub aliases: Vec<String>,
     pub about: String,
@@ -84,7 +84,7 @@ impl CmdEntry {
 
 /// Collect built-in clap subcommands and dynamic config/stack commands into a
 /// unified list of [`CmdEntry`] values.
-pub(crate) fn collect_command_entries(
+pub fn collect_command_entries(
     cmd: &clap::Command,
     config: &ops_core::config::Config,
     stack: Option<ops_core::stack::Stack>,
@@ -143,7 +143,7 @@ pub(crate) fn collect_command_entries(
 /// Sort command entries by category rank (per `category_order`), then by
 /// category name, then alphabetically by command name.  Uncategorized entries
 /// sort last.
-pub(crate) fn sort_entries_by_category(entries: &mut [CmdEntry], category_order: &[String]) {
+pub fn sort_entries_by_category(entries: &mut [CmdEntry], category_order: &[String]) {
     /// Explicit rank classes for `cat_rank`. Higher values sort later.
     /// Known categories map to their index in `category_order`; unknown
     /// categories sort after all known ones; `None` sorts last of all.
@@ -158,13 +158,12 @@ pub(crate) fn sort_entries_by_category(entries: &mut [CmdEntry], category_order:
         Uncategorized,
     }
     let cat_rank = |cat: Option<&str>| -> CatRank {
-        match cat {
-            None => CatRank::Uncategorized,
-            Some(c) => category_order
+        cat.map_or(CatRank::Uncategorized, |c| {
+            category_order
                 .iter()
                 .position(|o| o == c)
-                .map_or(CatRank::Unknown, CatRank::Known),
-        }
+                .map_or(CatRank::Unknown, CatRank::Known)
+        })
     };
     entries.sort_by(|a, b| {
         let ra = cat_rank(a.category.as_deref());
@@ -188,7 +187,7 @@ impl<'a> HeadingState<'a> {
 
 /// Render sorted command entries into a grouped-sections string suitable for
 /// insertion into the help output.
-pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
+pub fn render_grouped_sections(entries: &[CmdEntry]) -> String {
     use ops_core::output::{display_width, pad_to_display_width};
     // Width must be measured in display columns, not bytes — `String::len`
     // undercounts CJK / wide / combining characters and mis-aligns the
@@ -233,7 +232,7 @@ pub(crate) fn render_grouped_sections(entries: &[CmdEntry]) -> String {
 /// `Options:` section (or appended if no `Options:` block exists). Extracted
 /// from [`print_categorized_help`] so it's exercised directly in unit tests
 /// rather than only via stdout.
-pub(crate) fn render_categorized_help(
+pub fn render_categorized_help(
     mut cmd: clap::Command,
     config: &ops_core::config::Config,
     stack: Option<ops_core::stack::Stack>,
@@ -245,11 +244,14 @@ pub(crate) fn render_categorized_help(
     sort_entries_by_category(&mut entries, &config.output.category_order);
     let grouped = render_grouped_sections(&entries);
 
-    for name in cmd
+    // The `collect` ends the immutable borrow of `cmd` before the loop body
+    // reassigns it via `mut_subcommand`; iterating lazily would not compile.
+    #[allow(clippy::needless_collect)]
+    let names: Vec<String> = cmd
         .get_subcommands()
         .map(|s| s.get_name().to_string())
-        .collect::<Vec<_>>()
-    {
+        .collect();
+    for name in names {
         cmd = cmd.mut_subcommand(&name, |sub| sub.hide(true));
     }
 
@@ -263,7 +265,7 @@ pub(crate) fn render_categorized_help(
 }
 
 fn splice_grouped_into_help(help_str: &str, grouped: &str) -> String {
-    let mut out = String::with_capacity(help_str.len() + grouped.len());
+    let mut out = String::with_capacity(help_str.len().saturating_add(grouped.len()));
     // Anchor on the blank line + heading-at-column-0 form
     // (`\n\nOptions:`) so a subcommand `about` that itself contains the
     // substring "Options:" cannot win the search and have the grouped
@@ -271,11 +273,16 @@ fn splice_grouped_into_help(help_str: &str, grouped: &str) -> String {
     // always emits a blank line before each top-level section heading; if
     // that ever changes the splice falls through to the append branch
     // rather than corrupting the help layout silently.
-    if let Some(pos) = help_str.find("\n\nOptions:") {
-        let split = pos + 1;
-        out.push_str(&help_str[..split]);
+    // `pos` indexes the start of a 10-byte `"\n\nOptions:"` match inside
+    // `help_str`, so `pos + 1` is at most `help_str.len() - 9` and can never
+    // overflow; `saturating_add` is exactly equal here.
+    if let Some((head, tail)) = help_str
+        .find("\n\nOptions:")
+        .and_then(|pos| help_str.split_at_checked(pos.saturating_add(1)))
+    {
+        out.push_str(head);
         out.push_str(grouped);
-        out.push_str(&help_str[split..]);
+        out.push_str(tail);
     } else {
         out.push_str(help_str);
         out.push_str(grouped);
@@ -286,7 +293,7 @@ fn splice_grouped_into_help(help_str: &str, grouped: &str) -> String {
 /// Render categorized help and write it to `writer`. Extracted from
 /// [`print_categorized_help`] so the write path can be exercised against a
 /// failing writer without needing to redirect stdout.
-pub(crate) fn write_categorized_help(
+pub fn write_categorized_help(
     writer: &mut dyn Write,
     cmd: clap::Command,
     config: &ops_core::config::Config,
@@ -298,7 +305,7 @@ pub(crate) fn write_categorized_help(
 }
 
 /// Print help with all commands (built-in and dynamic) grouped by category.
-pub(crate) fn print_categorized_help(
+pub fn print_categorized_help(
     cmd: clap::Command,
     config: &ops_core::config::Config,
     stack: Option<ops_core::stack::Stack>,
@@ -544,7 +551,7 @@ mod tests {
             .iter()
             .map(|l| {
                 let idx = l.find("desc").expect("desc present");
-                ops_core::output::display_width(&l[..idx])
+                ops_core::output::display_width(l.get(..idx).expect("char boundary"))
             })
             .collect();
         assert_eq!(
@@ -596,7 +603,7 @@ mod tests {
             .filter(|l| l.contains("about-") || l.contains("rocket"))
             .map(|l| {
                 let idx = l.find("about-").or_else(|| l.find("rocket")).unwrap();
-                ops_core::output::display_width(&l[..idx])
+                ops_core::output::display_width(l.get(..idx).expect("char boundary"))
             })
             .collect();
         assert_eq!(
@@ -777,14 +784,17 @@ mod tests {
             .lines()
             .filter_map(|l| {
                 if l.contains("strip") {
+                    let idx = l.find("strip").unwrap();
                     Some(ops_core::output::display_width(
-                        &l[..l.find("strip").unwrap()],
+                        l.get(..idx).expect("char boundary"),
                     ))
                 } else if l.contains("deps") && !l.starts_with('\n') && l.starts_with("  ") {
                     // Skip the "Code Quality:" heading; find the about column,
                     // which is the second occurrence of "deps".
                     let idx = l.rfind("deps")?;
-                    Some(ops_core::output::display_width(&l[..idx]))
+                    Some(ops_core::output::display_width(
+                        l.get(..idx).expect("char boundary"),
+                    ))
                 } else {
                     None
                 }

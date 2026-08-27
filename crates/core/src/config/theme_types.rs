@@ -200,10 +200,14 @@ pub struct ThemeConfig {
     pub report: ReportTheme,
 }
 
-fn default_left_pad() -> usize {
+const fn default_left_pad() -> usize {
     1
 }
 
+// The `{spinner}` / `{msg}` / `{elapsed}` tokens in `running_template` are
+// `indicatif` template placeholders, resolved at render time by the progress
+// bar — not Rust format arguments (docs/clippy.md layer 3).
+#[allow(clippy::literal_string_with_formatting_args)]
 impl ThemeConfig {
     #[cfg(any(test, feature = "test-support"))]
     #[must_use]

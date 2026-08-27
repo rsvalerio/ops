@@ -63,10 +63,7 @@ where
     let defaults: Vec<usize> = about_fields
         .iter()
         .enumerate()
-        .filter(|(_, f)| match &enabled_set {
-            None => true,
-            Some(set) => set.contains(f.id),
-        })
+        .filter(|(_, f)| enabled_set.as_ref().is_none_or(|set| set.contains(f.id)))
         .map(|(i, _)| i)
         .collect();
 

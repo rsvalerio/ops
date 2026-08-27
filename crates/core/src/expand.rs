@@ -185,11 +185,10 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
     // the real path directly), reuse that `Arc<str>` so a real + symlink
     // pair collapses to one rendering. Without this branch the new entry
     // would shadow the existing one and break `Arc::ptr_eq`.
-    let arc = if let Some(existing) = guard.map.get(key) {
-        Arc::clone(existing)
-    } else {
-        Arc::<str>::from(rendered)
-    };
+    let arc = guard
+        .map
+        .get(key)
+        .map_or_else(|| Arc::<str>::from(rendered), Arc::clone);
     // CONC-1 / TASK-1418: evict the oldest entry when at cap so the new
     // distinct root still fits.
     if guard.map.len() >= OPS_ROOT_CACHE_CAP {
@@ -212,6 +211,9 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
         guard.map.insert(canon_owned.clone(), Arc::clone(&arc));
         guard.order.push_back(canon_owned);
     }
+    // CONC-1: release the cache lock before returning; the `Arc` is already
+    // cloned out and the caller does no further cache work.
+    drop(guard);
     Ok(arc)
 }
 
@@ -264,9 +266,12 @@ fn canonicalize_calls() -> &'static Mutex<std::collections::HashMap<PathBuf, usi
 
 #[cfg(test)]
 fn record_canonicalize_call(path: &Path) {
-    *crate::sync::lock_recover(canonicalize_calls())
+    // Test-only probe counter: one increment per `canonicalize` call inside a
+    // single test binary, so the count cannot approach `usize::MAX`.
+    crate::sync::lock_recover(canonicalize_calls())
         .entry(path.to_path_buf())
-        .or_insert(0) += 1;
+        .and_modify(|n| *n = n.saturating_add(1))
+        .or_insert(1);
 }
 
 #[cfg(test)]

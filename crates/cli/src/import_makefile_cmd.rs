@@ -24,7 +24,7 @@ const MAKEFILE_NAMES: &[&str] = &["GNUmakefile", "makefile", "Makefile"];
 /// A parsed Makefile target: its name plus the optional `## description`
 /// doc comment (the `make help` self-documentation convention).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MakeTarget {
+pub struct MakeTarget {
     pub name: String,
     pub description: Option<String>,
 }
@@ -145,6 +145,9 @@ fn prompt_target_selection(importable: &[MakeTarget]) -> anyhow::Result<Option<V
             return Err(anyhow::Error::new(e).context("target selection prompt failed"));
         }
     };
+    // Every option handed to the prompt was cloned out of `importable`, so
+    // the lookup below always hits (docs/clippy.md layer 3).
+    #[allow(clippy::expect_used)]
     let chosen = selected
         .iter()
         .map(|opt| {
@@ -228,9 +231,9 @@ fn observe_recipe_prefix(trimmed: &str, recipe_prefix: &mut char) -> bool {
 ///
 /// Tracks `.RECIPEPREFIX` like [`parse_targets`] so a custom-prefix recipe
 /// line such as `>include extra.conf` is not miscounted as a directive.
-pub(crate) fn count_include_directives(content: &str) -> usize {
+pub fn count_include_directives(content: &str) -> usize {
     let mut recipe_prefix = '\t';
-    let mut count = 0;
+    let mut count: usize = 0;
     for line in content.lines() {
         if is_recipe_line(line, recipe_prefix) {
             continue;
@@ -242,7 +245,7 @@ pub(crate) fn count_include_directives(content: &str) -> usize {
             line.split_whitespace().next(),
             Some("include" | "-include" | "sinclude")
         ) {
-            count += 1;
+            count = count.saturating_add(1);
         }
     }
     count
@@ -255,7 +258,7 @@ pub(crate) fn count_include_directives(content: &str) -> usize {
 /// (`.PHONY` etc.), and pattern rules (`%`) are skipped, as is anything
 /// needing make-time expansion (`$`). Duplicate names keep the first
 /// occurrence (matching how the `make help` grep convention lists them).
-pub(crate) fn parse_targets(content: &str) -> Vec<MakeTarget> {
+pub fn parse_targets(content: &str) -> Vec<MakeTarget> {
     let mut targets: Vec<MakeTarget> = Vec::new();
     let mut recipe_prefix = '\t';
     for line in content.lines() {
@@ -269,16 +272,14 @@ pub(crate) fn parse_targets(content: &str) -> Vec<MakeTarget> {
         if DIRECTIVES.contains(&trimmed.split_whitespace().next().unwrap_or("")) {
             continue;
         }
-        let Some(colon) = line.find(':') else {
+        let Some((head, after)) = line.split_once(':') else {
             continue;
         };
         // `FOO := bar` / `FOO ::= bar` are assignments, not rules.
-        let after = &line[colon + 1..];
         let after = after.strip_prefix(':').unwrap_or(after); // double-colon rule
         if after.starts_with('=') {
             continue;
         }
-        let head = &line[..colon];
         // `FOO ?= a:b` style assignments put `=` before the colon.
         if head.contains('=') {
             continue;
@@ -305,7 +306,7 @@ pub(crate) fn parse_targets(content: &str) -> Vec<MakeTarget> {
 
 /// Why a target was withheld from the checklist.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum SkipReason {
+pub enum SkipReason {
     /// Name fails `validate_command_name` (built-in collision, bad chars).
     InvalidName(String),
     /// `[commands.<name>]` already exists in `.ops.toml`.
@@ -322,7 +323,7 @@ const RESERVED_NAMES: &[&str] = &["help"];
 
 /// A target withheld from the checklist, paired with why.
 #[derive(Debug)]
-pub(crate) struct SkippedTarget {
+pub struct SkippedTarget {
     pub target: MakeTarget,
     pub reason: SkipReason,
 }

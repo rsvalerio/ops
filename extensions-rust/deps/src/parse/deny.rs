@@ -212,7 +212,7 @@ fn decode_diagnostic(trimmed: &str) -> Option<DecodedDiagnostic> {
 /// `has_issues`'s fail-closed `_other` branch so the unknown-severity warn
 /// fires and the gate still fails — preserving the safety property of
 /// "schema drift surfaces, doesn't silently mute the gate".
-pub(crate) const MISSING_SEVERITY_SENTINEL: &str = "<missing-severity>";
+pub const MISSING_SEVERITY_SENTINEL: &str = "<missing-severity>";
 
 fn resolve_package(diag: &mut DecodedDiagnostic) -> String {
     diag.advisory

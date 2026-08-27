@@ -7,6 +7,7 @@ use std::sync::OnceLock;
 
 /// SEC-33 (TASK-0932): default cap on manifest-style file reads
 /// (`Cargo.toml`, `go.mod`, `package.json`, `requirements.txt`, …).
+///
 /// `ops` runs in user-controlled working directories where an adversarial
 /// repository could otherwise force unbounded allocations via an oversized
 /// or `/dev/zero`-symlinked manifest. 4 MiB is well above any realistic
@@ -58,6 +59,10 @@ pub(crate) fn parse_byte_cap_env(
     raw: Option<&str>,
     default: u64,
 ) -> (u64, Option<String>) {
+    // The `Some` arm is a four-arm classification match over `parse`; hoisting
+    // it into a `map_or_else` closure would put the trivial `None` default
+    // ahead of the logic it defaults for and bury the matrix one level deeper.
+    #[allow(clippy::option_if_let_else)]
     match raw {
         None => (default, None),
         Some(s) => match s.parse::<u64>() {
@@ -85,11 +90,13 @@ pub(crate) fn parse_byte_cap_env(
 }
 
 /// ARCH-9 / TASK-1228: resolve a positive byte-cap-from-env value once per
-/// process. Both [`manifest_max_bytes`] and
-/// [`crate::config::loader::ops_toml_max_bytes`] (and any future sibling
-/// caps) route through this so the cache discipline, fallback semantics,
-/// and one-shot warn diagnostic stay aligned across the codebase. The
-/// shared shape mirrors `crates/runner/src/command/results.rs::output_byte_cap`
+/// process.
+///
+/// Both [`manifest_max_bytes`] and
+/// [`crate::config::loader::ops_toml_max_bytes`] (and any future sibling caps)
+/// route through this so the cache discipline, fallback semantics, and
+/// one-shot warn diagnostic stay aligned across the codebase. The shared shape
+/// mirrors `crates/runner/src/command/results.rs::output_byte_cap`
 /// (TASK-0542).
 ///
 /// Unset / zero / unparseable values fall back to `default` with a one-shot
@@ -107,14 +114,16 @@ pub fn cached_byte_cap_env(slot: &OnceLock<u64>, env_var: &'static str, default:
     })
 }
 
-/// Effective manifest read cap. Resolved from the env knob on the first
-/// call and cached behind a `OnceLock<u64>` for the remainder of the
-/// process — subsequent calls do not touch `std::env`. Tests that need to
-/// override the cap must set `OPS_MANIFEST_MAX_BYTES` before any call to
-/// `manifest_max_bytes` (directly or via `read_capped_to_string` /
-/// `for_each_trimmed_line`); changes after the first read are ignored.
-/// Unparseable / zero values fall back to [`MANIFEST_MAX_BYTES_DEFAULT`]
-/// with a one-shot `tracing::warn!` from the `OnceLock` initialiser.
+/// Effective manifest read cap.
+///
+/// Resolved from the env knob on the first call and cached behind a
+/// `OnceLock<u64>` for the remainder of the process — subsequent calls do
+/// not touch `std::env`. Tests that need to override the cap must set
+/// `OPS_MANIFEST_MAX_BYTES` before any call to `manifest_max_bytes`
+/// (directly or via `read_capped_to_string` / `for_each_trimmed_line`);
+/// changes after the first read are ignored. Unparseable / zero values
+/// fall back to [`MANIFEST_MAX_BYTES_DEFAULT`] with a one-shot
+/// `tracing::warn!` from the `OnceLock` initialiser.
 #[must_use]
 pub fn manifest_max_bytes() -> u64 {
     cached_byte_cap_env(
@@ -207,7 +216,11 @@ fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> 
         .take(limit)
         .read_to_string(&mut buf)
         .map_err(|e| with_path(&e, path))?;
-    if buf.len() as u64 > cap {
+    // `usize` is never wider than `u64` on any target rustc supports, so the
+    // widening is total and the fallback is unreachable; saturating to
+    // `u64::MAX` would report the file as oversize, which is the safe
+    // direction for a size cap.
+    if u64::try_from(buf.len()).unwrap_or(u64::MAX) > cap {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(
@@ -227,10 +240,9 @@ fn with_path(e: &std::io::Error, path: &Path) -> std::io::Error {
 #[must_use]
 pub fn capitalize(s: &str) -> String {
     let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-    }
+    c.next().map_or_else(String::new, |f| {
+        f.to_uppercase().collect::<String>() + c.as_str()
+    })
 }
 
 /// Format a number with comma separators (e.g. 1234 → "1,234").
@@ -239,10 +251,10 @@ pub fn format_number(n: i64) -> String {
     if n < 0 {
         // checked_neg() returns None only for i64::MIN; format the magnitude
         // via unsigned to avoid the overflow on negation.
-        let magnitude = match n.checked_neg() {
-            Some(positive) => positive.to_string(),
-            None => (n.unsigned_abs()).to_string(),
-        };
+        let magnitude = n.checked_neg().map_or_else(
+            || n.unsigned_abs().to_string(),
+            |positive| positive.to_string(),
+        );
         return format!("-{}", insert_thousands_separators(&magnitude));
     }
     // PERF-3 / TASK-1432: sub-1000 magnitudes (the dominant case in
@@ -276,19 +288,22 @@ fn insert_thousands_separators(digits: &str) -> Cow<'_, str> {
         // they already own without a second allocation.
         return Cow::Borrowed(digits);
     }
-    let mut result = String::with_capacity(len + (len - 1) / 3);
+    // `len > 3` here (the `len <= 3` fast path returned above), so
+    // `len - 1` is exact.
+    let mut result = String::with_capacity(len.saturating_add(len.saturating_sub(1) / 3));
     let head = match len % 3 {
         0 => 3,
         n => n,
     };
-    // SAFETY-equivalent: `bytes` are ASCII digits (caller passes
-    // `i64::to_string` magnitude), so byte slicing aligns with char boundaries.
-    result.push_str(&digits[..head]);
-    let mut i = head;
-    while i < len {
+    // `digits` are ASCII (the caller passes an `i64::to_string` magnitude), so
+    // the group boundaries are always char boundaries; `split_at_checked` keeps
+    // that assumption from turning into a panic if it ever stops holding.
+    let (first_group, mut rest) = digits.split_at_checked(head).unwrap_or((digits, ""));
+    result.push_str(first_group);
+    while let Some((group, tail)) = rest.split_at_checked(3) {
         result.push(',');
-        result.push_str(&digits[i..i + 3]);
-        i += 3;
+        result.push_str(group);
+        rest = tail;
     }
     Cow::Owned(result)
 }
@@ -301,8 +316,10 @@ pub fn dir_name(path: &Path) -> &str {
         .unwrap_or("project")
 }
 
-/// Read `path` as UTF-8 text and invoke `f` on each line, with surrounding whitespace
-/// trimmed. Returns `Some(())` when the file was read, `None` if it was missing,
+/// Read `path` as UTF-8 text and invoke `f` on each line, with surrounding
+/// whitespace trimmed.
+///
+/// Returns `Some(())` when the file was read, `None` if it was missing,
 /// unreadable, or larger than [`manifest_max_bytes`] bytes. Used by line-based
 /// manifest parsers (`go.mod`, `go.work`, `gradle.properties`, etc.) to share
 /// the read-and-iterate skeleton.

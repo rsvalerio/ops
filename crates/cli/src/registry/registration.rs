@@ -131,6 +131,11 @@ fn classify_and_warn_collision(
     // branch do we materialise a `String` for `HashMap::insert`. This
     // avoids `key.to_string()` on every Occupied hit (the warning paths)
     // which dominated registration when an extension registers many ids.
+    //
+    // `map_or_else` cannot express this: the `Some` closure would hold the
+    // `&mut` borrow handed out by `get_mut` while the `None` closure needs a
+    // second `&mut owners` for `insert`, which the borrow checker rejects.
+    #[allow(clippy::option_if_let_else)]
     if let Some(prev) = owners.get_mut(key) {
         match prev {
             Owner::Extension(prev_name) if *prev_name != ext_name => {

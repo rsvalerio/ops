@@ -79,20 +79,15 @@ fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, &str)> {
     // that pass through `read_origin_url_from`, so the parser must accept the
     // already-redacted form (`host:owner/repo`) as well.
     if !raw.contains("://") {
-        let after_user = match raw.find('@') {
-            Some(at) => &raw[at + 1..],
-            None => raw,
-        };
-        let colon = after_user.find(':')?;
+        let after_user = raw.split_once('@').map_or(raw, |(_user, after)| after);
+        let (host, path) = after_user.split_once(':')?;
         // Reject scp form when a `/` appears before the `:` — per git URL
         // semantics, that path is a relative filesystem path, not a remote.
-        if let Some(slash) = after_user.find('/') {
-            if slash < colon {
-                return None;
-            }
+        // Everything before the first `:` is `host`, so a `/` there is
+        // exactly that case.
+        if host.contains('/') {
+            return None;
         }
-        let host = &after_user[..colon];
-        let path = &after_user[colon + 1..];
         return Some(("ssh", host, path));
     }
 
@@ -123,9 +118,7 @@ fn is_valid_host(host: &str) -> bool {
         return false;
     }
     let bytes = host.as_bytes();
-    let first = bytes[0];
-    let last = bytes[bytes.len() - 1];
-    if first == b'-' || first == b'.' || last == b'-' || last == b'.' {
+    if matches!(bytes.first(), Some(b'-' | b'.')) || matches!(bytes.last(), Some(b'-' | b'.')) {
         return false;
     }
     if host.split('.').any(str::is_empty) {
@@ -168,8 +161,7 @@ fn is_valid_path_segment(segment: &str) -> bool {
     if segment.is_empty() {
         return false;
     }
-    let bytes = segment.as_bytes();
-    let rest = if bytes[0] == b'~' { &bytes[1..] } else { bytes };
+    let rest = segment.strip_prefix('~').unwrap_or(segment).as_bytes();
     if rest.is_empty() {
         return false;
     }

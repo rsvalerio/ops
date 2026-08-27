@@ -30,7 +30,11 @@ const ACTION_DISPLAY_ORDER: [Action; 7] = [
 pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> String {
     let mut counts: HashMap<Action, usize> = HashMap::new();
     for c in changes {
-        *counts.entry(c.action).or_default() += 1;
+        // Each tally counts a distinct element of the in-memory `changes`
+        // slice, so no count can exceed `changes.len()` (at most `isize::MAX`)
+        // and `saturating_add` is exactly `+ 1`.
+        let count = counts.entry(c.action).or_default();
+        *count = count.saturating_add(1);
     }
 
     if changes.is_empty() {
@@ -53,8 +57,13 @@ pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> St
     }
 
     let adds = counts.get(&Action::Create).copied().unwrap_or(0);
-    let changes_count = counts.get(&Action::Update).copied().unwrap_or(0)
-        + counts.get(&Action::Replace).copied().unwrap_or(0);
+    // Disjoint tallies over the same slice, so the sum is at most
+    // `changes.len()` and `saturating_add` is exactly `+`.
+    let changes_count = counts
+        .get(&Action::Update)
+        .copied()
+        .unwrap_or(0)
+        .saturating_add(counts.get(&Action::Replace).copied().unwrap_or(0));
     let destroys = counts.get(&Action::Delete).copied().unwrap_or(0);
 
     let summary =
@@ -65,12 +74,14 @@ pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> St
 
 /// PATTERN-1 / TASK-1017: `is_tty` drives terminal-width probing
 /// (right-sizing the `Module` column); `use_color` drives whether
-/// `Action::color()` is applied to cells. The two were previously
-/// conflated under one boolean, which (a) made piped-but-coloured
-/// output environment-sensitive and (b) disabled width probing on a
-/// real TTY when `--no-color` was set. Callers must derive `is_tty`
-/// from `IsTerminal` on the actual writer (or pass `false` for buffered
-/// sinks) and `use_color` from the user's preference (e.g. `!no_color`).
+/// `Action::color()` is applied to cells.
+///
+/// The two were previously conflated under one boolean, which (a) made
+/// piped-but-coloured output environment-sensitive and (b) disabled
+/// width probing on a real TTY when `--no-color` was set. Callers must
+/// derive `is_tty` from `IsTerminal` on the actual writer (or pass
+/// `false` for buffered sinks) and `use_color` from the user's
+/// preference (e.g. `!no_color`).
 #[must_use]
 pub fn render_resource_table(
     changes: &[ClassifiedChange],
@@ -120,7 +131,7 @@ Inspect the rows marked `unknown` before applying.\n"
     // tests, CI snapshots) made render output environment-sensitive and
     // broke byte-identical snapshot reproducibility.
     let term_width = if is_tty {
-        terminal_size::terminal_size().map(|(w, _)| w.0 as usize)
+        terminal_size::terminal_size().map(|(w, _)| usize::from(w.0))
     } else {
         None
     };

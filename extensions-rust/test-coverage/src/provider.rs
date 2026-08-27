@@ -7,7 +7,7 @@ use crate::parse::{collect_coverage, CoverageRow};
 use ops_duckdb::DuckDb;
 use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema};
 
-pub(crate) struct CoverageProvider;
+pub struct CoverageProvider;
 
 impl DataProvider for CoverageProvider {
     fn name(&self) -> &'static str {
@@ -58,7 +58,7 @@ impl DataProvider for CoverageProvider {
 /// and the JSON row builder share one schema. Column binding is by name
 /// (TASK-1610) so reordering the SELECT or swapping same-typed columns
 /// produces a clear runtime error instead of silent data corruption.
-pub(crate) fn query_coverage_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
+pub fn query_coverage_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
     ops_duckdb::sql::query_rows_to_json(
         db,
         "SELECT filename, lines_count, lines_covered, lines_percent, \
@@ -91,10 +91,7 @@ pub(crate) fn query_coverage_files(db: &DuckDb) -> Result<serde_json::Value, any
     )
 }
 
-pub(crate) fn provide_from_db(
-    db: &DuckDb,
-    ctx: &Context,
-) -> Result<serde_json::Value, anyhow::Error> {
+pub fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
     ops_duckdb::sql::provide_via_ingestor(
         db,
         ctx,

@@ -33,10 +33,12 @@ pub const NAME: &str = "config-checkers";
 pub const DESCRIPTION: &str = "JSON and YAML parse-validators";
 pub const SHORTNAME: &str = "config-checkers";
 
-/// Default per-file size cap (16 MiB). Files exceeding this are skipped and
-/// recorded in [`CheckerReport::files_skipped`] rather than read into memory
-/// and parsed — a defence against accidental or malicious oversized inputs
-/// triggering an allocator/parser `DoS` on CI runners and pre-commit hosts.
+/// Default per-file size cap (16 MiB).
+///
+/// Files exceeding this are skipped and recorded in
+/// [`CheckerReport::files_skipped`] rather than read into memory and parsed
+/// — a defence against accidental or malicious oversized inputs triggering
+/// an allocator/parser `DoS` on CI runners and pre-commit hosts.
 pub const DEFAULT_MAX_BYTES: u64 = 16 * 1024 * 1024;
 
 pub struct ConfigCheckersExtension;
@@ -115,7 +117,7 @@ pub struct CheckerOptions {
 
 impl CheckerOptions {
     #[must_use]
-    pub fn new(root: PathBuf, tracked_only: bool) -> Self {
+    pub const fn new(root: PathBuf, tracked_only: bool) -> Self {
         Self {
             root,
             tracked_only,
@@ -125,13 +127,13 @@ impl CheckerOptions {
     }
 
     #[must_use]
-    pub fn with_allow_json5(mut self, allow: bool) -> Self {
+    pub const fn with_allow_json5(mut self, allow: bool) -> Self {
         self.allow_json5 = allow;
         self
     }
 
     #[must_use]
-    pub fn with_max_bytes(mut self, max_bytes: u64) -> Self {
+    pub const fn with_max_bytes(mut self, max_bytes: u64) -> Self {
         self.max_bytes = max_bytes;
         self
     }
@@ -157,7 +159,7 @@ pub struct CheckerReport {
 
 impl CheckerReport {
     #[must_use]
-    pub fn failed(&self) -> bool {
+    pub const fn failed(&self) -> bool {
         !self.files_failed.is_empty()
     }
 }
@@ -227,6 +229,9 @@ where
         })?;
     let mut report = CheckerReport::default();
 
+    // The counters below tally entries of `files`, an in-memory `Vec` produced
+    // by one discovery walk, so their totals are bounded by its length and the
+    // `saturating_add` guards can never actually saturate.
     for path in files {
         if !ext_ok(path.extension()) {
             continue;
@@ -237,7 +242,7 @@ where
         // memory just to discover the parser would OOM on it.
         match std::fs::metadata(&path) {
             Ok(md) if md.len() > opts.max_bytes => {
-                report.files_skipped += 1;
+                report.files_skipped = report.files_skipped.saturating_add(1);
                 writeln!(
                     writer,
                     "{label}: {}: skipped (size {} exceeds cap {})",
@@ -250,7 +255,7 @@ where
             }
             Ok(_) => {}
             Err(e) => {
-                report.files_scanned += 1;
+                report.files_scanned = report.files_scanned.saturating_add(1);
                 let msg = format!("metadata: {e}");
                 writeln!(writer, "{label}: {}: {msg}", display.display())
                     .with_context(|| format!("{label}: writing failure line failed"))?;
@@ -265,7 +270,7 @@ where
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
             Err(e) => {
-                report.files_scanned += 1;
+                report.files_scanned = report.files_scanned.saturating_add(1);
                 let msg = format!("read: {e}");
                 writeln!(writer, "{label}: {}: {msg}", display.display())
                     .with_context(|| format!("{label}: writing failure line failed"))?;
@@ -276,7 +281,7 @@ where
                 continue;
             }
         };
-        report.files_scanned += 1;
+        report.files_scanned = report.files_scanned.saturating_add(1);
         if let Err(err) = check(&bytes) {
             let msg = err.to_string();
             writeln!(writer, "{label}: {}: {msg}", display.display())

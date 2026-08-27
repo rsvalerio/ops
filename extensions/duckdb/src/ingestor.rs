@@ -25,7 +25,7 @@ pub struct LoadResult {
 }
 
 impl LoadResult {
-    pub fn success(source_name: &'static str, record_count: u64) -> Self {
+    pub const fn success(source_name: &'static str, record_count: u64) -> Self {
         Self {
             source_name,
             record_count,

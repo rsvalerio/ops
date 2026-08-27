@@ -20,9 +20,11 @@ pub fn get_terminal_width() -> usize {
     parse_terminal_width(std::env::var("COLUMNS").ok().as_deref())
 }
 
-/// Parse a COLUMNS-style width source. Extracted from `get_terminal_width`
-/// so tests can exercise the parser without mutating process-global env,
-/// which otherwise races with any parallel test reading COLUMNS.
+/// Parse a COLUMNS-style width source.
+///
+/// Extracted from `get_terminal_width` so tests can exercise the parser
+/// without mutating process-global env, which otherwise races with any
+/// parallel test reading COLUMNS.
 #[must_use]
 pub fn parse_terminal_width(raw: Option<&str>) -> usize {
     raw.and_then(|s| s.parse().ok()).unwrap_or(120)
@@ -58,23 +60,29 @@ pub fn pad_to_width_plain(s: &str, width: usize) -> String {
     if current_width >= width {
         s.to_string()
     } else {
-        format!("{}{}", s, " ".repeat(width - current_width))
+        // `current_width < width` on this branch, so `saturating_sub` is
+        // exactly `width - current_width`.
+        format!("{}{}", s, " ".repeat(width.saturating_sub(current_width)))
     }
 }
 
 #[must_use]
 pub fn truncate_to_width(s: &str, max_width: usize) -> String {
     let mut result = String::new();
-    let mut width = 0;
+    let mut width: usize = 0;
 
     for c in s.chars() {
         let c_width = char_display_width(c);
-        if width + c_width > max_width.saturating_sub(1) {
+        // `width` never exceeds `max_width - 1` (the accumulate below only runs
+        // when this test is false), so the sum is exact for every `max_width`
+        // short of `usize::MAX`; at that extreme saturation still takes the
+        // same branch the checked sum would.
+        if width.saturating_add(c_width) > max_width.saturating_sub(1) {
             result.push('\u{2026}');
             break;
         }
         result.push(c);
-        width += c_width;
+        width = width.saturating_add(c_width);
     }
 
     result
@@ -108,7 +116,9 @@ thread_local! {
 /// TASK-0709 fixed — shows up in the count above.
 fn measure_width(s: &str) -> usize {
     #[cfg(test)]
-    WIDTH_CHARS.with(|c| c.set(c.get() + s.chars().count()));
+    // Test-only tally over in-memory strings; the count cannot approach
+    // `usize::MAX`, so saturation is unreachable.
+    WIDTH_CHARS.with(|c| c.set(c.get().saturating_add(s.chars().count())));
     display_width(s)
 }
 
@@ -161,10 +171,12 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
         if current_line.is_empty() {
             current_line.push_str(word);
             current_width = word_width;
-        } else if current_width + 1 + word_width <= max_width {
+        } else if current_width.saturating_add(1).saturating_add(word_width) <= max_width {
+            // Reached only when the sum above fits in `max_width`, so this
+            // accumulation is exact.
             current_line.push(' ');
             current_line.push_str(word);
-            current_width += 1 + word_width;
+            current_width = current_width.saturating_add(1).saturating_add(word_width);
         } else {
             lines.push(std::mem::take(&mut current_line));
             current_line.push_str(word);
@@ -250,7 +262,7 @@ pub fn pad_header(left: &str, right: &str, target_content_width: usize) -> Strin
     // one trailing space" — at minimum keeps the halves visually distinct
     // even when the card is narrower than the header content.
     let padding = target_content_width
-        .saturating_sub(left_display + right_display + 1)
+        .saturating_sub(left_display.saturating_add(right_display).saturating_add(1))
         .max(1);
     format!("{}{}{} ", left, " ".repeat(padding), right)
 }
@@ -535,7 +547,9 @@ mod tests {
         // target_content_width is far smaller than left+right+1, forcing the
         // overflow / saturating-sub branch.
         let result = pad_header(left, right, 4);
-        let between = &result[left.len()..result.len() - right.len() - 1];
+        let between = result
+            .get(left.len()..result.len() - right.len() - 1)
+            .expect("result is the left half, a separator, then the right half");
         assert!(
             between.contains(' '),
             "expected at least one space between left and right halves; got {result:?}"

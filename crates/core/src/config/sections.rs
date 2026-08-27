@@ -18,7 +18,7 @@ pub struct ExtensionConfig {
 }
 
 impl ExtensionConfig {
-    pub(crate) fn is_default(&self) -> bool {
+    pub(crate) const fn is_default(&self) -> bool {
         self.enabled.is_none()
     }
 }
@@ -33,7 +33,7 @@ pub struct AboutConfig {
 }
 
 impl AboutConfig {
-    pub(crate) fn is_default(&self) -> bool {
+    pub(crate) const fn is_default(&self) -> bool {
         self.fields.is_none()
     }
 }
@@ -49,7 +49,7 @@ pub struct DataConfig {
 }
 
 impl DataConfig {
-    pub(crate) fn is_default(&self) -> bool {
+    pub(crate) const fn is_default(&self) -> bool {
         self.path.is_none()
     }
 }
@@ -106,27 +106,27 @@ fn default_theme() -> String {
 /// `Config` regardless of the calling terminal. Use `0` as an "auto" sentinel
 /// for the serde default; terminal-aware width is resolved at render time via
 /// [`OutputConfig::resolve_columns`].
-pub(crate) const AUTO_COLUMNS: u16 = 0;
+pub const AUTO_COLUMNS: u16 = 0;
 
 /// Fallback used when no terminal is attached (CI, piped output) and the user
 /// did not pin `columns` in `.ops.toml`.
 const FALLBACK_COLUMNS: u16 = 80;
 
-fn default_columns() -> u16 {
+const fn default_columns() -> u16 {
     AUTO_COLUMNS
 }
 
 /// Compute 90% of the reported terminal width without wrapping u16.
 /// SEC-15 / TASK-0344: widths above ~7281 cols would overflow `w * 9`.
 /// Promote to u32 for the multiply, then clamp back to u16.
-pub(crate) fn scale_columns(width: u16) -> u16 {
+pub fn scale_columns(width: u16) -> u16 {
     let scaled = u32::from(width) * 9 / 10;
     u16::try_from(scaled).unwrap_or(u16::MAX)
 }
 
 // serde's `skip_serializing_if` predicates are always called with `&T`.
 #[allow(clippy::trivially_copy_pass_by_ref)]
-fn is_default_columns(v: &u16) -> bool {
+const fn is_default_columns(v: &u16) -> bool {
     *v == AUTO_COLUMNS
 }
 
@@ -159,12 +159,12 @@ impl OutputConfig {
     }
 }
 
-fn default_stderr_tail_lines() -> usize {
+const fn default_stderr_tail_lines() -> usize {
     5
 }
 
 // serde's `skip_serializing_if` predicates are always called with `&T`.
 #[allow(clippy::trivially_copy_pass_by_ref)]
-fn is_default_stderr_tail_lines(v: &usize) -> bool {
+const fn is_default_stderr_tail_lines(v: &usize) -> bool {
     *v == default_stderr_tail_lines()
 }

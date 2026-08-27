@@ -16,15 +16,13 @@ use crate::{about_cmd, extension_cmd, pre_hook_cmd, run_cmd, theme_cmd, SIGINT_E
 /// extension subcommand handlers. Collapses the per-handler boilerplate and
 /// threads the pre-resolved `Config` so the helper no longer re-loads
 /// `.ops.toml`.
-pub(crate) fn cli_data_context(
-    config: &Config,
-) -> anyhow::Result<(PathBuf, ops_extension::DataRegistry)> {
+pub fn cli_data_context(config: &Config) -> anyhow::Result<(PathBuf, ops_extension::DataRegistry)> {
     let cwd = crate::cwd()?;
     let registry = crate::registry::build_data_registry(config, &cwd)?;
     Ok((cwd, registry))
 }
 
-pub(crate) fn run_about(
+pub fn run_about(
     config: &Config,
     refresh: bool,
     action: Option<AboutAction>,
@@ -55,13 +53,13 @@ pub(crate) fn run_about(
 }
 
 #[cfg(feature = "stack-rust")]
-pub(crate) fn run_deps(config: &Config, refresh: bool) -> anyhow::Result<()> {
+pub fn run_deps(config: &Config, refresh: bool) -> anyhow::Result<()> {
     let (_cwd, registry) = cli_data_context(config)?;
     let opts = ops_deps::DepsOptions { refresh };
     ops_deps::run_deps(&registry, &opts)
 }
 
-pub(crate) fn run_create_review_tasks(config: &Config, dry_run: bool) -> anyhow::Result<()> {
+pub fn run_create_review_tasks(config: &Config, dry_run: bool) -> anyhow::Result<()> {
     let (cwd, registry) = cli_data_context(config)?;
     let mode = if dry_run {
         ops_create_review_tasks::RunMode::DryRun
@@ -71,7 +69,7 @@ pub(crate) fn run_create_review_tasks(config: &Config, dry_run: bool) -> anyhow:
     ops_create_review_tasks::run_create_review_tasks(&registry, &cwd, &mut std::io::stdout(), mode)
 }
 
-pub(crate) fn run_theme(config: &Config, action: ThemeAction) -> anyhow::Result<()> {
+pub fn run_theme(config: &Config, action: ThemeAction) -> anyhow::Result<()> {
     match action {
         ThemeAction::List => theme_cmd::run_theme_list(config),
         ThemeAction::Select => {
@@ -81,7 +79,7 @@ pub(crate) fn run_theme(config: &Config, action: ThemeAction) -> anyhow::Result<
     }
 }
 
-pub(crate) fn run_extension(config: &Config, action: ExtensionAction) -> anyhow::Result<()> {
+pub fn run_extension(config: &Config, action: ExtensionAction) -> anyhow::Result<()> {
     match action {
         ExtensionAction::List => extension_cmd::run_extension_list(config),
         ExtensionAction::Show { name } => {
@@ -126,13 +124,10 @@ fn classify_confirm_result(
 /// rule produced exactly that inversion.
 fn env_flag_enabled(name: &str) -> bool {
     const FALSY: &[&str] = &["", "0", "false", "no", "off", "n"];
-    match std::env::var(name) {
-        Ok(v) => {
-            let t = v.trim();
-            !FALSY.iter().any(|f| t.eq_ignore_ascii_case(f))
-        }
-        Err(_) => false,
-    }
+    std::env::var(name).is_ok_and(|v| {
+        let t = v.trim();
+        !FALSY.iter().any(|f| t.eq_ignore_ascii_case(f))
+    })
 }
 
 /// Non-interactive policy lifted out of `prompt_hook_install`
@@ -272,7 +267,7 @@ fn run_hook_action(
     }
 }
 
-pub(crate) fn run_before_commit(
+pub fn run_before_commit(
     config: std::sync::Arc<Config>,
     action: Option<RunBeforeCommitAction>,
     changed_only: bool,
@@ -289,7 +284,7 @@ pub(crate) fn run_before_commit(
 /// no pre-push preflight exists. The flag was removed from
 /// `args::CoreSubcommand::RunBeforePush` to stop it from parsing as a
 /// silent no-op.
-pub(crate) fn run_before_push(
+pub fn run_before_push(
     config: std::sync::Arc<Config>,
     action: Option<RunBeforePushAction>,
 ) -> anyhow::Result<ExitCode> {
@@ -326,7 +321,7 @@ where
     }
 }
 
-pub(crate) fn run_trailing_whitespace(tracked: bool) -> anyhow::Result<ExitCode> {
+pub fn run_trailing_whitespace(tracked: bool) -> anyhow::Result<ExitCode> {
     run_text_fixer(
         "trailing-whitespace",
         tracked,
@@ -334,7 +329,7 @@ pub(crate) fn run_trailing_whitespace(tracked: bool) -> anyhow::Result<ExitCode>
     )
 }
 
-pub(crate) fn run_end_of_file_fixer(tracked: bool) -> anyhow::Result<ExitCode> {
+pub fn run_end_of_file_fixer(tracked: bool) -> anyhow::Result<ExitCode> {
     run_text_fixer(
         "end-of-file-fixer",
         tracked,
@@ -367,13 +362,13 @@ where
     }
 }
 
-pub(crate) fn run_check_json(tracked: bool, allow_json5: bool) -> anyhow::Result<ExitCode> {
+pub fn run_check_json(tracked: bool, allow_json5: bool) -> anyhow::Result<ExitCode> {
     let cwd = crate::cwd()?;
     let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked).with_allow_json5(allow_json5);
     run_config_checker("check-json", &opts, ops_config_checkers::run_check_json)
 }
 
-pub(crate) fn run_check_yaml(tracked: bool) -> anyhow::Result<ExitCode> {
+pub fn run_check_yaml(tracked: bool) -> anyhow::Result<ExitCode> {
     let cwd = crate::cwd()?;
     let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked);
     run_config_checker("check-yaml", &opts, ops_config_checkers::run_check_yaml)

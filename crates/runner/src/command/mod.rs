@@ -46,12 +46,13 @@ pub use results::StepResult;
 pub use secret_patterns::is_sensitive_env_key;
 pub use secret_patterns::looks_like_secret_value as looks_like_secret_value_public;
 
-/// Shared "id not found in any store" failure. DUP-3 / TASK-0769:
-/// [`ResolveExecError`] and [`ExpandError`] previously each defined an
-/// `Unknown(String)` variant with identical Display strings. Both now wrap
-/// this single struct so the message lives in one place and a future
-/// caller can convert between the parent enums via `#[from]` without
-/// reconstructing the inner string.
+/// Shared "id not found in any store" failure.
+///
+/// DUP-3 / TASK-0769: [`ResolveExecError`] and [`ExpandError`] previously
+/// each defined an `Unknown(String)` variant with identical Display
+/// strings. Both now wrap this single struct so the message lives in one
+/// place and a future caller can convert between the parent enums via
+/// `#[from]` without reconstructing the inner string.
 #[derive(Debug, thiserror::Error, PartialEq, Eq, Clone)]
 #[error("unknown command: {0}")]
 pub struct UnknownCommand(pub String);
@@ -208,20 +209,19 @@ impl CommandRunner {
     pub fn from_arc_config(config: Arc<Config>, cwd: PathBuf) -> Self {
         let detected_stack = Stack::resolve(config.stack.as_deref(), &cwd);
 
-        let stack_commands: IndexMap<CommandId, CommandSpec> = if let Some(stack) = detected_stack {
-            let defaults = stack.default_commands();
-            debug!(
-                stack = stack.as_str(),
-                command_count = defaults.len(),
-                "loaded stack default commands"
-            );
-            defaults
-                .into_iter()
-                .map(|(k, v)| (CommandId::from(k), v))
-                .collect()
-        } else {
-            IndexMap::new()
-        };
+        let stack_commands: IndexMap<CommandId, CommandSpec> =
+            detected_stack.map_or_else(IndexMap::new, |stack| {
+                let defaults = stack.default_commands();
+                debug!(
+                    stack = stack.as_str(),
+                    command_count = defaults.len(),
+                    "loaded stack default commands"
+                );
+                defaults
+                    .into_iter()
+                    .map(|(k, v)| (CommandId::from(k), v))
+                    .collect()
+            });
 
         // ERR-1 / TASK-1462: a non-UTF-8 workspace root would otherwise
         // lossy-render into the OPS_ROOT builtin and defeat the
@@ -290,7 +290,7 @@ impl CommandRunner {
     /// `run-before-push`) call this with `CwdEscapePolicy::Deny` so a
     /// `.ops.toml` `cwd = "/etc"` or `cwd = "../../"` is refused at spawn
     /// time instead of producing a tracing warning and proceeding.
-    pub fn set_cwd_escape_policy(&mut self, policy: CwdEscapePolicy) {
+    pub const fn set_cwd_escape_policy(&mut self, policy: CwdEscapePolicy) {
         self.cwd_escape_policy = policy;
     }
 
@@ -385,7 +385,7 @@ impl CommandRunner {
 
     /// Detected or configured stack.
     #[must_use]
-    pub fn stack(&self) -> Option<Stack> {
+    pub const fn stack(&self) -> Option<Stack> {
         self.detected_stack
     }
 
@@ -478,6 +478,9 @@ impl CommandRunner {
     /// If `command_id` resolves to nothing, if composite expansion fails
     /// (unknown reference, cycle, depth limit, conflicting schedule flags), or
     /// if a step cannot be built or spawned.
+    // Same `!Send` reasoning as `run_plan_parallel`: the `on_event` sink is
+    // backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
+    #[allow(clippy::future_not_send)]
     pub async fn run(
         &self,
         command_id: &str,

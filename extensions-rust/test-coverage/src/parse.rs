@@ -18,7 +18,7 @@ use std::path::Path;
 /// adding a new metric (e.g. `mcdc_*` if llvm-cov adds it) lights up the
 /// compiler at every site instead of silently dropping the field somewhere.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct CoverageRow {
+pub struct CoverageRow {
     pub(crate) filename: String,
     pub(crate) lines_count: i64,
     pub(crate) lines_covered: i64,
@@ -97,13 +97,13 @@ fn extract_section(
 
 /// TASK-1599: batches schema-drift warnings so N malformed files produce at
 /// most one warn per (section, field) pair per `flatten_coverage_json` call.
-pub(crate) struct DriftTracker<'a> {
+pub struct DriftTracker<'a> {
     section_key: &'a str,
     warned: &'a mut std::collections::HashSet<(String, String)>,
 }
 
 impl<'a> DriftTracker<'a> {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         section_key: &'a str,
         warned: &'a mut std::collections::HashSet<(String, String)>,
     ) -> Self {
@@ -144,9 +144,8 @@ fn read_field<T: Default>(
     type_name: &'static str,
     drift: &mut DriftTracker<'_>,
 ) -> T {
-    match section.get(field) {
-        None => T::default(),
-        Some(v) => accessor(v).unwrap_or_else(|| {
+    section.get(field).map_or_else(T::default, |v| {
+        accessor(v).unwrap_or_else(|| {
             if v.is_null() {
                 tracing::debug!(
                     section = drift.section_key,
@@ -157,8 +156,8 @@ fn read_field<T: Default>(
                 drift.warn_wrong_shape(field, v, type_name);
             }
             T::default()
-        }),
-    }
+        })
+    })
 }
 
 fn read_i64_field(section: &serde_json::Value, field: &str, drift: &mut DriftTracker<'_>) -> i64 {
@@ -214,12 +213,19 @@ fn dedup_push(
     duplicate_count: &mut usize,
 ) {
     if let Some(&idx) = idx_map.get(&record.filename) {
-        records[idx] = record;
-        *duplicate_count += 1;
+        // `idx_map` only ever holds indices handed out by the `else` arm, so
+        // a miss here would mean the two fell out of sync: keep the earlier
+        // row instead of panicking the whole coverage ingest.
+        if let Some(slot) = records.get_mut(idx) {
+            *slot = record;
+        }
+        // At most one increment per element of the in-memory `files` arrays,
+        // whose combined length is bounded by `isize::MAX`, so
+        // `saturating_add` equals `+= 1` exactly.
+        *duplicate_count = duplicate_count.saturating_add(1);
     } else {
-        let idx = records.len();
+        idx_map.insert(record.filename.clone(), records.len());
         records.push(record);
-        idx_map.insert(records[idx].filename.clone(), idx);
     }
 }
 
@@ -228,9 +234,7 @@ fn dedup_push(
 /// optionally warn. The per-record construction lives in [`build_record`],
 /// the dedup branch in [`dedup_push`].
 #[must_use = "flatten output drives coverage_files ingest; dropping it loses every per-file row"]
-pub(crate) fn flatten_coverage_json(
-    raw: &serde_json::Value,
-) -> Result<serde_json::Value, anyhow::Error> {
+pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Value, anyhow::Error> {
     let data = raw
         .get("data")
         .and_then(|d| d.as_array())
@@ -269,7 +273,10 @@ pub(crate) fn flatten_coverage_json(
         std::collections::HashSet::new();
     for file in file_arrays.into_iter().flat_map(|f| f.iter()) {
         let Some(record) = build_record(file, &mut drift_warned) else {
-            skipped_count += 1;
+            // At most one increment per element of the in-memory `files`
+            // arrays, whose combined length is bounded by `isize::MAX`, so
+            // `saturating_add` equals `+= 1` exactly.
+            skipped_count = skipped_count.saturating_add(1);
             continue;
         };
         dedup_push(
@@ -300,7 +307,7 @@ pub(crate) fn flatten_coverage_json(
 
 /// Formats non-empty stderr as a diagnostic tail for logging. Returns
 /// `None` when stderr is empty so the caller can skip the log line entirely.
-pub(crate) fn format_stderr_diagnostic(stderr: &[u8]) -> Option<String> {
+pub fn format_stderr_diagnostic(stderr: &[u8]) -> Option<String> {
     if stderr.is_empty() {
         return None;
     }
@@ -327,7 +334,7 @@ pub(crate) fn format_stderr_diagnostic(stderr: &[u8]) -> Option<String> {
 /// instrumentation skips and compiler warnings are visible in operator
 /// logs without re-running with `RUST_LOG=debug`.
 #[must_use = "collect_coverage drives the coverage ingest; dropping the result throws the run away"]
-pub(crate) fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
+pub fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
     // The JSON report is written to a temp file via `--output-path` rather
     // than captured from stdout: the report grows with the workspace and a
     // ~8 MB document blows past the OPS_OUTPUT_BYTE_CAP stdout cap, which

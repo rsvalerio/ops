@@ -81,8 +81,8 @@ pub trait CommandMeta {
 impl CommandSpec {
     fn meta(&self) -> &dyn CommandMeta {
         match self {
-            CommandSpec::Exec(e) => e,
-            CommandSpec::Composite(c) => c,
+            Self::Exec(e) => e,
+            Self::Composite(c) => c,
         }
     }
 
@@ -108,8 +108,8 @@ impl CommandSpec {
     #[must_use]
     pub fn display_cmd_fallback(&self) -> String {
         match self {
-            CommandSpec::Exec(e) => e.display_cmd().into_owned(),
-            CommandSpec::Composite(c) => c.commands.join(", "),
+            Self::Exec(e) => e.display_cmd().into_owned(),
+            Self::Composite(c) => c.commands.join(", "),
         }
     }
 }
@@ -204,7 +204,7 @@ impl ExecCommandSpec {
             !self.program.is_empty(),
             "command '{name}': program must not be empty"
         );
-        if let Some(0) = self.timeout_secs {
+        if self.timeout_secs == Some(0) {
             anyhow::bail!("command '{name}': timeout_secs must be greater than 0");
         }
         check_control_chars(name, "program", &self.program)?;
@@ -301,7 +301,7 @@ impl ExecCommandSpec {
 /// `sh -c` as one word identical to `value`. Keeps the common case (flags,
 /// paths) uncluttered while ensuring `cargo build --config evil="; rm -rf /"`
 /// renders as a single word in dry-run output.
-pub(crate) fn shell_quote(value: &str) -> Cow<'_, str> {
+pub fn shell_quote(value: &str) -> Cow<'_, str> {
     let safe = !value.is_empty()
         && value.chars().all(|c| {
             c.is_ascii_alphanumeric()
@@ -310,7 +310,7 @@ pub(crate) fn shell_quote(value: &str) -> Cow<'_, str> {
     if safe {
         Cow::Borrowed(value)
     } else {
-        let mut out = String::with_capacity(value.len() + 2);
+        let mut out = String::with_capacity(value.len().saturating_add(2));
         out.push('\'');
         for c in value.chars() {
             if c == '\'' {
@@ -332,11 +332,11 @@ fn check_control_chars(name: &str, field: &str, value: &str) -> anyhow::Result<(
     if let Some((idx, ch)) = value
         .chars()
         .enumerate()
-        .find(|(_, c)| (*c as u32) < 0x20 && *c != '\t')
+        .find(|(_, c)| u32::from(*c) < 0x20 && *c != '\t')
     {
         anyhow::bail!(
             "command '{name}': {field} contains control character U+{code:04X} at position {idx}",
-            code = ch as u32,
+            code = u32::from(ch),
         );
     }
     Ok(())
@@ -352,7 +352,10 @@ fn join_shell_quoted(parts: &[String]) -> String {
     // plus a separating space. The unsafe-quoting path pushes a few more
     // bytes; treating that as a rare overflow keeps the common dry-run
     // render to a single allocation.
-    let cap = parts.iter().map(|p| p.len() + 1).sum::<usize>();
+    let cap = parts
+        .iter()
+        .map(|p| p.len().saturating_add(1))
+        .sum::<usize>();
     let mut out = String::with_capacity(cap);
     for (i, part) in parts.iter().enumerate() {
         if i > 0 {

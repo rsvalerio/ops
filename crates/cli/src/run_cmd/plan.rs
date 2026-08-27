@@ -20,7 +20,7 @@ use ops_runner::command::StepResult;
 /// [`run_external_command`] already rejects empty argv before reaching
 /// here, so the error path is a defensive fail-loud guard rather than a
 /// behavioural change for the happy path.
-pub(crate) fn merge_plan(
+pub fn merge_plan(
     runner: &ops_runner::command::CommandRunner,
     names: &[&str],
 ) -> anyhow::Result<(Vec<ops_core::config::CommandId>, bool, bool)> {
@@ -53,7 +53,7 @@ pub(crate) fn merge_plan(
     Ok((all_leaf_ids, any_parallel, fail_fast))
 }
 
-pub(crate) fn display_cmd_for(runner: &ops_runner::command::CommandRunner, id: &str) -> String {
+pub fn display_cmd_for(runner: &ops_runner::command::CommandRunner, id: &str) -> String {
     // Match every CommandSpec variant explicitly so a
     // future variant fails to compile here rather than silently falling
     // back to the bare id in plan rows. Composites surface a comma-joined
@@ -67,7 +67,7 @@ pub(crate) fn display_cmd_for(runner: &ops_runner::command::CommandRunner, id: &
 }
 
 /// Build a display map from command IDs to their display strings.
-pub(crate) fn build_display_map(
+pub fn build_display_map(
     runner: &ops_runner::command::CommandRunner,
     leaf_ids: &[ops_core::config::CommandId],
 ) -> std::collections::HashMap<String, String> {
@@ -78,7 +78,7 @@ pub(crate) fn build_display_map(
 }
 
 /// Log step results at debug level.
-pub(crate) fn log_step_results(results: &[StepResult]) {
+pub fn log_step_results(results: &[StepResult]) {
     for r in results {
         tracing::debug!(
             id = %r.id,

@@ -23,9 +23,11 @@ const DEFAULT_BINARY_PLAN: &str = ".ops/tfplan.binary";
 const DEFAULT_JSON_PLAN: &str = ".ops/tfplan.json";
 
 /// FN-3 / TASK-1281: a single clap-derived struct is the canonical
-/// definition of every `ops plans` flag. The CLI variant carries one
-/// `PlanOptions` and the dispatch arm forwards it directly to
-/// `run_plan_pipeline`, so adding a new flag only edits this struct.
+/// definition of every `ops plans` flag.
+///
+/// The CLI variant carries one `PlanOptions` and the dispatch arm
+/// forwards it directly to `run_plan_pipeline`, so adding a new flag
+/// only edits this struct.
 #[derive(clap::Args, Debug, Clone)]
 pub struct PlanOptions {
     /// Read plan JSON from a file instead of running terraform. Use `-` for stdin.
@@ -69,11 +71,12 @@ pub fn has_changes(classified: &[ClassifiedChange]) -> bool {
 }
 
 /// FN-9 / TASK-0850: thin wrapper that locks `io::stdout()` and delegates
-/// to [`run_plan_pipeline_to_with_tty`]. Preserves the previous public
-/// signature so the binary entry point and downstream callers stay
-/// unchanged. PATTERN-1 / TASK-1017: real TTY-ness is detected on
-/// `stdout` here (via `IsTerminal`) and passed through explicitly,
-/// rather than being derived from `--no-color`.
+/// to [`run_plan_pipeline_to_with_tty`].
+///
+/// Preserves the previous public signature so the binary entry point and
+/// downstream callers stay unchanged. PATTERN-1 / TASK-1017: real
+/// TTY-ness is detected on `stdout` here (via `IsTerminal`) and passed
+/// through explicitly, rather than being derived from `--no-color`.
 ///
 /// # Errors
 ///
@@ -90,6 +93,7 @@ pub fn run_plan_pipeline(opts: &PlanOptions) -> anyhow::Result<ExitCode> {
 
 /// FN-9 / TASK-0850: orchestration entry point that writes rendered
 /// summary / resource / outputs tables to `out` instead of global stdout.
+///
 /// Library callers (LSP plugin, web UI, dry-run) and tests can supply
 /// their own `Vec<u8>` / file / pipe sink without spawning a subprocess.
 ///
@@ -113,7 +117,9 @@ pub fn run_plan_pipeline_to(
 
 /// PATTERN-1 / TASK-1017: explicit form that accepts the writer's
 /// TTY-ness as a separate argument from the user's colour preference
-/// (`opts.no_color`). `is_tty` drives terminal-width probing in
+/// (`opts.no_color`).
+///
+/// `is_tty` drives terminal-width probing in
 /// `render_resource_table`; `!opts.no_color` drives whether
 /// `Action::color()` is applied to cells.
 ///
@@ -211,7 +217,10 @@ fn read_stdin_capped<R: std::io::Read>(reader: &mut R) -> anyhow::Result<String>
         .take(limit)
         .read_to_string(&mut buf)
         .context("failed to read from stdin")?;
-    if buf.len() as u64 > cap {
+    // `usize` is at most 64 bits on every supported target, so this widening
+    // never actually saturates; the `u64::MAX` fallback would compare as
+    // over-cap, which is the safe direction if that ever changed.
+    if u64::try_from(buf.len()).unwrap_or(u64::MAX) > cap {
         anyhow::bail!(
             "plan JSON on stdin exceeds {cap} bytes (override via {PLAN_JSON_MAX_BYTES_ENV})"
         );
@@ -249,7 +258,10 @@ fn read_json_file(path: &str) -> anyhow::Result<String> {
         .take(limit)
         .read_to_string(&mut content)
         .with_context(|| format!("failed to read plan JSON from {path}"))?;
-    if content.len() as u64 > cap {
+    // `usize` is at most 64 bits on every supported target, so this widening
+    // never actually saturates; the `u64::MAX` fallback would compare as
+    // over-cap, which is the safe direction if that ever changed.
+    if u64::try_from(content.len()).unwrap_or(u64::MAX) > cap {
         anyhow::bail!(
             "plan JSON at {path} exceeds {cap} bytes (override via {PLAN_JSON_MAX_BYTES_ENV})"
         );
@@ -339,10 +351,10 @@ fn run_terraform_pipeline(opts: &PlanOptions) -> anyhow::Result<String> {
 }
 
 fn expand_path(path: &str) -> PathBuf {
-    match shellexpand::full(path) {
-        Ok(expanded) => PathBuf::from(expanded.as_ref()),
-        Err(_) => PathBuf::from(path),
-    }
+    shellexpand::full(path).map_or_else(
+        |_| PathBuf::from(path),
+        |expanded| PathBuf::from(expanded.as_ref()),
+    )
 }
 
 fn cleanup_artifacts(opts: &PlanOptions) {

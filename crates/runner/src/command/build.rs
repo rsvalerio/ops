@@ -29,7 +29,7 @@ fn next_workspace_lru_tick() -> u64 {
 /// resident. Production runs see `1` key; tests inject many tempdirs.
 /// The cap is a high-water mark for embedders and integration tests so the
 /// previous unbounded `RwLock<HashMap>` cannot grow without limit.
-pub(crate) const WORKSPACE_CANONICAL_CACHE_CAP: usize = 256;
+pub const WORKSPACE_CANONICAL_CACHE_CAP: usize = 256;
 
 #[derive(Clone)]
 struct WorkspaceCacheEntry {
@@ -61,7 +61,7 @@ struct WorkspaceCacheEntry {
 /// Eviction policy mirrors `extensions/about/src/manifest_cache.rs`
 /// (TASK-1106): least-recently-used by access tick, evicted one entry at
 /// a time when the cap is reached.
-pub(crate) struct WorkspaceCanonicalCache {
+pub struct WorkspaceCanonicalCache {
     /// CONC-7 / TASK-1063: a `Mutex` (rather than `RwLock`) is sufficient
     /// here. The hot path is dominated by lock-free reads downstream of
     /// the canonicalize syscall; the per-spawn cost of the mutex
@@ -191,6 +191,9 @@ impl WorkspaceCanonicalCache {
             "workspace canonicalize cache exceeded cap of {}",
             self.cap
         );
+        // CONC-1: release the cache lock before returning; `canonical` is an
+        // owned clone and needs no further access to the map.
+        drop(guard);
         canonical
     }
 }
@@ -247,7 +250,7 @@ where
 /// to construct one per assertion. Production callers MUST thread the
 /// runner-scoped `Arc<WorkspaceCanonicalCache>` and never reach this static.
 #[cfg(test)]
-pub(crate) fn test_default_workspace_cache() -> &'static Arc<WorkspaceCanonicalCache> {
+pub fn test_default_workspace_cache() -> &'static Arc<WorkspaceCanonicalCache> {
     static CACHE: OnceLock<Arc<WorkspaceCanonicalCache>> = OnceLock::new();
     CACHE.get_or_init(|| Arc::new(WorkspaceCanonicalCache::new()))
 }
@@ -343,7 +346,7 @@ pub enum CwdEscapePolicy {
 
 /// FN-1: classification of how a spec `cwd` relates to the workspace root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EscapeKind {
+pub enum EscapeKind {
     /// Path stays inside the workspace under both lexical and canonical checks.
     Inside,
     /// Path escapes the workspace (lexically and/or via symlink canonicalization).
@@ -353,7 +356,7 @@ pub(crate) enum EscapeKind {
 /// Classify `joined` against `workspace`. Pure function: fast lexical check
 /// first, then a canonical check so a symlink inside the workspace pointing
 /// outside is still caught.
-pub(crate) fn detect_workspace_escape(
+pub fn detect_workspace_escape(
     cache: &WorkspaceCanonicalCache,
     joined: &std::path::Path,
     workspace: &std::path::Path,
@@ -384,7 +387,7 @@ pub(crate) fn detect_workspace_escape(
 /// FN-1: apply an escape policy to a detected escape. `Deny` converts to an
 /// `io::Error`; `WarnAndAllow` emits a tracing warning and lets the caller
 /// continue.
-pub(crate) fn apply_escape_policy(
+pub fn apply_escape_policy(
     policy: CwdEscapePolicy,
     spec_cwd: &std::path::Path,
     workspace_cwd: &std::path::Path,

@@ -17,7 +17,7 @@ use std::path::PathBuf;
 /// failure kind and the step id that triggered it are captured so
 /// `on_run_finished` can emit a single user-visible "tap truncated" warning
 /// and best-effort append a marker line at the end of the tap file itself.
-pub(crate) struct TapWriter {
+pub struct TapWriter {
     file: Option<File>,
     path: Option<PathBuf>,
     truncation: Option<(String, String)>,
@@ -79,7 +79,7 @@ impl TapWriter {
 
     /// Drain a pending truncation record. Returns `Some((step_id, kind))`
     /// once if a write previously failed, `None` afterwards.
-    pub(crate) fn take_truncation(&mut self) -> Option<(String, String)> {
+    pub(crate) const fn take_truncation(&mut self) -> Option<(String, String)> {
         self.truncation.take()
     }
 

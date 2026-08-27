@@ -27,6 +27,7 @@ pub fn init_schema(db: &DuckDb) -> DbResult<()> {
         ",
     )
     .map_err(|e| DbError::query_failed("init_schema", e))?;
+    drop(conn);
     Ok(())
 }
 
@@ -49,6 +50,10 @@ pub fn get_source_checksum(
     let row = stmt.query_row(duckdb::params![source_name, workspace_root], |r| {
         r.get::<_, String>(0)
     });
+    // CONC-1: release the connection guard before mapping the row outcome.
+    // `stmt` borrows `conn`, so it has to go first.
+    drop(stmt);
+    drop(conn);
     match row {
         Ok(s) => Ok(Some(s)),
         Err(duckdb::Error::QueryReturnedNoRows) => Ok(None),
@@ -57,11 +62,13 @@ pub fn get_source_checksum(
 }
 
 /// API-2 / TASK-0912: distinct newtypes for the two adjacent `&str`
-/// parameters of [`DataSourceMetadata::new`]. Both halves of the
-/// `(source_name, workspace_root)` primary key were silently swappable
-/// before; a swap silently wrote rows under the wrong key, producing
-/// duplicate ingest records and divergent checksums no future run could
-/// reconcile. Swap is now a compile error.
+/// parameters of [`DataSourceMetadata::new`].
+///
+/// Both halves of the `(source_name, workspace_root)` primary key were
+/// silently swappable before; a swap silently wrote rows under the
+/// wrong key, producing duplicate ingest records and divergent
+/// checksums no future run could reconcile. Swap is now a compile
+/// error.
 #[derive(Debug, Clone, Copy)]
 pub struct SourceName<'a>(&'a str);
 
@@ -104,7 +111,7 @@ pub struct DataSourceMetadata<'a> {
 
 impl<'a> DataSourceMetadata<'a> {
     #[must_use]
-    pub fn new(
+    pub const fn new(
         source_name: SourceName<'a>,
         workspace_root: WorkspaceRoot<'a>,
         source_path: &'a Path,
@@ -176,6 +183,7 @@ pub fn upsert_data_source(db: &DuckDb, meta: &DataSourceMetadata<'_>) -> DbResul
         ],
     )
     .map_err(|e| DbError::query_failed("upsert_data_source", e))?;
+    drop(conn);
     Ok(())
 }
 
@@ -231,7 +239,9 @@ mod tests {
     fn record_count_over_i32_max_round_trips() {
         let db = DuckDb::open_in_memory().unwrap();
         init_schema(&db).unwrap();
-        let big = (i32::MAX as u64) + 7;
+        // `i32::MAX` is positive, so `unsigned_abs` is an exact widening to
+        // `u32` and `u64::from` an exact widening from there.
+        let big = u64::from(i32::MAX.unsigned_abs()) + 7;
         upsert_data_source(
             &db,
             &DataSourceMetadata::new(
@@ -251,7 +261,10 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(stored as u64, big);
+        drop(conn);
+        // The stored BIGINT must be exactly `big`; an out-of-`u64` (i.e.
+        // negative) value fails the assertion instead of wrapping silently.
+        assert_eq!(u64::try_from(stored).ok(), Some(big));
     }
 
     #[test]

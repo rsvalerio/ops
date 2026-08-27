@@ -138,10 +138,13 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
         }
 
         if let Some(entry) = parse_action_line(clean) {
+            // At most one increment per line of the in-memory `stdout`
+            // string, whose length is bounded by `isize::MAX`, so
+            // `saturating_add` equals `+= 1` exactly.
             match entry.action {
-                UpdateAction::Update => update_count += 1,
-                UpdateAction::Add => add_count += 1,
-                UpdateAction::Remove => remove_count += 1,
+                UpdateAction::Update => update_count = update_count.saturating_add(1),
+                UpdateAction::Add => add_count = add_count.saturating_add(1),
+                UpdateAction::Remove => remove_count = remove_count.saturating_add(1),
             }
             entries.push(entry);
         } else if starts_with_known_verb(clean) {
@@ -202,7 +205,7 @@ fn strip_ansi(s: &str) -> std::borrow::Cow<'_, str> {
             for _ in 0..CSI_SCAN_CAP {
                 match chars.next() {
                     Some(next) => {
-                        let cp = next as u32;
+                        let cp = u32::from(next);
                         buffered.push(next);
                         if (0x40..=0x7E).contains(&cp) {
                             terminated = true;
@@ -288,10 +291,7 @@ fn is_index_progress_line(line: &str) -> bool {
     // Anything after `index` must be the alternate-registry suffix in
     // parens, e.g. `(sparse+https://index.crates.io/)`. Crucially, a real
     // update would have ` -> vX.Y.Z` here.
-    match tokens.next() {
-        None => true,
-        Some(rest) => rest.starts_with('('),
-    }
+    tokens.next().is_none_or(|rest| rest.starts_with('('))
 }
 
 /// True when `line` starts with one of our recognised verb prefixes — used
@@ -303,11 +303,8 @@ fn starts_with_known_verb(line: &str) -> bool {
     // after the verb so prefix-without-boundary matches like `Updatingxyz ...`
     // do not classify as a known verb and emit false-positive drift warnings.
     let matches_verb = ACTION_PREFIXES.iter().any(|(prefix, _, _)| {
-        line.starts_with(prefix)
-            && line[prefix.len()..]
-                .chars()
-                .next()
-                .is_none_or(char::is_whitespace)
+        line.strip_prefix(prefix)
+            .is_some_and(|rest| rest.chars().next().is_none_or(char::is_whitespace))
     });
     if !matches_verb {
         return false;

@@ -166,6 +166,9 @@ fn parse_log_level<W: io::Write>(
     }
 }
 
+// `"tokei=error"` is a string literal in a directive grammar that accepts
+// it; there is no runtime input to report on (docs/clippy.md layer 3).
+#[allow(clippy::expect_used)]
 fn init_logging() {
     let raw = std::env::var("OPS_LOG_LEVEL").ok();
     let log_level = parse_log_level(raw.as_deref(), &mut io::stderr());

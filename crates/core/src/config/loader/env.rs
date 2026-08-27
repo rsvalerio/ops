@@ -75,7 +75,7 @@ fn scan_ops_env_keys() -> (bool, usize) {
             Some(_) => {}
             None => {
                 if k.as_encoded_bytes().starts_with(b"OPS__") {
-                    non_utf8 += 1;
+                    non_utf8 = non_utf8.saturating_add(1);
                 }
             }
         }

@@ -19,10 +19,11 @@ use std::path::{Component, Path};
 
 use crate::manifest_io::read_optional_text;
 
-/// Resolve workspace member globs against `root`, looking for `marker`
-/// (e.g. `"package.json"`, `"pyproject.toml"`) inside each candidate
-/// directory. Excludes are matched with the same single-`*`-per-pattern glob
-/// shape and applied after expansion.
+/// Resolve workspace member globs against `root`, looking for `marker` (e.g.
+/// `"package.json"`, `"pyproject.toml"`) inside each candidate directory.
+///
+/// Excludes are matched with the same single-`*`-per-pattern glob shape and
+/// applied after expansion.
 ///
 /// PATTERN-1 (TASK-1052): an exclude pattern with more than one `*` is
 /// unsupported and fails **closed** — the candidate is dropped (treated as
@@ -58,7 +59,7 @@ pub fn resolve_member_globs(
             tracing::warn!(member, "workspace member contains `..` traversal; skipping");
             continue;
         }
-        if let Some(idx) = member.find('*') {
+        if let Some((prefix, suffix)) = member.split_once('*') {
             // PATTERN-1 (TASK-1069): the original implementation found the
             // first `*` and treated everything before it as the prefix,
             // silently ignoring any suffix after it. That meant `**/foo`
@@ -66,17 +67,21 @@ pub fn resolve_member_globs(
             // `prefix/*/suffix` silently flattened to `prefix/*`. Reject
             // both shapes explicitly with a `tracing::warn` so the
             // divergence is observable rather than silent.
-            let suffix = &member[idx + 1..];
+            // PATTERN-1 (TASK-1069 follow-up): the `*` must span a *whole* path
+            // segment (`*`, `packages/*`). The previous check only rejected a
+            // suffix containing `/`, so a partial-segment pattern like
+            // `packages/*-internal` or `packages/foo*` passed and was then
+            // expanded as a bare `read_dir(prefix)` — the text around the `*`
+            // was silently dropped and every sibling directory matched.
             let is_recursive = member.contains("**");
-            let suffix_is_trivial = suffix.is_empty() || !suffix.contains('/');
-            if is_recursive || !suffix_is_trivial {
+            let is_full_segment = suffix.is_empty() && (prefix.is_empty() || prefix.ends_with('/'));
+            if is_recursive || !is_full_segment {
                 tracing::warn!(
                     member,
-                    "workspace member glob shape unsupported (only single trailing `*` per segment); skipping"
+                    "workspace member glob shape unsupported (only a whole-segment trailing `*`, e.g. `packages/*`); skipping"
                 );
                 continue;
             }
-            let prefix = &member[..idx];
             let parent = root.join(prefix);
             // ERR-1 (TASK-0517): a read_dir error here used to silently
             // produce "No project units found". Log at warn so a permissions
@@ -117,42 +122,18 @@ pub fn resolve_member_globs(
                             // sides as a fallback, log a tracing breadcrumb
                             // either way, and fall back to the absolute
                             // path so the unit is not silently lost.
-                            let rel_string = if let Ok(rel) = path.strip_prefix(root) {
-                                rel.to_string_lossy().to_string()
-                            } else {
-                                // PERF-3 / TASK-1149: hoist the
-                                // root-canonicalize out of the per-entry
-                                // loop so a 200-entry symlinked-root tree
-                                // pays one canonicalize for the root
-                                // (plus one per entry path) instead of
-                                // 200 root canonicalizes.
-                                let root_canon = root_canonical
-                                    .get_or_insert_with(|| std::fs::canonicalize(root).ok())
-                                    .as_deref();
-                                let canonical_rel = root_canon.and_then(|root_canon| {
-                                    std::fs::canonicalize(&path).ok().and_then(|p_canon| {
-                                        p_canon
-                                            .strip_prefix(root_canon)
-                                            .ok()
-                                            .map(|r| r.to_string_lossy().to_string())
-                                    })
-                                });
-                                if let Some(rel) = canonical_rel {
-                                    tracing::debug!(
-                                        root = ?root.display(),
-                                        path = ?path.display(),
-                                        "workspace strip_prefix failed; recovered via canonicalize"
-                                    );
-                                    rel
-                                } else {
-                                    tracing::warn!(
-                                        root = ?root.display(),
-                                        path = ?path.display(),
-                                        "workspace strip_prefix failed and canonicalize did not recover; falling back to absolute path so manifest is not silently dropped"
-                                    );
-                                    path.to_string_lossy().to_string()
-                                }
-                            };
+                            let rel_string = path.strip_prefix(root).map_or_else(
+                                |_| {
+                                    // PERF-3 (TASK-1149): memoise the
+                                    // canonicalised root across the whole
+                                    // member loop, not per entry.
+                                    let root_canon = root_canonical
+                                        .get_or_insert_with(|| std::fs::canonicalize(root).ok())
+                                        .as_deref();
+                                    recover_relative_path(&path, root, root_canon)
+                                },
+                                |rel| rel.to_string_lossy().to_string(),
+                            );
                             resolved.push((rel_string, manifest));
                         }
                     }
@@ -187,6 +168,47 @@ pub fn resolve_member_globs(
     resolved
 }
 
+/// ERR-1 (TASK-1070): recover a workspace-relative path when
+/// `path.strip_prefix(root)` misses, which happens when `root` and the entry
+/// path disagree on symlink resolution (commonly macOS `/var` vs
+/// `/private/var`). Falls back to the absolute path so a
+/// successfully-read manifest is never silently dropped.
+///
+/// `root_canon` is the caller's memoised canonicalised root (PERF-3 /
+/// TASK-1149), or `None` when canonicalising the root itself failed — the
+/// strip cannot succeed without it, so recovery goes straight to the fallback.
+///
+/// Split out of the loop body so the caller's `map_or_else` keeps the common
+/// `strip_prefix` success on one line instead of trailing 25 lines of recovery.
+fn recover_relative_path(path: &Path, root: &Path, root_canon: Option<&Path>) -> String {
+    let canonical_rel = root_canon.and_then(|root_canon| {
+        std::fs::canonicalize(path).ok().and_then(|p_canon| {
+            p_canon
+                .strip_prefix(root_canon)
+                .ok()
+                .map(|r| r.to_string_lossy().to_string())
+        })
+    });
+    canonical_rel.map_or_else(
+        || {
+            tracing::warn!(
+                root = ?root.display(),
+                path = ?path.display(),
+                "workspace strip_prefix failed and canonicalize did not recover; falling back to absolute path so manifest is not silently dropped"
+            );
+            path.to_string_lossy().to_string()
+        },
+        |rel| {
+            tracing::debug!(
+                root = ?root.display(),
+                path = ?path.display(),
+                "workspace strip_prefix failed; recovered via canonicalize"
+            );
+            rel
+        },
+    )
+}
+
 fn try_read_manifest(dir: &Path, marker: &str) -> Option<String> {
     let path = dir.join(marker);
     read_optional_text(&path, marker)
@@ -216,11 +238,11 @@ fn matches_exclude(pattern: &str, candidate: &str) -> bool {
         );
         return true;
     }
-    let idx = pattern
-        .find('*')
-        .expect("star_count == 1 implies a `*` exists");
-    let prefix = &pattern[..idx];
-    let suffix = &pattern[idx + 1..];
+    let Some((prefix, suffix)) = pattern.split_once('*') else {
+        // Unreachable: `star_count == 0` returned above. Falling back to the
+        // exact-match rule keeps the helper total instead of panicking.
+        return pattern == candidate;
+    };
     let Some(rest) = candidate.strip_prefix(prefix) else {
         return false;
     };
@@ -230,9 +252,11 @@ fn matches_exclude(pattern: &str, candidate: &str) -> bool {
     !middle.is_empty() && !middle.contains('/')
 }
 
-/// Manifest-level identity fields surfaced by the units providers. Replaces
-/// the old positional `(Option<String>, Option<String>, Option<String>)` so
-/// argument-order errors at call sites become compile errors.
+/// Manifest-level identity fields surfaced by the units providers.
+///
+/// Replaces the old positional `(Option<String>, Option<String>,
+/// Option<String>)` so argument-order errors at call sites become compile
+/// errors.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PackageMetadata {
     pub name: Option<String>,
@@ -301,6 +325,71 @@ mod tests {
             resolve_member_globs(&["packages/*".to_string()], &[], dir.path(), "package.json");
         let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
         assert_eq!(names, vec!["packages/a", "packages/b"]);
+    }
+
+    /// PATTERN-1 (TASK-1069 follow-up): a partial-segment wildcard is not a
+    /// supported shape. It used to pass validation and then expand as a bare
+    /// `read_dir("packages")`, so `packages/*-internal` silently matched every
+    /// sibling — including `packages/other`, which does not end in `-internal`.
+    /// Rejecting the pattern outright is what keeps the sibling out.
+    #[test]
+    fn rejects_partial_segment_glob_instead_of_matching_every_sibling() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("packages/foo-internal/package.json"),
+            r#"{"name":"foo-internal"}"#,
+        );
+        write(
+            &dir.path().join("packages/other/package.json"),
+            r#"{"name":"other"}"#,
+        );
+
+        let resolved = resolve_member_globs(
+            &["packages/*-internal".to_string()],
+            &[],
+            dir.path(),
+            "package.json",
+        );
+        let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
+        assert!(
+            !names.contains(&"packages/other"),
+            "non-matching sibling must not leak in: {names:?}"
+        );
+        assert!(
+            names.is_empty(),
+            "unsupported glob shape must resolve to nothing: {names:?}"
+        );
+    }
+
+    /// The trailing-`*`-inside-a-segment shape (`packages/foo*`) is rejected
+    /// for the same reason: it used to `read_dir("packages/foo")`, a directory
+    /// that generally does not exist, so it silently resolved to nothing while
+    /// looking like a working prefix filter.
+    #[test]
+    fn rejects_prefix_glob_inside_a_segment() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("packages/foobar/package.json"),
+            r#"{"name":"foobar"}"#,
+        );
+
+        write(
+            &dir.path().join("packages/foo/nested/package.json"),
+            r#"{"name":"nested"}"#,
+        );
+
+        let resolved = resolve_member_globs(
+            &["packages/foo*".to_string()],
+            &[],
+            dir.path(),
+            "package.json",
+        );
+        let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
+        assert!(
+            !names.contains(&"packages/foo/nested"),
+            "must not enumerate children of the literal prefix: {names:?}"
+        );
+        assert!(names.is_empty(), "partial-segment glob must be rejected");
     }
 
     #[test]

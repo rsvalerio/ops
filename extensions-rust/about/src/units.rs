@@ -18,15 +18,15 @@ use crate::query::{
 /// FN-4 (TASK-0805): named struct so adding a field cannot silently shift
 /// positions in tuple destructures at call sites.
 #[derive(Debug, Default, Clone)]
-pub(crate) struct CrateMetadata {
+pub struct CrateMetadata {
     pub name: Option<String>,
     pub version: Option<String>,
     pub description: Option<String>,
 }
 
-pub(crate) const PROVIDER_NAME: &str = "project_units";
+pub const PROVIDER_NAME: &str = "project_units";
 
-pub(crate) struct RustUnitsProvider;
+pub struct RustUnitsProvider;
 
 impl DataProvider for RustUnitsProvider {
     fn name(&self) -> &'static str {
@@ -56,15 +56,15 @@ impl DataProvider for RustUnitsProvider {
         // workspace members.
         // ERR-2 / TASK-0376: query failures route through `query_or_warn` so
         // they don't manifest as a silent "no deps" on a misconfigured DB.
-        let dep_counts: std::collections::HashMap<String, i64> = match ops_duckdb::get_db(ctx) {
-            None => std::collections::HashMap::new(),
-            Some(db) => ops_duckdb::sql::query_or_warn(
-                "query_crate_dep_counts",
-                "per-crate dep_counts will be empty",
-                std::collections::HashMap::<String, i64>::new(),
-                || ops_duckdb::sql::query_crate_dep_counts(db),
-            ),
-        };
+        let dep_counts: std::collections::HashMap<String, i64> = ops_duckdb::get_db(ctx)
+            .map_or_else(std::collections::HashMap::new, |db| {
+                ops_duckdb::sql::query_or_warn(
+                    "query_crate_dep_counts",
+                    "per-crate dep_counts will be empty",
+                    std::collections::HashMap::<String, i64>::new(),
+                    || ops_duckdb::sql::query_crate_dep_counts(db),
+                )
+            });
 
         // PERF-3 / TASK-1569: prime the canonical-manifest-path cache once
         // per workspace (LoadedManifest is itself cached per cwd in the
@@ -126,6 +126,11 @@ impl DataProvider for RustUnitsProvider {
                     // a debug breadcrumb rather than collapsing through
                     // `to_string_lossy` and silently keying on a U+FFFD
                     // corrupted name (sister-policy to TASK-0946).
+                    //
+                    // Both branches log a distinct breadcrumb before yielding;
+                    // `map_or_else` would nest two multi-line closures inside
+                    // an already deeply indented `map` body.
+                    #[allow(clippy::option_if_let_else)]
                     if let Some(key) = canonical_manifest_path.to_str() {
                         let lookup = dep_counts.get(key).copied();
                         if lookup.is_none() {
@@ -177,7 +182,7 @@ impl DataProvider for RustUnitsProvider {
 /// DUP-3 (TASK-0806): delegates to `ops_cargo_toml::CargoToml::parse` so this
 /// extension does not maintain a second TOML parser for the same manifest
 /// shape.
-pub(crate) fn read_crate_metadata(crate_toml_path: &std::path::Path) -> CrateMetadata {
+pub fn read_crate_metadata(crate_toml_path: &std::path::Path) -> CrateMetadata {
     // SEC-33 (TASK-0926): cap the per-crate manifest read; this fans out across
     // every workspace member declared by the root Cargo.toml.
     let content = match ops_core::text::read_capped_to_string(crate_toml_path) {
@@ -235,7 +240,7 @@ pub(crate) fn read_crate_metadata(crate_toml_path: &std::path::Path) -> CrateMet
 /// discards `workspace_root` when `member` is absolute and walks parents on
 /// `..`, which would otherwise drive `read_capped_to_string` and tracing
 /// breadcrumbs at any filesystem location.
-pub(crate) fn resolve_crate_display_name(member: &str, workspace_root: &std::path::Path) -> String {
+pub fn resolve_crate_display_name(member: &str, workspace_root: &std::path::Path) -> String {
     if !member_path_is_workspace_safe(member) {
         tracing::warn!(
             member = %member,

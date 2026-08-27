@@ -11,9 +11,10 @@ use serde::de::DeserializeOwned;
 use ops_extension::{Context, DataProviderError, DataRegistry};
 
 /// Warm a sequence of provider names, swallowing only `NotFound` (which is
-/// expected when a provider is not registered for the active stack). Real
-/// provider failures are surfaced at `tracing::warn!` so a misbehaving
-/// provider doesn't silently zero the rendered subpage.
+/// expected when a provider is not registered for the active stack).
+///
+/// Real provider failures are surfaced at `tracing::warn!` so a
+/// misbehaving provider doesn't silently zero the rendered subpage.
 ///
 /// `subpage` labels the warning so a reader can tell which subpage triggered
 /// the warm-up failure.
@@ -32,8 +33,10 @@ pub fn warm_providers(
 }
 
 /// Fetch a typed payload from the provider registry, returning a fresh
-/// `Default` if the provider is not registered (`NotFound`). Other errors
-/// are propagated so the subpage doesn't render zeros over a real failure.
+/// `Default` if the provider is not registered (`NotFound`).
+///
+/// Other errors are propagated so the subpage doesn't render zeros over a
+/// real failure.
 ///
 /// # Errors
 ///

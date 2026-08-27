@@ -26,21 +26,23 @@ impl ProgressDisplay {
     /// finished — defeating the very disagreement this routine was added to
     /// fix.
     pub(super) fn finalize_orphan_bars(&mut self) {
-        for i in 0..self.state.bars.len() {
-            if self.state.bars[i].is_finished() {
+        // `bars` and `steps` are filled in lock-step by `create_pending_bars`,
+        // so zipping visits exactly the rows the index loop used to; if the
+        // two ever diverged we finalize the common prefix instead of panicking.
+        for (bar, (_, display)) in self.state.bars.iter().zip(self.state.steps.iter()) {
+            if bar.is_finished() {
                 continue;
             }
-            self.state.bars[i].disable_steady_tick();
-            let elapsed = self.state.bars[i].elapsed().as_secs_f64();
-            let step = StepLine::new(
-                StepStatus::Skipped,
-                self.state.steps[i].1.clone(),
-                Some(elapsed),
-            );
-            self.completed_steps += 1;
-            self.skipped_steps += 1;
+            bar.disable_steady_tick();
+            let elapsed = bar.elapsed().as_secs_f64();
+            let step = StepLine::new(StepStatus::Skipped, display.clone(), Some(elapsed));
+            // Both counters advance at most once per element of
+            // `self.state.bars`, an in-memory `Vec`, so these are exactly
+            // equal to `+= 1`.
+            self.completed_steps = self.completed_steps.saturating_add(1);
+            self.skipped_steps = self.skipped_steps.saturating_add(1);
             let line = self.render_and_wrap_step(&step);
-            self.finish_bar(&self.state.bars[i], line);
+            self.finish_bar(bar, line);
         }
     }
 
@@ -65,7 +67,7 @@ impl ProgressDisplay {
     /// Finalize the boxed layout: locks the live header to "Done" and emits
     /// the bottom border. Returns `true` when the active theme renders a
     /// boxed layout and no further finalization is needed.
-    pub(super) fn finalize_boxed_layout(&mut self, duration_secs: f64, success: bool) -> bool {
+    pub(super) fn finalize_boxed_layout(&self, duration_secs: f64, success: bool) -> bool {
         let Some(bottom) = self.render.theme.box_bottom_border(BoxSnapshot {
             completed: self.completed_steps,
             failed: self.failed_steps,
@@ -94,7 +96,7 @@ impl ProgressDisplay {
     /// Finalize the flat (non-boxed) layout: emit the summary line into the
     /// existing footer bar, or as a fallback create a separator + summary
     /// pair when no plan was ever started.
-    pub(super) fn finalize_flat_layout(&mut self, duration_secs: f64, success: bool) {
+    pub(super) fn finalize_flat_layout(&self, duration_secs: f64, success: bool) {
         let summary = self.format_summary(duration_secs, success);
 
         if let Some(ref fb) = self.footer_bar {
@@ -153,11 +155,10 @@ impl ProgressDisplay {
             } else {
                 separator
             };
-            let pb = if let Some(last_bar) = self.state.bars.last() {
-                self.multi.insert_after(last_bar, ProgressBar::new(0))
-            } else {
-                self.multi.add(ProgressBar::new(0))
-            };
+            let pb = self.state.bars.last().map_or_else(
+                || self.multi.add(ProgressBar::new(0)),
+                |last_bar| self.multi.insert_after(last_bar, ProgressBar::new(0)),
+            );
             pb.set_style(pending_style());
             pb.finish_with_message(separator_message);
         } else if separator.is_empty() {

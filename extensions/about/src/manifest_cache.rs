@@ -55,13 +55,17 @@ pub struct CacheEntry {
     last_accessed: u64,
 }
 
+/// Entry map plus the LRU victim queue that bounds it.
+///
 /// PERF-1 / TASK-1240: pair the canonical entry map with a min-heap of
 /// `(last_accessed, path)` so cap-bound eviction picks the least-recently-
 /// used entry in `O(log n)` (heap pop with lazy invalidation) instead of an
-/// `O(n)` `min_by_key` scan over the whole map. The heap may contain stale
-/// `(tick, path)` pairs (a hit pushes a fresh entry but leaves the older
-/// one in place); the eviction loop discards those by comparing the popped
-/// tick against `map[path].last_accessed` before removing.
+/// `O(n)` `min_by_key` scan over the whole map.
+///
+/// The heap may contain stale `(tick, path)` pairs (a hit pushes a fresh
+/// entry but leaves the older one in place); the eviction loop discards
+/// those by comparing the popped tick against `map[path].last_accessed`
+/// before removing.
 pub struct CacheMap {
     map: HashMap<PathBuf, CacheEntry>,
     victim_queue: LruVictimQueue<PathBuf>,
@@ -82,26 +86,59 @@ impl CacheMap {
     /// Pop the LRU victim. Stale heap heads (whose tick no longer matches
     /// the live `map[path].last_accessed`) are skipped by the shared
     /// [`LruVictimQueue`].
+    /// CONC-1 / TASK-1144 follow-up: an entry whose `OnceLock` has not been
+    /// initialised yet is *in flight* — another thread inserted it, released
+    /// the outer mutex, and is currently reading the file. Evicting it there
+    /// breaks the per-process Arc dedup contract: the next reader for the same
+    /// root finds no entry, inserts a second slot, and re-reads the file, so
+    /// the two callers get `Arc`s that are equal but not `ptr_eq`.
+    ///
+    /// In-flight entries are therefore pinned — skipped as victims and pushed
+    /// back onto the queue with their original tick, so they stay evictable as
+    /// soon as initialisation completes. Returning `None` (every candidate
+    /// pinned) lets the cache sit transiently above the cap rather than
+    /// duplicating a read; the overshoot is bounded by the number of
+    /// concurrent first-time readers.
     fn evict_lru(&mut self) -> Option<PathBuf> {
-        let map = &mut self.map;
-        let victim = self
-            .victim_queue
-            .pop_lru(|path, tick| map.get(path).is_some_and(|e| e.last_accessed == tick))?;
-        map.remove(&victim);
-        Some(victim)
+        let Self { map, victim_queue } = self;
+        let mut pinned: Vec<(u64, PathBuf)> = Vec::new();
+        let victim = loop {
+            let Some(candidate) = victim_queue
+                .pop_lru(|path, tick| map.get(path).is_some_and(|e| e.last_accessed == tick))
+            else {
+                break None;
+            };
+            match map.get(&candidate) {
+                Some(entry) if entry.text.get().is_none() => {
+                    pinned.push((entry.last_accessed, candidate));
+                }
+                _ => break Some(candidate),
+            }
+        };
+        if let Some(path) = victim.as_ref() {
+            map.remove(path);
+        }
+        for (tick, path) in pinned {
+            victim_queue.push(tick, path);
+        }
+        victim
     }
 }
 
-/// Hard cap on cached manifests. Far above the realistic distinct-root
-/// count of a single `ops` invocation, so the cap never trips on the CLI
-/// happy path; long-running embedders see a bounded high-water mark
-/// instead of an unbounded leak.
+/// Hard cap on cached manifests.
+///
+/// Far above the realistic distinct-root count of a single `ops`
+/// invocation, so the cap never trips on the CLI happy path;
+/// long-running embedders see a bounded high-water mark instead of an
+/// unbounded leak.
 pub const CACHE_MAX_ENTRIES: usize = 1024;
 
 /// Process-local cache mapping `<root>/<filename>` → `Arc<str>` of the raw
-/// file text. Construct once as a `static` per consumer (e.g. one per
-/// stack) so the dedup spans calls within a process; tests should
-/// construct a fresh local instance for isolation.
+/// file text.
+///
+/// Construct once as a `static` per consumer (e.g. one per stack) so the
+/// dedup spans calls within a process; tests should construct a fresh
+/// local instance for isolation.
 pub struct ArcTextCache {
     filename: &'static str,
     cache: OnceLock<Mutex<CacheMap>>,
@@ -161,6 +198,10 @@ impl ArcTextCache {
                 entry.last_accessed = tick;
                 let arc = Arc::clone(&entry.text);
                 guard.victim_queue.push(tick, path.clone());
+                // CONC-1: release the outer mutex before leaving the
+                // get-or-insert block; the slot Arc carries everything the
+                // read path still needs.
+                drop(guard);
                 arc
             } else {
                 // ARCH-1 / TASK-1106: cap-eviction picks the entry with
@@ -195,9 +236,13 @@ impl ArcTextCache {
                 );
                 guard.victim_queue.push(tick, path.clone());
                 debug_assert!(
-                    guard.len() <= CACHE_MAX_ENTRIES,
-                    "manifest cache exceeded cap of {CACHE_MAX_ENTRIES}"
+                    guard.len() <= CACHE_MAX_ENTRIES
+                        || guard.map.values().any(|e| e.text.get().is_none()),
+                    "manifest cache exceeded cap of {CACHE_MAX_ENTRIES} with no in-flight entry pinning it"
                 );
+                // CONC-1: release the outer mutex before the file read below
+                // — the whole point of the per-key `OnceLock` design.
+                drop(guard);
                 slot
             }
         };
@@ -220,13 +265,14 @@ impl ArcTextCache {
 }
 
 /// DUP-3 / TASK-1166: per-process accessor returning the cached text for
-/// `<root>/<filename>`. Lifts the per-stack `manifest_cache.rs` wrappers
-/// (`package_json_text`, `pyproject_text`) onto a single entry point so a
-/// future stack (e.g. `go.mod`) doesn't grow a third byte-equivalent
-/// shim. The static `OnceLock` map is keyed by `&'static str` filename, so
-/// every consumer naming the same filename shares the same `ArcTextCache`
-/// — preserving the per-process Arc dedup contract that PERF-3 / TASK-0854
-/// relies on.
+/// `<root>/<filename>`.
+///
+/// Lifts the per-stack `manifest_cache.rs` wrappers (`package_json_text`,
+/// `pyproject_text`) onto a single entry point so a future stack (e.g.
+/// `go.mod`) doesn't grow a third byte-equivalent shim. The static
+/// `OnceLock` map is keyed by `&'static str` filename, so every consumer
+/// naming the same filename shares the same `ArcTextCache` — preserving
+/// the per-process Arc dedup contract that PERF-3 / TASK-0854 relies on.
 ///
 /// The two extant filenames (`package.json`, `pyproject.toml`) bind eagerly
 /// at first call; subsequent calls reuse the same `ArcTextCache` instance.
@@ -264,6 +310,64 @@ mod tests {
         assert!(Arc::ptr_eq(&a, &b));
     }
 
+    /// CONC-1 / TASK-1144 follow-up: eviction must not reclaim a slot whose
+    /// `OnceLock` is still being initialised. Before the pin, the in-flight
+    /// entry was the LRU and got evicted while its reader held no lock, so the
+    /// next reader for the same root allocated a *second* slot and re-read the
+    /// file — two live `Arc`s for one path, breaking `Arc::ptr_eq` dedup.
+    ///
+    /// Driven through `CacheMap` directly rather than through threads: the
+    /// window only exists between "slot inserted" and "read finished", and
+    /// pinning that window open with real file IO is inherently racy. Here the
+    /// in-flight state is expressed exactly — an entry whose `OnceLock` has no
+    /// value yet.
+    #[test]
+    fn eviction_skips_in_flight_entry_and_keeps_it_evictable_after_init() {
+        let mut cache = CacheMap::new();
+
+        let in_flight = PathBuf::from("/in-flight/manifest.txt");
+        let settled = PathBuf::from("/settled/manifest.txt");
+
+        // The in-flight entry is the *oldest*, so it is the natural LRU victim.
+        let in_flight_slot: Arc<OnceLock<Option<Arc<str>>>> = Arc::new(OnceLock::new());
+        cache.map.insert(
+            in_flight.clone(),
+            CacheEntry {
+                text: Arc::clone(&in_flight_slot),
+                last_accessed: 1,
+            },
+        );
+        cache.victim_queue.push(1, in_flight.clone());
+
+        let settled_slot: Arc<OnceLock<Option<Arc<str>>>> = Arc::new(OnceLock::new());
+        let _ = settled_slot.set(Some(Arc::<str>::from("done")));
+        cache.map.insert(
+            settled.clone(),
+            CacheEntry {
+                text: settled_slot,
+                last_accessed: 2,
+            },
+        );
+        cache.victim_queue.push(2, settled.clone());
+
+        // The initialised entry is evicted even though it is newer.
+        assert_eq!(cache.evict_lru(), Some(settled));
+        assert!(
+            cache.map.contains_key(&in_flight),
+            "in-flight entry must stay pinned so same-path readers share its slot"
+        );
+
+        // Nothing else is evictable while the read is still pending.
+        assert_eq!(cache.evict_lru(), None);
+        assert!(cache.map.contains_key(&in_flight));
+
+        // Once initialisation completes the pin lifts and the entry is a
+        // normal victim again — the queue entry was pushed back, not dropped.
+        let _ = in_flight_slot.set(Some(Arc::<str>::from("now here")));
+        assert_eq!(cache.evict_lru(), Some(in_flight));
+        assert_eq!(cache.len(), 0);
+    }
+
     #[test]
     fn missing_file_returns_none() {
         let cache = ArcTextCache::new("manifest.txt");
@@ -283,6 +387,10 @@ mod tests {
         let cache = Arc::new(ArcTextCache::new("manifest.txt"));
         let root: Arc<PathBuf> = Arc::new(dir.path().to_path_buf());
         let barrier = Arc::new(std::sync::Barrier::new(8));
+        // The collect is load-bearing: every thread must be spawned before any
+        // is joined, or the barrier below deadlocks and the test stops proving
+        // concurrent reads.
+        #[allow(clippy::needless_collect)]
         let handles: Vec<_> = (0..8)
             .map(|_| {
                 let cache = Arc::clone(&cache);
@@ -350,10 +458,13 @@ mod tests {
         let guard = mutex
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cached_len = guard.len();
+        // CONC-1: release the cache mutex before asserting so a failing
+        // assert panics without holding it.
+        drop(guard);
         assert!(
-            guard.len() <= CACHE_MAX_ENTRIES,
-            "cache size {} exceeds cap {CACHE_MAX_ENTRIES}",
-            guard.len()
+            cached_len <= CACHE_MAX_ENTRIES,
+            "cache size {cached_len} exceeds cap {CACHE_MAX_ENTRIES}"
         );
     }
 

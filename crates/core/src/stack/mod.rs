@@ -16,10 +16,13 @@ use strum::{IntoEnumIterator, VariantNames};
 mod detect;
 mod metadata;
 
+/// The set of project stacks `ops` can detect and accept.
+///
 /// READ-6 (TASK-1404): the enum is the single source of truth for both the
 /// list of stacks accepted in `config.stack` overrides (`Stack::VARIANTS`,
 /// derived by `strum::VariantNames`) and the priority order used by
 /// `Stack::detect` (declaration order, iterated via `strum::EnumIter`).
+///
 /// Variant order matters: detection probes earlier variants first, so
 /// `JavaGradle` is declared before `JavaMaven` to win on mixed Gradle/Maven
 /// workspaces (see `gradle_prioritized_over_maven` test). `Vite` is declared
@@ -61,7 +64,7 @@ impl Stack {
     }
 
     #[must_use]
-    pub fn manifest_files(&self) -> &[&str] {
+    pub const fn manifest_files(&self) -> &[&str] {
         metadata::metadata(*self).0
     }
 
@@ -114,7 +117,7 @@ impl Stack {
     // `&self` for consistency with the sibling `default_commands_*` methods,
     // which cannot take `self` by value.
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn default_commands_toml(&self) -> Option<&'static str> {
+    const fn default_commands_toml(&self) -> Option<&'static str> {
         metadata::metadata(*self).1
     }
 
@@ -147,6 +150,10 @@ impl Stack {
     ///
     /// If the cache is missing an entry for `self`, which can only happen if
     /// `Self::iter` stops yielding every `Stack` variant.
+    // The cache is built from `Self::iter()`, so every `Stack` variant has an
+    // entry by construction; a miss is an unreachable invariant violation, not a
+    // runtime condition to report (docs/clippy.md layer 3).
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn default_commands_ref(&self) -> &'static IndexMap<String, CommandSpec> {
         Self::default_commands_cache()
@@ -154,17 +161,16 @@ impl Stack {
             .expect("default_commands_cache must contain an entry for every Stack variant")
     }
 
-    fn default_commands_cache() -> &'static HashMap<Stack, IndexMap<String, CommandSpec>> {
+    fn default_commands_cache() -> &'static HashMap<Self, IndexMap<String, CommandSpec>> {
         static CACHE: OnceLock<HashMap<Stack, IndexMap<String, CommandSpec>>> = OnceLock::new();
         CACHE.get_or_init(|| {
             Self::iter()
                 .map(|stack| {
-                    let commands = match stack.default_commands_toml() {
-                        Some(toml) => {
+                    let commands = stack
+                        .default_commands_toml()
+                        .map_or_else(IndexMap::new, |toml| {
                             parse_default_commands(stack, toml, &mut std::io::stderr().lock())
-                        }
-                        None => IndexMap::new(),
-                    };
+                        });
                     (stack, commands)
                 })
                 .collect()

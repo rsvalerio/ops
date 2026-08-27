@@ -77,16 +77,14 @@ mod build_command_error_tests {
         let spec = exec_spec("echo", &[]);
         let cmd = build_command(&spec, std::path::Path::new("."), &test_vars()).unwrap();
         assert_eq!(cmd.as_std().get_program(), "echo");
-        let args: Vec<_> = cmd.as_std().get_args().collect();
-        assert!(args.is_empty());
+        assert_eq!(cmd.as_std().get_args().count(), 0);
     }
 
     #[test]
     fn build_command_with_many_args() {
         let spec = exec_spec("echo", &["a", "b", "c", "d", "e"]);
         let cmd = build_command(&spec, std::path::Path::new("."), &test_vars()).unwrap();
-        let args: Vec<_> = cmd.as_std().get_args().collect();
-        assert_eq!(args.len(), 5);
+        assert_eq!(cmd.as_std().get_args().count(), 5);
     }
 
     #[test]

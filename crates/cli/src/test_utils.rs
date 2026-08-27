@@ -23,7 +23,7 @@ pub use ops_runner::test_support::{test_runner, EventAssertions};
 /// 1. The panic has already been reported by the test framework
 /// 2. Subsequent tests should be allowed to run
 /// 3. CWD restoration failure is non-critical (test isolation is best-effort)
-pub(crate) static CWD_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub static CWD_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// RAII guard that acquires `CWD_MUTEX`, switches to a target directory,
 /// and restores the original CWD on drop.
@@ -39,7 +39,7 @@ pub(crate) static CWD_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 ///
 /// `std::env::set_current_dir` is `unsafe` in Rust 2024 edition.
 /// All calls are wrapped in `unsafe` blocks with SAFETY comments.
-pub(crate) struct CwdGuard {
+pub struct CwdGuard {
     _lock: std::sync::MutexGuard<'static, ()>,
     original_dir: std::path::PathBuf,
 }
@@ -153,7 +153,7 @@ pub fn capture_tracing<F: FnOnce()>(level: tracing::Level, f: F) -> String {
         }
     }
     impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
+        type Writer = Self;
         fn make_writer(&'a self) -> Self::Writer {
             self.clone()
         }
@@ -196,7 +196,7 @@ mod cwd_guard_tests {
         let dir_canonical = dir
             .path()
             .canonicalize()
-            .unwrap_or(dir.path().to_path_buf());
+            .unwrap_or_else(|_| dir.path().to_path_buf());
         assert_eq!(
             current_canonical, dir_canonical,
             "should change to target directory"

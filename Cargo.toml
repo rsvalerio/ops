@@ -98,11 +98,18 @@ nursery = { level = "deny", priority = -1 }
 # out through the `allow-*-in-tests` keys in clippy.toml (unwrap, expect, panic,
 # indexing) and through the crate-root `#![cfg_attr(test, allow(..))]` blocks.
 unwrap_used = "deny"
+arithmetic_side_effects = "deny"
+as_conversions = "deny"
 unimplemented = "deny"
 unchecked_time_subtraction = "deny"
 todo = "deny"
 panic = "deny"
 exit = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+expect_used = "deny"
+unreachable = "deny"
+panic_in_result_fn = "deny"
 
 # Style preferences this codebase deliberately does not share: local `const`,
 # `type` and helper declarations are written at their point of use, and clap
@@ -111,37 +118,12 @@ items_after_statements = "allow"
 struct_excessive_bools = "allow"
 similar_names = "allow"
 
-# --- Temporary allows -------------------------------------------------------
-# Enabling `nursery` and the panic/arithmetic lints above surfaced 948 pre-existing
-# sites. Each lint below is allowed workspace-wide only until its backlog task
-# lands, and that task's last step is to delete its line here. Do not add to
-# this list: a new exception belongs at the call site with a reason, next to
-# the code it excuses (docs/clippy.md).
-redundant_pub_crate                 = "allow" # TASK-1676 — 195 sites, 60 files
-arithmetic_side_effects             = "allow" # TASK-1671 — 166 sites, 54 files
-missing_const_for_fn                = "allow" # TASK-1677 — 92 sites, 44 files
-use_self                            = "allow" # TASK-1678 — 87 sites, 22 files
-indexing_slicing                    = "allow" # TASK-1672 — 69 sites, 25 files
-string_slice                        = "allow" # TASK-1673 — 66 sites, 24 files
-as_conversions                      = "allow" # TASK-1674 — 61 sites, 29 files
-too_long_first_doc_paragraph        = "allow" # TASK-1679 — 61 sites, 36 files
-option_if_let_else                  = "allow" # TASK-1680 — 43 sites, 35 files
-significant_drop_tightening         = "allow" # TASK-1681 — 36 sites, 17 files
-expect_used                         = "allow" # TASK-1675 — 22 sites, 14 files
-needless_collect                    = "allow" # TASK-1682 — 14 sites, 10 files
-collection_is_never_read            = "allow" # TASK-1682 — 8 sites, 4 files
-equatable_if_let                    = "allow" # TASK-1682 — 6 sites, 2 files
-literal_string_with_formatting_args = "allow" # TASK-1682 — 4 sites, 3 files
-needless_pass_by_ref_mut            = "allow" # TASK-1682 — 4 sites, 2 files
-unreachable                         = "allow" # TASK-1682 — 3 sites, 3 files
-future_not_send                     = "allow" # TASK-1682 — 2 sites, 2 files
-redundant_clone                     = "allow" # TASK-1682 — 2 sites, 2 files
-panic_in_result_fn                  = "allow" # TASK-1682 — 2 sites, 1 file
-single_option_map                   = "allow" # TASK-1682 — 1 site, 1 file
-derive_partial_eq_without_eq        = "allow" # TASK-1682 — 1 site, 1 file
-branches_sharing_code               = "allow" # TASK-1682 — 1 site, 1 file
-or_fun_call                         = "allow" # TASK-1682 — 1 site, 1 file
-iter_on_single_items                = "allow" # TASK-1682 — 1 site, 1 file
+# The `# --- Temporary allows ---` block that used to sit here is gone: it held
+# the 948 pre-existing sites that turning on `nursery` and the panic/arithmetic
+# lints surfaced, and it only ever shrank. TASK-1671 through TASK-1682 drained
+# it. Nothing goes back in — a lint that fires on code written from now on is a
+# code problem, not a policy problem, so the exception belongs at the call site
+# with a reason next to the code it excuses (docs/clippy.md).
 
 [patch.crates-io]
 # RUSTSEC-2026-0037: patch quinn-proto to 0.11.14 (DoS fix)

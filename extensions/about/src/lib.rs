@@ -90,7 +90,7 @@ pub struct AboutOptions {
 
 impl AboutOptions {
     #[must_use]
-    pub fn new(refresh: bool, visible_fields: Option<Vec<String>>, is_tty: bool) -> Self {
+    pub const fn new(refresh: bool, visible_fields: Option<Vec<String>>, is_tty: bool) -> Self {
         Self {
             refresh,
             visible_fields,

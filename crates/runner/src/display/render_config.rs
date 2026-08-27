@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Typed stderr tail policy — replaces the old `usize::MAX` sentinel.
+///
 /// TASK-0762: the display layer decides unbounded vs capped; the config
 /// field stores the user's value verbatim and is never mutated post-load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,16 +22,16 @@ impl StderrTail {
     /// Return the ring-buffer cap. `Unbounded` returns `usize::MAX` so the
     /// existing `record_stderr` cap logic works unchanged.
     #[must_use]
-    pub fn cap(self) -> usize {
+    pub const fn cap(self) -> usize {
         match self {
-            StderrTail::Unbounded => usize::MAX,
-            StderrTail::Limited(n) => n,
+            Self::Unbounded => usize::MAX,
+            Self::Limited(n) => n,
         }
     }
 
     /// Return the max tail lines to extract for error detail rendering.
     #[must_use]
-    pub fn max_lines(self) -> usize {
+    pub const fn max_lines(self) -> usize {
         self.cap()
     }
 }
@@ -47,7 +48,7 @@ pub struct RenderConfig {
 
 impl RenderConfig {
     #[must_use]
-    pub fn new(
+    pub const fn new(
         theme: ConfigurableTheme,
         columns: u16,
         is_tty: bool,
@@ -77,7 +78,7 @@ pub struct DisplayOptions<'a> {
 
 impl<'a> DisplayOptions<'a> {
     #[must_use]
-    pub fn new(
+    pub const fn new(
         output: &'a config::OutputConfig,
         display_map: HashMap<String, String>,
         custom_themes: &'a IndexMap<String, ThemeConfig>,

@@ -106,7 +106,13 @@ fn shown_field_specs(id: &ProjectIdentity, show: &dyn Fn(&str) -> bool) -> Vec<F
                 label: "homepage".into(),
                 value: non_empty_clone(id.homepage.as_ref()),
             },
-            _ => unreachable!("ids array out of sync with match arms"),
+            // Unreachable: `ids` is the array literal a few lines above and
+            // every entry has an arm. Rendering an empty field keeps the
+            // helper total if the two ever drift.
+            _ => FieldSpec {
+                label: (*fid).to_string(),
+                value: None,
+            },
         })
         .collect()
 }
@@ -163,12 +169,8 @@ impl AboutCard {
         // already-closed TASK-1332 pattern in about_cmd.
         let visible: Option<HashSet<&str>> =
             visible_fields.map(|f| f.iter().map(String::as_str).collect());
-        let show = |field_id: &str| -> bool {
-            match &visible {
-                None => true,
-                Some(set) => set.contains(field_id),
-            }
-        };
+        let show =
+            |field_id: &str| -> bool { visible.as_ref().is_none_or(|set| set.contains(field_id)) };
 
         let mut fields: Vec<(String, String)> = shown_field_specs(id, &show)
             .into_iter()
@@ -273,7 +275,11 @@ const VALUE_SEP_COLS: usize = 1;
 /// [`render_field`] so a future column-width tweak lands in one place.
 fn continuation_indent(max_key_len: usize) -> String {
     " ".repeat(
-        LEADING_COLS + EMOJI_COLS + KEY_SEP_COLS + (max_key_len + KEY_PAD_COLS) + VALUE_SEP_COLS,
+        LEADING_COLS
+            .saturating_add(EMOJI_COLS)
+            .saturating_add(KEY_SEP_COLS)
+            .saturating_add(max_key_len.saturating_add(KEY_PAD_COLS))
+            .saturating_add(VALUE_SEP_COLS),
     )
 }
 
@@ -301,7 +307,7 @@ fn render_field(
     let first = value_lines.next().unwrap_or("");
     // DUP-3 / TASK-1390: route through the shared pad helper so a future
     // tightening of width-aware padding lands once.
-    let padded_key = pad_to_display_width(key, max_key_len + KEY_PAD_COLS);
+    let padded_key = pad_to_display_width(key, max_key_len.saturating_add(KEY_PAD_COLS));
     let mut out = vec![format!(
         "  {} {} {}",
         emoji,
@@ -335,7 +341,7 @@ mod tests {
         let cjk_line = lines.iter().find(|l| l.contains("beta")).unwrap();
         let value_col = |line: &str, value: &str| -> usize {
             let idx = line.find(value).unwrap();
-            display_width(&line[..idx])
+            display_width(line.get(..idx).expect("find returns a char boundary"))
         };
         assert_eq!(
             value_col(name_line, "alpha"),

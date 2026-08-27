@@ -73,6 +73,10 @@ const PROVIDER_DESC_TRUNCATION_WIDTH: u16 = 50;
 
 /// Shared helper for the "Description" column lookup used by both
 /// `write_extension_table` and `print_provider_info`.
+// Both callers pass a header array literal from this module that contains
+// "Description"; a miss is a compile-time editing mistake, not a runtime
+// condition (docs/clippy.md layer 3).
+#[allow(clippy::expect_used)]
 fn description_col(headers: &[&str]) -> usize {
     headers
         .iter()
@@ -141,7 +145,7 @@ fn write_extension_table(
 /// The set is an in-handler cache only; passing it explicitly lets callers
 /// construct fresh state per invocation without unsafe `reset_for_tests`
 /// dances.
-pub(crate) type SelfShadowWarnedSet = std::collections::HashSet<(String, String)>;
+pub type SelfShadowWarnedSet = std::collections::HashSet<(String, String)>;
 
 /// Prefer the static `command_names()` accessor (set via
 /// `impl_extension! { command_names: &[..] }`) so list/show paths do not
@@ -340,7 +344,9 @@ fn print_extension_details(
     let is_tty = table.is_tty();
 
     let (name, info, types, commands) = {
-        let (config_name, boxed) = &compiled[ext_idx];
+        let (config_name, boxed) = compiled
+            .get(ext_idx)
+            .ok_or_else(|| anyhow::anyhow!("extension index {ext_idx} is out of range"))?;
         let ext = boxed.as_ref();
         let mut warned: SelfShadowWarnedSet = SelfShadowWarnedSet::new();
         audit_command_self_shadow(ext, &mut warned);

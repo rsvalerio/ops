@@ -18,8 +18,11 @@ fn metadata_build_directory_none_when_missing() {
 #[test]
 fn metadata_empty_workspace_members() {
     let m = workspace().metadata();
-    let members: Vec<_> = m.members().collect();
-    assert!(members.is_empty(), "empty workspace should have no members");
+    assert_eq!(
+        m.members().count(),
+        0,
+        "empty workspace should have no members"
+    );
 }
 
 #[test]

@@ -86,7 +86,7 @@ pub struct DuckDbExtension {
 
 impl DuckDbExtension {
     #[must_use]
-    pub fn new(db_path: PathBuf) -> Self {
+    pub const fn new(db_path: PathBuf) -> Self {
         Self { db_path }
     }
 }

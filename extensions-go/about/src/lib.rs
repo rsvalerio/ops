@@ -111,7 +111,9 @@ fn compute_module_count(
     }
     let m = go_mod?;
     let has_local_replaces = !m.local_replaces.is_empty();
-    has_local_replaces.then(|| 1 + m.local_replaces.len())
+    // `local_replaces` is an in-memory `Vec`, so its length is at most
+    // `isize::MAX`; adding the root module can never overflow `usize`.
+    has_local_replaces.then(|| m.local_replaces.len().saturating_add(1))
 }
 
 // --- go.mod parsing ---

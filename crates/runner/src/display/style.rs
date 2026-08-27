@@ -11,6 +11,12 @@ use std::fmt::Write as FmtWrite;
 pub const SPINNER_TICK_INTERVAL_MS: u64 = 80;
 
 /// Build a fresh pending style. Trivial template avoids storing a field just to clone it.
+///
+/// # Panics
+///
+/// Never in practice: the template is the string literal `{msg}`, which
+/// `indicatif` always accepts (docs/clippy.md layer 3).
+#[allow(clippy::expect_used)]
 pub fn pending_style() -> ProgressStyle {
     ProgressStyle::with_template("{msg}").expect("static pending template")
 }

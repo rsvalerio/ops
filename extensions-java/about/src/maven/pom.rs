@@ -109,10 +109,10 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
                 // element after it (e.g. `...">`<artifactId>x</artifactId>`).
                 // Re-feed the post-`>` remainder through the started-line
                 // dispatch so the trailing tag is not silently dropped.
-                if let Some(after_gt) = line.find('>') {
+                if let Some((_, after_gt)) = line.split_once('>') {
                     opener_pending = false;
                     started = true;
-                    let remainder = line[after_gt + 1..].trim();
+                    let remainder = after_gt.trim();
                     if remainder.is_empty() {
                         continue;
                     }
@@ -206,7 +206,10 @@ fn handle_section_line(section: &mut PomSection, line: &str, data: &mut PomData)
         PomSection::Scm => handle_scm(line, data),
         PomSection::Licenses { in_license } => handle_licenses(line, in_license, data),
         PomSection::Skip { close } => line == *close,
-        PomSection::TopLevel => unreachable!(),
+        // `dispatch_started_line` returns before calling this for
+        // `TopLevel`; `false` ("no closing tag on this line") keeps the
+        // dispatcher total instead of panicking if that guard ever moves.
+        PomSection::TopLevel => false,
     }
 }
 
@@ -358,22 +361,22 @@ fn strip_xml_comments(line: &str, in_comment: &mut bool) -> String {
     let mut rest = line;
     loop {
         if *in_comment {
-            match rest.find("-->") {
-                Some(end) => {
-                    rest = &rest[end + 3..];
+            match rest.split_once("-->") {
+                Some((_, after)) => {
+                    rest = after;
                     *in_comment = false;
                 }
                 None => return out,
             }
         }
-        if let Some(start) = rest.find("<!--") {
-            out.push_str(&rest[..start]);
+        if let Some((before, after)) = rest.split_once("<!--") {
+            out.push_str(before);
             // Insert a separator so e.g. `foo<!--x-->bar` doesn't
             // collapse to `foobar` if a future caller relies on
             // word-boundary parsing. Tag matching uses literal
             // `<tag>` patterns so a stray space is harmless.
             out.push(' ');
-            rest = &rest[start + 4..];
+            rest = after;
             *in_comment = true;
         } else {
             out.push_str(rest);
@@ -398,9 +401,15 @@ fn extract_xml_value<'a>(
 ) -> Option<std::borrow::Cow<'a, str>> {
     let start = line.find(open)?;
     let end = line.find(close)?;
-    let val_start = start + open.len();
+    // `start` is the offset of a match of `open` inside `line`, so
+    // `start + open.len()` is at most `line.len()`.
+    let val_start = start.saturating_add(open.len());
     if val_start < end {
-        Some(decode_xml_entities(line[val_start..end].trim()))
+        // `start`/`end` come from `find`, and `open` matched at `start`, so
+        // `val_start` is a char boundary too — `get` never returns `None`
+        // here; treating it as "no value" is the safe degradation.
+        line.get(val_start..end)
+            .map(|val| decode_xml_entities(val.trim()))
     } else {
         None
     }
@@ -414,45 +423,42 @@ fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
     }
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
-    while let Some(amp) = rest.find('&') {
-        out.push_str(&rest[..amp]);
-        let after_amp = &rest[amp + 1..];
-        let semi = match after_amp.find(';') {
-            Some(i) if i <= 8 => i,
-            _ => {
-                // Stray `&` or runaway entity: leave verbatim and continue.
-                out.push('&');
-                rest = after_amp;
-                continue;
-            }
+    while let Some((before, after_amp)) = rest.split_once('&') {
+        out.push_str(before);
+        // The `len() <= 8` guard is the former `find(';')` offset bound: the
+        // entity name is everything up to the `;`, so its length is that
+        // offset.
+        let Some((entity, tail)) = after_amp.split_once(';').filter(|(e, _)| e.len() <= 8) else {
+            // Stray `&` or runaway entity: leave verbatim and continue.
+            out.push('&');
+            rest = after_amp;
+            continue;
         };
-        let entity = &after_amp[..semi];
         let decoded: Option<char> = match entity {
             "amp" => Some('&'),
             "lt" => Some('<'),
             "gt" => Some('>'),
             "quot" => Some('"'),
             "apos" => Some('\''),
-            other if other.starts_with("#x") || other.starts_with("#X") => {
-                u32::from_str_radix(&other[2..], 16)
-                    .ok()
-                    .and_then(char::from_u32)
-            }
-            other if other.starts_with('#') => {
-                other[1..].parse::<u32>().ok().and_then(char::from_u32)
-            }
+            other if other.starts_with("#x") || other.starts_with("#X") => other
+                .get(2..)
+                .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+                .and_then(char::from_u32),
+            other if other.starts_with('#') => other
+                .get(1..)
+                .and_then(|dec| dec.parse::<u32>().ok())
+                .and_then(char::from_u32),
             _ => None,
         };
         if let Some(c) = decoded {
             out.push(c);
-            rest = &after_amp[semi + 1..];
         } else {
-            // Unknown entity: keep verbatim (`&entity;`) and advance.
+            // Unknown entity: keep verbatim (`&entity;`).
             out.push('&');
             out.push_str(entity);
             out.push(';');
-            rest = &after_amp[semi + 1..];
         }
+        rest = tail;
     }
     out.push_str(rest);
     std::borrow::Cow::Owned(out)

@@ -164,7 +164,8 @@ fn format_language_breakdown(
         })
         .collect();
     if langs.len() > top_n {
-        lines.push(format!("  (+{} more)", langs.len() - top_n));
+        // Guarded by `langs.len() > top_n`, so the subtraction is exact.
+        lines.push(format!("  (+{} more)", langs.len().saturating_sub(top_n)));
     }
     lines
 }
@@ -290,7 +291,7 @@ mod tests {
             let idx = line
                 .find(|c: char| c.is_ascii_digit())
                 .expect("value digit present");
-            display_width(&line[..idx])
+            display_width(line.get(..idx).expect("find returns a char boundary"))
         };
         assert_eq!(col(&lines[0]), col(&lines[1]));
     }

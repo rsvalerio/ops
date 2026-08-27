@@ -137,7 +137,7 @@ impl DuckDb {
     /// process-local caches by `DuckDb` identity. Distinct instances always
     /// receive distinct ids regardless of allocation reuse, eliminating
     /// the ABA hazard the prior pointer-address scheme had.
-    pub fn id(&self) -> u64 {
+    pub const fn id(&self) -> u64 {
         self.id
     }
 
@@ -201,19 +201,21 @@ impl DuckDb {
     /// Otherwise default to `workspace_root/target/ops/data.duckdb`.
     #[must_use]
     pub fn resolve_path(config: &DataConfig, workspace_root: &Path) -> PathBuf {
-        match &config.path {
-            None => workspace_root
-                .join("target")
-                .join("ops")
-                .join("data.duckdb"),
-            Some(p) => {
+        config.path.as_ref().map_or_else(
+            || {
+                workspace_root
+                    .join("target")
+                    .join("ops")
+                    .join("data.duckdb")
+            },
+            |p| {
                 if p.is_absolute() {
                     p.clone()
                 } else {
                     workspace_root.join(p)
                 }
-            }
-        }
+            },
+        )
     }
 }
 
@@ -272,8 +274,7 @@ mod tests {
         #[test]
         fn duck_db_lock_returns_guard() {
             let db = DuckDb::open_in_memory().expect("open");
-            let guard = db.lock();
-            assert!(guard.is_ok(), "lock should succeed");
+            assert!(db.lock().is_ok(), "lock should succeed");
         }
 
         #[test]

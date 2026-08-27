@@ -1,9 +1,11 @@
 ---
 id: TASK-1671
 title: 'CLIPPY: drop the workspace allow for `arithmetic_side_effects`'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1684
 created_date: '2026-08-25 21:00'
+updated_date: '2026-08-26 22:28'
 labels:
   - code-review-rust
   - clippy
@@ -83,8 +85,14 @@ Every `+ - * / %` and `+=` on integers that can wrap, overflow or divide by zero
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
-- [ ] #2 The line(s) for `arithmetic_side_effects` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
-- [ ] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
-- [ ] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
+- [x] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
+- [x] #2 The line(s) for `arithmetic_side_effects` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
+- [x] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
+- [x] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Cleared in wave142 (TASK-1684). 178 sites across 57 files (166 at triage time + 12 in extensions/create-review-tasks added since). Every site fixed with a total operation — zero new `#[allow]` attributes anywhere. `arithmetic_side_effects` is a restriction-group lint, so deleting its temporary-allow line alone would have left it at clippys default of allow; it was moved up to the explicit deny list next to `unwrap_used`/`panic`, and docs/clippy.md records that distinction for the remaining restriction lints in the block.
+<!-- SECTION:NOTES:END -->

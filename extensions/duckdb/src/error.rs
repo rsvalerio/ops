@@ -70,7 +70,7 @@ pub enum DbError {
 
 impl DbError {
     pub fn query_failed(context: impl Into<String>, source: duckdb::Error) -> Self {
-        DbError::QueryFailed {
+        Self::QueryFailed {
             context: context.into(),
             source,
         }

@@ -138,9 +138,9 @@ pub enum RunError {
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RunError::Io(e) => write!(f, "{e}"),
-            RunError::Spawn(e) => write!(f, "{e}"),
-            RunError::Timeout(e) => write!(f, "{e}"),
+            Self::Io(e) => write!(f, "{e}"),
+            Self::Spawn(e) => write!(f, "{e}"),
+            Self::Timeout(e) => write!(f, "{e}"),
         }
     }
 }
@@ -148,28 +148,28 @@ impl std::fmt::Display for RunError {
 impl std::error::Error for RunError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            RunError::Io(e) => Some(e),
-            RunError::Spawn(e) => Some(e),
-            RunError::Timeout(e) => Some(e),
+            Self::Io(e) => Some(e),
+            Self::Spawn(e) => Some(e),
+            Self::Timeout(e) => Some(e),
         }
     }
 }
 
 impl From<io::Error> for RunError {
     fn from(e: io::Error) -> Self {
-        RunError::Io(e)
+        Self::Io(e)
     }
 }
 
 impl From<SpawnError> for RunError {
     fn from(e: SpawnError) -> Self {
-        RunError::Spawn(e)
+        Self::Spawn(e)
     }
 }
 
 impl From<TimeoutError> for RunError {
     fn from(e: TimeoutError) -> Self {
-        RunError::Timeout(e)
+        Self::Timeout(e)
     }
 }
 
@@ -251,8 +251,8 @@ fn run_with_timeout_inner(
     // cap are still read off the pipe (so the child does not block on a
     // full pipe and we don't false-positive into a timeout) but discarded;
     // the count is reported by `collect_drain` via `tracing::warn!`.
-    let stdout_handle = spawn_drain(child.stdout.take(), cap);
-    let stderr_handle = spawn_drain(child.stderr.take(), cap);
+    let stdout_handle = child.stdout.take().map(|p| spawn_drain(p, cap));
+    let stderr_handle = child.stderr.take().map(|p| spawn_drain(p, cap));
 
     // TASK-0451: single OS-level wait, no polling loop. Returns Ok(None)
     // on timeout, Ok(Some(status)) on exit; the underlying syscall sleeps
@@ -339,9 +339,11 @@ pub fn resolve_cargo_bin() -> std::ffi::OsString {
 }
 
 /// Resolve the rustup binary, honouring `$RUSTUP` for symmetry with
-/// [`resolve_cargo_bin`]. PORT (TASK-0792): keeps direct rustup spawns in
-/// extensions on the same toolchain layout the parent process selected
-/// rather than forcing a fresh `$PATH` lookup.
+/// [`resolve_cargo_bin`].
+///
+/// PORT (TASK-0792): keeps direct rustup spawns in extensions on the same
+/// toolchain layout the parent process selected rather than forcing a
+/// fresh `$PATH` lookup.
 #[must_use]
 pub fn resolve_rustup_bin() -> std::ffi::OsString {
     std::env::var_os("RUSTUP").unwrap_or_else(|| "rustup".into())

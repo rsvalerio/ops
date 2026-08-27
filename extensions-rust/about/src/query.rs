@@ -121,7 +121,7 @@ impl TypedManifestCache {
 /// immutable post-parse while preserving the PERF-3 / TASK-0969 contract that
 /// resolved members survive across calls without re-walking the filesystem.
 #[derive(Clone)]
-pub(crate) struct LoadedManifest {
+pub struct LoadedManifest {
     pub(crate) manifest: Arc<CargoToml>,
     pub(crate) resolved_members: Arc<Vec<String>>,
     /// PERF-3 / TASK-1569: lazy map from workspace member (as listed in
@@ -196,7 +196,7 @@ fn cargo_toml_freshness(workspace_root: &Path) -> Option<ManifestFreshness> {
 /// Log a `load_workspace_manifest` failure differentiating "no manifest /
 /// not a Rust project" (silent debug) from a real read/parse error (warn),
 /// mirroring `read_crate_metadata` (TASK-0433).
-pub(crate) fn log_manifest_load_failure(err: &DataProviderError) {
+pub fn log_manifest_load_failure(err: &DataProviderError) {
     if is_manifest_missing(err) {
         tracing::debug!("Cargo.toml not found; Rust providers will produce empty results: {err:#}");
     } else {
@@ -310,7 +310,12 @@ fn lock_typed_manifest_cache(
     match cache.lock() {
         Ok(g) => g,
         Err(poison) => {
-            let recovery_count = POISON_RECOVERY_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            // `saturating_add` is exact here: the counter advances once per
+            // observed poisoning, so reaching `u64::MAX` would take 2^64
+            // panics inside a single process.
+            let recovery_count = POISON_RECOVERY_COUNT
+                .fetch_add(1, Ordering::Relaxed)
+                .saturating_add(1);
             tracing::warn!(
                 recovery_count,
                 "typed_manifest_cache mutex was poisoned by a panic in another provider; \
@@ -338,9 +343,7 @@ fn lock_typed_manifest_cache(
 /// untouched so the original spec (e.g. `["crates/*"]`) is preserved on the
 /// cached `Arc<CargoToml>`. Consumers that want the post-glob-expansion list
 /// must read [`LoadedManifest::resolved_members`].
-pub(crate) fn load_workspace_manifest(
-    ctx: &mut Context,
-) -> Result<LoadedManifest, DataProviderError> {
+pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, DataProviderError> {
     // PERF-3 / TASK-1572: borrow the cwd as `&Path` for the cache
     // probe (HashMap lookup + freshness stat) and the cold-path
     // workspace-root walk so the cache-hit path never allocates a
@@ -389,6 +392,9 @@ pub(crate) fn load_workspace_manifest(
                 let key = Arc::clone(&entry.key);
                 let loaded = entry.loaded.clone();
                 guard.victim_queue.push(tick, key);
+                // CONC-1: release the cache lock before returning the cached
+                // value to the caller.
+                drop(guard);
                 return Ok(loaded);
             }
         }
@@ -563,11 +569,12 @@ enum MemberShape<'a> {
 /// the metacharacter scan so [`resolved_workspace_members`] reads as a flat
 /// dispatch instead of a nested-if state machine.
 fn classify_member(member: &str) -> MemberShape<'_> {
-    // ERR-5 / TASK-1491: bind the `*` position with `let-else` so the
+    // ERR-5 / TASK-1491: split on the first `*` with `let-else` so the
     // happy path falls through without an `is_none()` + `.expect()`
     // round-trip whose "checked above" invariant a future edit could
-    // silently invalidate.
-    let Some(idx) = member.find('*') else {
+    // silently invalidate. `split_once` also hands both halves out
+    // directly, so no byte index is ever sliced back into `member`.
+    let Some((prefix, after_star)) = member.split_once('*') else {
         // PATTERN-1 (TASK-0803): detect glob shapes that lack `*` but still
         // contain class/alternation metacharacters (`crates/{core,cli}`,
         // `crates/[abc]`).
@@ -577,12 +584,10 @@ fn classify_member(member: &str) -> MemberShape<'_> {
             MemberShape::Literal
         };
     };
-    if is_unsupported_glob(member, idx) {
+    if is_unsupported_glob(member, after_star) {
         return MemberShape::Unsupported;
     }
-    MemberShape::Glob {
-        prefix: &member[..idx],
-    }
+    MemberShape::Glob { prefix }
 }
 
 /// Expand a `prefix/*` glob by walking `parent` and returning UTF-8
@@ -651,8 +656,7 @@ fn expand_member_glob(member: &str, parent: &Path, workspace_root: &Path) -> Vec
 /// `?`, and `[`, so without these checks it would slip through as
 /// "supported" and silently produce an empty member list when `read_dir`
 /// failed on the literal-as-directory path.
-fn is_unsupported_glob(member: &str, first_star: usize) -> bool {
-    let after_star = &member[first_star + 1..];
+fn is_unsupported_glob(member: &str, after_star: &str) -> bool {
     if !after_star.is_empty() {
         return true;
     }
@@ -671,7 +675,7 @@ fn contains_unsupported_glob_meta(member: &str) -> bool {
 /// root. Rejecting those shapes up front matches the
 /// `append_tree_directory` (SEC-14 / TASK-0811) and `scrub_path_segments`
 /// (SEC-14 / TASK-1111) policies on the rendering side.
-pub(crate) fn member_path_is_workspace_safe(member: &str) -> bool {
+pub fn member_path_is_workspace_safe(member: &str) -> bool {
     use std::path::Component;
     let p = Path::new(member);
     if p.is_absolute() {
@@ -887,7 +891,7 @@ mod tests {
         let path = dir.path().to_path_buf();
         let path_for_thread = path.clone();
         let primer = std::thread::spawn(move || {
-            let mut ctx = Context::test_context(path_for_thread.clone());
+            let mut ctx = Context::test_context(path_for_thread);
             load_workspace_manifest(&mut ctx).expect("primer load")
         });
         let first = primer.join().expect("primer thread");
@@ -924,7 +928,9 @@ mod tests {
         evict_cache_for(dir.path());
 
         // Drive the first n-1 poison-recover cycles untraced.
-        for _ in 0..(n_cycles - 1) {
+        // `n_cycles >= 1` is asserted above, so `saturating_sub(1)` equals
+        // `- 1` exactly.
+        for _ in 0..n_cycles.saturating_sub(1) {
             let _ = std::thread::spawn(|| {
                 let _g = typed_manifest_cache().lock().unwrap();
                 panic!("poison cycle (warmup)");
@@ -1057,6 +1063,7 @@ mod tests {
                 mtime: new_mtime,
                 len: pre_len,
             });
+            drop(guard);
         }
 
         let second = load_workspace_manifest(&mut ctx).expect("load2");
@@ -1088,7 +1095,12 @@ mod tests {
         // with even-coarser resolution (NFS); an explicit timestamp two
         // seconds in the future is deterministic in microseconds.
         std::fs::write(&manifest_path, "[package]\nname=\"y\"\nversion=\"0.2.0\"\n").unwrap();
-        let bumped = std::time::SystemTime::now() + std::time::Duration::from_secs(2);
+        // `checked_add` cannot fail for `now + 2s` on any real clock. The
+        // `UNIX_EPOCH` fallback still yields an mtime that differs from the
+        // one the cache captured, which is all the assertion below needs.
+        let bumped = std::time::SystemTime::now()
+            .checked_add(std::time::Duration::from_secs(2))
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
         std::fs::OpenOptions::new()
             .write(true)
             .open(&manifest_path)

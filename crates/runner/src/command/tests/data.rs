@@ -232,9 +232,12 @@ fn query_data_shares_cwd_arc_with_provider() {
     let _ = runner.query_data("arc_capture").expect("query_data");
     let inner = captured.lock().unwrap();
     let cwd_arc = inner.as_ref().expect("provider captured cwd");
+    let strong_count = std::sync::Arc::strong_count(cwd_arc);
+    // CONC-1: release the capture lock before asserting so a failing assert
+    // panics without holding it.
+    drop(inner);
     assert!(
-        std::sync::Arc::strong_count(cwd_arc) >= 2,
-        "expected shared cwd Arc, got strong_count = {}",
-        std::sync::Arc::strong_count(cwd_arc)
+        strong_count >= 2,
+        "expected shared cwd Arc, got strong_count = {strong_count}"
     );
 }

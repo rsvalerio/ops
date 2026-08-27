@@ -79,7 +79,7 @@ pub(super) fn manifest_present(path: &Path) -> bool {
 }
 
 /// File extensions used for extension-based detection (in addition to exact manifest files).
-fn manifest_extensions(stack: Stack) -> &'static [&'static str] {
+const fn manifest_extensions(stack: Stack) -> &'static [&'static str] {
     match stack {
         Stack::Terraform => &["tf"],
         _ => &[],

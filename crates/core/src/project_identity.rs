@@ -203,7 +203,7 @@ pub struct CoverageStats {
 
 impl CoverageStats {
     #[must_use]
-    pub fn new(lines_percent: f64, lines_covered: i64, lines_count: i64) -> Self {
+    pub const fn new(lines_percent: f64, lines_covered: i64, lines_count: i64) -> Self {
         Self {
             lines_percent,
             lines_covered,
@@ -251,7 +251,7 @@ pub struct ProjectCoverage {
 
 impl ProjectCoverage {
     #[must_use]
-    pub fn new(total: CoverageStats, units: Vec<UnitCoverage>) -> Self {
+    pub const fn new(total: CoverageStats, units: Vec<UnitCoverage>) -> Self {
         Self { total, units }
     }
 }
@@ -286,7 +286,7 @@ pub struct ProjectDependencies {
 
 impl ProjectDependencies {
     #[must_use]
-    pub fn new(units: Vec<UnitDeps>) -> Self {
+    pub const fn new(units: Vec<UnitDeps>) -> Self {
         Self { units }
     }
 }

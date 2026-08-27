@@ -14,7 +14,7 @@ pub struct ErrorDetailRenderer<'a> {
 
 impl<'a> ErrorDetailRenderer<'a> {
     #[must_use]
-    pub fn new(theme: &'a ConfigurableTheme, columns: u16) -> Self {
+    pub const fn new(theme: &'a ConfigurableTheme, columns: u16) -> Self {
         Self { theme, columns }
     }
 

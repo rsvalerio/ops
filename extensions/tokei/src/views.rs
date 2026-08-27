@@ -20,10 +20,11 @@ pub fn tokei_files_create_sql(path: &Path) -> Result<String, SqlError> {
 /// SEC-12 (TASK-0593) / ERR-5 (TASK-1003): identifiers are routed through
 /// the const-validated [`TableName::from_static`] newtype so the
 /// compile-time invariant replaces the runtime `quoted_ident` Result.
-/// Both literals are valid SQL identifiers — the assert in
-/// `from_static` would fire at build time on a typo, eliminating the
-/// pre-prod `Result<_, SqlError>` whose `Err` variant could never occur
-/// and the `expect("static idents must validate")` calls in tests.
+///
+/// Both literals are valid SQL identifiers — the assert in `from_static`
+/// would fire at build time on a typo, eliminating the pre-prod
+/// `Result<_, SqlError>` whose `Err` variant could never occur and the
+/// `expect("static idents must validate")` calls in tests.
 #[must_use]
 pub fn tokei_languages_view_sql() -> String {
     let view = TableName::from_static("tokei_languages").quoted();

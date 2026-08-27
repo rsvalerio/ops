@@ -11,22 +11,31 @@ pub use deny::{interpret_deny_result, parse_deny_output, run_cargo_deny};
 pub use upgrade::{categorize_upgrades, parse_upgrade_table, run_cargo_upgrade_dry_run};
 
 #[cfg(test)]
-pub(crate) use deny::MISSING_SEVERITY_SENTINEL;
+pub use deny::MISSING_SEVERITY_SENTINEL;
 #[cfg(test)]
-pub(crate) use upgrade::interpret_upgrade_output;
+pub use upgrade::interpret_upgrade_output;
 
 /// Truncate a log line for tracing — operators get enough context to
 /// diagnose schema drift without flooding logs with multi-KB cargo-deny
 /// diagnostics.
-pub(crate) fn truncate_for_log(s: &str) -> String {
+pub fn truncate_for_log(s: &str) -> String {
     const MAX: usize = 200;
     if s.len() <= MAX {
         s.to_string()
     } else {
+        // Walk back from MAX to the nearest char boundary: `get` yields
+        // `None` while `end` sits inside a multi-byte codepoint, so the head
+        // can never split one. Index 0 is always a boundary, which bounds
+        // the walk.
         let mut end = MAX;
-        while !s.is_char_boundary(end) {
-            end -= 1;
-        }
-        format!("{}…", &s[..end])
+        // Index 0 is always a boundary, so the loop stops at or above 0 and
+        // `saturating_sub(1)` equals `-= 1` exactly.
+        let head = loop {
+            if let Some(head) = s.get(..end) {
+                break head;
+            }
+            end = end.saturating_sub(1);
+        };
+        format!("{head}…")
     }
 }

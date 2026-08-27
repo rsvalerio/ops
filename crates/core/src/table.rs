@@ -56,7 +56,7 @@ impl OpsTable {
 
     /// Whether this table is rendering for a TTY.
     #[must_use]
-    pub fn is_tty(&self) -> bool {
+    pub const fn is_tty(&self) -> bool {
         self.is_tty
     }
 

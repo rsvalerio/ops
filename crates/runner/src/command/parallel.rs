@@ -41,7 +41,7 @@ const DEFAULT_PARALLEL_EVENT_BUDGET_PER_TASK: usize = 256;
 /// Hard ceiling on the env-overridable parallel cap. Rejects pathological
 /// values (e.g. `OPS_MAX_PARALLEL=1000000`) that would defeat the
 /// resource-pressure contract this knob exists to enforce.
-pub(crate) const MAX_PARALLEL_CEILING: usize = 1024;
+pub const MAX_PARALLEL_CEILING: usize = 1024;
 
 /// Hard ceiling on the env-overridable per-task event budget. Same
 /// rationale as [`MAX_PARALLEL_CEILING`].
@@ -70,7 +70,7 @@ static EVENT_BUDGET_CACHED: OnceLock<usize> = OnceLock::new();
 /// without re-reading `std::env`. Tests exercising the parse/clamp matrix
 /// must call [`resolve_env_usize`] directly (the pure helper) to bypass
 /// the cache.
-pub(crate) fn resolve_max_parallel() -> usize {
+pub fn resolve_max_parallel() -> usize {
     *MAX_PARALLEL_CACHED.get_or_init(|| {
         resolve_env_usize(
             "OPS_MAX_PARALLEL",
@@ -86,7 +86,7 @@ pub(crate) fn resolve_max_parallel() -> usize {
 /// `event_budget` so an empty plan still yields a non-zero capacity). The
 /// previous shape used `max_parallel × event_budget` unconditionally, which
 /// pre-allocated 32-step worth of slots even on a 2-step plan.
-pub(crate) fn compute_channel_capacity(
+pub fn compute_channel_capacity(
     steps_len: usize,
     max_parallel: usize,
     event_budget: usize,
@@ -118,7 +118,7 @@ fn resolve_event_budget() -> usize {
 /// a unit test can assert the operator-facing diagnostic — distinguishing
 /// "explicit 0 (sequential intent)" from a generic parse failure — does
 /// not silently regress.
-pub(crate) const ZERO_NOT_ALLOWED_MSG: &str =
+pub const ZERO_NOT_ALLOWED_MSG: &str =
     "zero is not allowed; use 1 for sequential execution; falling back to default";
 
 fn resolve_env_usize(var: &'static str, default: usize, ceiling: usize) -> usize {
@@ -363,6 +363,13 @@ impl CommandRunner {
     /// this may consume significant system resources (file descriptors, memory, CPU).
     /// Consider splitting large parallel groups into smaller batches if resource
     /// exhaustion is a concern.
+    // CONC / TASK-1682: the returned future is `!Send` because `on_event` is a
+    // bare `FnMut` sink that the CLI backs with `indicatif` state, which is not
+    // `Send`. Adding a `+ Send` bound here would push that requirement onto
+    // every caller and rule out the display sink the binary actually uses; the
+    // runner is driven on a current-thread runtime, so `Send` buys nothing
+    // (docs/clippy.md layer 3).
+    #[allow(clippy::future_not_send)]
     #[instrument(skip(self, on_event))]
     pub async fn run_plan_parallel(
         &self,
@@ -426,7 +433,11 @@ impl CommandRunner {
                     RunnerEvent::StepFinished { id, .. }
                     | RunnerEvent::StepFailed { id, .. }
                     | RunnerEvent::StepSkipped { id, .. } => {
-                        *terminal_counts.entry(id.clone()).or_insert(0) += 1;
+                        // Counts terminal events for one in-flight plan, so
+                        // it is bounded by the number of spawned tasks and
+                        // `saturating_add` is exactly equal to `+= 1` here.
+                        let seen = terminal_counts.entry(id.clone()).or_insert(0);
+                        *seen = seen.saturating_add(1);
                     }
                     _ => {}
                 }
@@ -455,7 +466,8 @@ impl CommandRunner {
         for id in command_ids {
             let entry = terminal_counts.entry(id.clone()).or_insert(0);
             if *entry > 0 {
-                *entry -= 1;
+                // Guarded by `*entry > 0`, so this is exactly `-= 1`.
+                *entry = entry.saturating_sub(1);
             } else {
                 on_event(RunnerEvent::StepSkipped {
                     id: id.clone(),

@@ -25,14 +25,14 @@ fn audit_safe(value: &str) -> String {
 /// - Verifying config changes before running
 /// - Auditing what commands are defined
 /// - Debugging composite command expansion
-pub(crate) fn run_command_dry_run(
+pub fn run_command_dry_run(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
 ) -> anyhow::Result<ExitCode> {
     run_command_dry_run_to(runner, name, &mut std::io::stdout())
 }
 
-pub(crate) fn run_command_dry_run_to(
+pub fn run_command_dry_run_to(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
     w: &mut dyn Write,
@@ -49,7 +49,7 @@ pub(crate) fn run_command_dry_run_to(
     writeln!(w, "Resolved to {} step(s):", leaf_ids.len())?;
 
     for (i, id) in leaf_ids.iter().enumerate() {
-        writeln!(w, "\n  [{}] {}", i + 1, audit_safe(id))?;
+        writeln!(w, "\n  [{}] {}", i.saturating_add(1), audit_safe(id))?;
         match runner.resolve(id) {
             Some(CommandSpec::Exec(e)) => print_exec_spec(w, e, runner.variables())?,
             Some(CommandSpec::Composite(_)) => {
@@ -64,7 +64,7 @@ pub(crate) fn run_command_dry_run_to(
     Ok(ExitCode::SUCCESS)
 }
 
-pub(crate) fn print_exec_spec(
+pub fn print_exec_spec(
     w: &mut dyn Write,
     e: &ops_core::config::ExecCommandSpec,
     vars: &ops_core::expand::Variables,

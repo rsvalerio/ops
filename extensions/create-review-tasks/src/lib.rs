@@ -71,6 +71,7 @@ const MAX_ALLOCATION_ATTEMPTS: u32 = 32;
 
 /// Create the review-request task set: one main task plus one subtask per
 /// review target, written as markdown files under `.backlog/tasks/`.
+///
 /// [`RunMode::DryRun`] prints the same report with `would create` verbs and
 /// writes nothing.
 ///
@@ -189,7 +190,9 @@ fn plan_task_set<'a>(
         .iter()
         .enumerate()
         .map(|(position, target)| {
-            let index = position + 1;
+            // `position` indexes an in-memory slice, so it is at most
+            // `len - 1` and `saturating_add(1)` is exact.
+            let index = position.saturating_add(1);
             PlannedSubtask {
                 index,
                 id: backlog::subtask_id(main_number, index),
@@ -350,7 +353,7 @@ struct StagedTasks {
 
 impl StagedTasks {
     /// An attempt with nothing staged yet.
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             paths: Vec::new(),
             committed: false,
@@ -363,7 +366,7 @@ impl StagedTasks {
     }
 
     /// Keep every staged file: the set is complete.
-    fn keep(&mut self) {
+    const fn keep(&mut self) {
         self.committed = true;
     }
 }
@@ -760,6 +763,9 @@ mod tests {
         let dir = scratch_backlog();
         let registry = registry_with(sample_payload());
         let outputs: Vec<String> = std::thread::scope(|scope| {
+            // The collect is load-bearing: spawn all RUNS threads before
+            // joining any, or the runs serialise and stop racing.
+            #[allow(clippy::needless_collect)]
             let handles: Vec<_> = (0..RUNS)
                 .map(|_| {
                     scope.spawn(|| {

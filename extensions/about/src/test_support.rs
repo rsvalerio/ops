@@ -20,7 +20,9 @@ mod tracing_capture {
 
     /// DUP-3 / TASK-1157: shared tracing-capture harness used by the
     /// poison-recovery and warn-once tests in `ops-about-rust` and
-    /// `ops-about-metadata`. Each crate previously redefined the same
+    /// `ops-about-metadata`.
+    ///
+    /// Each crate previously redefined the same
     /// `BufWriter(Arc<Mutex<Vec<u8>>>)` + `Write` + `MakeWriter` shim
     /// inline (3+ copies, ~17 lines each); style drift between copies led
     /// to inconsistent log capture.
@@ -60,7 +62,7 @@ mod tracing_capture {
     }
 
     impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for TracingBuf {
-        type Writer = TracingBuf;
+        type Writer = Self;
         fn make_writer(&'a self) -> Self::Writer {
             self.clone()
         }

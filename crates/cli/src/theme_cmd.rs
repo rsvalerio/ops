@@ -33,6 +33,10 @@ static BUILTIN_THEME_NAMES: OnceLock<HashSet<String>> = OnceLock::new();
 /// the process lifetime.
 const EMBEDDED_DEFAULT_CONFIG_PARSE_EXPECT: &str = "embedded default config must parse";
 
+// See `EMBEDDED_DEFAULT_CONFIG_PARSE_EXPECT` above: the config is compiled
+// into the binary, so a parse failure is a build-time invariant violation
+// and crashing loud is the intended behaviour (docs/clippy.md layer 3).
+#[allow(clippy::expect_used)]
 fn builtin_theme_names() -> &'static HashSet<String> {
     BUILTIN_THEME_NAMES.get_or_init(|| {
         parse_default_config()
@@ -196,7 +200,7 @@ struct ThemeOption {
 /// render `ThemeOption` — the `theme list` table (`run_theme_list_to`) and the
 /// `theme select` picker (`Display`). Centralising prevents the two surfaces
 /// from drifting on marker text / position.
-fn theme_custom_marker(is_custom: bool) -> &'static str {
+const fn theme_custom_marker(is_custom: bool) -> &'static str {
     if is_custom {
         " (custom)"
     } else {
@@ -614,8 +618,10 @@ theme = "compact"
                 .iter()
                 .find(|l| l.contains("plain") && l.contains("ASCII name"))
                 .unwrap_or_else(|| panic!("ascii line not found in:\n{output}"));
-            let wide_col = display_width(&wide[..wide.find("Wide name").unwrap()]);
-            let ascii_col = display_width(&ascii[..ascii.find("ASCII name").unwrap()]);
+            let wide_idx = wide.find("Wide name").unwrap();
+            let ascii_idx = ascii.find("ASCII name").unwrap();
+            let wide_col = display_width(wide.get(..wide_idx).expect("char boundary"));
+            let ascii_col = display_width(ascii.get(..ascii_idx).expect("char boundary"));
             assert_eq!(
                 wide_col, ascii_col,
                 "description columns should align by display width: ビルド at {wide_col}, plain at {ascii_col}"

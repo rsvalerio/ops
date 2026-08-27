@@ -143,6 +143,7 @@ pub(super) fn drop_table_if_exists(db: &DuckDb, table_name: &str) -> Result<(), 
     let conn = db.lock().context("acquiring db lock for drop")?;
     conn.execute_batch(&format!("DROP TABLE IF EXISTS {quoted}"))
         .with_context(|| format!("dropping table {table_name}"))?;
+    drop(conn);
     Ok(())
 }
 
@@ -330,6 +331,9 @@ mod tests {
             fn name(&self) -> &'static str {
                 "panicky"
             }
+            // The panic *is* the behaviour under test: this mock stands in for
+            // an ingestor that blows up mid-collect.
+            #[allow(clippy::panic_in_result_fn)]
             fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
                 assert!(
                     !self.should_panic.swap(false, Ordering::SeqCst),
@@ -402,7 +406,7 @@ mod tests {
             }
         }
         impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriter;
+            type Writer = Self;
             fn make_writer(&'a self) -> Self::Writer {
                 self.clone()
             }
@@ -415,6 +419,9 @@ mod tests {
             fn name(&self) -> &'static str {
                 "panicky_warn"
             }
+            // The panic *is* the behaviour under test: this mock stands in for
+            // an ingestor that blows up mid-collect.
+            #[allow(clippy::panic_in_result_fn)]
             fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
                 assert!(
                     !self.should_panic.swap(false, Ordering::SeqCst),
@@ -546,6 +553,7 @@ mod tests {
                 let count: i64 = conn
                     .query_row("SELECT COUNT(*) FROM race_table", [], |r| r.get(0))
                     .expect("table must still exist mid-query");
+                drop(conn);
                 done1.store(true, Ordering::SeqCst);
                 Ok(serde_json::json!({ "count": count }))
             })
@@ -617,8 +625,14 @@ mod tests {
                     "simulated collect failure",
                 )))
             }
+            // The panic *is* the assertion: this double exists to prove `load` is
+            // never reached once `collect` fails. Returning an `Err` instead would
+            // let a regression that calls `load` anyway flow into the error-chain
+            // assertions below and pass. `allow-panic-in-tests` does not cover
+            // `panic_in_result_fn`, so the exception is spelled here.
+            #[allow(clippy::panic_in_result_fn)]
             fn load(&self, _data_dir: &Path, _db: &DuckDb) -> DbResult<crate::LoadResult> {
-                unreachable!("collect failed before load")
+                panic!("load must not run: collect failed first")
             }
         }
 

@@ -47,11 +47,13 @@ pub fn read_ops_toml(path: &Path) -> anyhow::Result<toml_edit::DocumentMut> {
 }
 
 /// DUP-1 / TASK-1278: ensure a top-level table named `key` exists in `doc`
-/// and return a mutable reference to it. If the key is absent, an empty
-/// `Table` is inserted. If the key is present but holds a non-table value
-/// (e.g. `output = "classic"`), an `anyhow::Error` is returned rather than
-/// panicking — this is the failure mode TASK-1300 hit on the
-/// `doc["output"]["theme"] = …` indexer path in `theme_cmd::set_theme`.
+/// and return a mutable reference to it.
+///
+/// If the key is absent, an empty `Table` is inserted. If the key is
+/// present but holds a non-table value (e.g. `output = "classic"`), an
+/// `anyhow::Error` is returned rather than panicking — this is the failure
+/// mode TASK-1300 hit on the `doc["output"]["theme"] = …` indexer path in
+/// `theme_cmd::set_theme`.
 ///
 /// Use this anywhere `.ops.toml` writers need to land a key under a top-level
 /// section: `about_cmd`, `theme_cmd`, and `new_command_cmd` previously each
@@ -74,10 +76,11 @@ pub fn ensure_table<'a>(
 }
 
 /// Names already present under `[commands]` in the `.ops.toml` at `path`.
+///
 /// A missing file means no commands; a malformed one is a hard error so
-/// callers never plan an edit that the write path would then refuse.
-/// Owns the `[commands]`-table walk next to the writers ([`insert_command`])
-/// so the config layout is encoded in one module, not re-derived per caller.
+/// callers never plan an edit that the write path would then refuse. Owns
+/// the `[commands]`-table walk next to the writers ([`insert_command`]) so
+/// the config layout is encoded in one module, not re-derived per caller.
 ///
 /// # Errors
 ///
@@ -132,8 +135,10 @@ pub fn insert_command<S: AsRef<str>>(
 }
 
 /// Atomically write the serialized `doc` back to `path` (sibling temp file +
-/// rename). Pair with [`read_ops_toml`] for a read / mutate / write pipeline
-/// where the caller wants to skip the write on some branches.
+/// rename).
+///
+/// Pair with [`read_ops_toml`] for a read / mutate / write pipeline where
+/// the caller wants to skip the write on some branches.
 ///
 /// # Errors
 ///
@@ -232,7 +237,7 @@ fn resolve_parent_and_filename(path: &Path) -> std::io::Result<(&Path, &OsStr)> 
 /// perms — 0o600 is the conservative "owner-only" default that keeps
 /// `.ops.toml`-style configs out of world-readable mode.
 #[cfg(unix)]
-pub(crate) const ATOMIC_WRITE_FALLBACK_MODE: u32 = 0o600;
+pub const ATOMIC_WRITE_FALLBACK_MODE: u32 = 0o600;
 
 /// READ-5 / TASK-1467: Unix permission-bit mask (sticky + setuid + setgid
 /// plus the standard rwxrwxrwx triplet). Applied to the mode probed from
@@ -240,7 +245,7 @@ pub(crate) const ATOMIC_WRITE_FALLBACK_MODE: u32 = 0o600;
 /// bits only, not the file-type bits that `stat(2)` packs into the same
 /// `u32`.
 #[cfg(unix)]
-pub(crate) const ATOMIC_WRITE_MODE_MASK: u32 = 0o7777;
+pub const ATOMIC_WRITE_MODE_MASK: u32 = 0o7777;
 
 // SEC-25 / TASK-0837: build the tmp basename from raw OsStr bytes so two
 // non-UTF-8 siblings whose lossy renders collide do not race on the same
@@ -278,7 +283,12 @@ fn build_tmp_basename(file_name: &OsStr) -> OsString {
     // PERF-3 / TASK-1223: one allocation for the suffix, one for the OsString.
     let mut suffix = String::with_capacity(48);
     let _ = write!(suffix, ".tmp.{pid}.{counter}.{nanos}");
-    let mut tmp_name = OsString::with_capacity(name_bytes.len() + suffix.len() + 1);
+    let mut tmp_name = OsString::with_capacity(
+        name_bytes
+            .len()
+            .saturating_add(suffix.len())
+            .saturating_add(1),
+    );
     tmp_name.push(".");
     tmp_name.push(stem);
     tmp_name.push(&suffix);
@@ -575,7 +585,8 @@ mod tests {
     fn insert_command_writes_schema_and_omits_empty_args() {
         let mut doc = toml_edit::DocumentMut::new();
         let commands = ensure_table(&mut doc, "commands").unwrap();
-        insert_command(commands, "lint", "make", &[] as &[&str], None).unwrap();
+        let no_args: &[&str] = &[];
+        insert_command(commands, "lint", "make", no_args, None).unwrap();
         insert_command(commands, "build", "make", &["build"], Some("Compile")).unwrap();
 
         let rendered = doc.to_string();

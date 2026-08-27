@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-pub(crate) fn canonical_git_dir(git_dir: &Path) -> anyhow::Result<PathBuf> {
+pub fn canonical_git_dir(git_dir: &Path) -> anyhow::Result<PathBuf> {
     let canonical = std::fs::canonicalize(git_dir)
         .with_context(|| format!("failed to canonicalize git_dir {}", git_dir.display()))?;
     if !is_accepted_git_dir(&canonical) {
@@ -20,7 +20,7 @@ pub(crate) fn canonical_git_dir(git_dir: &Path) -> anyhow::Result<PathBuf> {
     Ok(canonical)
 }
 
-pub(crate) fn canonical_subdir(parent: &Path, child: &Path) -> anyhow::Result<PathBuf> {
+pub fn canonical_subdir(parent: &Path, child: &Path) -> anyhow::Result<PathBuf> {
     let canonical = std::fs::canonicalize(child)
         .with_context(|| format!("failed to canonicalize {}", child.display()))?;
     let symlink_meta = std::fs::symlink_metadata(child)
@@ -71,8 +71,5 @@ fn has_accepted_filename(path: &Path) -> bool {
 /// TASK-0361.
 fn looks_like_git_dir(path: &Path) -> bool {
     let head = path.join("HEAD");
-    match std::fs::symlink_metadata(&head) {
-        Ok(meta) => meta.file_type().is_file(),
-        Err(_) => false,
-    }
+    std::fs::symlink_metadata(&head).is_ok_and(|meta| meta.file_type().is_file())
 }

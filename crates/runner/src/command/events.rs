@@ -50,7 +50,11 @@ impl OutputLine {
     /// Visible bytes of this line.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.buf[self.range.clone()]
+        // `slice` debug-asserts that `range` is in bounds and lands on char
+        // boundaries, so a well-formed value always yields `Some`. If that
+        // invariant ever broke we degrade to an empty line rather than
+        // panicking mid-render.
+        self.buf.get(self.range.clone()).unwrap_or("")
     }
 
     /// PERF-3 / TASK-0838: crate-internal handle on the backing buffer so
@@ -59,7 +63,7 @@ impl OutputLine {
     /// representation is an implementation detail of how per-line events
     /// avoid per-line allocations.
     #[cfg(test)]
-    pub(crate) fn buf_arc(&self) -> &Arc<str> {
+    pub(crate) const fn buf_arc(&self) -> &Arc<str> {
         &self.buf
     }
 }
@@ -110,7 +114,7 @@ impl From<String> for OutputLine {
 }
 
 /// Tracks the lifecycle of a plan execution (`PlanStarted` → `RunFinished` bookends).
-pub(crate) struct PlanLifecycle {
+pub struct PlanLifecycle {
     start: Instant,
 }
 

@@ -149,28 +149,31 @@ const PEAK_CAPTURE_WARN_BYTES: usize = 1024 * 1024 * 1024;
 /// fallback semantics are unit-testable without poking the
 /// process-global `OnceLock`.
 fn parse_output_byte_cap(raw: Option<&str>) -> (usize, Option<String>) {
-    match raw {
-        None => (DEFAULT_OUTPUT_BYTE_CAP, None),
-        Some(s) => match s.parse::<usize>() {
-            Ok(n) if n > 0 => (n, None),
-            Ok(_) => (
-                DEFAULT_OUTPUT_BYTE_CAP,
-                Some(format!(
-                    "{OUTPUT_CAP_ENV}={s:?} is not a positive integer; using default {DEFAULT_OUTPUT_BYTE_CAP}"
-                )),
-            ),
-            Err(e) => (
-                DEFAULT_OUTPUT_BYTE_CAP,
-                Some(format!(
-                    "{OUTPUT_CAP_ENV}={s:?} failed to parse as usize (max {max} on this platform: {e}); using default {DEFAULT_OUTPUT_BYTE_CAP}",
-                    max = usize::MAX
-                )),
-            ),
-        },
+    // The unset case is a trivial default, so it leaves through a `let ... else`
+    // early return. That keeps the three-arm `parse` classification below at the
+    // top level instead of nesting it inside a `map_or_else` closure.
+    let Some(s) = raw else {
+        return (DEFAULT_OUTPUT_BYTE_CAP, None);
+    };
+    match s.parse::<usize>() {
+        Ok(n) if n > 0 => (n, None),
+        Ok(_) => (
+            DEFAULT_OUTPUT_BYTE_CAP,
+            Some(format!(
+                "{OUTPUT_CAP_ENV}={s:?} is not a positive integer; using default {DEFAULT_OUTPUT_BYTE_CAP}"
+            )),
+        ),
+        Err(e) => (
+            DEFAULT_OUTPUT_BYTE_CAP,
+            Some(format!(
+                "{OUTPUT_CAP_ENV}={s:?} failed to parse as usize (max {max} on this platform: {e}); using default {DEFAULT_OUTPUT_BYTE_CAP}",
+                max = usize::MAX
+            )),
+        ),
     }
 }
 
-pub(crate) fn output_byte_cap() -> usize {
+pub fn output_byte_cap() -> usize {
     *OUTPUT_BYTE_CAP.get_or_init(|| {
         let raw = std::env::var(OUTPUT_CAP_ENV).ok();
         let (cap, warn_msg) = parse_output_byte_cap(raw.as_deref());
@@ -235,7 +238,13 @@ fn cap_streamed(mut head: Vec<u8>, dropped_after: u64, cap: usize) -> String {
     if from_head_overflow > 0 {
         head.truncate(cap);
     }
-    let total_dropped = (from_head_overflow as u64).saturating_add(dropped_after);
+    // `usize` is at most 64 bits on every supported target, so widening a
+    // buffer length to u64 is exact and the fallback is unreachable; if it
+    // ever were reached, `u64::MAX` keeps the reported drop count monotone
+    // rather than wrapping it to a small number.
+    let total_dropped = u64::try_from(from_head_overflow)
+        .unwrap_or(u64::MAX)
+        .saturating_add(dropped_after);
     // PERF-3 / TASK-1232: try the in-place `String::from_utf8` fast path
     // first (the common case for cargo / rustc / shell-script stdout), so a
     // 4 MiB capture transmutes the existing `Vec<u8>` into a `String`
@@ -354,7 +363,7 @@ mod tests {
     /// `OPS_OUTPUT_BYTE_CAP`).
     #[test]
     fn cap_streamed_caps_oversized_input() {
-        let huge: Vec<u8> = (0..1024).map(|i| b'a' + (i % 26) as u8).collect();
+        let huge: Vec<u8> = (b'a'..=b'z').cycle().take(1024).collect();
         let truncated = cap_streamed(huge, 0, 32);
 
         assert!(
@@ -368,7 +377,9 @@ mod tests {
         assert!(
             truncated.starts_with("abcdefghijklmnopqrstuvwxyzabcdef"),
             "head must be preserved, got prefix: {:?}",
-            &truncated[..40.min(truncated.len())]
+            truncated
+                .get(..40.min(truncated.len()))
+                .unwrap_or(&truncated)
         );
     }
 
@@ -438,7 +449,12 @@ mod tests {
         // platform ceiling so 32-bit operators reading the doc see why
         // their u64-shaped value fell back. Pick `usize::MAX + 1` as a
         // u128 to stay portable across 32/64-bit targets.
-        let too_big = (usize::MAX as u128 + 1).to_string();
+        // `usize` is never wider than 128 bits, so the widening is exact and
+        // the fallback is unreachable; even if it were taken, `u128::MAX`
+        // (saturating on the +1) is still above `usize::MAX`, which is the
+        // only property this test depends on.
+        let usize_ceiling = u128::try_from(usize::MAX).unwrap_or(u128::MAX);
+        let too_big = usize_ceiling.saturating_add(1).to_string();
         let (cap, msg) = parse_output_byte_cap(Some(&too_big));
         assert_eq!(cap, DEFAULT_OUTPUT_BYTE_CAP);
         let m = msg.expect("oversized value must produce a warn message");

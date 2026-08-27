@@ -84,7 +84,7 @@ impl ConfigurableTheme {
     }
 
     #[must_use]
-    pub fn left_pad(&self) -> usize {
+    pub const fn left_pad(&self) -> usize {
         self.config.left_pad
     }
 
@@ -99,7 +99,7 @@ impl ConfigurableTheme {
     }
 
     #[must_use]
-    pub fn separator_char(&self) -> char {
+    pub const fn separator_char(&self) -> char {
         self.config.separator_char
     }
 
@@ -124,7 +124,7 @@ impl ConfigurableTheme {
     }
 
     #[must_use]
-    pub fn running_template_overhead(&self) -> usize {
+    pub const fn running_template_overhead(&self) -> usize {
         self.config.running_template_overhead
     }
 
@@ -220,7 +220,7 @@ impl ConfigurableTheme {
         let pad = self.left_pad_str();
         let prefix_with_rail = format!("{}{}", pad, self.config.error_block.rail);
 
-        let outer = columns as usize;
+        let outer = usize::from(columns);
         let right_target = outer.saturating_sub(self.left_pad()).saturating_sub(2);
         lines
             .into_iter()
@@ -242,13 +242,14 @@ impl ConfigurableTheme {
     /// the rail prefix already occupies.
     fn boxed_error_indent_columns(&self) -> usize {
         let rail_width = display_width(&self.config.error_block.rail);
-        let target_gutter =
-            BOX_STEP_RESERVE as usize - BOX_FRAME_BARS + display_width(self.step_indent());
-        target_gutter.saturating_sub(rail_width + BOX_RAIL_PREFIX_PADDING)
+        let target_gutter = usize::from(BOX_STEP_RESERVE)
+            .saturating_sub(BOX_FRAME_BARS)
+            .saturating_add(display_width(self.step_indent()));
+        target_gutter.saturating_sub(rail_width.saturating_add(BOX_RAIL_PREFIX_PADDING))
     }
 
     #[must_use]
-    pub fn step_column_reserve(&self) -> u16 {
+    pub const fn step_column_reserve(&self) -> u16 {
         match self.config.layout_kind {
             LayoutKind::Boxed => BOX_STEP_RESERVE,
             LayoutKind::Flat => 0,
@@ -313,18 +314,26 @@ impl ConfigurableTheme {
         }
         let pad = self.left_pad_str();
         // Inner visual budget: columns - 2*left_pad - BOX_STEP_RESERVE.
-        let outer = columns as usize;
+        let outer = usize::from(columns);
         // Frame overhead = outer margin on both sides + the boxed step reserve.
         // `2 * left_pad` accounts for the left and right outer-pad columns; the
         // reserve itself already includes the two vertical `│` bars.
-        let frame_overhead = 2 * self.left_pad() + BOX_STEP_RESERVE as usize;
+        let frame_overhead = self
+            .left_pad()
+            .saturating_mul(2)
+            .saturating_add(usize::from(BOX_STEP_RESERVE));
         let inner_budget = outer.saturating_sub(frame_overhead);
         let inner_visible = visible_width(inner);
         let right_pad = inner_budget.saturating_sub(inner_visible);
         // PERF-3 / TASK-1130: push directly into the result buffer instead of
         // allocating an intermediate `" ".repeat(right_pad)` String per step.
         let mut out = String::with_capacity(
-            pad.len() + inner.len() + right_pad + "│   │".len() + progress_cell.len() + 2,
+            pad.len()
+                .saturating_add(inner.len())
+                .saturating_add(right_pad)
+                .saturating_add("│   │".len())
+                .saturating_add(progress_cell.len())
+                .saturating_add(2),
         );
         out.push_str(pad);
         out.push('│');
@@ -366,7 +375,8 @@ impl ConfigurableTheme {
         } else {
             (self.step_indent(), 0usize)
         };
-        let pad = " ".repeat(max_icon_width.saturating_sub(icon_width + spinner_cols));
+        let pad =
+            " ".repeat(max_icon_width.saturating_sub(icon_width.saturating_add(spinner_cols)));
         StepPrefixParts { indent, icon, pad }
     }
 
@@ -399,14 +409,16 @@ impl ConfigurableTheme {
         } else {
             0
         };
-        let reserved_chrome = template_overhead + self.left_pad();
+        let reserved_chrome = template_overhead.saturating_add(self.left_pad());
         let line_budget = columns.saturating_sub(reserved_chrome);
 
         // Fixed costs inside `line_budget`: the label prefix, the duration
         // (when present), and one leading space before the separator.
         let prefix_width = display_width(prefix);
         let leading_space = 1usize;
-        let fixed_inside = prefix_width + display_width(duration_str) + leading_space;
+        let fixed_inside = prefix_width
+            .saturating_add(display_width(duration_str))
+            .saturating_add(leading_space);
 
         let space_for_sep = line_budget.saturating_sub(fixed_inside);
         const MIN_SEP_GLYPHS: usize = 3;
@@ -419,7 +431,12 @@ impl ConfigurableTheme {
         let dots_count = sep_count.saturating_sub(1);
         let trailing_space = duration_str.is_empty();
         let sep_len = sep.len_utf8();
-        let mut out = String::with_capacity(1 + dots_count * sep_len + usize::from(trailing_space));
+        let mut out = String::with_capacity(
+            dots_count
+                .saturating_mul(sep_len)
+                .saturating_add(1)
+                .saturating_add(usize::from(trailing_space)),
+        );
         out.push(' ');
         for _ in 0..dots_count {
             out.push(sep);
@@ -466,7 +483,7 @@ impl ConfigurableTheme {
         let plain_separator = self.render_separator(
             &plain_prefix,
             slot.trailing,
-            columns as usize,
+            usize::from(columns),
             slot.is_running,
         );
         let pad = if slot.is_running {
@@ -548,7 +565,7 @@ impl ConfigurableTheme {
         }
 
         let pad = self.left_pad_str();
-        let mut out = Vec::with_capacity(report.rows.len() * 2 + 4);
+        let mut out = Vec::with_capacity(report.rows.len().saturating_mul(2).saturating_add(4));
         out.push(String::new());
         let title = apply_with_prefix(&report.title, self.report_title_prefix.as_deref());
         out.push(format!("{pad}{title}"));
@@ -572,7 +589,7 @@ impl ConfigurableTheme {
     /// detail lines wrapped as continuation content, and a bottom border
     /// carrying the footer summary.
     fn render_report_boxed(&self, report: &Report, columns: u16) -> Vec<String> {
-        let mut out = Vec::with_capacity(report.rows.len() * 2 + 4);
+        let mut out = Vec::with_capacity(report.rows.len().saturating_mul(2).saturating_add(4));
         let reserve = self.step_column_reserve();
         let effective = columns.saturating_sub(reserve);
 
@@ -626,8 +643,8 @@ impl ConfigurableTheme {
         // Interior between the two `│` bars, minus the leading and trailing
         // interior spaces — the content area whose right edge must line up with
         // the right bar that `wrap_step_line` emits at `columns - left_pad`.
-        let content_area = (columns as usize)
-            .saturating_sub(2 * self.left_pad())
+        let content_area = usize::from(columns)
+            .saturating_sub(self.left_pad().saturating_mul(2))
             .saturating_sub(4);
         let right_pad = content_area.saturating_sub(visible_width(inner));
         format!("{pad}│ {inner}{} │", " ".repeat(right_pad))
@@ -683,12 +700,16 @@ fn build_horizontal_border(args: BorderArgs<'_>) -> String {
         title_prefix,
     } = args;
     let pad = " ".repeat(left_pad);
-    let outer = columns as usize;
-    let inner = outer.saturating_sub(2 * left_pad);
+    let outer = usize::from(columns);
+    let inner = outer.saturating_sub(left_pad.saturating_mul(2));
     let corner_l_w = display_width(left_corner);
     let corner_r_w = display_width(right_corner);
     let title_w = display_width(title);
-    let fill = inner.saturating_sub(corner_l_w + corner_r_w + title_w);
+    let fill = inner.saturating_sub(
+        corner_l_w
+            .saturating_add(corner_r_w)
+            .saturating_add(title_w),
+    );
     let fill_str = "─".repeat(fill);
     let colored_title = apply_with_prefix(title, title_prefix);
     format!("{pad}{left_corner}{colored_title}{fill_str}{right_corner}")

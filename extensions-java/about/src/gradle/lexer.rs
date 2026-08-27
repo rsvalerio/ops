@@ -24,7 +24,7 @@ pub(super) fn extract_quoted(s: &str) -> Option<&str> {
         ('\'', r)
     };
     let end = find_unescaped(rest, open)?;
-    Some(&rest[..end])
+    rest.get(..end)
 }
 
 /// Find the first byte offset of `quote` in `s` that is not preceded by an
@@ -53,7 +53,11 @@ pub(super) fn extract_quoted_list(s: &str, out: &mut Vec<String>) {
     let original = s;
     let mut rest = strip_trailing_comment(s).trim();
     while !rest.is_empty() {
-        let Some(quote) = rest.chars().next().filter(|c| *c == '"' || *c == '\'') else {
+        let (quote, after) = if let Some(after) = rest.strip_prefix('"') {
+            ('"', after)
+        } else if let Some(after) = rest.strip_prefix('\'') {
+            ('\'', after)
+        } else {
             tracing::debug!(
                 line = original,
                 remainder = rest,
@@ -61,7 +65,6 @@ pub(super) fn extract_quoted_list(s: &str, out: &mut Vec<String>) {
             );
             return;
         };
-        let after = &rest[1..];
         let Some(end) = find_unescaped(after, quote) else {
             tracing::debug!(
                 line = original,
@@ -70,8 +73,22 @@ pub(super) fn extract_quoted_list(s: &str, out: &mut Vec<String>) {
             );
             return;
         };
-        out.push(after[..end].to_string());
-        rest = after[end + 1..].trim_start();
+        // `end` is a char boundary produced by `find_unescaped` and the quote
+        // it points at is ASCII, so both slices always exist and `end + 1` is
+        // at most `after.len()` — `saturating_add` is exactly `+ 1`. The
+        // bail-out is unreachable in practice; it degrades like a malformed
+        // remainder (keep what was already pushed) instead of panicking.
+        let (Some(token), Some(tail)) = (after.get(..end), after.get(end.saturating_add(1)..))
+        else {
+            tracing::debug!(
+                line = original,
+                remainder = rest,
+                "extract_quoted_list: bailed on unsliceable remainder"
+            );
+            return;
+        };
+        out.push(token.to_string());
+        rest = tail.trim_start();
         if let Some(next) = rest.strip_prefix(',') {
             rest = next.trim_start();
         } else {
@@ -85,11 +102,8 @@ pub(super) fn extract_quoted_list(s: &str, out: &mut Vec<String>) {
 /// `(args_inside, remainder_after_close)` or `None` if no closing paren is
 /// found outside of a string.
 pub(super) fn split_at_unquoted_close_paren(s: &str) -> Option<(&str, &str)> {
-    let bytes = s.as_bytes();
     let mut quote: Option<u8> = None;
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
+    for (i, b) in s.bytes().enumerate() {
         match quote {
             Some(q) => {
                 if b == q {
@@ -98,21 +112,21 @@ pub(super) fn split_at_unquoted_close_paren(s: &str) -> Option<(&str, &str)> {
             }
             None => match b {
                 b'"' | b'\'' => quote = Some(b),
-                b')' => return Some((&s[..i], &s[i + 1..])),
+                // `)` is ASCII, so `i` and `i + 1` are always char
+                // boundaries here and `saturating_add` is exactly `+ 1`; `?`
+                // can only bail on an impossible state, and does so as "no
+                // closing paren found".
+                b')' => return Some((s.get(..i)?, s.get(i.saturating_add(1)..)?)),
                 _ => {}
             },
         }
-        i += 1;
     }
     None
 }
 
 /// Strip a trailing `// ...` Groovy/Kotlin comment from a line fragment.
 pub(super) fn strip_trailing_comment(s: &str) -> &str {
-    match s.find("//") {
-        Some(i) => &s[..i],
-        None => s,
-    }
+    s.split_once("//").map_or(s, |(before, _)| before)
 }
 
 /// Strip a trailing `# ...` or `! ...` java.util.Properties comment.
@@ -124,13 +138,15 @@ pub(super) fn strip_trailing_comment(s: &str) -> &str {
 /// `pwd=foo#bar` must round-trip unchanged. The whitespace-prefix relaxation
 /// preserves the long-standing `version=1.2 # release` extraction.
 pub(super) fn strip_properties_comment(s: &str) -> &str {
-    let bytes = s.as_bytes();
     let mut prev_ws = true;
-    for (i, &b) in bytes.iter().enumerate() {
+    for (i, b) in s.bytes().enumerate() {
         if (b == b'#' || b == b'!') && prev_ws {
-            return &s[..i];
+            // `#` / `!` are ASCII, so `i` is a char boundary and the slice
+            // always exists; falling back to the whole string just means
+            // "no comment stripped", which is the safe degradation.
+            return s.get(..i).unwrap_or(s);
         }
-        prev_ws = (b as char).is_whitespace();
+        prev_ws = char::from(b).is_whitespace();
     }
     s
 }

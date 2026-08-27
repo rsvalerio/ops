@@ -9,23 +9,25 @@ use std::borrow::Cow;
 use std::io::IsTerminal;
 use std::sync::OnceLock;
 
-/// DUP-3 / TASK-1188: shared color-enablement resolver. Both
-/// `core::style::cyan` (stdout-bound) and `theme::style::sgr::apply_style`
-/// (stderr-bound) used to compute their own `OnceLock<bool>` cache against
-/// different streams, so a terminal where stdout is a TTY but stderr is
-/// piped (or vice versa) silently disagreed on whether to emit SGR codes.
-/// The shared resolver caches `is_terminal()` for **both** streams once per
-/// process and enables color when **either** is a TTY (and `NO_COLOR` is
-/// unset). Either stream being a real terminal means there is a human
-/// reader who benefits from styling; emitting SGR into the other stream is
-/// the same risk the per-stream-only gate already accepted on the styled
-/// branch.
+/// DUP-3 / TASK-1188: shared color-enablement resolver.
+///
+/// Both `core::style::cyan` (stdout-bound) and
+/// `theme::style::sgr::apply_style` (stderr-bound) used to compute their
+/// own `OnceLock<bool>` cache against different streams, so a terminal
+/// where stdout is a TTY but stderr is piped (or vice versa) silently
+/// disagreed on whether to emit SGR codes. The shared resolver caches
+/// `is_terminal()` for **both** streams once per process and enables color
+/// when **either** is a TTY (and `NO_COLOR` is unset). Either stream being
+/// a real terminal means there is a human reader who benefits from styling;
+/// emitting SGR into the other stream is the same risk the per-stream-only
+/// gate already accepted on the styled branch.
 #[must_use]
 pub fn color_enabled() -> bool {
     (stdout_is_terminal() || stderr_is_terminal()) && !no_color_env()
 }
 
 /// PERF-3 / TASK-1439: shared, memoised `stdout().is_terminal()` probe.
+///
 /// `OpsTable::new` and the legacy `color_enabled` resolver share this cache
 /// so the `isatty` syscall fires once per process regardless of how many
 /// tables (or styled lines) are emitted, and the two subsystems cannot
@@ -77,8 +79,9 @@ macro_rules! ansi_style {
             style_gated(s, $code, color_enabled())
         }
 
-        /// Same as [`$name`] but with an explicit color-enabled override —
-        /// used by callers that compute their own TTY state (e.g. against
+        /// Same as [`$name`] but with an explicit color-enabled override.
+        ///
+        /// Used by callers that compute their own TTY state (e.g. against
         /// an injected writer) and tests that need to observe the styled-
         /// branch output regardless of process stdout.
         pub fn $gated_name(s: &str, enabled: bool) -> Cow<'_, str> {

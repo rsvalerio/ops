@@ -12,14 +12,13 @@ use super::*;
 #[tokio::test]
 async fn deny_policy_refuses_escaping_cwd_on_hook_path() {
     let mut commands = HashMap::new();
-    let spec = exec_spec_with_cwd("true", &[] as &[&str], Some(PathBuf::from("/etc")));
+    let spec = exec_spec_with_cwd("true", &[], Some(PathBuf::from("/etc")));
     commands.insert("malicious".to_string(), CommandSpec::Exec(spec));
     let mut runner = test_runner(commands);
     runner.set_cwd_escape_policy(crate::command::CwdEscapePolicy::Deny);
 
-    let mut events = Vec::new();
     let results = runner
-        .run_plan(&["malicious".into()], true, &mut |e| events.push(e))
+        .run_plan(&["malicious".into()], true, &mut |_| {})
         .await;
 
     assert_eq!(results.len(), 1);
@@ -46,13 +45,12 @@ async fn deny_policy_refuses_escaping_cwd_on_hook_path() {
 #[tokio::test]
 async fn warn_policy_does_not_refuse_escaping_cwd_on_interactive_path() {
     let mut commands = HashMap::new();
-    let spec = exec_spec_with_cwd("true", &[] as &[&str], Some(PathBuf::from("/etc")));
+    let spec = exec_spec_with_cwd("true", &[], Some(PathBuf::from("/etc")));
     commands.insert("interactive".to_string(), CommandSpec::Exec(spec));
     let runner = test_runner(commands); // default policy = WarnAndAllow
 
-    let mut events = Vec::new();
     let results = runner
-        .run_plan(&["interactive".into()], true, &mut |e| events.push(e))
+        .run_plan(&["interactive".into()], true, &mut |_| {})
         .await;
 
     assert_eq!(results.len(), 1);

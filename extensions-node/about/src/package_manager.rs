@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-pub(crate) fn detect_package_manager(
+pub fn detect_package_manager(
     project_root: &Path,
     has_packagemanager: Option<&str>,
 ) -> Option<&'static str> {

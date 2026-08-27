@@ -81,7 +81,7 @@ pub fn default_data_dir(workspace_root: &Path) -> PathBuf {
 /// `#[source]` instead of flattening it via `format!`, so consumers walking
 /// `Error::source()` recover the cause graph (e.g. typed retry decisions).
 #[must_use]
-pub fn external_err(e: anyhow::Error) -> DbError {
+pub const fn external_err(e: anyhow::Error) -> DbError {
     DbError::External(e)
 }
 
@@ -105,10 +105,16 @@ pub fn checksum_file(path: &Path) -> DbResult<String> {
         if n == 0 {
             break;
         }
-        hasher.update(&buf[..n]);
+        // A `Read` impl never reports more bytes than the buffer holds; surface a
+        // violation as an I/O error instead of panicking on the slice.
+        let chunk = buf
+            .get(..n)
+            .ok_or_else(|| std::io::Error::other("read reported more bytes than the buffer holds"))
+            .map_err(DbError::Io)?;
+        hasher.update(chunk);
     }
     let digest = hasher.finalize();
-    Ok(hex::encode(digest.as_ref() as &[u8]))
+    Ok(hex::encode(digest.as_slice()))
 }
 
 #[cfg(test)]
@@ -266,13 +272,15 @@ mod tests {
         use sha2::{Digest, Sha256};
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("big.bin");
-        let data: Vec<u8> = (0..200 * 1024).map(|i| (i % 256) as u8).collect();
+        // Same byte sequence as `|i| i % 256`, built without a cast: 200 KiB
+        // is an exact multiple of 256, so the cycle ends on a full period.
+        let data: Vec<u8> = (0..=u8::MAX).cycle().take(200 * 1024).collect();
         std::fs::write(&path, &data).expect("write");
 
         let streamed = checksum_file(&path).expect("stream");
         let mut hasher = Sha256::new();
         hasher.update(&data);
-        let in_memory = hex::encode(hasher.finalize().as_ref() as &[u8]);
+        let in_memory = hex::encode(hasher.finalize().as_slice());
         assert_eq!(streamed, in_memory);
     }
 

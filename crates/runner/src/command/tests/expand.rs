@@ -116,7 +116,7 @@ fn register_commands_warns_on_cross_store_alias_collision_with_config() {
         }
     }
     impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
-        type Writer = VecWriter;
+        type Writer = Self;
         fn make_writer(&'a self) -> Self::Writer {
             self.clone()
         }
@@ -676,7 +676,8 @@ mod depth_limit_tests {
         let mut commands = HashMap::new();
         for i in 0..depth {
             let name = format!("level_{i}");
-            let next_name = format!("level_{}", i + 1);
+            // `i < depth`, so `i + 1 <= depth` and this is exactly `+ 1`.
+            let next_name = format!("level_{}", i.saturating_add(1));
             commands.insert(
                 name,
                 CommandSpec::Composite(ops_core::config::CompositeCommandSpec::new([next_name])),

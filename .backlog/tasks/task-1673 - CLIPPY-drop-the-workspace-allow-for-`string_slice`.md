@@ -1,9 +1,11 @@
 ---
 id: TASK-1673
 title: 'CLIPPY: drop the workspace allow for `string_slice`'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1683
 created_date: '2026-08-25 21:00'
+updated_date: '2026-08-26 22:36'
 labels:
   - code-review-rust
   - clippy
@@ -53,8 +55,8 @@ Byte-range slicing of `str`, which panics when the index is not a UTF-8 char bou
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
-- [ ] #2 The line(s) for `string_slice` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
-- [ ] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
-- [ ] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
+- [x] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
+- [x] #2 The line(s) for `string_slice` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
+- [x] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
+- [x] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
 <!-- AC:END -->

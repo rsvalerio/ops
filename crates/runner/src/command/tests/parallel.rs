@@ -459,7 +459,12 @@ async fn exec_standalone_emits_step_output_dropped_under_burst() {
             _ => None,
         })
         .sum();
-    let total = stdout_lines as u64 + dropped;
+    // `usize` never exceeds u64 on a supported target, so the widening is
+    // exact; the fallback cannot be reached for a count bounded by 1500, and
+    // `u64::MAX` would fail the assertion below rather than mask a mismatch.
+    let total = u64::try_from(stdout_lines)
+        .unwrap_or(u64::MAX)
+        .saturating_add(dropped);
     assert_eq!(
         total, 1500,
         "every produced line must either be delivered or counted as dropped — got {stdout_lines} delivered + {dropped} dropped"
@@ -498,7 +503,7 @@ async fn exec_standalone_logs_dropped_count_when_outer_receiver_closed() {
         }
     }
     impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
-        type Writer = VecWriter;
+        type Writer = Self;
         fn make_writer(&'a self) -> Self::Writer {
             self.clone()
         }
@@ -692,11 +697,8 @@ mod parallel_timing_tests {
             CommandSpec::Exec(rendezvous_cmd(&marker_b, &marker_a)),
         );
         let runner = test_runner(commands);
-        let mut events = Vec::new();
         let results = runner
-            .run_plan_parallel(&["rdv_a".into(), "rdv_b".into()], true, &mut |e| {
-                events.push(e);
-            })
+            .run_plan_parallel(&["rdv_a".into(), "rdv_b".into()], true, &mut |_| {})
             .await;
 
         assert!(
@@ -728,15 +730,11 @@ mod parallel_failure_tests {
         );
         assert_eq!(results.len(), 2, "both commands should have results");
 
-        let failed_events: Vec<_> = events
+        let failed_events = events
             .iter()
             .filter(|e| matches!(e, RunnerEvent::StepFailed { .. }))
-            .collect();
-        assert_eq!(
-            failed_events.len(),
-            2,
-            "both failures should emit StepFailed"
-        );
+            .count();
+        assert_eq!(failed_events, 2, "both failures should emit StepFailed");
 
         assert!(
             events

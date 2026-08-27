@@ -49,52 +49,52 @@ impl Action {
     pub fn classify(actions: &[String]) -> Option<Self> {
         match actions {
             [] => None,
-            [s] if s == "no-op" => Some(Action::NoOp),
-            [s] if s == "create" => Some(Action::Create),
-            [s] if s == "read" => Some(Action::Read),
-            [s] if s == "update" => Some(Action::Update),
-            [s] if s == "delete" => Some(Action::Delete),
+            [s] if s == "no-op" => Some(Self::NoOp),
+            [s] if s == "create" => Some(Self::Create),
+            [s] if s == "read" => Some(Self::Read),
+            [s] if s == "update" => Some(Self::Update),
+            [s] if s == "delete" => Some(Self::Delete),
             [a, b] if (a == "delete" && b == "create") || (a == "create" && b == "delete") => {
-                Some(Action::Replace)
+                Some(Self::Replace)
             }
             other => {
                 tracing::warn!(
                     actions = ?other,
                     "unrecognized terraform plan action sequence; surfacing as Unknown"
                 );
-                Some(Action::Unknown)
+                Some(Self::Unknown)
             }
         }
     }
 
     #[must_use]
-    pub fn color(self) -> comfy_table::Color {
+    pub const fn color(self) -> comfy_table::Color {
         match self {
-            Action::Create => comfy_table::Color::Green,
-            Action::Delete => comfy_table::Color::Red,
-            Action::Update => comfy_table::Color::Yellow,
-            Action::Replace => comfy_table::Color::Magenta,
-            Action::Read => comfy_table::Color::Cyan,
-            Action::NoOp => comfy_table::Color::DarkGrey,
-            Action::Unknown => comfy_table::Color::DarkRed,
+            Self::Create => comfy_table::Color::Green,
+            Self::Delete => comfy_table::Color::Red,
+            Self::Update => comfy_table::Color::Yellow,
+            Self::Replace => comfy_table::Color::Magenta,
+            Self::Read => comfy_table::Color::Cyan,
+            Self::NoOp => comfy_table::Color::DarkGrey,
+            Self::Unknown => comfy_table::Color::DarkRed,
         }
     }
 
     #[must_use]
-    pub fn is_change(self) -> bool {
-        !matches!(self, Action::NoOp)
+    pub const fn is_change(self) -> bool {
+        !matches!(self, Self::NoOp)
     }
 
     #[must_use]
-    pub fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
-            Action::Create => "create",
-            Action::Delete => "delete",
-            Action::Update => "update",
-            Action::Replace => "replace",
-            Action::Read => "read",
-            Action::NoOp => "no-op",
-            Action::Unknown => "unknown",
+            Self::Create => "create",
+            Self::Delete => "delete",
+            Self::Update => "update",
+            Self::Replace => "replace",
+            Self::Read => "read",
+            Self::NoOp => "no-op",
+            Self::Unknown => "unknown",
         }
     }
 
@@ -102,15 +102,15 @@ impl Action {
     /// `Unknown` sorts first so audit-relevant unrecognized changes are
     /// the first thing the operator sees (SEC-31).
     #[must_use]
-    pub fn sort_priority(self) -> u8 {
+    pub const fn sort_priority(self) -> u8 {
         match self {
-            Action::Unknown => 0,
-            Action::Delete => 1,
-            Action::Replace => 2,
-            Action::Create => 3,
-            Action::Update => 4,
-            Action::Read => 5,
-            Action::NoOp => 6,
+            Self::Unknown => 0,
+            Self::Delete => 1,
+            Self::Replace => 2,
+            Self::Create => 3,
+            Self::Update => 4,
+            Self::Read => 5,
+            Self::NoOp => 6,
         }
     }
 }

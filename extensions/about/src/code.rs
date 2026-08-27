@@ -14,9 +14,11 @@ use crate::providers::warm_providers;
 
 /// ARCH-2 / TASK-0370: delegate to the shared `query_project_languages`
 /// helper so the `about code` page and any other LOC consumer share one
-/// implementation. The previous inline aggregate query lacked
-/// percentages, used a different `LanguageStat` shape, and could drift
-/// from the canonical query without anyone noticing.
+/// implementation.
+///
+/// The previous inline aggregate query lacked percentages, used a
+/// different `LanguageStat` shape, and could drift from the canonical
+/// query without anyone noticing.
 pub fn query_language_stats(
     ctx: &mut Context,
     data_registry: &DataRegistry,

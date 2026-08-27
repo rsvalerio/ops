@@ -1,9 +1,11 @@
 ---
 id: TASK-1676
 title: 'CLIPPY: drop the workspace allow for `redundant_pub_crate` (nursery)'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1686
 created_date: '2026-08-25 21:00'
+updated_date: '2026-08-26 22:22'
 labels:
   - code-review-rust
   - clippy
@@ -89,8 +91,22 @@ Items marked `pub(crate)` inside a private module, where the visibility is a no-
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
-- [ ] #2 The line(s) for `redundant_pub_crate` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
-- [ ] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
-- [ ] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
+- [x] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
+- [x] #2 The line(s) for `redundant_pub_crate` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
+- [x] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
+- [x] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed under TASK-1686 (wave144), branch code-review/TASK-1686.
+
+211 sites cleared across 63 files (up from the 195/60 in the scope table: `extensions/create-review-tasks` and `extensions-rust/create-review-tasks` landed after triage and contributed 14 more).
+
+The fix shape is `pub(crate)` -> `pub`, not deletion of the visibility keyword. The task description said "drop the `pub(crate)`", but that would make the item module-private and break its callers. Clippy's own machine-applicable suggestion is `pub`, and it is not an API widening: the lint only fires when the enclosing module is not publicly reachable, so the item's effective visibility is unchanged. Two `pub(super)` sites in `crates/cli/src/run_cmd.rs` were flagged by the same lint and got the same treatment.
+
+No `#[allow]` was needed anywhere. `cargo fmt` collapsed 11 signatures onto one line because the shorter visibility keyword brought them under the width limit; that is the whole of the non-mechanical diff.
+
+Verified: `ops verify` clean, `cargo nextest run --workspace --all-features` 2405 passed, `cargo test --workspace --doc` clean, and `ops extension list` still lists `git` and `text-fixers` (the docs/clippy.md linker trap).
+<!-- SECTION:NOTES:END -->

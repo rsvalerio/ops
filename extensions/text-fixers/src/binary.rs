@@ -5,11 +5,9 @@ const SNIFF_LEN: usize = 8 * 1024;
 
 #[must_use]
 pub fn is_probably_binary(bytes: &[u8]) -> bool {
-    let head = if bytes.len() > SNIFF_LEN {
-        &bytes[..SNIFF_LEN]
-    } else {
-        bytes
-    };
+    // `get` yields `None` only when the input is shorter than the sniff
+    // window, in which case the whole input is the window.
+    let head = bytes.get(..SNIFF_LEN).unwrap_or(bytes);
     head.contains(&0)
 }
 

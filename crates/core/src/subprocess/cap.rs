@@ -13,20 +13,23 @@ use std::time::Duration;
 pub const TIMEOUT_ENV: &str = "OPS_SUBPROCESS_TIMEOUT_SECS";
 
 /// SEC-33 / TASK-1050: environment variable used to override the per-stream
-/// byte cap applied by [`super::run_with_timeout`]'s drain threads. Mirrors
-/// the runner's `command::exec::read_capped` shape (PERF-1 / TASK-0764) so a
-/// runaway cargo subprocess cannot grow the in-memory capture buffer
-/// without bound. Reuses the same env var name the runner already
-/// documents — `ops` users only have one knob to tune.
+/// byte cap applied by [`super::run_with_timeout`]'s drain threads.
+///
+/// Mirrors the runner's `command::exec::read_capped` shape (PERF-1 /
+/// TASK-0764) so a runaway cargo subprocess cannot grow the in-memory
+/// capture buffer without bound. Reuses the same env var name the runner
+/// already documents — `ops` users only have one knob to tune.
 pub const OUTPUT_CAP_ENV: &str = "OPS_OUTPUT_BYTE_CAP";
 
 /// Default per-stream byte cap applied to captured stdout/stderr in
-/// [`super::run_with_timeout`]. Matches the runner's
-/// `DEFAULT_OUTPUT_BYTE_CAP` (4 MiB) so the cap is consistent across the
-/// project's two subprocess paths. Once the cap is reached the drain
-/// thread keeps reading from the pipe (so the child does not block on a
-/// full pipe and risk a timeout) but discards the bytes and increments a
-/// `dropped` counter that surfaces via `tracing::warn!`.
+/// [`super::run_with_timeout`].
+///
+/// Matches the runner's `DEFAULT_OUTPUT_BYTE_CAP` (4 MiB) so the cap is
+/// consistent across the project's two subprocess paths. Once the cap is
+/// reached the drain thread keeps reading from the pipe (so the child
+/// does not block on a full pipe and risk a timeout) but discards the
+/// bytes and increments a `dropped` counter that surfaces via
+/// `tracing::warn!`.
 pub const DEFAULT_OUTPUT_BYTE_CAP: usize = 4 * 1024 * 1024;
 
 /// Fallback timeout applied when a caller has no operation-specific default
@@ -53,8 +56,15 @@ pub const MAX_TIMEOUT_SECS: u64 = 3600;
 /// clamp was added to prevent.
 pub(super) fn output_byte_cap() -> usize {
     static CAP: OnceLock<u64> = OnceLock::new();
-    let resolved =
-        crate::text::cached_byte_cap_env(&CAP, OUTPUT_CAP_ENV, DEFAULT_OUTPUT_BYTE_CAP as u64);
+    // `DEFAULT_OUTPUT_BYTE_CAP` is 4 MiB, so widening it to the `u64` default
+    // `cached_byte_cap_env` takes cannot fail on any target; the fallback is
+    // unreachable and names the shared 1 GiB ceiling rather than `u64::MAX`
+    // so even an impossible failure leaves the SEC-33 cap bounded.
+    let resolved = crate::text::cached_byte_cap_env(
+        &CAP,
+        OUTPUT_CAP_ENV,
+        u64::try_from(DEFAULT_OUTPUT_BYTE_CAP).unwrap_or(crate::text::BYTE_CAP_ENV_MAX),
+    );
     // `cached_byte_cap_env` clamps to `BYTE_CAP_ENV_MAX` (1 GiB) which fits
     // in `usize` on every target we build for (32-bit and 64-bit), so the
     // `try_from` is total. The fallback is defence-in-depth for a
@@ -95,9 +105,11 @@ fn cached_subprocess_timeout() -> Option<u64> {
     *CACHED.get_or_init(|| parse_subprocess_timeout(std::env::var(TIMEOUT_ENV).ok().as_deref()))
 }
 
-/// Resolve an effective timeout: `OPS_SUBPROCESS_TIMEOUT_SECS` overrides the
-/// caller-provided default if present and parses to a non-zero u64; otherwise
-/// the operation-specific default is returned unchanged.
+/// Resolve an effective timeout for a subprocess wait.
+///
+/// `OPS_SUBPROCESS_TIMEOUT_SECS` overrides the caller-provided default if
+/// present and parses to a non-zero u64; otherwise the operation-specific
+/// default is returned unchanged.
 ///
 /// ASYNC-6 / TASK-0304: the override is clamped to [`MAX_TIMEOUT_SECS`] and
 /// emits a warning when it had to be clamped, so an accidental
@@ -110,10 +122,7 @@ fn cached_subprocess_timeout() -> Option<u64> {
 /// cache.
 #[must_use]
 pub fn default_timeout(op_default: Duration) -> Duration {
-    match cached_subprocess_timeout() {
-        Some(secs) => Duration::from_secs(secs),
-        None => op_default,
-    }
+    cached_subprocess_timeout().map_or(op_default, Duration::from_secs)
 }
 
 #[cfg(test)]
@@ -179,8 +188,13 @@ mod tests {
         // mutation window. Restored before any assertion.
         unsafe { std::env::set_var(OUTPUT_CAP_ENV, u64::MAX.to_string()) };
         static SLOT: OnceLock<u64> = OnceLock::new();
-        let resolved =
-            crate::text::cached_byte_cap_env(&SLOT, OUTPUT_CAP_ENV, DEFAULT_OUTPUT_BYTE_CAP as u64);
+        // Same total 4 MiB -> `u64` widening as `output_byte_cap`; the fallback
+        // is unreachable.
+        let resolved = crate::text::cached_byte_cap_env(
+            &SLOT,
+            OUTPUT_CAP_ENV,
+            u64::try_from(DEFAULT_OUTPUT_BYTE_CAP).unwrap_or(crate::text::BYTE_CAP_ENV_MAX),
+        );
         match prev {
             Some(v) => unsafe { std::env::set_var(OUTPUT_CAP_ENV, v) },
             None => unsafe { std::env::remove_var(OUTPUT_CAP_ENV) },

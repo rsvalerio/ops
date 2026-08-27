@@ -123,21 +123,20 @@ impl TableName {
 }
 
 const fn is_valid_identifier_const(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    if bytes.is_empty() {
-        return false;
-    }
-    let first = bytes[0];
+    // Slice patterns walk the bytes without any indexing, so the empty and
+    // out-of-bounds cases are handled by construction.
+    let (first, mut rest) = match s.as_bytes() {
+        [] => return false,
+        [first, rest @ ..] => (*first, rest),
+    };
     if !(first.is_ascii_alphabetic() || first == b'_') {
         return false;
     }
-    let mut i = 1;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if !(b.is_ascii_alphanumeric() || b == b'_') {
+    while let [b, tail @ ..] = rest {
+        if !(b.is_ascii_alphanumeric() || *b == b'_') {
             return false;
         }
-        i += 1;
+        rest = tail;
     }
     true
 }
@@ -189,7 +188,9 @@ pub fn validate_extra_opts(opts: &str) -> Result<(), SqlError> {
     }
     let mut pair_count = 0usize;
     for pair in opts.split(',') {
-        pair_count += 1;
+        // The check on the next line returns as soon as the count passes
+        // `EXTRA_OPTS_MAX_PAIRS`, so `pair_count` never exceeds that cap + 1.
+        pair_count = pair_count.saturating_add(1);
         if pair_count > EXTRA_OPTS_MAX_PAIRS {
             return Err(SqlError::InvalidExtraOpts(opts.to_string()));
         }
@@ -244,15 +245,19 @@ impl<'a> ExtraOpts<'a> {
 }
 
 /// SEC-33 / TASK-1241: hard upper bound on the byte length of an
-/// `extra_opts` fragment. Sized well above realistic static call-site
-/// values (today's longest is on the order of 100 bytes) so the cap
-/// never fires for legitimate input.
+/// `extra_opts` fragment.
+///
+/// Sized well above realistic static call-site values (today's
+/// longest is on the order of 100 bytes) so the cap never fires for
+/// legitimate input.
 pub const EXTRA_OPTS_MAX_BYTES: usize = 4 * 1024;
 
 /// SEC-33 / TASK-1241: hard upper bound on the number of comma-separated
-/// `key=value` pairs in an `extra_opts` fragment. Sized to comfortably
-/// admit every option `DuckDB`'s `read_json_auto` recognises today while
-/// still bounding resource exposure on the interpolated surface.
+/// `key=value` pairs in an `extra_opts` fragment.
+///
+/// Sized to comfortably admit every option `DuckDB`'s `read_json_auto`
+/// recognises today while still bounding resource exposure on the
+/// interpolated surface.
 pub const EXTRA_OPTS_MAX_PAIRS: usize = 32;
 
 /// Escape a string for safe interpolation into a SQL-standard single-quoted
@@ -284,17 +289,19 @@ pub fn sanitize_path_for_sql(path: &str) -> String {
     path.replace('\0', "")
 }
 
-/// READ-5 / TASK-1002: ASCII-only allowlist. Non-ASCII identifiers are
-/// rejected because the SQL-safety contract is over the byte representation
-/// of the path, not over Unicode general categories. Letting `is_alphanumeric`
-/// (which spans ~140k codepoints across L*/Nd) widen the gate admitted
-/// homoglyphs (Cyrillic `а` U+0430), bidi tricks at the rendering layer, and
-/// ligatures (`ﬀ` U+FB00) — none of which the downstream `escape_sql_string`
-/// neutralises (it only handles `'` and `\\0`). Cross-references SEC-12 /
-/// TASK-0729 for the broader interpolated-path threat model. If non-ASCII
-/// path support is ever a real requirement, document the allowed scripts
-/// explicitly and reject mixed-script identifiers; the current set
-/// (`extensions/*`, project / language / file names) is ASCII by policy.
+/// READ-5 / TASK-1002: ASCII-only allowlist.
+///
+/// Non-ASCII identifiers are rejected because the SQL-safety contract is over
+/// the byte representation of the path, not over Unicode general categories.
+/// Letting `is_alphanumeric` (which spans ~140k codepoints across L*/Nd) widen
+/// the gate admitted homoglyphs (Cyrillic `а` U+0430), bidi tricks at the
+/// rendering layer, and ligatures (`ﬀ` U+FB00) — none of which the downstream
+/// `escape_sql_string` neutralises (it only handles `'` and `\\0`).
+/// Cross-references SEC-12 / TASK-0729 for the broader interpolated-path
+/// threat model. If non-ASCII path support is ever a real requirement,
+/// document the allowed scripts explicitly and reject mixed-script
+/// identifiers; the current set (`extensions/*`, project / language / file
+/// names) is ASCII by policy.
 ///
 /// # Errors
 ///

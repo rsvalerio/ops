@@ -160,13 +160,20 @@ pub fn has_staged_files_with_timeout(
     // buffer and deadlock the wait below. Use a channel rather than a
     // JoinHandle so an orphaned grandchild keeping the pipe open does not
     // stall a blocking `join()`.
-    let mut stderr_pipe = child.stderr.take().expect("stderr piped");
     let (stderr_tx, stderr_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stderr_pipe.read_to_end(&mut buf);
-        let _ = stderr_tx.send(buf);
-    });
+    match child.stderr.take() {
+        Some(mut stderr_pipe) => {
+            std::thread::spawn(move || {
+                let mut buf = Vec::new();
+                let _ = stderr_pipe.read_to_end(&mut buf);
+                let _ = stderr_tx.send(buf);
+            });
+        }
+        // `.stderr(Stdio::piped())` above guarantees `Some`. Dropping the
+        // sender in the impossible arm keeps `read_stderr_bounded` from
+        // waiting out its full grace period instead of panicking.
+        None => drop(stderr_tx),
+    }
 
     // CONC-5 / TASK-0725: a single `wait_timeout` syscall returns
     // immediately on a fast `git diff --cached` rather than paying a

@@ -122,7 +122,10 @@ pub fn false_cmd() -> ExecCommandSpec {
 pub fn sleep_cmd(secs: u64) -> ExecCommandSpec {
     let secs_str = secs.to_string();
     if cfg!(windows) {
-        exec_spec("ping", &["-n", &format!("{}", secs + 1), "127.0.0.1"])
+        exec_spec(
+            "ping",
+            &["-n", &format!("{}", secs.saturating_add(1)), "127.0.0.1"],
+        )
     } else {
         exec_spec("sleep", &[&secs_str])
     }
@@ -239,19 +242,19 @@ impl TestConfigBuilder {
     }
 
     #[must_use]
-    pub fn columns(mut self, columns: u16) -> Self {
+    pub const fn columns(mut self, columns: u16) -> Self {
         self.output.columns = columns;
         self
     }
 
     #[must_use]
-    pub fn show_error_detail(mut self, show: bool) -> Self {
+    pub const fn show_error_detail(mut self, show: bool) -> Self {
         self.output.show_error_detail = show;
         self
     }
 
     #[must_use]
-    pub fn stderr_tail_lines(mut self, n: usize) -> Self {
+    pub const fn stderr_tail_lines(mut self, n: usize) -> Self {
         self.output.stderr_tail_lines = n;
         self
     }
@@ -292,7 +295,7 @@ pub struct ConfigOverlayBuilder {
 #[allow(dead_code)]
 impl ConfigOverlayBuilder {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             output: None,
             commands: None,
@@ -533,12 +536,13 @@ impl EnvGuard {
 }
 
 /// TEST-19 (TASK-1033): true when the current effective UID is 0 on Unix.
+///
 /// Tests that rely on DAC permission denial (`chmod 0o000` + assert read
 /// fails) silently invert their assertion when run as root because the
 /// kernel skips the permission check for UID 0. Container CI (Docker
 /// default UID 0, rootful devcontainers, privileged self-hosted runners)
-/// hits this routinely. Callers should `if is_root_euid() { return; }`
-/// at the top of the test and explain inline why the guard is mandatory.
+/// hits this routinely. Callers should `if is_root_euid() { return; }` at
+/// the top of the test and explain inline why the guard is mandatory.
 ///
 /// On non-Unix targets this always returns `false`; callers should also
 /// be `#[cfg(unix)]`-gated since the underlying chmod assertion is too.
@@ -597,6 +601,7 @@ fn pin_global_dispatcher() {
 }
 
 /// Shared tracing-event capture helper for tests across the core crate.
+///
 /// Installs a thread-local subscriber at `level` for the duration of `f`,
 /// captures the formatted output (ANSI off) and returns it alongside `f`'s
 /// return value. Consolidates DUP-3: every in-process tracing-capture test
@@ -626,7 +631,7 @@ where
         }
     }
     impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = BufWriter;
+        type Writer = Self;
         fn make_writer(&'a self) -> Self::Writer {
             self.clone()
         }

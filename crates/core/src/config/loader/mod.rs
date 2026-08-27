@@ -36,7 +36,7 @@ use super::{default_ops_toml, Config, ConfigOverlay};
 use crate::text::{cached_byte_cap_env, open_refusing_symlinks};
 
 #[cfg(test)]
-pub(crate) use global::resolve_global_config_path;
+pub use global::resolve_global_config_path;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use global::{reset_global_config_path_cache, GlobalConfigPathResetToken};
@@ -85,7 +85,7 @@ pub fn ops_toml_max_bytes() -> u64 {
 /// otherwise. Errors include both real IO failures and the bounded-read
 /// rejection — an oversized file fails with a typed message naming the
 /// cap and the override env var, rather than being slurped into memory.
-pub(crate) fn read_capped_toml_file(path: &Path) -> anyhow::Result<Option<String>> {
+pub fn read_capped_toml_file(path: &Path) -> anyhow::Result<Option<String>> {
     read_capped_toml_file_with(path, ops_toml_max_bytes())
 }
 
@@ -94,7 +94,7 @@ pub(crate) fn read_capped_toml_file(path: &Path) -> anyhow::Result<Option<String
 /// `read_capped_toml_file`; tests use this to bypass the
 /// `ops_toml_max_bytes` `OnceLock` (which is process-global and cannot be
 /// re-initialised once another test has populated it).
-pub(crate) fn read_capped_toml_file_with(path: &Path, cap: u64) -> anyhow::Result<Option<String>> {
+pub fn read_capped_toml_file_with(path: &Path, cap: u64) -> anyhow::Result<Option<String>> {
     // SEC-25 (TASK-1468): refuse to follow symlinks at config paths. An
     // adversarial repo planting `.ops.toml -> /etc/shadow` would otherwise
     // be slurped into the TOML parser and echoed back through diagnostics.
@@ -119,7 +119,11 @@ pub(crate) fn read_capped_toml_file_with(path: &Path, cap: u64) -> anyhow::Resul
         .take(limit)
         .read_to_string(&mut content)
         .with_context(|| format!("failed to read config file: {:?}", path.display()))?;
-    if content.len() as u64 > cap {
+    // `usize` is never wider than `u64` on any target rustc supports, so the
+    // widening is total and the fallback is unreachable; saturating to
+    // `u64::MAX` would report the file as oversize, which is the safe
+    // direction for a size cap.
+    if u64::try_from(content.len()).unwrap_or(u64::MAX) > cap {
         // SEC-21 (TASK-1472): same Debug-format policy for the bounded-read
         // bail. The `?` debug repr keeps newlines / ANSI escapes inert.
         anyhow::bail!(
@@ -228,9 +232,11 @@ pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
 
 /// Load config and degrade to an empty [`Config`] on failure, surfacing the
 /// error via both `tracing::warn!` (structured log) and [`crate::ui::warn`]
-/// (user-visible). `context` describes the caller path (`"hook install"`,
-/// `"about"`, `"early"`) and is included verbatim in both messages so logs
-/// can be filtered and the user can correlate the warning to what they ran.
+/// (user-visible).
+///
+/// `context` describes the caller path (`"hook install"`, `"about"`,
+/// `"early"`) and is included verbatim in both messages so logs can be
+/// filtered and the user can correlate the warning to what they ran.
 ///
 /// The fallback is [`Config::empty`] (no commands, themes, or stack), not
 /// [`Config::default`]: TRAIT-4 / TASK-0872 gated `default()` to test

@@ -11,18 +11,21 @@
 /// delimiter only when it follows whitespace or starts the line. A bare
 /// `line.find("//")` truncates module paths or replace targets that contain
 /// a literal `//` (e.g. `module example.com/foo//bar`).
-pub(crate) fn strip_line_comment(line: &str) -> &str {
-    let bytes = line.as_bytes();
-    let mut i = 0;
-    while i + 1 < bytes.len() {
-        if bytes[i] == b'/' && bytes[i + 1] == b'/' {
-            // `//` qualifies as a comment delimiter only at start-of-line or
-            // when the preceding byte is ASCII whitespace.
-            if i == 0 || bytes[i - 1].is_ascii_whitespace() {
-                return &line[..i];
-            }
+pub fn strip_line_comment(line: &str) -> &str {
+    // `match_indices` skips overlapping matches, which is harmless here: a
+    // skipped `//` at `i + 1` is always preceded by the `/` at `i`, and a `/`
+    // never qualifies as the whitespace predecessor required below.
+    for (i, _) in line.match_indices("//") {
+        // `i` comes from a match on `line` itself, so it is a char boundary
+        // and `get` cannot fail; skip rather than panic if that changes.
+        let Some(head) = line.get(..i) else {
+            continue;
+        };
+        // `//` qualifies as a comment delimiter only at start-of-line or
+        // when the preceding byte is ASCII whitespace.
+        if head.as_bytes().last().is_none_or(u8::is_ascii_whitespace) {
+            return head;
         }
-        i += 1;
     }
     line
 }
@@ -31,7 +34,7 @@ pub(crate) fn strip_line_comment(line: &str) -> &str {
 /// between the keyword and the opening paren. Both `use (` and `use(` are
 /// accepted by cmd/go; the parser must accept either to avoid silently
 /// skipping block-form entries.
-pub(crate) fn is_block_opener(line: &str, keyword: &str) -> bool {
+pub fn is_block_opener(line: &str, keyword: &str) -> bool {
     let Some(rest) = line.strip_prefix(keyword) else {
         return false;
     };

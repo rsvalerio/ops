@@ -142,9 +142,14 @@ fn bounded_prefix(value: &str, limit: usize) -> &str {
     }
     let mut end = limit;
     while end > 0 && !value.is_char_boundary(end) {
-        end -= 1;
+        // Guarded by `end > 0`, so this is exactly `-= 1` and the loop
+        // still walks back to the same char boundary.
+        end = end.saturating_sub(1);
     }
-    &value[..end]
+    // `end` is a char boundary by construction (the loop bottoms out at 0,
+    // which always is), so this always yields `Some`. Degrade to an empty
+    // prefix rather than panicking if that ever stops holding.
+    value.get(..end).unwrap_or("")
 }
 
 /// CQ-005: Extracted helper predicates for secret detection.
@@ -159,20 +164,28 @@ const HIGH_ENTROPY_MIN_DIGITS: usize = 3;
 const HIGH_ENTROPY_MIN_LOWERCASE: usize = 3;
 const HIGH_ENTROPY_MIN_UPPERCASE: usize = 3;
 
-pub(crate) fn has_high_entropy(value: &str) -> bool {
-    let (mut alphanumeric, mut digits, mut lowercase, mut uppercase) = (0usize, 0, 0, 0);
+pub fn has_high_entropy(value: &str) -> bool {
+    // All four are `usize` (as before: they are compared against the `usize`
+    // thresholds below); spelled out so the `saturating_add` calls resolve.
+    let (mut alphanumeric, mut digits, mut lowercase, mut uppercase) =
+        (0usize, 0usize, 0usize, 0usize);
+    // Each counter is incremented at most once per `char` of an in-memory
+    // `&str`, so every count is bounded by `value.len() <= isize::MAX`.
+    // These `saturating_add`s can never saturate and are exactly equal to
+    // `+= 1`, leaving the thresholds below — and therefore which values are
+    // classified as secrets — unchanged.
     for c in value.chars() {
         if c.is_ascii_digit() {
-            digits += 1;
-            alphanumeric += 1;
+            digits = digits.saturating_add(1);
+            alphanumeric = alphanumeric.saturating_add(1);
         } else if c.is_ascii_lowercase() {
-            lowercase += 1;
-            alphanumeric += 1;
+            lowercase = lowercase.saturating_add(1);
+            alphanumeric = alphanumeric.saturating_add(1);
         } else if c.is_ascii_uppercase() {
-            uppercase += 1;
-            alphanumeric += 1;
+            uppercase = uppercase.saturating_add(1);
+            alphanumeric = alphanumeric.saturating_add(1);
         } else if c.is_alphanumeric() {
-            alphanumeric += 1;
+            alphanumeric = alphanumeric.saturating_add(1);
         }
     }
     alphanumeric > HIGH_ENTROPY_MIN_ALPHANUMERIC
@@ -181,11 +194,11 @@ pub(crate) fn has_high_entropy(value: &str) -> bool {
         && uppercase > HIGH_ENTROPY_MIN_UPPERCASE
 }
 
-pub(crate) fn looks_like_jwt(value: &str) -> bool {
+pub fn looks_like_jwt(value: &str) -> bool {
     value.starts_with("eyJ") && value.contains('.')
 }
 
-pub(crate) fn looks_like_aws_key(value: &str) -> bool {
+pub fn looks_like_aws_key(value: &str) -> bool {
     if value.len() != 40 {
         return false;
     }
@@ -207,17 +220,21 @@ pub(crate) fn looks_like_aws_key(value: &str) -> bool {
     has_non_hex
 }
 
-pub(crate) fn looks_like_uuid(value: &str) -> bool {
+pub fn looks_like_uuid(value: &str) -> bool {
     if value.len() != 36 {
         return false;
     }
     let parts: Vec<&str> = value.split('-').collect();
-    parts.len() == 5
-        && parts[0].len() == 8
-        && parts[1].len() == 4
-        && parts[2].len() == 4
-        && parts[3].len() == 4
-        && parts[4].len() == 12
+    // The slice pattern subsumes the old `parts.len() == 5` guard: it matches
+    // exactly when there are five groups, and binds them without indexing.
+    let [group1, group2, group3, group4, group5] = parts.as_slice() else {
+        return false;
+    };
+    group1.len() == 8
+        && group2.len() == 4
+        && group3.len() == 4
+        && group4.len() == 4
+        && group5.len() == 12
         && parts
             .iter()
             .all(|p| p.chars().all(|c| c.is_ascii_hexdigit()))

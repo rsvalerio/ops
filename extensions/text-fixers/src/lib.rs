@@ -69,7 +69,7 @@ pub struct FixerOptions {
 
 impl FixerOptions {
     #[must_use]
-    pub fn new(root: PathBuf, tracked_only: bool) -> Self {
+    pub const fn new(root: PathBuf, tracked_only: bool) -> Self {
         Self { root, tracked_only }
     }
 }
@@ -83,7 +83,7 @@ pub struct FixerReport {
 
 impl FixerReport {
     #[must_use]
-    pub fn changed(&self) -> bool {
+    pub const fn changed(&self) -> bool {
         !self.files_changed.is_empty()
     }
 }
@@ -129,7 +129,8 @@ fn run_fixer(
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
-        report.files_scanned += 1;
+        // One increment per discovered file on disk; cannot saturate a `usize`.
+        report.files_scanned = report.files_scanned.saturating_add(1);
 
         if binary::is_probably_binary(&bytes) {
             continue;

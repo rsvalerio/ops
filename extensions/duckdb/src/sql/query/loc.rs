@@ -125,6 +125,10 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>>
             filtered.push(stat);
         }
     }
+    // CONC-1: release the connection guard before returning the result vec.
+    // `stmt` borrows `conn`, so it has to go first.
+    drop(stmt);
+    drop(conn);
     Ok(filtered)
 }
 
@@ -205,8 +209,14 @@ pub fn query_rust_loc_summary(db: &DuckDb) -> anyhow::Result<Vec<RustLocStat>> {
         })
         .context("querying rust loc summary")?;
 
-    rows.map(|row| row.context("reading rust loc row"))
-        .collect()
+    let stats = rows
+        .map(|row| row.context("reading rust loc row"))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    // CONC-1: release the connection guard before returning the result vec.
+    // `stmt` borrows `conn`, so it has to go first.
+    drop(stmt);
+    drop(conn);
+    Ok(stats)
 }
 
 /// Count the distinct `.rs` files behind `rust_loc_files`.

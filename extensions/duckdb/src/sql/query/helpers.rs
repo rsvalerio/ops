@@ -13,7 +13,7 @@ macro_rules! sql_ident_newtype {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
         #[derive(Debug, Clone)]
-        pub(crate) struct $name(&'static str);
+        pub struct $name(&'static str);
 
         impl $name {
             /// Construct from a `&'static str`, validating the identifier shape.
@@ -22,7 +22,7 @@ macro_rules! sql_ident_newtype {
                 Ok(Self(s))
             }
 
-            pub(crate) fn as_str(&self) -> &'static str {
+            pub(crate) const fn as_str(&self) -> &'static str {
                 self.0
             }
         }
@@ -57,7 +57,7 @@ pub struct CrateCoverage {
 
 impl CrateCoverage {
     #[must_use]
-    pub fn new(lines_count: i64, lines_covered: i64, lines_percent: f64) -> Self {
+    pub const fn new(lines_count: i64, lines_covered: i64, lines_percent: f64) -> Self {
         Self {
             lines_count,
             lines_covered,
@@ -66,7 +66,7 @@ impl CrateCoverage {
     }
 
     #[must_use]
-    pub fn zero() -> Self {
+    pub const fn zero() -> Self {
         Self {
             lines_count: 0,
             lines_covered: 0,
@@ -85,10 +85,7 @@ impl CrateCoverage {
 /// `TableName` / `ColumnAlias` / `ColumnName` newtype pattern adopted
 /// elsewhere in this module.
 pub(super) fn coverage_col_select(prefix: Option<&ColumnAlias>) -> String {
-    let prefix = match prefix {
-        Some(alias) => format!("{}.", alias.as_str()),
-        None => String::new(),
-    };
+    let prefix = prefix.map_or_else(String::new, |alias| format!("{}.", alias.as_str()));
     format!(
         "COALESCE(SUM({prefix}lines_count), 0), \
          COALESCE(SUM({prefix}lines_covered), 0), \
@@ -137,6 +134,10 @@ where
         let v = row.with_context(|| format!("reading {label} row"))?;
         fold_fn(&mut acc, v);
     }
+    // CONC-1: release the connection guard before handing the accumulator
+    // back to the caller. `stmt` borrows `conn`, so it has to go first.
+    drop(stmt);
+    drop(conn);
     Ok(acc)
 }
 
@@ -225,7 +226,7 @@ pub(super) fn prepare_per_crate<'a>(
     // intermediate `Vec<&'static str>` per call, which is hit once per
     // per-crate query and multiple times per about-units render.
     let n = member_paths.len();
-    let mut placeholders = String::with_capacity(n * 5); // "(?), " is 5 bytes
+    let mut placeholders = String::with_capacity(n.saturating_mul(5)); // "(?), " is 5 bytes
     for i in 0..n {
         if i > 0 {
             placeholders.push_str(", ");

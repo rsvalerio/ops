@@ -24,7 +24,12 @@ pub fn format_duration(secs: f64) -> String {
     // The casts are the point: `u64::MAX as f64` rounds up to the nearest
     // representable f64 (the clamp bound), and `clamped as u64` saturates
     // there. Both directions are intended and bounded by the guards above.
+    // `as_conversions` is allowed for the same reason: no `From`/`TryFrom` pair
+    // expresses "round `u64::MAX` up to the nearest representable f64" or
+    // "saturate an already-clamped f64 down to u64", so the `as` casts are the
+    // only spelling of the intended, guard-bounded conversion.
     #[allow(
+        clippy::as_conversions,
         clippy::cast_precision_loss,
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss
@@ -105,8 +110,10 @@ pub struct SlotLine<'a> {
 }
 
 /// Plain layout pieces that make up the left portion of a step line:
-/// `{indent}{icon}{pad} `. Returned by `ConfigurableTheme::step_prefix_parts`
-/// so `render` and `render_prefix` cannot drift in width or composition.
+/// `{indent}{icon}{pad} `.
+///
+/// Returned by `ConfigurableTheme::step_prefix_parts` so `render` and
+/// `render_prefix` cannot drift in width or composition.
 pub struct StepPrefixParts<'a> {
     /// Leading indent (empty for running rows; spinner template emits its own indent).
     pub indent: &'a str,

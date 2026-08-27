@@ -53,6 +53,10 @@ async fn await_with_timeout<F, T>(future: F, timeout: Option<Duration>) -> Resul
 where
     F: std::future::Future<Output = Result<T, std::io::Error>>,
 {
+    // Both arms consume `future` and `.await` it. `map_or_else` would need two
+    // closures that each move the same future, and a non-async closure cannot
+    // await it at all.
+    #[allow(clippy::option_if_let_else)]
     if let Some(t) = timeout {
         match tokio::time::timeout(t, future).await {
             Ok(result) => result,
@@ -89,7 +93,11 @@ async fn read_capped<R: AsyncRead + Unpin>(
     cap: usize,
 ) -> std::io::Result<(Vec<u8>, u64)> {
     let mut head = Vec::new();
-    let mut limited = reader.take(cap as u64);
+    // `usize` is at most 64 bits on every target this builds for, so the
+    // conversion is exact and the fallback is unreachable; `u64::MAX` is
+    // nonetheless the right saturation value here — it is `take`'s "no
+    // additional limit", which is what a cap wider than u64 would mean.
+    let mut limited = reader.take(u64::try_from(cap).unwrap_or(u64::MAX));
     limited.read_to_end(&mut head).await?;
     let mut inner = limited.into_inner();
     let dropped = tokio::io::copy(&mut inner, &mut tokio::io::sink()).await?;
@@ -271,20 +279,32 @@ pub fn emit_output_events(
         let mut start = 0usize;
         let bytes = buf.as_bytes();
         while start < bytes.len() {
-            let rel = bytes[start..].iter().position(|b| *b == b'\n');
-            let (line_end, next_start) = match rel {
-                Some(off) => {
-                    let end = start + off;
-                    // Mirror `str::lines` and strip an optional preceding `\r`.
-                    let trimmed_end = if end > start && bytes[end - 1] == b'\r' {
-                        end - 1
-                    } else {
-                        end
-                    };
-                    (trimmed_end, end + 1)
-                }
-                None => (bytes.len(), bytes.len()),
+            // `start < bytes.len()` holds by the loop guard, so the tail
+            // slice always exists; stop scanning rather than panicking if
+            // that ever stops being true.
+            let Some(rest) = bytes.get(start..) else {
+                break;
             };
+            let rel = rest.iter().position(|b| *b == b'\n');
+            let (line_end, next_start) = rel.map_or((bytes.len(), bytes.len()), |off| {
+                // `off` indexes into `bytes[start..]`, so `start + off` is a
+                // valid index into `bytes` and the saturating forms below are
+                // exactly equal to `+`/`-` here: the sum is `< bytes.len()`,
+                // the `end > start` guard makes `end >= 1`, and `end` is a
+                // newline index so `end + 1 <= bytes.len()`.
+                let end = start.saturating_add(off);
+                // Mirror `str::lines` and strip an optional preceding `\r`.
+                let trimmed_end = if end > start
+                    && bytes
+                        .get(end.saturating_sub(1))
+                        .is_some_and(|b| *b == b'\r')
+                {
+                    end.saturating_sub(1)
+                } else {
+                    end
+                };
+                (trimmed_end, end.saturating_add(1))
+            });
             emit(RunnerEvent::StepOutput {
                 id: id.into(),
                 line: crate::command::OutputLine::slice(
@@ -567,7 +587,7 @@ impl ExecTaskCtx {
     /// call site.
     #[must_use]
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub const fn new(
         cwd: Arc<PathBuf>,
         vars: Arc<Variables>,
         tx: mpsc::Sender<RunnerEvent>,

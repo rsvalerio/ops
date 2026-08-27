@@ -295,7 +295,7 @@ pub enum RunBeforePushAction {
 
 /// Subcommand names that are only relevant to a specific stack.
 /// Unlisted commands are always visible.
-fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
+const fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
     &[
         #[cfg(feature = "stack-rust")]
         ("deps", Stack::Rust),
@@ -305,15 +305,9 @@ fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
 }
 
 /// Hide subcommands whose required stack doesn't match the detected one.
-pub(crate) fn hide_irrelevant_commands(
-    mut cmd: clap::Command,
-    stack: Option<Stack>,
-) -> clap::Command {
+pub fn hide_irrelevant_commands(mut cmd: clap::Command, stack: Option<Stack>) -> clap::Command {
     for &(name, required_stack) in stack_specific_commands() {
-        let dominated = match stack {
-            Some(s) => s != required_stack,
-            None => true,
-        };
+        let dominated = stack.is_none_or(|s| s != required_stack);
         if dominated {
             cmd = cmd.mut_subcommand(name, |sub| sub.hide(true));
         }
@@ -321,12 +315,13 @@ pub(crate) fn hide_irrelevant_commands(
     cmd
 }
 
-pub(crate) fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
-    if args.len() > 1 && args[1] == "ops" {
-        let mut it = args.into_iter();
-        let program = it.next().expect("len > 1 implies a program arg");
-        let _ops_prefix = it.next();
-        std::iter::once(program).chain(it).collect()
+pub fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
+    if args.get(1).is_some_and(|arg| arg == "ops") {
+        // Drop the redundant `ops` token in `ops ops <cmd>` (cargo-style
+        // invocation) without needing to re-assert that argv[0] exists.
+        let mut args = args;
+        args.remove(1);
+        args
     } else {
         args
     }
@@ -462,7 +457,7 @@ mod tests {
             .filter(|s| s.is_hide_set())
             .map(|s| s.get_name().to_string())
             .collect();
-        let result = hide_irrelevant_commands(original.clone(), None);
+        let result = hide_irrelevant_commands(original, None);
         // Compute the set of stack-specific subcommand names once, then assert
         // that every *other* visible, non-hidden subcommand remains visible —
         // future non-stack built-ins are covered automatically without having

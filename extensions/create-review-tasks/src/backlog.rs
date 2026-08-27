@@ -30,7 +30,7 @@ const SUBTASK_ORDINAL_BASE: u32 = 2_000;
 
 /// Ensure the backlog tree this writer targets actually exists. ERR-13: the
 /// error names the missing directory so the operator knows what to create.
-pub(crate) fn require_backlog_tasks_dir(workspace_root: &Path) -> anyhow::Result<()> {
+pub fn require_backlog_tasks_dir(workspace_root: &Path) -> anyhow::Result<()> {
     let tasks_dir = workspace_root.join(".backlog").join("tasks");
     if tasks_dir.is_dir() {
         Ok(())
@@ -47,7 +47,7 @@ pub(crate) fn require_backlog_tasks_dir(workspace_root: &Path) -> anyhow::Result
 /// across every [`TASK_DIRS`] directory that exists (dotted subtask ids share
 /// their parent's number, so the integer part alone determines allocation).
 /// Returns 1 for an empty backlog.
-pub(crate) fn next_main_task_number(workspace_root: &Path) -> u32 {
+pub fn next_main_task_number(workspace_root: &Path) -> u32 {
     let backlog_root = workspace_root.join(".backlog");
     let mut max = 0u32;
     for_each_task_file(&backlog_root, |_dir, file_name| {
@@ -62,7 +62,7 @@ pub(crate) fn next_main_task_number(workspace_root: &Path) -> u32 {
 /// `date`: one more than the highest `<n>` already present in any task
 /// filename whose slug starts with `review-request-<date>-`. Returns 1 when
 /// this is the first request of the day.
-pub(crate) fn next_daily_sequence(workspace_root: &Path, date: &str) -> u32 {
+pub fn next_daily_sequence(workspace_root: &Path, date: &str) -> u32 {
     let prefix = format!("review-request-{date}-");
     let backlog_root = workspace_root.join(".backlog");
     let mut max = 0u32;
@@ -86,7 +86,7 @@ fn review_request_sequence(file_name: &str, prefix: &str) -> Option<u32> {
 /// Identifiers one run has reserved by creating its main task file: the file
 /// itself, its main-task number, and its `review-request-<date>-<n>` title.
 /// FN-3: grouped rather than passed as four positional parameters.
-pub(crate) struct MainTaskClaim<'a> {
+pub struct MainTaskClaim<'a> {
     /// Name of the main task file this run created, inside `tasks`.
     pub(crate) file_name: &'a str,
     /// Main-task number the run allocated.
@@ -107,10 +107,7 @@ pub(crate) struct MainTaskClaim<'a> {
 /// file exists closes that gap: the file is a reservation every other run can
 /// see, so whichever run observes a conflict stands down. At most one run can
 /// miss the conflict, because whoever checks last necessarily sees both files.
-pub(crate) fn conflicting_claim(
-    workspace_root: &Path,
-    claim: &MainTaskClaim<'_>,
-) -> Option<String> {
+pub fn conflicting_claim(workspace_root: &Path, claim: &MainTaskClaim<'_>) -> Option<String> {
     let backlog_root = workspace_root.join(".backlog");
     let own_slug = format!("{}.md", slugify(claim.title));
     let mut conflict = None;
@@ -167,7 +164,7 @@ fn for_each_task_file(backlog_root: &Path, mut f: impl FnMut(&str, &str)) {
 /// - `"REVIEW: Run skill code-review-rust against ops-core"`
 ///   → `REVIEW-Run-skill-code-review-rust-against-ops-core`
 #[must_use = "slugify is pure; discarding it means the title was formatted for nothing"]
-pub(crate) fn slugify(title: &str) -> String {
+pub fn slugify(title: &str) -> String {
     let mut out = String::with_capacity(title.len());
     let mut in_run = false;
     for ch in title.chars() {
@@ -187,7 +184,7 @@ pub(crate) fn slugify(title: &str) -> String {
 /// 1-based subtask position for a subtask, or `None` for the main task.
 ///
 /// PERF-13: writes go straight into `w`; no intermediate `String` per line.
-pub(crate) fn render_task_file<W: Write>(
+pub fn render_task_file<W: Write>(
     w: &mut W,
     id: &str,
     title: &str,
@@ -198,7 +195,10 @@ pub(crate) fn render_task_file<W: Write>(
         None => (MAIN_LABELS, MAIN_ORDINAL),
         Some((_parent_id, index)) => (
             SUBTASK_LABELS,
-            SUBTASK_ORDINAL_BASE + u32::try_from(index).unwrap_or(u32::MAX),
+            // Ordinals only order sibling rows, so pinning an absurd `index` at
+            // `u32::MAX` (the sort-last slot) is the correct degraded value —
+            // the same one the `try_from` fallback already picks.
+            SUBTASK_ORDINAL_BASE.saturating_add(u32::try_from(index).unwrap_or(u32::MAX)),
         ),
     };
     writeln!(w, "---")?;
@@ -225,7 +225,7 @@ pub(crate) fn render_task_file<W: Write>(
 /// The backlog CLI quotes titles containing `: `; quoting unconditionally is
 /// byte-compatible for our titles and safe for any future label/title shape.
 fn yaml_single_quoted(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
+    let mut out = String::with_capacity(value.len().saturating_add(2));
     out.push('\'');
     out.push_str(&value.replace('\'', "''"));
     out.push('\'');
@@ -233,23 +233,23 @@ fn yaml_single_quoted(value: &str) -> String {
 }
 
 /// Zero-padded task id string (`TASK-0042`) for a main-task number.
-pub(crate) fn main_task_id(number: u32) -> String {
+pub fn main_task_id(number: u32) -> String {
     format!("TASK-{number:04}")
 }
 
 /// Filename for a main task: `task-0042 - <slug>.md`.
-pub(crate) fn main_task_file_name(number: u32, title: &str) -> String {
+pub fn main_task_file_name(number: u32, title: &str) -> String {
     format!("task-{number:04} - {}.md", slugify(title))
 }
 
 /// Id for the subtask at 1-based `index` under main-task `number`:
 /// `TASK-0042.03`.
-pub(crate) fn subtask_id(number: u32, index: usize) -> String {
+pub fn subtask_id(number: u32, index: usize) -> String {
     format!("TASK-{number:04}.{index:02}")
 }
 
 /// Filename for a subtask: `task-0042.03 - <slug>.md`.
-pub(crate) fn subtask_file_name(number: u32, index: usize, title: &str) -> String {
+pub fn subtask_file_name(number: u32, index: usize, title: &str) -> String {
     format!("task-{number:04}.{index:02} - {}.md", slugify(title))
 }
 

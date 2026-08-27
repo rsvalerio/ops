@@ -11,7 +11,7 @@ use ops_extension::{Context, DataProvider, DataProviderError};
 use crate::query::{load_workspace_manifest, log_manifest_load_failure};
 use crate::units::resolve_crate_display_name;
 
-pub(crate) const PROVIDER_NAME: &str = "project_coverage";
+pub const PROVIDER_NAME: &str = "project_coverage";
 
 /// DUP-1 (TASK-1079): per-process memoization for `query_project_coverage`.
 ///
@@ -54,7 +54,7 @@ fn project_coverage_cache() -> &'static Mutex<HashMap<u64, CoverageSlot>> {
 /// the same time both observed a miss, both dispatched the query, and the
 /// "warn fires exactly once" contract advertised by DUP-1 / TASK-1079
 /// silently degraded to "warn fires once per concurrent first-caller".
-pub(crate) fn cached_query_project_coverage(db: &DuckDb) -> Option<CrateCoverage> {
+pub fn cached_query_project_coverage(db: &DuckDb) -> Option<CrateCoverage> {
     let key = db.id();
 
     let slot: CoverageSlot = {
@@ -79,7 +79,7 @@ pub(crate) fn cached_query_project_coverage(db: &DuckDb) -> Option<CrateCoverage
     .clone()
 }
 
-pub(crate) struct RustCoverageProvider;
+pub struct RustCoverageProvider;
 
 impl DataProvider for RustCoverageProvider {
     fn name(&self) -> &'static str {
@@ -365,10 +365,9 @@ mod cache_tests {
             let guard = super::project_coverage_cache()
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            assert!(
-                guard.contains_key(&id),
-                "priming must insert a slot for instance a's id"
-            );
+            let primed = guard.contains_key(&id);
+            drop(guard);
+            assert!(primed, "priming must insert a slot for instance a's id");
             id
         };
         // After `a` drops, a fresh instance must mint a new id even if
@@ -388,8 +387,10 @@ mod cache_tests {
         let guard = super::project_coverage_cache()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let has_b_slot = guard.contains_key(&b_id);
+        drop(guard);
         assert!(
-            guard.contains_key(&b_id),
+            has_b_slot,
             "b's lookup must populate a slot under its own id"
         );
         assert_ne!(

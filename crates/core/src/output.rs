@@ -28,11 +28,12 @@ pub fn pad_to_display_width(name: &str, target_cols: usize) -> String {
     if cols >= target_cols {
         return name.to_string();
     }
-    let pad = target_cols - cols;
+    // Guarded above by `cols >= target_cols`, so this subtraction is exact.
+    let pad = target_cols.saturating_sub(cols);
     // PERF-1 / TASK-1396: bulk extend replaces the per-char push loop;
     // `String::extend` over `repeat(' ').take(pad)` lowers to a single
     // reserve + memset rather than `pad` separate push branches.
-    let mut out = String::with_capacity(name.len() + pad);
+    let mut out = String::with_capacity(name.len().saturating_add(pad));
     out.push_str(name);
     out.extend(std::iter::repeat_n(' ', pad));
     out
@@ -75,7 +76,7 @@ pub fn detect_terminal_width_probe_count() -> usize {
 /// Return the last `n` lines from a slice, or all lines if fewer than `n`.
 pub fn tail_lines<T>(lines: &[T], n: usize) -> &[T] {
     let start = lines.len().saturating_sub(n);
-    &lines[start..]
+    lines.get(start..).unwrap_or(lines)
 }
 
 /// Format the last `n` lines of stderr for error display.
@@ -112,7 +113,7 @@ fn format_error_tail_with_stats(stderr: &[u8], n: usize) -> (String, usize) {
     // FN-1 / TASK-1405: each phase (trim, collect, decode) is now an
     // isolated helper so its byte/line invariants can be read in isolation.
     let trimmed_end = trim_trailing_terminator(stderr);
-    let buf = &stderr[..trimmed_end];
+    let buf = stderr.get(..trimmed_end).unwrap_or(stderr);
     let mut ranges = TailRanges::new(n);
     let line_scans = collect_tail_ranges(buf, n, &mut ranges);
     if ranges.is_empty() {
@@ -126,19 +127,16 @@ fn format_error_tail_with_stats(stderr: &[u8], n: usize) -> (String, usize) {
 /// or bare CR). Returns the new logical end index of `stderr`. A stray `\r`
 /// at end-of-buffer would otherwise survive into the rendered tail and
 /// render as a cursor-control byte in operator terminals.
-fn trim_trailing_terminator(stderr: &[u8]) -> usize {
-    let mut end = stderr.len();
-    match stderr.last().copied() {
-        Some(b'\n') => {
-            end -= 1;
-            if end > 0 && stderr[end - 1] == b'\r' {
-                end -= 1;
-            }
-        }
-        Some(b'\r') => end -= 1,
-        _ => {}
+const fn trim_trailing_terminator(stderr: &[u8]) -> usize {
+    // Slice patterns rather than indexing: they read the tail bytes with no
+    // bounds check to get wrong, and unlike `slice::get` they are callable
+    // from a `const fn`. Each pattern also proves the length it subtracts —
+    // two bytes matched, then one — so `saturating_sub` is exactly `-` here.
+    match stderr {
+        [.., b'\r', b'\n'] => stderr.len().saturating_sub(2),
+        [.., b'\n' | b'\r'] => stderr.len().saturating_sub(1),
+        _ => stderr.len(),
     }
-    end
 }
 
 /// PERF-3 / TASK-1428: collect up to `n` tail line ranges, walking backwards
@@ -148,15 +146,18 @@ fn collect_tail_ranges(buf: &[u8], n: usize, ranges: &mut TailRanges) -> usize {
     let mut tail_end = buf.len();
     let mut line_scans = 0usize;
     while tail_end > 0 && ranges.len() < n {
-        line_scans += 1;
-        let start = buf[..tail_end]
+        line_scans = line_scans.saturating_add(1);
+        let start = buf
             .iter()
+            .take(tail_end)
             .rposition(|b| *b == b'\n')
-            .map_or(0, |idx| idx + 1);
+            .map_or(0, |idx| idx.saturating_add(1));
         // Strip a trailing CR so CRLF-terminated lines render cleanly.
         let mut line_end = tail_end;
-        if line_end > start && buf[line_end - 1] == b'\r' {
-            line_end -= 1;
+        // `line_end > start >= 0` implies `line_end >= 1`, so both
+        // subtractions below are exact under the guard.
+        if line_end > start && buf.get(line_end.saturating_sub(1)) == Some(&b'\r') {
+            line_end = line_end.saturating_sub(1);
         }
         ranges.push_oldest_front((start, line_end));
         tail_end = start.saturating_sub(1);
@@ -174,15 +175,21 @@ fn collect_tail_ranges(buf: &[u8], n: usize, ranges: &mut TailRanges) -> usize {
 /// `from_utf8_lossy(..).replace('\r', "\n")` pair (two allocations per
 /// CR-bearing line) with a single push pass into the output buffer.
 fn decode_with_cr_normalisation(buf: &[u8], ranges: &TailRanges) -> String {
-    let total_len: usize = ranges.iter().map(|(s, e)| e - s).sum();
-    let mut out = String::with_capacity(total_len + ranges.len());
+    // Ranges are built as `(start, line_end)` with `line_end >= start`, so
+    // each `e - s` is exact.
+    let total_len: usize = ranges.iter().map(|(s, e)| e.saturating_sub(*s)).sum();
+    let mut out = String::with_capacity(total_len.saturating_add(ranges.len()));
     let mut first = true;
     for &(s, e) in ranges.iter() {
+        // Ranges are produced by `collect_tail_ranges` from this same buffer,
+        // so `get` always hits; skipping on a miss keeps the decode total,
+        // rather than panicking, if that invariant ever drifts.
+        let Some(line) = buf.get(s..e) else { continue };
         if !first {
             out.push('\n');
         }
         first = false;
-        let decoded = String::from_utf8_lossy(&buf[s..e]);
+        let decoded = String::from_utf8_lossy(line);
         for ch in decoded.chars() {
             out.push(if ch == '\r' { '\n' } else { ch });
         }
@@ -210,7 +217,7 @@ struct TailRanges {
 impl TailRanges {
     fn new(n: usize) -> Self {
         let spill = if n > TAIL_STACK_CAP {
-            Vec::with_capacity(n - TAIL_STACK_CAP)
+            Vec::with_capacity(n.saturating_sub(TAIL_STACK_CAP))
         } else {
             Vec::new()
         };
@@ -221,11 +228,11 @@ impl TailRanges {
         }
     }
 
-    fn len(&self) -> usize {
-        self.stack_len + self.spill.len()
+    const fn len(&self) -> usize {
+        self.stack_len.saturating_add(self.spill.len())
     }
 
-    fn is_empty(&self) -> bool {
+    const fn is_empty(&self) -> bool {
         self.stack_len == 0 && self.spill.is_empty()
     }
 
@@ -237,7 +244,7 @@ impl TailRanges {
         if self.stack_len < TAIL_STACK_CAP {
             self.stack.copy_within(0..self.stack_len, 1);
             self.stack[0] = range;
-            self.stack_len += 1;
+            self.stack_len = self.stack_len.saturating_add(1);
         } else {
             // Stack is full: the existing oldest entry rolls over into the
             // spill (front of spill = absolute oldest).
@@ -249,7 +256,9 @@ impl TailRanges {
     }
 
     fn iter(&self) -> impl Iterator<Item = &(usize, usize)> {
-        self.spill.iter().chain(self.stack[..self.stack_len].iter())
+        self.spill
+            .iter()
+            .chain(self.stack.iter().take(self.stack_len))
     }
 }
 

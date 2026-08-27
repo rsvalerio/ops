@@ -17,9 +17,9 @@ use ops_core::project_identity::ProjectUnit;
 use ops_extension::{Context, DataProvider, DataProviderError};
 use serde::Deserialize;
 
-pub(crate) const PROVIDER_NAME: &str = "project_units";
+pub const PROVIDER_NAME: &str = "project_units";
 
-pub(crate) struct NodeUnitsProvider;
+pub struct NodeUnitsProvider;
 
 impl DataProvider for NodeUnitsProvider {
     fn name(&self) -> &'static str {
@@ -264,13 +264,20 @@ fn split_inline_list(inner: &str) -> Vec<&str> {
             b'\'' if !in_double => in_single = !in_single,
             b'"' if !in_single => in_double = !in_double,
             b',' if !in_single && !in_double => {
-                out.push(&inner[start..i]);
-                start = i + 1;
+                // `i` is the offset of an ASCII `,` and `start` is either 0 or
+                // one past a previous `,`, so both are char boundaries and
+                // `get` cannot fail; skip the piece rather than panic if that
+                // ever stops holding. `i + 1` is at most `inner.len()`, so
+                // `saturating_add` is exactly `+ 1`.
+                if let Some(piece) = inner.get(start..i) {
+                    out.push(piece);
+                }
+                start = i.saturating_add(1);
             }
             _ => {}
         }
     }
-    out.push(&inner[start..]);
+    out.push(inner.get(start..).unwrap_or(""));
     out
 }
 
@@ -326,11 +333,14 @@ fn strip_trailing_yaml_comment(s: &str) -> &str {
             b'\'' if !in_double => in_single = !in_single,
             b'"' if !in_single => in_double = !in_double,
             b'#' if !in_single && !in_double && prev_ws => {
-                return s[..i].trim_end();
+                // `i` is the offset of an ASCII `#`, so it is a char boundary
+                // and `get` cannot fail; on the unreachable `None` keep the
+                // value intact rather than panicking.
+                return s.get(..i).unwrap_or(s).trim_end();
             }
             _ => {}
         }
-        prev_ws = (b as char).is_whitespace();
+        prev_ws = char::from(b).is_whitespace();
     }
     s
 }
@@ -578,8 +588,7 @@ mod tests {
             r#"{ "name": "foo" }"#,
         );
         let units = collect_units(dir.path());
-        let names: Vec<&str> = units.iter().map(|u| u.name.as_str()).collect();
-        assert!(names.contains(&"foo"));
+        assert!(units.iter().any(|u| u.name == "foo"));
     }
 
     #[test]

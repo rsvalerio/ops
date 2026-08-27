@@ -87,7 +87,7 @@ impl EchoGuard {
     /// True when the guard is a no-op (non-TTY stderr or termios failure).
     /// Exposed for tests; external callers have no reason to inspect guard state.
     #[cfg(test)]
-    pub(crate) fn is_noop(&self) -> bool {
+    pub(crate) const fn is_noop(&self) -> bool {
         #[cfg(unix)]
         {
             self.original.is_none()

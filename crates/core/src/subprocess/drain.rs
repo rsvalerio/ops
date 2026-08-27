@@ -47,7 +47,8 @@ pub(super) fn read_capped<R: Read>(
     const INITIAL_CAP: usize = 64 * 1024;
     let want = cap.min(INITIAL_CAP);
     if buf.capacity() < want {
-        buf.reserve(want - buf.len());
+        // `buf.len() <= buf.capacity() < want` here, so this is exact.
+        buf.reserve(want.saturating_sub(buf.len()));
     }
     let mut dropped: u64 = 0;
     loop {
@@ -66,12 +67,24 @@ pub(super) fn read_capped<R: Read>(
         match reader.read(&mut chunk) {
             Ok(0) => return (dropped, None),
             Ok(n) => {
-                let remaining = cap - buf.len();
-                if n <= remaining {
-                    buf.extend_from_slice(&chunk[..n]);
-                } else {
-                    buf.extend_from_slice(&chunk[..remaining]);
-                    dropped = dropped.saturating_add((n - remaining) as u64);
+                // The loop head returns when `buf.len() >= cap`, so
+                // `buf.len() < cap` here and this subtraction is exact.
+                let remaining = cap.saturating_sub(buf.len());
+                // `Read::read` never reports more than `chunk.len()`, so `get`
+                // always hits; going through it keeps a misbehaving reader from
+                // turning into a panic here.
+                if let Some(slice) = chunk.get(..n.min(remaining)) {
+                    buf.extend_from_slice(slice);
+                }
+                if n > remaining {
+                    // Guarded by `n > remaining`, so the subtraction is exact.
+                    // `usize` is never wider than `u64` on any target rustc
+                    // supports, so the widening is total; the unreachable
+                    // fallback saturates the counter, matching the
+                    // `saturating_add` it feeds.
+                    dropped = dropped.saturating_add(
+                        u64::try_from(n.saturating_sub(remaining)).unwrap_or(u64::MAX),
+                    );
                 }
             }
             Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
@@ -84,16 +97,14 @@ pub(super) fn read_capped<R: Read>(
 /// captures the bytes a child wrote to one pipe, bounded by `cap`. Both
 /// stdout and stderr go through this one entry point so the two halves
 /// cannot diverge on the next change to read-cap or panic semantics.
-pub(super) fn spawn_drain<R>(pipe: Option<R>, cap: usize) -> Option<thread::JoinHandle<DrainResult>>
+pub(super) fn spawn_drain<R>(mut pipe: R, cap: usize) -> thread::JoinHandle<DrainResult>
 where
     R: Read + Send + 'static,
 {
-    pipe.map(|mut s| {
-        thread::spawn(move || -> DrainResult {
-            let mut buf = Vec::new();
-            let (dropped, err) = read_capped(&mut s, &mut buf, cap);
-            (buf, dropped, err)
-        })
+    thread::spawn(move || -> DrainResult {
+        let mut buf = Vec::new();
+        let (dropped, err) = read_capped(&mut pipe, &mut buf, cap);
+        (buf, dropped, err)
     })
 }
 
@@ -215,12 +226,12 @@ pub(super) fn drain_after_timeout(
     stderr: Option<thread::JoinHandle<DrainResult>>,
     label: &str,
 ) {
-    let deadline = Instant::now() + DRAIN_GRACE;
+    let start = Instant::now();
     for (handle, stream) in [(stdout, "stdout"), (stderr, "stderr")] {
         let Some(handle) = handle else {
             continue;
         };
-        while !handle.is_finished() && Instant::now() < deadline {
+        while !handle.is_finished() && start.elapsed() < DRAIN_GRACE {
             thread::sleep(DRAIN_POLL);
         }
         if !handle.is_finished() {
@@ -254,15 +265,20 @@ mod tests {
     /// cap") doesn't depend on an OS pipe.
     #[test]
     fn read_capped_bounds_buffer_and_counts_overflow() {
-        let input: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
+        // `(0..=u8::MAX).cycle()` yields the same `i % 256` byte pattern the
+        // old `as u8` cast produced, without the narrowing conversion.
+        let input: Vec<u8> = (0..=u8::MAX).cycle().take(100_000).collect();
         let cap = 1024;
         let mut buf = Vec::new();
         let (dropped, err) = read_capped(std::io::Cursor::new(&input), &mut buf, cap);
         assert!(err.is_none(), "in-memory cursor must not error");
         assert_eq!(buf.len(), cap, "buffer must be capped exactly to {cap}");
+        // Both lengths come from a fixed in-memory input, and `usize` is never
+        // wider than `u64`, so these widenings are total and the fallbacks are
+        // unreachable.
         assert_eq!(
-            buf.len() as u64 + dropped,
-            input.len() as u64,
+            u64::try_from(buf.len()).unwrap_or(u64::MAX) + dropped,
+            u64::try_from(input.len()).unwrap_or(u64::MAX),
             "kept + dropped must equal input length"
         );
         // Spot-check the head bytes match the source so we kept the *first*
@@ -350,9 +366,12 @@ mod tests {
         let (dropped, err) = read_capped(std::io::Cursor::new(&input), &mut buf, cap);
         assert!(err.is_none(), "in-memory cursor must not error");
         assert_eq!(buf.len(), cap);
+        // Both lengths come from a fixed in-memory input, and `usize` is never
+        // wider than `u64`, so these widenings are total and the fallbacks are
+        // unreachable.
         assert_eq!(
-            buf.len() as u64 + dropped,
-            input.len() as u64,
+            u64::try_from(buf.len()).unwrap_or(u64::MAX) + dropped,
+            u64::try_from(input.len()).unwrap_or(u64::MAX),
             "kept + dropped must equal input length"
         );
     }

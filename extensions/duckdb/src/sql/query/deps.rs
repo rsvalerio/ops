@@ -134,7 +134,10 @@ pub fn query_crate_dep_counts(db: &DuckDb) -> anyhow::Result<HashMap<String, i64
 
     let mut name_seen: HashMap<&str, usize> = HashMap::new();
     for (_, name, _) in &rows {
-        *name_seen.entry(name.as_str()).or_default() += 1;
+        // Tallies entries of the in-memory `rows` vec, so the count is bounded
+        // by `rows.len()` and the saturation arm is unreachable.
+        let seen = name_seen.entry(name.as_str()).or_default();
+        *seen = seen.saturating_add(1);
     }
     for (name, count) in name_seen.iter().filter(|(_, c)| **c > 1) {
         tracing::debug!(

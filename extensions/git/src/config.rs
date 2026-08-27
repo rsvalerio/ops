@@ -5,12 +5,14 @@ use std::path::Path;
 pub use ops_hook_common::find_git_dir;
 
 /// ARCH-2 / SEC-13 / TASK-0894: type-system-enforced "this URL has been
-/// scrubbed of `user[:password]@` userinfo". The only ways to construct
-/// one are [`RedactedUrl::redact`] (runs `redact_userinfo`) and the
-/// `From<&str>` impl that delegates to it. Carrying a `RedactedUrl`
-/// through the call chain means a future refactor cannot accidentally
-/// route a raw URL into [`crate::GitInfo::remote_url`] / about cards /
-/// JSON output without a visible `RedactedUrl::redact` call.
+/// scrubbed of `user[:password]@` userinfo".
+///
+/// The only ways to construct one are [`RedactedUrl::redact`] (runs
+/// `redact_userinfo`) and the `From<&str>` impl that delegates to it.
+/// Carrying a `RedactedUrl` through the call chain means a future
+/// refactor cannot accidentally route a raw URL into
+/// [`crate::GitInfo::remote_url`] / about cards / JSON output without a
+/// visible `RedactedUrl::redact` call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RedactedUrl(String);
 
@@ -78,7 +80,7 @@ impl RedactedUrl {
 /// NULs, and ANSI escapes from a hostile `.git/config` would otherwise
 /// forge log lines or recolor terminal output downstream.
 #[inline]
-fn is_ascii_control_byte(b: u8) -> bool {
+const fn is_ascii_control_byte(b: u8) -> bool {
     b < 0x20 || b == 0x7f
 }
 
@@ -95,7 +97,7 @@ fn is_ascii_control_byte(b: u8) -> bool {
 /// `extensions-node/about::repo_url::contains_control_chars` (TASK-1165)
 /// and `extensions-python/about::contains_control_chars` (TASK-1207).
 #[inline]
-fn is_unicode_format_or_separator(c: char) -> bool {
+const fn is_unicode_format_or_separator(c: char) -> bool {
     if c.is_control() {
         return true;
     }
@@ -121,10 +123,11 @@ impl std::fmt::Display for RedactedUrl {
     }
 }
 
-/// SEC-33 / TASK-0910: hard cap on `.git/config` read size. A real-world
-/// git config is well under 64 KiB; an adversarial repo (cloned for
-/// inspection) could otherwise OOM the CLI through a multi-GB file or a
-/// symlink to `/dev/zero`. Mirrors the
+/// SEC-33 / TASK-0910: hard cap on `.git/config` read size.
+///
+/// A real-world git config is well under 64 KiB; an adversarial repo
+/// (cloned for inspection) could otherwise OOM the CLI through a
+/// multi-GB file or a symlink to `/dev/zero`. Mirrors the
 /// `ops_about::manifest_io::MAX_MANIFEST_BYTES` posture for project
 /// manifests.
 pub const MAX_GIT_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
@@ -188,7 +191,10 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
     // `read_origin_url_survives_non_utf8_byte_in_unrelated_section` exists
     // to support. `take(limit)` already returned ≤ limit bytes, so the file
     // is in-cap iff `bytes.len() <= MAX_GIT_CONFIG_BYTES`.
-    if bytes.len() as u64 > MAX_GIT_CONFIG_BYTES {
+    // A length that does not fit in a `u64` is necessarily far above the
+    // 4 MiB cap, so saturating to `u64::MAX` keeps this comparison exact for
+    // every value the check can actually distinguish.
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_GIT_CONFIG_BYTES {
         // ERR-7 / TASK-1206: Debug-format path; see comment above.
         tracing::warn!(
             path = ?path.display(),
@@ -197,17 +203,18 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
         );
         return None;
     }
-    let content = if std::str::from_utf8(&bytes).is_ok() {
-        String::from_utf8(bytes).expect("validated above")
-    } else {
-        // ERR-1 / TASK-1244: typed debug breadcrumb so operators chasing
-        // "remote_url is None" can tell a non-UTF-8 config apart from a
-        // generic IO error or a missing file.
-        tracing::debug!(
-            path = ?path.display(),
-            "git-config: non-UTF-8 bytes detected; decoding lossily so remote detection survives"
-        );
-        String::from_utf8_lossy(&bytes).into_owned()
+    let content = match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(err) => {
+            // ERR-1 / TASK-1244: typed debug breadcrumb so operators chasing
+            // "remote_url is None" can tell a non-UTF-8 config apart from a
+            // generic IO error or a missing file.
+            tracing::debug!(
+                path = ?path.display(),
+                "git-config: non-UTF-8 bytes detected; decoding lossily so remote detection survives"
+            );
+            String::from_utf8_lossy(err.as_bytes()).into_owned()
+        }
     };
     parse_origin_url_inner(&content, Some(&path))
 }
@@ -270,7 +277,8 @@ fn parse_origin_url_inner(content: &str, path: Option<&Path>) -> Option<Redacted
                         // SEC-2 / TASK-1102: a `url = ...` line with embedded
                         // ASCII control bytes (raw newline, ANSI escape, NUL)
                         // is dropped rather than propagated.
-                        rejected_count += 1;
+                        // One increment per line of `content`; cannot saturate a `usize`.
+                        rejected_count = rejected_count.saturating_add(1);
                     }
                 }
             }
@@ -326,20 +334,20 @@ pub(crate) fn redact_userinfo(value: &str) -> String {
             None => (after, None),
         };
         let host = authority.rsplit('@').next().unwrap_or(authority);
-        return match rest {
-            Some(r) => format!("{scheme}://{host}/{r}"),
-            None => format!("{scheme}://{host}"),
-        };
+        return rest.map_or_else(
+            || format!("{scheme}://{host}"),
+            |r| format!("{scheme}://{host}/{r}"),
+        );
     }
     // scp-style: strip a `user[:password]@` prefix that appears before the
     // first `/`. Past the first `/` the `@` belongs to a path component, not
     // userinfo.
-    let head_end = value.find('/').unwrap_or(value.len());
-    let head = &value[..head_end];
-    if let Some(at_idx) = head.rfind('@') {
-        let mut redacted = String::with_capacity(value.len() - at_idx);
-        redacted.push_str(&value[at_idx + 1..]);
-        return redacted;
+    let (head, rest) = match value.split_once('/') {
+        Some((h, r)) => (h, Some(r)),
+        None => (value, None),
+    };
+    if let Some((_userinfo, host)) = head.rsplit_once('@') {
+        return rest.map_or_else(|| host.to_string(), |r| format!("{host}/{r}"));
     }
     value.to_string()
 }
@@ -363,8 +371,10 @@ fn strip_url_key(line: &str) -> Option<std::borrow::Cow<'_, str>> {
     // READ-2 (TASK-0726): unquoted form — drop trailing inline comments
     // (`#`, `;`) so the returned value matches `git config --get
     // remote.origin.url`.
-    let comment_start = value.find(['#', ';']).unwrap_or(value.len());
-    Some(std::borrow::Cow::Borrowed(value[..comment_start].trim()))
+    let uncommented = value
+        .split_once(['#', ';'])
+        .map_or(value, |(before, _comment)| before);
+    Some(std::borrow::Cow::Borrowed(uncommented.trim()))
 }
 
 fn is_origin_header(line: &str) -> bool {
@@ -442,16 +452,18 @@ enum QuotedBodyError {
 /// has to land in one place.
 fn decode_quoted_body(body: &str) -> Result<(String, &str), QuotedBodyError> {
     let mut decoded = String::with_capacity(body.len());
-    let mut chars = body.char_indices();
-    while let Some((idx, c)) = chars.next() {
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
         match c {
             '"' => {
-                let rest = &body[idx + c.len_utf8()..];
+                // `Chars::as_str` yields the remainder after the closing
+                // quote without re-slicing `body` by byte index.
+                let rest = chars.as_str();
                 return Ok((decoded, rest));
             }
             '\\' => match chars.next() {
-                Some((_, '\\')) => decoded.push('\\'),
-                Some((_, '"')) => decoded.push('"'),
+                Some('\\') => decoded.push('\\'),
+                Some('"') => decoded.push('"'),
                 Some(_) => return Err(QuotedBodyError::UnknownEscape),
                 None => return Err(QuotedBodyError::UnterminatedEscape),
             },
@@ -531,6 +543,16 @@ pub fn read_head_branch(git_dir: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `MAX_GIT_CONFIG_BYTES` as a `usize`, for sizing test payloads.
+    ///
+    /// The cap is 4 MiB, which fits every `usize` these tests run on. On a
+    /// hypothetical platform whose `usize` were narrower, `usize::MAX` would
+    /// itself be below the cap, so the saturating fallback still yields an
+    /// allocatable size rather than an unwrap or a panic.
+    fn cap_bytes_as_usize() -> usize {
+        usize::try_from(MAX_GIT_CONFIG_BYTES).unwrap_or(usize::MAX)
+    }
 
     #[test]
     fn find_git_dir_in_current() {
@@ -772,7 +794,7 @@ mod tests {
             }
         }
         impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriter;
+            type Writer = Self;
             fn make_writer(&'a self) -> Self::Writer {
                 self.clone()
             }
@@ -924,7 +946,7 @@ mod tests {
         // raw while pushing the lossy-decoded length past it.
         let header = b"[remote \"origin\"]\n\turl = https://github.com/o/r.git\n[user]\n\temail = ";
         let trailer = b"@example.com\n";
-        let raw_target = (MAX_GIT_CONFIG_BYTES as usize) - header.len() - trailer.len() - 16;
+        let raw_target = cap_bytes_as_usize() - header.len() - trailer.len() - 16;
         // Half of the trailing block is invalid bytes — lossy expansion 3x
         // takes total decoded length well above MAX_GIT_CONFIG_BYTES even
         // though the raw file is comfortably under the cap.
@@ -934,7 +956,7 @@ mod tests {
         bytes.extend_from_slice(&invalid_block);
         bytes.extend_from_slice(trailer);
         assert!(
-            (bytes.len() as u64) <= MAX_GIT_CONFIG_BYTES,
+            u64::try_from(bytes.len()).unwrap_or(u64::MAX) <= MAX_GIT_CONFIG_BYTES,
             "test payload must be within the SEC-33 cap"
         );
         std::fs::write(git_dir.join("config"), &bytes).unwrap();
@@ -958,7 +980,7 @@ mod tests {
         // bytes are arbitrary `; comment` padding; the cap check fires
         // before the parser ever sees them.
         let header = "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n";
-        let pad_size = (MAX_GIT_CONFIG_BYTES as usize)
+        let pad_size = cap_bytes_as_usize()
             .saturating_sub(header.len())
             .saturating_add(64);
         let mut body = String::with_capacity(header.len() + pad_size);

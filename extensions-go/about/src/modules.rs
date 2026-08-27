@@ -10,9 +10,9 @@ use ops_about::cards::format_unit_name;
 use ops_core::project_identity::ProjectUnit;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
-pub(crate) const PROVIDER_NAME: &str = "project_units";
+pub const PROVIDER_NAME: &str = "project_units";
 
-pub(crate) struct GoUnitsProvider;
+pub struct GoUnitsProvider;
 
 impl DataProvider for GoUnitsProvider {
     fn name(&self) -> &'static str {
@@ -33,6 +33,10 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
             .collect();
     }
     let (module, go_version) = read_mod_info(cwd);
+    // The `Some` arm builds a `ProjectUnit` across several statements and
+    // carries the long PATTERN-1 rationale inline; a `map_or_else` closure
+    // would put the empty-vec default ahead of it and re-indent the comment.
+    #[allow(clippy::option_if_let_else)]
     match module {
         Some(m) => {
             let mut unit = ProjectUnit::new(
@@ -117,10 +121,10 @@ fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
     };
     let name = last_segment(module.as_deref()).unwrap_or_else(|| format_unit_name(&normalized));
     let description = if out_of_tree {
-        Some(match module {
-            Some(m) => format!("{m} (outside project root)"),
-            None => "(outside project root)".to_string(),
-        })
+        Some(module.map_or_else(
+            || "(outside project root)".to_string(),
+            |m| format!("{m} (outside project root)"),
+        ))
     } else {
         module
     };
@@ -159,7 +163,7 @@ fn normalize_module_path(dir: &str) -> String {
 /// - `last_segment("module v2")` → `"module v2"` (no `/`, returned unchanged)
 /// - `last_segment("github.com/foo/bar")` → `"bar"`
 /// - `last_segment("foo/v")` → `"v"` (no digits, not a version suffix)
-pub(crate) fn last_segment(module: Option<&str>) -> Option<String> {
+pub fn last_segment(module: Option<&str>) -> Option<String> {
     let m = module?;
     let mut segments: Vec<&str> = m.split('/').collect();
     if segments.len() >= 2 {

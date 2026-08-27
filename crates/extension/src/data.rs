@@ -85,7 +85,7 @@ impl DataProviderSchema {
     ///
     /// `description` is `&'static str`; see [`DataField`] for the rationale.
     #[must_use]
-    pub fn new(description: &'static str, fields: Vec<DataField>) -> Self {
+    pub const fn new(description: &'static str, fields: Vec<DataField>) -> Self {
         Self {
             description,
             fields,
@@ -450,7 +450,7 @@ impl Context {
 
     /// Create a context with refresh mode enabled (forces data re-collection).
     #[must_use]
-    pub fn with_refresh(mut self) -> Self {
+    pub const fn with_refresh(mut self) -> Self {
         self.refresh = true;
         self
     }
@@ -503,10 +503,10 @@ impl Context {
             });
         }
         let result = registry.provide(key, self);
-        let owned_key = self
-            .in_flight
-            .take(key)
-            .expect("in_flight entry inserted above must still be present");
+        // The entry was inserted above and nothing between the two points
+        // removes it, so `take` always hits; re-allocating the key is a
+        // cost-free fallback that keeps this path panic-free.
+        let owned_key = self.in_flight.take(key).unwrap_or_else(|| key.to_string());
         let v = Arc::new(result?);
         self.data_cache.insert(owned_key, Arc::clone(&v));
         Ok(v)

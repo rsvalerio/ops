@@ -1,9 +1,11 @@
 ---
 id: TASK-1674
 title: 'CLIPPY: drop the workspace allow for `as_conversions`'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1684
 created_date: '2026-08-25 21:00'
+updated_date: '2026-08-26 22:39'
 labels:
   - code-review-rust
   - clippy
@@ -58,8 +60,14 @@ Enabling `clippy::nursery` and the panic/arithmetic lints from the photo config 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
-- [ ] #2 The line(s) for `as_conversions` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
-- [ ] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
-- [ ] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
+- [x] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
+- [x] #2 The line(s) for `as_conversions` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
+- [x] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
+- [x] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Cleared in wave142 (TASK-1684). All 61 sites fixed. Most resolved to a checked conversion — `From` where the widening is total (`u32::from(char)`, `usize::from(u16)`, `char::from(u8)`), `TryFrom` with a domain-correct `unwrap_or` fallback for the size-cap comparisons, and several casts removed outright (`ptr.addr()`, `.as_slice()`, `&[]` unsize casts, and `(b'a'..=b'z').cycle()` fixture generators). Four site-local `#[allow]`s remain, each statement-scoped with a proof comment: one in extensions/about/src/loc.rs (i64 -> f64 percentage, extends an existing cast_precision_loss allow), one in crates/theme/src/step_line_theme.rs and two in crates/theme/src/tests/format_duration.rs (u64 <-> f64 clamp bound, which no From/TryFrom pair expresses). `as_conversions` is a restriction-group lint, so it was moved up to the explicit deny list rather than merely deleted from the temporary-allow block.
+<!-- SECTION:NOTES:END -->

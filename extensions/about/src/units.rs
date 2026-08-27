@@ -33,8 +33,10 @@ pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
 }
 
 /// READ-5/TASK-0411: `is_tty` is supplied by the caller and reflects the
-/// `writer` they hand in, not stdout. Passing a `Vec<u8>` writer with
-/// `is_tty = false` guarantees no ANSI escapes regardless of stdout state.
+/// `writer` they hand in, not stdout.
+///
+/// Passing a `Vec<u8>` writer with `is_tty = false` guarantees no ANSI
+/// escapes regardless of stdout state.
 ///
 /// ERR-1/TASK-0784: `term_width` is also caller-supplied — buffer-writing
 /// call sites pick a width matching their destination instead of inheriting

@@ -193,7 +193,8 @@ fn max_parent_escape(path: &Path) -> usize {
     for c in path.components() {
         match c {
             Component::ParentDir => {
-                depth -= 1;
+                // One step per path component, so the `i64` cannot saturate.
+                depth = depth.saturating_sub(1);
                 if depth < 0 {
                     let escape = usize::try_from(depth.unsigned_abs()).unwrap_or(usize::MAX);
                     if escape > peak {
@@ -201,7 +202,8 @@ fn max_parent_escape(path: &Path) -> usize {
                     }
                 }
             }
-            Component::Normal(_) => depth += 1,
+            // One step per path component, so the `i64` cannot saturate.
+            Component::Normal(_) => depth = depth.saturating_add(1),
             Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
         }
     }
@@ -331,7 +333,7 @@ mod tests {
             }
         }
         impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
-            type Writer = VecWriter;
+            type Writer = Self;
             fn make_writer(&'a self) -> Self::Writer {
                 self.clone()
             }

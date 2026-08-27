@@ -67,6 +67,11 @@ use super::super::{merge::merge_config, Config};
 #[allow(clippy::option_option)]
 static GLOBAL_CONFIG_PATH: RwLock<Option<Option<PathBuf>>> = RwLock::new(None);
 
+// A poisoned `GLOBAL_CONFIG_PATH` means another thread panicked while holding
+// the lock, leaving the cache in an unknown state. There is no `Option` value
+// that honestly represents that, and this fn's signature has no error channel,
+// so propagating the panic is the correct behaviour (docs/clippy.md layer 3).
+#[allow(clippy::expect_used)]
 fn global_config_path() -> Option<PathBuf> {
     {
         let r = GLOBAL_CONFIG_PATH
@@ -88,10 +93,11 @@ fn global_config_path() -> Option<PathBuf> {
 }
 
 /// READ-1 / TASK-1475: zero-sized capability token for
-/// [`reset_global_config_path_cache`]. Constructable only via
-/// [`GlobalConfigPathResetToken::new`], which is itself gated to
-/// `#[cfg(any(test, feature = "test-support"))]` so an accidental
-/// production caller cannot compile the reset path.
+/// [`reset_global_config_path_cache`].
+///
+/// Constructable only via [`GlobalConfigPathResetToken::new`], which is
+/// itself gated to `#[cfg(any(test, feature = "test-support"))]` so an
+/// accidental production caller cannot compile the reset path.
 #[cfg(any(test, feature = "test-support"))]
 #[non_exhaustive]
 pub struct GlobalConfigPathResetToken {
@@ -102,7 +108,7 @@ pub struct GlobalConfigPathResetToken {
 impl GlobalConfigPathResetToken {
     /// Mint a token. Test-support / cfg(test) only.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _private: () }
     }
 }
@@ -115,10 +121,12 @@ impl Default for GlobalConfigPathResetToken {
 }
 
 /// READ-1 / TASK-1475: clear the `GLOBAL_CONFIG_PATH` cache so the next
-/// [`global_config_path`] call re-resolves from the live env. Test-support
-/// only — the runtime contract documented on `GLOBAL_CONFIG_PATH` ("tests
-/// MUST set env before any code path triggers `load_config`") was enforced
-/// only by comment; this hook makes the discipline mechanical.
+/// [`global_config_path`] call re-resolves from the live env.
+///
+/// Test-support only — the runtime contract documented on
+/// `GLOBAL_CONFIG_PATH` ("tests MUST set env before any code path triggers
+/// `load_config`") was enforced only by comment; this hook makes the
+/// discipline mechanical.
 ///
 /// The `_token` parameter is a capability marker: see
 /// [`GlobalConfigPathResetToken`]. Production builds (no `test-support`
@@ -127,6 +135,9 @@ impl Default for GlobalConfigPathResetToken {
 /// # Panics
 ///
 /// If the `GLOBAL_CONFIG_PATH` lock is poisoned by a panic in another test.
+// Same poisoned-lock reasoning as `global_config_path`; the `# Panics` section
+// above is the documented contract (docs/clippy.md layer 3).
+#[allow(clippy::expect_used)]
 #[cfg(any(test, feature = "test-support"))]
 pub fn reset_global_config_path_cache(_token: GlobalConfigPathResetToken) {
     let mut w = GLOBAL_CONFIG_PATH
@@ -145,7 +156,7 @@ pub fn reset_global_config_path_cache(_token: GlobalConfigPathResetToken) {
 /// matrix (XDG vs HOME vs APPDATA) can bypass the
 /// [`GLOBAL_CONFIG_PATH`] `OnceLock` — production callers should always go
 /// through [`global_config_path`] so the cache discipline holds.
-pub(crate) fn resolve_global_config_path() -> Option<PathBuf> {
+pub fn resolve_global_config_path() -> Option<PathBuf> {
     let (config_dir, source) = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         (PathBuf::from(xdg), "XDG_CONFIG_HOME")
     } else if cfg!(windows) {

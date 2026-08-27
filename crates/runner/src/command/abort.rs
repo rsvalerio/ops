@@ -28,7 +28,7 @@ use tokio::sync::Notify;
 /// Cheap to clone via `Arc<AbortSignal>`. `set()` is idempotent and
 /// awakens all current and future awaiters of `cancelled()`.
 #[derive(Debug, Default)]
-pub(crate) struct AbortSignal {
+pub struct AbortSignal {
     flag: AtomicBool,
     notify: Notify,
 }

@@ -32,10 +32,7 @@ pub fn create_table_from_json_sql(
     let escaped = prepare_path_for_sql(path)?;
     // READ-8 / TASK-1627: single `format!` site; the optional opts segment
     // is rendered inline so the SQL template lives in exactly one place.
-    let opts_segment = match extra_opts {
-        Some(opts) => format!(", {}", opts.as_str()),
-        None => String::new(),
-    };
+    let opts_segment = extra_opts.map_or_else(String::new, |opts| format!(", {}", opts.as_str()));
     Ok(format!(
         "CREATE OR REPLACE TABLE {quoted} AS SELECT * FROM read_json_auto('{escaped}'{opts_segment})",
     ))
@@ -46,10 +43,7 @@ pub fn create_table_from_json_sql(
 /// `information_schema.tables` does **not** list views in `DuckDB`; we union
 /// with `information_schema.views` so that view-backed data sources (e.g.
 /// `crate_dependencies`) are detected (READ-5).
-pub(crate) fn table_exists(
-    conn: &duckdb::Connection,
-    table_name: &str,
-) -> Result<bool, anyhow::Error> {
+pub fn table_exists(conn: &duckdb::Connection, table_name: &str) -> Result<bool, anyhow::Error> {
     use anyhow::Context;
     let count: i64 = conn
         .query_row(
@@ -89,6 +83,7 @@ pub fn table_has_data(db: &DuckDb, table_name: &str) -> Result<bool, anyhow::Err
         // ERR-7 (TASK-0521): Debug-format the table name to defang
         // control-character/log-injection.
         .with_context(|| format!("counting rows in {table_name:?}"))?;
+    drop(conn);
     Ok(row_count > 0)
 }
 
@@ -116,6 +111,10 @@ where
     for row in rows {
         results.push(row.context("reading row")?);
     }
+    // CONC-1: release the connection guard before building the JSON value.
+    // `stmt` borrows `conn`, so it has to go first.
+    drop(stmt);
+    drop(conn);
     Ok(serde_json::Value::Array(results))
 }
 
@@ -173,6 +172,7 @@ mod tests {
         assert!(table_exists(&conn, "base").expect("table"));
         assert!(table_exists(&conn, "only_view").expect("view"));
         assert!(!table_exists(&conn, "nope").expect("missing"));
+        drop(conn);
     }
 
     #[test]

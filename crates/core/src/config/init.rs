@@ -8,7 +8,7 @@ use std::path::Path;
 /// Default config content from `src/.default.ops.toml` (embedded at build; used as base config and for `cargo ops init`).
 /// Build fails if the file is missing.
 #[must_use]
-pub fn default_ops_toml() -> &'static str {
+pub const fn default_ops_toml() -> &'static str {
     include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/.default.ops.toml"
@@ -26,7 +26,7 @@ pub struct InitSections {
 impl InitSections {
     /// Build from CLI flags. When no flags are given, default to output-only.
     #[must_use]
-    pub fn from_flags(output: bool, themes: bool, commands: bool) -> Self {
+    pub const fn from_flags(output: bool, themes: bool, commands: bool) -> Self {
         if !output && !themes && !commands {
             Self {
                 output: true,

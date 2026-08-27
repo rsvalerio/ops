@@ -3,6 +3,9 @@
 
 use super::*;
 
+// The `{spinner}` / `{msg}` / `{elapsed}` tokens below are `indicatif`
+// template placeholders inside a TOML fixture, not Rust format arguments.
+#[allow(clippy::literal_string_with_formatting_args)]
 #[test]
 fn theme_config_deserialize() {
     let toml = r#"

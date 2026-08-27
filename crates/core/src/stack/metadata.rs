@@ -10,12 +10,12 @@ use super::Stack;
 ///
 /// Consolidates two parallel match blocks (CD-11) so adding a new stack
 /// updates exactly one match arm.
-pub(super) fn metadata(stack: Stack) -> (&'static [&'static str], Option<&'static str>) {
+pub(super) const fn metadata(stack: Stack) -> (&'static [&'static str], Option<&'static str>) {
     // Reduces the include_str!(concat!(env!(...), "/src/", file)) boilerplate to one line per arm.
     macro_rules! meta {
         ($files:expr, $toml:literal) => {
             (
-                $files as &[&str],
+                $files,
                 Some(include_str!(concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/src/",

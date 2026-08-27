@@ -1,9 +1,11 @@
 ---
 id: TASK-1679
 title: 'CLIPPY: drop the workspace allow for `too_long_first_doc_paragraph` (nursery)'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1688
 created_date: '2026-08-25 21:00'
+updated_date: '2026-08-26 21:44'
 labels:
   - code-review-rust
   - clippy
@@ -65,8 +67,8 @@ Doc comments whose first paragraph runs past the summary line, so rustdoc's item
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
-- [ ] #2 The line(s) for `too_long_first_doc_paragraph` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
-- [ ] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
-- [ ] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
+- [x] #1 Every site listed in the scope table is either fixed or carries an `#[allow]` at the narrowest scope that works, with a comment giving the reason (docs/clippy.md layer 2 or 3)
+- [x] #2 The line(s) for `too_long_first_doc_paragraph` are deleted from the temporary-allow block in the root `Cargo.toml`, and the lint reaches the workspace at `deny`
+- [x] #3 `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
+- [x] #4 `cargo nextest run --workspace --all-features` and `cargo test --workspace --doc` pass
 <!-- AC:END -->

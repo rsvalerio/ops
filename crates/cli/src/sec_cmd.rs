@@ -42,7 +42,7 @@ const SKIP_DIRS: &[&str] = &[
 /// One Trivy scan `ops sec` can run. Declaration order is the order scans run
 /// in: the cheap, universally-relevant secret scan first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Scan {
+pub enum Scan {
     /// Secret scan — always enabled.
     Secret,
     /// Dependency vulnerability scan.
@@ -55,7 +55,7 @@ pub(crate) enum Scan {
 /// keeps the clap surface (stable flag spellings + aliases) decoupled from the
 /// internal [`Scan`] variants.
 #[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ScanArg {
+pub enum ScanArg {
     #[value(name = "secrets", alias = "secret")]
     Secret,
     #[value(name = "vuln", alias = "vulnerabilities", alias = "vulns")]
@@ -65,25 +65,25 @@ pub(crate) enum ScanArg {
 }
 
 impl ScanArg {
-    fn to_scan(self) -> Scan {
+    const fn to_scan(self) -> Scan {
         match self {
-            ScanArg::Secret => Scan::Secret,
-            ScanArg::Vuln => Scan::Vuln,
-            ScanArg::Misconfig => Scan::Misconfig,
+            Self::Secret => Scan::Secret,
+            Self::Vuln => Scan::Vuln,
+            Self::Misconfig => Scan::Misconfig,
         }
     }
 }
 
 impl Scan {
     /// All scans in run order. Selection filters this down per project.
-    const ALL: &'static [Scan] = &[Scan::Secret, Scan::Vuln, Scan::Misconfig];
+    const ALL: &'static [Self] = &[Self::Secret, Self::Vuln, Self::Misconfig];
 
     /// Short human label used in the plan and section headers.
-    fn label(self) -> &'static str {
+    const fn label(self) -> &'static str {
         match self {
-            Scan::Secret => "secrets",
-            Scan::Vuln => "vulnerabilities",
-            Scan::Misconfig => "misconfiguration",
+            Self::Secret => "secrets",
+            Self::Vuln => "vulnerabilities",
+            Self::Misconfig => "misconfiguration",
         }
     }
 
@@ -92,11 +92,11 @@ impl Scan {
     /// even on findings), so the aggregated `ops sec` exit code reflects
     /// findings as the user expects in CI. `--quiet` drops Trivy's progress/INFO
     /// logs so the only noise on a findings result is the report itself.
-    fn trivy_args(self) -> &'static [&'static str] {
+    const fn trivy_args(self) -> &'static [&'static str] {
         match self {
-            Scan::Secret => &["fs", "--quiet", "--scanners", "secret", "--exit-code", "1"],
-            Scan::Vuln => &["fs", "--quiet", "--scanners", "vuln", "--exit-code", "1"],
-            Scan::Misconfig => &["config", "--quiet", "--exit-code", "1"],
+            Self::Secret => &["fs", "--quiet", "--scanners", "secret", "--exit-code", "1"],
+            Self::Vuln => &["fs", "--quiet", "--scanners", "vuln", "--exit-code", "1"],
+            Self::Misconfig => &["config", "--quiet", "--exit-code", "1"],
         }
     }
 }
@@ -105,7 +105,7 @@ impl Scan {
 /// for both selected and skipped scans so `--dry-run` documents the full
 /// decision, not just the affirmative half.
 #[derive(Debug, Clone)]
-pub(crate) struct PlanEntry {
+pub struct PlanEntry {
     pub scan: Scan,
     pub selected: bool,
     pub reason: &'static str,
@@ -213,7 +213,7 @@ struct Detected {
 }
 
 impl Detected {
-    fn complete(self) -> bool {
+    const fn complete(self) -> bool {
         self.vuln && self.misconfig
     }
 }
@@ -379,7 +379,7 @@ fn run_scan(root: &Path, scan: Scan, w: &mut dyn std::io::Write) -> anyhow::Resu
 /// exit code. `skip`/`force` come straight from the `--skip`/`--force` CLI
 /// flags. Splitting the testable core into [`run_sec_to`] keeps the plan
 /// output assertable without spawning Trivy.
-pub(crate) fn run_sec(
+pub fn run_sec(
     root: &Path,
     dry_run: bool,
     skip: &[ScanArg],

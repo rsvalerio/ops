@@ -20,7 +20,7 @@ use lexer::{
     strip_trailing_comment,
 };
 
-pub(crate) struct GradleIdentityProvider;
+pub struct GradleIdentityProvider;
 
 impl DataProvider for GradleIdentityProvider {
     fn about_fields(&self) -> Vec<AboutFieldDef> {

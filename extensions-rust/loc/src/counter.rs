@@ -78,9 +78,17 @@ pub struct Locs {
 }
 
 impl Locs {
+    /// The four buckets partition the lines of a single file region: every
+    /// line of the file bumps exactly one of them once (see [`Locs::add`]),
+    /// so their sum equals that region's line count, which is bounded by the
+    /// source's byte length (`<= isize::MAX`). The sum therefore cannot
+    /// exceed `u64::MAX` and each `saturating_add` returns the exact total.
     #[must_use]
     pub const fn lines(&self) -> u64 {
-        self.code + self.docs + self.comments + self.blanks
+        self.code
+            .saturating_add(self.docs)
+            .saturating_add(self.comments)
+            .saturating_add(self.blanks)
     }
 
     #[must_use]
@@ -88,12 +96,16 @@ impl Locs {
         self.lines() == 0
     }
 
-    fn add(&mut self, kind: LineKind) {
+    /// Called exactly once per classified line of one source file, so every
+    /// bucket is bounded by that file's line count, itself bounded by the
+    /// source's byte length (`<= isize::MAX`). No bucket can reach
+    /// `u64::MAX`, so each `saturating_add` returns the exact count.
+    const fn add(&mut self, kind: LineKind) {
         match kind {
-            LineKind::Code => self.code += 1,
-            LineKind::Doc => self.docs += 1,
-            LineKind::Comment => self.comments += 1,
-            LineKind::Blank => self.blanks += 1,
+            LineKind::Code => self.code = self.code.saturating_add(1),
+            LineKind::Doc => self.docs = self.docs.saturating_add(1),
+            LineKind::Comment => self.comments = self.comments.saturating_add(1),
+            LineKind::Blank => self.blanks = self.blanks.saturating_add(1),
         }
     }
 }
@@ -108,7 +120,7 @@ pub struct FileCounts {
 }
 
 impl FileCounts {
-    fn bucket_mut(&mut self, region: Region) -> &mut Locs {
+    const fn bucket_mut(&mut self, region: Region) -> &mut Locs {
         match region {
             Region::Main => &mut self.main,
             Region::Test => &mut self.test,
@@ -188,8 +200,8 @@ pub fn count_source(src: &str, base: Region) -> FileCounts {
 
     // Any line still Blank was not covered by a token, so it lies in a
     // gap: whitespace or a comment, nothing else is possible.
-    for (idx, kind) in kinds.iter_mut().enumerate() {
-        if *kind == LineKind::Blank && !lines[idx].trim().is_empty() {
+    for (kind, line) in kinds.iter_mut().zip(&lines) {
+        if *kind == LineKind::Blank && !line.trim().is_empty() {
             *kind = LineKind::Comment;
         }
     }
@@ -202,8 +214,8 @@ pub fn count_source(src: &str, base: Region) -> FileCounts {
     }
 
     let mut counts = FileCounts::default();
-    for (idx, kind) in kinds.into_iter().enumerate() {
-        counts.bucket_mut(regions[idx]).add(kind);
+    for (kind, region) in kinds.into_iter().zip(regions) {
+        counts.bucket_mut(region).add(kind);
     }
     counts
 }
@@ -213,11 +225,13 @@ pub fn count_source(src: &str, base: Region) -> FileCounts {
 pub fn count_fallback(src: &str, base: Region) -> FileCounts {
     let mut counts = FileCounts::default();
     let bucket = counts.bucket_mut(base);
+    // One increment per `src.lines()` item, so each bucket is bounded by
+    // `src.len() <= isize::MAX` and `saturating_add` returns the exact count.
     for line in src.lines() {
         if line.trim().is_empty() {
-            bucket.blanks += 1;
+            bucket.blanks = bucket.blanks.saturating_add(1);
         } else {
-            bucket.code += 1;
+            bucket.code = bucket.code.saturating_add(1);
         }
     }
     counts
@@ -308,7 +322,10 @@ fn mark_range(start_line: usize, end_line: usize, kinds: &mut [LineKind], kind: 
         return;
     };
     let end = end.min(kinds.len().saturating_sub(1));
-    for slot in kinds.iter_mut().take(end + 1).skip(start) {
+    // The `min` above caps `end` at `kinds.len() - 1 <= isize::MAX - 1`
+    // (or 0 when `kinds` is empty, where `take(1)` on an empty iterator is
+    // still a no-op), so `saturating_add(1)` equals `+ 1` exactly.
+    for slot in kinds.iter_mut().take(end.saturating_add(1)).skip(start) {
         *slot = (*slot).max(kind);
     }
 }
@@ -425,7 +442,7 @@ fn extend(range: &mut Option<(usize, usize)>, span: proc_macro2::Span) {
     });
 }
 
-fn item_attrs(item: &syn::Item) -> Option<&Vec<syn::Attribute>> {
+const fn item_attrs(item: &syn::Item) -> Option<&Vec<syn::Attribute>> {
     Some(match item {
         syn::Item::Const(i) => &i.attrs,
         syn::Item::Enum(i) => &i.attrs,

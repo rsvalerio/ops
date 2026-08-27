@@ -117,13 +117,13 @@ pub struct CargoTomlExtension {
 impl CargoTomlExtension {
     /// Create extension that auto-discovers workspace root from working directory.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { root: None }
     }
 
     /// Create extension with an explicit workspace root path.
     #[must_use]
-    pub fn with_root(root: PathBuf) -> Self {
+    pub const fn with_root(root: PathBuf) -> Self {
         Self { root: Some(root) }
     }
 }
@@ -143,10 +143,10 @@ ops_extension::impl_extension! {
     stack: Some(ops_extension::Stack::Rust),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |this, registry| {
-        let provider = match &this.root {
-            Some(p) => CargoTomlProvider::with_root(p.clone()),
-            None => CargoTomlProvider::new(),
-        };
+        let provider = this
+            .root
+            .as_ref()
+            .map_or_else(CargoTomlProvider::new, |p| CargoTomlProvider::with_root(p.clone()));
         registry.register(DATA_PROVIDER_NAME, Box::new(provider));
     },
     factory: CARGO_TOML_FACTORY = |_, _| {
@@ -171,13 +171,13 @@ pub struct CargoTomlProvider {
 impl CargoTomlProvider {
     /// Create provider that auto-discovers workspace root.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { root: None }
     }
 
     /// Create provider with an explicit workspace root path.
     #[must_use]
-    pub fn with_root(root: PathBuf) -> Self {
+    pub const fn with_root(root: PathBuf) -> Self {
         Self { root: Some(root) }
     }
 
