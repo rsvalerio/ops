@@ -2,6 +2,48 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.43.1](https://github.com/rsvalerio/ops/compare/78b62d1125f328dc92fe36ddd94939b60165cbca..v0.43.1) - 2026-08-27
+#### 🐛 Bug Fixes
+- (**about**) pin in-flight cache entries and reject partial-segment globs - ([fcdf5c2](https://github.com/rsvalerio/ops/commit/fcdf5c256948f4c708cba0c8449fb093bc40b7eb)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**lints**) keep the panic fixes const-callable and if-let-free - ([109fb04](https://github.com/rsvalerio/ops/commit/109fb04ee0076fe8b4660d63716e3f663c0c4954)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+#### 📚 Documentation
+- (**clippy**) point the temporary-allow example at a live entry - ([9c07a01](https://github.com/rsvalerio/ops/commit/9c07a019fff9485d0679b1e8ecb57627b43cdeb6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**clippy**) explain the CLI integration test expect allow - ([530e4ce](https://github.com/rsvalerio/ops/commit/530e4ce6f560fb303258e417e1211759e0b5ca49)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**clippy**) give doc comments a one-line summary paragraph - ([3860e21](https://github.com/rsvalerio/ops/commit/3860e21046087f44748c435b1915adfc10138b4a)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**clippy**) deny expect_used, unreachable and panic_in_result_fn - ([7a7e1f3](https://github.com/rsvalerio/ops/commit/7a7e1f3be783b8dfd77a85aa3517e011ddb862a6)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**clippy**) deny arithmetic_side_effects and as_conversions workspace-wide - ([da28b99](https://github.com/rsvalerio/ops/commit/da28b9949cfb3145e6eb4a950a24794107d24675)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**clippy**) deny indexing_slicing and string_slice workspace-wide - ([b5aee7a](https://github.com/rsvalerio/ops/commit/b5aee7ae8a77c422f36e71397ce08ef798aa153e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**clippy**) deny significant_drop_tightening workspace-wide - ([9c0c729](https://github.com/rsvalerio/ops/commit/9c0c7290d9401412df7b73801b3bd8a661dbada9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**lints**) enforce redundant_pub_crate, missing_const_for_fn and use_self - ([fc153c6](https://github.com/rsvalerio/ops/commit/fc153c6e22795132400482e101350837d5c7fa3b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**lints**) drop 15 lints from the temporary-allow block - ([11e29d2](https://github.com/rsvalerio/ops/commit/11e29d258c8e297e063cef4ba142e377e38be022)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+#### 🚜 Refactoring
+- (**about**) drop the option_if_let_else allow via a named recovery helper - ([90db7fc](https://github.com/rsvalerio/ops/commit/90db7fc265b7f57b8e087d3238d10c88027b43ea)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**clippy**) make integer arithmetic and casts total in the extensions - ([b033e8c](https://github.com/rsvalerio/ops/commit/b033e8c68ed585fb048512df2c47b80a52512dfc)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**clippy**) make integer arithmetic and casts total in the core crates - ([5eff373](https://github.com/rsvalerio/ops/commit/5eff373ce20406c44fd3ef735c59f516d45c5f0b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**clippy**) enforce option_if_let_else workspace-wide - ([b843254](https://github.com/rsvalerio/ops/commit/b843254d96e9b08ea87607317eff11e99f1c1deb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core,runner,cli**) remove panicking index and str slicing - ([b5d822b](https://github.com/rsvalerio/ops/commit/b5d822b3a389f0095c74b7cbd36397d3ec225d7d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**extensions**) remove panicking index and str slicing - ([c251f0c](https://github.com/rsvalerio/ops/commit/c251f0c9ef45b105c8af4fc2eb8186e8bc504f9d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**lints**) declare items with pub, const fn and Self - ([f2e9c78](https://github.com/rsvalerio/ops/commit/f2e9c78f08cbc6b698349f64fe5876ffad462684)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**lints**) clear the small-count clippy tail - ([f308fbf](https://github.com/rsvalerio/ops/commit/f308fbf5295154ec338dd59cc32fb81083c4bd14)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**lints**) remove or justify every production expect() call - ([3d45015](https://github.com/rsvalerio/ops/commit/3d45015dd64635d72c17523b4dc03f69c17df91d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**locks**) release mutex guards at their last use - ([ea459d5](https://github.com/rsvalerio/ops/commit/ea459d56605cff444d5f1997bdc7474e1ceb42bd)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) close TASK-1691 - ([752f446](https://github.com/rsvalerio/ops/commit/752f446cd23b67096f2501295fbcdd922c3a9bde)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**backlog**) close code-review wave 142 (TASK-1684) with TASK-1671 and TASK-1674 - ([6b19dc2](https://github.com/rsvalerio/ops/commit/6b19dc244636747c447c6ff95c43dd430512aebb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close wave141 (TASK-1683) with TASK-1672 and TASK-1673 - ([fdf184d](https://github.com/rsvalerio/ops/commit/fdf184d5a10cce160d646bc7dbed5225c468df4d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**backlog**) close wave144 (TASK-1686) with TASK-1676, TASK-1677 and TASK-1678 - ([0c01483](https://github.com/rsvalerio/ops/commit/0c014835dc8fba4ff4997489137ad1e3968ef816)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**backlog**) close wave143 (TASK-1685) with TASK-1675 and TASK-1682 - ([9a1a69a](https://github.com/rsvalerio/ops/commit/9a1a69a90a0a71905b97cdb9333db78acac6f250)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**backlog**) close wave145 (TASK-1687) and TASK-1680 - ([3d429d4](https://github.com/rsvalerio/ops/commit/3d429d411ee02ca9c263e31db04380e1ade33a5d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**backlog**) close wave147 (TASK-1689) and TASK-1681 - ([0ec4681](https://github.com/rsvalerio/ops/commit/0ec4681d127001d967686d3dafec5bd2b6a08a9f)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**backlog**) close wave146 (TASK-1688) and TASK-1679 - ([734347d](https://github.com/rsvalerio/ops/commit/734347d4159afb353dcffc947b430666f0addd68)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) triage waves 141-147 into To Do - ([78b62d1](https://github.com/rsvalerio/ops/commit/78b62d1125f328dc92fe36ddd94939b60165cbca)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+#### 🎨 Styling
+- (**clippy**) rustfmt the rebased conflict resolutions - ([b9a199e](https://github.com/rsvalerio/ops/commit/b9a199e75c0c1f237a44c5ca7474dc52f4070260)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) rustfmt the rebased line-scan condition - ([3b43761](https://github.com/rsvalerio/ops/commit/3b437610ce332e4d1e79d9b58d221a31ca2e76a9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+
+- - -
+
 ## [v0.43.0](https://github.com/rsvalerio/ops/compare/d64661547d9e54fe1af1f1e8fc56094510a50aaf..v0.43.0) - 2026-08-26
 #### 🚀 Features
 - (**cli**) wire the create-review-tasks subcommand - ([3625b59](https://github.com/rsvalerio/ops/commit/3625b59ab479eaf9fc9c49368a7dceab01905469)) - [@rsvalerio](https://github.com/rsvalerio)
