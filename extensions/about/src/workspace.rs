@@ -67,12 +67,18 @@ pub fn resolve_member_globs(
             // `prefix/*/suffix` silently flattened to `prefix/*`. Reject
             // both shapes explicitly with a `tracing::warn` so the
             // divergence is observable rather than silent.
+            // PATTERN-1 (TASK-1069 follow-up): the `*` must span a *whole* path
+            // segment (`*`, `packages/*`). The previous check only rejected a
+            // suffix containing `/`, so a partial-segment pattern like
+            // `packages/*-internal` or `packages/foo*` passed and was then
+            // expanded as a bare `read_dir(prefix)` — the text around the `*`
+            // was silently dropped and every sibling directory matched.
             let is_recursive = member.contains("**");
-            let suffix_is_trivial = suffix.is_empty() || !suffix.contains('/');
-            if is_recursive || !suffix_is_trivial {
+            let is_full_segment = suffix.is_empty() && (prefix.is_empty() || prefix.ends_with('/'));
+            if is_recursive || !is_full_segment {
                 tracing::warn!(
                     member,
-                    "workspace member glob shape unsupported (only single trailing `*` per segment); skipping"
+                    "workspace member glob shape unsupported (only a whole-segment trailing `*`, e.g. `packages/*`); skipping"
                 );
                 continue;
             }
@@ -308,6 +314,71 @@ mod tests {
             resolve_member_globs(&["packages/*".to_string()], &[], dir.path(), "package.json");
         let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
         assert_eq!(names, vec!["packages/a", "packages/b"]);
+    }
+
+    /// PATTERN-1 (TASK-1069 follow-up): a partial-segment wildcard is not a
+    /// supported shape. It used to pass validation and then expand as a bare
+    /// `read_dir("packages")`, so `packages/*-internal` silently matched every
+    /// sibling — including `packages/other`, which does not end in `-internal`.
+    /// Rejecting the pattern outright is what keeps the sibling out.
+    #[test]
+    fn rejects_partial_segment_glob_instead_of_matching_every_sibling() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("packages/foo-internal/package.json"),
+            r#"{"name":"foo-internal"}"#,
+        );
+        write(
+            &dir.path().join("packages/other/package.json"),
+            r#"{"name":"other"}"#,
+        );
+
+        let resolved = resolve_member_globs(
+            &["packages/*-internal".to_string()],
+            &[],
+            dir.path(),
+            "package.json",
+        );
+        let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
+        assert!(
+            !names.contains(&"packages/other"),
+            "non-matching sibling must not leak in: {names:?}"
+        );
+        assert!(
+            names.is_empty(),
+            "unsupported glob shape must resolve to nothing: {names:?}"
+        );
+    }
+
+    /// The trailing-`*`-inside-a-segment shape (`packages/foo*`) is rejected
+    /// for the same reason: it used to `read_dir("packages/foo")`, a directory
+    /// that generally does not exist, so it silently resolved to nothing while
+    /// looking like a working prefix filter.
+    #[test]
+    fn rejects_prefix_glob_inside_a_segment() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("packages/foobar/package.json"),
+            r#"{"name":"foobar"}"#,
+        );
+
+        write(
+            &dir.path().join("packages/foo/nested/package.json"),
+            r#"{"name":"nested"}"#,
+        );
+
+        let resolved = resolve_member_globs(
+            &["packages/foo*".to_string()],
+            &[],
+            dir.path(),
+            "package.json",
+        );
+        let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
+        assert!(
+            !names.contains(&"packages/foo/nested"),
+            "must not enumerate children of the literal prefix: {names:?}"
+        );
+        assert!(names.is_empty(), "partial-segment glob must be rejected");
     }
 
     #[test]

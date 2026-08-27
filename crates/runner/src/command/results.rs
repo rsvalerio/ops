@@ -149,28 +149,27 @@ const PEAK_CAPTURE_WARN_BYTES: usize = 1024 * 1024 * 1024;
 /// fallback semantics are unit-testable without poking the
 /// process-global `OnceLock`.
 fn parse_output_byte_cap(raw: Option<&str>) -> (usize, Option<String>) {
-    // The `Some` arm is a three-arm classification match over `parse`; hoisting
-    // it into a `map_or_else` closure would put the trivial `None` default
-    // ahead of the logic it defaults for and bury the matrix one level deeper.
-    #[allow(clippy::option_if_let_else)]
-    match raw {
-        None => (DEFAULT_OUTPUT_BYTE_CAP, None),
-        Some(s) => match s.parse::<usize>() {
-            Ok(n) if n > 0 => (n, None),
-            Ok(_) => (
-                DEFAULT_OUTPUT_BYTE_CAP,
-                Some(format!(
-                    "{OUTPUT_CAP_ENV}={s:?} is not a positive integer; using default {DEFAULT_OUTPUT_BYTE_CAP}"
-                )),
-            ),
-            Err(e) => (
-                DEFAULT_OUTPUT_BYTE_CAP,
-                Some(format!(
-                    "{OUTPUT_CAP_ENV}={s:?} failed to parse as usize (max {max} on this platform: {e}); using default {DEFAULT_OUTPUT_BYTE_CAP}",
-                    max = usize::MAX
-                )),
-            ),
-        },
+    // The unset case is a trivial default, so it leaves through a `let ... else`
+    // early return. That keeps the three-arm `parse` classification below at the
+    // top level instead of nesting it inside a `map_or_else` closure.
+    let Some(s) = raw else {
+        return (DEFAULT_OUTPUT_BYTE_CAP, None);
+    };
+    match s.parse::<usize>() {
+        Ok(n) if n > 0 => (n, None),
+        Ok(_) => (
+            DEFAULT_OUTPUT_BYTE_CAP,
+            Some(format!(
+                "{OUTPUT_CAP_ENV}={s:?} is not a positive integer; using default {DEFAULT_OUTPUT_BYTE_CAP}"
+            )),
+        ),
+        Err(e) => (
+            DEFAULT_OUTPUT_BYTE_CAP,
+            Some(format!(
+                "{OUTPUT_CAP_ENV}={s:?} failed to parse as usize (max {max} on this platform: {e}); using default {DEFAULT_OUTPUT_BYTE_CAP}",
+                max = usize::MAX
+            )),
+        ),
     }
 }
 
