@@ -3,11 +3,11 @@ id: TASK-1730
 title: >-
   READ-6: truncate_to_width char-sums widths while its sibling helpers use
   cluster-aware display_width
-status: To Do
+status: Done
 assignee:
   - TASK-2003
 created_date: '2026-08-27 11:12'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:14'
 labels:
   - code-review-rust
   - readability
@@ -40,7 +40,13 @@ Note the existing test coverage mirrors the gap: `pad_to_width_uses_display_widt
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 truncate_to_width measures with the same cluster-aware display_width the rest of the module uses, and never cuts inside a grapheme cluster
-- [ ] #2 A test truncates a string containing a ZWJ emoji sequence and asserts the result's display_width is within max_width and that the emoji cluster is either kept whole or dropped whole
-- [ ] #3 char_display_width is either removed or its remaining callers are documented as intentionally per-char
+- [x] #1 truncate_to_width measures with the same cluster-aware display_width the rest of the module uses, and never cuts inside a grapheme cluster
+- [x] #2 A test truncates a string containing a ZWJ emoji sequence and asserts the result's display_width is within max_width and that the emoji cluster is either kept whole or dropped whole
+- [x] #3 char_display_width is either removed or its remaining callers are documented as intentionally per-char
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2003. AC1: truncate_to_width now iterates grapheme clusters (unicode_segmentation::UnicodeSegmentation::graphemes(true)) and measures each with the same cluster-aware ops_core::output::display_width that pad_to_width_plain and measure_width/wrap_text use, so a cluster is kept whole or dropped whole and its width is the rendered width. The ellipsis-budget rule (content kept up to max_width - 1) is unchanged, so all pre-existing ASCII tests pass untouched. AC2: truncate_to_width_keeps_zwj_cluster_whole sweeps max_width 1..=12 over "ab<family>cd" asserting display_width(out) <= max_width and that no ZWJ appears unless the full sequence does; truncate_to_width_drops_or_keeps_the_whole_cluster pins the keep-whole and drop-whole boundaries. AC3: char_display_width is removed — truncate_to_width was its only production caller. Its three unit tests went with it (they only pinned unicode_width::UnicodeWidthChar, not project behaviour). Dependency change: extensions/about swaps unicode-width for unicode-segmentation (unicode-width had no other user in the crate once char_display_width was gone); unicode-segmentation was already in Cargo.lock transitively, and is now declared in [workspace.dependencies].
+<!-- SECTION:NOTES:END -->
