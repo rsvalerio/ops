@@ -164,12 +164,14 @@ fn resolve_identity(
     cwd: &Path,
 ) -> anyhow::Result<ProjectIdentity> {
     match ctx.get_or_provide("project_identity", data_registry) {
-        // PERF-3 (TASK-1117): borrow the Arc payload via `Deserialize::deserialize`
-        // on `&Value` instead of deep-cloning the entire JSON tree just to feed
-        // `from_value`, which takes `Value` by value.
-        Ok(value) => Ok(<ProjectIdentity as serde::Deserialize>::deserialize(
-            value.as_ref(),
-        )?),
+        // ERR-4 / ERR-14 (TASK-1734): share the diagnosable deserialization
+        // path with `load_or_default` so the failure names the
+        // `project_identity` provider, the target type, and the failing field
+        // path — rather than a bare `invalid type: ...` that could have come
+        // from any of ProjectIdentity's fields or its nested `languages`.
+        // PERF-3 (TASK-1117) is preserved: the helper still borrows the Arc
+        // payload rather than deep-cloning the JSON tree for `from_value`.
+        Ok(value) => crate::providers::deserialize_payload("project_identity", value.as_ref()),
         Err(DataProviderError::NotFound(_)) => Ok(build_fallback_identity(cwd)),
         Err(e) => Err(e.into()),
     }
@@ -248,6 +250,39 @@ fn build_fallback_identity(cwd: &std::path::Path) -> ProjectIdentity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// TEST-5 / TASK-1739: `run_about` composes `resolve_identity`, the
+    /// `NotFound` fallback, the four-condition `enrich_from_db` guard and the
+    /// card render, and no test drove it. With an empty registry
+    /// `project_identity` is `NotFound`, so the rendered card must reflect
+    /// `build_fallback_identity(cwd)` — the directory name and path — rather
+    /// than erroring or rendering blank.
+    #[test]
+    fn run_about_falls_back_to_the_filesystem_identity_when_no_provider_is_registered() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().join("my-fallback-project");
+        std::fs::create_dir(&cwd).unwrap();
+
+        let registry = ops_extension::DataRegistry::new();
+        let opts = AboutOptions::new(false, None, false);
+        let mut out: Vec<u8> = Vec::new();
+        run_about(&registry, &opts, &cwd, &mut out).expect("the fallback path must succeed");
+
+        let rendered = String::from_utf8(out).unwrap();
+        let expected = build_fallback_identity(&cwd);
+        assert!(
+            rendered.contains(&expected.name),
+            "card must show the fallback name {:?}; got {rendered}",
+            expected.name
+        );
+        assert_eq!(expected.name, "my-fallback-project");
+        // READ-5 / TASK-0411: is_tty = false must mean no ANSI escapes,
+        // asserted through the runner rather than the card formatter.
+        assert!(
+            !rendered.contains('\u{1b}'),
+            "a non-TTY writer must receive no ESC bytes; got {rendered:?}"
+        );
+    }
 
     #[test]
     fn fallback_identity_uses_dir_name() {
