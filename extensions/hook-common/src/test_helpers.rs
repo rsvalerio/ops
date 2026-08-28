@@ -46,3 +46,39 @@ impl Drop for EnvGuard {
         }
     }
 }
+
+/// RAII guard that switches the process working directory and restores the
+/// previous one on drop.
+///
+/// The working directory is process-wide, so every test using this guard must
+/// also carry `#[serial_test::serial]`. It exists so hook crates can exercise
+/// the *production* entry points that read `std::env::current_dir()` rather
+/// than only their `dir`-parameterised inner helpers (TEST-5 / TASK-1908).
+pub struct CwdGuard {
+    original: std::path::PathBuf,
+}
+
+impl CwdGuard {
+    /// Capture the current working directory, then switch to `target`.
+    ///
+    /// # Errors
+    ///
+    /// If the current directory cannot be read or `target` cannot be entered.
+    pub fn new(target: &std::path::Path) -> std::io::Result<Self> {
+        let original = std::env::current_dir()?;
+        std::env::set_current_dir(target)?;
+        Ok(Self { original })
+    }
+}
+
+impl Drop for CwdGuard {
+    fn drop(&mut self) {
+        if let Err(e) = std::env::set_current_dir(&self.original) {
+            tracing::warn!(
+                path = %self.original.display(),
+                error = %e,
+                "CwdGuard: failed to restore the original working directory"
+            );
+        }
+    }
+}
