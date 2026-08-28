@@ -27,3 +27,7 @@ Thumbs.db
 
 # code architecture inteligence
 .cai
+
+# Terraform plan artifacts written by `ops plans` (SEC-29 / SEC-32:
+# secret-dense, never committed)
+/.ops/

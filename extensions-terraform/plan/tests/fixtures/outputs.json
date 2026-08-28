@@ -1,0 +1,22 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "aws_db_instance.main",
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "main",
+      "change": {
+        "actions": ["create"]
+      }
+    }
+  ],
+  "output_changes": {
+    "db_password": {
+      "actions": ["create"]
+    },
+    "endpoint": {
+      "actions": ["update"]
+    }
+  }
+}
