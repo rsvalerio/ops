@@ -2,6 +2,7 @@
 
 use std::io::Write;
 
+use crate::args::CommandFactory as _;
 use crate::hook_shared;
 
 /// Returns true when the effective args request top-level help (no subcommand).
@@ -12,15 +13,14 @@ use crate::hook_shared;
 /// argv entry (e.g. `--tap <FILE>`) used to make the next positional look
 /// like a subcommand, dropping `ops --tap path --help` into the
 /// subcommand-help branch. We consume one extra argv slot when the
-/// current flag is a known value-taking global so the path argument is
+/// current flag is a value-taking global so the path argument is
 /// classified as the flag's value, not a positional. `--tap=path` was
 /// already handled because clap folds the value into the same argv entry.
+///
+/// The set of such flags is derived from [`Cli::command()`] rather than
+/// transcribed (TASK-1750) — see [`value_taking_globals`].
 pub fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
-    /// Global flags declared in `Cli` that take a value as a separate
-    /// argv entry. Mirrors the `#[arg(long, global = true)]` declarations
-    /// in `args.rs`; if a new value-taking global is added there it must
-    /// be listed here too.
-    const VALUE_TAKING_GLOBALS: &[&str] = &["--tap"];
+    let value_taking_globals = value_taking_globals();
 
     // Skip argv[0].  If any non-flag argument appears before -h/--help, the
     // user is asking for subcommand help, not top-level help.
@@ -36,7 +36,10 @@ pub fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
         }
         if a == "-h" || a == "--help" {
             saw_help = true;
-        } else if VALUE_TAKING_GLOBALS.iter().any(|f| a == *f) {
+        } else if value_taking_globals
+            .iter()
+            .any(|f| a.as_os_str() == std::ffi::OsStr::new(f.as_ref()))
+        {
             // Skip the value argv slot that belongs to this flag so it is
             // not misclassified as a subcommand.
             it.next();
@@ -46,6 +49,54 @@ pub fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
         }
     }
     saw_help
+}
+
+/// Every argv spelling (`--long`, `-s`, and long aliases) of the global flags
+/// declared in `Cli` that take their value as a **separate** argv entry.
+///
+/// Derived from `Cli::command()` instead of hand-transcribed. The previous
+/// hardcoded `&["--tap"]` restated a fact that already lives in `args.rs`,
+/// with nothing to fail when the two disagreed: adding a second value-taking
+/// global (say `--log-file <PATH>`) would silently regress
+/// `ops --log-file out.txt --help` in exactly the way `--tap` once did.
+///
+/// Computed once — `is_toplevel_help` runs before clap parses, on every
+/// invocation, and building the clap `Command` is not free.
+fn value_taking_globals() -> &'static [Box<str>] {
+    static CACHE: std::sync::OnceLock<Vec<Box<str>>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| collect_value_taking_globals(&crate::args::Cli::command()))
+}
+
+/// Whether `arg` consumes a value. `get_num_args` is only populated once clap
+/// has built the command, so fall back to the arg's action, which is set at
+/// declaration time (`SetTrue` / `Count` take none, `Set` / `Append` do).
+fn takes_a_value(arg: &clap::Arg) -> bool {
+    arg.get_num_args()
+        .map_or_else(|| arg.get_action().takes_values(), |n| n.takes_values())
+}
+
+fn collect_value_taking_globals(cmd: &clap::Command) -> Vec<Box<str>> {
+    let mut spellings: Vec<Box<str>> = Vec::new();
+    for arg in cmd.get_arguments() {
+        if !arg.is_global_set() || !takes_a_value(arg) {
+            continue;
+        }
+        for long in arg
+            .get_long()
+            .into_iter()
+            .chain(arg.get_all_aliases().into_iter().flatten())
+        {
+            spellings.push(format!("--{long}").into_boxed_str());
+        }
+        for short in arg
+            .get_short()
+            .into_iter()
+            .chain(arg.get_all_short_aliases().into_iter().flatten())
+        {
+            spellings.push(format!("-{short}").into_boxed_str());
+        }
+    }
+    spellings
 }
 
 /// Category assigned to built-in (clap-defined) subcommands.
@@ -386,6 +437,113 @@ mod tests {
         assert!(!is_toplevel_help(&os(&[
             "ops", "--tap", "out.log", "build", "-h"
         ])));
+    }
+
+    /// TASK-1750: the set `is_toplevel_help` consumes an extra argv slot for
+    /// is derived from `Cli`, so a new value-taking global cannot drift out of
+    /// sync. This test pins the derivation itself: it must find every global
+    /// that takes a value, and no bool global.
+    #[test]
+    fn value_taking_globals_match_the_clap_declarations() {
+        let cmd = crate::args::Cli::command();
+        let derived: std::collections::BTreeSet<&str> =
+            value_taking_globals().iter().map(AsRef::as_ref).collect();
+
+        let mut expected: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for arg in cmd.get_arguments() {
+            if !arg.is_global_set() {
+                continue;
+            }
+            let takes_value = takes_a_value(arg);
+            for long in arg
+                .get_long()
+                .into_iter()
+                .chain(arg.get_all_aliases().into_iter().flatten())
+            {
+                let spelling = format!("--{long}");
+                assert_eq!(
+                    derived.contains(spelling.as_str()),
+                    takes_value,
+                    "global flag {spelling} is {} a value-taking flag but the derived set says \
+                     otherwise",
+                    if takes_value { "" } else { "not" }
+                );
+                if takes_value {
+                    expected.insert(spelling);
+                }
+            }
+            for short in arg
+                .get_short()
+                .into_iter()
+                .chain(arg.get_all_short_aliases().into_iter().flatten())
+            {
+                let spelling = format!("-{short}");
+                assert_eq!(
+                    derived.contains(spelling.as_str()),
+                    takes_value,
+                    "global flag {spelling} is {} a value-taking flag but the derived set says \
+                     otherwise",
+                    if takes_value { "" } else { "not" }
+                );
+                if takes_value {
+                    expected.insert(spelling);
+                }
+            }
+        }
+
+        let expected: std::collections::BTreeSet<&str> =
+            expected.iter().map(String::as_str).collect();
+        assert_eq!(
+            derived, expected,
+            "derived value-taking globals disagree with Cli::command()"
+        );
+        // `--tap` is the flag the mechanism was introduced for; if it ever
+        // stops being derived the PATTERN-1 regression is back.
+        assert!(derived.contains("--tap"), "derived set: {derived:?}");
+    }
+
+    /// TASK-1750 AC#3: short spellings of value-taking globals must be
+    /// consumed too, or there must be none. Today `--tap` is long-only, so
+    /// this asserts the second half — and flips to exercising the first half
+    /// automatically if a short spelling is ever added.
+    #[test]
+    fn short_spellings_of_value_taking_globals_are_handled() {
+        let shorts: Vec<&str> = value_taking_globals()
+            .iter()
+            .map(AsRef::as_ref)
+            .filter(|f| !f.starts_with("--"))
+            .collect();
+        for short in &shorts {
+            let argv = os(&["ops", short, "out.log", "--help"]);
+            assert!(
+                is_toplevel_help(&argv),
+                "{short} <value> --help must classify as top-level help"
+            );
+        }
+        if shorts.is_empty() {
+            // No value-taking global has a short spelling; the long-only
+            // coverage above is complete.
+            assert!(value_taking_globals().iter().all(|f| f.starts_with("--")));
+        }
+    }
+
+    /// A value-taking global that is *not* consumed correctly regresses
+    /// `ops <flag> <value> --help`. Drive every derived spelling, not just
+    /// the hardcoded `--tap` cases above, so a newly added global is covered
+    /// the moment it is declared.
+    #[test]
+    fn every_value_taking_global_is_consumed_before_help() {
+        for flag in value_taking_globals() {
+            let flag = flag.as_ref();
+            assert!(
+                is_toplevel_help(&os(&["ops", flag, "out.log", "--help"])),
+                "{flag} <value> --help must classify as top-level help"
+            );
+            assert!(
+                !is_toplevel_help(&os(&["ops", flag, "out.log", "build", "-h"])),
+                "{flag} <value> build -h must classify as subcommand help"
+            );
+        }
     }
 
     #[test]
