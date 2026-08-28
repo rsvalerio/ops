@@ -3,8 +3,12 @@
 use thiserror::Error;
 
 /// Database operations error.
+// READ-10 / TASK-1873: no enum-wide `#[allow(dead_code)]`. A container-level
+// allow hides *future* dead code too — a variant nobody constructs would stay
+// invisible forever. Any variant that genuinely has no producer yet carries
+// its own `#[expect(dead_code, reason = "…")]`, which deletes itself as soon
+// as a producer appears.
 #[derive(Debug, Error)]
-#[allow(dead_code)]
 #[non_exhaustive]
 pub enum DbError {
     /// ERR-5 / TASK-1214: `PoisonError`'s Display embeds the panic payload from
@@ -40,6 +44,15 @@ pub enum DbError {
 
     #[error("path is not valid UTF-8 (cannot persist to data_sources): {0:?}")]
     NonUtf8Path(std::ffi::OsString),
+
+    /// READ-5 / TASK-1867: the ingest pipeline stages JSON next to the
+    /// database file, so it needs a real filesystem path. `:memory:` is a
+    /// `DuckDB` connection string, not a path — appending `.ingest` to it
+    /// produced the *relative* `:memory:.ingest`, which the pipeline then
+    /// created inside whatever the process working directory happened to be
+    /// (and once got committed to this repository).
+    #[error("database {0:?} is not file-backed; the ingest pipeline needs a real database path")]
+    NotFileBacked(std::path::PathBuf),
 
     #[error("SQL validation failed: {0}")]
     SqlValidation(#[from] crate::sql::SqlError),
