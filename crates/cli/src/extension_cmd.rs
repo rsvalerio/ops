@@ -256,7 +256,7 @@ pub fn run_extension_show(
         &mut std::io::stdout(),
         config,
         name,
-        crate::tty::is_stdout_tty,
+        crate::tty::is_prompt_tty,
     )
 }
 
@@ -308,7 +308,10 @@ where
             })
             .collect();
 
-        let selected = inquire::Select::new("Select an extension:", options).prompt()?;
+        let selected = crate::prompt::require_answer(
+            inquire::Select::new("Select an extension:", options).prompt(),
+            "extension show",
+        )?;
         selected.name
     };
 
@@ -818,5 +821,30 @@ enabled = []
     fn format_list_multiple_items() {
         let items = vec!["DATASOURCE".to_string(), "COMMAND".to_string()];
         assert_eq!(format_list(&items), "DATASOURCE, COMMAND");
+    }
+
+    /// TASK-1746: Esc / Ctrl-C at this command's picker is a user cancel —
+    /// it must reach `main` as the shared cancellation error (exit 130, no
+    /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
+    #[test]
+    fn extension_show_cancel_exits_130_without_an_error_frame() {
+        for err in [
+            inquire::InquireError::OperationCanceled,
+            inquire::InquireError::OperationInterrupted,
+        ] {
+            let err = crate::prompt::require_answer(
+                Err::<crate::tty::SelectOption, _>(err),
+                "extension show",
+            )
+            .expect_err("a cancelled prompt must not yield an answer");
+            assert_eq!(
+                crate::extract_exit_code_override(&err),
+                Some(crate::SIGINT_EXIT)
+            );
+            assert_eq!(
+                crate::prompt::cancellation_of(&err).map(ToString::to_string),
+                Some("extension show cancelled".to_string()),
+            );
+        }
     }
 }

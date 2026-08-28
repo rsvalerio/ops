@@ -132,7 +132,7 @@ pub fn run_theme_select(config: &config::Config, workspace_root: &Path) -> anyho
         config,
         workspace_root,
         &mut std::io::stdout(),
-        crate::tty::is_stdout_tty,
+        crate::tty::is_prompt_tty,
     )
 }
 
@@ -163,9 +163,12 @@ where
             0
         });
 
-    let selected = inquire::Select::new("Select a theme:", options)
-        .with_starting_cursor(starting_cursor)
-        .prompt()?;
+    let selected = crate::prompt::require_answer(
+        inquire::Select::new("Select a theme:", options)
+            .with_starting_cursor(starting_cursor)
+            .prompt(),
+        "theme select",
+    )?;
 
     write_theme_select_result(w, &selected.name, current_theme, workspace_root)
 }
@@ -674,6 +677,31 @@ theme = "compact"
             for opt in &options {
                 assert!(!opt.is_custom, "{} should not be marked custom", opt.name);
             }
+        }
+    }
+
+    /// TASK-1746: Esc / Ctrl-C at this command's picker is a user cancel —
+    /// it must reach `main` as the shared cancellation error (exit 130, no
+    /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
+    #[test]
+    fn theme_select_cancel_exits_130_without_an_error_frame() {
+        for err in [
+            inquire::InquireError::OperationCanceled,
+            inquire::InquireError::OperationInterrupted,
+        ] {
+            let err = crate::prompt::require_answer(
+                Err::<crate::tty::SelectOption, _>(err),
+                "theme select",
+            )
+            .expect_err("a cancelled prompt must not yield an answer");
+            assert_eq!(
+                crate::extract_exit_code_override(&err),
+                Some(crate::SIGINT_EXIT)
+            );
+            assert_eq!(
+                crate::prompt::cancellation_of(&err).map(ToString::to_string),
+                Some("theme select cancelled".to_string()),
+            );
         }
     }
 }

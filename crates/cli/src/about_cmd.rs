@@ -19,7 +19,7 @@ pub fn run_about_setup(
         data_registry,
         workspace_root,
         &mut std::io::stdout(),
-        crate::tty::is_stdout_tty,
+        crate::tty::is_prompt_tty,
     )
 }
 
@@ -67,9 +67,12 @@ where
         .map(|(i, _)| i)
         .collect();
 
-    let selected = inquire::MultiSelect::new("Select fields to show on the about card:", options)
-        .with_default(&defaults)
-        .prompt()?;
+    let selected = crate::prompt::require_answer(
+        inquire::MultiSelect::new("Select fields to show on the about card:", options)
+            .with_default(&defaults)
+            .prompt(),
+        "about setup",
+    )?;
 
     let field_ids: Vec<String> = selected.into_iter().map(|o| o.name).collect();
 
@@ -269,5 +272,30 @@ mod tests {
             !subdir.join(".ops.toml").exists(),
             "must not have written into the subdirectory cwd"
         );
+    }
+
+    /// TASK-1746: Esc / Ctrl-C at this command's picker is a user cancel —
+    /// it must reach `main` as the shared cancellation error (exit 130, no
+    /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
+    #[test]
+    fn about_setup_cancel_exits_130_without_an_error_frame() {
+        for err in [
+            inquire::InquireError::OperationCanceled,
+            inquire::InquireError::OperationInterrupted,
+        ] {
+            let err = crate::prompt::require_answer(
+                Err::<Vec<crate::tty::SelectOption>, _>(err),
+                "about setup",
+            )
+            .expect_err("a cancelled prompt must not yield an answer");
+            assert_eq!(
+                crate::extract_exit_code_override(&err),
+                Some(crate::SIGINT_EXIT)
+            );
+            assert_eq!(
+                crate::prompt::cancellation_of(&err).map(ToString::to_string),
+                Some("about setup cancelled".to_string()),
+            );
+        }
     }
 }

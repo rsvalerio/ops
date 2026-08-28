@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 use ops_core::config::{edit_ops_toml, ensure_table, insert_command};
 
 pub fn run_new_command(workspace_root: &Path) -> anyhow::Result<()> {
-    run_new_command_with_tty_check(workspace_root, crate::tty::is_stdout_tty)
+    run_new_command_with_tty_check(workspace_root, crate::tty::is_prompt_tty)
 }
 
 fn run_new_command_with_tty_check<F>(workspace_root: &Path, is_tty: F) -> anyhow::Result<()>
@@ -17,9 +17,12 @@ where
 {
     crate::tty::require_tty_with("new-command", is_tty)?;
 
-    let full_command = inquire::Text::new("Full command:")
-        .with_help_message("e.g. cargo install --path crates/cli --force --all-features")
-        .prompt()?;
+    let full_command = crate::prompt::require_answer(
+        inquire::Text::new("Full command:")
+            .with_help_message("e.g. cargo install --path crates/cli --force --all-features")
+            .prompt(),
+        "new-command full command",
+    )?;
 
     let full_command = full_command.trim();
     if full_command.is_empty() {
@@ -28,18 +31,21 @@ where
 
     let (program, args) = parse_command(full_command)?;
 
-    let name = inquire::Text::new("Command name:")
-        .with_help_message(
-            "used in [commands.<name>] and `ops <name>`; \
+    let name = crate::prompt::require_answer(
+        inquire::Text::new("Command name:")
+            .with_help_message(
+                "used in [commands.<name>] and `ops <name>`; \
              no whitespace, control chars, '/' or '\\', and not starting with '-'",
-        )
-        .with_validator(|input: &str| {
-            Ok(match validate_command_name(input.trim()) {
-                Ok(()) => inquire::validator::Validation::Valid,
-                Err(e) => inquire::validator::Validation::Invalid(format!("{e:#}").into()),
+            )
+            .with_validator(|input: &str| {
+                Ok(match validate_command_name(input.trim()) {
+                    Ok(()) => inquire::validator::Validation::Valid,
+                    Err(e) => inquire::validator::Validation::Invalid(format!("{e:#}").into()),
+                })
             })
-        })
-        .prompt()?;
+            .prompt(),
+        "new-command command name",
+    )?;
 
     let name = name.trim().to_string();
     validate_command_name(&name)?;
@@ -429,5 +435,51 @@ theme = "classic"
             .unwrap_err()
             .to_string()
             .contains("interactive terminal"));
+    }
+
+    /// TASK-1746: Esc / Ctrl-C at this command's picker is a user cancel —
+    /// it must reach `main` as the shared cancellation error (exit 130, no
+    /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
+    #[test]
+    fn new_command_full_command_cancel_exits_130_without_an_error_frame() {
+        for err in [
+            inquire::InquireError::OperationCanceled,
+            inquire::InquireError::OperationInterrupted,
+        ] {
+            let err =
+                crate::prompt::require_answer(Err::<String, _>(err), "new-command full command")
+                    .expect_err("a cancelled prompt must not yield an answer");
+            assert_eq!(
+                crate::extract_exit_code_override(&err),
+                Some(crate::SIGINT_EXIT)
+            );
+            assert_eq!(
+                crate::prompt::cancellation_of(&err).map(ToString::to_string),
+                Some("new-command full command cancelled".to_string()),
+            );
+        }
+    }
+
+    /// TASK-1746: Esc / Ctrl-C at this command's picker is a user cancel —
+    /// it must reach `main` as the shared cancellation error (exit 130, no
+    /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
+    #[test]
+    fn new_command_name_cancel_exits_130_without_an_error_frame() {
+        for err in [
+            inquire::InquireError::OperationCanceled,
+            inquire::InquireError::OperationInterrupted,
+        ] {
+            let err =
+                crate::prompt::require_answer(Err::<String, _>(err), "new-command command name")
+                    .expect_err("a cancelled prompt must not yield an answer");
+            assert_eq!(
+                crate::extract_exit_code_override(&err),
+                Some(crate::SIGINT_EXIT)
+            );
+            assert_eq!(
+                crate::prompt::cancellation_of(&err).map(ToString::to_string),
+                Some("new-command command name cancelled".to_string()),
+            );
+        }
     }
 }
