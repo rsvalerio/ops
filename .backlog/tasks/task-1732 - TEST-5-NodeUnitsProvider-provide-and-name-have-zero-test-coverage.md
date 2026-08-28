@@ -1,11 +1,11 @@
 ---
 id: TASK-1732
 title: 'TEST-5: NodeUnitsProvider::provide and ::name have zero test coverage'
-status: To Do
+status: Done
 assignee:
   - TASK-1991
 created_date: '2026-08-27 11:12'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 14:43'
 labels:
   - code-review-rust
   - tests
@@ -33,7 +33,7 @@ The untested surface is:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test asserts NodeUnitsProvider.name() == "project_units"
-- [ ] #2 A test drives NodeUnitsProvider::provide through ops_extension::Context::test_context over a tempdir workspace and deserialises the result into Vec<ProjectUnit>, asserting member name, path, and version
-- [ ] #3 A test covers the empty case: provide over a project with no workspaces returns a JSON array of length 0 rather than null or an error
+- [x] #1 A test asserts NodeUnitsProvider.name() == "project_units"
+- [x] #2 A test drives NodeUnitsProvider::provide through ops_extension::Context::test_context over a tempdir workspace and deserialises the result into Vec<ProjectUnit>, asserting member name, path, and version
+- [x] #3 A test covers the empty case: provide over a project with no workspaces returns a JSON array of length 0 rather than null or an error
 <!-- AC:END -->

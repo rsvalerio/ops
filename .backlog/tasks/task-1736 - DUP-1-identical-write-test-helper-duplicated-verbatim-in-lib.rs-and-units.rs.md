@@ -3,11 +3,11 @@ id: TASK-1736
 title: >-
   DUP-1: identical write() test helper duplicated verbatim in lib.rs and
   units.rs
-status: To Do
+status: Done
 assignee:
   - TASK-1991
 created_date: '2026-08-27 11:12'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 14:44'
 labels:
   - code-review-rust
   - duplication
@@ -43,7 +43,7 @@ Six identical lines, two copies, one crate — over the DUP-1 5-line threshold.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The write() test helper is defined once and both lib.rs and units.rs test modules use that single definition
-- [ ] #2 Preferred landing site is ops_about::test_support (already a test-support dev-dependency of this crate) so the sibling about crates can adopt it too
-- [ ] #3 cargo test -p ops-about-node passes unchanged
+- [x] #1 The write() test helper is defined once and both lib.rs and units.rs test modules use that single definition
+- [x] #2 Preferred landing site is ops_about::test_support (already a test-support dev-dependency of this crate) so the sibling about crates can adopt it too
+- [x] #3 cargo test -p ops-about-node passes unchanged
 <!-- AC:END -->

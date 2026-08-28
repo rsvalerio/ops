@@ -1,11 +1,11 @@
 ---
 id: TASK-1740
 title: 'API-9: #[non_exhaustive] on PackageJson is a no-op — the type is crate-private'
-status: To Do
+status: Done
 assignee:
   - TASK-1991
 created_date: '2026-08-27 11:13'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 14:49'
 labels:
   - code-review-rust
   - api
@@ -31,8 +31,14 @@ Same observation applies to the `pub struct` / `pub(crate)` field mix: the struc
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 #[non_exhaustive] is removed from PackageJson, or the type is made genuinely public so the attribute is load-bearing
-- [ ] #2 PackageJson's declared visibility matches its reachable visibility (no pub struct behind a private module)
-- [ ] #3 #[non_exhaustive] remains on AboutNodeExtension, which is genuinely part of the public surface
-- [ ] #4 cargo clippy -p ops-about-node and cargo test -p ops-about-node pass
+- [x] #1 #[non_exhaustive] is removed from PackageJson, or the type is made genuinely public so the attribute is load-bearing
+- [x] #2 PackageJson's declared visibility matches its reachable visibility (no pub struct behind a private module)
+- [x] #3 #[non_exhaustive] remains on AboutNodeExtension, which is genuinely part of the public surface
+- [x] #4 cargo clippy -p ops-about-node and cargo test -p ops-about-node pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented in wave TASK-1991: dropped #[non_exhaustive]; type and fields now uniformly `pub` behind the private `mod package_json` (clippy::redundant_pub_crate, a denied nursery lint, rejects `pub(crate)` inside a private module, so uniform `pub` — not `pub(crate)` — is the clippy-clean way to state one visibility once).
+<!-- SECTION:NOTES:END -->

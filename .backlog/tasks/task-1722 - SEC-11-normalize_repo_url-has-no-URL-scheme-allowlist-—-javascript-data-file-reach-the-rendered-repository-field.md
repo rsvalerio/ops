@@ -3,11 +3,11 @@ id: TASK-1722
 title: >-
   SEC-11: normalize_repo_url has no URL-scheme allowlist —
   javascript:/data:/file: reach the rendered repository field
-status: To Do
+status: Done
 assignee:
   - TASK-1991
 created_date: '2026-08-27 11:11'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 14:40'
 labels:
   - code-review-rust
   - security
@@ -39,9 +39,9 @@ The value flows into `PackageJson::repository` (`package_json.rs:130-145`), then
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 normalize_repo_url returns an empty string for any input whose normalised result does not start with http:// or https://
-- [ ] #2 Tests pin that javascript:alert(1), data:text/html;base64,AAA, vbscript:x, and file:///etc/passwd each normalise to the empty string
-- [ ] #3 Tests pin that git+javascript:alert(1) and git+file:///etc/passwd each normalise to the empty string
-- [ ] #4 Existing accepted shapes still round-trip: github:owner/repo, expressjs/express, git+ssh://git@github.com/o/r.git, git://github.com/o/r, https://github.com/o/r
-- [ ] #5 parse_package_json drops the repository field (None) when the scheme check rejects the value
+- [x] #1 normalize_repo_url returns an empty string for any input whose normalised result does not start with http:// or https://
+- [x] #2 Tests pin that javascript:alert(1), data:text/html;base64,AAA, vbscript:x, and file:///etc/passwd each normalise to the empty string
+- [x] #3 Tests pin that git+javascript:alert(1) and git+file:///etc/passwd each normalise to the empty string
+- [x] #4 Existing accepted shapes still round-trip: github:owner/repo, expressjs/express, git+ssh://git@github.com/o/r.git, git://github.com/o/r, https://github.com/o/r
+- [x] #5 parse_package_json drops the repository field (None) when the scheme check rejects the value
 <!-- AC:END -->
