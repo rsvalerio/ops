@@ -3,11 +3,11 @@ id: TASK-1928
 title: >-
   PERF-2: TapWriter issues one unbuffered write(2) per captured output line on
   the synchronous display thread
-status: To Do
+status: Done
 assignee:
   - TASK-1986
 created_date: '2026-08-27 15:46'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:14'
 labels:
   - code-review-rust
   - performance
@@ -43,8 +43,14 @@ A `BufWriter<File>` reduces this to one syscall per ~8 KiB. It needs a matching 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 TapWriter wraps the tap file in a buffered writer so a noisy step no longer costs one syscall per captured line
-- [ ] #2 buffered content is flushed at RunFinished and in a Drop impl, so an interrupted run cannot silently lose the tail of the tap
-- [ ] #3 the existing first-error-disables-tap and append_marker behaviours still hold with buffering in place, including the StorageFull / BrokenPipe short-circuit (TASK-1176)
-- [ ] #4 a test writes many lines through TapWriter and asserts the full content is present on disk after the flush points, not only after process exit
+- [x] #1 TapWriter wraps the tap file in a buffered writer so a noisy step no longer costs one syscall per captured line
+- [x] #2 buffered content is flushed at RunFinished and in a Drop impl, so an interrupted run cannot silently lose the tail of the tap
+- [x] #3 the existing first-error-disables-tap and append_marker behaviours still hold with buffering in place, including the StorageFull / BrokenPipe short-circuit (TASK-1176)
+- [x] #4 a test writes many lines through TapWriter and asserts the full content is present on disk after the flush points, not only after process exit
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TapWriter.file is now Option<BufWriter<File>> (~one syscall per 8 KiB instead of one per captured line on the synchronous display thread). Flush discipline added: TapWriter::flush() is called from report_tap_truncation at RunFinished — before draining the truncation record, so a deferred spill failure is still reported in the same run — and from a new Drop impl for runs that never reach RunFinished. Write and flush failures share record_failure(), preserving first-error-disables-tap with the step id and ErrorKind; append_marker flushes before re-opening the path so the marker cannot precede the lines it marks, and the StorageFull/BrokenPipe short-circuit (TASK-1176) is untouched. Tests: buffered_lines_reach_disk_at_the_explicit_flush_point (2000 lines, asserted complete after flush while the writer is alive, then a post-flush line asserted after Drop) and first_write_failure_still_disables_the_tap_once.
+<!-- SECTION:NOTES:END -->

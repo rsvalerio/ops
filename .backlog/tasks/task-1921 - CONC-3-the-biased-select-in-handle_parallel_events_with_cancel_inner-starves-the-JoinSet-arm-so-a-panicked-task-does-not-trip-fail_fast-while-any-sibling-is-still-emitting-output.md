@@ -4,11 +4,11 @@ title: >-
   CONC-3: the biased select in handle_parallel_events_with_cancel_inner starves
   the JoinSet arm, so a panicked task does not trip fail_fast while any sibling
   is still emitting output
-status: To Do
+status: Done
 assignee:
   - TASK-1986
 created_date: '2026-08-27 15:44'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:05'
 labels:
   - code-review-rust
   - concurrency
@@ -46,7 +46,13 @@ Note the ordering is not protecting event delivery either: `abort_all()` in the 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the JoinSet arm is polled on iterations where the event channel is continuously ready — either by dropping 'biased' or by an explicit fair/alternating scheme
-- [ ] #2 if 'biased' is kept for a deliberate reason, that reason is documented and shown to be compatible with the CONC-6 / TASK-1177 contract quoted in the doc comment
-- [ ] #3 a regression test runs a plan under fail_fast where one task panics while a sibling floods StepOutput, and asserts the sibling is aborted while the flood is still in flight (not merely that the panic result eventually appears)
+- [x] #1 the JoinSet arm is polled on iterations where the event channel is continuously ready — either by dropping 'biased' or by an explicit fair/alternating scheme
+- [x] #2 if 'biased' is kept for a deliberate reason, that reason is documented and shown to be compatible with the CONC-6 / TASK-1177 contract quoted in the doc comment
+- [x] #3 a regression test runs a plan under fail_fast where one task panics while a sibling floods StepOutput, and asserts the sibling is aborted while the flood is still in flight (not merely that the panic result eventually appears)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Dropped `biased` from the select (the two arms are peers here, unlike the deliberate abort-preference in exec.rs) and added a non-blocking pre-drain: try_join_next_with_id() harvests every already-finished task at the top of each iteration, so a panic is observed even when rx.recv() is ready on every poll. Extracted the shared harvest into CommandRunner::harvest_joined so the pre-drain and the select arm cannot drift. Moved the loop exit check to *after* the pre-drain — the drain can be what empties the JoinSet, and entering select! with both arms disabled panics ("all branches are disabled"), which run_plan_parallel_fail_fast_emits_terminal_for_every_started_step caught. New test fail_fast_trips_on_panic_while_a_sibling_floods_output keeps the channel permanently saturated (unbounded flooder + a 1ms blocking event callback) so the panicked sibling is the only exit from the loop; under the old biased ordering it hangs to its timeout.
+<!-- SECTION:NOTES:END -->

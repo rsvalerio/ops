@@ -3,11 +3,11 @@ id: TASK-1923
 title: >-
   PERF-16: the documented capture budget covers only in-flight spawns —
   StepResult retains every step's full capped stdout+stderr for the whole plan
-status: To Do
+status: Done
 assignee:
   - TASK-1986
 created_date: '2026-08-27 15:45'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:08'
 labels:
   - code-review-rust
   - performance
@@ -43,7 +43,13 @@ Worth checking as part of the fix: `StepResult.stdout` / `.stderr` are `pub` on 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the peak-RSS doc on DEFAULT_OUTPUT_BYTE_CAP states the real retention bound (driven by plan length, not OPS_MAX_PARALLEL) or the code is changed so the documented bound holds
-- [ ] #2 if retention is reduced, a decision is recorded on whether StepResult.stdout/.stderr stay populated on the success path, and the public API impact of that change is noted
-- [ ] #3 a test pins the chosen contract: e.g. an N-step plan of capped-output steps asserts total retained capture bytes against the documented formula
+- [x] #1 the peak-RSS doc on DEFAULT_OUTPUT_BYTE_CAP states the real retention bound (driven by plan length, not OPS_MAX_PARALLEL) or the code is changed so the documented bound holds
+- [x] #2 if retention is reduced, a decision is recorded on whether StepResult.stdout/.stderr stay populated on the success path, and the public API impact of that change is noted
+- [x] #3 a test pins the chosen contract: e.g. an N-step plan of capped-output steps asserts total retained capture bytes against the documented formula
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Chose the doc-correction branch of AC #1: the DEFAULT_OUTPUT_BYTE_CAP doc now separates the in-flight budget (OPS_MAX_PARALLEL x 2 x cap) from retention (steps x 2 x cap), states explicitly that lowering OPS_MAX_PARALLEL does not reduce retention, and names the knobs that do (OPS_OUTPUT_BYTE_CAP, plan length). PEAK_CAPTURE_WARN_BYTES doc now says its warning covers the in-flight budget only. AC #2 decision recorded in the same doc block: StepResult.stdout/.stderr stay populated on the success path — they are pub on a #[non_exhaustive] struct and part of the shape embedders read, so emptying them would be an unannounced behavioural change; only the in-tree consumer (log_step_results) reads their length. Test retained_capture_bytes_scale_with_plan_length runs an 8-step *sequential* plan (one step in flight) and asserts retained bytes == steps x line_len, i.e. linear in plan length, plus the documented bound.
+<!-- SECTION:NOTES:END -->

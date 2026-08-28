@@ -3,11 +3,11 @@ id: TASK-1940
 title: >-
   SEC-25: detect_workspace_escape fails open when canonicalize errors, and now
   serves the joined-path canonicalization from a runner-lifetime cache
-status: To Do
+status: Done
 assignee:
   - TASK-1986
 created_date: '2026-08-27 15:47'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:33'
 labels:
   - code-review-rust
   - security
@@ -49,8 +49,14 @@ Neither point is a break of the documented interactive trust model (`WarnAndAllo
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 under CwdEscapePolicy::Deny a canonicalize failure on either side is treated as a policy failure (or is explicitly logged and justified), not silently as 'does not escape'
-- [ ] #2 the caching of the joined-path canonicalization is either bounded in time under Deny (re-resolved per spawn) or the CwdEscapePolicy::Deny doc is amended to state that a first-spawn result decides every later spawn
-- [ ] #3 regression tests cover the unresolvable-path case: a joined path whose canonicalize fails is not admitted under Deny
-- [ ] #4 the interaction between joined-path entries and WORKSPACE_CANONICAL_CACHE_CAP is checked — a fan of distinct cwd values must not evict the workspace entry in a way that changes escape outcomes
+- [x] #1 under CwdEscapePolicy::Deny a canonicalize failure on either side is treated as a policy failure (or is explicitly logged and justified), not silently as 'does not escape'
+- [x] #2 the caching of the joined-path canonicalization is either bounded in time under Deny (re-resolved per spawn) or the CwdEscapePolicy::Deny doc is amended to state that a first-spawn result decides every later spawn
+- [x] #3 regression tests cover the unresolvable-path case: a joined path whose canonicalize fails is not admitted under Deny
+- [x] #4 the interaction between joined-path entries and WORKSPACE_CANONICAL_CACHE_CAP is checked — a fan of distinct cwd values must not evict the workspace entry in a way that changes escape outcomes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+detect_workspace_escape now takes the policy and behaves differently per policy. Deny (hook path, fail-closed): canonicalizes BOTH sides per call, uncached, via a new CanonicalOutcome classifier — Resolved / Missing (NotFound) / Undetermined (EACCES, ELOOP, ENAMETOOLONG, unstattable mount). Undetermined is treated as an escape and logged with Debug-formatted paths; NotFound is deliberately exempt because a nonexistent path cannot be a symlink out of the workspace and the spawn reports its own error (otherwise every plan whose step dir is created by an earlier step would break). WarnAndAllow keeps the TASK-1172 cached, advisory behaviour verbatim. Dropping the cache under Deny also closes AC #2: a first-spawn canonicalization no longer decides every later spawn, so a symlink swapped afterwards is re-detected without an invalidate the host cannot know to call; cost is two canonicalize syscalls per spawn on the single-shot hook path. AC #4 follows: Deny reads no cache at all, and under WarnAndAllow an eviction only forces a re-canonicalize returning the same answer — pinned by a test that fans 32 distinct cwds through a cap-4 cache under both policies. Tests added: deny_refuses_a_joined_path_that_cannot_be_canonicalized (mutual symlink pair -> ELOOP, lexically inside), deny_still_admits_a_missing_but_contained_cwd, deny_re_resolves_the_joined_path_on_every_spawn, cache_eviction_by_many_distinct_cwds_does_not_change_escape_outcomes. CwdEscapePolicy::Deny docs updated to state both properties.
+<!-- SECTION:NOTES:END -->

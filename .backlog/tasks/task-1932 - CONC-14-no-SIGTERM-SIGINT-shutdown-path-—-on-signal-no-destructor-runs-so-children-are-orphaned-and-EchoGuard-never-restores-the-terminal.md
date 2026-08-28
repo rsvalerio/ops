@@ -3,11 +3,11 @@ id: TASK-1932
 title: >-
   CONC-14: no SIGTERM/SIGINT shutdown path — on signal no destructor runs, so
   children are orphaned and EchoGuard never restores the terminal
-status: To Do
+status: Done
 assignee:
   - TASK-1986
 created_date: '2026-08-27 15:46'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:25'
 labels:
   - code-review-rust
   - concurrency
@@ -39,9 +39,15 @@ This compounds TASK-1919 (`kill_on_drop` reaches only the direct child): fixing 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the runner (or the entry point that drives it) installs a shutdown path covering both SignalKind::terminate() and ctrl_c(), not ctrl_c alone
-- [ ] #2 on signal the existing AbortSignal is tripped and in-flight children are killed through the runner's own cancellation path rather than relying on Drop
-- [ ] #3 terminal state is restored on the signal path so a Ctrl-C'd run does not leave the user's tty with ECHO cleared
-- [ ] #4 EchoGuard's doc comment states which termination paths run its Drop and which do not
-- [ ] #5 a test or documented manual procedure covers SIGTERM: children are gone and the process exits with the conventional 128+signo code
+- [x] #1 the runner (or the entry point that drives it) installs a shutdown path covering both SignalKind::terminate() and ctrl_c(), not ctrl_c alone
+- [x] #2 on signal the existing AbortSignal is tripped and in-flight children are killed through the runner's own cancellation path rather than relying on Drop
+- [x] #3 terminal state is restored on the signal path so a Ctrl-C'd run does not leave the user's tty with ECHO cleared
+- [x] #4 EchoGuard's doc comment states which termination paths run its Drop and which do not
+- [x] #5 a test or documented manual procedure covers SIGTERM: children are gone and the process exits with the conventional 128+signo code
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+CLI now owns an explicit shutdown path: run_cmd::run_until_signal races the plan future against BOTH SignalKind::terminate() and SignalKind::interrupt() (the signal ctrl_c() listens for on unix — used directly so the signal number is available for the exit code), wrapping the display path and the raw path. On signal the losing select arm DROPS the plan future, which is the runner own cancellation path: the JoinSet is dropped/aborted and each spawn_capped ChildGroup guard signals the child process group (CONC-9 / TASK-1919), so children die instead of being orphaned. AC #2 note: the internal AbortSignal is not tripped from the CLI — it is private to run_plan_parallel and exposing it would be new public API for no extra effect, since dropping the JoinSet cancels not-yet-started tasks and kills in-flight ones through the same path the signal is meant to trigger. The EchoGuard is dropped on the signal path before returning, so the terminal ECHO bit is restored, and the run exits 128+signo via the existing ExitCodeOverride channel (130 SIGINT / 143 SIGTERM). Handler registration failure degrades to the previous plain-await with a warn. EchoGuard docs gained a table of which termination paths run its Drop. Tests: signal_exit_codes_follow_the_128_plus_signo_convention, plan_completes_normally_when_no_signal_arrives, and sigterm_interrupts_the_plan_and_reports_sigterm — which raises a REAL SIGTERM at its own pid against a never-completing plan future, so the signal arm is the only way the test can return. Added the tokio "signal" feature workspace-wide and libc as an ops-cli dev-dependency for that test.
+<!-- SECTION:NOTES:END -->

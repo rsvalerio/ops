@@ -3,11 +3,11 @@ id: TASK-1918
 title: >-
   ASYNC-6: spawn_capped captures stdout/stderr but leaves the child's stdin
   inherited, so an input-prompting child hangs the runner forever
-status: To Do
+status: Done
 assignee:
   - TASK-1986
 created_date: '2026-08-27 15:43'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 18:55'
 labels:
   - code-review-rust
   - async
@@ -45,8 +45,14 @@ The captured path has no reason to hand the child a readable stdin: its whole co
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 spawn_capped (or build_command_with, for the captured path only) sets stdin to Stdio::null() so a captured child cannot block on terminal input
-- [ ] #2 exec_command_raw keeps Stdio::inherit() for stdin — raw mode is the documented interactive path and must not regress
-- [ ] #3 a regression test spawns a child that reads stdin (e.g. sh -c 'read x') through the captured path and asserts the step terminates without an external timeout
-- [ ] #4 the module docs on exec.rs state that captured steps get no stdin and that interactive commands must use --raw
+- [x] #1 spawn_capped (or build_command_with, for the captured path only) sets stdin to Stdio::null() so a captured child cannot block on terminal input
+- [x] #2 exec_command_raw keeps Stdio::inherit() for stdin — raw mode is the documented interactive path and must not regress
+- [x] #3 a regression test spawns a child that reads stdin (e.g. sh -c 'read x') through the captured path and asserts the step terminates without an external timeout
+- [x] #4 the module docs on exec.rs state that captured steps get no stdin and that interactive commands must use --raw
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+spawn_capped now sets stdin(Stdio::null()) alongside the piped stdout/stderr; exec_command_raw untouched (still inherits all three). Module doc on exec.rs gained a "Stdin: captured steps are non-interactive" section pointing interactive commands at --raw. Regression test spawn_capped_gives_child_null_stdin_so_reader_cannot_hang pre-configures Stdio::piped() stdin (a pipe that never yields EOF) and asserts sh -c "read x" completes inside a 5s tokio timeout.
+<!-- SECTION:NOTES:END -->
