@@ -6,18 +6,25 @@ use serde::Deserialize;
 
 use super::repo_url::{append_tree_directory, normalize_repo_url};
 
+/// API-9 / TASK-1740: `#[non_exhaustive]` used to sit here, where it was
+/// inert — `mod package_json` is private, so the type is unreachable from
+/// outside the crate and the attribute constrains nobody (`lib.rs` in fact
+/// destructures it exhaustively). The declared visibility now matches the
+/// reachable one: the private `mod package_json` is the single place that
+/// states it, and the type and its fields no longer restate a narrower
+/// `pub(crate)` on top of it. The attribute stays on `AboutNodeExtension`,
+/// which is genuinely public and constructed by consumers.
 #[derive(Debug, Default)]
-#[non_exhaustive]
 pub struct PackageJson {
-    pub(crate) name: Option<String>,
-    pub(crate) version: Option<String>,
-    pub(crate) description: Option<String>,
-    pub(crate) license: Option<String>,
-    pub(crate) homepage: Option<String>,
-    pub(crate) repository: Option<String>,
-    pub(crate) authors: Vec<String>,
-    pub(crate) engines_node: Option<String>,
-    pub(crate) has_packagemanager: Option<String>,
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub description: Option<String>,
+    pub license: Option<String>,
+    pub homepage: Option<String>,
+    pub repository: Option<String>,
+    pub authors: Vec<String>,
+    pub engines_node: Option<String>,
+    pub has_packagemanager: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -352,5 +359,42 @@ mod tests {
             parsed.repository.as_deref(),
             Some("https://github.com/example/mono")
         );
+    }
+
+    /// SEC-11 / TASK-1722: a `javascript:` (or `data:`, `file:`) repository
+    /// value is rejected by the scheme allowlist, and the parser must surface
+    /// that as a missing field rather than an empty string.
+    #[test]
+    fn parse_drops_repository_with_disallowed_scheme() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{
+                "name": "evil",
+                "repository": "javascript:alert(document.domain)"
+            }"#,
+        )
+        .unwrap();
+
+        let parsed = parse_package_json(dir.path()).expect("parsed");
+        assert_eq!(parsed.repository, None);
+    }
+
+    /// SEC-11 / TASK-1722: same for the object form, where a rejected base
+    /// URL must also suppress the `/tree/HEAD/<directory>` suffix.
+    #[test]
+    fn parse_drops_repository_object_with_disallowed_scheme() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{
+                "name": "evil",
+                "repository": { "url": "git+file:///etc/passwd", "directory": "packages/a" }
+            }"#,
+        )
+        .unwrap();
+
+        let parsed = parse_package_json(dir.path()).expect("parsed");
+        assert_eq!(parsed.repository, None);
     }
 }
