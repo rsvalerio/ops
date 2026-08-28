@@ -297,7 +297,7 @@ mod max_bytes_env {
             .expect("sql builds at the ceiling");
         let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory");
         let conn = db.lock().expect("lock");
-        conn.execute(&sql, [])
+        conn.execute(sql.as_str(), [])
             .expect("DuckDB must accept maximum_object_size at the resolved ceiling");
         drop(conn);
     }
