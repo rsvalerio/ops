@@ -341,6 +341,27 @@ pub enum CwdEscapePolicy {
     /// require an `openat`/`fchdir`-style fd handoff to the child, which
     /// neither `std::process::Command` nor `tokio::process::Command`
     /// exposes today.
+    ///
+    /// SEC-25 / TASK-1940 — two properties this policy now actually
+    /// delivers, having previously been weaker than the text above implied:
+    ///
+    /// 1. **Fail closed on an unresolvable path.** A `canonicalize` failure
+    ///    that is not `NotFound` (`EACCES` on an intermediate directory,
+    ///    `ELOOP`, `ENAMETOOLONG`, an unstattable mount point) used to
+    ///    collapse to "does not escape", leaving only the lexical check —
+    ///    which cannot see symlinks, the very case the canonical check
+    ///    exists for. Under `Deny` such a path is now refused and logged.
+    ///    `NotFound` is exempt: a path that does not exist cannot be a
+    ///    symlink out of the workspace, and the spawn fails on its own.
+    /// 2. **No runner-lifetime memo of the decision.** `Deny`
+    ///    canonicalizes both sides per spawn rather than reading the
+    ///    `WorkspaceCanonicalCache`. PERF-3 / TASK-1172 had routed the
+    ///    joined side through that cache, which widened the window
+    ///    described above from "between this spawn's canonicalize and this
+    ///    spawn's exec" to "any time after the first spawn of that path" —
+    ///    a symlink swapped later was never re-detected, and `invalidate`
+    ///    could not help because the host cannot know a swap happened. The
+    ///    cache still serves `WarnAndAllow`, whose check is advisory.
     Deny,
 }
 
@@ -353,29 +374,106 @@ pub enum EscapeKind {
     Escapes,
 }
 
-/// Classify `joined` against `workspace`. Pure function: fast lexical check
-/// first, then a canonical check so a symlink inside the workspace pointing
-/// outside is still caught.
+/// SEC-25 / TASK-1940: the three outcomes of canonicalizing a path, kept
+/// distinct so a *fail-closed* policy can tell "this path does not exist"
+/// from "this path could not be resolved".
+enum CanonicalOutcome {
+    /// Resolved to a symlink-free absolute path.
+    Resolved(PathBuf),
+    /// `NotFound`. A path that does not exist cannot be a symlink pointing
+    /// out of the workspace, so the lexical check alone is authoritative —
+    /// and the spawn will fail on its own with a clearer error.
+    Missing,
+    /// Anything else — `EACCES` on an intermediate directory, `ELOOP`,
+    /// `ENAMETOOLONG`, a mount point the process cannot stat. The
+    /// containment question is *unanswerable*, which is not the same as
+    /// answering "no".
+    Undetermined(std::io::ErrorKind),
+}
+
+/// SEC-25 / TASK-1940: canonicalize `p` right now, classifying the failure.
+/// Deliberately uncached — see [`detect_workspace_escape`].
+fn canonicalize_now(p: &Path) -> CanonicalOutcome {
+    match std::fs::canonicalize(p) {
+        Ok(c) => CanonicalOutcome::Resolved(c),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => CanonicalOutcome::Missing,
+        Err(e) => CanonicalOutcome::Undetermined(e.kind()),
+    }
+}
+
+/// Classify `joined` against `workspace`. Fast lexical check first, then a
+/// canonical check so a symlink inside the workspace pointing outside is
+/// still caught.
+///
+/// # Policy-dependent canonicalization (SEC-25 / TASK-1940)
+///
+/// The canonical half behaves differently under the two policies, because
+/// they want different things from it:
+///
+/// - **`Deny`** (the hook path) is fail-closed, so it canonicalizes **both
+///   sides per call, uncached**, and treats an *unresolvable* path as an
+///   escape. Two properties were previously weaker than the surrounding
+///   docs claimed: `canonicalize` errors were swallowed into "does not
+///   escape", leaving only the lexical check — which cannot see symlinks,
+///   the exact case this function exists for; and PERF-3 / TASK-1172 had
+///   routed the joined side through the runner-lifetime cache, so a
+///   canonicalization taken at the *first* spawn decided the outcome for
+///   every later spawn of that path and a symlink swapped afterwards was
+///   never re-detected. Re-resolving per spawn narrows the TOCTOU window
+///   back to the one the [`CwdEscapePolicy::Deny`] docs describe. The cost
+///   is two `canonicalize` syscalls per spawn on the hook path, which is
+///   single-shot and short.
+/// - **`WarnAndAllow`** (interactive) warns and proceeds by design, so its
+///   check is advisory and keeps the TASK-1172 cache: a composite fanning
+///   the same `cwd = "sub"` over many parallel spawns pays one
+///   canonicalize per distinct path rather than one per spawn. An
+///   unresolvable path stays non-escaping here — failing closed would turn
+///   an advisory warning into a refusal the policy does not promise.
+///
+/// Because `Deny` no longer reads the cache, a fan of distinct `cwd` values
+/// evicting the workspace entry under
+/// [`WORKSPACE_CANONICAL_CACHE_CAP`] cannot change a `Deny` outcome; under
+/// `WarnAndAllow` an eviction only costs a re-canonicalize, which yields
+/// the same classification.
 pub fn detect_workspace_escape(
     cache: &WorkspaceCanonicalCache,
     joined: &std::path::Path,
     workspace: &std::path::Path,
+    policy: CwdEscapePolicy,
 ) -> EscapeKind {
     let lexically_escapes = !normalize_path(joined).starts_with(workspace);
-    // PERF-3 / TASK-1172: route the joined-path canonicalize through the
-    // same `WorkspaceCanonicalCache` as the workspace side, so a composite
-    // that fans the same `cwd = "sub"` over many parallel spawns pays one
-    // canonicalize per distinct joined path instead of one per spawn. The
-    // existing `invalidate(path)` API removes whatever entry sits at that
-    // key, so a SEC-25 symlink-swap recovery can invalidate either the
-    // workspace or the joined path and continue to detect the escape on
-    // the next call (mirror of TASK-1063 AC #3 for the workspace side).
-    let canonically_escapes = match (
-        canonical_workspace_cached(cache, joined),
-        canonical_workspace_cached(cache, workspace),
-    ) {
-        (Some(a), Some(b)) => !a.starts_with(&b),
-        _ => false,
+    let canonically_escapes = match policy {
+        CwdEscapePolicy::Deny => {
+            match (canonicalize_now(joined), canonicalize_now(workspace)) {
+                (CanonicalOutcome::Resolved(a), CanonicalOutcome::Resolved(b)) => {
+                    !a.starts_with(&b)
+                }
+                // Fail closed: "cannot determine" is treated as "escapes",
+                // and is logged so an operator hitting a permissions
+                // problem sees why the spawn was refused.
+                (CanonicalOutcome::Undetermined(kind), _)
+                | (_, CanonicalOutcome::Undetermined(kind)) => {
+                    // SEC-21 / TASK-1937: paths are `.ops.toml`-derived.
+                    tracing::warn!(
+                        joined = ?joined.display(),
+                        workspace = ?workspace.display(),
+                        error_kind = ?kind,
+                        "SEC-25: cwd could not be canonicalized under the Deny policy; \
+                         treating it as an escape"
+                    );
+                    true
+                }
+                // `NotFound` on either side: the lexical check governs.
+                _ => false,
+            }
+        }
+        CwdEscapePolicy::WarnAndAllow => match (
+            canonical_workspace_cached(cache, joined),
+            canonical_workspace_cached(cache, workspace),
+        ) {
+            (Some(a), Some(b)) => !a.starts_with(&b),
+            _ => false,
+        },
     };
     if lexically_escapes || canonically_escapes {
         EscapeKind::Escapes
@@ -403,10 +501,17 @@ pub fn apply_escape_policy(
             ),
         )),
         CwdEscapePolicy::WarnAndAllow => {
+            // SEC-21 / TASK-1937: `spec_cwd` is `.ops.toml`-supplied and
+            // `joined` is derived from it, so both are Debug-formatted —
+            // `Path::display()` renders embedded newlines and ANSI escapes
+            // verbatim, which would let a config forge log records on the
+            // very warning that reports it escaping the workspace. Matches
+            // the policy already applied to `program` (TASK-1127) and tap
+            // paths (TASK-0940).
             tracing::warn!(
-                cwd = %workspace_cwd.display(),
-                spec_cwd = %spec_cwd.display(),
-                resolved = %joined.display(),
+                cwd = ?workspace_cwd.display(),
+                spec_cwd = ?spec_cwd.display(),
+                resolved = ?joined.display(),
                 "SEC-004: spec cwd escapes workspace root"
             );
             Ok(())
@@ -459,7 +564,7 @@ pub fn resolve_spec_cwd(
     } else {
         ep.clone()
     };
-    if detect_workspace_escape(cache, &joined, workspace_cwd) == EscapeKind::Escapes {
+    if detect_workspace_escape(cache, &joined, workspace_cwd, policy) == EscapeKind::Escapes {
         apply_escape_policy(policy, &ep, workspace_cwd, &joined)?;
     }
     // SEC-25 / SEC-23 / READ-5 / TASK-0773 / TASK-1140: hand the kernel a
@@ -623,6 +728,12 @@ pub fn build_command_with(
         warn_if_sensitive_env(k, &expanded_v);
         cmd.env(k, expanded_v.as_ref());
     }
+    // CONC-9 / TASK-1919: `kill_on_drop` reaches the *direct child only*, so
+    // it is no longer the primary cancellation mechanism on unix — captured
+    // spawns are made process-group leaders in `spawn_capped` and the group
+    // is signalled by `ChildGroup` (see `super::process_group`). It stays as
+    // the last-resort reaper for the leader itself, and remains the only
+    // mechanism on non-unix targets, where process groups do not exist.
     cmd.kill_on_drop(true);
     Ok(cmd)
 }
@@ -886,7 +997,12 @@ mod tests {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let inside = ws.join("sub/dir");
         assert_eq!(
-            detect_workspace_escape(test_default_workspace_cache(), &inside, &ws),
+            detect_workspace_escape(
+                test_default_workspace_cache(),
+                &inside,
+                &ws,
+                CwdEscapePolicy::WarnAndAllow
+            ),
             EscapeKind::Inside
         );
     }
@@ -896,7 +1012,12 @@ mod tests {
         let ws = std::path::PathBuf::from("/tmp/ws");
         let escaping = ws.join("../etc");
         assert_eq!(
-            detect_workspace_escape(test_default_workspace_cache(), &escaping, &ws),
+            detect_workspace_escape(
+                test_default_workspace_cache(),
+                &escaping,
+                &ws,
+                CwdEscapePolicy::WarnAndAllow
+            ),
             EscapeKind::Escapes
         );
     }
@@ -1032,16 +1153,157 @@ mod tests {
         let inside = ws.join("inside");
         std::fs::create_dir(&inside).unwrap();
         assert_eq!(
-            detect_workspace_escape(test_default_workspace_cache(), &inside, &ws),
+            detect_workspace_escape(
+                test_default_workspace_cache(),
+                &inside,
+                &ws,
+                CwdEscapePolicy::WarnAndAllow
+            ),
             EscapeKind::Inside
         );
 
         // The trap is lexically inside but resolves outside via symlink.
         // The cached workspace path must not mask the escape.
         assert_eq!(
-            detect_workspace_escape(test_default_workspace_cache(), &trap, &ws),
+            detect_workspace_escape(
+                test_default_workspace_cache(),
+                &trap,
+                &ws,
+                CwdEscapePolicy::WarnAndAllow
+            ),
             EscapeKind::Escapes
         );
+    }
+
+    /// SEC-25 / TASK-1940 AC #3: under `Deny` a joined path that cannot be
+    /// canonicalized must not be admitted.
+    ///
+    /// The symlink loop below is lexically inside the workspace, so the
+    /// lexical check passes it; `canonicalize` fails with `ELOOP`, which
+    /// the pre-fix code swallowed into "does not escape". A path whose
+    /// resolution is unanswerable is exactly the case a fail-closed policy
+    /// must refuse.
+    #[cfg(unix)]
+    #[test]
+    fn deny_refuses_a_joined_path_that_cannot_be_canonicalized() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = std::fs::canonicalize(tmp.path()).unwrap();
+        // A mutually-referential symlink pair: resolving either yields ELOOP.
+        let a = ws.join("loop-a");
+        let b = ws.join("loop-b");
+        std::os::unix::fs::symlink(&b, &a).unwrap();
+        std::os::unix::fs::symlink(&a, &b).unwrap();
+        assert!(
+            std::fs::canonicalize(&a).is_err(),
+            "test fixture must produce an unresolvable path"
+        );
+        assert!(
+            normalize_path(&a).starts_with(&ws),
+            "the fixture must be lexically inside, so only the canonical check can catch it"
+        );
+
+        let cache = WorkspaceCanonicalCache::new();
+        assert_eq!(
+            detect_workspace_escape(&cache, &a, &ws, CwdEscapePolicy::Deny),
+            EscapeKind::Escapes,
+            "Deny must treat an unresolvable cwd as an escape, not as 'does not escape'"
+        );
+        // WarnAndAllow is advisory by design and keeps the prior behaviour.
+        assert_eq!(
+            detect_workspace_escape(&cache, &a, &ws, CwdEscapePolicy::WarnAndAllow),
+            EscapeKind::Inside
+        );
+    }
+
+    /// SEC-25 / TASK-1940: a `cwd` that simply does not exist is *not* an
+    /// unresolvable path. It cannot be a symlink out of the workspace, and
+    /// the spawn reports its own error — refusing it here would break every
+    /// plan whose step directory is created by an earlier step.
+    #[test]
+    fn deny_still_admits_a_missing_but_contained_cwd() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path().to_path_buf();
+        let missing = ws.join("not-created-yet");
+        let cache = WorkspaceCanonicalCache::new();
+        assert_eq!(
+            detect_workspace_escape(&cache, &missing, &ws, CwdEscapePolicy::Deny),
+            EscapeKind::Inside
+        );
+    }
+
+    /// SEC-25 / TASK-1940 AC #2: the joined-path canonicalization must not
+    /// be memoised for the runner's lifetime under `Deny`. A symlink
+    /// swapped *after* a first spawn of the same path has to be re-detected
+    /// on the next spawn, without anyone calling `invalidate` — the host
+    /// cannot know a swap happened, which is what made the memo a widened
+    /// TOCTOU window rather than a cache.
+    #[cfg(unix)]
+    #[test]
+    fn deny_re_resolves_the_joined_path_on_every_spawn() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = std::fs::canonicalize(tmp.path()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_canonical = std::fs::canonicalize(outside.path()).unwrap();
+
+        // First spawn: `sub` is a real directory inside the workspace.
+        let sub = ws.join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        let cache = WorkspaceCanonicalCache::new();
+        assert_eq!(
+            detect_workspace_escape(&cache, &sub, &ws, CwdEscapePolicy::Deny),
+            EscapeKind::Inside
+        );
+
+        // Swap it for a symlink pointing outside; no invalidate call.
+        std::fs::remove_dir(&sub).unwrap();
+        std::os::unix::fs::symlink(&outside_canonical, &sub).unwrap();
+        assert_eq!(
+            detect_workspace_escape(&cache, &sub, &ws, CwdEscapePolicy::Deny),
+            EscapeKind::Escapes,
+            "Deny must re-canonicalize per call; a first-spawn result must not decide later spawns"
+        );
+    }
+
+    /// SEC-25 / TASK-1940 AC #4: a fan of distinct `cwd` values sharing
+    /// `WORKSPACE_CANONICAL_CACHE_CAP` with the workspace entry must not be
+    /// able to change an escape outcome by evicting it. `Deny` does not
+    /// read the cache at all, and under `WarnAndAllow` an eviction only
+    /// costs a re-canonicalize that returns the same answer.
+    #[cfg(unix)]
+    #[test]
+    fn cache_eviction_by_many_distinct_cwds_does_not_change_escape_outcomes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = std::fs::canonicalize(tmp.path()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_canonical = std::fs::canonicalize(outside.path()).unwrap();
+        let trap = ws.join("trap");
+        std::os::unix::fs::symlink(&outside_canonical, &trap).unwrap();
+        let inside = ws.join("inside");
+        std::fs::create_dir(&inside).unwrap();
+
+        // A cache far smaller than the fan below, so eviction is certain.
+        let cache = WorkspaceCanonicalCache::with_capacity(4);
+        for policy in [CwdEscapePolicy::Deny, CwdEscapePolicy::WarnAndAllow] {
+            assert_eq!(
+                detect_workspace_escape(&cache, &inside, &ws, policy),
+                EscapeKind::Inside
+            );
+            // Fan many distinct joined paths through the cache.
+            for i in 0..32 {
+                let p = ws.join(format!("fan{i}"));
+                let _ = detect_workspace_escape(&cache, &p, &ws, policy);
+            }
+            assert_eq!(
+                detect_workspace_escape(&cache, &trap, &ws, policy),
+                EscapeKind::Escapes,
+                "eviction must not mask a symlink escape under {policy:?}"
+            );
+            assert_eq!(
+                detect_workspace_escape(&cache, &inside, &ws, policy),
+                EscapeKind::Inside,
+                "eviction must not invent an escape under {policy:?}"
+            );
+        }
     }
 
     /// SEC-25: best-effort regression for the symlink-swap window. Layout:
@@ -1210,7 +1472,7 @@ mod tests {
         // target_a/inside, which starts_with(canonical_a) — Inside.
         let inside = workspace.join("inside");
         assert_eq!(
-            detect_workspace_escape(&cache, &inside, &workspace),
+            detect_workspace_escape(&cache, &inside, &workspace, CwdEscapePolicy::WarnAndAllow),
             EscapeKind::Inside
         );
 
@@ -1226,7 +1488,7 @@ mod tests {
         std::os::unix::fs::symlink(&canonical_b, &workspace).unwrap();
         let inside2 = workspace.join("inside2");
         assert_eq!(
-            detect_workspace_escape(&cache, &inside2, &workspace),
+            detect_workspace_escape(&cache, &inside2, &workspace, CwdEscapePolicy::WarnAndAllow),
             EscapeKind::Escapes,
             "stale workspace cache must mis-classify a freshly-issued path until invalidate"
         );
@@ -1237,7 +1499,7 @@ mod tests {
         // inside again.
         cache.invalidate(&workspace);
         assert_eq!(
-            detect_workspace_escape(&cache, &inside2, &workspace),
+            detect_workspace_escape(&cache, &inside2, &workspace, CwdEscapePolicy::WarnAndAllow),
             EscapeKind::Inside,
             "invalidate must let the spawn path re-canonicalize and reclassify"
         );
