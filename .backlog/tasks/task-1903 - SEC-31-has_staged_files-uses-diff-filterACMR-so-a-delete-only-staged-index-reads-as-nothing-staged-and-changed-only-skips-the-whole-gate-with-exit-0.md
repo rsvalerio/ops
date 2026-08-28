@@ -4,11 +4,11 @@ title: >-
   SEC-31: has_staged_files uses --diff-filter=ACMR, so a delete-only staged
   index reads as 'nothing staged' and --changed-only skips the whole gate with
   exit 0
-status: To Do
+status: Done
 assignee:
   - TASK-2009
 created_date: '2026-08-27 15:38'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:19'
 labels:
   - code-review-rust
   - security
@@ -51,8 +51,24 @@ Deleting a file is one of the *most* likely ways to break a build (a removed mod
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 has_staged_files returns true when the index contains only staged deletions (D)
-- [ ] #2 has_staged_files returns true when the index contains only unmerged paths (U) or type changes (T), or the doc and the CLI skip message state explicitly which change kinds are ignored and why
-- [ ] #3 A test stages only a deletion (git rm) in a temp repo and asserts the predicate reports staged work
-- [ ] #4 The choice of diff-filter carries a comment stating the rationale
+- [x] #1 has_staged_files returns true when the index contains only staged deletions (D)
+- [x] #2 has_staged_files returns true when the index contains only unmerged paths (U) or type changes (T), or the doc and the CLI skip message state explicitly which change kinds are ignored and why
+- [x] #3 A test stages only a deletion (git rm) in a temp repo and asserts the predicate reports staged work
+- [x] #4 The choice of diff-filter carries a comment stating the rationale
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed at the source: `extensions/hook-common/src/git_state.rs` no longer passes any
+`--diff-filter`, so D (deletions), T (type changes) and U (unmerged) all report as staged
+work alongside ACMR. A "Every staged change kind counts" doc section states the rationale
+and why a gate must fail closed, and the arg list carries a comment pointing at it (AC#1,
+AC#2, AC#4). `has_staged_files`' own doc in run-before-commit repeats the contract.
+
+Tests (AC#3): `has_staged_files_true_when_only_a_deletion_is_staged` stages a `git rm` in a
+temp repo and `has_staged_files_true_when_only_a_type_change_is_staged` stages a
+regular-file -> symlink swap; both assert the predicate reports staged work. A `U` fixture
+needs a scripted merge conflict and buys nothing once the filter is gone entirely — the
+absence of the filter, not a third fixture, is what makes the class unreachable.
+<!-- SECTION:NOTES:END -->

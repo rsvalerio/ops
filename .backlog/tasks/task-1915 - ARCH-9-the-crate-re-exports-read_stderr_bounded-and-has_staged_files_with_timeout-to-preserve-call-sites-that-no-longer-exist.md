@@ -3,11 +3,11 @@ id: TASK-1915
 title: >-
   ARCH-9: the crate re-exports read_stderr_bounded and
   has_staged_files_with_timeout to preserve call sites that no longer exist
-status: To Do
+status: Done
 assignee:
   - TASK-2009
 created_date: '2026-08-27 15:40'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:20'
 labels:
   - code-review-rust
   - architecture
@@ -48,7 +48,23 @@ So the crate publishes three symbols solely to serve its own test module, and on
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_stderr_bounded is no longer re-exported from ops_run_before_commit
-- [ ] #2 has_staged_files_with_timeout and HasStagedFilesError are either dropped from the re-export and imported directly from ops_hook_common::git_state by the tests that need them, or the re-export comment is rewritten to state the actual reason they are public
-- [ ] #3 The stale 'so existing call sites compile unchanged' rationale is removed or corrected
+- [x] #1 read_stderr_bounded is no longer re-exported from ops_run_before_commit
+- [x] #2 has_staged_files_with_timeout and HasStagedFilesError are either dropped from the re-export and imported directly from ops_hook_common::git_state by the tests that need them, or the re-export comment is rewritten to state the actual reason they are public
+- [x] #3 The stale 'so existing call sites compile unchanged' rationale is removed or corrected
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The whole `pub use ops_hook_common::git_state::{...}` block is gone, and with it the stale
+"so existing call sites compile unchanged" rationale (AC#1, AC#3). `read_stderr_bounded`
+had zero call sites anywhere; the other two had only this crate's own test module.
+
+AC#2: the tests now `use ops_hook_common::git_state::{has_staged_files_with_timeout,
+HasStagedFilesError};` directly, with a comment saying that import documents what they
+exercise — the shared probe, not this crate's contribution. `has_staged_files`' doc links
+to the fully qualified path.
+
+Verified before removing: `crates/cli/src/pre_hook_cmd.rs` is the only external consumer and
+imports none of the three.
+<!-- SECTION:NOTES:END -->

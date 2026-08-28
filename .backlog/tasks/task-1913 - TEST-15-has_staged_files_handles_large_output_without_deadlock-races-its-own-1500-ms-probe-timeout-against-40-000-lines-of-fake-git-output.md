@@ -3,11 +3,11 @@ id: TASK-1913
 title: >-
   TEST-15: has_staged_files_handles_large_output_without_deadlock races its own
   1500 ms probe timeout against 40 000 lines of fake-git output
-status: To Do
+status: Done
 assignee:
   - TASK-2009
 created_date: '2026-08-27 15:40'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:20'
 labels:
   - code-review-rust
   - tests
@@ -48,8 +48,28 @@ Two related timing couplings in the same module, worth fixing in the same pass:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 has_staged_files_handles_large_output_without_deadlock passes a timeout generous enough (e.g. 30s) that a slow-but-correct run cannot produce Err(Timeout), so the assertion tests deadlock and not machine speed
-- [ ] #2 The elapsed < 2s assertion is removed or widened to a bound that only a genuine hang can exceed
-- [ ] #3 has_staged_files_times_out_on_hanging_git keeps its Timeout-variant assertion; any remaining elapsed bound is documented as a hang detector, not a performance budget
-- [ ] #4 retry_while_text_file_busy is either replaced by a deterministic fix for the ETXTBSY race or carries a comment stating its worst-case added runtime per test
+- [x] #1 has_staged_files_handles_large_output_without_deadlock passes a timeout generous enough (e.g. 30s) that a slow-but-correct run cannot produce Err(Timeout), so the assertion tests deadlock and not machine speed
+- [x] #2 The elapsed < 2s assertion is removed or widened to a bound that only a genuine hang can exceed
+- [x] #3 has_staged_files_times_out_on_hanging_git keeps its Timeout-variant assertion; any remaining elapsed bound is documented as a hang detector, not a performance budget
+- [x] #4 retry_while_text_file_busy is either replaced by a deterministic fix for the ETXTBSY race or carries a comment stating its worst-case added runtime per test
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: `has_staged_files_handles_large_output_without_deadlock` now passes
+`Duration::from_secs(30)`, so a slow-but-correct run on a loaded/emulated box cannot
+produce `Err(Timeout)` and be read as a CONC-3 regression.
+
+AC#2: the `Instant::now()` / `elapsed < 2s` pair is gone entirely — the bounded wait's own
+timeout is the hang detector, and the property under test is `Ok(true)`.
+
+AC#3: `has_staged_files_times_out_on_hanging_git` keeps its `HasStagedFilesError::Timeout`
+assertion; its remaining `elapsed < 5s` bound now carries a comment stating it is a hang
+detector, not a performance budget (25x the configured 200 ms).
+
+AC#4: `retry_while_text_file_busy` documents its worst case — 50 x 20 ms = 1 s of added
+runtime per test, paid only when the ETXTBSY race actually fires — and says why the
+deterministic alternative is not expressible through `std::fs::write`. Its anyhow-typed
+twin added for TASK-1908 carries the same bound.
+<!-- SECTION:NOTES:END -->

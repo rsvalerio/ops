@@ -4,11 +4,11 @@ title: >-
   ARCH-6: HOOK_SCRIPT installs 'exec ops run-before-commit' with no
   --changed-only, so has_staged_files and the entire bounded-wait git probe are
   unreachable from the hook this crate installs
-status: To Do
+status: Done
 assignee:
   - TASK-2009
 created_date: '2026-08-27 15:39'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:19'
 labels:
   - code-review-rust
   - architecture
@@ -55,7 +55,28 @@ Two readings, and the crate does not say which is intended:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A decision is recorded in the crate: either HOOK_SCRIPT passes --changed-only, or a comment on HOOK_SCRIPT states that the preflight is intentionally manual-only
-- [ ] #2 If the flag is added, a test asserts HOOK_SCRIPT contains --changed-only and the README statement about skipping when nothing is staged matches the installed hook
-- [ ] #3 If the preflight stays manual-only, the doc comments on DEFAULT_GIT_TIMEOUT and MAX_GIT_TIMEOUT_SECS stop justifying themselves by 'pre-commit hooks run on the developer's critical path'
+- [x] #1 A decision is recorded in the crate: either HOOK_SCRIPT passes --changed-only, or a comment on HOOK_SCRIPT states that the preflight is intentionally manual-only
+- [x] #2 If the flag is added, a test asserts HOOK_SCRIPT contains --changed-only and the README statement about skipping when nothing is staged matches the installed hook
+- [x] #3 If the preflight stays manual-only, the doc comments on DEFAULT_GIT_TIMEOUT and MAX_GIT_TIMEOUT_SECS stop justifying themselves by 'pre-commit hooks run on the developer's critical path'
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Decision recorded: reading 1. `HOOK_SCRIPT` now ends `exec ops run-before-commit
+--changed-only`, so the installed hook arms the `has_staged_files` preflight and the whole
+bounded-wait apparatus is back on the path its doc comments describe (AC#1). The
+`HOOK_SCRIPT` doc states this explicitly as load-bearing property 3, naming the CLI gate
+that consumes the flag.
+
+AC#2: `hook_script_passes_changed_only` pins the exact `exec` line. README line 127
+("`--changed-only` skips when nothing is staged") now describes the shipped hook rather
+than only a manual invocation.
+
+AC#3 does not apply — the preflight is no longer manual-only, so the
+`DEFAULT_GIT_TIMEOUT` / `MAX_GIT_TIMEOUT_SECS` "developer's critical path" justification is
+accurate again. Checked off as satisfied by the branch AC#1 took.
+
+Ordering note: TASK-1903 landed first in this wave. Arming the preflight before the
+`--diff-filter=ACMR` fail-open was removed would have shipped the skip bug to every commit.
+<!-- SECTION:NOTES:END -->

@@ -3,11 +3,11 @@ id: TASK-1916
 title: >-
   READ-5: SKIP_ENV_VAR's doc says the hook skips 'when set to 1', re-stating the
   exact wrong contract TASK-0224 fixed in should_skip
-status: To Do
+status: Done
 assignee:
   - TASK-2009
 created_date: '2026-08-27 15:41'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:20'
 labels:
   - code-review-rust
   - readability
@@ -55,6 +55,26 @@ The sibling crate carries the identical stale line (`extensions/run-before-push/
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 SKIP_ENV_VAR's doc comment lists the accepted values (1, true, yes, on) and states that matching is case-insensitive, or defers to should_skip's doc by link
-- [ ] #2 The CLI skip note reports the value the operator actually set instead of hardcoding =1
+- [x] #1 SKIP_ENV_VAR's doc comment lists the accepted values (1, true, yes, on) and states that matching is case-insensitive, or defers to should_skip's doc by link
+- [x] #2 The CLI skip note reports the value the operator actually set instead of hardcoding =1
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: `SKIP_ENV_VAR`'s doc now lists `1`, `true`, `yes`, `on`, states the match is
+case-insensitive, spells out what does not count (empty string, `0`, `false`) and defers to
+`ops_hook_common::should_skip` as the source of truth — the wording the sibling
+run-before-push crate already carries, so the two cannot drift apart again.
+
+AC#2 was already satisfied before this wave and is checked off as such. The hardcoded `=1`
+in `crates/cli/src/subcommands.rs` is gone; the note now reads
+"[run-before-commit] SKIP_OPS_RUN_BEFORE_COMMIT set — skipping", with a comment recording
+that naming any value would misdescribe how the run was skipped (READ-4). That satisfies the
+AC's intent — the operator is no longer told a value they did not set — so the AC is not
+carried forward as leftover work.
+
+Same-root-cause fix taken in the same pass: `HookConfig::skip_env_var`'s field doc in
+`extensions/hook-common/src/lib.rs` carried the identical stale 'when set to "1"' wording and
+now defers to `should_skip` too.
+<!-- SECTION:NOTES:END -->
