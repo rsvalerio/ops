@@ -26,6 +26,49 @@ const ACTION_DISPLAY_ORDER: [Action; 7] = [
     Action::NoOp,
 ];
 
+/// SEC-11 / TASK-1939: strip terminal control characters from untrusted
+/// plan text.
+///
+/// Resource names, types, module paths and output keys all come out of
+/// the plan document, which is untrusted in the way that matters:
+/// `--json-file` accepts an arbitrary path (or `-` for stdin), and even
+/// on the default path the names come from third-party registry modules.
+/// A `name` carrying an ESC-bracket CSI sequence — erase-line plus
+/// cursor-up, say — can wipe rows already printed and redraw a fake
+/// `Plan: 0 to add, 0 to change, 0 to destroy.` line, or hide the
+/// unrecognized-action banner, on exactly the screen an operator reads
+/// before approving an apply. A bare carriage return does the same more
+/// crudely, and either desynchronises comfy-table's width accounting.
+///
+/// `char::is_control` is the Unicode `Cc` category: U+0000..=U+001F
+/// (ESC, CR, LF, TAB included) and U+007F..=U+009F (DEL and the C1
+/// controls). Everything in it is removed.
+#[must_use]
+pub(crate) fn sanitize_terminal_text(value: &str) -> String {
+    value.chars().filter(|c| !c.is_control()).collect()
+}
+
+/// SEC-11 / TASK-1939: the single constructor for untrusted text cells.
+/// Every data cell in this module is built here, so a column added later
+/// cannot forget to sanitize its contents.
+fn text_cell(value: &str) -> Cell {
+    Cell::new(sanitize_terminal_text(value))
+}
+
+/// SEC-31 (TASK-0833 / TASK-1954): the banner shown above a table whose
+/// rows carry an action this build cannot name, so an operator does not
+/// miss audit-relevant changes. Shared by the resource and outputs
+/// tables on the same terms.
+fn unknown_banner(unknown_count: usize, noun: &str) -> String {
+    if unknown_count == 0 {
+        return String::new();
+    }
+    format!(
+        "WARNING: {unknown_count} {noun} change(s) use an action this build does not recognize. \
+Inspect the rows marked `unknown` before applying.\n"
+    )
+}
+
 #[must_use]
 pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> String {
     let mut counts: HashMap<Action, usize> = HashMap::new();
@@ -103,14 +146,7 @@ pub fn render_resource_table(
         .iter()
         .filter(|c| matches!(c.action, Action::Unknown))
         .count();
-    let banner = if unknown_count > 0 {
-        format!(
-            "WARNING: {unknown_count} resource change(s) use an action this build does not recognize. \
-Inspect the rows marked `unknown` before applying.\n"
-        )
-    } else {
-        String::new()
-    };
+    let banner = unknown_banner(unknown_count, "resource");
 
     filtered.sort_by(|a, b| {
         a.action
@@ -141,9 +177,9 @@ Inspect the rows marked `unknown` before applying.\n"
         let module_display = c.module.as_deref().unwrap_or("");
         table.add_row(vec![
             action_cell,
-            Cell::new(&c.resource_type),
-            Cell::new(&c.name),
-            Cell::new(module_display),
+            text_cell(&c.resource_type),
+            text_cell(&c.name),
+            text_cell(module_display),
         ]);
     }
 
@@ -173,23 +209,63 @@ pub fn render_outputs_table(
     let mut table = OpsTable::with_tty(use_color);
     table.set_header(vec!["Output", "Action"]);
 
+    let mut unknown_count: usize = 0;
     for (name, value) in outputs {
-        let actions = value
-            .get("actions")
-            .and_then(|a| a.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        let action = Action::classify(&actions).unwrap_or(Action::NoOp);
+        let action = classify_output_action(name, value);
+        if matches!(action, Action::Unknown) {
+            // At most one increment per entry of `outputs`, so this can
+            // never exceed `outputs.len()`; `saturating_add` is `+ 1`.
+            unknown_count = unknown_count.saturating_add(1);
+        }
         let cell = table.cell(action.label(), action.color());
-        table.add_row(vec![Cell::new(name), cell]);
+        table.add_row(vec![text_cell(name), cell]);
     }
 
-    format!("{table}\n")
+    format!("{}{table}\n", unknown_banner(unknown_count, "output"))
+}
+
+/// SEC-31 / TASK-1954: fail closed when an output's planned change
+/// cannot be read.
+///
+/// A missing `actions` key, a value that is not an array, an array
+/// holding non-string entries, and an empty sequence all used to
+/// collapse to `Action::NoOp` — labelling the row "nothing is happening
+/// to this output" precisely when this build could not tell. Terraform
+/// outputs are frequently a stack's sensitive surface (generated
+/// credentials, endpoints), and the operator reads this table before
+/// approving an apply. The resource side has surfaced the same
+/// degradation as `Action::Unknown` with a `tracing::warn!` since
+/// TASK-0833 (`Action::classify`); the outputs table now matches.
+fn classify_output_action(name: &str, value: &serde_json::Value) -> Action {
+    // SEC-11 / TASK-1939: the output key is untrusted plan text and this
+    // event may land on a terminal, so sanitize before logging it too.
+    let Some(array) = value.get("actions").and_then(serde_json::Value::as_array) else {
+        tracing::warn!(
+            output = %sanitize_terminal_text(name),
+            "terraform output change has no readable `actions` array; surfacing as Unknown"
+        );
+        return Action::Unknown;
+    };
+
+    let actions: Vec<String> = array
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect();
+    if actions.len() != array.len() {
+        tracing::warn!(
+            output = %sanitize_terminal_text(name),
+            "terraform output `actions` array holds non-string entries; surfacing as Unknown"
+        );
+        return Action::Unknown;
+    }
+
+    Action::classify(&actions).unwrap_or_else(|| {
+        tracing::warn!(
+            output = %sanitize_terminal_text(name),
+            "terraform output reports an empty `actions` list; surfacing as Unknown"
+        );
+        Action::Unknown
+    })
 }
 
 #[cfg(test)]
@@ -204,6 +280,18 @@ mod tests {
             name: name.to_string(),
             module: None,
             mode: "managed".to_string(),
+        }
+    }
+
+    fn make_change_in_module(
+        action: Action,
+        rtype: &str,
+        name: &str,
+        module: &str,
+    ) -> ClassifiedChange {
+        ClassifiedChange {
+            module: Some(module.to_string()),
+            ..make_change(action, rtype, name)
         }
     }
 
@@ -240,6 +328,26 @@ mod tests {
         );
     }
 
+    /// TEST-6 / TASK-1956: `ACTION_DISPLAY_ORDER` lists `Unknown` first
+    /// so an unrecognized action is the first thing in the summary. That
+    /// ordering had no test.
+    #[test]
+    fn summary_table_lists_unknown_before_other_actions() {
+        let changes = vec![
+            make_change(Action::Create, "aws_instance", "web"),
+            make_change(Action::Delete, "null_resource", "old"),
+            make_change(Action::Unknown, "aws_instance", "gone"),
+        ];
+        let output = render_summary_table(&changes, false);
+        let unknown_pos = output.find("unknown").expect("unknown row present");
+        let create_pos = output.find("create").expect("create row present");
+        let delete_pos = output.find("delete").expect("delete row present");
+        assert!(
+            unknown_pos < create_pos && unknown_pos < delete_pos,
+            "unknown must be listed first: {output}"
+        );
+    }
+
     #[test]
     fn resource_table_sorted_delete_first() {
         let changes = vec![
@@ -258,6 +366,82 @@ mod tests {
         assert!(
             create_pos < update_pos,
             "create should appear before update"
+        );
+    }
+
+    /// TEST-6 / TASK-1956: the SEC-31 banner exists so an operator cannot
+    /// miss rows the tool cannot name. An inverted condition or a renamed
+    /// label would have passed the whole suite before this test.
+    #[test]
+    fn resource_table_unknown_action_shows_warning_banner() {
+        let changes = vec![
+            make_change(Action::Unknown, "aws_instance", "gone"),
+            make_change(Action::Unknown, "aws_instance", "imported"),
+            make_change(Action::Create, "aws_instance", "web"),
+        ];
+        let output = render_resource_table(&changes, false, false);
+        assert!(
+            output.starts_with(
+                "WARNING: 2 resource change(s) use an action this build does not recognize."
+            ),
+            "banner must lead the table and report the count: {output}"
+        );
+        assert!(
+            output.contains("Inspect the rows marked `unknown` before applying."),
+            "banner must tell the operator what to do: {output}"
+        );
+    }
+
+    /// TEST-6 / TASK-1956: no banner when nothing is unrecognized.
+    #[test]
+    fn resource_table_without_unknown_has_no_banner() {
+        let changes = vec![make_change(Action::Create, "aws_instance", "web")];
+        let output = render_resource_table(&changes, false, false);
+        assert!(
+            !output.contains("WARNING"),
+            "no banner without unknown rows: {output}"
+        );
+    }
+
+    /// TEST-6 / TASK-1956: `sort_priority() == 0` puts Unknown above
+    /// Delete. The existing sort test only compared delete/create/update.
+    #[test]
+    fn resource_table_sorts_unknown_above_delete() {
+        let changes = vec![
+            make_change(Action::Delete, "null_resource", "old"),
+            make_change(Action::Unknown, "zzz_last_by_type", "gone"),
+        ];
+        let output = render_resource_table(&changes, false, false);
+        let unknown_pos = output.find("unknown").expect("unknown row present");
+        let delete_pos = output.find("delete").expect("delete row present");
+        assert!(
+            unknown_pos < delete_pos,
+            "unknown must sort above delete even with a later type: {output}"
+        );
+    }
+
+    /// TEST-6 / TASK-1956: every `make_change` helper set `module: None`,
+    /// so `c.module.as_deref().unwrap_or("")` had only ever been
+    /// exercised on the `None` side.
+    #[test]
+    fn resource_table_renders_the_module_column() {
+        let changes = vec![
+            make_change_in_module(
+                Action::Create,
+                "aws_instance",
+                "web",
+                "module.networking.module.vpc",
+            ),
+            make_change(Action::Delete, "null_resource", "old"),
+        ];
+        let output = render_resource_table(&changes, false, false);
+        assert!(
+            output.contains("module.networking.module.vpc"),
+            "Some(module) must render: {output}"
+        );
+        assert!(
+            output.contains("null_resource"),
+            "None module must still render its row: {output}"
         );
     }
 
@@ -283,6 +467,34 @@ mod tests {
         let changes = vec![make_change(Action::NoOp, "aws_s3_bucket", "existing")];
         let output = render_resource_table(&changes, false, false);
         assert!(output.is_empty(), "only no-op should produce empty output");
+    }
+
+    /// SEC-11 / TASK-1939: an escape sequence or a bare carriage return
+    /// in a resource name must never reach the operator's terminal — it
+    /// can erase the rows already printed and redraw a fake summary line
+    /// on the screen an apply is approved from.
+    #[test]
+    fn resource_table_strips_control_characters() {
+        let changes = vec![make_change_in_module(
+            Action::Create,
+            "aws_\u{1b}[31minstance",
+            "web\r\u{1b}[2K\u{1b}[1A",
+            "module.a\u{7f}b",
+        )];
+        let output = render_resource_table(&changes, false, false);
+        assert!(
+            !output.contains('\u{1b}'),
+            "no ESC byte may survive: {output:?}"
+        );
+        assert!(!output.contains('\r'), "no CR byte may survive: {output:?}");
+        assert!(
+            !output.contains('\u{7f}'),
+            "no DEL byte may survive: {output:?}"
+        );
+        assert!(
+            output.contains("aws_[31minstance"),
+            "the visible text must still render: {output}"
+        );
     }
 
     /// ARCH-2 / TASK-0849: `render_resource_table`(.., false) must be byte-
@@ -320,6 +532,10 @@ mod tests {
         assert!(output.contains("vpc_id"), "should contain vpc_id: {output}");
         assert!(output.contains("create"), "should contain create: {output}");
         assert!(output.contains("update"), "should contain update: {output}");
+        assert!(
+            !output.contains("WARNING"),
+            "readable outputs need no banner: {output}"
+        );
     }
 
     #[test]
@@ -327,5 +543,88 @@ mod tests {
         let outputs = serde_json::Map::new();
         let output = render_outputs_table(&outputs, false);
         assert!(output.is_empty());
+    }
+
+    /// SEC-31 / TASK-1954: fail closed. Each of these used to render as
+    /// `no-op`, telling the operator nothing was happening to an output
+    /// whose planned change this build could not read.
+    #[test]
+    fn outputs_table_degraded_actions_render_as_unknown() {
+        for (label, value) in [
+            ("missing actions key", serde_json::json!({"before": 1})),
+            (
+                "non-array actions",
+                serde_json::json!({"actions": "create"}),
+            ),
+            (
+                "non-string entries",
+                serde_json::json!({"actions": [1, {"a": 2}, null]}),
+            ),
+            ("empty actions array", serde_json::json!({"actions": []})),
+        ] {
+            let mut outputs = serde_json::Map::new();
+            outputs.insert("db_password".into(), value);
+            let output = render_outputs_table(&outputs, false);
+            assert!(
+                output.contains("unknown"),
+                "{label} must render as unknown: {output}"
+            );
+            assert!(
+                !output.contains("no-op"),
+                "{label} must not fail open to no-op: {output}"
+            );
+            assert!(
+                output.starts_with(
+                    "WARNING: 1 output change(s) use an action this build does not recognize."
+                ),
+                "{label} must raise the banner: {output}"
+            );
+        }
+    }
+
+    /// SEC-31 / TASK-1954: a mixed table counts only the degraded rows.
+    #[test]
+    fn outputs_table_banner_counts_only_unreadable_outputs() {
+        let mut outputs = serde_json::Map::new();
+        outputs.insert("region".into(), serde_json::json!({"actions": ["create"]}));
+        outputs.insert("db_password".into(), serde_json::json!({"before": 1}));
+        outputs.insert("api_key".into(), serde_json::json!({"actions": [7]}));
+        let output = render_outputs_table(&outputs, false);
+        assert!(
+            output.starts_with("WARNING: 2 output change(s)"),
+            "only the two unreadable outputs count: {output}"
+        );
+        assert!(output.contains("create"), "readable row still renders");
+    }
+
+    /// SEC-11 / TASK-1939: the output map key is untrusted plan text too.
+    #[test]
+    fn outputs_table_strips_control_characters_from_keys() {
+        let mut outputs = serde_json::Map::new();
+        outputs.insert(
+            "db_\u{1b}[2Kpassword\r".into(),
+            serde_json::json!({"actions": ["create"]}),
+        );
+        let output = render_outputs_table(&outputs, false);
+        assert!(
+            !output.contains('\u{1b}'),
+            "no ESC byte may survive: {output:?}"
+        );
+        assert!(!output.contains('\r'), "no CR byte may survive: {output:?}");
+        assert!(
+            output.contains("db_[2Kpassword"),
+            "the visible text must still render: {output}"
+        );
+    }
+
+    /// SEC-11 / TASK-1939: the sanitizer keeps ordinary text intact.
+    #[test]
+    fn sanitize_terminal_text_preserves_printable_and_unicode() {
+        assert_eq!(
+            sanitize_terminal_text("module.vpc/subnet-öä 名前"),
+            "module.vpc/subnet-öä 名前"
+        );
+        assert_eq!(sanitize_terminal_text("a\tb\nc"), "abc");
+        assert_eq!(sanitize_terminal_text(""), "");
     }
 }
