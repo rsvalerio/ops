@@ -78,7 +78,7 @@ wait-timeout = "0.2"
 comfy-table = "7"
 terminal_size = "0.4"
 shellexpand = { version = "3.1.2", default-features = false, features = ["base-0"] }
-saphyr = "0.0.6"
+saphyr-parser = "0.0.6"
 json5 = "0.4"
 ignore = "0.4"
 syn = { version = "2", features = ["full", "parsing", "printing"] }
