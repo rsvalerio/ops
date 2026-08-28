@@ -2200,12 +2200,14 @@ version = "0.43.1"
 dependencies = [
  "anyhow",
  "duckdb",
+ "ignore",
  "linkme",
  "ops-duckdb",
  "ops-extension",
  "serde_json",
  "tempfile",
  "tokei",
+ "tracing",
 ]
 
 [[package]]
