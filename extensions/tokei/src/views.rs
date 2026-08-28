@@ -6,14 +6,14 @@
 //! (shared defense-in-depth validation). This module only contains
 //! tokei-specific SQL generation.
 
-use ops_duckdb::sql::{SqlError, TableName};
+use ops_duckdb::sql::{CreateTableSql, CreateViewSql, SqlError, TableName};
 use std::path::Path;
 
 /// # Errors
 ///
 /// [`SqlError`] if `path` fails path validation; the table name is a valid
 /// static identifier.
-pub fn tokei_files_create_sql(path: &Path) -> Result<String, SqlError> {
+pub fn tokei_files_create_sql(path: &Path) -> Result<CreateTableSql, SqlError> {
     ops_duckdb::sql::create_table_from_json_sql("tokei_files", path, None)
 }
 
@@ -25,15 +25,18 @@ pub fn tokei_files_create_sql(path: &Path) -> Result<String, SqlError> {
 /// would fire at build time on a typo, eliminating the pre-prod
 /// `Result<_, SqlError>` whose `Err` variant could never occur and the
 /// `expect("static idents must validate")` calls in tests.
-#[must_use]
-pub fn tokei_languages_view_sql() -> String {
-    let view = TableName::from_static("tokei_languages").quoted();
-    let table = TableName::from_static("tokei_files").quoted();
-    format!(
-        "CREATE OR REPLACE VIEW {view} AS \
-         SELECT language, COUNT(*) AS files, SUM(code) AS code, \
+///
+/// SEC-12 / TASK-1864: the statement is returned as the gated
+/// [`CreateViewSql`] newtype, whose only constructor takes const-validated
+/// [`TableName`]s plus a `&'static str` body — a runtime-derived `String`
+/// can no longer reach `load_with_sidecar`.
+pub fn tokei_languages_view_sql() -> CreateViewSql {
+    CreateViewSql::create_or_replace(
+        TableName::from_static("tokei_languages"),
+        TableName::from_static("tokei_files"),
+        "SELECT language, COUNT(*) AS files, SUM(code) AS code, \
          SUM(comments) AS comments, SUM(blanks) AS blanks, SUM(lines) AS lines \
-         FROM {table} GROUP BY language ORDER BY code DESC"
+         FROM <source> GROUP BY language ORDER BY code DESC",
     )
 }
 
@@ -45,7 +48,7 @@ mod tests {
 
     #[test]
     fn tokei_languages_view_sql_contains_aggregation() {
-        let sql = tokei_languages_view_sql();
+        let sql = tokei_languages_view_sql().to_string();
         assert!(sql.contains("tokei_languages"));
         assert!(sql.contains("GROUP BY language"));
         assert!(sql.contains("SUM(code)"));
@@ -57,7 +60,7 @@ mod tests {
     /// of the sister `tokei_files_create_sql` helper.
     #[test]
     fn tokei_languages_view_sql_quotes_identifiers() {
-        let sql = tokei_languages_view_sql();
+        let sql = tokei_languages_view_sql().to_string();
         assert!(
             sql.contains("\"tokei_languages\""),
             "view name should be double-quoted: {sql}"

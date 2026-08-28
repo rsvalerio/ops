@@ -6,7 +6,7 @@
 //! (shared defense-in-depth validation). This module only contains
 //! metadata-specific SQL generation.
 
-use ops_duckdb::sql::SqlError;
+use ops_duckdb::sql::{CreateTableSql, CreateViewSql, SqlError, TableName};
 use std::path::Path;
 
 // TASK-0982: include path/intra-workspace deps. Cargo metadata sets
@@ -22,7 +22,10 @@ use std::path::Path;
 // version_req, dependency_kind, is_optional)` tuples that double-count in
 // downstream consumers. NULL means "all targets" (the default
 // `[dependencies]` table); a non-empty string is the cfg expression.
-pub fn crate_dependencies_view_sql() -> String {
+/// SEC-12 / TASK-1864: returned as the gated [`CreateViewSql`] newtype so the
+/// `crate_dependencies` DDL this crate executes is provably builder-produced,
+/// matching the sibling ingestors.
+pub fn crate_dependencies_view_sql() -> CreateViewSql {
     // ERR-2 / TASK-1253: surface `pkg.manifest_path` so callers
     // (e.g. `query_crate_dep_counts`) can key per-crate counts on a unique
     // identifier. `pkg.name` collides for renamed (`package = "alt"`) or
@@ -30,9 +33,11 @@ pub fn crate_dependencies_view_sql() -> String {
     // counts. The column is nullable in extreme edge cases (synthetic
     // metadata) and ordered last so existing positional consumers keep
     // working.
-    "CREATE OR REPLACE VIEW crate_dependencies AS \
-     WITH pkgs AS (SELECT unnest(packages) AS pkg FROM metadata_raw), \
-     ws_ids AS (SELECT unnest(workspace_members) AS member_id FROM metadata_raw), \
+    CreateViewSql::create_or_replace(
+        TableName::from_static("crate_dependencies"),
+        TableName::from_static("metadata_raw"),
+        "WITH pkgs AS (SELECT unnest(packages) AS pkg FROM <source>), \
+     ws_ids AS (SELECT unnest(workspace_members) AS member_id FROM <source>), \
      member_deps AS ( \
          SELECT pkg.name AS crate_name, pkg.manifest_path AS crate_manifest_path, \
                 unnest(pkg.dependencies) AS dep \
@@ -44,8 +49,8 @@ pub fn crate_dependencies_view_sql() -> String {
             NULLIF(dep.target, '') AS target, \
             crate_manifest_path \
      FROM member_deps \
-     ORDER BY crate_name, dependency_kind, dependency_name, target"
-        .to_string()
+     ORDER BY crate_name, dependency_kind, dependency_name, target",
+    )
 }
 
 /// ARCH-9 / TASK-1247: thread the `metadata_max_bytes()` knob into the
@@ -55,7 +60,7 @@ pub fn crate_dependencies_view_sql() -> String {
 /// `OPS_METADATA_MAX_BYTES` in the post-ingest reader did not save memory
 /// because `DuckDB` still buffered up to the hardcoded ceiling during
 /// ingest, and lowering it from the env left ingest unbounded.
-pub fn metadata_raw_create_sql(path: &Path) -> Result<String, SqlError> {
+pub fn metadata_raw_create_sql(path: &Path) -> Result<CreateTableSql, SqlError> {
     metadata_raw_create_sql_with_cap(path, crate::metadata_max_bytes())
 }
 
@@ -65,7 +70,7 @@ pub fn metadata_raw_create_sql(path: &Path) -> Result<String, SqlError> {
 /// env-knob → SQL-option propagation without depending on the
 /// `metadata_max_bytes` `OnceLock` (which is process-global and cannot be
 /// re-initialised).
-pub fn metadata_raw_create_sql_with_cap(path: &Path, cap: u64) -> Result<String, SqlError> {
+pub fn metadata_raw_create_sql_with_cap(path: &Path, cap: u64) -> Result<CreateTableSql, SqlError> {
     let opts = format!("maximum_object_size={cap}");
     let extra = ops_duckdb::sql::ExtraOpts::new(&opts)?;
     ops_duckdb::sql::create_table_from_json_sql("metadata_raw", path, Some(extra))
@@ -77,8 +82,8 @@ mod tests {
 
     #[test]
     fn crate_dependencies_view_sql_contains_expected_clauses() {
-        let sql = crate_dependencies_view_sql();
-        assert!(sql.contains("CREATE OR REPLACE VIEW crate_dependencies"));
+        let sql = crate_dependencies_view_sql().to_string();
+        assert!(sql.contains("CREATE OR REPLACE VIEW \"crate_dependencies\""));
         assert!(sql.contains("unnest(packages)"));
         assert!(sql.contains("workspace_members"));
         // TASK-0982: path/intra-workspace deps must not be filtered out.
@@ -100,7 +105,9 @@ mod tests {
     #[test]
     fn metadata_raw_create_sql_threads_cap_into_max_object_size() {
         let p = Path::new("metadata.json");
-        let sql = metadata_raw_create_sql_with_cap(p, 9_999_999).expect("sql builds");
+        let sql = metadata_raw_create_sql_with_cap(p, 9_999_999)
+            .expect("sql builds")
+            .to_string();
         assert!(
             sql.contains("maximum_object_size=9999999"),
             "raised cap must reach DuckDB ingest options: {sql}"

@@ -1,8 +1,97 @@
 //! SQL builders and table-state probes for ingestor pipelines.
 
-use crate::sql::validation::{prepare_path_for_sql, quoted_ident, ExtraOpts, SqlError};
+use crate::sql::validation::{prepare_path_for_sql, quoted_ident, ExtraOpts, SqlError, TableName};
 use crate::DuckDb;
 use std::path::Path;
+
+/// A `CREATE OR REPLACE TABLE …` statement produced by a validated builder.
+///
+/// SEC-12 / TASK-1864: `SidecarIngestorConfig::load_with_sidecar` used to take
+/// its two statements as bare `&str`, making it the widest un-gated path into
+/// `conn.execute` in the crate — the validated-builder discipline every other
+/// interpolation site enforces (`TableName`, `ExtraOpts`, `quoted_ident`,
+/// `QueryTableName`) was upheld only by convention at call sites this crate
+/// cannot see. There is deliberately **no** public constructor taking a
+/// `String` or `&str`: the only way to obtain this type is
+/// [`create_table_from_json_sql`], which validates the table identifier and
+/// the interpolated path first.
+#[derive(Debug, Clone)]
+#[must_use = "SEC-12: the built statement is the only gated form; discarding it means nothing is executed"]
+pub struct CreateTableSql(String);
+
+impl CreateTableSql {
+    /// Borrow the built statement (for logging, assertions, and `execute`).
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+impl CreateTableSql {
+    /// Test-only escape hatch: build the newtype from a literal so
+    /// crate-internal tests can drive `load_with_sidecar` with fixture SQL
+    /// (`CREATE TABLE … FROM (VALUES …)`) that no production builder emits.
+    /// `#[cfg(test)]` keeps it out of the crate's public surface entirely.
+    pub(crate) fn from_literal_for_tests(sql: &str) -> Self {
+        Self(sql.to_string())
+    }
+}
+
+impl std::fmt::Display for CreateTableSql {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// A `CREATE OR REPLACE VIEW …` statement produced by a validated builder.
+///
+/// SEC-12 / TASK-1864: the companion of [`CreateTableSql`]. Being a distinct
+/// type is load-bearing — the two statements are positional arguments of
+/// `load_with_sidecar`, and swapping them used to compile and merely produce a
+/// confusing `"{name} create"` error label (API-2).
+#[derive(Debug, Clone)]
+#[must_use = "SEC-12: the built statement is the only gated form; discarding it means nothing is executed"]
+pub struct CreateViewSql(String);
+
+impl CreateViewSql {
+    /// Build `CREATE OR REPLACE VIEW <view> AS <body>`.
+    ///
+    /// The gate is the one `PerCrateI64Query::select_expr` established: `body`
+    /// is `&'static str`, so "static-vetted SQL fragment" is a build-time
+    /// property rather than a call-site convention — a config- or
+    /// metadata-derived `String` cannot be passed. Both identifiers are
+    /// const-validated [`TableName`]s, and every `<source>` placeholder in
+    /// `body` is replaced with the quoted source table so the `FROM` clause
+    /// carries the same validation as the view name.
+    pub fn create_or_replace(view: TableName, source: TableName, body: &'static str) -> Self {
+        Self(format!(
+            "CREATE OR REPLACE VIEW {} AS {}",
+            view.quoted(),
+            body.replace("<source>", &source.quoted())
+        ))
+    }
+
+    /// Borrow the built statement (for logging, assertions, and `execute`).
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+impl CreateViewSql {
+    /// Test-only escape hatch; see [`CreateTableSql::from_literal_for_tests`].
+    pub(crate) fn from_literal_for_tests(sql: &str) -> Self {
+        Self(sql.to_string())
+    }
+}
+
+impl std::fmt::Display for CreateViewSql {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
 
 /// Generate `CREATE OR REPLACE TABLE <name> AS SELECT * FROM read_json_auto(...)` SQL (DUP-009).
 ///
@@ -15,6 +104,10 @@ use std::path::Path;
 /// is encoded in the type system. Any future dynamic caller must route
 /// through [`ExtraOpts::new`] and cannot bypass the allowlist.
 ///
+/// SEC-12 / TASK-1864: returns the gated [`CreateTableSql`] newtype rather
+/// than a bare `String`, so the statement `load_with_sidecar` executes is
+/// provably the output of this validator.
+///
 /// # Errors
 ///
 /// [`SqlError`] if `table_name` is not a valid identifier, `path` fails
@@ -23,7 +116,7 @@ pub fn create_table_from_json_sql(
     table_name: &str,
     path: &Path,
     extra_opts: Option<ExtraOpts<'_>>,
-) -> Result<String, SqlError> {
+) -> Result<CreateTableSql, SqlError> {
     // SEC-12 (TASK-0522): use the same `quoted_ident` defense-in-depth as
     // `table_has_data` and `drop_table_if_exists` so a future widening of
     // `validate_identifier` (e.g. allowing schema-qualified names) does
@@ -33,9 +126,9 @@ pub fn create_table_from_json_sql(
     // READ-8 / TASK-1627: single `format!` site; the optional opts segment
     // is rendered inline so the SQL template lives in exactly one place.
     let opts_segment = extra_opts.map_or_else(String::new, |opts| format!(", {}", opts.as_str()));
-    Ok(format!(
+    Ok(CreateTableSql(format!(
         "CREATE OR REPLACE TABLE {quoted} AS SELECT * FROM read_json_auto('{escaped}'{opts_segment})",
-    ))
+    )))
 }
 
 /// Check if a table or view exists in the database.
@@ -216,11 +309,12 @@ mod tests {
         let path = PathBuf::from("/safe/path.json");
         let sql = create_table_from_json_sql("tokei_files", &path, None).expect("ok");
         assert!(
-            sql.contains("\"tokei_files\""),
+            sql.as_str().contains("\"tokei_files\""),
             "expected quoted identifier in: {sql}"
         );
         assert!(
-            !sql.contains("CREATE OR REPLACE TABLE tokei_files "),
+            !sql.as_str()
+                .contains("CREATE OR REPLACE TABLE tokei_files "),
             "bare identifier interpolation regressed: {sql}"
         );
     }
@@ -259,9 +353,147 @@ mod tests {
         let dynamic = format!("maximum_object_size={cap}");
         let opts = ExtraOpts::new(&dynamic).expect("dynamic safe opts");
         let sql = create_table_from_json_sql("t", &path, Some(opts)).expect("ok");
-        assert!(sql.contains("maximum_object_size=9999999"), "got: {sql}");
+        assert!(
+            sql.as_str().contains("maximum_object_size=9999999"),
+            "got: {sql}"
+        );
 
         let bad = format!("a=1;{}", "DROP TABLE users");
         assert!(ExtraOpts::new(&bad).is_err());
+    }
+
+    // --- query_rows_to_json (TEST-5 / TASK-1870) ---
+    //
+    // Three downstream crates (`extensions/tokei`, `extensions-rust/loc`,
+    // `extensions-rust/test-coverage`) turn query results into JSON through
+    // this helper, and every one of them degrades softly on a break: an
+    // empty array renders as "no data" on the about page rather than as a
+    // failed run. These tests pin the concrete shapes.
+
+    fn seed_rows_table(db: &DuckDb, values: &str) {
+        let conn = db.lock().expect("lock");
+        conn.execute_batch(&format!(
+            "CREATE TABLE rows_src (id INTEGER, label VARCHAR); {values}"
+        ))
+        .expect("seed");
+        drop(conn);
+    }
+
+    #[test]
+    fn query_rows_to_json_maps_every_row_of_a_populated_table() {
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        seed_rows_table(
+            &db,
+            "INSERT INTO rows_src VALUES (1, 'one'), (2, 'two'), (3, 'three');",
+        );
+
+        let value = query_rows_to_json(&db, "SELECT id, label FROM rows_src ORDER BY id", |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, i32>(0)?,
+                "label": row.get::<_, String>(1)?,
+            }))
+        })
+        .expect("query");
+
+        assert_eq!(
+            value,
+            serde_json::json!([
+                {"id": 1, "label": "one"},
+                {"id": 2, "label": "two"},
+                {"id": 3, "label": "three"},
+            ])
+        );
+    }
+
+    /// TEST-5 / TASK-1870: an empty result set is an empty JSON **array**,
+    /// not `null`. Downstream `about` pages iterate the value directly, so
+    /// the distinction is load-bearing.
+    #[test]
+    fn query_rows_to_json_returns_an_empty_array_for_no_rows() {
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        seed_rows_table(&db, "");
+
+        let value = query_rows_to_json(&db, "SELECT id FROM rows_src", |row| {
+            Ok(serde_json::json!(row.get::<_, i32>(0)?))
+        })
+        .expect("query");
+
+        assert_eq!(value, serde_json::Value::Array(vec![]));
+        assert!(!value.is_null(), "empty result must not collapse to null");
+    }
+
+    /// TEST-5 / TASK-1870: a failing row mapper surfaces as an error rather
+    /// than a silently short result.
+    #[test]
+    fn query_rows_to_json_propagates_a_row_mapper_error() {
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        seed_rows_table(&db, "INSERT INTO rows_src VALUES (1, 'one');");
+
+        // Decoding a VARCHAR column as i32 is the row mapper's error path.
+        let err = query_rows_to_json(&db, "SELECT label FROM rows_src", |row| {
+            Ok(serde_json::json!(row.get::<_, i32>(0)?))
+        })
+        .expect_err("row mapper failure must propagate");
+
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("reading row") || rendered.contains("querying"),
+            "error must carry the helper's context: {rendered}"
+        );
+    }
+
+    /// SEC-12 / TASK-1864: the view builder quotes the view name and
+    /// substitutes the const-validated source table for `<source>`, so the
+    /// only free-form part of the statement is a `&'static str`.
+    #[test]
+    fn create_view_sql_quotes_identifiers_and_substitutes_source() {
+        let sql = CreateViewSql::create_or_replace(
+            TableName::from_static("tokei_languages"),
+            TableName::from_static("tokei_files"),
+            "SELECT language FROM <source> GROUP BY language",
+        );
+        assert_eq!(
+            sql.as_str(),
+            "CREATE OR REPLACE VIEW \"tokei_languages\" AS \
+             SELECT language FROM \"tokei_files\" GROUP BY language"
+        );
+    }
+
+    /// SEC-12 / TASK-1864: pins that an unvalidated string cannot reach
+    /// `conn.execute` through this crate's public API.
+    ///
+    /// `SidecarIngestorConfig::load_with_sidecar` is the only public entry
+    /// point that executes caller-supplied DDL, and it now takes
+    /// `&CreateTableSql` / `&CreateViewSql`. Neither newtype has a public
+    /// constructor accepting a `String` or `&str`:
+    ///
+    /// - `CreateTableSql` comes only from `create_table_from_json_sql`, which
+    ///   this test drives with injection-shaped paths and an
+    ///   injection-shaped table name — all rejected, so no value of the type
+    ///   ever exists for them.
+    /// - `CreateViewSql` comes only from `create_or_replace`, whose two
+    ///   identifiers are const-validated `TableName`s and whose body is
+    ///   `&'static str`.
+    /// - The `from_literal_for_tests` escape hatches are `#[cfg(test)]`, so
+    ///   they do not exist in a compiled library.
+    ///
+    /// The two are also distinct types, so the positional arguments can no
+    /// longer be swapped at a call site (API-2).
+    #[test]
+    fn unvalidated_sql_cannot_reach_conn_execute_through_the_public_api() {
+        for path in [
+            PathBuf::from("/tmp/x'); DROP TABLE users; --"),
+            PathBuf::from("../../../etc/passwd"),
+            PathBuf::from("/tmp/$(whoami).json"),
+        ] {
+            assert!(
+                create_table_from_json_sql("t", &path, None).is_err(),
+                "path {} must not produce a CreateTableSql",
+                path.display()
+            );
+        }
+        let safe = PathBuf::from("/safe/path.json");
+        assert!(create_table_from_json_sql("t; DROP TABLE users; --", &safe, None).is_err());
+        assert!(ExtraOpts::new("maximum_object_size=1) UNION SELECT 1 --").is_err());
     }
 }

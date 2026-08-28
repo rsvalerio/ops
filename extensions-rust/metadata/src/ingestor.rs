@@ -94,10 +94,10 @@ impl DataIngestor for MetadataIngestor {
 /// reads at one nesting level.
 fn build_views(conn: &duckdb::Connection, path: &Path) -> DbResult<()> {
     let sql = views::metadata_raw_create_sql(path)?;
-    conn.execute(&sql, [])
+    conn.execute(sql.as_str(), [])
         .map_err(|e| DbError::query_failed("metadata_raw create", e))?;
     let view_sql = views::crate_dependencies_view_sql();
-    conn.execute(&view_sql, [])
+    conn.execute(view_sql.as_str(), [])
         .map_err(|e| DbError::query_failed("crate_dependencies view", e))?;
     Ok(())
 }

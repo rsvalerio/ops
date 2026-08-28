@@ -1,7 +1,16 @@
 //! `DataIngestor` trait for loading data into `DuckDb`.
 
 use crate::connection::DuckDb;
+// READ-4 / TASK-1875: `DbError` is imported for the intra-doc links in the
+// `# Errors` sections below; without it `[`DbError::Io`]` and friends did not
+// resolve. The `use` is doc-only, hence the narrow `expect`.
+#[expect(
+    unused_imports,
+    reason = "referenced only by intra-doc links in this module"
+)]
+use crate::error::DbError;
 use crate::error::DbResult;
+use crate::sql::{CreateTableSql, CreateViewSql};
 use ops_extension::Context;
 use std::path::Path;
 
@@ -38,7 +47,6 @@ impl LoadResult {
 /// Captures the static parameters shared by ingestors that use workspace sidecar
 /// files (e.g., tokei, coverage). The methods handle the common collect/load/checksum
 /// workflow, eliminating duplicated boilerplate across ingestor implementations.
-#[allow(dead_code)]
 #[non_exhaustive]
 pub struct SidecarIngestorConfig {
     pub name: &'static str,
@@ -51,7 +59,6 @@ pub struct SidecarIngestorConfig {
     pub count_table: crate::sql::validation::TableName,
 }
 
-#[allow(dead_code)]
 impl SidecarIngestorConfig {
     /// Construct a sidecar ingestor config (API-9 / TASK-0468).
     ///
@@ -182,8 +189,8 @@ impl SidecarIngestorConfig {
         &self,
         db: &DuckDb,
         data_dir: &Path,
-        create_sql: &str,
-        view_sql: &str,
+        create_sql: &CreateTableSql,
+        view_sql: &CreateViewSql,
     ) -> DbResult<crate::ingestor::LoadResult> {
         crate::schema::init_schema(db)?;
 
@@ -219,17 +226,17 @@ impl SidecarIngestorConfig {
     fn create_tables_with(
         &self,
         conn: &duckdb::Connection,
-        create_sql: &str,
-        view_sql: &str,
+        create_sql: &CreateTableSql,
+        view_sql: &CreateViewSql,
     ) -> DbResult<()> {
         // PERF-3 / TASK-1243: keep the `format!` inside the `map_err` closure
         // so the success path (the dominant case on every ingest) allocates
         // zero strings for the error label. The pre-fix shape allocated two
         // `String`s per call (one per SQL execute) for labels that the
         // success path immediately dropped.
-        conn.execute(create_sql, [])
+        conn.execute(create_sql.as_str(), [])
             .map_err(|e| crate::error::DbError::query_failed(format!("{} create", self.name), e))?;
-        conn.execute(view_sql, [])
+        conn.execute(view_sql.as_str(), [])
             .map_err(|e| crate::error::DbError::query_failed(format!("{} view", self.name), e))?;
         Ok(())
     }
@@ -791,20 +798,29 @@ mod tests {
                 json_filename: "b.json",
                 count_table: crate::sql::validation::TableName::from_static("shared_table"),
             };
-            let create_a = "CREATE OR REPLACE TABLE shared_table AS \
-                            SELECT * FROM (VALUES (1),(2),(3)) v(i)";
-            let create_b = "CREATE OR REPLACE TABLE shared_table AS \
-                            SELECT * FROM (VALUES (1),(2),(3),(4),(5)) v(i)";
-            let view = "CREATE OR REPLACE VIEW shared_v AS SELECT * FROM shared_table";
+            let create_a = CreateTableSql::from_literal_for_tests(
+                "CREATE OR REPLACE TABLE shared_table AS \
+                 SELECT * FROM (VALUES (1),(2),(3)) v(i)",
+            );
+            let create_b = CreateTableSql::from_literal_for_tests(
+                "CREATE OR REPLACE TABLE shared_table AS \
+                 SELECT * FROM (VALUES (1),(2),(3),(4),(5)) v(i)",
+            );
+            let view = CreateViewSql::from_literal_for_tests(
+                "CREATE OR REPLACE VIEW shared_v AS SELECT * FROM shared_table",
+            );
 
             let path_a = dir_a.path().to_path_buf();
             let path_b = dir_b.path().to_path_buf();
             let db_a = Arc::clone(&db);
             let db_b = Arc::clone(&db);
-            let h1 =
-                std::thread::spawn(move || cfg_a.load_with_sidecar(&db_a, &path_a, create_a, view));
-            let h2 =
-                std::thread::spawn(move || cfg_b.load_with_sidecar(&db_b, &path_b, create_b, view));
+            let view_b = view.clone();
+            let h1 = std::thread::spawn(move || {
+                cfg_a.load_with_sidecar(&db_a, &path_a, &create_a, &view)
+            });
+            let h2 = std::thread::spawn(move || {
+                cfg_b.load_with_sidecar(&db_b, &path_b, &create_b, &view_b)
+            });
 
             let res_a = h1.join().expect("join a").expect("ingestor a");
             let res_b = h2.join().expect("join b").expect("ingestor b");
