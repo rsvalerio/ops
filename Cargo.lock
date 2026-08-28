@@ -1966,8 +1966,10 @@ dependencies = [
  "ops-create-review-tasks",
  "ops-extension",
  "serde_json",
+ "serial_test",
  "tempfile",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
