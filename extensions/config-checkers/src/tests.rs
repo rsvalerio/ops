@@ -226,7 +226,7 @@ fn tracked_but_deleted_file_is_skipped_rather_than_failing_the_hook() {
 
 #[test]
 #[cfg(unix)]
-fn tracked_symlink_to_a_character_device_is_skipped_not_read() {
+fn tracked_symlink_to_a_character_device_is_never_a_candidate() {
     let device = Path::new("/dev/zero");
     if !device.exists() {
         return;
@@ -238,6 +238,12 @@ fn tracked_symlink_to_a_character_device_is_skipped_not_read() {
     // A committed symlink to an endless device: `metadata()` reports length
     // 0, so a size gate lets it past, and an unbounded read never reaches
     // EOF. It must be rejected on file *type*, before any read.
+    //
+    // `ops_text_fixers::discovery` now applies that type test to both of its
+    // modes, so the symlink is dropped from the candidate set before this
+    // crate sees it and never reaches the checker's own `NotRegularFile`
+    // skip. The hazard is handled one layer earlier; the property under test
+    // is unchanged — the device is not read, and the run stays clean.
     std::os::unix::fs::symlink(device, root.join("evil.json")).unwrap();
     if !stage_all(root) {
         return;
@@ -248,10 +254,10 @@ fn tracked_symlink_to_a_character_device_is_skipped_not_read() {
     let report = run_check_json(&opts, &mut buf).unwrap();
 
     assert!(!report.failed(), "failures: {:?}", report.files_failed);
-    assert_eq!(report.files_scanned, 1);
-    assert_eq!(report.files_skipped, 1);
+    assert_eq!(report.files_scanned, 1, "only ok.json is read");
+    assert_eq!(report.files_skipped, 0);
     let out = String::from_utf8(buf).unwrap();
-    assert!(out.contains("not a regular file"), "out was {out:?}");
+    assert!(!out.contains("evil.json"), "out was {out:?}");
 }
 
 #[test]
