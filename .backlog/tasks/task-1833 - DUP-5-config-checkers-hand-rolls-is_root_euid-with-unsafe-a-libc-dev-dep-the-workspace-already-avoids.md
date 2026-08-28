@@ -3,11 +3,11 @@ id: TASK-1833
 title: >-
   DUP-5: config-checkers hand-rolls is_root_euid with unsafe + a libc dev-dep
   the workspace already avoids
-status: To Do
+status: Done
 assignee:
   - TASK-2004
 created_date: '2026-08-27 15:21'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 22:24'
 labels:
   - code-review-rust
   - duplication
@@ -54,7 +54,19 @@ Two existing callers already use it (`crates/core/src/stack/mod.rs:280`, `crates
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 unreadable_file_is_reported_as_failed uses ops_core::test_utils::is_root_euid() instead of a local libc::geteuid call
-- [ ] #2 The libc dev-dependency is removed from extensions/config-checkers/Cargo.toml and the crate contains no unsafe blocks
-- [ ] #3 ops-core is taken as a dev-dependency with the test-support feature, matching the existing workspace convention
+- [x] #1 unreadable_file_is_reported_as_failed uses ops_core::test_utils::is_root_euid() instead of a local libc::geteuid call
+- [x] #2 The libc dev-dependency is removed from extensions/config-checkers/Cargo.toml and the crate contains no unsafe blocks
+- [x] #3 ops-core is taken as a dev-dependency with the test-support feature, matching the existing workspace convention
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2004. The test (renamed
+`unreadable_file_is_reported_as_a_read_failure_not_a_parse_failure`, now in
+`src/tests.rs`) calls `ops_core::test_utils::is_root_euid()` and returns at the
+top of the test as the helper's contract asks, with the inline comment
+explaining why the guard is mandatory. The `[target.'cfg(unix)'.dev-dependencies]
+libc` entry is gone, `ops-core = { workspace = true, features = ["test-support"] }`
+is a dev-dependency, and the crate now contains no `unsafe` block.
+<!-- SECTION:NOTES:END -->

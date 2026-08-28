@@ -3,11 +3,11 @@ id: TASK-1824
 title: >-
   ERR-9: CheckError::Parse renders the parser error to a String, breaking the
   source() chain
-status: To Do
+status: Done
 assignee:
   - TASK-2004
 created_date: '2026-08-27 11:33'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 22:25'
 labels:
   - code-review-rust
   - error-handling
@@ -46,7 +46,23 @@ What is lost: `serde_json::Error` carries `line()`, `column()` and `classify()`;
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 CheckError::Parse retains the underlying parser error (boxed) instead of a rendered String
-- [ ] #2 Error::source() returns Some for the Parse variant, so the chain is walkable
-- [ ] #3 The rendered messages emitted by run_checker are unchanged, and Display does not duplicate the source text
+- [x] #1 CheckError::Parse retains the underlying parser error (boxed) instead of a rendered String
+- [x] #2 Error::source() returns Some for the Parse variant, so the chain is walkable
+- [x] #3 The rendered messages emitted by run_checker are unchanged, and Display does not duplicate the source text
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2004. `CheckError::Parse` now holds
+`Box<dyn std::error::Error + Send + Sync + 'static>`, built through a
+`CheckError::parse` constructor; `source()` returns `Some(&**e)`, so the chain
+is walkable and `serde_json::Error`'s line/column and `saphyr`'s `Marker`
+survive to any future structured report. `Display` delegates to the boxed
+error rather than wrapping it, so every rendered message is byte-identical and
+this layer adds no text of its own to duplicate.
+
+The same variant now also carries `LimitExceeded` (new, in `error.rs`), the
+checker-imposed depth/expansion bounds added by TASK-1808 and TASK-1809 — a
+typed error rather than a formatted string.
+<!-- SECTION:NOTES:END -->

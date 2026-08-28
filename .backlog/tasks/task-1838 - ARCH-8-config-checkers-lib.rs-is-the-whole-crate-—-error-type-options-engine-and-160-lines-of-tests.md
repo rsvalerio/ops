@@ -3,11 +3,11 @@ id: TASK-1838
 title: >-
   ARCH-8: config-checkers lib.rs is the whole crate — error type, options,
   engine, and 160 lines of tests
-status: To Do
+status: Done
 assignee:
   - TASK-2004
 created_date: '2026-08-27 15:22'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 22:25'
 labels:
   - code-review-rust
   - structure-readability
@@ -60,8 +60,30 @@ This is Low severity and mostly dormant, but it compounds with the other finding
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 CheckError and its Display/Error impls live in their own module, since both json.rs and yaml.rs depend on them
-- [ ] #2 The checker engine (run_checker, matches_ext, relative_to, run_check_json, run_check_yaml) and the report/options types are moved out of lib.rs into named modules
-- [ ] #3 lib.rs is reduced to crate docs, module declarations, re-exports, the crate constants, and the impl_extension! block, in line with the sibling extension crates
-- [ ] #4 The crate's public API paths are unchanged (re-exported from lib.rs) and all existing tests still pass
+- [x] #1 CheckError and its Display/Error impls live in their own module, since both json.rs and yaml.rs depend on them
+- [x] #2 The checker engine (run_checker, matches_ext, relative_to, run_check_json, run_check_yaml) and the report/options types are moved out of lib.rs into named modules
+- [x] #3 lib.rs is reduced to crate docs, module declarations, re-exports, the crate constants, and the impl_extension! block, in line with the sibling extension crates
+- [x] #4 The crate's public API paths are unchanged (re-exported from lib.rs) and all existing tests still pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2004, sequenced last so it carried the other members'
+changes rather than fighting them.
+
+Layout now follows the sibling extension crates:
+  lib.rs      77  crate docs, module decls, re-exports, constants, impl_extension!
+  error.rs    75  CheckError (+ Display/Error) and LimitExceeded
+  options.rs  44  CheckerOptions
+  report.rs   72  FailureKind, FailedFile, CheckerReport, write_summary
+  runner.rs  259  the engine: run_check_json/yaml, run_checker, read_candidate, helpers
+  json.rs    231  strict/JSON5 validation + the depth pre-scan
+  yaml.rs    214  event-level validation + the expansion budget
+  tests.rs   315  the engine/report tests, as in loc and cargo-toml
+
+`CheckError` lives in `error.rs` because both `json.rs` and `yaml.rs` depend on
+it (AC#1). AC#4: the public paths are unchanged — everything is re-exported
+from `lib.rs`, and `crates/cli/src/subcommands.rs` compiles untouched.
+`FailureKind` and `LimitExceeded` are the only additions to the surface.
+<!-- SECTION:NOTES:END -->

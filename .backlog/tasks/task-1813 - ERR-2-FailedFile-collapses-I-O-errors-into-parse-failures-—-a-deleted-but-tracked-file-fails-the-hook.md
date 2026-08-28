@@ -3,11 +3,11 @@ id: TASK-1813
 title: >-
   ERR-2: FailedFile collapses I/O errors into parse failures — a
   deleted-but-tracked file fails the hook
-status: To Do
+status: Done
 assignee:
   - TASK-2004
 created_date: '2026-08-27 11:32'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 22:25'
 labels:
   - code-review-rust
   - error-handling
@@ -50,8 +50,34 @@ The crate already defines a proper domain error (`CheckError`, `lib.rs:74-102`) 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FailedFile distinguishes parse failures from metadata/read I/O failures via a typed kind, not a message prefix
-- [ ] #2 A file listed by git ls-files but absent from the worktree (unstaged deletion, sparse checkout, skip-worktree) does not make ops check-json --tracked exit non-zero as a parse failure
-- [ ] #3 files_scanned counts only files that were actually read and parsed, consistent with the files_skipped doc comment
-- [ ] #4 Tests cover the tracked_only = true path, including a tracked-but-missing file
+- [x] #1 FailedFile distinguishes parse failures from metadata/read I/O failures via a typed kind, not a message prefix
+- [x] #2 A file listed by git ls-files but absent from the worktree (unstaged deletion, sparse checkout, skip-worktree) does not make ops check-json --tracked exit non-zero as a parse failure
+- [x] #3 files_scanned counts only files that were actually read and parsed, consistent with the files_skipped doc comment
+- [x] #4 Tests cover the tracked_only = true path, including a tracked-but-missing file
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2004.
+
+`FailedFile` now carries `kind: FailureKind` — `Metadata(io::ErrorKind)`,
+`Read(io::ErrorKind)` or `Parse` — alongside the display `message`, so callers
+can tell a check failure from an I/O failure without parsing a prefix.
+
+Tracked-mode policy decided explicitly: a `NotFound` at either the stat or the
+open is recorded as *skipped* ("not present in the worktree"), never as a
+failure, so an unstaged deletion, a sparse checkout or a `skip-worktree` entry
+can no longer make `ops check-json --tracked` exit non-zero. It is treated the
+same way in walk mode, where it is the same discovery-to-read race.
+
+`files_scanned` is now bumped only where bytes were read and handed to the
+parser; skipped and I/O-failed files contribute nothing to it, matching the
+`files_skipped` doc comment.
+
+Tests: `tracked_only_validates_the_files_git_lists`,
+`tracked_but_deleted_file_is_skipped_rather_than_failing_the_hook`,
+`tracked_symlink_to_a_character_device_is_skipped_not_read`,
+`parse_failures_are_recorded_with_the_parse_kind`, and the unreadable-file test
+(asserts `FailureKind::Read(PermissionDenied)` and `files_scanned == 0`).
+<!-- SECTION:NOTES:END -->
