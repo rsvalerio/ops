@@ -3,11 +3,11 @@ id: TASK-1767
 title: >-
   OWN-12: LoadedManifest derefs to CargoToml, silently exposing the raw glob
   spec the crate spends 60 lines warning about
-status: To Do
+status: Done
 assignee:
   - TASK-1993
 created_date: '2026-08-27 11:20'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:08'
 labels:
   - code-review-rust
   - idioms
@@ -41,7 +41,13 @@ manifest.workspace...members     // via Deref — the raw ["crates/*"] spec
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 LoadedManifest no longer implements Deref<Target = CargoToml>
-- [ ] #2 Consumers reach package/workspace data through named accessors on LoadedManifest, and the accessor exposing the unexpanded [workspace].members spec is named so its meaning is unambiguous at the call site
-- [ ] #3 The redundant 'read resolved_members, not ws.members' comment blocks in units.rs, coverage_provider.rs and identity/mod.rs are removed or reduced, since the type now enforces what they were asking for
+- [x] #1 LoadedManifest no longer implements Deref<Target = CargoToml>
+- [x] #2 Consumers reach package/workspace data through named accessors on LoadedManifest, and the accessor exposing the unexpanded [workspace].members spec is named so its meaning is unambiguous at the call site
+- [x] #3 The redundant 'read resolved_members, not ws.members' comment blocks in units.rs, coverage_provider.rs and identity/mod.rs are removed or reduced, since the type now enforces what they were asking for
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Deref<Target = CargoToml> removed. Named accessors: package(), workspace_package(), declares_workspace(), workspace_root(), resolved_members(), and unexpanded_workspace_members_spec() for the literal spec. AC #2 note: no production consumer needs the raw spec, so that accessor is #[cfg(test)] rather than left standing as an unused affordance (an unused pub(crate) fn is a dead_code error under this workspace lint policy); the naming requirement is met and the raw spec is unreachable by accident. The redundant read-resolved_members-not-ws.members comment blocks in units.rs, coverage_provider.rs and identity/mod.rs are gone - the type now enforces it.
+<!-- SECTION:NOTES:END -->

@@ -3,11 +3,11 @@ id: TASK-1780
 title: >-
   FN-1: load_workspace_manifest spans 151 lines mixing cache probe, freshness,
   root discovery, parsing, glob resolution and LRU insert
-status: To Do
+status: Done
 assignee:
   - TASK-1993
 created_date: '2026-08-27 11:22'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:08'
 labels:
   - code-review-rust
   - structure
@@ -41,7 +41,13 @@ Note: fixing the CL-3 workspace-root finding filed against the same function wil
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 load_workspace_manifest is under 50 lines and reads as orchestration: probe the cache, load the manifest, insert into the cache
-- [ ] #2 The cache probe (including freshness comparison and LRU tick refresh) and the cache insert (including cap check and eviction) are each a named function on TypedManifestCache or a free helper, so each lock scope is verifiable in isolation
-- [ ] #3 No behaviour change: the existing query.rs cache tests (same-Arc reuse, refresh invalidation, mtime change, size change, bounded size, LRU-not-hot-key, cross-thread sharing, poison recovery) pass unmodified
+- [x] #1 load_workspace_manifest is under 50 lines and reads as orchestration: probe the cache, load the manifest, insert into the cache
+- [x] #2 The cache probe (including freshness comparison and LRU tick refresh) and the cache insert (including cap check and eviction) are each a named function on TypedManifestCache or a free helper, so each lock scope is verifiable in isolation
+- [x] #3 No behaviour change: the existing query.rs cache tests (same-Arc reuse, refresh invalidation, mtime change, size change, bounded size, LRU-not-hot-key, cross-thread sharing, poison recovery) pass unmodified
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+load_workspace_manifest is now 12 executable lines of orchestration (resolve root -> probe -> parse -> insert). The probe (freshness comparison + LRU tick refresh) and the insert (cap check + eviction + tick mint) are TypedManifestCache methods, each reached through a free function in manifest_cache that owns exactly one lock scope and performs no IO. All pre-existing cache tests pass unmodified in behaviour (their eviction helper now canonicalises the key, since the cache is keyed by the resolved root).
+<!-- SECTION:NOTES:END -->

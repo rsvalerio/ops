@@ -3,11 +3,11 @@ id: TASK-1791
 title: >-
   ARCH-1: query.rs is 689 production lines holding three unrelated concerns
   behind a name that describes none of them
-status: To Do
+status: Done
 assignee:
   - TASK-1993
 created_date: '2026-08-27 11:24'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:08'
 labels:
   - code-review-rust
   - architecture
@@ -40,8 +40,14 @@ The split is already precedented and already named in this file's own comments. 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The typed-manifest cache (MAX_TYPED_MANIFEST_CACHE_ENTRIES through lock_typed_manifest_cache) lives in its own module, with the CONC-7 / TASK-1163 concurrency contract as that module's doc comment
-- [ ] #2 Workspace-member glob resolution and path safety (resolved_workspace_members, classify_member, expand_member_glob, member_path_is_workspace_safe) live in their own module
-- [ ] #3 No remaining module in the crate exceeds 500 production lines, and no module is named query.rs unless it issues queries
-- [ ] #4 Tests move with the code they cover, and lib.rs module declarations plus the resolved_workspace_members re-export are updated with no change to the crate's public API
+- [x] #1 The typed-manifest cache (MAX_TYPED_MANIFEST_CACHE_ENTRIES through lock_typed_manifest_cache) lives in its own module, with the CONC-7 / TASK-1163 concurrency contract as that module's doc comment
+- [x] #2 Workspace-member glob resolution and path safety (resolved_workspace_members, classify_member, expand_member_glob, member_path_is_workspace_safe) live in their own module
+- [x] #3 No remaining module in the crate exceeds 500 production lines, and no module is named query.rs unless it issues queries
+- [x] #4 Tests move with the code they cover, and lib.rs module declarations plus the resolved_workspace_members re-export are updated with no change to the crate's public API
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Split query.rs into three modules: manifest_cache.rs (cache + CONC-7 contract as module doc), members.rs (glob resolution + path safety), manifest.rs (LoadedManifest + loader). query.rs deleted. lib.rs module list and the resolved_workspace_members / member_path_is_workspace_safe re-exports updated; crate public API unchanged. Largest remaining module is manifest_cache.rs at ~300 production lines; every module is under 500. Tests moved with the code they cover.
+<!-- SECTION:NOTES:END -->

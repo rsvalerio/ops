@@ -3,11 +3,11 @@ id: TASK-1784
 title: >-
   FN-1: RustUnitsProvider::provide is a 136-line body whose map closure alone is
   66 lines and 5 levels deep
-status: To Do
+status: Done
 assignee:
   - TASK-1993
 created_date: '2026-08-27 11:23'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:09'
 labels:
   - code-review-rust
   - structure
@@ -37,9 +37,15 @@ The `.filter()` at `:83-101` has the same shape on a smaller scale: 19 lines of 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 RustUnitsProvider::provide is under 50 lines and its map closure is under 20
-- [ ] #2 The canonical-path to dep_count resolution (including the non-UTF-8 and missing-package-name breadcrumbs) is a named function with its own unit tests, callable without a live DuckDb
-- [ ] #3 The bare #[allow(clippy::option_if_let_else)] at units.rs:133 is removed rather than relocated; if any suppression remains it uses #[expect(..., reason = "…")] per READ-10
-- [ ] #4 Nesting inside provide is at most 4 levels
-- [ ] #5 Existing units.rs provider tests pass unmodified
+- [x] #1 RustUnitsProvider::provide is under 50 lines and its map closure is under 20
+- [x] #2 The canonical-path to dep_count resolution (including the non-UTF-8 and missing-package-name breadcrumbs) is a named function with its own unit tests, callable without a live DuckDb
+- [x] #3 The bare #[allow(clippy::option_if_let_else)] at units.rs:133 is removed rather than relocated; if any suppression remains it uses #[expect(..., reason = "…")] per READ-10
+- [x] #4 Nesting inside provide is at most 4 levels
+- [x] #5 Existing units.rs provider tests pass unmodified
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+RustUnitsProvider::provide is now 21 lines with no closure over 8; the extracted helpers are crate_dep_counts, member_is_unit_safe, build_unit and resolve_dep_count. resolve_dep_count carries all three diagnostic branches and is unit-tested without a live DuckDb (resolve_dep_count_hits_missing_and_nameless, resolve_dep_count_skips_non_utf8_manifest_path). The bare #[allow(clippy::option_if_let_else)] is removed, not relocated - the let-else shape in the extracted function needs no suppression. Max nesting inside provide is 3. Existing provider tests pass unmodified.
+<!-- SECTION:NOTES:END -->

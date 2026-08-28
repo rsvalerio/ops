@@ -3,11 +3,11 @@ id: TASK-1762
 title: >-
   CL-3: Rust about providers assume ctx.working_directory IS the workspace root,
   but the manifest is discovered by an ancestor walk
-status: To Do
+status: Done
 assignee:
   - TASK-1993
 created_date: '2026-08-27 11:20'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:08'
 labels:
   - code-review-rust
   - idioms
@@ -46,8 +46,14 @@ Consequences when `ops about` is run from a subdirectory of a Cargo workspace (a
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 load_workspace_manifest resolves the workspace root once and uses that root (not ctx.working_directory) for the Cargo.toml freshness stat, for resolved_workspace_members glob expansion, and for LoadedManifest::canonical_member_manifests
-- [ ] #2 units.rs and coverage_provider.rs join member paths onto the resolved workspace root rather than ctx.working_directory (including the SQL key passed to query_crate_coverage and the workspace_root passed to resolve_crate_display_name)
-- [ ] #3 The typed-manifest cache is keyed by the resolved workspace root so two cwds inside the same workspace share one entry and one freshness key
-- [ ] #4 A regression test runs the identity/units/coverage providers with Context::test_context pointed at a SUBDIRECTORY of a glob workspace and asserts the same members/module_count as running from the root
+- [x] #1 load_workspace_manifest resolves the workspace root once and uses that root (not ctx.working_directory) for the Cargo.toml freshness stat, for resolved_workspace_members glob expansion, and for LoadedManifest::canonical_member_manifests
+- [x] #2 units.rs and coverage_provider.rs join member paths onto the resolved workspace root rather than ctx.working_directory (including the SQL key passed to query_crate_coverage and the workspace_root passed to resolve_crate_display_name)
+- [x] #3 The typed-manifest cache is keyed by the resolved workspace root so two cwds inside the same workspace share one entry and one freshness key
+- [x] #4 A regression test runs the identity/units/coverage providers with Context::test_context pointed at a SUBDIRECTORY of a glob workspace and asserts the same members/module_count as running from the root
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Workspace root resolved once in load_workspace_manifest and carried on LoadedManifest::workspace_root(). Freshness stat, glob expansion, canonical_member_manifests (now argument-less), the units provider joins, the coverage SQL key and resolve_crate_display_name all use it; the cache is keyed by the canonical root so sibling cwds share one entry (manifest_cache::tests::cache_is_keyed_by_workspace_root_not_cwd). Regression tests: manifest::tests::members_resolve_against_the_root_not_the_cwd, canonical_member_manifests_resolve_against_the_root, and units::tests::providers_agree_between_root_and_subdirectory_cwd (drives units + identity + coverage from a subdirectory with the cache evicted between runs). Note: root discovery is now unconditional, so the ctx.cached JSON fast path also requires a resolvable root - it needs one anyway to expand members.
+<!-- SECTION:NOTES:END -->

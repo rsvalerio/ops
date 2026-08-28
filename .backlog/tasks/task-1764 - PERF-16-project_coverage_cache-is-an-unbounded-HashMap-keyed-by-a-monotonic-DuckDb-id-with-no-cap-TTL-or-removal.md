@@ -3,11 +3,11 @@ id: TASK-1764
 title: >-
   PERF-16: project_coverage_cache is an unbounded HashMap keyed by a monotonic
   DuckDb id with no cap, TTL, or removal
-status: To Do
+status: Done
 assignee:
   - TASK-1993
 created_date: '2026-08-27 11:20'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:09'
 labels:
   - code-review-rust
   - performance
@@ -35,7 +35,13 @@ Per PERF-16, a cache needs a stated key, value, maximum size, TTL, and invalidat
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 project_coverage_cache has a stated maximum size and an eviction or removal policy (entry removed when its DuckDb drops, or a bounded LRU matching the typed_manifest_cache pattern in query.rs)
-- [ ] #2 The cache's invalidation expectation is either implemented or documented in the module docs, stating what happens when coverage data is re-ingested behind a live DuckDb handle
-- [ ] #3 A regression test opens many DuckDb instances, calls cached_query_project_coverage for each, and asserts the cache map length stays bounded
+- [x] #1 project_coverage_cache has a stated maximum size and an eviction or removal policy (entry removed when its DuckDb drops, or a bounded LRU matching the typed_manifest_cache pattern in query.rs)
+- [x] #2 The cache's invalidation expectation is either implemented or documented in the module docs, stating what happens when coverage data is re-ingested behind a live DuckDb handle
+- [x] #3 A regression test opens many DuckDb instances, calls cached_query_project_coverage for each, and asserts the cache map length stays bounded
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+project_coverage_cache is now a ProjectCoverageCache (HashMap + LruVictimQueue) capped at MAX_COVERAGE_CACHE_ENTRIES = 16 with LRU eviction on insert, mirroring the manifest_cache policy. The type doc states key, value, maximum size and the invalidation expectation explicitly - including that data re-ingested behind a live DuckDb handle keeps serving the pre-ingest number and that a fresh handle mints a fresh key. Regression test: project_coverage_cache_stays_bounded_across_many_db_instances opens 3x the cap and asserts the map length stays within it.
+<!-- SECTION:NOTES:END -->
