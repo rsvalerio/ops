@@ -5,6 +5,7 @@
 use ops_core::output::{detect_terminal_width, display_width};
 pub use ops_core::text::format_number;
 use std::io::IsTerminal;
+use unicode_segmentation::UnicodeSegmentation;
 
 #[must_use]
 pub fn get_terminal_width() -> usize {
@@ -100,11 +101,6 @@ pub fn has_allowed_url_scheme(raw: &str) -> bool {
 }
 
 #[must_use]
-pub fn char_display_width(c: char) -> usize {
-    unicode_width::UnicodeWidthChar::width(c).unwrap_or(0)
-}
-
-#[must_use]
 pub fn pad_to_width_plain(s: &str, width: usize) -> String {
     // PATTERN-1 / TASK-1001: delegate to `display_width` so emoji ZWJ
     // sequences (`👨‍👩‍👧`), regional-indicator flag pairs, and variation
@@ -121,23 +117,45 @@ pub fn pad_to_width_plain(s: &str, width: usize) -> String {
     }
 }
 
+/// Truncate `s` to at most `max_width` display columns, appending a
+/// `\u{2026}` (HORIZONTAL ELLIPSIS) when anything was cut.
+///
+/// READ-6 / TASK-1730: measures **grapheme clusters** with the same
+/// cluster-aware [`display_width`] that [`pad_to_width_plain`] and
+/// [`wrap_text`] use. It previously summed `unicode_width` per `char`, which
+/// gave this module two disagreeing definitions of a column on the same
+/// strings — `cards.rs` guards with `display_width` and then truncates with
+/// this function. For a ZWJ sequence such as `👨‍👩‍👧` the per-`char` sum is
+/// 2+0+2+0+2 = 6 where `display_width` reports 2, so two things went wrong:
+///
+/// 1. **Over-truncation.** A title the guard measured as fitting was cut at
+///    up to a third of the available width.
+/// 2. **Cluster splitting.** The per-`char` loop could break *inside* a ZWJ
+///    sequence, emitting a lone `👨` plus a dangling joiner whose rendered
+///    width is not the width the loop accounted for — re-introducing on the
+///    truncation side exactly the card misalignment TASK-1001 fixed on the
+///    padding side.
+///
+/// Iterating clusters fixes both at once: a cluster is kept whole or dropped
+/// whole, and its width is measured the way the terminal renders it. ASCII is
+/// unaffected — every ASCII `char` is its own one-column cluster.
 #[must_use]
 pub fn truncate_to_width(s: &str, max_width: usize) -> String {
     let mut result = String::new();
     let mut width: usize = 0;
 
-    for c in s.chars() {
-        let c_width = char_display_width(c);
+    for cluster in s.graphemes(true) {
+        let cluster_width = display_width(cluster);
         // `width` never exceeds `max_width - 1` (the accumulate below only runs
         // when this test is false), so the sum is exact for every `max_width`
         // short of `usize::MAX`; at that extreme saturation still takes the
         // same branch the checked sum would.
-        if width.saturating_add(c_width) > max_width.saturating_sub(1) {
+        if width.saturating_add(cluster_width) > max_width.saturating_sub(1) {
             result.push('\u{2026}');
             break;
         }
-        result.push(c);
-        width = width.saturating_add(c_width);
+        result.push_str(cluster);
+        width = width.saturating_add(cluster_width);
     }
 
     result
@@ -568,19 +586,57 @@ mod tests {
         assert_eq!(pad_to_width_plain("hello", 3), "hello");
     }
 
+    /// READ-6 / TASK-1730: the truncation counterpart of
+    /// `pad_to_width_uses_display_width_for_zwj_sequence`. A ZWJ family emoji
+    /// is one two-column cluster; the old per-`char` sum measured it as six
+    /// columns and could break between the joiner and its neighbour.
     #[test]
-    fn char_display_width_ascii() {
-        assert_eq!(char_display_width('a'), 1);
+    fn truncate_to_width_keeps_zwj_cluster_whole() {
+        const FAMILY: &str = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+        // Sanity: the two width models genuinely disagree on this input, or
+        // the test is not covering the regression.
+        assert_eq!(display_width(FAMILY), 2);
+        assert_eq!(FAMILY.chars().count(), 5);
+
+        for max_width in 1..=12 {
+            let out = truncate_to_width(&format!("ab{FAMILY}cd"), max_width);
+            assert!(
+                display_width(&out) <= max_width,
+                "truncate_to_width({max_width}) produced {out:?} of width {}",
+                display_width(&out)
+            );
+            // Kept whole or dropped whole: the cluster's interior code points
+            // must never appear without the full sequence around them.
+            let joiners = out.matches('\u{200D}').count();
+            assert!(
+                out.contains(FAMILY) || joiners == 0,
+                "truncate_to_width({max_width}) split the ZWJ cluster: {out:?}"
+            );
+        }
     }
 
+    /// READ-6 / TASK-1730: with enough room the whole cluster survives, and
+    /// with room for the prefix but not the cluster it is dropped entirely
+    /// rather than cut in half.
     #[test]
-    fn char_display_width_wide() {
-        assert_eq!(char_display_width('\u{6f22}'), 2);
-    }
+    fn truncate_to_width_drops_or_keeps_the_whole_cluster() {
+        const FAMILY: &str = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+        let input = format!("ab{FAMILY}");
+        assert_eq!(display_width(&input), 4);
 
-    #[test]
-    fn char_display_width_zero_width() {
-        assert_eq!(char_display_width('\u{200D}'), 0);
+        // The function always reserves one column for a possible ellipsis, so
+        // content is kept up to `max_width - 1`. At 5 the whole 4-column
+        // input fits inside that budget and comes back untouched — this is
+        // where the old char-summing model failed, counting the cluster as 6
+        // columns and cutting after "a".
+        assert_eq!(truncate_to_width(&input, 5), input);
+
+        // At 4 the budget is 3: "ab" fits, the 2-column cluster does not, and
+        // it is dropped whole rather than cut open.
+        let tight = truncate_to_width(&input, 4);
+        assert_eq!(tight, "ab\u{2026}");
+        assert!(!tight.contains('\u{200D}'), "cluster must not be split");
+        assert!(display_width(&tight) <= 4);
     }
 
     #[test]
