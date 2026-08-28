@@ -102,3 +102,41 @@ pub fn assert_debug_escapes_control_chars<T: std::fmt::Debug>(value: T) {
         "expected escaped newline in Debug rendering: {rendered}"
     );
 }
+
+/// Write `content` to `path`, creating any missing parent directories.
+///
+/// DUP-1 / TASK-1736: the `about` extensions' `#[cfg(test)]` modules each
+/// grew a byte-identical six-line `write` helper for building tempdir
+/// fixtures. Hoisting it here gives the family one definition, so a future
+/// tightening (propagating the IO error, richer `expect` messages) lands
+/// once instead of drifting between copies. Import it as
+/// `use ops_about::test_support::write_file as write;` to keep existing
+/// call sites unchanged.
+///
+/// # Panics
+///
+/// If the parent directories cannot be created or the file cannot be
+/// written — this is fixture setup, where a failure is a broken test, not a
+/// condition to handle.
+pub fn write_file(path: &std::path::Path, content: &str) {
+    // The workspace bans `unwrap`/`expect`/`panic!` outside `#[cfg(test)]`,
+    // and this module is compiled as library code, so failures are reported
+    // through `assert!` — which carries the same message and the same
+    // "broken fixture" semantics.
+    if let Some(parent) = path.parent() {
+        let created = std::fs::create_dir_all(parent);
+        assert!(
+            created.is_ok(),
+            "create fixture dir {}: {:?}",
+            parent.display(),
+            created.err()
+        );
+    }
+    let written = std::fs::write(path, content);
+    assert!(
+        written.is_ok(),
+        "write fixture file {}: {:?}",
+        path.display(),
+        written.err()
+    );
+}
