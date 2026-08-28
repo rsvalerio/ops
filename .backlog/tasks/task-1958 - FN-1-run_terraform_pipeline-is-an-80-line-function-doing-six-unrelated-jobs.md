@@ -1,11 +1,11 @@
 ---
 id: TASK-1958
 title: 'FN-1: run_terraform_pipeline is an 80-line function doing six unrelated jobs'
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:50'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:31'
 labels:
   - code-review-rust
   - complexity
@@ -38,7 +38,7 @@ The duplicated `bail!` in step 4 is the visible symptom: the two branches differ
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_terraform_pipeline is under 50 lines and delegates path preparation, plan invocation and JSON capture to named helpers
-- [ ] #2 The two exit-status branches share one failure-message constructor instead of duplicating the bail body
-- [ ] #3 Existing behaviour for detailed_exitcode 0 and 2, and for non-detailed success, is unchanged
+- [x] #1 run_terraform_pipeline is under 50 lines and delegates path preparation, plan invocation and JSON capture to named helpers
+- [x] #2 The two exit-status branches share one failure-message constructor instead of duplicating the bail body
+- [x] #3 Existing behaviour for detailed_exitcode 0 and 2, and for non-detailed success, is unchanged
 <!-- AC:END -->

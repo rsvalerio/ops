@@ -3,11 +3,11 @@ id: TASK-1930
 title: >-
   SEC-29: plan JSON and .ops artifact directory are created with default
   world-readable permissions
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:46'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:30'
 labels:
   - code-review-rust
   - security
@@ -33,7 +33,7 @@ Terraform plan JSON is one of the most secret-dense artefacts a stack produces: 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 On unix the artifact directory is created with mode 0700 and the plan JSON file with mode 0600
-- [ ] #2 A unix-gated test asserts the written plan JSON has permissions 0600 and the created directory 0700
-- [ ] #3 The chosen permissions are documented next to the write with a one-line reason referencing plan-JSON secrecy
+- [x] #1 On unix the artifact directory is created with mode 0700 and the plan JSON file with mode 0600
+- [x] #2 A unix-gated test asserts the written plan JSON has permissions 0600 and the created directory 0700
+- [x] #3 The chosen permissions are documented next to the write with a one-line reason referencing plan-JSON secrecy
 <!-- AC:END -->

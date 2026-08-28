@@ -3,11 +3,11 @@ id: TASK-1956
 title: >-
   TEST-6: the SEC-31 unknown-action banner and sort-to-top behaviour in
   render_resource_table has no test
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:50'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:31'
 labels:
   - code-review-rust
   - testing
@@ -39,8 +39,8 @@ Also untested in this module: `render_resource_table`'s `is_tty=true` width-capp
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test renders a change set containing an Unknown action and asserts the WARNING banner text and the count it reports
-- [ ] #2 A test asserts an Unknown row sorts above a Delete row
-- [ ] #3 A test asserts the summary table lists unknown before the other actions
-- [ ] #4 A test covers a change with Some(module) so the module column is exercised on both sides of the Option
+- [x] #1 A test renders a change set containing an Unknown action and asserts the WARNING banner text and the count it reports
+- [x] #2 A test asserts an Unknown row sorts above a Delete row
+- [x] #3 A test asserts the summary table lists unknown before the other actions
+- [x] #4 A test covers a change with Some(module) so the module column is exercised on both sides of the Option
 <!-- AC:END -->

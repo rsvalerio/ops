@@ -3,11 +3,11 @@ id: TASK-1942
 title: >-
   SEC-25: cleanup_artifacts deletes any pre-existing file at --json-out,
   including one it never wrote
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:48'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:30'
 labels:
   - code-review-rust
   - security
@@ -37,8 +37,8 @@ There is a third, quieter hazard: the paths are re-derived here by calling `expa
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cleanup deletes only artifact paths this invocation actually created, never a pre-existing file at --json-out or --out
-- [ ] #2 The exists() probe is removed and remove_file's NotFound error is treated as success
-- [ ] #3 Artifact paths are expanded once and reused by both the write and the cleanup, not re-derived
-- [ ] #4 A test asserts that a pre-existing file at the --json-out path survives a default run that never wrote it
+- [x] #1 Cleanup deletes only artifact paths this invocation actually created, never a pre-existing file at --json-out or --out
+- [x] #2 The exists() probe is removed and remove_file's NotFound error is treated as success
+- [x] #3 Artifact paths are expanded once and reused by both the write and the cleanup, not re-derived
+- [x] #4 A test asserts that a pre-existing file at the --json-out path survives a default run that never wrote it
 <!-- AC:END -->

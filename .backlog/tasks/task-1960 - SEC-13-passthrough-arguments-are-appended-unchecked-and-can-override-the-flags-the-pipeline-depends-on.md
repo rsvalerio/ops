@@ -3,11 +3,11 @@ id: TASK-1960
 title: >-
   SEC-13: passthrough arguments are appended unchecked and can override the
   flags the pipeline depends on
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:51'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:31'
 labels:
   - code-review-rust
   - security
@@ -46,7 +46,7 @@ To be clear about what is *not* wrong: `Command::args` is used correctly - there
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Passthrough arguments that set -out, -input, -detailed-exitcode or -json are rejected with an error naming the equivalent ops flag
-- [ ] #2 The passthrough help text states which terraform flags are reserved
-- [ ] #3 A test asserts each reserved flag in passthrough produces an error before terraform is invoked
+- [x] #1 Passthrough arguments that set -out, -input, -detailed-exitcode or -json are rejected with an error naming the equivalent ops flag
+- [x] #2 The passthrough help text states which terraform flags are reserved
+- [x] #3 A test asserts each reserved flag in passthrough produces an error before terraform is invoked
 <!-- AC:END -->

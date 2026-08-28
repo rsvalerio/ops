@@ -3,11 +3,11 @@ id: TASK-1952
 title: >-
   TEST-31: the --detailed-exitcode contract is implemented but never asserted by
   any test
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:49'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:30'
 labels:
   - code-review-rust
   - testing
@@ -38,8 +38,8 @@ Also uncovered at the process level: `--show-outputs` (the `:159-166` branch and
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test asserts the pipeline yields exit code 2 for detailed_exitcode with changes present
-- [ ] #2 A test asserts it yields 0 for detailed_exitcode with a no-op-only plan, and 0 without detailed_exitcode when changes are present
-- [ ] #3 A test exercises --show-outputs end to end and asserts the outputs table appears in the sink
-- [ ] #4 A test asserts the empty-plan-JSON guard produces an error naming the empty input
+- [x] #1 A test asserts the pipeline yields exit code 2 for detailed_exitcode with changes present
+- [x] #2 A test asserts it yields 0 for detailed_exitcode with a no-op-only plan, and 0 without detailed_exitcode when changes are present
+- [x] #3 A test exercises --show-outputs end to end and asserts the outputs table appears in the sink
+- [x] #4 A test asserts the empty-plan-JSON guard produces an error naming the empty input
 <!-- AC:END -->

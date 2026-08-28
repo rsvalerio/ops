@@ -3,11 +3,11 @@ id: TASK-1936
 title: >-
   SEC-21: raw terraform stderr is spliced verbatim into the error surfaced to
   the user
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:47'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:30'
 labels:
   - code-review-rust
   - security
@@ -40,7 +40,7 @@ The full stderr of `terraform show -json` becomes the text of an `anyhow::Error`
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The user-facing error for a failed terraform show names the exit status without embedding raw provider stderr
-- [ ] #2 The stderr text, if retained at all, goes to a tracing event rather than the anyhow error message, and is length-bounded
-- [ ] #3 A test asserts the error message for a failed show does not contain the captured stderr body
+- [x] #1 The user-facing error for a failed terraform show names the exit status without embedding raw provider stderr
+- [x] #2 The stderr text, if retained at all, goes to a tracing event rather than the anyhow error message, and is length-bounded
+- [x] #3 A test asserts the error message for a failed show does not contain the captured stderr body
 <!-- AC:END -->
