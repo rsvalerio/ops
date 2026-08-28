@@ -3,11 +3,11 @@ id: TASK-1741
 title: >-
   READ-5: PomData field docs state last-write-wins but try_set_once implements
   first-write-wins
-status: To Do
+status: Done
 assignee:
   - TASK-1990
 created_date: '2026-08-27 11:13'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 15:30'
 labels:
   - code-review-rust
   - structure-readability
@@ -47,6 +47,6 @@ Nothing reads the field docs at compile time, so the contradiction survives — 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 PomData::artifact_id and PomData::name docs describe first-write-wins, matching try_set_once
-- [ ] #2 The docs reference try_set_once as the single owner of the duplicate-resolution policy
+- [x] #1 PomData::artifact_id and PomData::name docs describe first-write-wins, matching try_set_once
+- [x] #2 The docs reference try_set_once as the single owner of the duplicate-resolution policy
 <!-- AC:END -->

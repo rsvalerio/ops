@@ -3,11 +3,11 @@ id: TASK-1749
 title: >-
   ARCH-11: ops-about-java declares ops-git and anyhow but neither is referenced
   anywhere in the crate
-status: To Do
+status: Done
 assignee:
   - TASK-1990
 created_date: '2026-08-27 11:14'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 15:48'
 labels:
   - code-review-rust
   - structure-readability
@@ -45,7 +45,7 @@ Verified with `grep -rn "ops_git\|ops-git\|anyhow" extensions-java/about/src/` â
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ops-git and anyhow are removed from extensions-java/about/Cargo.toml [dependencies]
-- [ ] #2 cargo build --all-targets and cargo clippy --all-targets --workspace -- -D warnings both pass afterwards
-- [ ] #3 linkme is retained (required by the impl_extension! expansion) and the reason is not re-litigated by the same grep
+- [x] #1 ops-git and anyhow are removed from extensions-java/about/Cargo.toml [dependencies]
+- [x] #2 cargo build --all-targets and cargo clippy --all-targets --workspace -- -D warnings both pass afterwards
+- [x] #3 linkme is retained (required by the impl_extension! expansion) and the reason is not re-litigated by the same grep
 <!-- AC:END -->

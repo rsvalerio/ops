@@ -3,11 +3,11 @@ id: TASK-1751
 title: >-
   TEST-11: three provider fallback tests assert only that name is non-empty,
   never that the directory-name fallback fired
-status: To Do
+status: Done
 assignee:
   - TASK-1990
 created_date: '2026-08-27 11:15'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 15:48'
 labels:
   - code-review-rust
   - test-quality
@@ -49,7 +49,7 @@ assert_eq!(result["name"], expected);
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 maven_provider_provide_uses_dir_name_fallback asserts result["name"] equals the tempdir's file_name, not just that it is non-empty
-- [ ] #2 maven_provider_provide_no_pom and gradle_provider_provide_minimal assert the same exact fallback value
-- [ ] #3 The three tests remain distinct in what they pin (no manifest / manifest without a name / gradle settings without rootProject.name) and their names reflect it
+- [x] #1 maven_provider_provide_uses_dir_name_fallback asserts result["name"] equals the tempdir's file_name, not just that it is non-empty
+- [x] #2 maven_provider_provide_no_pom and gradle_provider_provide_minimal assert the same exact fallback value
+- [x] #3 The three tests remain distinct in what they pin (no manifest / manifest without a name / gradle settings without rootProject.name) and their names reflect it
 <!-- AC:END -->

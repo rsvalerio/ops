@@ -3,11 +3,11 @@ id: TASK-1733
 title: >-
   CL-3: parse_gradle_build captures any nested description assignment, so a task
   or subprojects block overrides the project description
-status: To Do
+status: Done
 assignee:
   - TASK-1990
 created_date: '2026-08-27 11:12'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 15:48'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -58,8 +58,14 @@ Two contributing design issues in the same function:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_gradle_build ignores description assignments that occur inside a nested block (task, tasks.register, subprojects, allprojects) and only accepts a top-level project description
-- [ ] #2 Duplicate-resolution policy (first-wins vs last-wins) is stated in the doc comment and matches the Maven parser's try_set_once policy, or the divergence is documented with a reason
-- [ ] #3 Tests cover: root description followed by a task block description (root wins), a task block description with no root description (yields None), and the Groovy bare-method form inside a block
-- [ ] #4 Existing gradle tests in extensions-java/about/src/gradle/tests.rs still pass
+- [x] #1 parse_gradle_build ignores description assignments that occur inside a nested block (task, tasks.register, subprojects, allprojects) and only accepts a top-level project description
+- [x] #2 Duplicate-resolution policy (first-wins vs last-wins) is stated in the doc comment and matches the Maven parser's try_set_once policy, or the divergence is documented with a reason
+- [x] #3 Tests cover: root description followed by a task block description (root wins), a task block description with no root description (yields None), and the Groovy bare-method form inside a block
+- [x] #4 Existing gradle tests in extensions-java/about/src/gradle/tests.rs still pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1733: parse_gradle_properties intentionally keeps last-write-wins (java.util.Properties semantics); divergence from the first-wins DSL parsers is now documented in its doc comment rather than changed.
+<!-- SECTION:NOTES:END -->

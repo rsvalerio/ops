@@ -3,11 +3,11 @@ id: TASK-1728
 title: >-
   PATTERN-1: single-line POM container sections leak parent/organization/license
   values into top-level project fields
-status: To Do
+status: Done
 assignee:
   - TASK-1990
 created_date: '2026-08-27 11:11'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 15:30'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -68,9 +68,9 @@ enum SectionOutcome { Entered(PomSection), Consumed, NotASection }
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 match_section_open no longer uses None to mean both 'not a section' and 'already consumed' - the two outcomes are distinct variants and dispatch_started_line only falls through to parse_top_level for the 'not a section' case
-- [ ] #2 A single-line <parent><artifactId>p</artifactId><version>9.9.9</version></parent> followed by the project's own <artifactId>child</artifactId>/<version>1.0.0</version> yields artifact_id=child and version=1.0.0
-- [ ] #3 A single-line <organization><name>Acme</name><url>https://acme.example</url></organization> leaves PomData::name and PomData::scm_url untouched
-- [ ] #4 A single-line <licenses><license><name>MIT</name></license></licenses> sets license=MIT and leaves PomData::name as None
-- [ ] #5 Regression tests cover all three shapes plus the single-line <scm> case (asserting name stays None), and the existing pom tests still pass
+- [x] #1 match_section_open no longer uses None to mean both 'not a section' and 'already consumed' - the two outcomes are distinct variants and dispatch_started_line only falls through to parse_top_level for the 'not a section' case
+- [x] #2 A single-line <parent><artifactId>p</artifactId><version>9.9.9</version></parent> followed by the project's own <artifactId>child</artifactId>/<version>1.0.0</version> yields artifact_id=child and version=1.0.0
+- [x] #3 A single-line <organization><name>Acme</name><url>https://acme.example</url></organization> leaves PomData::name and PomData::scm_url untouched
+- [x] #4 A single-line <licenses><license><name>MIT</name></license></licenses> sets license=MIT and leaves PomData::name as None
+- [x] #5 Regression tests cover all three shapes plus the single-line <scm> case (asserting name stays None), and the existing pom tests still pass
 <!-- AC:END -->
