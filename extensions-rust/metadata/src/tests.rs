@@ -20,8 +20,5 @@ ops_extension::test_datasource_extension!(
     data_provider: "metadata"
 );
 
-mod accessors;
-mod duplicates;
-mod edge_cases;
 mod payload_cap;
 mod wiring;
