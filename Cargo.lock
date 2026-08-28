@@ -1715,6 +1715,7 @@ dependencies = [
  "clap",
  "indexmap",
  "inquire",
+ "libc",
  "ops-about",
  "ops-about-go",
  "ops-about-java",

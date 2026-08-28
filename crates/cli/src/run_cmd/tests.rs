@@ -1108,3 +1108,73 @@ mod dry_run_override_warnings_tests {
         );
     }
 }
+
+// -- CONC-14 / TASK-1932: signal shutdown path --
+
+mod signal_shutdown_tests {
+    use crate::run_cmd::{
+        exit_code_for_signal, run_until_signal, PlanOutcome, SIGINT_SIGNO, SIGTERM_SIGNO,
+    };
+
+    /// The shell convention: 128 + signo. 130 for SIGINT (matching the
+    /// existing `SIGINT_EXIT` constant), 143 for SIGTERM.
+    #[test]
+    fn signal_exit_codes_follow_the_128_plus_signo_convention() {
+        assert_eq!(exit_code_for_signal(SIGINT_SIGNO), crate::SIGINT_EXIT);
+        assert_eq!(exit_code_for_signal(SIGINT_SIGNO), 130);
+        assert_eq!(exit_code_for_signal(SIGTERM_SIGNO), 143);
+    }
+
+    /// A plan that finishes on its own is not disturbed by the race.
+    #[test]
+    fn plan_completes_normally_when_no_signal_arrives() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let outcome = rt.block_on(run_until_signal(async { 7_u32 }));
+        assert!(matches!(outcome, PlanOutcome::Completed(7)));
+    }
+
+    /// TASK-1932 AC #5: a real `SIGTERM` delivered mid-plan must cut the run
+    /// short and report SIGTERM, rather than terminating the process with no
+    /// destructor run. Sending the signal to ourselves is safe here because
+    /// `run_until_signal` installs tokio's handler before the plan starts,
+    /// so the default "terminate the process" disposition is already
+    /// replaced by the time the signal lands.
+    ///
+    /// The plan future below never completes on its own; the only way this
+    /// test can return is through the signal arm. Dropping that future is
+    /// exactly what cancels in-flight children in production.
+    #[cfg(unix)]
+    #[test]
+    fn sigterm_interrupts_the_plan_and_reports_sigterm() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let outcome = rt.block_on(async {
+            let signaller = tokio::spawn(async {
+                // Give `run_until_signal` time to install its handlers.
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                // SAFETY: `kill` with a valid signal number targeting our
+                // own pid; it touches no memory and cannot alias.
+                unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
+            });
+            let outcome = run_until_signal(async {
+                std::future::pending::<()>().await;
+            })
+            .await;
+            signaller.await.unwrap();
+            outcome
+        });
+        match outcome {
+            PlanOutcome::Interrupted(signo) => {
+                assert_eq!(signo, SIGTERM_SIGNO);
+                assert_eq!(exit_code_for_signal(signo), 143);
+            }
+            PlanOutcome::Completed(()) => panic!("the plan future can only end via the signal"),
+        }
+    }
+}
