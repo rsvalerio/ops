@@ -1,6 +1,20 @@
 //! Async command execution: running a built [`Command`], capturing output,
 //! emitting [`RunnerEvent`]s, and applying timeouts.
 //!
+//! # Stdin: captured steps are non-interactive (ASYNC-6 / TASK-1918)
+//!
+//! Captured steps ([`exec_command`], via `spawn_capped`) are spawned with
+//! `stdin` set to [`Stdio::null()`]. A captured child therefore reads EOF
+//! immediately and can never block waiting for terminal input it has no way
+//! of prompting for — its prompt would go to the captured pipe, and under
+//! `run_plan_parallel` up to `OPS_MAX_PARALLEL` children would otherwise race
+//! each other for the same fd 0.
+//!
+//! **Interactive commands must run in `--raw` mode**
+//! ([`exec_command_raw`]), which inherits all three stdio slots by design.
+//! A step that needs a credential, a passphrase, or a confirmation prompt
+//! (`git push` over HTTPS, `docker login`, `cargo publish`) belongs there.
+//!
 //! # Security Model
 //!
 //! Commands are executed directly from configuration (`.ops.toml`) without
@@ -35,6 +49,7 @@
 use super::abort::AbortSignal;
 use super::build::{build_command_async, CwdEscapePolicy, WorkspaceCanonicalCache};
 use super::events::RunnerEvent;
+use super::process_group::{configure_process_group, ChildGroup};
 use super::results::{CommandOutput, StepResult};
 use ops_core::config::{CommandId, ExecCommandSpec};
 use ops_core::expand::Variables;
@@ -104,16 +119,106 @@ async fn read_capped<R: AsyncRead + Unpin>(
     Ok((head, dropped))
 }
 
+/// Outcome of one drain task: the join result wrapping the read result.
+type DrainOutcome = Result<std::io::Result<(Vec<u8>, u64)>, tokio::task::JoinError>;
+
+/// CONC-9 / TASK-1919: how long the post-exit pipe drain may run before the
+/// step is assumed to be held open by an orphan.
+///
+/// `child.wait()` returning does **not** close the capture pipes: any
+/// grandchild that inherited the write end (a daemonised watcher, a
+/// backgrounded `&` job inside an `sh -c` step, a lingering `rustc`) keeps
+/// them open, and `read_capped` runs to EOF with no bound of its own. Before
+/// this deadline existed, such a step never completed and — with
+/// `timeout_secs` unset, which is the default — hung the entire plan on a
+/// child that had already exited.
+///
+/// Generous on purpose: a healthy step drains in microseconds, so this is
+/// only ever paid by a step that is already misbehaving.
+const POST_EXIT_DRAIN_GRACE: Duration = Duration::from_secs(5);
+
+/// Second, short deadline applied after the orphan holding the pipes has
+/// been `SIGKILL`ed: the read side should observe EOF essentially at once.
+const POST_KILL_DRAIN_GRACE: Duration = Duration::from_secs(2);
+
+/// Await both drain tasks by id, recording each into its own slot.
+///
+/// Split out of [`spawn_capped`] so the collection can be *resumed*: the
+/// first call runs under [`POST_EXIT_DRAIN_GRACE`] and, if that expires, the
+/// second call resumes with whichever stream already returned instead of
+/// restarting from nothing.
+async fn collect_drain_results(
+    drains: &mut tokio::task::JoinSet<std::io::Result<(Vec<u8>, u64)>>,
+    stdout_id: tokio::task::Id,
+    stderr_id: tokio::task::Id,
+    stdout_result: &mut Option<DrainOutcome>,
+    stderr_result: &mut Option<DrainOutcome>,
+) -> std::io::Result<()> {
+    // ERR-5 / TASK-1139: encode "exactly two drains" as a logged io::Error
+    // rather than `unreachable!` / `expect`, so a refactor adding a third
+    // drain (e.g. stdin watchdog) surfaces as a StepFailed event instead of
+    // a panic-with-payload that SEC-21 / TASK-0334 redaction does not cover
+    // (that hardening only wraps the outer parallel JoinSet, not this inner
+    // one).
+    while stdout_result.is_none() || stderr_result.is_none() {
+        match drains.join_next_with_id().await {
+            Some(Ok((id, val))) if id == stdout_id => *stdout_result = Some(Ok(val)),
+            Some(Ok((id, val))) if id == stderr_id => *stderr_result = Some(Ok(val)),
+            Some(Err(e)) if e.id() == stdout_id => *stdout_result = Some(Err(e)),
+            Some(Err(e)) if e.id() == stderr_id => *stderr_result = Some(Err(e)),
+            // Any join result whose id is neither drain.
+            Some(_) => {
+                tracing::error!("unexpected drain id from spawn_capped JoinSet");
+                return Err(std::io::Error::other("spawn_capped: unexpected drain id"));
+            }
+            None => return Err(missing_drain()),
+        }
+    }
+    Ok(())
+}
+
+/// The drain `JoinSet` ran dry before both readers reported.
+fn missing_drain() -> std::io::Error {
+    tracing::error!("spawn_capped JoinSet drained without yielding both readers");
+    std::io::Error::other("spawn_capped: drain JoinSet exhausted before stdout/stderr returned")
+}
+
 /// PERF-1 / TASK-0764: spawn `cmd` with piped stdio, stream both pipes through
 /// `read_capped`, and assemble a `CommandOutput`. Replaces `cmd.output()` so
 /// runaway children cannot peak the runner's RSS at the full output size — the
 /// excess bytes are sinked, not buffered.
+///
+/// CONC-9 / TASK-1919: the child is also spawned as its own process-group
+/// leader and owned by a [`ChildGroup`] guard, so a cancelled step (timeout
+/// or `fail_fast`) tears down the child's whole descendant tree rather than
+/// only its root, and the post-exit drain is bounded by
+/// [`POST_EXIT_DRAIN_GRACE`] so an orphan holding the pipe cannot hang the
+/// plan.
 async fn spawn_capped(
     cmd: &mut tokio::process::Command,
     cap: usize,
 ) -> std::io::Result<CommandOutput> {
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    // ASYNC-6 / TASK-1918: pin all three stdio slots. `tokio::process::Command`
+    // defaults stdin to `Stdio::inherit()`, so without this a captured child
+    // inherits the runner's fd 0 and an input-prompting program (`git` asking
+    // for a credential, `sudo`, `ssh`, `npm login`) blocks on `read(0)` while
+    // its prompt sits in the *captured* pipe — invisible to the user, and
+    // unbounded because `timeout_secs` is opt-in. The captured contract is
+    // "no interaction, we own the output", so `null` is the correct stdin:
+    // the child sees immediate EOF and fails fast with its own diagnostic,
+    // which lands in the captured stderr the display already renders.
+    // Interactive steps must use `--raw` ([`exec_command_raw`]), which keeps
+    // `Stdio::inherit()` deliberately.
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // CONC-9 / TASK-1919: make the child its own process-group leader so
+    // cancellation can address the tree it forks, not just the leader.
+    configure_process_group(cmd);
     let mut child = cmd.spawn()?;
+    // Armed for the whole body: every early return and every drop of this
+    // future (timeout, `JoinSet::abort_all`) now tears the group down.
+    let mut group = ChildGroup::new(&child);
     // ERR-5 / TASK-0906: tokio guarantees the handles are populated when
     // stdio is set to `piped` immediately above, but a future refactor
     // moving the stdio setup upward (or feeding partially-configured
@@ -148,34 +253,57 @@ async fn spawn_capped(
     let join_to_io = |e: tokio::task::JoinError| std::io::Error::other(e);
     // Await the specific handles by id so we keep the per-stream result
     // mapping; `JoinSet::join_next` would yield in completion order.
-    type DrainOutcome = Result<std::io::Result<(Vec<u8>, u64)>, tokio::task::JoinError>;
+    let (stdout_id, stderr_id) = (stdout_handle.id(), stderr_handle.id());
     let mut stdout_result: Option<DrainOutcome> = None;
     let mut stderr_result: Option<DrainOutcome> = None;
-    // ERR-5 / TASK-1139: encode "exactly two drains" as a logged io::Error
-    // rather than `unreachable!` / `expect`, so a refactor adding a third
-    // drain (e.g. stdin watchdog) surfaces as a StepFailed event instead of
-    // a panic-with-payload that SEC-21 / TASK-0334 redaction does not cover
-    // (that hardening only wraps the outer parallel JoinSet, not this inner
-    // one).
-    let unexpected_drain = || -> std::io::Error {
-        tracing::error!("unexpected drain id from spawn_capped JoinSet");
-        std::io::Error::other("spawn_capped: unexpected drain id")
-    };
-    let missing_drain = || -> std::io::Error {
-        tracing::error!("spawn_capped JoinSet drained without yielding both readers");
-        std::io::Error::other("spawn_capped: drain JoinSet exhausted before stdout/stderr returned")
-    };
-    while stdout_result.is_none() || stderr_result.is_none() {
-        match drains.join_next_with_id().await {
-            Some(Ok((id, val))) if id == stdout_handle.id() => stdout_result = Some(Ok(val)),
-            Some(Ok((id, val))) if id == stderr_handle.id() => stderr_result = Some(Ok(val)),
-            Some(Err(e)) if e.id() == stdout_handle.id() => stdout_result = Some(Err(e)),
-            Some(Err(e)) if e.id() == stderr_handle.id() => stderr_result = Some(Err(e)),
-            // Any join result whose id is neither drain: see `unexpected_drain`.
-            Some(_) => return Err(unexpected_drain()),
-            None => return Err(missing_drain()),
-        }
+    // CONC-9 / TASK-1919: bound the post-exit drain. The leader has exited,
+    // so anything still holding the write end of these pipes is a
+    // grandchild that outlived it; `read_capped` would otherwise wait for an
+    // EOF that never comes.
+    if tokio::time::timeout(
+        POST_EXIT_DRAIN_GRACE,
+        collect_drain_results(
+            &mut drains,
+            stdout_id,
+            stderr_id,
+            &mut stdout_result,
+            &mut stderr_result,
+        ),
+    )
+    .await
+    .is_err()
+    {
+        tracing::warn!(
+            grace_secs = POST_EXIT_DRAIN_GRACE.as_secs(),
+            "captured output still open {}s after the child exited; killing the process group",
+            POST_EXIT_DRAIN_GRACE.as_secs()
+        );
+        // Straight to SIGKILL: these are orphans of an already-exited
+        // leader, there is nothing left to shut down gracefully, and the
+        // step is blocked until they release the fd.
+        group.kill_now();
+        tokio::time::timeout(
+            POST_KILL_DRAIN_GRACE,
+            collect_drain_results(
+                &mut drains,
+                stdout_id,
+                stderr_id,
+                &mut stdout_result,
+                &mut stderr_result,
+            ),
+        )
+        .await
+        .map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "captured output pipe held open after the child exited; step abandoned",
+            )
+        })??;
     }
+    // Completed normally: a descendant that is still alive here was
+    // deliberately backgrounded by the step and closed its pipes, so it is
+    // not the runner's to signal.
+    group.disarm();
     let (stdout_bytes, stdout_dropped) = stdout_result
         .ok_or_else(missing_drain)?
         .map_err(join_to_io)??;
