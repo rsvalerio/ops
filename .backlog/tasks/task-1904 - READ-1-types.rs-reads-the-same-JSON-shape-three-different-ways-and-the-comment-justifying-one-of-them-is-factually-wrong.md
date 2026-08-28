@@ -3,11 +3,11 @@ id: TASK-1904
 title: >-
   READ-1: types.rs reads the same JSON shape three different ways, and the
   comment justifying one of them is factually wrong
-status: To Do
+status: Done
 assignee:
   - TASK-1999
 created_date: '2026-08-27 15:38'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:22'
 labels:
   - code-review-rust
   - structure-readability
@@ -44,7 +44,13 @@ The comment that singles out form 3 is incorrect:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One idiom is chosen for optional-scalar field access and applied across all accessors in types.rs, mirroring how array_iter/array_str_iter centralise the array case
-- [ ] #2 The incorrect comment at types.rs:312-313 is removed or corrected — immutable serde_json Value indexing returns Value::Null, it does not panic on a non-object
-- [ ] #3 get_str_or routes through get_or (or the divergence is documented), so the missing-field tracing::debug! applies uniformly to string fields
+- [x] #1 One idiom is chosen for optional-scalar field access and applied across all accessors in types.rs, mirroring how array_iter/array_str_iter centralise the array case
+- [x] #2 The incorrect comment at types.rs:312-313 is removed or corrected — immutable serde_json Value indexing returns Value::Null, it does not panic on a non-object
+- [x] #3 get_str_or routes through get_or (or the divergence is documented), so the missing-field tracing::debug! applies uniformly to string fields
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Closed as obsolete: the three competing optional-scalar field-access idioms, the incorrect "get avoids the panic on a non-object inner" comment at types.rs:312-313, and get_str_or's divergence from get_or all lived in src/types.rs, which TASK-1898 deleted in this same wave (the ARCH-9 decision was "remove the unconsumed surface"). No accessor, no JsonValueExt trait and no json_*_with_fallback helper remains, so there is no idiom left to unify and no comment left to correct. Not implemented - removed.
+<!-- SECTION:NOTES:END -->

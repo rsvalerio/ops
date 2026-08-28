@@ -3,11 +3,11 @@ id: TASK-1891
 title: >-
   ERR-1: multi-row metadata_raw passes ingest with a warn but hard-fails every
   read, bricking the DuckDB file
-status: To Do
+status: Done
 assignee:
   - TASK-1999
 created_date: '2026-08-27 15:35'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 21:08'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -49,8 +49,14 @@ The existing test `metadata_load_warns_when_metadata_raw_has_multiple_rows` (ing
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 MetadataIngestor::load and query_metadata_raw agree on the metadata_raw row-count invariant: either both reject count != 1, or both tolerate it with the same first-row policy
-- [ ] #2 When load rejects a multi-row ingest, metadata_raw is left in a state that causes the next run to re-ingest rather than replay the same failure (no sticky unreadable DB)
-- [ ] #3 A test drives load() and then query_metadata_raw() against the same DuckDb instance with a two-row fixture and asserts the combined outcome, not just load()'s return
-- [ ] #4 metadata_load_warns_when_metadata_raw_has_multiple_rows is updated to match the chosen contract instead of asserting is_ok() on a state the reader rejects
+- [x] #1 MetadataIngestor::load and query_metadata_raw agree on the metadata_raw row-count invariant: either both reject count != 1, or both tolerate it with the same first-row policy
+- [x] #2 When load rejects a multi-row ingest, metadata_raw is left in a state that causes the next run to re-ingest rather than replay the same failure (no sticky unreadable DB)
+- [x] #3 A test drives load() and then query_metadata_raw() against the same DuckDb instance with a two-row fixture and asserts the combined outcome, not just load()'s return
+- [x] #4 metadata_load_warns_when_metadata_raw_has_multiple_rows is updated to match the chosen contract instead of asserting is_ok() on a state the reader rejects
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Resolved by making load() enforce the reader's count==1 invariant: reject_non_singleton() warns, drops crate_dependencies + metadata_raw so the next run re-ingests (no sticky unreadable DB), and returns DbError::External naming the observed count. metadata_load_warns_when_metadata_raw_has_multiple_rows renamed to metadata_load_rejects_metadata_raw_with_multiple_rows and now asserts the error; new metadata_load_rejection_leaves_no_sticky_metadata_raw drives load() then query_metadata_raw() on the same DuckDb and probes duckdb_tables() for the absence of metadata_raw.
+<!-- SECTION:NOTES:END -->

@@ -3,11 +3,11 @@ id: TASK-1893
 title: >-
   ERR-13: every filesystem failure in MetadataIngestor::collect surfaces as a
   bare 'IO error' with no path
-status: To Do
+status: Done
 assignee:
   - TASK-1999
 created_date: '2026-08-27 15:35'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 21:09'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -42,7 +42,13 @@ The operator-visible result for an ENOSPC, EACCES or read-only-mount failure is 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 create_dir_all, run_cargo_metadata's Io arm, and atomic_write each produce an error naming the path (or working directory) they operated on
-- [ ] #2 The three failures are distinguishable from one another in the rendered message without reading the source
-- [ ] #3 A test asserts the path appears in the rendered error chain for at least one of the three edges (e.g. atomic_write into a read-only directory)
+- [x] #1 create_dir_all, run_cargo_metadata's Io arm, and atomic_write each produce an error naming the path (or working directory) they operated on
+- [x] #2 The three failures are distinguishable from one another in the rendered message without reading the source
+- [x] #3 A test asserts the path appears in the rendered error chain for at least one of the three edges (e.g. atomic_write into a read-only directory)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added io_at(op, path, err) in ingestor.rs: rewraps std::io::Error preserving ErrorKind and prefixing "<operation> <path>". Applied to all three edges (creating metadata ingest directory / running `cargo metadata` in working directory / writing staged cargo metadata JSON), so the three render distinguishably. New test metadata_collect_io_error_names_the_offending_path drives the create_dir_all edge (data dir under a regular file) and asserts both the path and the operation appear in the rendered chain. Variant stays DbError::Io so the TASK-1546 External-vs-Io test contract is unchanged.
+<!-- SECTION:NOTES:END -->
