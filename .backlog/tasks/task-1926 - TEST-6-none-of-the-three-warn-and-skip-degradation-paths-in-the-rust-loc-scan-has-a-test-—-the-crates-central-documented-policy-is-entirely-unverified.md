@@ -3,11 +3,11 @@ id: TASK-1926
 title: >-
   TEST-6: none of the three warn-and-skip degradation paths in the rust-loc scan
   has a test — the crate's central documented policy is entirely unverified
-status: To Do
+status: Done
 assignee:
   - TASK-1998
 created_date: '2026-08-27 15:45'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 15:37'
 labels:
   - code-review-rust
   - test-quality
@@ -39,8 +39,8 @@ This also protects the invariant behind TASK-1924 (the # Errors doc contradictin
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test writes a .rs file with invalid UTF-8 bytes into a tempdir next to a valid one, calls collect_rust_loc, and asserts the valid file's rows are still returned and the scan does not error
-- [ ] #2 A test covers the walker-error branch at lib.rs:120-126, for example via an unreadable subdirectory, and skips itself with a clear message when the process can read it anyway (running as root) rather than passing vacuously
-- [ ] #3 A test passes a source that lexes but fails syn::parse_file, such as a bare 'let x = 1;' at file scope, and asserts the lines are counted and all attributed to the base region with no test split
-- [ ] #4 Each new test names the branch it pins in its test name or doc comment, so the link between the degradation policy and its coverage is visible
+- [x] #1 A test writes a .rs file with invalid UTF-8 bytes into a tempdir next to a valid one, calls collect_rust_loc, and asserts the valid file's rows are still returned and the scan does not error
+- [x] #2 A test covers the walker-error branch at lib.rs:120-126, for example via an unreadable subdirectory, and skips itself with a clear message when the process can read it anyway (running as root) rather than passing vacuously
+- [x] #3 A test passes a source that lexes but fails syn::parse_file, such as a bare 'let x = 1;' at file scope, and asserts the lines are counted and all attributed to the base region with no test split
+- [x] #4 Each new test names the branch it pins in its test name or doc comment, so the link between the degradation policy and its coverage is visible
 <!-- AC:END -->

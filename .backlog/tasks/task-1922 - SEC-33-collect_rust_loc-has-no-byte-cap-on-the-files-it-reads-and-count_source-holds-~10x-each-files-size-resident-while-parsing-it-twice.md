@@ -3,11 +3,11 @@ id: TASK-1922
 title: >-
   SEC-33: collect_rust_loc has no byte cap on the files it reads, and
   count_source holds ~10x each file's size resident while parsing it twice
-status: To Do
+status: Done
 assignee:
   - TASK-1998
 created_date: '2026-08-27 15:45'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 15:36'
 labels:
   - code-review-rust
   - security
@@ -42,8 +42,8 @@ Consistent with TASK-1866 (no byte cap on the .git/HEAD read) and TASK-1811 (unb
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A named constant defines the maximum byte size of a .rs file that collect_rust_loc will lex and parse
-- [ ] #2 Files over the cap are counted with count_fallback (or skipped) and emit a tracing::warn that names the path with the Debug formatting already used at lib.rs:141 and states the cap, so a degraded count is never silent
-- [ ] #3 The size is checked before the file contents are pulled fully into memory, using the walker's DirEntry metadata rather than reading and then measuring
-- [ ] #4 A test writes an over-cap .rs file into a tempdir alongside a normal one and asserts the normal file's rows are still emitted and the over-cap file does not abort the scan
+- [x] #1 A named constant defines the maximum byte size of a .rs file that collect_rust_loc will lex and parse
+- [x] #2 Files over the cap are counted with count_fallback (or skipped) and emit a tracing::warn that names the path with the Debug formatting already used at lib.rs:141 and states the cap, so a degraded count is never silent
+- [x] #3 The size is checked before the file contents are pulled fully into memory, using the walker's DirEntry metadata rather than reading and then measuring
+- [x] #4 A test writes an over-cap .rs file into a tempdir alongside a normal one and asserts the normal file's rows are still emitted and the over-cap file does not abort the scan
 <!-- AC:END -->

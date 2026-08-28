@@ -3,11 +3,11 @@ id: TASK-1935
 title: >-
   READ-10: three of the four crate-level test lint allows suppress lints that
   cannot fire — the crate contains no numeric cast at all
-status: To Do
+status: Done
 assignee:
   - TASK-1998
 created_date: '2026-08-27 15:46'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 15:53'
 labels:
   - code-review-rust
   - readability
@@ -47,7 +47,7 @@ Cross-crate cause noted for context only: the same dead allows sit in `extension
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 clippy::cast_possible_truncation, clippy::cast_precision_loss and clippy::cast_sign_loss are removed from the crate-level cfg_attr(test, allow(..)) block
-- [ ] #2 clippy::unwrap_used stays, since src/tests.rs relies on it
-- [ ] #3 cargo clippy --all-targets -p ops-rust-loc is clean after the removal, confirming the three lints had nothing to suppress
+- [x] #1 clippy::cast_possible_truncation, clippy::cast_precision_loss and clippy::cast_sign_loss are removed from the crate-level cfg_attr(test, allow(..)) block
+- [x] #2 clippy::unwrap_used stays, since src/tests.rs relies on it
+- [x] #3 cargo clippy --all-targets -p ops-rust-loc is clean after the removal, confirming the three lints had nothing to suppress
 <!-- AC:END -->
