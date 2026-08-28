@@ -208,8 +208,13 @@ pub enum CoreSubcommand {
     /// `--force <scan>` to run one regardless of detection (scans: `secrets`,
     /// `vuln`, `misconfig`). Use the global `--dry-run` flag to preview which
     /// scans would run (and which would be skipped, with reasons) without
-    /// executing Trivy. Exit code is non-zero if any scan fails or reports
-    /// findings.
+    /// executing Trivy. Exit code is non-zero if any scan fails, times out, or
+    /// reports findings — and also when `--skip` leaves *no* scan to run, since
+    /// exiting 0 there would report a clean scan for a gate that never ran.
+    ///
+    /// Each scan is bounded by a 10-minute timeout; override it with
+    /// `OPS_SEC_TIMEOUT_SECS=<seconds>` (a cold vulnerability-DB download is
+    /// legitimately slow).
     Sec {
         /// Skip a scan even if it would otherwise run (repeatable).
         #[arg(long = "skip", value_enum, value_name = "SCAN")]
