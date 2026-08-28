@@ -3,11 +3,11 @@ id: TASK-1911
 title: >-
   CL-3: HOOK_SCRIPT silently assumes bash and ops are both on the hook's PATH;
   when either is missing every push is blocked with a bare 'command not found'
-status: To Do
+status: Done
 assignee:
   - TASK-2010
 created_date: '2026-08-27 15:40'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 15:13'
 labels:
   - code-review-rust
   - cognitive-load
@@ -39,8 +39,8 @@ Note the skip path does not help: `SKIP_OPS_RUN_BEFORE_PUSH` is read by `ops` it
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 HOOK_SCRIPT no longer requires bash: the shebang is #!/bin/sh (or the script genuinely needs bash and the reason is written next to the constant)
-- [ ] #2 The script checks that ops resolves before exec'ing it, and on failure prints a message to stderr naming the ops binary, the pre-push hook path, and how to fix PATH or bypass with SKIP_OPS_RUN_BEFORE_PUSH
-- [ ] #3 The failure path still exits non-zero so git aborts the push — the hook must not fail open
-- [ ] #4 A test asserts the shebang and the ops-missing guard are present in HOOK_SCRIPT, and that the script is valid under sh (e.g. sh -n)
+- [x] #1 HOOK_SCRIPT no longer requires bash: the shebang is #!/bin/sh (or the script genuinely needs bash and the reason is written next to the constant)
+- [x] #2 The script checks that ops resolves before exec'ing it, and on failure prints a message to stderr naming the ops binary, the pre-push hook path, and how to fix PATH or bypass with SKIP_OPS_RUN_BEFORE_PUSH
+- [x] #3 The failure path still exits non-zero so git aborts the push — the hook must not fail open
+- [x] #4 A test asserts the shebang and the ops-missing guard are present in HOOK_SCRIPT, and that the script is valid under sh (e.g. sh -n)
 <!-- AC:END -->

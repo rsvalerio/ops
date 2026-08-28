@@ -3,11 +3,11 @@ id: TASK-1906
 title: >-
   SEC-11: the pre-push hook never reads or validates git's ref-update stdin, and
   hands that pipe to every command it spawns
-status: To Do
+status: Done
 assignee:
   - TASK-2010
 created_date: '2026-08-27 15:39'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 15:13'
 labels:
   - code-review-rust
   - security
@@ -44,8 +44,8 @@ Two consequences follow.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 HOOK_SCRIPT (or the run-before-push dispatch path) guarantees no spawned command can read git's pre-push ref-update stream — verified by a test whose configured command reads stdin and observes EOF, not ref lines
-- [ ] #2 The pre-push ref-update lines are read and their shape validated (four whitespace-separated fields; oids matched against the all-zero sentinel) before any command runs
-- [ ] #3 A push whose ref updates are all deletions, or that has nothing to push, short-circuits with SUCCESS and a note instead of running the configured commands
-- [ ] #4 A test covers a delete-only ref line, a normal ref line, and a malformed/empty stdin, asserting the run/skip decision for each
+- [x] #1 HOOK_SCRIPT (or the run-before-push dispatch path) guarantees no spawned command can read git's pre-push ref-update stream — verified by a test whose configured command reads stdin and observes EOF, not ref lines
+- [x] #2 The pre-push ref-update lines are read and their shape validated (four whitespace-separated fields; oids matched against the all-zero sentinel) before any command runs
+- [x] #3 A push whose ref updates are all deletions, or that has nothing to push, short-circuits with SUCCESS and a note instead of running the configured commands
+- [x] #4 A test covers a delete-only ref line, a normal ref line, and a malformed/empty stdin, asserting the run/skip decision for each
 <!-- AC:END -->
