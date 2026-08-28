@@ -13,13 +13,15 @@
 //! `lib.rs` retains only wiring + `load_coverage` (the crate's public ingest
 //! entry point).
 
+// READ-10 / TASK-1946: only `unwrap_used` is load-bearing here. The three
+// cast lints that used to sit alongside it were a copied template — the
+// crate contains no `as` cast in any configuration, so they suppressed
+// nothing and no reader could tell which entries mattered.
 #![cfg_attr(
     test,
     allow(
         clippy::unwrap_used,
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss
+        reason = "test code uses unwrap and expect as its failure mechanism (ERR-5 scanning guidance)"
     )
 )]
 
