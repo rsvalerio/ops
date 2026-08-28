@@ -117,14 +117,10 @@ fn build_stack_detail(engine_node: Option<&str>, pkg_manager: Option<&str>) -> O
 mod tests {
     use super::*;
     use ops_core::project_identity::ProjectIdentity;
-    use std::path::Path;
 
-    fn write(path: &Path, content: &str) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(path, content).unwrap();
-    }
+    // DUP-1 / TASK-1736: the fixture-writing helper lives once in
+    // `ops_about::test_support`; alias it so call sites keep the short name.
+    use ops_about::test_support::write_file as write;
 
     #[test]
     fn build_stack_detail_both_set() {
