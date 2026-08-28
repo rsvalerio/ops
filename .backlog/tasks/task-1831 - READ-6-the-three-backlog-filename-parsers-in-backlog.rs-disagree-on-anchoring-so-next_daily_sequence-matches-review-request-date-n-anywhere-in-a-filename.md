@@ -4,11 +4,11 @@ title: >-
   READ-6: the three backlog-filename parsers in backlog.rs disagree on
   anchoring, so next_daily_sequence matches review-request-<date>-<n> anywhere
   in a filename
-status: To Do
+status: Done
 assignee:
   - TASK-2005
 created_date: '2026-08-27 15:21'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 15:52'
 labels:
   - code-review-rust
   - readability-consistency
@@ -40,8 +40,23 @@ The inconsistency compounds: because `next_daily_sequence` substring-matches whi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 review_request_sequence anchors the review-request-<date>- prefix at the start of the filename slug (after the ' - ' separator) instead of matching it at any offset
-- [ ] #2 the digit run must be the complete remainder of the stem: 'task-1900 - Fix-review-request-2026-08-27-3-flakiness.md' does not contribute to next_daily_sequence(.., '2026-08-27')
-- [ ] #3 leading_task_number, review_request_sequence and conflicting_claim's title check share one filename-splitting helper, so all three agree on what the task number and the slug of a filename are
-- [ ] #4 a regression test covers a non-review-request task whose title embeds a review-request-<date>-<n> string and asserts the day's sequence is unaffected
+- [x] #1 review_request_sequence anchors the review-request-<date>- prefix at the start of the filename slug (after the ' - ' separator) instead of matching it at any offset
+- [x] #2 the digit run must be the complete remainder of the stem: 'task-1900 - Fix-review-request-2026-08-27-3-flakiness.md' does not contribute to next_daily_sequence(.., '2026-08-27')
+- [x] #3 leading_task_number, review_request_sequence and conflicting_claim's title check share one filename-splitting helper, so all three agree on what the task number and the slug of a filename are
+- [x] #4 a regression test covers a non-review-request task whose title embeds a review-request-<date>-<n> string and asserts the day's sequence is unaffected
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+All three parsers now go through one `TaskFileName::parse` helper, which splits
+`<id> - <slug>.md` into an optional `task-<n>` number and the slug. `next_ids`
+(number + daily sequence) and `conflicting_claim`'s title check both consume it, so
+they can no longer disagree about where the number ends and the slug begins.
+
+`TaskFileName::review_request_sequence` is anchored at both ends: the
+`review-request-<date>-` prefix must start the slug, and the digit run must be the
+entire remainder. New test
+`daily_sequence_ignores_a_review_request_id_embedded_in_a_title` pins
+`task-1900 - Fix-review-request-2026-08-27-3-flakiness.md` as contributing nothing.
+<!-- SECTION:NOTES:END -->

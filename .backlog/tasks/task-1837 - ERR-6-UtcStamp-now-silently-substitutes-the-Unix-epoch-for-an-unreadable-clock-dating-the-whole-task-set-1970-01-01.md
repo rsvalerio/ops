@@ -3,11 +3,11 @@ id: TASK-1837
 title: >-
   ERR-6: UtcStamp::now silently substitutes the Unix epoch for an unreadable
   clock, dating the whole task set 1970-01-01
-status: To Do
+status: Done
 assignee:
   - TASK-2005
 created_date: '2026-08-27 15:22'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 15:53'
 labels:
   - code-review-rust
   - error-handling
@@ -49,8 +49,26 @@ Note this is independent of TASK-1823 (TIME-1): adopting `chrono`/`jiff` replace
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 UtcStamp::now no longer substitutes 0 for a duration_since(UNIX_EPOCH) error; it reports the failure to its caller
-- [ ] #2 run_create_review_tasks surfaces an unreadable clock as an error naming the problem, in both RunMode::Write and RunMode::DryRun, instead of writing tasks dated 1970-01-01
-- [ ] #3 a test drives the failure branch (e.g. via a from_unix_secs-level or injected-clock seam) and asserts no task file is created and the error names the clock
-- [ ] #4 the clock.rs module doc states what now() does when the host clock precedes the Unix epoch
+- [x] #1 UtcStamp::now no longer substitutes 0 for a duration_since(UNIX_EPOCH) error; it reports the failure to its caller
+- [x] #2 run_create_review_tasks surfaces an unreadable clock as an error naming the problem, in both RunMode::Write and RunMode::DryRun, instead of writing tasks dated 1970-01-01
+- [x] #3 a test drives the failure branch (e.g. via a from_unix_secs-level or injected-clock seam) and asserts no task file is created and the error names the clock
+- [x] #4 the clock.rs module doc states what now() does when the host clock precedes the Unix epoch
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`UtcStamp::now` is now `-> anyhow::Result<Self>` and delegates to a new
+`UtcStamp::at(SystemTime)` seam; the `duration_since(UNIX_EPOCH)` error is wrapped as
+"system clock reads before 1970-01-01; refusing to date review tasks" instead of
+being collapsed to 0. `run_create_review_tasks` delegates to
+`run_create_review_tasks_with_clock`, which reads the clock first and propagates the
+failure before any directory scan or file write, so both `RunMode::Write` and
+`RunMode::DryRun` abort.
+
+Tests: `clock::tests::pre_epoch_clock_is_an_error_naming_the_clock` drives the real
+branch with `UNIX_EPOCH - 1s`; `unreadable_clock_aborts_the_run_and_writes_nothing`
+runs both modes end to end and asserts the error names the clock, nothing is
+reported, and `.backlog/tasks` stays empty. The clock.rs module doc states what
+`now()` does when the host clock precedes the epoch.
+<!-- SECTION:NOTES:END -->

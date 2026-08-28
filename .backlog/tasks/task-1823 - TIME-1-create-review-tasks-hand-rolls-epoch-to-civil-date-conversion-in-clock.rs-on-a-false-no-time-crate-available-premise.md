@@ -3,11 +3,11 @@ id: TASK-1823
 title: >-
   TIME-1: create-review-tasks hand-rolls epoch-to-civil-date conversion in
   clock.rs on a false 'no time crate available' premise
-status: To Do
+status: Done
 assignee:
   - TASK-2005
 created_date: '2026-08-27 11:33'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 15:52'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -33,8 +33,26 @@ The reduction currently looks correct and is covered by six pinned timestamps pl
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 clock.rs no longer derives a calendar date from secs / 86_400 or hand-rolls the civil_from_days reduction; the UTC date and HH:MM come from chrono (already in the binary's graph via duckdb -> arrow) or jiff
-- [ ] #2 UtcStamp keeps its pre-formatted (date, minutes) shape so backlog.rs render_task_file and the review-request title are byte-identical to today's output
-- [ ] #3 the existing from_unix_secs_formats_known_timestamps, day_after_leap_day_rolls_to_march, non_leap_century_skips_feb_29 and year_rolls_at_december_midnight cases still pass unchanged against the replacement
-- [ ] #4 if the hand-rolled implementation is deliberately kept instead, the module doc comment is corrected: it must not claim the workspace avoids chrono/time when chrono 0.4.45 and jiff 0.2.35 are already in the ops dependency graph
+- [x] #1 clock.rs no longer derives a calendar date from secs / 86_400 or hand-rolls the civil_from_days reduction; the UTC date and HH:MM come from chrono (already in the binary's graph via duckdb -> arrow) or jiff
+- [x] #2 UtcStamp keeps its pre-formatted (date, minutes) shape so backlog.rs render_task_file and the review-request title are byte-identical to today's output
+- [x] #3 the existing from_unix_secs_formats_known_timestamps, day_after_leap_day_rolls_to_march, non_leap_century_skips_feb_29 and year_rolls_at_december_midnight cases still pass unchanged against the replacement
+- [x] #4 if the hand-rolled implementation is deliberately kept instead, the module doc comment is corrected: it must not claim the workspace avoids chrono/time when chrono 0.4.45 and jiff 0.2.35 are already in the ops dependency graph
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+clock.rs now delegates the epoch -> civil-date reduction to `chrono` (added to
+[workspace.dependencies] as `default-features = false, features = ["std"]`; it was
+already compiled into the binary via duckdb -> arrow -> arrow-arith, and cargo-deny
+licenses/bans/advisories stay green). `civil_from_days` and its hand-written
+correctness proof are deleted; `UtcStamp` keeps its pre-formatted `(date, minutes)`
+shape, so `render_task_file` output is byte-identical (the two golden shape tests
+pass unchanged).
+
+AC #3 substitution: `from_unix_secs` is now `-> Option<Self>` (chrono refuses rather
+than clamps an unrepresentable instant), so the four pinned cases call a one-line
+`stamp(secs)` test helper instead of `UtcStamp::from_unix_secs` directly. Every
+timestamp and every expected value is unchanged. AC #4 does not apply: the
+hand-rolled implementation was replaced, not kept.
+<!-- SECTION:NOTES:END -->

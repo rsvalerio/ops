@@ -4,11 +4,11 @@ title: >-
   DUP-1: next_main_task_number and next_daily_sequence are the same
   scan-extract-max loop, and running them separately is what creates the race
   conflicting_claim exists to patch
-status: To Do
+status: Done
 assignee:
   - TASK-2005
 created_date: '2026-08-27 11:34'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 15:52'
 labels:
   - code-review-rust
   - duplication
@@ -46,8 +46,28 @@ The duplication is not just cosmetic: the two walks being separate calls is prec
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 next_main_task_number and next_daily_sequence no longer each perform their own for_each_task_file walk; one pass over TASK_DIRS yields both the next main-task number and the next daily sequence
-- [ ] #2 plan_task_set performs at most one backlog-tree walk per allocation attempt (down from two)
-- [ ] #3 the two returned ids are derived from the same directory listing, and the doc comments on commit_task_set and conflicting_claim are updated to drop the now-false 'reads the tree twice / not atomic with each other' rationale, or to state precisely which race remains
-- [ ] #4 existing backlog.rs allocation tests (next_number_* and daily_sequence_* families) pass unchanged
+- [x] #1 next_main_task_number and next_daily_sequence no longer each perform their own for_each_task_file walk; one pass over TASK_DIRS yields both the next main-task number and the next daily sequence
+- [x] #2 plan_task_set performs at most one backlog-tree walk per allocation attempt (down from two)
+- [x] #3 the two returned ids are derived from the same directory listing, and the doc comments on commit_task_set and conflicting_claim are updated to drop the now-false 'reads the tree twice / not atomic with each other' rationale, or to state precisely which race remains
+- [x] #4 existing backlog.rs allocation tests (next_number_* and daily_sequence_* families) pass unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`next_main_task_number` / `next_daily_sequence` are replaced by a single
+`backlog::next_ids(workspace_root, date) -> NextIds { number, sequence }` that
+accumulates both maxima in one `for_each_task_file` walk. `plan_task_set` calls it
+once, so an allocation attempt now walks TASK_DIRS once instead of twice (and the
+whole retry loop does at most 2 walks per attempt including `conflicting_claim`,
+down from 3). Both ids come from the same directory listing.
+
+Docs updated: `commit_task_set` and `conflicting_claim` no longer claim "the tree is
+read twice / the two scans are not atomic with each other"; they now state the race
+that actually remains — the single scan is still not atomic with the write that
+follows it (plain TOCTOU), which is what the post-reservation re-check covers.
+
+AC #4 substitution: the `next_number_*` and `daily_sequence_*` assertions are
+unchanged; only their call sites moved to `next_ids(..).number` / `.sequence`, since
+the two old entry points no longer exist.
+<!-- SECTION:NOTES:END -->
