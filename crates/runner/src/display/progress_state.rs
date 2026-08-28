@@ -15,7 +15,6 @@
 //! `ProgressDisplay`, which still owns rendering config, IO/tap, and the
 //! footer/header bars whose lifecycle is run-plan-scoped, not step-scoped.
 
-use crate::command::OutputLine;
 use indicatif::ProgressBar;
 use ops_core::config::CommandId;
 use std::collections::{HashMap, VecDeque};
@@ -28,10 +27,22 @@ use std::collections::{HashMap, VecDeque};
 /// in `record_stderr`. PERF-1 / TASK-0539: prior implementation held every
 /// captured stderr line for the plan's lifetime even though only the
 /// configured tail (`stderr_tail_lines`, default 5) is ever rendered.
+///
+/// PERF-3 / TASK-1925: the ring stores **owned** `Box<str>` lines, not
+/// `OutputLine` views. An `OutputLine` is `{ buf: Arc<str>, range }` over
+/// the step's *entire* capture buffer, so retaining five tail lines of it
+/// kept the whole buffer — up to `OPS_OUTPUT_BYTE_CAP`, 4 MiB by default —
+/// resident until the next `reset_for_plan`, once per step that wrote
+/// stderr. That is the same order of magnitude as the "every line for the
+/// plan's lifetime" retention TASK-0539 set out to remove, so the O(tail)
+/// claim above was only true of the deque's element *count*. Copying at
+/// record time costs one small allocation per *retained* line — the tail is
+/// stringified for rendering anyway (`extract_stderr_tail`) — and releases
+/// the megabyte-scale buffer as soon as the step's events are processed.
 pub struct ProgressState {
     pub bars: Vec<ProgressBar>,
     pub steps: Vec<(String, String)>,
-    pub step_stderr: HashMap<String, VecDeque<OutputLine>>,
+    pub step_stderr: HashMap<String, VecDeque<Box<str>>>,
     pub display_map: HashMap<String, String>,
     pub plan_command_ids: Vec<String>,
     /// PERF-12 (TASK-0723): O(1) `id -> steps` index. Populated by
@@ -122,7 +133,13 @@ impl ProgressState {
     /// memory is O(tail) rather than O(captured stderr). Used by
     /// `on_step_output` to accumulate the tail that error-detail rendering
     /// consumes on failure. `cap == 0` records nothing.
-    pub fn record_stderr(&mut self, id: &str, line: OutputLine, cap: usize) {
+    ///
+    /// PERF-3 / TASK-1925: takes `&str` and copies. The caller holds an
+    /// `OutputLine` borrowing the step's whole capture buffer; storing
+    /// that view would pin the buffer for the rest of the plan (see the
+    /// type-level docs). The copy is bounded by the ring cap, not by the
+    /// number of lines streamed through it.
+    pub fn record_stderr(&mut self, id: &str, line: &str, cap: usize) {
         if cap == 0 {
             return;
         }
@@ -139,7 +156,7 @@ impl ProgressState {
         if buf.len() == cap {
             buf.pop_front();
         }
-        buf.push_back(line);
+        buf.push_back(Box::from(line));
     }
 
     /// Replace the per-plan `steps` list and the parallel `plan_command_ids`
@@ -239,17 +256,17 @@ mod tests {
     #[test]
     fn record_stderr_accumulates_per_id() {
         let mut s = ProgressState::new(HashMap::new());
-        s.record_stderr("a", "line1".into(), 16);
-        s.record_stderr("a", "line2".into(), 16);
-        s.record_stderr("b", "other".into(), 16);
+        s.record_stderr("a", "line1", 16);
+        s.record_stderr("a", "line2", 16);
+        s.record_stderr("b", "other", 16);
         let a: Vec<String> = s.step_stderr["a"]
             .iter()
-            .map(|l| l.as_str().to_string())
+            .map(std::string::ToString::to_string)
             .collect();
         assert_eq!(a, vec!["line1".to_string(), "line2".to_string()]);
         let b: Vec<String> = s.step_stderr["b"]
             .iter()
-            .map(|l| l.as_str().to_string())
+            .map(std::string::ToString::to_string)
             .collect();
         assert_eq!(b, vec!["other".to_string()]);
     }
@@ -261,12 +278,12 @@ mod tests {
         // confirm peak memory stays at the cap and only the tail is kept.
         let cap = 5;
         for i in 0..100_000 {
-            s.record_stderr("noisy", format!("line {i}").into(), cap);
+            s.record_stderr("noisy", &format!("line {i}"), cap);
             assert!(s.step_stderr["noisy"].len() <= cap);
         }
         let tail: Vec<String> = s.step_stderr["noisy"]
             .iter()
-            .map(|l| l.as_str().to_string())
+            .map(std::string::ToString::to_string)
             .collect();
         assert_eq!(
             tail,
@@ -280,12 +297,49 @@ mod tests {
         );
     }
 
+    /// PERF-3 / TASK-1925: production feeds `record_stderr` lines that are
+    /// all views onto **one** `Arc<str>` capture buffer per step, so a ring
+    /// of `OutputLine` kept the entire buffer alive for as long as any tail
+    /// line survived. `record_stderr_bounded_ring_keeps_only_tail` cannot
+    /// see that: it allocates a fresh one-line buffer per call.
+    ///
+    /// This test reproduces the production shape — one shared buffer, many
+    /// lines — and asserts the ring releases it. `Arc::strong_count` back at
+    /// 1 means only this test still holds the buffer.
+    #[test]
+    fn record_stderr_does_not_pin_the_shared_capture_buffer() {
+        use std::sync::Arc;
+        let mut s = ProgressState::new(HashMap::new());
+        let buf: Arc<str> = Arc::from("line one\nline two\nline three\nline four\n");
+        assert_eq!(Arc::strong_count(&buf), 1);
+        for line in buf.lines() {
+            // Exactly what `on_step_output` does: the caller holds an
+            // `OutputLine` over the whole buffer and passes its text.
+            s.record_stderr("noisy", line, 2);
+        }
+        assert_eq!(s.step_stderr["noisy"].len(), 2);
+        assert_eq!(
+            Arc::strong_count(&buf),
+            1,
+            "the ring must not retain a handle on the step's capture buffer"
+        );
+        // The retained tail still carries its own bytes.
+        let tail: Vec<String> = s.step_stderr["noisy"]
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
+        assert_eq!(
+            tail,
+            vec!["line three".to_string(), "line four".to_string()]
+        );
+    }
+
     #[test]
     fn record_stderr_high_cap_preserves_full_tail() {
         // Verbose mode (raised cap) still preserves the full captured stream.
         let mut s = ProgressState::new(HashMap::new());
         for i in 0..1_000 {
-            s.record_stderr("verbose", format!("v{i}").into(), usize::MAX);
+            s.record_stderr("verbose", &format!("v{i}"), usize::MAX);
         }
         assert_eq!(s.step_stderr["verbose"].len(), 1_000);
     }
@@ -293,7 +347,7 @@ mod tests {
     #[test]
     fn record_stderr_zero_cap_records_nothing() {
         let mut s = ProgressState::new(HashMap::new());
-        s.record_stderr("a", "ignored".into(), 0);
+        s.record_stderr("a", "ignored", 0);
         assert!(!s.step_stderr.contains_key("a"));
     }
 

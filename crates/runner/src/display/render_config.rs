@@ -13,6 +13,16 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StderrTail {
     /// Show all captured stderr lines (verbose mode).
+    ///
+    /// PERF-3 / TASK-1925: `--verbose` **intentionally removes the ring's
+    /// eviction bound** — `cap()` returns `usize::MAX`, so `record_stderr`
+    /// never evicts and the deque grows one entry per stderr line for every
+    /// step until the plan ends. That is the point of the mode (the whole
+    /// stream is meant to be renderable), and it is bounded in practice by
+    /// what the runner captured in the first place: `OPS_OUTPUT_BYTE_CAP`
+    /// per stream per step. Since TASK-1925 each retained line owns only its
+    /// own bytes, so the growth is the lines themselves rather than one
+    /// pinned multi-megabyte capture buffer per step.
     Unbounded,
     /// Show at most N tail lines.
     Limited(usize),
