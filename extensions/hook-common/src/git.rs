@@ -17,7 +17,16 @@ const FIND_GIT_DIR_MAX_DEPTH: usize = 64;
 /// A pointer with deeper `..` traversal (e.g. `../../../../../etc`) is the
 /// shape of a redirection attack against the hook installer, which writes
 /// into the resolved path.
+///
+/// SEC-14 / TASK-1890: "absolute pointers are what git writes" is not a
+/// reason to trust them — the parser cannot tell a pointer git wrote from one
+/// someone else dropped into the walk. Absolute targets are validated too;
+/// see [`resolve_absolute_gitdir`] for the rule they must satisfy.
 const MAX_GITDIR_PARENT_TRAVERSAL: usize = 2;
+
+/// Name of the back-reference file git writes inside a worktree gitdir,
+/// holding the absolute path of the worktree's own `.git` pointer file.
+const GITDIR_BACKREFERENCE: &str = "gitdir";
 
 /// Find the `.git` directory by walking up from the given path.
 ///
@@ -78,6 +87,20 @@ fn probe_git_entry(candidate: &Path) -> Option<PathBuf> {
 ///   is silently shadowed by the first under the previous parser; an
 ///   attacker who can append to the pointer could redirect resolution).
 ///
+/// # Containment
+///
+/// Both spellings of the target are held to a containment rule — SEC-14 /
+/// TASK-1890 closed the asymmetry where a *relative* target had to survive
+/// the [`MAX_GITDIR_PARENT_TRAVERSAL`] cap plus a symlink-aware anchor check
+/// while an *absolute* one was returned verbatim, straight into a write
+/// primitive that produces an executable file git runs on every commit.
+///
+/// * **Relative**: textual `..` cap, then the canonical result must sit under
+///   the anchor exactly [`MAX_GITDIR_PARENT_TRAVERSAL`] levels above the
+///   pointer's parent.
+/// * **Absolute**: the canonical result must sit under that same anchor, *or*
+///   carry git's own back-reference — see [`resolve_absolute_gitdir`].
+///
 /// Returns `None` (and emits a `tracing::debug!`) for any other shape.
 fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
     let content = match std::fs::read_to_string(file) {
@@ -116,54 +139,16 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
         return None;
     }
     let target = Path::new(rest.trim());
+    let parent = file.parent()?;
     if target.is_absolute() {
-        return Some(target.to_path_buf());
+        return resolve_absolute_gitdir(file, parent, target);
     }
     if max_parent_escape(target) > MAX_GITDIR_PARENT_TRAVERSAL {
         return None;
     }
-    let parent = file.parent()?;
     let joined = parent.join(target);
-    // SEC-14 / TASK-0788: the textual `max_parent_escape` cap is symlink-blind.
-    // A pointer like `link/../../etc` has peak textual escape = 1 (well within
-    // the cap of 2), but if `link` is a symlink, `canonicalize` follows it and
-    // can land the resolved gitdir anywhere on disk. Anchor the canonical
-    // resolved path to the ancestor that the textual cap permits — exactly
-    // `MAX_GITDIR_PARENT_TRAVERSAL` levels above the pointer's parent — so any
-    // canonical result that escapes that anchor (via symlink redirection) is
-    // refused before downstream code writes into it.
-    let anchor_raw = parent
-        .ancestors()
-        .nth(MAX_GITDIR_PARENT_TRAVERSAL)
-        .unwrap_or(parent);
-    // ERR-1 / TASK-1004: emit a per-site breadcrumb on canonicalize failure
-    // so operators chasing "ops did nothing in this repo" can distinguish
-    // (a) no `.git` upstream, (b) SEC-14 escape rejection, and (c) a real
-    // canonicalize syscall error. Without this the three failure modes
-    // collapsed to the same silent `None`. Debug-format paths/errors per
-    // the ERR-7 (TASK-0937) sweep.
-    let anchor = match std::fs::canonicalize(anchor_raw) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::debug!(
-                anchor_raw = ?anchor_raw.display(),
-                error = ?e,
-                "gitdir pointer: failed to canonicalize SEC-14 anchor; treating as no gitdir"
-            );
-            return None;
-        }
-    };
-    let canonical_target = match std::fs::canonicalize(&joined) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::debug!(
-                target = ?joined.display(),
-                error = ?e,
-                "gitdir pointer: failed to canonicalize gitdir target; treating as no gitdir"
-            );
-            return None;
-        }
-    };
+    let anchor = canonical_anchor(parent)?;
+    let canonical_target = canonicalize_gitdir_target(&joined)?;
     if !canonical_target.starts_with(&anchor) {
         // ERR-7 (TASK-0937): Debug-format paths to neutralize control
         // characters and ANSI escapes in worktree-root rejection logs.
@@ -175,6 +160,112 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
         return None;
     }
     Some(canonical_target)
+}
+
+/// SEC-14 / TASK-0788: the textual `max_parent_escape` cap is symlink-blind.
+/// A pointer like `link/../../etc` has peak textual escape = 1 (well within
+/// the cap of 2), but if `link` is a symlink, `canonicalize` follows it and
+/// can land the resolved gitdir anywhere on disk. Anchor the canonical
+/// resolved path to the ancestor that the textual cap permits — exactly
+/// [`MAX_GITDIR_PARENT_TRAVERSAL`] levels above the pointer's parent — so any
+/// canonical result that escapes that anchor (via symlink redirection) is
+/// refused before downstream code writes into it.
+fn canonical_anchor(parent: &Path) -> Option<PathBuf> {
+    let anchor_raw = parent
+        .ancestors()
+        .nth(MAX_GITDIR_PARENT_TRAVERSAL)
+        .unwrap_or(parent);
+    // ERR-1 / TASK-1004: emit a per-site breadcrumb on canonicalize failure
+    // so operators chasing "ops did nothing in this repo" can distinguish
+    // (a) no `.git` upstream, (b) SEC-14 escape rejection, and (c) a real
+    // canonicalize syscall error. Without this the three failure modes
+    // collapsed to the same silent `None`. Debug-format paths/errors per
+    // the ERR-7 (TASK-0937) sweep.
+    match std::fs::canonicalize(anchor_raw) {
+        Ok(p) => Some(p),
+        Err(e) => {
+            tracing::debug!(
+                anchor_raw = ?anchor_raw.display(),
+                error = ?e,
+                "gitdir pointer: failed to canonicalize SEC-14 anchor; treating as no gitdir"
+            );
+            None
+        }
+    }
+}
+
+fn canonicalize_gitdir_target(target: &Path) -> Option<PathBuf> {
+    match std::fs::canonicalize(target) {
+        Ok(p) => Some(p),
+        Err(e) => {
+            tracing::debug!(
+                target = ?target.display(),
+                error = ?e,
+                "gitdir pointer: failed to canonicalize gitdir target; treating as no gitdir"
+            );
+            None
+        }
+    }
+}
+
+/// SEC-14 / TASK-1890: validate an **absolute** `gitdir:` target.
+///
+/// Previously an absolute target was returned verbatim: no `..` cap, no
+/// canonicalization, no containment. A `.git` *file* planted anywhere in the
+/// walk `find_git_dir` performs — an unpacked archive, a vendored or
+/// generated tree, a scratch directory some tool wrote — therefore redirected
+/// the whole install, and `install_hook` writes an executable script into
+/// `<resolved>/hooks/<hook>` that git runs on every commit. The only check in
+/// the way was `paths::is_accepted_git_dir`, which any real repository on the
+/// machine satisfies; it is a shape check, not a containment boundary.
+///
+/// An absolute target is accepted when, after canonicalization, it satisfies
+/// **either**:
+///
+/// 1. **The same anchor as a relative pointer** — it sits under the ancestor
+///    [`MAX_GITDIR_PARENT_TRAVERSAL`] levels above the pointer's parent. This
+///    covers submodules and worktrees living next to the repo, and gives the
+///    absolute spelling exactly the scrutiny the relative one already got.
+/// 2. **Git's own back-reference** — `<target>/gitdir` exists and names this
+///    very pointer file. `git worktree add` writes that pair in both
+///    directions, so a target that points back at us is one git linked to
+///    this worktree, not one somebody redirected us to. This keeps genuinely
+///    distant worktrees (`git worktree add /elsewhere/wt`) working, which a
+///    containment rule alone would break.
+///
+/// Realistic impact of the old shape was bounded by filesystem permissions —
+/// the redirect can only land where the invoking user could already write —
+/// so this is defence in depth. The asymmetry is what made it a finding: two
+/// spellings of the same input got very different scrutiny.
+fn resolve_absolute_gitdir(pointer: &Path, parent: &Path, target: &Path) -> Option<PathBuf> {
+    let canonical_target = canonicalize_gitdir_target(target)?;
+    if canonical_anchor(parent).is_some_and(|anchor| canonical_target.starts_with(&anchor)) {
+        return Some(canonical_target);
+    }
+    if has_gitdir_backreference(&canonical_target, pointer) {
+        return Some(canonical_target);
+    }
+    // ERR-7 (TASK-0937): Debug-format paths, matching the relative-pointer
+    // refusal paths.
+    tracing::debug!(
+        pointer = ?pointer.display(),
+        target = ?canonical_target.display(),
+        "absolute gitdir pointer is neither anchored nor back-referenced by git; rejecting",
+    );
+    None
+}
+
+/// True when `gitdir/gitdir` names `pointer` — the reverse link `git worktree
+/// add` writes alongside the forward `gitdir:` pointer.
+fn has_gitdir_backreference(gitdir: &Path, pointer: &Path) -> bool {
+    let Ok(recorded) = std::fs::read_to_string(gitdir.join(GITDIR_BACKREFERENCE)) else {
+        return false;
+    };
+    let Some(canonical_pointer) = canonicalize_gitdir_target(pointer) else {
+        return false;
+    };
+    canonicalize_gitdir_target(Path::new(recorded.trim()))
+        .is_some_and(|recorded| recorded == canonical_pointer)
 }
 
 /// SEC-14: peak number of directories `path` ascends above its starting point
@@ -447,6 +538,102 @@ mod tests {
         std::fs::write(&pointer, format!("gitdir: {}\n", real.display())).unwrap();
         let resolved = read_gitdir_pointer(&pointer).expect("resolved");
         assert!(resolved.ends_with("real_gitdir"));
+    }
+
+    /// SEC-14 / TASK-1890: an absolute `gitdir:` target that is neither
+    /// anchored near the pointer nor back-referenced by git must be refused,
+    /// even though the planted target is a perfectly convincing repository
+    /// (named `.git`, carrying a `HEAD` regular file) that
+    /// `paths::is_accepted_git_dir` would wave through. Before the fix the
+    /// absolute branch returned the target verbatim and the hook installer
+    /// wrote an executable script into it.
+    #[test]
+    fn find_git_dir_rejects_unanchored_absolute_pointer() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // The pointer sits deep enough that its SEC-14 anchor
+        // (`<tmp>/work/a/b`) does not contain the planted target.
+        let worktree = dir.path().join("work/a/b/c/checkout");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let planted = dir.path().join("elsewhere/.git");
+        std::fs::create_dir_all(&planted).unwrap();
+        std::fs::write(planted.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+
+        let pointer = worktree.join(".git");
+        let absolute = std::fs::canonicalize(&planted).unwrap();
+        std::fs::write(&pointer, format!("gitdir: {}\n", absolute.display())).unwrap();
+
+        // No real `.git` anywhere up the chain — only the planted pointer.
+        assert_eq!(find_git_dir(&worktree), None);
+    }
+
+    /// SEC-14 / TASK-1890: the shape `git worktree add` writes for a worktree
+    /// far from its repository — an absolute forward pointer plus the
+    /// `<gitdir>/gitdir` back-reference — still resolves. A containment rule
+    /// on its own would have broken this, which is why the back-reference is
+    /// the second accepted proof.
+    #[test]
+    fn find_git_dir_accepts_absolute_pointer_with_git_backreference() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let gitdir = dir.path().join("repo/.git/worktrees/feature");
+        std::fs::create_dir_all(&gitdir).unwrap();
+        std::fs::write(gitdir.join("HEAD"), "ref: refs/heads/feature\n").unwrap();
+        // Deep enough that the anchor rule alone cannot accept it.
+        let worktree = dir.path().join("far/away/from/the/repo/feature");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let pointer = worktree.join(".git");
+
+        let canonical_gitdir = std::fs::canonicalize(&gitdir).unwrap();
+        std::fs::write(
+            &pointer,
+            format!("gitdir: {}\n", canonical_gitdir.display()),
+        )
+        .unwrap();
+        // The reverse link git writes at the same time.
+        std::fs::write(
+            gitdir.join("gitdir"),
+            format!("{}\n", std::fs::canonicalize(&pointer).unwrap().display()),
+        )
+        .unwrap();
+
+        assert_eq!(find_git_dir(&worktree), Some(canonical_gitdir));
+    }
+
+    /// SEC-14 / TASK-1890: a back-reference that names *someone else's*
+    /// pointer proves nothing — the planted pointer must not ride another
+    /// worktree's link.
+    #[test]
+    fn find_git_dir_rejects_absolute_pointer_with_foreign_backreference() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let gitdir = dir.path().join("repo/.git/worktrees/feature");
+        std::fs::create_dir_all(&gitdir).unwrap();
+        std::fs::write(gitdir.join("HEAD"), "ref: refs/heads/feature\n").unwrap();
+        let honest = dir.path().join("far/away/honest");
+        std::fs::create_dir_all(&honest).unwrap();
+        let honest_pointer = honest.join(".git");
+        std::fs::write(&honest_pointer, "gitdir: whatever\n").unwrap();
+        std::fs::write(
+            gitdir.join("gitdir"),
+            format!(
+                "{}\n",
+                std::fs::canonicalize(&honest_pointer).unwrap().display()
+            ),
+        )
+        .unwrap();
+
+        // The attacker's pointer, elsewhere, aiming at the same gitdir.
+        let attacker = dir.path().join("far/away/attacker");
+        std::fs::create_dir_all(&attacker).unwrap();
+        let pointer = attacker.join(".git");
+        std::fs::write(
+            &pointer,
+            format!(
+                "gitdir: {}\n",
+                std::fs::canonicalize(&gitdir).unwrap().display()
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(find_git_dir(&attacker), None);
     }
 
     #[test]
