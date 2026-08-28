@@ -8,7 +8,10 @@
 //! includes, `pnpm-workspace.yaml` is ignored (npm/yarn shadow pnpm). An
 //! `workspaces` array containing only `!`-prefixed exclusions is treated as
 //! "no positive includes" and the pnpm fallback is consulted instead. Both
-//! sources accept `!`-prefixed exclusion entries.
+//! sources accept `!`-prefixed exclusion entries. ERR-2 / TASK-1725: blank
+//! and whitespace-only entries are trimmed away from both sources, so an
+//! array of only blank entries is likewise "no positive includes" and never
+//! resolves to the project root as its own member.
 
 use std::path::Path;
 
@@ -152,16 +155,41 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
     (includes, excludes)
 }
 
+/// Split workspace glob entries into positive includes and `!`-prefixed
+/// excludes.
+///
+/// ERR-2 / TASK-1725: each entry is trimmed and dropped when it is empty
+/// after `./` and `!` stripping — the same trim-and-drop-empty policy the
+/// crate already applies to every other externally-sourced string
+/// (`package_json.rs` name/version/license/`engines.node`, and workspace
+/// member metadata below). Without it, `"workspaces": [""]` resolved to
+/// the project root itself and emitted the root as its own member, and a
+/// blank entry also made `includes` non-empty, suppressing the
+/// `pnpm-workspace.yaml` fallback so a real pnpm workspace reported zero
+/// units.
 fn split_include_exclude(
     items: Vec<String>,
     includes: &mut Vec<String>,
     excludes: &mut Vec<String>,
 ) {
+    /// Trim surrounding whitespace and any `./` prefix, repeatedly, so
+    /// `" ./ "` and `"./././x"` both reduce to their meaningful body.
+    fn clean(raw: &str) -> &str {
+        let mut cur = raw.trim();
+        while let Some(rest) = cur.strip_prefix("./") {
+            cur = rest.trim();
+        }
+        cur
+    }
+
     for item in items {
-        let trimmed = item.trim_start_matches("./");
+        let trimmed = clean(&item);
         if let Some(rest) = trimmed.strip_prefix('!') {
-            excludes.push(rest.trim_start_matches("./").to_string());
-        } else {
+            let cleaned = clean(rest);
+            if !cleaned.is_empty() {
+                excludes.push(cleaned.to_string());
+            }
+        } else if !trimmed.is_empty() {
             includes.push(trimmed.to_string());
         }
     }
@@ -323,24 +351,32 @@ fn warn_if_unsupported_pnpm_scalar(s: &str) {
 /// inside a matching pair of single or double quotes — `'#literal'` and
 /// `"#literal"` must survive intact. Walks the string left-to-right tracking
 /// quote state; on the first whitespace-then-`#` outside quotes, truncates.
+///
+/// PATTERN-1 / TASK-1729: iterate `char_indices`, not raw bytes. The
+/// previous loop computed `prev_ws` as `char::from(byte).is_whitespace()`,
+/// which reads a byte as Latin-1: the UTF-8 continuation bytes `0xA0` and
+/// `0x85` became NBSP / NEL, both `White_Space=Yes`. Any scalar whose
+/// encoding ends in one of those bytes (`U+0120`, `U+30A0`, …) therefore
+/// set `prev_ws`, and a following literal `#` truncated the entry to a glob
+/// matching nothing — silently, since a non-matching glob simply yields no
+/// members.
 fn strip_trailing_yaml_comment(s: &str) -> &str {
-    let bytes = s.as_bytes();
     let mut in_single = false;
     let mut in_double = false;
     let mut prev_ws = true; // a leading `#` (no preceding char) acts as a comment too
-    for (i, &b) in bytes.iter().enumerate() {
-        match b {
-            b'\'' if !in_double => in_single = !in_single,
-            b'"' if !in_single => in_double = !in_double,
-            b'#' if !in_single && !in_double && prev_ws => {
-                // `i` is the offset of an ASCII `#`, so it is a char boundary
-                // and `get` cannot fail; on the unreachable `None` keep the
-                // value intact rather than panicking.
+    for (i, c) in s.char_indices() {
+        match c {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '#' if !in_single && !in_double && prev_ws => {
+                // `i` is a char boundary by construction, so `get` cannot
+                // fail; on the unreachable `None` keep the value intact
+                // rather than slicing (the workspace denies `string_slice`).
                 return s.get(..i).unwrap_or(s).trim_end();
             }
             _ => {}
         }
-        prev_ws = char::from(b).is_whitespace();
+        prev_ws = c.is_whitespace();
     }
     s
 }
@@ -356,12 +392,9 @@ struct PackageProbe {
 mod tests {
     use super::*;
 
-    fn write(path: &Path, content: &str) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(path, content).unwrap();
-    }
+    // DUP-1 / TASK-1736: the fixture-writing helper lives once in
+    // `ops_about::test_support`; alias it so call sites keep the short name.
+    use ops_about::test_support::write_file as write;
 
     /// ERR-7 (TASK-0930): the `workspace_member_globs` warn event
     /// Debug-formats the path so a checkout containing newlines or ANSI
@@ -693,5 +726,127 @@ mod tests {
         let yaml = "packages:\n  - '#literal-pattern'\n";
         let pats = parse_pnpm_workspace_yaml(yaml).items;
         assert_eq!(pats, vec!["#literal-pattern"]);
+    }
+
+    /// PATTERN-1 / TASK-1729: `U+0120` encodes as `C4 A0`; reading that
+    /// trailing `A0` as Latin-1 NBSP made the parser treat the following
+    /// literal `#` as the start of a comment and truncate the entry.
+    #[test]
+    fn pnpm_hash_after_multibyte_scalar_is_not_a_comment() {
+        let yaml = "packages:\n  - '\u{0120}#literal'\n  - \"\u{30a0}#literal\"\n";
+        let pats = parse_pnpm_workspace_yaml(yaml).items;
+        assert_eq!(pats, vec!["\u{0120}#literal", "\u{30a0}#literal"]);
+    }
+
+    /// ERR-2 / TASK-1725: an empty `workspaces` entry used to resolve to the
+    /// project root itself (`root.join("")`), listing the root as its own
+    /// member with an empty path.
+    #[test]
+    fn blank_workspaces_entry_yields_no_units() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("package.json"),
+            r#"{ "name": "root", "workspaces": [""] }"#,
+        );
+        assert!(collect_units(dir.path()).is_empty());
+    }
+
+    /// ERR-2 / TASK-1725: a whitespace-only entry must not count as a
+    /// positive include, so the `pnpm-workspace.yaml` fallback still fires.
+    #[test]
+    fn whitespace_only_workspaces_entry_falls_back_to_pnpm() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("package.json"),
+            r#"{ "name": "root", "workspaces": ["  "] }"#,
+        );
+        write(
+            &dir.path().join("pnpm-workspace.yaml"),
+            "packages:\n  - packages/*\n",
+        );
+        write(
+            &dir.path().join("packages/alpha/package.json"),
+            r#"{ "name": "alpha", "version": "1.0.0" }"#,
+        );
+
+        let units = collect_units(dir.path());
+        assert_eq!(units.len(), 1, "expected the pnpm members: {units:?}");
+        assert_eq!(units[0].name, "alpha");
+    }
+
+    /// ERR-2 / TASK-1725: the same guard applies to the pnpm source, whose
+    /// entries flow through the same splitter.
+    #[test]
+    fn blank_pnpm_packages_entry_yields_no_root_unit() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join("package.json"), r#"{ "name": "root" }"#);
+        write(
+            &dir.path().join("pnpm-workspace.yaml"),
+            "packages:\n  - \"\"\n  - packages/*\n",
+        );
+        write(
+            &dir.path().join("packages/alpha/package.json"),
+            r#"{ "name": "alpha", "version": "1.0.0" }"#,
+        );
+
+        let units = collect_units(dir.path());
+        assert_eq!(units.len(), 1, "root leaked in as a member: {units:?}");
+        assert_eq!(units[0].name, "alpha");
+    }
+
+    /// TEST-5 / TASK-1732: `PROVIDER_NAME` is the key the registry indexes
+    /// this provider under (`lib.rs`'s `register_data_providers`), so a typo
+    /// there silently unregisters the units card.
+    #[test]
+    fn units_provider_name() {
+        assert_eq!(NodeUnitsProvider.name(), "project_units");
+    }
+
+    /// TEST-5 / TASK-1732: unlike `NodeIdentityProvider`, the units provider
+    /// deliberately keeps the default (empty) `about_fields` — its payload is
+    /// a list rendered by the workspace card, not a set of About bullets.
+    #[test]
+    fn units_provider_declares_no_about_fields() {
+        assert!(NodeUnitsProvider.about_fields().is_empty());
+    }
+
+    /// TEST-5 / TASK-1732: drive the registered provider end to end, so the
+    /// `serde_json::to_value` step and the emitted JSON shape consumers read
+    /// are pinned, not just the `collect_units` free function.
+    #[test]
+    fn units_provider_serialises_workspace_members() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("package.json"),
+            r#"{ "name": "root", "workspaces": ["packages/*"] }"#,
+        );
+        write(
+            &dir.path().join("packages/alpha/package.json"),
+            r#"{ "name": "@scope/alpha", "version": "1.0.0", "description": "A" }"#,
+        );
+
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = NodeUnitsProvider.provide(&mut ctx).unwrap();
+        let units: Vec<ProjectUnit> = serde_json::from_value(value).unwrap();
+
+        assert_eq!(units.len(), 1, "unexpected units: {units:?}");
+        assert_eq!(units[0].name, "@scope/alpha");
+        assert_eq!(units[0].path, "packages/alpha");
+        assert_eq!(units[0].version.as_deref(), Some("1.0.0"));
+        assert_eq!(units[0].description.as_deref(), Some("A"));
+    }
+
+    /// TEST-5 / TASK-1732: a project with no workspaces must serialise to an
+    /// empty JSON array — not `null`, and not an error.
+    #[test]
+    fn units_provider_empty_workspace_is_empty_array() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join("package.json"), r#"{ "name": "solo" }"#);
+
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = NodeUnitsProvider.provide(&mut ctx).unwrap();
+        assert_eq!(value, serde_json::json!([]));
+        let units: Vec<ProjectUnit> = serde_json::from_value(value).unwrap();
+        assert!(units.is_empty());
     }
 }
