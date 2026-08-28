@@ -3,11 +3,11 @@ id: TASK-1864
 title: >-
   SEC-12: load_with_sidecar takes create_sql/view_sql as bare &str, the one
   un-gated SQL entry point left in the ingest pipeline
-status: To Do
+status: Done
 assignee:
   - TASK-2006
 created_date: '2026-08-27 15:29'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 22:13'
 labels:
   - code-review-rust
   - security
@@ -40,8 +40,8 @@ Note the two positional `&str` are also swappable (API-2): passing them in the w
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 create_sql/view_sql are accepted through a validated newtype (e.g. a PreparedSql/IngestSql wrapper produced by create_table_from_json_sql and a view builder) rather than bare &str
-- [ ] #2 The two arguments are no longer interchangeable at the call site — swapping them is a type error
-- [ ] #3 The three downstream ingestors (tokei, rust loc, test-coverage) are migrated to the gated constructor
-- [ ] #4 A test pins that an unvalidated string cannot reach conn.execute through the public API
+- [x] #1 create_sql/view_sql are accepted through a validated newtype (e.g. a PreparedSql/IngestSql wrapper produced by create_table_from_json_sql and a view builder) rather than bare &str
+- [x] #2 The two arguments are no longer interchangeable at the call site — swapping them is a type error
+- [x] #3 The three downstream ingestors (tokei, rust loc, test-coverage) are migrated to the gated constructor
+- [x] #4 A test pins that an unvalidated string cannot reach conn.execute through the public API
 <!-- AC:END -->

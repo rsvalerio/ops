@@ -3,11 +3,11 @@ id: TASK-1857
 title: >-
   SEC-25: create_ingest_dir chmods and writes into a pre-existing ingest dir
   without proving it is a real directory
-status: To Do
+status: Done
 assignee:
   - TASK-2006
 created_date: '2026-08-27 15:28'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 22:02'
 labels:
   - code-review-rust
   - security
@@ -42,8 +42,8 @@ The same applies to `std::fs::create_dir_all(parent)` above it for the intermedi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 create_ingest_dir verifies a pre-existing data_dir is a real directory (symlink_metadata / is_symlink check, or an openat-style handle) before chmodding or writing into it
-- [ ] #2 A pre-existing symlink at data_dir is rejected with a typed error instead of being silently adopted, and the permissions of the symlink target are left untouched
-- [ ] #3 A unix test plants a symlink at the ingest dir path pointing at a separate directory and asserts create_ingest_dir errors and the target's mode is unchanged
-- [ ] #4 The doc comment's co-tenant threat-model claim matches what the code enforces
+- [x] #1 create_ingest_dir verifies a pre-existing data_dir is a real directory (symlink_metadata / is_symlink check, or an openat-style handle) before chmodding or writing into it
+- [x] #2 A pre-existing symlink at data_dir is rejected with a typed error instead of being silently adopted, and the permissions of the symlink target are left untouched
+- [x] #3 A unix test plants a symlink at the ingest dir path pointing at a separate directory and asserts create_ingest_dir errors and the target's mode is unchanged
+- [x] #4 The doc comment's co-tenant threat-model claim matches what the code enforces
 <!-- AC:END -->

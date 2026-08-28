@@ -3,11 +3,11 @@ id: TASK-1862
 title: >-
   ARCH-9: pub mod validation exports the low-level SQL escapers the module doc
   calls 'not safe to call alone'
-status: To Do
+status: Done
 assignee:
   - TASK-2006
 created_date: '2026-08-27 15:29'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 22:12'
 labels:
   - code-review-rust
   - architecture
@@ -44,8 +44,8 @@ Also exported unintentionally: `validate_identifier`, `validate_path_chars`, `va
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The validation module is no longer blanket-public: either pub(crate) with the four intended items re-exported, or the individual helpers demoted to pub(crate)/pub(super)
-- [ ] #2 escape_sql_string and sanitize_path_for_sql are unreachable from outside the crate; prepare_path_for_sql remains the only standalone path helper on the public surface if one is needed
-- [ ] #3 Downstream crates that legitimately use ops_duckdb::sql::validation::* (e.g. TableName in extensions/tokei) still compile via the curated re-export list
-- [ ] #4 The ARCH-9 comment in sql/mod.rs describes the surface that actually exists
+- [x] #1 The validation module is no longer blanket-public: either pub(crate) with the four intended items re-exported, or the individual helpers demoted to pub(crate)/pub(super)
+- [x] #2 escape_sql_string and sanitize_path_for_sql are unreachable from outside the crate; prepare_path_for_sql remains the only standalone path helper on the public surface if one is needed
+- [x] #3 Downstream crates that legitimately use ops_duckdb::sql::validation::* (e.g. TableName in extensions/tokei) still compile via the curated re-export list
+- [x] #4 The ARCH-9 comment in sql/mod.rs describes the surface that actually exists
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1875
 title: >-
   READ-4: # Errors sections name error variants that do not exist, and one test
   carries another test's doc comment
-status: To Do
+status: Done
 assignee:
   - TASK-2006
 created_date: '2026-08-27 15:31'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 22:40'
 labels:
   - code-review-rust
   - readability
@@ -40,8 +40,8 @@ Minor sibling: `helpers.rs:326-328` says a duplicate key is "surface it instead 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every # Errors section in the crate names only variants that exist; DbError::SidecarTooLarge and SqlError::InvalidPathChars references are corrected
-- [ ] #2 DbError is in scope in ingestor.rs (or the links are fully qualified) so the intra-doc links resolve
-- [ ] #3 cargo doc for ops-duckdb emits no broken_intra_doc_links warnings
-- [ ] #4 The SEC-12 AC #1 paragraph in query/helpers.rs is moved onto the test it describes and the duplicate-key comment matches the warn-and-overwrite behaviour
+- [x] #1 Every # Errors section in the crate names only variants that exist; DbError::SidecarTooLarge and SqlError::InvalidPathChars references are corrected
+- [x] #2 DbError is in scope in ingestor.rs (or the links are fully qualified) so the intra-doc links resolve
+- [x] #3 cargo doc for ops-duckdb emits no broken_intra_doc_links warnings
+- [x] #4 The SEC-12 AC #1 paragraph in query/helpers.rs is moved onto the test it describes and the duplicate-key comment matches the warn-and-overwrite behaviour
 <!-- AC:END -->
