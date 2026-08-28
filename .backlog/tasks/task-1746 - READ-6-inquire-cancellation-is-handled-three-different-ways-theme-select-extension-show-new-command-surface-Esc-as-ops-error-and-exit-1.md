@@ -3,11 +3,11 @@ id: TASK-1746
 title: >-
   READ-6: inquire cancellation is handled three different ways; theme select /
   extension show / new-command surface Esc as 'ops: error:' and exit 1
-status: To Do
+status: Done
 assignee:
   - TASK-1982
 created_date: '2026-08-27 11:13'
-updated_date: '2026-08-28 14:08'
+updated_date: '2026-08-28 19:11'
 labels:
   - code-review-rust
   - readability
@@ -52,9 +52,9 @@ There is also no shared helper: `classify_confirm_result` is private to `subcomm
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single generic cancel-classification helper (generic over the prompt's Ok type, not Confirm-specific) lives in one module and is reused by every inquire callsite in the crate
-- [ ] #2 theme select, extension show, new-command (both prompts) and about setup route Esc / Ctrl-C through that helper so they exit with SIGINT_EXIT (130) and no 'ops: error:' frame, instead of the current exit 1
-- [ ] #3 The existing three cancel sites (hook_shared, subcommands classify_confirm_result, import_makefile prompt_target_selection) are migrated to the shared helper so the OperationCanceled|OperationInterrupted match arm appears exactly once in the crate
-- [ ] #4 Non-cancel InquireError variants still propagate as anyhow errors carrying a context that names the prompt source, matching the current classify_confirm_result behaviour
-- [ ] #5 A unit test per migrated command asserts that a cancelled prompt yields the 130 exit path and not an anyhow Err
+- [x] #1 A single generic cancel-classification helper (generic over the prompt's Ok type, not Confirm-specific) lives in one module and is reused by every inquire callsite in the crate
+- [x] #2 theme select, extension show, new-command (both prompts) and about setup route Esc / Ctrl-C through that helper so they exit with SIGINT_EXIT (130) and no 'ops: error:' frame, instead of the current exit 1
+- [x] #3 The existing three cancel sites (hook_shared, subcommands classify_confirm_result, import_makefile prompt_target_selection) are migrated to the shared helper so the OperationCanceled|OperationInterrupted match arm appears exactly once in the crate
+- [x] #4 Non-cancel InquireError variants still propagate as anyhow errors carrying a context that names the prompt source, matching the current classify_confirm_result behaviour
+- [x] #5 A unit test per migrated command asserts that a cancelled prompt yields the 130 exit path and not an anyhow Err
 <!-- AC:END -->

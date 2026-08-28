@@ -3,11 +3,11 @@ id: TASK-1742
 title: >-
   CL-3: interactive prompts are gated on stdout being a TTY, but inquire renders
   to stderr and reads the controlling terminal
-status: To Do
+status: Done
 assignee:
   - TASK-1982
 created_date: '2026-08-27 11:13'
-updated_date: '2026-08-28 14:08'
+updated_date: '2026-08-28 19:02'
 labels:
   - code-review-rust
   - readability
@@ -53,8 +53,8 @@ Note `is_stdout_tty()` is *also* used correctly elsewhere — `subcommands.rs:48
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 tty.rs gains a distinct predicate for prompt capability (e.g. is_prompt_tty) that tests the stream inquire actually uses — stderr, and/or the controlling terminal — rather than stdout
-- [ ] #2 require_tty / require_tty_with are switched to the new predicate, and every prompt callsite listed above (theme select, extension show, new-command, about setup, import-makefile, hook install, noninteractive_install_blocked) goes through it
-- [ ] #3 is_stdout_tty remains available and is still used for the stdout-rendering decision in subcommands.rs run_about (AboutOptions), with a comment naming why the two predicates differ
-- [ ] #4 A unit test pins that a prompt gate refuses when the prompt stream is not a terminal even though stdout is, and permits when the prompt stream is a terminal even though stdout is not — driven through the existing injectable is_tty seam
+- [x] #1 tty.rs gains a distinct predicate for prompt capability (e.g. is_prompt_tty) that tests the stream inquire actually uses — stderr, and/or the controlling terminal — rather than stdout
+- [x] #2 require_tty / require_tty_with are switched to the new predicate, and every prompt callsite listed above (theme select, extension show, new-command, about setup, import-makefile, hook install, noninteractive_install_blocked) goes through it
+- [x] #3 is_stdout_tty remains available and is still used for the stdout-rendering decision in subcommands.rs run_about (AboutOptions), with a comment naming why the two predicates differ
+- [x] #4 A unit test pins that a prompt gate refuses when the prompt stream is not a terminal even though stdout is, and permits when the prompt stream is a terminal even though stdout is not — driven through the existing injectable is_tty seam
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1752
 title: >-
   TEST-23: prompt_hook_install_noninteractive_reports_failure leaks
   OPS_NONINTERACTIVE=1 into the rest of the test binary on assertion failure
-status: To Do
+status: Done
 assignee:
   - TASK-1982
 created_date: '2026-08-27 11:15'
-updated_date: '2026-08-28 14:08'
+updated_date: '2026-08-28 19:19'
 labels:
   - code-review-rust
   - test-quality
@@ -50,8 +50,8 @@ The same module already has the correct tool, defined 40 lines above and used by
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 EnvVarGuard gains a set(name, value) constructor alongside unset, keeping the snapshot-and-restore-on-drop behaviour
-- [ ] #2 prompt_hook_install_noninteractive_reports_failure sets OPS_NONINTERACTIVE through the guard so the variable is restored even when the test panics
-- [ ] #3 env_flag_enabled_treats_falsy_as_off sets OPS_NONINTERACTIVE_TEST through the same guard instead of a trailing remove_var
-- [ ] #4 No test in crates/cli/src calls std::env::set_var or remove_var outside an RAII guard
+- [x] #1 EnvVarGuard gains a set(name, value) constructor alongside unset, keeping the snapshot-and-restore-on-drop behaviour
+- [x] #2 prompt_hook_install_noninteractive_reports_failure sets OPS_NONINTERACTIVE through the guard so the variable is restored even when the test panics
+- [x] #3 env_flag_enabled_treats_falsy_as_off sets OPS_NONINTERACTIVE_TEST through the same guard instead of a trailing remove_var
+- [x] #4 No test in crates/cli/src calls std::env::set_var or remove_var outside an RAII guard
 <!-- AC:END -->
