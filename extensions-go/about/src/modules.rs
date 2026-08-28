@@ -26,7 +26,7 @@ impl DataProvider for GoUnitsProvider {
 }
 
 fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
-    if let Some(dirs) = workspace_use_dirs(cwd) {
+    if let Some(dirs) = crate::go_work::parse_use_dirs(cwd) {
         return dirs
             .into_iter()
             .map(|dir| unit_from_use_dir(cwd, &dir))
@@ -92,14 +92,28 @@ fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
         .split(['/', '\\'])
         .next()
         .is_some_and(|first| first == "..");
-    let out_of_tree = out_of_tree_via_components || out_of_tree_via_string;
-    if out_of_tree {
+    // SEC-14 (TASK-1721): the two checks above only inspect the *first* path
+    // component, so `use ./api/../../../etc` normalises to `api/../../../etc`
+    // and reads as in-tree. `Path::join` does not normalise `..` and the OS
+    // resolves it lexically on open, so the `go.mod` read landed outside the
+    // project root and echoed the found `module` line into the About card.
+    // Share the `replace`-target predicate (TASK-1212) so both directives
+    // enforce one traversal policy.
+    let has_embedded_traversal = crate::go_syntax::has_embedded_parent_dir_segment(&normalized);
+    let out_of_tree =
+        out_of_tree_via_components || out_of_tree_via_string || has_embedded_traversal;
+    // ERR-7 (TASK-0665 / TASK-0809): Debug-format the directive so embedded
+    // newlines / ANSI escapes cannot forge log lines, matching the
+    // project-wide path-log policy. Exactly one warn per rejected directive.
+    if has_embedded_traversal {
+        tracing::warn!(
+            directive = ?dir,
+            "go.work `use` directive contains an embedded `..` traversal segment past the leading prefix; skipping the go.mod read",
+        );
+    } else if out_of_tree {
         // Out-of-tree workspace members (e.g. `use ../shared`) match no
         // `tokei_files.file` entry under cwd, so the unit would render with
         // zero LOC and no diagnostic. Surface it instead.
-        // ERR-7 (TASK-0665 / TASK-0809): Debug-format the directive so
-        // embedded newlines / ANSI escapes cannot forge log lines, matching
-        // the project-wide path-log policy.
         tracing::warn!(
             directive = ?dir,
             "go.work `use` directive points outside the project root; LOC stats will be empty",
@@ -108,12 +122,14 @@ fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
     // PATTERN-1 (TASK-1208): for absolute / root-prefixed directives,
     // `cwd.join(&normalized)` returns the absolute target verbatim — we must
     // not open whatever go.mod lives there. Skip the I/O and emit the unit
-    // with no module/version, the same shape as a missing go.mod.
+    // with no module/version, the same shape as a missing go.mod. SEC-14
+    // (TASK-1721): embedded-`..` directives escape the root the same way, so
+    // they skip the read too.
     let is_absolute_directive = matches!(
         first_component,
         Some(Component::RootDir | Component::Prefix(_))
     );
-    let (module, go_version) = if is_absolute_directive {
+    let (module, go_version) = if is_absolute_directive || has_embedded_traversal {
         (None, None)
     } else {
         let mod_path = cwd.join(&normalized);
@@ -184,10 +200,6 @@ fn is_go_major_version_suffix(s: &str) -> bool {
     !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())
 }
 
-fn workspace_use_dirs(root: &Path) -> Option<Vec<String>> {
-    crate::go_work::parse_use_dirs(root)
-}
-
 fn read_mod_info(dir: &Path) -> (Option<String>, Option<String>) {
     match crate::go_mod::parse(dir) {
         Some(m) => (m.module, m.go_version),
@@ -207,7 +219,7 @@ mod tests {
             "go 1.21\n\nuse (\n\t./api\n\t./cmd\n)\n",
         )
         .unwrap();
-        let dirs = workspace_use_dirs(dir.path()).unwrap();
+        let dirs = crate::go_work::parse_use_dirs(dir.path()).unwrap();
         assert_eq!(dirs, vec!["./api", "./cmd"]);
     }
 
@@ -354,51 +366,11 @@ mod tests {
     /// must be treated as in-tree: no `(outside project root)` suffix and no
     /// `tracing::warn!` emitted. The previous `starts_with("..")` check
     /// misclassified this as out-of-tree.
-    /// Minimal `tracing::Subscriber` that records the `Level` of every event.
-    /// Lets us assert that no `WARN` was emitted without pulling in
-    /// `tracing-subscriber` as a dev-dependency.
-    struct WarnCounter(std::sync::Arc<std::sync::atomic::AtomicUsize>);
-    impl tracing::Subscriber for WarnCounter {
-        fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
-            true
-        }
-        fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-            tracing::span::Id::from_u64(1)
-        }
-        fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
-        fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
-        fn event(&self, event: &tracing::Event<'_>) {
-            if *event.metadata().level() == tracing::Level::WARN {
-                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            }
-        }
-        fn enter(&self, _span: &tracing::span::Id) {}
-        fn exit(&self, _span: &tracing::span::Id) {}
-    }
-
-    /// Keep one globally-registered dispatcher alive for the whole test
-    /// binary. `tracing` caches each callsite's `Interest` process-wide
-    /// against the dispatchers registered the moment that callsite is first
-    /// hit; with only scoped (`with_default`) subscribers, a parallel test
-    /// thread can first-hit the warn callsite while none is registered,
-    /// caching `Interest::never()` so the warn these tests count never fires
-    /// again and the assertion fails at random. A global dispatcher is never
-    /// unregistered, so the cache can no longer answer "never". This one
-    /// counts into a throwaway counter nobody reads.
-    fn pin_global_dispatcher() {
-        static INSTALL: std::sync::Once = std::sync::Once::new();
-        INSTALL.call_once(|| {
-            let global = WarnCounter(std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)));
-            let _ = tracing::subscriber::set_global_default(global);
-            // Callsites hit before this point resolved against an empty
-            // dispatcher list; recompute them now that one is registered.
-            tracing::callsite::rebuild_interest_cache();
-        });
-    }
-
+    ///
+    /// DUP-3 (TASK-1735): the warn-counting subscriber and its
+    /// `Interest`-cache workaround live in `ops_about::test_support`.
     #[test]
     fn collect_units_dotdot_prefixed_dir_is_in_tree() {
-        pin_global_dispatcher();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("go.work"),
@@ -413,9 +385,8 @@ mod tests {
         )
         .unwrap();
 
-        let warn_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let subscriber = WarnCounter(warn_count.clone());
-        let units = tracing::subscriber::with_default(subscriber, || collect_units(dir.path()));
+        let (units, warn_count) =
+            ops_about::test_support::count_warnings(|| collect_units(dir.path()));
 
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].path, "..staging/api");
@@ -429,7 +400,7 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("(outside project root)"));
-        assert_eq!(warn_count.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(warn_count, 0);
     }
 
     /// PATTERN-1 (TASK-1164): `/vN` major-version suffix must be stripped so
@@ -482,7 +453,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn collect_units_absolute_use_directive_is_marked_out_of_tree() {
-        pin_global_dispatcher();
         let dir = tempfile::tempdir().unwrap();
         let other = tempfile::tempdir().unwrap();
         // Place a real go.mod at the absolute target to prove we're not
@@ -501,9 +471,8 @@ mod tests {
         )
         .unwrap();
 
-        let warn_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let subscriber = WarnCounter(warn_count.clone());
-        let units = tracing::subscriber::with_default(subscriber, || collect_units(dir.path()));
+        let (units, warn_count) =
+            ops_about::test_support::count_warnings(|| collect_units(dir.path()));
 
         assert_eq!(units.len(), 1);
         // Out-of-tree marker present on the description.
@@ -513,7 +482,91 @@ mod tests {
             "absolute directive should not have populated module via read_mod_info"
         );
         // The directive triggered exactly one warn.
-        assert_eq!(warn_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(warn_count, 1);
+    }
+
+    /// SEC-14 (TASK-1721): a `use` directive whose normalized path carries a
+    /// `..` segment past the leading prefix escapes the project root at the
+    /// OS layer (`Path::join` does not normalise `..`). It must be treated as
+    /// out-of-tree: no go.mod read at the traversal target, no module name
+    /// leaked into the description, and exactly one warn. Mirrors
+    /// `collect_units_absolute_use_directive_is_marked_out_of_tree`.
+    #[cfg(unix)]
+    #[test]
+    fn collect_units_embedded_parent_dir_use_directive_is_marked_out_of_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        // Place a real go.mod at the traversal target. `<cwd>/api/../../<leaf>`
+        // resolves to `<cwd>/../<leaf>`, i.e. a sibling of the project root.
+        let leaf = dir
+            .path()
+            .file_name()
+            .expect("tempdir has a final component")
+            .to_string_lossy()
+            .to_string();
+        let target = dir.path().parent().expect("tempdir has a parent").join(
+            // Keep the escape inside the tempdir's parent by targeting the
+            // tempdir itself via the traversal, then a nested marker dir.
+            format!("{leaf}-sec14"),
+        );
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(
+            target.join("go.mod"),
+            "module example.com/should-not-be-read\n\ngo 1.21\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join("go.work"),
+            format!("go 1.21\n\nuse (\n\t./api/../../{leaf}-sec14\n)\n"),
+        )
+        .unwrap();
+
+        let (units, warn_count) =
+            ops_about::test_support::count_warnings(|| collect_units(dir.path()));
+
+        std::fs::remove_dir_all(&target).ok();
+
+        assert_eq!(units.len(), 1);
+        assert!(
+            !units.iter().any(|u| u
+                .description
+                .as_deref()
+                .unwrap_or("")
+                .contains("should-not-be-read")),
+            "traversal target's go.mod must not be read: {:?}",
+            units[0].description
+        );
+        assert_eq!(
+            units[0].description.as_deref(),
+            Some("(outside project root)")
+        );
+        assert!(units[0].version.is_none());
+        assert_eq!(warn_count, 1);
+    }
+
+    /// SEC-14 (TASK-1721) AC #5: a *leading* run of `..` keeps its existing
+    /// accepted-but-marked-out-of-tree behaviour — only `..` past a real
+    /// segment is rejected outright.
+    #[test]
+    fn collect_units_leading_parent_dir_use_directive_still_reads_go_mod() {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().join("project");
+        let shared = root.path().join("shared");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::write(
+            shared.join("go.mod"),
+            "module example.com/shared\n\ngo 1.21\n",
+        )
+        .unwrap();
+        std::fs::write(cwd.join("go.work"), "go 1.21\n\nuse (\n\t../shared\n)\n").unwrap();
+
+        let units = collect_units(&cwd);
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].description.as_deref(),
+            Some("example.com/shared (outside project root)")
+        );
     }
 
     #[test]

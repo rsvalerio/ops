@@ -3,9 +3,11 @@ id: TASK-1755
 title: >-
   SEC-11: pick_url has no URL-scheme allowlist — javascript:/data:/file: reach
   the rendered homepage and repository fields
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1992
 created_date: '2026-08-27 11:17'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - security

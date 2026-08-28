@@ -3,9 +3,11 @@ id: TASK-1765
 title: >-
   PATTERN-1: object-valued attributes (`aws = {`) desynchronise the HCL brace
   stack, dropping required_version declared after required_providers
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2001
 created_date: '2026-08-27 11:20'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - idioms-correctness

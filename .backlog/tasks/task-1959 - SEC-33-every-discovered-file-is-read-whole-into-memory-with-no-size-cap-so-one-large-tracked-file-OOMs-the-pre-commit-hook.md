@@ -3,9 +3,11 @@ id: TASK-1959
 title: >-
   SEC-33: every discovered file is read whole into memory with no size cap, so
   one large tracked file OOMs the pre-commit hook
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2011
 created_date: '2026-08-27 15:50'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - security

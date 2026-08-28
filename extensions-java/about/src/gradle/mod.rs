@@ -16,8 +16,8 @@ use ops_extension::{Context, DataProvider, DataProviderError};
 
 use super::java_about_fields;
 use lexer::{
-    extract_quoted, extract_quoted_list, split_at_unquoted_close_paren, strip_properties_comment,
-    strip_trailing_comment,
+    brace_delta, extract_quoted, extract_quoted_list, split_at_unquoted_close_paren,
+    strip_properties_comment, strip_trailing_comment,
 };
 
 pub struct GradleIdentityProvider;
@@ -76,15 +76,25 @@ struct GradleBuild {
     description: Option<String>,
 }
 
+/// Parse `settings.gradle` (or its `.kts` sibling) for the root project name
+/// and the `include`d subprojects.
+///
+/// CL-3 / TASK-1733: `rootProject.name` is only accepted at brace depth 0 —
+/// an assignment inside a block belongs to that block, not to the root
+/// project. Duplicate resolution is **first writer wins**, matching the
+/// sibling Maven parser's `try_set_once` (`maven/pom.rs`), so the two parsers
+/// in this crate resolve duplicates the same way (READ-6).
 fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
-    let mut root_project_name = None;
+    let mut root_project_name: Option<String> = None;
     let mut includes = Vec::new();
+    let mut depth = 0_i32;
 
     let mut scan = |line: &str| {
-        if let Some(name) = extract_assignment(line, "rootProject.name") {
-            root_project_name = Some(name);
+        if depth == 0 && root_project_name.is_none() {
+            root_project_name = extract_assignment(line, "rootProject.name");
         }
         parse_include_line(line, &mut includes);
+        depth = depth.saturating_add(brace_delta(line)).max(0);
     };
 
     for_each_trimmed_line(&project_root.join("settings.gradle"), &mut scan)
@@ -96,6 +106,16 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
     })
 }
 
+/// Parse `gradle.properties` for the project `version`.
+///
+/// READ-6 / TASK-1733: this parser deliberately keeps **last writer wins**,
+/// diverging from the first-wins policy of [`parse_gradle_settings`],
+/// [`parse_gradle_build`] and the Maven `try_set_once`. `gradle.properties`
+/// is a `java.util.Properties` file, and `Properties::load` lets a later
+/// entry override an earlier one for the same key — matching Gradle's own
+/// behaviour matters more here than matching the sibling DSL parsers. There
+/// is no brace nesting in a properties file, so the depth rule does not
+/// apply either.
 fn parse_gradle_properties(project_root: &Path) -> Option<GradleProperties> {
     let mut version = None;
 
@@ -117,15 +137,33 @@ fn parse_gradle_properties(project_root: &Path) -> Option<GradleProperties> {
     Some(GradleProperties { version })
 }
 
+/// Parse `build.gradle` (or its `.kts` sibling) for the root project's
+/// `description`.
+///
+/// CL-3 / TASK-1733: `description` is a standard `Task` property, so a
+/// `tasks.register(…) { description = … }` or `subprojects { description = … }`
+/// block routinely sets it too. Only an assignment at brace depth 0 belongs to
+/// the root project; nested ones are ignored. [`brace_delta`] counts braces
+/// outside string literals and comments, so a `{` inside a quoted value does
+/// not open a phantom block.
+///
+/// Duplicate resolution is **first writer wins**, matching the sibling Maven
+/// parser's `try_set_once` (`maven/pom.rs`) so both parsers in this crate
+/// resolve duplicates the same way (READ-6).
 fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
-    let mut description = None;
+    let mut description: Option<String> = None;
+    let mut depth = 0_i32;
 
     let mut scan = |line: &str| {
-        if let Some(val) = extract_assignment(line, "description") {
-            description = Some(val);
-        } else if let Some(val) = extract_bare_method(line, "description") {
-            description = Some(val);
+        if depth == 0 && description.is_none() {
+            description = extract_assignment(line, "description")
+                .or_else(|| extract_bare_method(line, "description"));
         }
+        // Depth is updated *after* the match: a line that both assigns and
+        // opens a block (`description = 'x'` … `foo {`) is still top level.
+        // `max(0)` keeps a stray `}` from pushing depth negative and locking
+        // out every later top-level assignment.
+        depth = depth.saturating_add(brace_delta(line)).max(0);
     };
 
     for_each_trimmed_line(&project_root.join("build.gradle"), &mut scan)
@@ -149,6 +187,11 @@ fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
 /// PATTERN-1 / TASK-0687: iterate over every `include(` occurrence so chained
 /// Kotlin DSL invocations on the same line don't silently drop all but one
 /// call.
+///
+/// READ-6 / TASK-1744: this is the **only** point on the include path where
+/// comments are stripped, and [`strip_trailing_comment`] is quote-aware, so
+/// an argument containing `//` (`include('a//b')`) survives. `extract_quoted_list`
+/// deliberately does not strip again.
 fn parse_include_line(line: &str, includes: &mut Vec<String>) {
     let stripped = strip_trailing_comment(line).trim_end();
     if stripped.starts_with("include(") {

@@ -125,7 +125,7 @@ invocation (`ops run verify qa`) expands each independently, so they may differ.
 | `ops extension list\|show` | List compiled-in extensions |
 | `ops about [setup\|code\|loc\|coverage\|dependencies\|crates\|modules]` | Project identity card and subpages (`--refresh` re-collects) |
 | `ops run-before-commit [install]` | Pre-commit hook runner (`--changed-only` skips when nothing is staged) |
-| `ops run-before-push [install]` | Pre-push hook runner |
+| `ops run-before-push [install]` | Pre-push hook runner (skips a delete-only or empty push) |
 | `ops sec` | Security scans via Trivy — secrets always, vulnerability/misconfig auto-selected by file types (`--skip`/`--force` to override) |
 | `ops trailing-whitespace` (`tw`) | Strip trailing whitespace in place; non-zero when files changed (pre-commit contract) |
 | `ops end-of-file-fixer` (`eof`) | Ensure files end with exactly one newline; non-zero when files changed |
@@ -133,6 +133,10 @@ invocation (`ops run verify qa`) expands each independently, so they may differ.
 
 Global flags: `--dry-run` (preview the resolved plan), `--verbose` (full stderr on
 failure), `--tap <file>` (capture raw output), `--raw` (inherit child stdio, no ops output).
+
+Hook escape hatches: set `SKIP_OPS_RUN_BEFORE_PUSH` (or `SKIP_OPS_RUN_BEFORE_COMMIT`)
+to `1`, `true`, `yes` or `on` — case-insensitive; anything else means "do not skip" —
+to let a push or commit through without running the configured hook commands.
 
 ### Stack-gated CLI
 

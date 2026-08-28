@@ -3,9 +3,11 @@ id: TASK-1734
 title: >-
   ERR-4: provider payload deserialization errors lose the provider name and the
   failing field path
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2003
 created_date: '2026-08-27 11:12'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - error-handling

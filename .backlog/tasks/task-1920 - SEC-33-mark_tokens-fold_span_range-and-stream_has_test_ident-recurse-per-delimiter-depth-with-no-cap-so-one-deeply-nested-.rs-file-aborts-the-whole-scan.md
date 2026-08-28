@@ -4,9 +4,11 @@ title: >-
   SEC-33: mark_tokens, fold_span_range and stream_has_test_ident recurse per
   delimiter depth with no cap, so one deeply nested .rs file aborts the whole
   scan
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1998
 created_date: '2026-08-27 15:44'
+updated_date: '2026-08-28 15:34'
 labels:
   - code-review-rust
   - security
@@ -38,8 +40,8 @@ A stack overflow is not a panic: it aborts the process with SIGSEGV and cannot b
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 mark_tokens, fold_span_range and stream_has_test_ident carry an explicit depth parameter (or an equivalent iterative worklist) with a documented maximum nesting depth
-- [ ] #2 Exceeding the depth cap makes count_source degrade to count_fallback for that file and emit a tracing::warn naming the limit, instead of recursing further
-- [ ] #3 A regression test builds a source string with nesting well past the cap, calls count_source, and asserts it returns non-zero counts rather than aborting the test process
-- [ ] #4 The 'Known limits' section of the counter.rs module doc records the depth cap alongside the existing macro-expansion and inline-mod limits
+- [x] #1 mark_tokens, fold_span_range and stream_has_test_ident carry an explicit depth parameter (or an equivalent iterative worklist) with a documented maximum nesting depth
+- [x] #2 Exceeding the depth cap makes count_source degrade to count_fallback for that file and emit a tracing::warn naming the limit, instead of recursing further
+- [x] #3 A regression test builds a source string with nesting well past the cap, calls count_source, and asserts it returns non-zero counts rather than aborting the test process
+- [x] #4 The 'Known limits' section of the counter.rs module doc records the depth cap alongside the existing macro-expansion and inline-mod limits
 <!-- AC:END -->

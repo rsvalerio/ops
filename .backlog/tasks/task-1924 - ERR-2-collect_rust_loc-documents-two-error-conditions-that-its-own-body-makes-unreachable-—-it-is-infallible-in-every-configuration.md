@@ -3,9 +3,11 @@ id: TASK-1924
 title: >-
   ERR-2: collect_rust_loc documents two error conditions that its own body makes
   unreachable — it is infallible in every configuration
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1998
 created_date: '2026-08-27 15:45'
+updated_date: '2026-08-28 15:36'
 labels:
   - code-review-rust
   - error-handling
@@ -41,7 +43,7 @@ The `Result` return type itself should stay - `ops_duckdb::try_provide_from_db` 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The # Errors section on collect_rust_loc describes only conditions the body can actually produce; if none remain, it states that the function currently cannot fail and that the Result is kept for the try_provide_from_db / DataIngestor::collect contract
-- [ ] #2 The doc cross-references the warn-and-skip degradation policy above it so the two paragraphs no longer contradict each other
-- [ ] #3 Either the unreadable-file and unwalkable-path branches genuinely propagate an error and the doc stays as written, or they keep skipping and the doc is corrected - the change picks one and makes code and doc agree
+- [x] #1 The # Errors section on collect_rust_loc describes only conditions the body can actually produce; if none remain, it states that the function currently cannot fail and that the Result is kept for the try_provide_from_db / DataIngestor::collect contract
+- [x] #2 The doc cross-references the warn-and-skip degradation policy above it so the two paragraphs no longer contradict each other
+- [x] #3 Either the unreadable-file and unwalkable-path branches genuinely propagate an error and the doc stays as written, or they keep skipping and the doc is corrected - the change picks one and makes code and doc agree
 <!-- AC:END -->

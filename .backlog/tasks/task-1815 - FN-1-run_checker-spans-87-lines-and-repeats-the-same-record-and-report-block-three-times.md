@@ -3,9 +3,11 @@ id: TASK-1815
 title: >-
   FN-1: run_checker spans 87 lines and repeats the same record-and-report block
   three times
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2004
 created_date: '2026-08-27 11:32'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - structure-readability

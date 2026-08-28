@@ -3,9 +3,11 @@ id: TASK-1898
 title: >-
   ARCH-9: types.rs ships a 663-line public accessor API with zero consumers,
   kept compiling by seven blanket allow(dead_code)
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1999
 created_date: '2026-08-27 15:36'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - structure-readability

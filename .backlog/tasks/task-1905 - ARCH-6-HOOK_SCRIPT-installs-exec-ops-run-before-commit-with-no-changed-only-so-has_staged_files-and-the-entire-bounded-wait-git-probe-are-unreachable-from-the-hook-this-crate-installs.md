@@ -4,9 +4,11 @@ title: >-
   ARCH-6: HOOK_SCRIPT installs 'exec ops run-before-commit' with no
   --changed-only, so has_staged_files and the entire bounded-wait git probe are
   unreachable from the hook this crate installs
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2009
 created_date: '2026-08-27 15:39'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - architecture

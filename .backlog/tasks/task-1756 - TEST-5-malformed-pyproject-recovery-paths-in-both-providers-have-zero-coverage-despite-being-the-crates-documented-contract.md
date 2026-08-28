@@ -3,9 +3,11 @@ id: TASK-1756
 title: >-
   TEST-5: malformed-pyproject recovery paths in both providers have zero
   coverage despite being the crate's documented contract
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1992
 created_date: '2026-08-27 11:18'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - test-quality

@@ -3,9 +3,11 @@ id: TASK-1874
 title: >-
   ARCH-9: Context locks down data_cache but leaves refresh, working_directory
   and config publicly mutable through the &mut Context handed to every provider
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1985
 created_date: '2026-08-27 15:31'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - api-design

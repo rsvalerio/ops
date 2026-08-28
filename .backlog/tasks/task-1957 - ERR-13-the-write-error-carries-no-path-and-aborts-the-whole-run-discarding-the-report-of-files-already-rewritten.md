@@ -3,9 +3,11 @@ id: TASK-1957
 title: >-
   ERR-13: the write error carries no path and aborts the whole run, discarding
   the report of files already rewritten
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2011
 created_date: '2026-08-27 15:50'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - idioms

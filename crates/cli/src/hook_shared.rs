@@ -15,6 +15,12 @@ use crate::{ExitCodeOverride, SIGINT_EXIT};
 /// `Ok(false)`. Lifted out of `HookOps` to satisfy `clippy::type_complexity`.
 pub type HookPreflight = (fn() -> anyhow::Result<bool>, &'static str);
 
+/// Unconditional pre-run gate: `Some(reason)` short-circuits the hook with
+/// success, `None` runs the configured commands. Infallible by construction —
+/// a gate that cannot decide must answer `None` (run) rather than fail the
+/// push.
+pub type HookGate = fn() -> Option<&'static str>;
+
 /// Hook-specific operations provided by each extension crate.
 ///
 /// Collapses the parallel `HookDispatch` descriptor that previously lived in
@@ -36,6 +42,14 @@ pub struct HookOps {
     /// Optional pre-flight predicate. If `Some`, returning `Ok(false)` short-circuits
     /// the hook with the supplied skip message instead of executing the command.
     pub preflight: Option<HookPreflight>,
+    /// Optional gate consulted on **every** hook run, unlike [`HookOps::preflight`]
+    /// which only runs under the user-requested `--changed-only`. Returning
+    /// `Some(reason)` short-circuits the hook with success and that reason.
+    ///
+    /// `run-before-push` uses it to skip a delete-only or empty push, which git
+    /// describes on the hook's stdin rather than in any repository state a
+    /// predicate could probe.
+    pub gate: Option<HookGate>,
 }
 
 /// Source of the command list to install in the hook config.

@@ -4,9 +4,11 @@ title: >-
   READ-4: the soft-fail log line and two doc comments still say the coverage
   JSON arrives on stdout, but it has gone to a temp file since --output-path was
   added
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2000
 created_date: '2026-08-27 15:47'
+updated_date: '2026-08-28 15:53'
 labels:
   - code-review-rust
   - readability
@@ -36,7 +38,13 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The soft-fail warn in parse.rs names the report file as the source of the parseable JSON rather than stdout
-- [ ] #2 The check_llvm_cov_output doc comment in subprocess.rs describes the report file, and no longer contradicts the run_cargo_llvm_cov doc comment above it
-- [ ] #3 The inert stdout fixture and its comment in non_zero_exit_without_files_surfaces_cargo_error are removed or replaced with a comment stating that production reads the report file, not stdout
+- [x] #1 The soft-fail warn in parse.rs names the report file as the source of the parseable JSON rather than stdout
+- [x] #2 The check_llvm_cov_output doc comment in subprocess.rs describes the report file, and no longer contradicts the run_cargo_llvm_cov doc comment above it
+- [x] #3 The inert stdout fixture and its comment in non_zero_exit_without_files_surfaces_cargo_error are removed or replaced with a comment stating that production reads the report file, not stdout
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The soft-fail warn now says "the JSON report file is parseable" and adds a report_path field. The check_llvm_cov_output doc names the --output-path report file and cross-references run_cargo_llvm_cov. The inert stdout fixture in non_zero_exit_without_files_surfaces_cargo_error is removed and replaced with a doc note stating production reads the report file, not stdout.
+<!-- SECTION:NOTES:END -->

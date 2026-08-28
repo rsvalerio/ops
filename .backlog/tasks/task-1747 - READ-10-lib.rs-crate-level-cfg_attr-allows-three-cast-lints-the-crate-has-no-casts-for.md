@@ -3,9 +3,11 @@ id: TASK-1747
 title: >-
   READ-10: lib.rs crate-level cfg_attr allows three cast lints the crate has no
   casts for
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1990
 created_date: '2026-08-27 11:14'
+updated_date: '2026-08-28 15:48'
 labels:
   - code-review-rust
   - structure-readability
@@ -48,7 +50,7 @@ Two rules apply:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 clippy::cast_possible_truncation, cast_precision_loss and cast_sign_loss are removed from the crate-level cfg_attr allow list
-- [ ] #2 The remaining unwrap_used suppression carries a one-line reason, per docs/clippy.md
-- [ ] #3 cargo clippy --all-targets --workspace -- -D warnings passes with the allows removed
+- [x] #1 clippy::cast_possible_truncation, cast_precision_loss and cast_sign_loss are removed from the crate-level cfg_attr allow list
+- [x] #2 The remaining unwrap_used suppression carries a one-line reason, per docs/clippy.md
+- [x] #3 cargo clippy --all-targets --workspace -- -D warnings passes with the allows removed
 <!-- AC:END -->

@@ -3,9 +3,11 @@ id: TASK-1938
 title: >-
   TEST-6: collect_coverage has no seam for the cargo runner, so its soft-fail
   demotion, temp-file wiring, and non-UTF-8 path arm are all untested
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2000
 created_date: '2026-08-27 15:47'
+updated_date: '2026-08-28 15:53'
 labels:
   - code-review-rust
   - test-quality
@@ -40,9 +42,15 @@ Sibling precedent: TASK-1787 filed the same "no seam to inject a subprocess resu
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 collect_coverage is split so the cargo runner is injectable, with the public entry point remaining a thin wrapper that passes run_cargo_llvm_cov
-- [ ] #2 Tests drive the injectable form with a synthetic zero-exit Output plus a written report file and assert the flattened rows come back
-- [ ] #3 Tests drive the soft-fail demotion (non-zero exit, report with non-empty data[] carrying files) and assert partial rows are returned rather than an error
-- [ ] #4 Tests drive the hard-fail fall-through (non-zero exit, report that fails the predicate) and assert the surfaced error names the cargo exit, not a schema-shape parse failure
-- [ ] #5 The report-read failure arm is exercised: a non-zero exit whose report file is absent or unreadable falls through to the cargo error rather than being reported as a JSON problem
+- [x] #1 collect_coverage is split so the cargo runner is injectable, with the public entry point remaining a thin wrapper that passes run_cargo_llvm_cov
+- [x] #2 Tests drive the injectable form with a synthetic zero-exit Output plus a written report file and assert the flattened rows come back
+- [x] #3 Tests drive the soft-fail demotion (non-zero exit, report with non-empty data[] carrying files) and assert partial rows are returned rather than an error
+- [x] #4 Tests drive the hard-fail fall-through (non-zero exit, report that fails the predicate) and assert the surfaced error names the cargo exit, not a schema-shape parse failure
+- [x] #5 The report-read failure arm is exercised: a non-zero exit whose report file is absent or unreadable falls through to the cargo error rather than being reported as a JSON problem
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+collect_coverage is now a thin wrapper over collect_coverage_with(working_dir, run_cargo_llvm_cov); the runner is an FnOnce(&Path, &str) -> Result<Output, RunError> so a double can write a synthetic report to the --output-path file. tests/collect.rs drives the success path, the soft-fail demotion, the hard-fail fall-through (asserts the cargo exit, not a schema-shape error), and the removed-report arm (asserts the cargo exit, not a JSON error).
+<!-- SECTION:NOTES:END -->

@@ -3,9 +3,11 @@ id: TASK-1808
 title: >-
   SEC-33: check-yaml has no anchor/alias expansion bound — a 324-byte YAML bomb
   aborts the process
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2004
 created_date: '2026-08-27 11:31'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - security

@@ -3,9 +3,11 @@ id: TASK-1760
 title: >-
   ARCH-11: ops-about-python declares anyhow and ops-git but never references
   either
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1992
 created_date: '2026-08-27 11:19'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - architecture

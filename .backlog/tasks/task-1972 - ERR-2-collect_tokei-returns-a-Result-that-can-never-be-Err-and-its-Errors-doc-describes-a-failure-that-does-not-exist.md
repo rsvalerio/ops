@@ -3,9 +3,11 @@ id: TASK-1972
 title: >-
   ERR-2: collect_tokei returns a Result that can never be Err, and its # Errors
   doc describes a failure that does not exist
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2012
 created_date: '2026-08-27 15:54'
+updated_date: '2026-08-28 15:59'
 labels:
   - code-review-rust
   - error-handling
@@ -44,8 +46,34 @@ Note the same crate already made the opposite call deliberately in `views.rs:20-
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 collect_tokei either returns an infallible value or returns an error that some code path can actually produce; the # Errors doc matches the implementation
-- [ ] #2 A working_dir that does not exist or cannot be read is distinguishable by the caller from a directory that genuinely contains no source files
-- [ ] #3 Files skipped because they could not be read are counted and surfaced rather than silently dropped from the statistics
-- [ ] #4 A test passes a nonexistent path to collect_tokei and asserts the outcome is not an empty success
+- [x] #1 collect_tokei either returns an infallible value or returns an error that some code path can actually produce; the # Errors doc matches the implementation
+- [x] #2 A working_dir that does not exist or cannot be read is distinguishable by the caller from a directory that genuinely contains no source files
+- [x] #3 Files skipped because they could not be read are counted and surfaced rather than silently dropped from the statistics
+- [x] #4 A test passes a nonexistent path to collect_tokei and asserts the outcome is not an empty success
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2012 (branch code-review/TASK-2012).
+
+- AC #1: `collect_tokei` keeps its `Result`, but the `Err` is now producible.
+  It stats the scan root up front and fails with context when the root does not
+  exist, cannot be stat'd, or is not a directory. The `# Errors` doc states
+  exactly that and no longer claims a serialization failure that cannot happen.
+- AC #2: an unreadable root is `Err`; a readable but empty directory is
+  `Ok([])`. `collect_tokei_errors_on_missing_directory`,
+  `collect_tokei_errors_when_root_is_a_file` and `collect_tokei_on_empty_dir`
+  pin all three outcomes apart (AC #4).
+- AC #3: `scan_tokei` returns a `TokeiScan` carrying `skipped_oversize`,
+  `skipped_unreadable` and `truncated`. Unwalkable subtrees, files with
+  unreadable metadata, and files tokei itself failed to open (counted as the
+  shortfall between recognised candidates and returned reports) are all
+  tallied, and `collect_tokei` emits a warning naming the counts whenever the
+  answer is short. `scan_tokei_counts_unreadable_files` covers the tokei-side
+  open failure.
+
+Orphan removed by the same change: `flatten_tokei_to_json` lost its only
+production caller, so the public wrapper was deleted in favour of the crate
+-private `flatten_tokei_records`. Nothing outside the crate referenced it.
+<!-- SECTION:NOTES:END -->

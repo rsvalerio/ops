@@ -3,9 +3,11 @@ id: TASK-1729
 title: >-
   PATTERN-1: strip_trailing_yaml_comment confuses bytes with chars —
   char::from(b) misreads UTF-8 continuation bytes as whitespace
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1991
 created_date: '2026-08-27 11:12'
+updated_date: '2026-08-28 14:42'
 labels:
   - code-review-rust
   - idioms
@@ -39,7 +41,7 @@ The quote-tracking arms in the same loop are safe by accident (`'` and `"` are A
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 strip_trailing_yaml_comment iterates chars (char_indices), not raw bytes, and computes prev_ws from a char
-- [ ] #2 A pnpm packages entry containing a multi-byte scalar whose UTF-8 encoding ends in 0xA0 (e.g. U+0120) followed by a literal # inside quotes is not truncated
-- [ ] #3 Existing comment-stripping tests (quoted item, unquoted item, hash inside quotes) still pass
+- [x] #1 strip_trailing_yaml_comment iterates chars (char_indices), not raw bytes, and computes prev_ws from a char
+- [x] #2 A pnpm packages entry containing a multi-byte scalar whose UTF-8 encoding ends in 0xA0 (e.g. U+0120) followed by a literal # inside quotes is not truncated
+- [x] #3 Existing comment-stripping tests (quoted item, unquoted item, hash inside quotes) still pass
 <!-- AC:END -->

@@ -3,9 +3,11 @@ id: TASK-1884
 title: >-
   TEST-6: should_skip's entire truthy/falsy env matrix is untested — only the
   unset case is covered anywhere in the workspace
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2008
 created_date: '2026-08-27 15:33'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - tests

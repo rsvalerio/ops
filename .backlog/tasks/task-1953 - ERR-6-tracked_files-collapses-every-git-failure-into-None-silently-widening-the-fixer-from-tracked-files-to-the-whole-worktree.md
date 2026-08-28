@@ -3,9 +3,11 @@ id: TASK-1953
 title: >-
   ERR-6: tracked_files collapses every git failure into None, silently widening
   the fixer from tracked files to the whole worktree
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2011
 created_date: '2026-08-27 15:49'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - idioms

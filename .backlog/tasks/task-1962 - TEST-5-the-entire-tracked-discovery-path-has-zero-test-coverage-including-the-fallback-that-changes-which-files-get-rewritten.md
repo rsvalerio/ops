@@ -3,9 +3,11 @@ id: TASK-1962
 title: >-
   TEST-5: the entire --tracked discovery path has zero test coverage, including
   the fallback that changes which files get rewritten
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2011
 created_date: '2026-08-27 15:51'
+updated_date: '2026-08-28 14:18'
 labels:
   - code-review-rust
   - tests

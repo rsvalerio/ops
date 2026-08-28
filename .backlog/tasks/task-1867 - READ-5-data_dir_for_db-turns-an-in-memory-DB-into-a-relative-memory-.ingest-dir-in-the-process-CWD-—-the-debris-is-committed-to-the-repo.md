@@ -3,9 +3,11 @@ id: TASK-1867
 title: >-
   READ-5: data_dir_for_db turns an in-memory DB into a relative
   ':memory:.ingest' dir in the process CWD — the debris is committed to the repo
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2006
 created_date: '2026-08-27 15:30'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - correctness

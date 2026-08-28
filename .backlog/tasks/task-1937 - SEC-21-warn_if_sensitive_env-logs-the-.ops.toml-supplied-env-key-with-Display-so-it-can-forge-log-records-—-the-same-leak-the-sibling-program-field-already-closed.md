@@ -4,9 +4,11 @@ title: >-
   SEC-21: warn_if_sensitive_env logs the .ops.toml-supplied env key with
   Display, so it can forge log records — the same leak the sibling program field
   already closed
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1986
 created_date: '2026-08-27 15:47'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - security

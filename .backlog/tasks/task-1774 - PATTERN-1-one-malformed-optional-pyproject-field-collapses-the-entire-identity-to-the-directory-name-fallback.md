@@ -3,9 +3,11 @@ id: TASK-1774
 title: >-
   PATTERN-1: one malformed optional pyproject field collapses the entire
   identity to the directory-name fallback
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1992
 created_date: '2026-08-27 11:22'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - idioms

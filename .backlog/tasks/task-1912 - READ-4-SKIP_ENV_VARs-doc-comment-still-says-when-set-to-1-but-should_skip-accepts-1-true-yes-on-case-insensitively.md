@@ -3,9 +3,11 @@ id: TASK-1912
 title: >-
   READ-4: SKIP_ENV_VAR's doc comment still says 'when set to 1', but should_skip
   accepts 1/true/yes/on case-insensitively
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2010
 created_date: '2026-08-27 15:40'
+updated_date: '2026-08-28 15:13'
 labels:
   - code-review-rust
   - readability
@@ -38,7 +40,7 @@ The same stale wording is on `extensions/run-before-commit/src/lib.rs:46`.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The SKIP_ENV_VAR doc comment lists the values should_skip actually accepts (1, true, yes, on, case-insensitive) and states that anything else means do-not-skip
-- [ ] #2 The doc links to ops_hook_common::should_skip as the source of truth so the two cannot drift again
-- [ ] #3 SKIP_OPS_RUN_BEFORE_PUSH is documented in README.md alongside the run-before-push command entry
+- [x] #1 The SKIP_ENV_VAR doc comment lists the values should_skip actually accepts (1, true, yes, on, case-insensitive) and states that anything else means do-not-skip
+- [x] #2 The doc links to ops_hook_common::should_skip as the source of truth so the two cannot drift again
+- [x] #3 SKIP_OPS_RUN_BEFORE_PUSH is documented in README.md alongside the run-before-push command entry
 <!-- AC:END -->

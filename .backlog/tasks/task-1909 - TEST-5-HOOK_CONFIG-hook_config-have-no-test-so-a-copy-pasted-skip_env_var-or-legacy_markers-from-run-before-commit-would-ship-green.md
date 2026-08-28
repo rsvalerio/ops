@@ -3,9 +3,11 @@ id: TASK-1909
 title: >-
   TEST-5: HOOK_CONFIG / hook_config() have no test, so a copy-pasted
   skip_env_var or legacy_markers from run-before-commit would ship green
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2010
 created_date: '2026-08-27 15:39'
+updated_date: '2026-08-28 15:13'
 labels:
   - code-review-rust
   - test-quality
@@ -36,9 +38,9 @@ Concretely, if line 44 read `skip_env_var: ops_run_before_commit::SKIP_ENV_VAR` 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test asserts HOOK_CONFIG.hook_filename == "pre-push" against the literal, not against another const
-- [ ] #2 A test asserts HOOK_CONFIG.skip_env_var == SKIP_ENV_VAR and that SKIP_ENV_VAR == "SKIP_OPS_RUN_BEFORE_PUSH" against the literal name
-- [ ] #3 A test asserts HOOK_CONFIG.name == NAME, HOOK_CONFIG.hook_script == HOOK_SCRIPT, and that command_help is non-empty and mentions push rather than commit
-- [ ] #4 A test asserts every entry of HOOK_CONFIG.legacy_markers refers to a push hook (no 'commit' marker leaked in) and that the current HOOK_SCRIPT's command line is covered by one of them
-- [ ] #5 hook_config() is exercised by at least one test so the generated accessor is not dead public surface
+- [x] #1 A test asserts HOOK_CONFIG.hook_filename == "pre-push" against the literal, not against another const
+- [x] #2 A test asserts HOOK_CONFIG.skip_env_var == SKIP_ENV_VAR and that SKIP_ENV_VAR == "SKIP_OPS_RUN_BEFORE_PUSH" against the literal name
+- [x] #3 A test asserts HOOK_CONFIG.name == NAME, HOOK_CONFIG.hook_script == HOOK_SCRIPT, and that command_help is non-empty and mentions push rather than commit
+- [x] #4 A test asserts every entry of HOOK_CONFIG.legacy_markers refers to a push hook (no 'commit' marker leaked in) and that the current HOOK_SCRIPT's command line is covered by one of them
+- [x] #5 hook_config() is exercised by at least one test so the generated accessor is not dead public surface
 <!-- AC:END -->

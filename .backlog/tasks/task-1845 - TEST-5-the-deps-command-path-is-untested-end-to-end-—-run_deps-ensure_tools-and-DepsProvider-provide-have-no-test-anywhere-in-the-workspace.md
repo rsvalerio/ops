@@ -3,10 +3,11 @@ id: TASK-1845
 title: >-
   TEST-5: the deps command path is untested end to end — run_deps, ensure_tools
   and DepsProvider::provide have no test anywhere in the workspace
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1997
 created_date: '2026-08-27 15:24'
-updated_date: '2026-08-27 15:26'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - test-quality

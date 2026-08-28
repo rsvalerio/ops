@@ -3,9 +3,11 @@ id: TASK-1942
 title: >-
   SEC-25: cleanup_artifacts deletes any pre-existing file at --json-out,
   including one it never wrote
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2002
 created_date: '2026-08-27 15:48'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - security

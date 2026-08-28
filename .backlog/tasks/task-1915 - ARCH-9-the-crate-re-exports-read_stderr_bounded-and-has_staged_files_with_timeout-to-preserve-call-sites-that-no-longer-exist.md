@@ -3,9 +3,11 @@ id: TASK-1915
 title: >-
   ARCH-9: the crate re-exports read_stderr_bounded and
   has_staged_files_with_timeout to preserve call sites that no longer exist
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2009
 created_date: '2026-08-27 15:40'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - architecture

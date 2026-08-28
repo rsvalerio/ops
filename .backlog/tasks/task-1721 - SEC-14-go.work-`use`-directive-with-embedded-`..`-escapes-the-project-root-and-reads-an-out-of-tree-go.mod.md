@@ -3,9 +3,11 @@ id: TASK-1721
 title: >-
   SEC-14: go.work `use` directive with embedded `..` escapes the project root
   and reads an out-of-tree go.mod
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1989
 created_date: '2026-08-27 11:10'
+updated_date: '2026-08-28 15:29'
 labels:
   - code-review-rust
   - security
@@ -76,9 +78,9 @@ deliberately established between `replace` targets and `use` directives.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A go.work `use` directive whose normalized path contains a `..` segment past the leading prefix run (e.g. `./api/../../../etc`) is treated as out-of-tree: no filesystem read of the target's go.mod occurs, the unit is emitted with no module/version, and the description carries the `(outside project root)` marker
-- [ ] #2 The embedded-`..` check is shared with go_mod.rs rather than reimplemented: `has_embedded_parent_dir_segment` moves to `go_syntax.rs` (or another single home) and both `parse_replace_directive` and `unit_from_use_dir` call it
-- [ ] #3 A `tracing::warn!` is emitted for the rejected directive, Debug-formatted per the ERR-7 policy already used at that call site
-- [ ] #4 Regression test: a go.work with `use ./api/../../../<tmpdir>` where a real go.mod sits at the traversal target asserts the target's module name does NOT appear in any emitted ProjectUnit description (mirrors `collect_units_absolute_use_directive_is_marked_out_of_tree`)
-- [ ] #5 Leading-`..` directives (`use ../shared`) keep their existing accepted-but-marked-out-of-tree behaviour; `collect_units_dotdot_prefixed_dir_is_in_tree` still passes
+- [x] #1 A go.work `use` directive whose normalized path contains a `..` segment past the leading prefix run (e.g. `./api/../../../etc`) is treated as out-of-tree: no filesystem read of the target's go.mod occurs, the unit is emitted with no module/version, and the description carries the `(outside project root)` marker
+- [x] #2 The embedded-`..` check is shared with go_mod.rs rather than reimplemented: `has_embedded_parent_dir_segment` moves to `go_syntax.rs` (or another single home) and both `parse_replace_directive` and `unit_from_use_dir` call it
+- [x] #3 A `tracing::warn!` is emitted for the rejected directive, Debug-formatted per the ERR-7 policy already used at that call site
+- [x] #4 Regression test: a go.work with `use ./api/../../../<tmpdir>` where a real go.mod sits at the traversal target asserts the target's module name does NOT appear in any emitted ProjectUnit description (mirrors `collect_units_absolute_use_directive_is_marked_out_of_tree`)
+- [x] #5 Leading-`..` directives (`use ../shared`) keep their existing accepted-but-marked-out-of-tree behaviour; `collect_units_dotdot_prefixed_dir_is_in_tree` still passes
 <!-- AC:END -->

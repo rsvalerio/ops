@@ -3,9 +3,11 @@ id: TASK-1822
 title: >-
   SEC-11: fallback warn logs the workspace member with the Display formatter,
   contradicting the module's own escaping policy
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1996
 created_date: '2026-08-27 11:33'
+updated_date: '2026-08-28 15:13'
 labels:
   - code-review-rust
   - security
@@ -40,6 +42,12 @@ This directly contradicts the policy the file states 20 lines below it, in the d
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The member field in the fallback warn uses the ? (Debug) formatter so control characters and ANSI escapes are escaped
-- [ ] #2 A test asserts the rendered breadcrumb for a member containing a newline and an ESC byte contains neither raw character
+- [x] #1 The member field in the fallback warn uses the ? (Debug) formatter so control characters and ANSI escapes are escaped
+- [x] #2 A test asserts the rendered breadcrumb for a member containing a newline and an ESC byte contains neither raw character
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1996: the SEC-11 breadcrumb test captures the real call site through ops_about::test_support::TracingBuf instead of re-asserting std Debug behaviour; the tests that reach that warn callsite share a serial_test group because tracing caches callsite Interest globally.
+<!-- SECTION:NOTES:END -->

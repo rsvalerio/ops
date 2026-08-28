@@ -3,9 +3,11 @@ id: TASK-1907
 title: >-
   CONC-2: MetadataIngestor::load drops and immediately re-takes the connection
   lock, splitting table creation from the read of that table
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1999
 created_date: '2026-08-27 15:39'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - idioms-correctness

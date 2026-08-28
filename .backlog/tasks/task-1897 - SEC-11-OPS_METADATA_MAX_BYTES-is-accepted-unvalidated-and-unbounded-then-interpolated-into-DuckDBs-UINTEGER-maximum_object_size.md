@@ -3,9 +3,11 @@ id: TASK-1897
 title: >-
   SEC-11: OPS_METADATA_MAX_BYTES is accepted unvalidated and unbounded, then
   interpolated into DuckDB's UINTEGER maximum_object_size
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1999
 created_date: '2026-08-27 15:36'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - security

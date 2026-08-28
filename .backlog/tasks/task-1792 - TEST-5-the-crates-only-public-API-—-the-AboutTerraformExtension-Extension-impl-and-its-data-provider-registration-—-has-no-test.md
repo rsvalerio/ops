@@ -3,9 +3,11 @@ id: TASK-1792
 title: >-
   TEST-5: the crate's only public API — the AboutTerraformExtension Extension
   impl and its data-provider registration — has no test
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2001
 created_date: '2026-08-27 11:24'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - test-quality

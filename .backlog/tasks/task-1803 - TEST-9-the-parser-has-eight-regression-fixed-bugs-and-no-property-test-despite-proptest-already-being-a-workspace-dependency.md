@@ -3,9 +3,11 @@ id: TASK-1803
 title: >-
   TEST-9: the parser has eight regression-fixed bugs and no property test,
   despite proptest already being a workspace dependency
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1995
 created_date: '2026-08-27 11:26'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - test-quality

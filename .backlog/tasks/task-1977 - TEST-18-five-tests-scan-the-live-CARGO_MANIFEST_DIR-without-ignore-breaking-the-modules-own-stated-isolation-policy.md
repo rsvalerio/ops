@@ -3,9 +3,11 @@ id: TASK-1977
 title: >-
   TEST-18: five tests scan the live CARGO_MANIFEST_DIR without #[ignore],
   breaking the module's own stated isolation policy
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2012
 created_date: '2026-08-27 15:55'
+updated_date: '2026-08-28 15:59'
 labels:
   - code-review-rust
   - test-quality
@@ -44,9 +46,33 @@ Note that none of these five tests actually needs the live tree. `tokei_provider
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each of the five tests either builds its fixture in a tempdir with known contents or carries the documented ignore attribute
-- [ ] #2 Tests converted to a tempdir fixture assert exact expected counts instead of greater-than-zero
-- [ ] #3 tokei_files_create_sql_with_real_json no longer runs a workspace scan, since its assertions concern only the generated SQL
-- [ ] #4 flatten_tokei_with_unrelated_prefix_keeps_full_path either drops its unix-only path assumption or is gated with cfg(unix)
-- [ ] #5 cargo nextest run -p ops-tokei passes with no test reading CARGO_MANIFEST_DIR outside an ignored test
+- [x] #1 Each of the five tests either builds its fixture in a tempdir with known contents or carries the documented ignore attribute
+- [x] #2 Tests converted to a tempdir fixture assert exact expected counts instead of greater-than-zero
+- [x] #3 tokei_files_create_sql_with_real_json no longer runs a workspace scan, since its assertions concern only the generated SQL
+- [x] #4 flatten_tokei_with_unrelated_prefix_keeps_full_path either drops its unix-only path assumption or is gated with cfg(unix)
+- [x] #5 cargo nextest run -p ops-tokei passes with no test reading CARGO_MANIFEST_DIR outside an ignored test
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2012 (branch code-review/TASK-2012).
+
+All five tests now build a `fixture_project()` tempdir -- `src/lib.rs` and
+`app.py`, one code line and one comment line each -- instead of scanning the
+live crate directory:
+
+- AC #1/#2: `load_tokei_succeeds_after_collect` and
+  `query_tokei_files_returns_json_array` assert the exact record count (2)
+  rather than `> 0`; `tokei_languages_view_aggregates_correctly` asserts
+  `SUM(code) == 2` and `COUNT(DISTINCT language) == 2`.
+- AC #3: `tokei_files_create_sql_with_real_json` collects from the fixture, so
+  it runs no workspace scan; its assertions were always about the SQL only.
+- AC #4: `flatten_tokei_with_unrelated_prefix_keeps_full_path` drops
+  `file.starts_with('/')` for `Path::is_absolute()` plus a `starts_with(fixture
+  root)` check, so it carries no unix-only assumption and needs no `cfg(unix)`
+  gate.
+- AC #5: `cargo nextest run -p ops-tokei` -- 40 passed, 5 skipped. The five
+  skipped are the pre-existing live-scan tests that carry the documented
+  `#[ignore]`; no non-ignored test reads `CARGO_MANIFEST_DIR`.
+<!-- SECTION:NOTES:END -->

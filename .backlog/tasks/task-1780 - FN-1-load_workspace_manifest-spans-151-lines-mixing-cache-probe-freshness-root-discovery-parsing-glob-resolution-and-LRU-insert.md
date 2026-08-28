@@ -3,9 +3,11 @@ id: TASK-1780
 title: >-
   FN-1: load_workspace_manifest spans 151 lines mixing cache probe, freshness,
   root discovery, parsing, glob resolution and LRU insert
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1993
 created_date: '2026-08-27 11:22'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - structure

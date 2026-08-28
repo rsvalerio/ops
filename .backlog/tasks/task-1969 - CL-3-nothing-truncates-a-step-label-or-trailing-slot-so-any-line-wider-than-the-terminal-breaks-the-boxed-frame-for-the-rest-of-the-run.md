@@ -3,9 +3,11 @@ id: TASK-1969
 title: >-
   CL-3: nothing truncates a step label or trailing slot, so any line wider than
   the terminal breaks the boxed frame for the rest of the run
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1987
 created_date: '2026-08-27 15:54'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - idioms

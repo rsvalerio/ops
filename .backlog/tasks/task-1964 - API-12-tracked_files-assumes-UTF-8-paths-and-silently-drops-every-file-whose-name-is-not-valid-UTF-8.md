@@ -3,9 +3,11 @@ id: TASK-1964
 title: >-
   API-12: tracked_files assumes UTF-8 paths and silently drops every file whose
   name is not valid UTF-8
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2011
 created_date: '2026-08-27 15:52'
+updated_date: '2026-08-28 14:18'
 labels:
   - code-review-rust
   - api-design

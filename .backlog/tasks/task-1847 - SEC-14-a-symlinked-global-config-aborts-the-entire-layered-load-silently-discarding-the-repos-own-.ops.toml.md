@@ -3,9 +3,11 @@ id: TASK-1847
 title: >-
   SEC-14: a symlinked global config aborts the entire layered load, silently
   discarding the repo's own .ops.toml
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1983
 created_date: '2026-08-27 15:24'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - security

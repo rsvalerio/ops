@@ -3,9 +3,11 @@ id: TASK-1904
 title: >-
   READ-1: types.rs reads the same JSON shape three different ways, and the
   comment justifying one of them is factually wrong
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1999
 created_date: '2026-08-27 15:38'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - structure-readability

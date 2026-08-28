@@ -3,9 +3,11 @@ id: TASK-1934
 title: >-
   READ-6: coverage_summary's SUM columns are not COALESCEd, so an empty
   coverage_files yields NULL counts where the sibling helper returns 0
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2000
 created_date: '2026-08-27 15:46'
+updated_date: '2026-08-28 15:52'
 labels:
   - code-review-rust
   - readability
@@ -39,7 +41,13 @@ Cross-crate note: the sibling aggregate for the same data, `coverage_col_select`
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every non-percentage SUM column in coverage_summary_view_sql is wrapped in COALESCE(..., 0), matching coverage_col_select in the duckdb extension
-- [ ] #2 A test loads the schema with an empty coverage_files table, queries every column of coverage_summary, and asserts each count decodes as 0 rather than failing or returning null
-- [ ] #3 The existing coverage_summary_view_handles_zero_counts test is kept and its distinct intent (one all-zero row, not zero rows) is noted so the two are not later merged
+- [x] #1 Every non-percentage SUM column in coverage_summary_view_sql is wrapped in COALESCE(..., 0), matching coverage_col_select in the duckdb extension
+- [x] #2 A test loads the schema with an empty coverage_files table, queries every column of coverage_summary, and asserts each count decodes as 0 rather than failing or returning null
+- [x] #3 The existing coverage_summary_view_handles_zero_counts test is kept and its distinct intent (one all-zero row, not zero rows) is noted so the two are not later merged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+All ten non-percentage SUM columns are COALESCE(..., 0), matching coverage_col_select. New test coverage_summary_view_empty_table_yields_zero_counts loads the schema, empties coverage_files, and asserts every count column decodes as i64 0 and every percentage as 0.0. coverage_summary_view_handles_zero_counts is kept, and both carry doc comments stating the one-all-zero-row vs zero-rows distinction and that they must not be merged.
+<!-- SECTION:NOTES:END -->

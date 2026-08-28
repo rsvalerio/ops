@@ -3,9 +3,11 @@ id: TASK-1789
 title: >-
   SEC-31: resolve_publish substitutes an undeclared workspace publish value,
   defaulting an unresolvable inherit to publishable
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1994
 created_date: '2026-08-27 11:23'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - security

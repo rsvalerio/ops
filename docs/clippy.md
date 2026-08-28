@@ -204,9 +204,9 @@ msrv = "1.97"
 ```
 
 `too-many-arguments-threshold = 5` is stricter than clippy's default of 7, which
-is why `too_many_arguments` is the most common site-local allow (5 sites, mostly
-in the runner's exec and parallel paths where the arguments are genuinely
-independent).
+is why `too_many_arguments` accounts for 5 site-local allows, mostly in the
+runner's exec and parallel paths where the arguments are genuinely independent.
+Only `expect_used` is more common — see the census below.
 
 ### `msrv` earns its keep
 
@@ -244,20 +244,67 @@ drift.
 
 ## Current site-local allows
 
-A rough census, useful for spotting when one category grows enough to deserve a
-policy decision instead:
+A census, useful for spotting when one category grows enough to deserve a
+policy decision instead. It is a snapshot — regenerate it rather than trusting
+it after a batch of fixes:
+
+```bash
+grep -rhoE '#!?\[allow\(clippy::[a-z_, :]+\)\]' --include='*.rs' crates/ \
+  | sed -E 's/.*allow\((.*)\)\]/\1/' | tr ',' '\n' \
+  | sed 's/clippy:://; s/ //g' | sed '/^$/d' | sort | uniq -c | sort -rn
+```
+
+(It misses attributes written across several lines — there is one, on
+`format_duration`'s clamp in `crates/theme/src/step_line_theme.rs`, counted by
+hand below.)
+
+Counts below are as of the temporary-allow drain (TASK-1671..TASK-1682) and the
+waves that followed it. Draining the block moved each lint's exception from
+layer 1 to layer 3 wherever the code genuinely needs it, which is why the
+restriction lints now appear here at all.
 
 | Lint | Sites | Typical reason |
 |---|---|---|
+| `expect_used` | 9 | Invariant violations with no runtime error channel — see the note below |
 | `too_many_arguments` | 5 | Threshold is 5, below clippy's default |
 | `trivially_copy_pass_by_ref` | 3 | serde `skip_serializing_if` requires `&T` |
-| `unnecessary_wraps` | 2 | Signature fixed by a fn-pointer type or a sibling's contract |
-| `too_many_lines` | 2 | 101 lines against a 100 limit |
+| `option_if_let_else` | 3 | `map_or_else` closures cannot each move the same future, hold the same `&mut` borrow, or read better than the match they replace |
+| `literal_string_with_formatting_args` | 3 | `{spinner}` / `{msg}` / `{elapsed}` are `indicatif` template placeholders, not Rust format arguments |
+| `as_conversions` | 3 | `u64` ↔ `f64` at the clamp bound: no `From`/`TryFrom` pair expresses it (1 production site, 2 tests asserting the same bound) |
+| `unnecessary_debug_formatting` | 2 | `{:?}` is deliberate — the value is not valid UTF-8, which is what the error reports |
+| `future_not_send` | 2 | The runner is driven on a current-thread runtime and its event sink is non-`Send` `indicatif` state |
 | `case_sensitive_file_extension_comparisons` | 2 | Input is lowercased before comparison |
-| `unnecessary_debug_formatting` | 3 | `{:?}` is deliberate — the value is not valid UTF-8, which is what the error reports |
-| `needless_pass_by_value` | 1 | `expand_err_to_io` is used point-free as `map_err(f)` at four sites |
-| `cast_*` | 1 | Documented saturating clamp in `format_duration` |
-| others | 1 each | `option_option`, `module_inception`, `missing_fields_in_debug`, `match_wildcard_for_single_variants`, `match_same_arms` |
+| `cast_*` | 1 | Documented saturating clamp in `format_duration` (same attribute as its `as_conversions`) |
+| others | 1 each | `unnecessary_wraps`, `needless_pass_by_value`, `needless_collect`, `option_option`, `module_inception`, `match_wildcard_for_single_variants`, `match_same_arms` |
+
+`too_many_lines` and `missing_fields_in_debug` have left the census entirely;
+the code that needed them was reshaped rather than annotated.
+
+### `expect_used` is the one category worth a policy answer
+
+Nine sites is past "a handful", and it is the only category the drain grew that
+far, so it gets an explicit decision rather than an implicit one: **it stays at
+layer 3.** The nine are not one pattern repeated by habit; they are four
+distinct shapes, none of which has an honest error channel to return into:
+
+- **Compile-time inputs** (4) — a header array literal, a tracing directive, a
+  config compiled into the binary, an option cloned out of the collection being
+  searched. A miss is an editing mistake caught by the next test run, not a
+  runtime condition.
+- **Test-harness helpers** (1) — the file-level allow on
+  `crates/cli/tests/integration.rs`, which exists only because helper functions
+  sit outside `#[test]` bodies and so miss `allow-expect-in-tests` (layer 2).
+- **Poisoned locks** (2) — another thread panicked holding `GLOBAL_CONFIG_PATH`;
+  no `Option` or `Err` honestly represents "the cache state is unknown".
+- **Populated by construction** (2) — a cache built from `Self::iter()`, and an
+  `indicatif` template that is the literal `{msg}`.
+
+A workspace-wide `expect_used = "allow"` would erase exactly the distinction
+those comments draw, and rule 2 of the drained block forbids it anyway. The
+number to watch is the first shape: if compile-time-input `expect`s keep
+accumulating, the answer is a small helper that turns "this literal is in this
+table" into a type-level guarantee, not a policy relaxation. Revisit at roughly
+double the current count.
 
 ## Traps
 

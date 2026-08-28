@@ -3,10 +3,11 @@ id: TASK-1770
 title: >-
   TEST-19: provide_drops_absolute_and_traversal_members writes to and rm -rf's a
   shared path outside its tempdir
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1993
 created_date: '2026-08-27 11:21'
-updated_date: '2026-08-27 11:21'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - test-quality

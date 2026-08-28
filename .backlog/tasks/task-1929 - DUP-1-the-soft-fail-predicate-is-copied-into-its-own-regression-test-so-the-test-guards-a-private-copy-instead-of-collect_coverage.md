@@ -3,9 +3,11 @@ id: TASK-1929
 title: >-
   DUP-1: the soft-fail predicate is copied into its own regression test, so the
   test guards a private copy instead of collect_coverage
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2000
 created_date: '2026-08-27 15:46'
+updated_date: '2026-08-28 15:52'
 labels:
   - code-review-rust
   - duplication
@@ -40,7 +42,13 @@ This is the same rot TASK-1554 already fixed once in this crate: `run_cargo_llvm
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The soft-fail predicate exists exactly once, as a named function in parse.rs, and collect_coverage's Option::filter calls it rather than repeating its body
-- [ ] #2 soft_fail_predicate_rejects_empty_data_array calls that named function; no copy of the predicate body remains anywhere in tests.rs
-- [ ] #3 A deliberate mutation of the predicate (for example removing the non-empty check) makes soft_fail_predicate_rejects_empty_data_array fail
+- [x] #1 The soft-fail predicate exists exactly once, as a named function in parse.rs, and collect_coverage's Option::filter calls it rather than repeating its body
+- [x] #2 soft_fail_predicate_rejects_empty_data_array calls that named function; no copy of the predicate body remains anywhere in tests.rs
+- [x] #3 A deliberate mutation of the predicate (for example removing the non-empty check) makes soft_fail_predicate_rejects_empty_data_array fail
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Extracted the soft-fail predicate as parse::has_parseable_coverage_data; collect_coverage_with calls it via Option::filter. The guard (tests/collect.rs::soft_fail_predicate_rejects_empty_data_array) now calls that function; the copied closure is gone. Mutation-checked: dropping the !a.is_empty() clause makes the guard fail.
+<!-- SECTION:NOTES:END -->

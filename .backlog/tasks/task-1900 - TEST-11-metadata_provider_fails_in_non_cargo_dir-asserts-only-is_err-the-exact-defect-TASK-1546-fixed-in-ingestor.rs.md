@@ -3,9 +3,11 @@ id: TASK-1900
 title: >-
   TEST-11: metadata_provider_fails_in_non_cargo_dir asserts only is_err(), the
   exact defect TASK-1546 fixed in ingestor.rs
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1999
 created_date: '2026-08-27 15:37'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - test-quality

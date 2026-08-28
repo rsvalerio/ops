@@ -3,9 +3,11 @@ id: TASK-1858
 title: >-
   ERR-1: has_manifest_in_dir swallows the read_dir error itself, contradicting
   the breadcrumb policy documented two lines below it
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1984
 created_date: '2026-08-27 15:28'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - error-handling

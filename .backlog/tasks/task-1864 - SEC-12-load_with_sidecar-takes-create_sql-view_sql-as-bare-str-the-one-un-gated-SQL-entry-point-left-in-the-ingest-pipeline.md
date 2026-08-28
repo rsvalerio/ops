@@ -3,9 +3,11 @@ id: TASK-1864
 title: >-
   SEC-12: load_with_sidecar takes create_sql/view_sql as bare &str, the one
   un-gated SQL entry point left in the ingest pipeline
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2006
 created_date: '2026-08-27 15:29'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - security

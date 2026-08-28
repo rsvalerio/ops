@@ -3,9 +3,11 @@ id: TASK-1754
 title: >-
   SEC-31: ops sec with every scan skipped prints nothing and exits 0, reporting
   a clean scan when zero scans ran
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1982
 created_date: '2026-08-27 11:16'
+updated_date: '2026-08-28 14:08'
 labels:
   - code-review-rust
   - security

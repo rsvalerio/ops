@@ -4,9 +4,11 @@ title: >-
   SEC-21: config.rs logs two attacker-controlled values with the Display
   formatter, contradicting the ERR-7 / TASK-1206 policy it applies three
   functions earlier
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2007
 created_date: '2026-08-27 15:31'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - security

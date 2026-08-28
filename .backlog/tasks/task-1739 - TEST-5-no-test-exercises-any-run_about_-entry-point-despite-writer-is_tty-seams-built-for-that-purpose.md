@@ -3,9 +3,11 @@ id: TASK-1739
 title: >-
   TEST-5: no test exercises any run_about_* entry point despite writer/is_tty
   seams built for that purpose
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2003
 created_date: '2026-08-27 11:13'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - test-quality

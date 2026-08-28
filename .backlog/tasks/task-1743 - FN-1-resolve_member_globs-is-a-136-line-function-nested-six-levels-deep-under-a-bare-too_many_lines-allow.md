@@ -3,9 +3,11 @@ id: TASK-1743
 title: >-
   FN-1: resolve_member_globs is a 136-line function nested six levels deep under
   a bare too_many_lines allow
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2003
 created_date: '2026-08-27 11:13'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - complexity

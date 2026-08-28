@@ -3,9 +3,11 @@ id: TASK-1773
 title: >-
   TEST-25: three tests assert only std library behaviour and exercise no code
   from this crate
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1993
 created_date: '2026-08-27 11:22'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - test-quality

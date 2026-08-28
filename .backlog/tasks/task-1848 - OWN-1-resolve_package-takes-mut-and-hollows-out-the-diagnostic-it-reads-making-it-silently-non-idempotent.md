@@ -3,9 +3,11 @@ id: TASK-1848
 title: >-
   OWN-1: resolve_package takes &mut and hollows out the diagnostic it reads,
   making it silently non-idempotent
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1997
 created_date: '2026-08-27 15:25'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - idioms-correctness

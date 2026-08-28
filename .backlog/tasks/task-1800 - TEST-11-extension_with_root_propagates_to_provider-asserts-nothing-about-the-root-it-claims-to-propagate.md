@@ -3,9 +3,11 @@ id: TASK-1800
 title: >-
   TEST-11: extension_with_root_propagates_to_provider asserts nothing about the
   root it claims to propagate
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1994
 created_date: '2026-08-27 11:25'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - test-quality

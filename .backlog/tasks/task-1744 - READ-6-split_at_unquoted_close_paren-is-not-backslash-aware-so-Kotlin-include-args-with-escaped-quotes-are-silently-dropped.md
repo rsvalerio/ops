@@ -3,9 +3,11 @@ id: TASK-1744
 title: >-
   READ-6: split_at_unquoted_close_paren is not backslash-aware, so Kotlin
   include() args with escaped quotes are silently dropped
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1990
 created_date: '2026-08-27 11:13'
+updated_date: '2026-08-28 15:48'
 labels:
   - code-review-rust
   - structure-readability
@@ -49,8 +51,8 @@ A second, smaller instance of the same inconsistency sits alongside it: `parse_i
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 split_at_unquoted_close_paren skips backslash-escaped characters inside quoted spans, sharing the escape logic with find_unescaped rather than duplicating it
-- [ ] #2 include("legacy\")module") yields the same single entry as the equivalent Groovy bare-include form
-- [ ] #3 strip_trailing_comment is applied at exactly one point on the include path (not once in parse_include_line and again in extract_quoted_list)
-- [ ] #4 Existing gradle lexer and include tests still pass, and new tests pin the Kotlin/Groovy parity for an escaped-quote argument
+- [x] #1 split_at_unquoted_close_paren skips backslash-escaped characters inside quoted spans, sharing the escape logic with find_unescaped rather than duplicating it
+- [x] #2 include("legacy\")module") yields the same single entry as the equivalent Groovy bare-include form
+- [x] #3 strip_trailing_comment is applied at exactly one point on the include path (not once in parse_include_line and again in extract_quoted_list)
+- [x] #4 Existing gradle lexer and include tests still pass, and new tests pin the Kotlin/Groovy parity for an escaped-quote argument
 <!-- AC:END -->

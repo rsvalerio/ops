@@ -3,9 +3,11 @@ id: TASK-1885
 title: >-
   ARCH-11: ops-extension pins bitflags = "2" directly instead of inheriting it
   from [workspace.dependencies]
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1985
 created_date: '2026-08-27 15:33'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - architecture

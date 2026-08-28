@@ -11,13 +11,16 @@
 //! (TASK-0438) and Gradle line-based scans use `for_each_trimmed_line`, which
 //! treats unreadable files as absent (TASK-0562).
 
+// READ-10 / TASK-1747: `allow`, not `expect` — the suppression is
+// cfg-scoped to `test`, and an `#[expect]` would fire
+// `unfulfilled_lint_expectations` in every non-test build. The three
+// `cast_*` allows that used to sit here were dead (this crate performs no
+// numeric conversion) and pre-approved any cast a future test might add.
 #![cfg_attr(
     test,
     allow(
         clippy::unwrap_used,
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss
+        reason = "fixture setup and assertions in this crate's tests unwrap freely; a failed unwrap is a failed test"
     )
 )]
 

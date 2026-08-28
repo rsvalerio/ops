@@ -3,9 +3,11 @@ id: TASK-1890
 title: >-
   SEC-14: an absolute gitdir: pointer is returned unvalidated, skipping the
   containment anchor every relative pointer must pass
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2008
 created_date: '2026-08-27 15:34'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - security

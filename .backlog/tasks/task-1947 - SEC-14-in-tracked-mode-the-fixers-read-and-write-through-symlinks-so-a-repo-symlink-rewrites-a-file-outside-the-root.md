@@ -3,9 +3,11 @@ id: TASK-1947
 title: >-
   SEC-14: in --tracked mode the fixers read and write through symlinks, so a
   repo symlink rewrites a file outside the root
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2011
 created_date: '2026-08-27 15:48'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - security

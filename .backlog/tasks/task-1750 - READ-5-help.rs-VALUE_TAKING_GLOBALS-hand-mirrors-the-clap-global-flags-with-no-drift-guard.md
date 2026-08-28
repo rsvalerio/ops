@@ -3,9 +3,11 @@ id: TASK-1750
 title: >-
   READ-5: help.rs VALUE_TAKING_GLOBALS hand-mirrors the clap global flags with
   no drift guard
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1982
 created_date: '2026-08-27 11:14'
+updated_date: '2026-08-28 14:08'
 labels:
   - code-review-rust
   - readability

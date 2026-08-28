@@ -3,9 +3,11 @@ id: TASK-1952
 title: >-
   TEST-31: the --detailed-exitcode contract is implemented but never asserted by
   any test
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2002
 created_date: '2026-08-27 15:49'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - testing

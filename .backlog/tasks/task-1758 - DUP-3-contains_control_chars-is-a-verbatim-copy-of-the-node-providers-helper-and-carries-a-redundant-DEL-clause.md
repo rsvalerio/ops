@@ -3,9 +3,11 @@ id: TASK-1758
 title: >-
   DUP-3: contains_control_chars is a verbatim copy of the node provider's helper
   and carries a redundant DEL clause
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1992
 created_date: '2026-08-27 11:19'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - duplication

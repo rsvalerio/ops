@@ -11,6 +11,8 @@ linkme = { workspace = true }
 ops-duckdb = { workspace = true }
 duckdb = { workspace = true }
 tokei = { workspace = true }
+ignore = { workspace = true }
+tracing = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 

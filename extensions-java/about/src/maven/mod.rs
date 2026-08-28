@@ -58,20 +58,29 @@ mod tests {
         assert!(!fields.is_empty());
     }
 
+    /// TEST-11 / TASK-1751: with **no `pom.xml` at all** the provider still
+    /// yields an identity whose `name` is the working-directory name — not
+    /// merely "some non-empty string", which every realistic breakage of the
+    /// fallback (wrong ancestor, hardcoded placeholder, whitespace) would
+    /// also satisfy.
     #[test]
-    fn maven_provider_provide_no_pom() {
+    fn maven_provider_provide_no_pom_falls_back_to_dir_name() {
         let dir = tempfile::tempdir().unwrap();
         let mut ctx = Context::test_context(dir.path().to_path_buf());
         let result = MavenIdentityProvider.provide(&mut ctx).unwrap();
 
-        let name = result["name"].as_str().unwrap();
-        assert!(!name.is_empty());
+        let expected = dir.path().file_name().unwrap().to_str().unwrap();
+        assert_eq!(result["name"], expected);
         assert_eq!(result["stack_detail"], "Maven");
         assert!(result["version"].is_null());
     }
 
+    /// TEST-11 / TASK-1751: a `pom.xml` that exists but carries **no name and
+    /// no artifactId** takes the same fallback — a distinct scenario from the
+    /// missing-manifest case above, since here the parser did run (its
+    /// `<version>` comes through).
     #[test]
-    fn maven_provider_provide_uses_dir_name_fallback() {
+    fn maven_provider_provide_pom_without_name_falls_back_to_dir_name() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("pom.xml"),
@@ -82,8 +91,9 @@ mod tests {
         let mut ctx = Context::test_context(dir.path().to_path_buf());
         let result = MavenIdentityProvider.provide(&mut ctx).unwrap();
 
-        let name = result["name"].as_str().unwrap();
-        assert!(!name.is_empty());
+        let expected = dir.path().file_name().unwrap().to_str().unwrap();
+        assert_eq!(result["name"], expected);
+        assert_eq!(result["version"], "1.0");
     }
 
     /// Provider-specific shape: empty modules yields null `module_count`, no

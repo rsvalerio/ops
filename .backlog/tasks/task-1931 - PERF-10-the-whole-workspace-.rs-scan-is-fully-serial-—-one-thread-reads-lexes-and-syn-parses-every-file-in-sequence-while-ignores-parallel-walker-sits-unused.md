@@ -4,9 +4,11 @@ title: >-
   PERF-10: the whole-workspace .rs scan is fully serial — one thread reads,
   lexes and syn-parses every file in sequence while ignore's parallel walker
   sits unused
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1998
 created_date: '2026-08-27 15:46'
+updated_date: '2026-08-28 15:51'
 labels:
   - code-review-rust
   - performance
@@ -38,9 +40,24 @@ The second, independent lex is avoidable on its own: `syn::parse2::<syn::File>(s
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A before/after wall-clock measurement of collect_rust_loc over the ops workspace root is recorded in the task before any change is kept, per PERF-6
-- [ ] #2 If the measurement justifies it, collect_rust_loc uses WalkBuilder::build_parallel with the same filter_entry pruning, collecting rows through a shared sink; record ordering must not be relied on by any test or by the DuckDB ingest
-- [ ] #3 The redundant second lex is removed by handing the existing TokenStream to syn::parse2, with the shebang difference versus syn::parse_file either handled or documented in counter.rs
-- [ ] #4 Existing tests still pass unchanged, including repeated_counts_on_one_thread_are_independent and the collect_rust_loc tempdir tests
+- [x] #1 A before/after wall-clock measurement of collect_rust_loc over the ops workspace root is recorded in the task before any change is kept, per PERF-6
+- [x] #2 If the measurement justifies it, collect_rust_loc uses WalkBuilder::build_parallel with the same filter_entry pruning, collecting rows through a shared sink; record ordering must not be relied on by any test or by the DuckDB ingest
+- [x] #3 The redundant second lex is removed by handing the existing TokenStream to syn::parse2, with the shebang difference versus syn::parse_file either handled or documented in counter.rs
+- [x] #4 Existing tests still pass unchanged, including repeated_counts_on_one_thread_are_independent and the collect_rust_loc tempdir tests
 - [ ] #5 If the measurement shows no meaningful gain, the task is closed with the numbers recorded and the serial walk is left in place
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+PERF-6 measurement (AC #1). Release build, `collect_rust_loc` over the ops
+workspace root, 16 logical cores, 3 runs after a warm-up (436 rows each):
+
+- baseline (serial walk, `syn::parse_file` re-lexing): 828 / 816 / 849 ms
+- after `syn::parse2` reuses the existing TokenStream: 827 / 723 / 692 ms
+- after `WalkBuilder::build_parallel` as well:         215 / 235 / 310 ms
+
+~3.3x end to end, so both changes were kept (AC #5 not taken). Rows are
+sorted by (file, region) before returning so the parallel output stays
+deterministic for the JSON sidecar and the DuckDB ingest.
+<!-- SECTION:NOTES:END -->

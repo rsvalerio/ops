@@ -3,9 +3,11 @@ id: TASK-1954
 title: >-
   SEC-31: render_outputs_table fails open to no-op when an output's actions
   field is missing or malformed
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2002
 created_date: '2026-08-27 15:49'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - security

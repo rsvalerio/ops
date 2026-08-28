@@ -3,9 +3,11 @@ id: TASK-1961
 title: >-
   READ-5: fix_trailing violates its documented 'preserves the original line
   terminator' invariant by appending an LF to a bare-CR final line
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2011
 created_date: '2026-08-27 15:51'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - readability

@@ -3,9 +3,11 @@ id: TASK-1873
 title: >-
   READ-10: blanket reason-free #[allow(dead_code)] on whole enums and impl
   blocks, plus #[allow(unused_imports)] on every lib.rs pub use
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2006
 created_date: '2026-08-27 15:31'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - readability

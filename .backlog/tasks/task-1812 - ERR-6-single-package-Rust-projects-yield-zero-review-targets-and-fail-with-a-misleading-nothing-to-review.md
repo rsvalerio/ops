@@ -3,9 +3,11 @@ id: TASK-1812
 title: >-
   ERR-6: single-package Rust projects yield zero review targets and fail with a
   misleading 'nothing to review'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1996
 created_date: '2026-08-27 11:32'
+updated_date: '2026-08-28 15:12'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -31,8 +33,8 @@ The crate's own test suite states the intended invariant — `missing_workspace_
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 provide() no longer returns an empty targets list for a manifest that parses but declares no [workspace] table
-- [ ] #2 Decide and document the chosen behaviour: either the root [package] becomes the single review target, or a typed error naming the missing [workspace] table is returned
-- [ ] #3 A test builds a scratch single-package project (Cargo.toml with [package] and no [workspace]) and asserts the chosen behaviour end to end
-- [ ] #4 The doc comment on provide/the module states which project shapes are supported
+- [x] #1 provide() no longer returns an empty targets list for a manifest that parses but declares no [workspace] table
+- [x] #2 Decide and document the chosen behaviour: either the root [package] becomes the single review target, or a typed error naming the missing [workspace] table is returned
+- [x] #3 A test builds a scratch single-package project (Cargo.toml with [package] and no [workspace]) and asserts the chosen behaviour end to end
+- [x] #4 The doc comment on provide/the module states which project shapes are supported
 <!-- AC:END -->

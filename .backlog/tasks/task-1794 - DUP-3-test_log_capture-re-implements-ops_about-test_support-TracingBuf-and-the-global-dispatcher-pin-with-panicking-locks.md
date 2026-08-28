@@ -3,9 +3,11 @@ id: TASK-1794
 title: >-
   DUP-3: test_log_capture re-implements ops_about::test_support::TracingBuf and
   the global-dispatcher pin, with panicking locks
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1995
 created_date: '2026-08-27 11:24'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - duplication

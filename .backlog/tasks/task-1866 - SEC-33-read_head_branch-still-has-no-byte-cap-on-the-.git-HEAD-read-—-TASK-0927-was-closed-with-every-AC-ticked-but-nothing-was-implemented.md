@@ -3,9 +3,11 @@ id: TASK-1866
 title: >-
   SEC-33: read_head_branch still has no byte cap on the .git/HEAD read —
   TASK-0927 was closed with every AC ticked but nothing was implemented
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2007
 created_date: '2026-08-27 15:30'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - security

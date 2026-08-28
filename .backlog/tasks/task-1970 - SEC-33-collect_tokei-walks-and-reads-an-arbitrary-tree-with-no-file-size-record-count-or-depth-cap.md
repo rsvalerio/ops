@@ -3,9 +3,11 @@ id: TASK-1970
 title: >-
   SEC-33: collect_tokei walks and reads an arbitrary tree with no file-size,
   record-count or depth cap
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2012
 created_date: '2026-08-27 15:54'
+updated_date: '2026-08-28 15:59'
 labels:
   - code-review-rust
   - security
@@ -35,8 +37,37 @@ The input is not notionally trusted: `working_directory` is whatever directory t
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A per-file byte cap is enforced before tokei parses a file; files over the cap are skipped rather than read whole
-- [ ] #2 The number of per-file records materialised by flatten_tokei_to_json is bounded, and a truncated result is reported rather than silently returned as complete
-- [ ] #3 The walk has an explicit maximum depth
-- [ ] #4 A test builds a fixture exceeding the byte cap and asserts collect_tokei completes without reading it whole, and a test asserts the record cap truncates rather than allocating without bound
+- [x] #1 A per-file byte cap is enforced before tokei parses a file; files over the cap are skipped rather than read whole
+- [x] #2 The number of per-file records materialised by flatten_tokei_to_json is bounded, and a truncated result is reported rather than silently returned as complete
+- [x] #3 The walk has an explicit maximum depth
+- [x] #4 A test builds a fixture exceeding the byte cap and asserts collect_tokei completes without reading it whole, and a test asserts the record cap truncates rather than allocating without bound
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2012 (branch code-review/TASK-2012).
+
+`collect_tokei` no longer hands the tree to tokei's walker. It now walks with
+`ignore::WalkBuilder` itself under an explicit `ScanLimits` budget and passes
+tokei only the candidate file list:
+
+- AC #1: `ScanLimits::file_bytes` (4 MiB default) is checked from the walk
+  entry's metadata, so an oversized file is never opened, let alone read whole.
+- AC #2: `ScanLimits::files` (50k default) bounds the candidate list and
+  therefore the records materialised; hitting it sets `TokeiScan::truncated`,
+  which `collect_tokei` reports through a warning instead of returning a
+  truncated array as if it were complete.
+- AC #3: `ScanLimits::depth` (32) is passed to `WalkBuilder::max_depth`.
+- AC #4: `scan_tokei_skips_files_over_the_byte_cap`,
+  `scan_tokei_truncates_at_the_file_cap` and `scan_tokei_honours_the_depth_cap`
+  drive `scan_tokei` with lowered limits, so the fixtures stay small and the
+  assertions are exact.
+
+Not addressed: the finding's fourth bullet (no timeout on the synchronous
+`provide` path) is a `DataProvider` trait-level concern, not something this
+crate can fix alone. The size, count and depth caps bound the work that made an
+unbounded stall reachable here.
+
+Timeout bullet discharged: filed TASK-2017 (Triage) against the DataProvider trait, where a dispatch-level bound belongs.
+<!-- SECTION:NOTES:END -->

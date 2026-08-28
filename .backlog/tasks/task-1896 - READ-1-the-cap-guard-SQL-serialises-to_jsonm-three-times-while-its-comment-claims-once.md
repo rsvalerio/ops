@@ -3,9 +3,11 @@ id: TASK-1896
 title: >-
   READ-1: the cap-guard SQL serialises to_json(m) three times while its comment
   claims once
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1999
 created_date: '2026-08-27 15:36'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - structure-readability

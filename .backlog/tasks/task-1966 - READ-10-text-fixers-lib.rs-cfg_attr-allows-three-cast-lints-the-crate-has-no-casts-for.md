@@ -3,9 +3,11 @@ id: TASK-1966
 title: >-
   READ-10: text-fixers lib.rs cfg_attr allows three cast lints the crate has no
   casts for
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2011
 created_date: '2026-08-27 15:53'
+updated_date: '2026-08-28 14:18'
 labels:
   - code-review-rust
   - readability

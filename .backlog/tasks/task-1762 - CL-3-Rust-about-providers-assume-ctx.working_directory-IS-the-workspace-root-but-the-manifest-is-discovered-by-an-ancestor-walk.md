@@ -3,9 +3,11 @@ id: TASK-1762
 title: >-
   CL-3: Rust about providers assume ctx.working_directory IS the workspace root,
   but the manifest is discovered by an ancestor walk
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1993
 created_date: '2026-08-27 11:20'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - idioms

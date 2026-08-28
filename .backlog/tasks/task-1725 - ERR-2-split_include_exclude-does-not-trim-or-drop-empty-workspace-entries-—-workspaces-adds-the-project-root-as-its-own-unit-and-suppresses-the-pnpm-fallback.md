@@ -4,9 +4,11 @@ title: >-
   ERR-2: split_include_exclude does not trim or drop empty workspace entries —
   "workspaces": [""] adds the project root as its own unit and suppresses the
   pnpm fallback
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1991
 created_date: '2026-08-27 11:11'
+updated_date: '2026-08-28 14:41'
 labels:
   - code-review-rust
   - idioms
@@ -35,9 +37,9 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 split_include_exclude trims each entry and skips entries that are empty after trimming and after ./ and ! stripping
-- [ ] #2 A package.json with "workspaces": [""] yields zero project units (the project root is not listed as its own member)
-- [ ] #3 A package.json with "workspaces": ["  "] plus a pnpm-workspace.yaml declaring real packages falls through to the pnpm source and resolves those members
-- [ ] #4 A pnpm-workspace.yaml packages list containing a blank entry does not produce a root-as-member unit
-- [ ] #5 Existing precedence tests (exclude_only_workspaces_falls_back_to_pnpm, npm_workspaces_array_form, pnpm_workspace_yaml) still pass
+- [x] #1 split_include_exclude trims each entry and skips entries that are empty after trimming and after ./ and ! stripping
+- [x] #2 A package.json with "workspaces": [""] yields zero project units (the project root is not listed as its own member)
+- [x] #3 A package.json with "workspaces": ["  "] plus a pnpm-workspace.yaml declaring real packages falls through to the pnpm source and resolves those members
+- [x] #4 A pnpm-workspace.yaml packages list containing a blank entry does not produce a root-as-member unit
+- [x] #5 Existing precedence tests (exclude_only_workspaces_falls_back_to_pnpm, npm_workspaces_array_form, pnpm_workspace_yaml) still pass
 <!-- AC:END -->

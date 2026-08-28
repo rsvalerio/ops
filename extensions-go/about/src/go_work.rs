@@ -13,7 +13,9 @@
 
 use std::path::Path;
 
-use crate::go_syntax::{is_block_opener, strip_line_comment};
+use crate::go_syntax::{
+    is_block_opener, is_block_terminator, strip_line_comment, strip_verb, unquote_token,
+};
 
 pub fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
     let path = root.join("go.work");
@@ -22,17 +24,26 @@ pub fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
     let mut in_use_block = false;
 
     for raw in content.lines() {
-        let line = raw.trim();
-        if is_block_opener(line, "use") {
+        // PATTERN-1 (TASK-1724): normalise the comment away *before* any
+        // structural test, matching the order go_mod.rs has always used. With
+        // the raw line, a legal `) // workspace members` terminator matched
+        // neither `")"` nor the comment arm, was pushed as a use directive
+        // named `)`, and left the block open so every following top-level line
+        // was absorbed too.
+        let line = strip_line_comment(raw).trim();
+        if line.is_empty() {
+            continue;
+        }
+        if is_block_opener(line, "use") && !in_use_block {
             in_use_block = true;
             continue;
         }
         if in_use_block {
-            if line == ")" {
+            if is_block_terminator(line) {
                 in_use_block = false;
                 continue;
             }
-            if line.is_empty() || line.starts_with("//") {
+            if line.starts_with("//") {
                 continue;
             }
             // PATTERN-1 (TASK-1216): a nested `use(` / `use (` opener is not
@@ -40,19 +51,19 @@ pub fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
             // does not silently surface a directive whose name is `use(`.
             if is_block_opener(line, "use") {
                 tracing::warn!(
-                    line = %line,
+                    line = ?line,
                     "go.work: nested `use(` opener inside an open block; skipping (cmd/go rejects this shape)"
                 );
                 continue;
             }
-            let stripped = strip_line_comment(line).trim();
-            if !stripped.is_empty() {
-                dirs.push(stripped.to_string());
+            let dir = unquote_token(line);
+            if !dir.is_empty() {
+                dirs.push(dir.into_owned());
             }
-        } else if let Some(rest) = line.strip_prefix("use ") {
-            let dir = strip_line_comment(rest.trim()).trim();
+        } else if let Some(rest) = strip_verb(line, "use") {
+            let dir = unquote_token(rest);
             if !dir.is_empty() && !dir.starts_with('(') {
-                dirs.push(dir.to_string());
+                dirs.push(dir.into_owned());
             }
         }
     }
@@ -214,6 +225,53 @@ mod tests {
         // The legitimate entries before and after the nested opener still
         // resolve.
         assert!(dirs.contains(&"./api".to_string()));
+    }
+
+    /// PATTERN-1 (TASK-1724): cmd/go accepts a trailing line comment after the
+    /// block terminator. The parser used to push `)` as a use directive and
+    /// leave the block open, absorbing every following top-level line into the
+    /// directive list — an inflated module count plus a `cwd.join(")")` probe.
+    #[test]
+    fn block_terminator_with_trailing_comment_closes_the_block() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.work"),
+            "go 1.21\n\nuse (\n\t./api\n\t./cmd\n) // workspace members\n\ngo 1.22\n\nreplace (\n\tex.com/a => ./api\n)\n",
+        )
+        .unwrap();
+        let dirs = parse_use_dirs(dir.path()).unwrap();
+        assert_eq!(dirs, vec!["./api", "./cmd"]);
+    }
+
+    /// PATTERN-1 (TASK-1724) AC #3: the same holds for a tab-indented
+    /// terminator and for a no-whitespace inline comment.
+    #[test]
+    fn block_terminator_variants_close_the_block() {
+        for terminator in [")//members", "\t)", "\t) // members", ")\t// members"] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(
+                dir.path().join("go.work"),
+                format!("go 1.21\n\nuse (\n\t./api\n{terminator}\n\ngo 1.22\n"),
+            )
+            .unwrap();
+            let dirs = parse_use_dirs(dir.path()).unwrap();
+            assert_eq!(dirs, vec!["./api"], "terminator {terminator:?}");
+        }
+    }
+
+    /// PATTERN-1 (TASK-1727): quoted and tab-separated `use` directives are
+    /// legal modfile syntax. Left quoted, `ProjectUnit::path` kept its quotes
+    /// and matched no `tokei_files` row, so the module reported zero LOC.
+    #[test]
+    fn parses_quoted_and_tab_separated_use_directives() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.work"),
+            "go 1.21\n\nuse\t./tabbed\n\nuse (\n\t\"./api\"\n\t\"./has space/sub\"\n)\n",
+        )
+        .unwrap();
+        let dirs = parse_use_dirs(dir.path()).unwrap();
+        assert_eq!(dirs, vec!["./tabbed", "./api", "./has space/sub"]);
     }
 
     #[test]

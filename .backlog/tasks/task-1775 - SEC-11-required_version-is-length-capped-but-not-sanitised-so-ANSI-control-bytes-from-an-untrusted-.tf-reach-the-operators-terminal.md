@@ -3,9 +3,11 @@ id: TASK-1775
 title: >-
   SEC-11: required_version is length-capped but not sanitised, so ANSI/control
   bytes from an untrusted .tf reach the operator's terminal
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2001
 created_date: '2026-08-27 11:22'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - security

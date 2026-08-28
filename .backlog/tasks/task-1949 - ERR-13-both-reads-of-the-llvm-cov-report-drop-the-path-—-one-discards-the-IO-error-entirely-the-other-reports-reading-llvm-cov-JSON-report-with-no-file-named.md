@@ -4,9 +4,11 @@ title: >-
   ERR-13: both reads of the llvm-cov report drop the path — one discards the IO
   error entirely, the other reports 'reading llvm-cov JSON report' with no file
   named
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2000
 created_date: '2026-08-27 15:49'
+updated_date: '2026-08-28 15:53'
 labels:
   - code-review-rust
   - error-handling
@@ -44,7 +46,13 @@ ERR-13's stated fix ordering applies: attach `.with_context(|| format!("reading 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The success-path report read attaches the report file path to its error context, and so does the JSON parse that follows it
-- [ ] #2 The soft-fail path no longer discards the IO error silently: a failed report read emits a breadcrumb naming the path and the underlying error before falling through to the cargo exit error
-- [ ] #3 The cargo exit error remains the headline error on the soft-fail path; the breadcrumb does not replace or mask it
+- [x] #1 The success-path report read attaches the report file path to its error context, and so does the JSON parse that follows it
+- [x] #2 The soft-fail path no longer discards the IO error silently: a failed report read emits a breadcrumb naming the path and the underlying error before falling through to the cargo exit error
+- [x] #3 The cargo exit error remains the headline error on the soft-fail path; the breadcrumb does not replace or mask it
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Both success-path reads use with_context naming report.path(). The soft-fail read no longer uses .ok(): the Err arm emits a warn breadcrumb with report_path and the IO error, then falls through, leaving check_llvm_cov_output as the headline error (pinned by tests/collect.rs::collect_coverage_missing_report_falls_through_to_cargo_error).
+<!-- SECTION:NOTES:END -->

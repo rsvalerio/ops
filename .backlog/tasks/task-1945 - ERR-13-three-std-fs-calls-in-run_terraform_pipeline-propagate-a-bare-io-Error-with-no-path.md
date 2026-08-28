@@ -3,9 +3,11 @@ id: TASK-1945
 title: >-
   ERR-13: three std::fs calls in run_terraform_pipeline propagate a bare
   io::Error with no path
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2002
 created_date: '2026-08-27 15:48'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - error-handling

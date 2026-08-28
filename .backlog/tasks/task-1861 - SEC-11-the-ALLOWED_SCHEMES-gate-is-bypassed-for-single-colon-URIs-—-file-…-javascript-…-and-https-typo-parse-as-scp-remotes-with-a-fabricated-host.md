@@ -3,9 +3,11 @@ id: TASK-1861
 title: >-
   SEC-11: the ALLOWED_SCHEMES gate is bypassed for single-colon URIs — file:/…,
   javascript:… and https:/typo parse as scp remotes with a fabricated host
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2007
 created_date: '2026-08-27 15:29'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - security

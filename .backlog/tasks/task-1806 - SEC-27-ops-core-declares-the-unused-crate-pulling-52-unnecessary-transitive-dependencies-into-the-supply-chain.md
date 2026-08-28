@@ -3,9 +3,11 @@ id: TASK-1806
 title: >-
   SEC-27: ops-core declares the unused  crate, pulling 52 unnecessary transitive
   dependencies into the supply chain
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1983
 created_date: '2026-08-27 11:29'
+updated_date: '2026-08-28 14:08'
 labels:
   - code-review-rust
   - security

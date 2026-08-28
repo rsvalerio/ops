@@ -3,9 +3,11 @@ id: TASK-1939
 title: >-
   SEC-11: plan JSON strings reach the operator terminal without
   control-character or ANSI sanitising
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2002
 created_date: '2026-08-27 15:47'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - security

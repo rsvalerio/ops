@@ -4,9 +4,11 @@ title: >-
   SEC-31: try_expand never errors on an undefined variable, so the
   Variables::empty fail-loud fallback silently emits a literal $OPS_ROOT into
   argv
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1984
 created_date: '2026-08-27 15:27'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - security

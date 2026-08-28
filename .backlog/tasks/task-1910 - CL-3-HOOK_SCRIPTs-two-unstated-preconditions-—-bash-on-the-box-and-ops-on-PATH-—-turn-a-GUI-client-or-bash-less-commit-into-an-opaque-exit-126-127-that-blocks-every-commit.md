@@ -4,9 +4,11 @@ title: >-
   CL-3: HOOK_SCRIPT's two unstated preconditions — bash on the box and ops on
   PATH — turn a GUI-client or bash-less commit into an opaque exit 126/127 that
   blocks every commit
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2009
 created_date: '2026-08-27 15:40'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - cognitive-load

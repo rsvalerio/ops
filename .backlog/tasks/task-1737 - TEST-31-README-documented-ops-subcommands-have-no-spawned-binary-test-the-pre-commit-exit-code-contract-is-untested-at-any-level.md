@@ -3,9 +3,11 @@ id: TASK-1737
 title: >-
   TEST-31: README-documented ops subcommands have no spawned-binary test; the
   pre-commit exit-code contract is untested at any level
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1982
 created_date: '2026-08-27 11:12'
+updated_date: '2026-08-28 14:08'
 labels:
   - code-review-rust
   - test-quality

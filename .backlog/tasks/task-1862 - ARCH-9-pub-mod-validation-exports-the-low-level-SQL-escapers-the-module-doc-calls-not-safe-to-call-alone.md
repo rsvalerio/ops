@@ -3,9 +3,11 @@ id: TASK-1862
 title: >-
   ARCH-9: pub mod validation exports the low-level SQL escapers the module doc
   calls 'not safe to call alone'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2006
 created_date: '2026-08-27 15:29'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - architecture

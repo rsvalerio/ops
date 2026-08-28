@@ -3,9 +3,11 @@ id: TASK-1975
 title: >-
   PERF-3: icon_column_width re-measures every status icon on every rendered row,
   in a struct built specifically to precompute per-render work
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1987
 created_date: '2026-08-27 15:55'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - performance

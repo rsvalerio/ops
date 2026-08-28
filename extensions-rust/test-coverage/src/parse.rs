@@ -314,6 +314,25 @@ pub fn format_stderr_diagnostic(stderr: &[u8]) -> Option<String> {
     Some(format_error_tail(stderr, 5))
 }
 
+/// DUP-1 / TASK-1929: the soft-fail predicate, named once so
+/// [`collect_coverage_with`] and its regression guard bind to the same code.
+///
+/// Returns `true` when the llvm-cov report recovered from a non-zero cargo
+/// run is usable: `data` is an array, it is non-empty, and every entry
+/// carries a `files` array.
+///
+/// ERR-1 / TASK-1557: an empty `data` array means cargo failed before
+/// instrumenting anything. ERR-1 / TASK-1597: an entry without `files`
+/// would surface a schema-shape parse error instead of the cargo exit.
+/// Both must reject so the caller falls through to the cargo error path.
+pub fn has_parseable_coverage_data(raw: &serde_json::Value) -> bool {
+    raw.get("data").and_then(|d| d.as_array()).is_some_and(|a| {
+        !a.is_empty()
+            && a.iter()
+                .all(|e| e.get("files").and_then(|f| f.as_array()).is_some())
+    })
+}
+
 /// Run `cargo llvm-cov` and flatten its JSON output into per-file records.
 ///
 /// ERR-1 / TASK-1057: with `--no-fail-fast`, `cargo llvm-cov` still exits
@@ -335,6 +354,26 @@ pub fn format_stderr_diagnostic(stderr: &[u8]) -> Option<String> {
 /// logs without re-running with `RUST_LOG=debug`.
 #[must_use = "collect_coverage drives the coverage ingest; dropping the result throws the run away"]
 pub fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
+    collect_coverage_with(working_dir, run_cargo_llvm_cov)
+}
+
+/// TEST-6 / TASK-1938: the body of [`collect_coverage`], with the cargo
+/// runner injected so the soft-fail demotion, the hard-fail fall-through,
+/// and the report-read arms are reachable from tests. A real invocation
+/// runs the whole workspace suite under instrumentation with a 15-minute
+/// timeout, which is not a unit test.
+///
+/// `run` receives the working directory and the OS path of the report file
+/// that `--output-path` names, so a test double can write a synthetic
+/// report there exactly as cargo would.
+#[must_use = "collect_coverage drives the coverage ingest; dropping the result throws the run away"]
+pub fn collect_coverage_with<R>(
+    working_dir: &Path,
+    run: R,
+) -> Result<serde_json::Value, anyhow::Error>
+where
+    R: FnOnce(&Path, &str) -> Result<std::process::Output, ops_core::subprocess::RunError>,
+{
     // The JSON report is written to a temp file via `--output-path` rather
     // than captured from stdout: the report grows with the workspace and a
     // ~8 MB document blows past the OPS_OUTPUT_BYTE_CAP stdout cap, which
@@ -351,27 +390,38 @@ pub fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, anyhow:
         .to_str()
         .context("llvm-cov temp report path is not valid UTF-8")?
         .to_string();
-    let output = run_cargo_llvm_cov(working_dir, &report_path)?;
+    let output = run(working_dir, &report_path)?;
     if !output.status.success() {
-        let parsed = std::fs::read(report.path())
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+        // ERR-13 / TASK-1949: the cargo exit stays the headline error on this
+        // path, but a failed report read is a filesystem problem the operator
+        // cannot otherwise see — leave a breadcrumb naming the path and the
+        // IO error before falling through.
+        let parsed = match std::fs::read(report.path()) {
+            Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes).ok(),
+            Err(err) => {
+                tracing::warn!(
+                    report_path = %report.path().display(),
+                    error = %err,
+                    "could not read the llvm-cov JSON report after a non-zero cargo exit; \
+                     falling through to the cargo error"
+                );
+                None
+            }
+        };
         // READ-5 / TASK-1609: the predicate and value recovery are unified in
         // one `if let` so the compiler enforces the "parsed is Some" invariant
         // instead of a runtime `expect`.
-        if let Some(valid_parsed) = parsed.as_ref().filter(|raw| {
-            raw.get("data").and_then(|d| d.as_array()).is_some_and(|a| {
-                !a.is_empty()
-                    && a.iter()
-                        .all(|e| e.get("files").and_then(|f| f.as_array()).is_some())
-            })
-        }) {
+        if let Some(valid_parsed) = parsed
+            .as_ref()
+            .filter(|raw| has_parseable_coverage_data(raw))
+        {
             let tail = format_error_tail(&output.stderr, 5);
             let marker = format_cargo_exit(output.status);
             tracing::warn!(
                 exit = %marker,
                 stderr_tail = %tail,
-                "TASK-1057: cargo llvm-cov exited non-zero but stdout contains parseable JSON; \
+                report_path = %report.path().display(),
+                "TASK-1057: cargo llvm-cov exited non-zero but the JSON report file is parseable; \
                  continuing with partial coverage data (likely test failures with --no-fail-fast)"
             );
             return flatten_coverage_json(valid_parsed);
@@ -386,8 +436,12 @@ pub fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, anyhow:
     } else {
         tracing::debug!("cargo llvm-cov completed successfully");
     }
-    let bytes = std::fs::read(report.path()).context("reading llvm-cov JSON report")?;
-    let raw: serde_json::Value =
-        serde_json::from_slice(&bytes).context("parsing llvm-cov JSON output")?;
+    // ERR-13 / TASK-1949: name the report file in both error contexts — the
+    // path is a tempfile under TMPDIR, and it is what tells the operator
+    // whether TMPDIR is full, read-only, or swept by a cleaner mid-run.
+    let bytes = std::fs::read(report.path())
+        .with_context(|| format!("reading llvm-cov JSON report {}", report.path().display()))?;
+    let raw: serde_json::Value = serde_json::from_slice(&bytes)
+        .with_context(|| format!("parsing llvm-cov JSON report {}", report.path().display()))?;
     flatten_coverage_json(&raw)
 }

@@ -3,9 +3,11 @@ id: TASK-1690
 title: >-
   DOCS: refresh the site-local allow census in docs/clippy.md after the
   temporary-allow drain
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-1988
 created_date: '2026-08-26 21:54'
+updated_date: '2026-08-28 14:54'
 labels:
   - code-review-rust
   - documentation
@@ -45,6 +47,6 @@ lands. Refresh once, after the whole `code-review/run-20260826` batch merges.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The census table in docs/clippy.md reflects the site-local allows actually present after the temporary-allow block is empty
-- [ ] #2 Any category that grew past a handful of sites is either justified as policy or called out as needing one
+- [x] #1 The census table in docs/clippy.md reflects the site-local allows actually present after the temporary-allow block is empty
+- [x] #2 Any category that grew past a handful of sites is either justified as policy or called out as needing one
 <!-- AC:END -->

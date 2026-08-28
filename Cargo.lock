@@ -1775,12 +1775,10 @@ dependencies = [
 name = "ops-about-go"
 version = "0.43.1"
 dependencies = [
- "anyhow",
  "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
- "ops-git",
  "serde_json",
  "tempfile",
  "tracing",
@@ -1790,12 +1788,10 @@ dependencies = [
 name = "ops-about-java"
 version = "0.43.1"
 dependencies = [
- "anyhow",
  "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
- "ops-git",
  "serde_json",
  "tempfile",
  "tracing",
@@ -1946,6 +1942,7 @@ name = "ops-create-review-tasks"
 version = "0.43.1"
 dependencies = [
  "anyhow",
+ "chrono",
  "ops-core",
  "ops-extension",
  "serde",
@@ -1966,8 +1963,10 @@ dependencies = [
  "ops-create-review-tasks",
  "ops-extension",
  "serde_json",
+ "serial_test",
  "tempfile",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -2201,12 +2200,14 @@ version = "0.43.1"
 dependencies = [
  "anyhow",
  "duckdb",
+ "ignore",
  "linkme",
  "ops-duckdb",
  "ops-extension",
  "serde_json",
  "tempfile",
  "tokei",
+ "tracing",
 ]
 
 [[package]]

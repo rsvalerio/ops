@@ -3,9 +3,11 @@ id: TASK-1791
 title: >-
   ARCH-1: query.rs is 689 production lines holding three unrelated concerns
   behind a name that describes none of them
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1993
 created_date: '2026-08-27 11:24'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - architecture

@@ -3,9 +3,11 @@ id: TASK-1772
 title: >-
   ERR-1: find_required_version's .flatten() silently drops per-entry read_dir
   errors, contradicting the module's own IO policy
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2001
 created_date: '2026-08-27 11:21'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - idioms-correctness

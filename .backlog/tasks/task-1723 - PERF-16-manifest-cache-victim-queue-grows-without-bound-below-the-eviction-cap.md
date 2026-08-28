@@ -3,9 +3,11 @@ id: TASK-1723
 title: >-
   PERF-16: manifest cache victim queue grows without bound below the eviction
   cap
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2003
 created_date: '2026-08-27 11:11'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - performance

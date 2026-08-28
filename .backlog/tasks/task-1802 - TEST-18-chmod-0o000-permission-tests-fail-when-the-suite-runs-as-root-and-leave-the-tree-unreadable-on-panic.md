@@ -3,9 +3,11 @@ id: TASK-1802
 title: >-
   TEST-18: chmod 0o000 permission tests fail when the suite runs as root and
   leave the tree unreadable on panic
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1994
 created_date: '2026-08-27 11:25'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - test-quality

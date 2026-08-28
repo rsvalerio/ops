@@ -3,9 +3,11 @@ id: TASK-1870
 title: >-
   TEST-5: three public entry points of ops-duckdb (try_provide_from_db, get_db,
   query_rows_to_json) have no test in the crate
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2006
 created_date: '2026-08-27 15:30'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - test-quality

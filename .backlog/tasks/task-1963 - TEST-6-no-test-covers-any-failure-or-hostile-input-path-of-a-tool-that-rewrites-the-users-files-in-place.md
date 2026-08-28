@@ -3,9 +3,11 @@ id: TASK-1963
 title: >-
   TEST-6: no test covers any failure or hostile-input path of a tool that
   rewrites the user's files in place
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2011
 created_date: '2026-08-27 15:52'
+updated_date: '2026-08-28 14:18'
 labels:
   - code-review-rust
   - tests

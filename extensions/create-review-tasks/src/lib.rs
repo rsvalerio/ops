@@ -86,6 +86,10 @@ const MAX_ALLOCATION_ATTEMPTS: u32 = 32;
 /// - No `review_targets` provider registered for the detected stack.
 /// - The registered provider failed, or its payload did not match
 ///   [`ReviewTargets`].
+/// - The host clock reads before 1970-01-01, so the run has no date to stamp
+///   the task set with.
+/// - A provider-supplied `skill`, target name or target path is empty,
+///   over-long, or carries a control character.
 /// - A task file could not be written (the error names the path;
 ///   [`RunMode::DryRun`] never takes this branch).
 /// - [`MAX_ALLOCATION_ATTEMPTS`] consecutive allocations all lost the race to
@@ -96,7 +100,23 @@ pub fn run_create_review_tasks(
     out: &mut dyn Write,
     mode: RunMode,
 ) -> anyhow::Result<()> {
-    run_create_review_tasks_at(registry, workspace_root, out, mode, &UtcStamp::now())
+    run_create_review_tasks_with_clock(registry, workspace_root, out, mode, UtcStamp::now)
+}
+
+/// [`run_create_review_tasks`] against an explicit clock.
+///
+/// ERR-6: the clock is read first and its failure aborts the run, in both
+/// modes, before any id is allocated or any file created — an unreadable
+/// clock must never date a whole task set `1970-01-01`.
+fn run_create_review_tasks_with_clock(
+    registry: &DataRegistry,
+    workspace_root: &Path,
+    out: &mut dyn Write,
+    mode: RunMode,
+    clock: impl FnOnce() -> anyhow::Result<UtcStamp>,
+) -> anyhow::Result<()> {
+    let stamp = clock()?;
+    run_create_review_tasks_at(registry, workspace_root, out, mode, &stamp)
 }
 
 /// Clock-injecting core of [`run_create_review_tasks`]; the `stamp` pins the
@@ -146,8 +166,64 @@ fn fetch_review_targets(
             other => anyhow::Error::new(other),
         })
         .with_context(|| format!("collecting {DATA_PROVIDER_NAME}"))?;
-    serde_json::from_value(payload)
-        .with_context(|| format!("decoding {DATA_PROVIDER_NAME} payload"))
+    let targets: ReviewTargets = serde_json::from_value(payload)
+        .with_context(|| format!("decoding {DATA_PROVIDER_NAME} payload"))?;
+    validate(&targets).with_context(|| format!("validating {DATA_PROVIDER_NAME} payload"))?;
+    Ok(targets)
+}
+
+/// Longest accepted `skill` or target `name`, in characters. Both end up in a
+/// task title, a YAML scalar and a filename slug; a workspace member name far
+/// past this is a mistake or an attack, not a display name.
+const MAX_NAME_CHARS: usize = 200;
+/// Longest accepted target `path`, in characters — generous enough for any
+/// real workspace-relative member path.
+const MAX_PATH_CHARS: usize = 1_024;
+
+/// SEC-11 layer 3 (format): validate the decoded payload at the one boundary
+/// it enters through, rather than hardening each of the three sinks it
+/// reaches — the YAML frontmatter, the on-disk filename, and the stdout
+/// report. A repository under review controls these strings (the Rust
+/// provider reads them from each member's `[package].name`), so a newline
+/// would otherwise break the frontmatter out of its scalar and an ANSI escape
+/// would rewrite the operator's terminal around the run report.
+fn validate(targets: &ReviewTargets) -> anyhow::Result<()> {
+    validate_field("skill", &targets.skill, MAX_NAME_CHARS)?;
+    for (position, target) in targets.targets.iter().enumerate() {
+        // `position` indexes an in-memory slice, so `saturating_add` is exact.
+        let index = position.saturating_add(1);
+        validate_field(
+            &format!("targets[{index}].name"),
+            &target.name,
+            MAX_NAME_CHARS,
+        )?;
+        validate_field(
+            &format!("targets[{index}].path"),
+            &target.path,
+            MAX_PATH_CHARS,
+        )?;
+    }
+    Ok(())
+}
+
+/// Reject one payload string that cannot be carried safely to the sinks
+/// above. Offending values are rendered with `{:?}`, which escapes control
+/// characters, so the rejection itself cannot forge terminal output.
+fn validate_field(field: &str, value: &str, max_chars: usize) -> anyhow::Result<()> {
+    if value.is_empty() {
+        anyhow::bail!("{field} is empty");
+    }
+    let chars = value.chars().count();
+    if chars > max_chars {
+        anyhow::bail!("{field} is {chars} characters long, over the {max_chars}-character bound");
+    }
+    if let Some(control) = value.chars().find(|ch| ch.is_control()) {
+        anyhow::bail!(
+            "{field} contains the control character {control:?}, which cannot appear in a task \
+             title, filename or report line: {value:?}"
+        );
+    }
+    Ok(())
 }
 
 /// The task set one run allocates: the main task plus one subtask per review
@@ -176,15 +252,18 @@ struct PlannedSubtask<'a> {
     path: &'a str,
 }
 
-/// Allocate the ids for one attempt. Pure apart from the two directory scans,
-/// so a dry run and a real run reach identical plans from identical state.
+/// Allocate the ids for one attempt. Pure apart from the single directory
+/// scan, so a dry run and a real run reach identical plans from identical
+/// state.
 fn plan_task_set<'a>(
     workspace_root: &Path,
     targets: &'a ReviewTargets,
     stamp: &UtcStamp,
 ) -> TaskPlan<'a> {
-    let main_number = backlog::next_main_task_number(workspace_root);
-    let sequence = backlog::next_daily_sequence(workspace_root, &stamp.date);
+    let backlog::NextIds {
+        number: main_number,
+        sequence,
+    } = backlog::next_ids(workspace_root, &stamp.date);
     let subtasks = targets
         .targets
         .iter()
@@ -214,9 +293,10 @@ fn plan_task_set<'a>(
 
 /// Allocate and write the whole task set, returning the plan that committed.
 ///
-/// SEC-25: ids come from directory scans, so the gap between allocating and
-/// writing is a time-of-check-to-time-of-use window, and the two scans are not
-/// even atomic with each other. Two guards close it. Every file is created
+/// SEC-25: both ids come from one directory scan, so they are consistent with
+/// each other by construction, but that scan is still not atomic with the
+/// write that follows it — the remaining race is purely time-of-check to
+/// time-of-use. Two guards close it. Every file is created
 /// with `create_new`, which makes the filesystem — not the scan — decide who
 /// owns a filename; and once the main task file exists,
 /// [`backlog::conflicting_claim`] re-reads the tree to catch a concurrent run
@@ -385,6 +465,10 @@ impl Drop for StagedTasks {
 }
 
 /// Print the run report for a committed (or, in a dry run, planned) set.
+///
+/// SEC-11: every provider string reaching this sink passed [`validate`], so
+/// no title or path can carry a newline or an ANSI escape that would forge or
+/// rewrite report lines.
 fn report(out: &mut dyn Write, plan: &TaskPlan<'_>, mode: RunMode) -> anyhow::Result<()> {
     let verb = match mode {
         RunMode::Write => "created",
@@ -724,9 +808,13 @@ mod tests {
     /// nothing: a review request whose subtasks stop short of the targets it
     /// names is worse than no request at all.
     ///
-    /// The failure is injected with a target name long enough that its subtask
-    /// filename exceeds the filesystem's per-component limit, so the *second*
-    /// subtask fails after the main task and the first subtask are on disk.
+    /// The failure is injected with a target name at the payload validator's
+    /// length bound — accepted at the boundary, but long enough that its
+    /// subtask filename exceeds the filesystem's per-component limit — so the
+    /// *second* subtask fails after the main task and the first are on disk.
+    /// The generated name is `task-0001.02 - ` (15) + the slugged title
+    /// prefix (42) + the target name + `.md` (3) = 260 bytes, past the
+    /// 255-byte component limit every filesystem this runs on enforces.
     #[test]
     fn failed_write_rolls_back_the_whole_set_and_reports_nothing() {
         let dir = scratch_backlog();
@@ -734,7 +822,7 @@ mod tests {
             "skill": "code-review-rust",
             "targets": [
                 { "name": "ops-core", "path": "crates/core" },
-                { "name": "x".repeat(400), "path": "crates/too-long" }
+                { "name": "x".repeat(MAX_NAME_CHARS), "path": "crates/too-long" }
             ]
         }));
         let (out, result) = run(&dir, &registry, RunMode::Write);
@@ -850,6 +938,169 @@ mod tests {
         assert!(
             out.starts_with("would create TASK-0002 review-request-2026-08-20-2 (2 subtasks)\n"),
             "got: {out}"
+        );
+    }
+
+    /// ERR-6: an unreadable clock aborts the run in both modes, naming the
+    /// clock and leaving the backlog untouched — never a task set dated
+    /// 1970-01-01. The failure is driven through the real `UtcStamp` path,
+    /// not a stubbed error.
+    #[test]
+    fn unreadable_clock_aborts_the_run_and_writes_nothing() {
+        for mode in [RunMode::Write, RunMode::DryRun] {
+            let dir = scratch_backlog();
+            let registry = registry_with(sample_payload());
+            let mut out = Vec::new();
+            let pre_epoch = std::time::UNIX_EPOCH
+                .checked_sub(std::time::Duration::from_secs(1))
+                .expect("a pre-epoch SystemTime must be constructible");
+            let result =
+                run_create_review_tasks_with_clock(&registry, dir.path(), &mut out, mode, || {
+                    UtcStamp::at(pre_epoch)
+                });
+            let err = result.expect_err("a pre-epoch clock must fail the run");
+            let rendered = format!("{err:#}");
+            assert!(
+                rendered.contains("system clock reads before 1970-01-01"),
+                "error must name the clock in {mode:?}, got: {rendered}"
+            );
+            assert!(out.is_empty(), "a failed clock read must report nothing");
+            assert_eq!(
+                std::fs::read_dir(dir.path().join(".backlog").join("tasks"))
+                    .expect("tasks dir")
+                    .count(),
+                0,
+                "no task file may be created in {mode:?}"
+            );
+        }
+    }
+
+    /// TEST-5: the public entry point — and with it `UtcStamp::now` — is
+    /// exercised, not only its clock-injecting core.
+    #[test]
+    fn public_entry_point_writes_a_set_dated_by_the_host_clock() {
+        let dir = scratch_backlog();
+        let registry = registry_with(sample_payload());
+        let mut out = Vec::new();
+        run_create_review_tasks(&registry, dir.path(), &mut out, RunMode::Write)
+            .expect("run must succeed");
+        let report = String::from_utf8(out).expect("utf8");
+        assert!(
+            report.starts_with("created TASK-0001 review-request-"),
+            "got: {report}"
+        );
+        let names: Vec<String> = std::fs::read_dir(dir.path().join(".backlog").join("tasks"))
+            .expect("tasks dir")
+            .flatten()
+            .map(|entry| entry.file_name().into_string().expect("utf8 name"))
+            .collect();
+        assert_eq!(
+            names.len(),
+            3,
+            "one main task plus two subtasks, got: {names:?}"
+        );
+        assert!(
+            names
+                .iter()
+                .any(|name| name.starts_with("task-0001 - review-request-")),
+            "got: {names:?}"
+        );
+    }
+
+    /// TEST-6: the give-up bail, driven deterministically. A backlog whose
+    /// highest main number *and* highest daily sequence are both `u32::MAX`
+    /// saturates every allocation, so each attempt re-derives the same
+    /// filename — the one the fixture already occupies — and loses the
+    /// `create_new` race forever.
+    #[test]
+    fn allocation_gives_up_after_max_attempts_and_rolls_back() {
+        const SQUATTER: &str = "task-4294967295 - review-request-2026-08-20-4294967295.md";
+
+        let dir = scratch_backlog();
+        let tasks_dir = dir.path().join(".backlog").join("tasks");
+        std::fs::write(tasks_dir.join(SQUATTER), "another run").expect("squatter file");
+
+        let registry = registry_with(sample_payload());
+        let (out, result) = run(&dir, &registry, RunMode::Write);
+        let err = result.expect_err("every attempt must lose the race");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains(&format!(
+                "gave up allocating a free review-request id after {MAX_ALLOCATION_ATTEMPTS} attempts"
+            )),
+            "error must name the attempt count, got: {rendered}"
+        );
+        assert!(
+            rendered.contains(&tasks_dir.display().to_string()),
+            "error must name the tasks directory, got: {rendered}"
+        );
+        assert_eq!(out, "", "a run that never committed must report nothing");
+        assert_eq!(
+            std::fs::read_dir(&tasks_dir).expect("tasks dir").count(),
+            1,
+            "nothing from the final abandoned attempt may survive"
+        );
+        assert_eq!(
+            std::fs::read_to_string(tasks_dir.join(SQUATTER)).expect("squatter"),
+            "another run",
+            "the foreign file must be untouched"
+        );
+    }
+
+    /// SEC-11: a control character in a provider-supplied string is rejected
+    /// at the boundary, before any file is written or any line reported.
+    #[test]
+    fn control_characters_in_the_payload_are_rejected() {
+        let dir = scratch_backlog();
+        let registry = registry_with(serde_json::json!({
+            "skill": "code-review-rust",
+            "targets": [{ "name": "ops\ncore", "path": "crates/core" }]
+        }));
+        let (out, result) = run(&dir, &registry, RunMode::Write);
+        let err = result.expect_err("a newline in a target name must fail the run");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("targets[1].name contains the control character"),
+            "error must name the offending field, got: {rendered}"
+        );
+        assert!(
+            !rendered.contains('\n'),
+            "the offending value must be escaped, not echoed raw: {rendered}"
+        );
+        assert_eq!(out, "", "a rejected payload must report nothing");
+        assert_eq!(
+            std::fs::read_dir(dir.path().join(".backlog").join("tasks"))
+                .expect("tasks dir")
+                .count(),
+            0,
+            "no task file may be created"
+        );
+    }
+
+    /// The other two boundary rules the payload validator enforces.
+    #[test]
+    fn empty_and_oversized_payload_fields_are_rejected() {
+        let dir = scratch_backlog();
+        let registry = registry_with(serde_json::json!({
+            "skill": "",
+            "targets": [{ "name": "ops-core", "path": "crates/core" }]
+        }));
+        let (_out, result) = run(&dir, &registry, RunMode::Write);
+        let err = result.expect_err("an empty skill must fail the run");
+        assert!(
+            format!("{err:#}").contains("skill is empty"),
+            "got: {err:#}"
+        );
+
+        let registry = registry_with(serde_json::json!({
+            "skill": "code-review-rust",
+            "targets": [{ "name": "x".repeat(MAX_NAME_CHARS + 1), "path": "crates/core" }]
+        }));
+        let (_out, result) = run(&dir, &registry, RunMode::Write);
+        let err = result.expect_err("an over-long target name must fail the run");
+        assert!(
+            format!("{err:#}").contains("over the 200-character bound"),
+            "got: {err:#}"
         );
     }
 }

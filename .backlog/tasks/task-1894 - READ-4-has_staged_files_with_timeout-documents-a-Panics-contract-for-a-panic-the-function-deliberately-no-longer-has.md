@@ -3,9 +3,11 @@ id: TASK-1894
 title: >-
   READ-4: has_staged_files_with_timeout documents a # Panics contract for a
   panic the function deliberately no longer has
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2008
 created_date: '2026-08-27 15:35'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - readability

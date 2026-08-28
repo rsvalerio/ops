@@ -72,6 +72,93 @@ mod tracing_capture {
 #[cfg(feature = "test-support")]
 pub use tracing_capture::TracingBuf;
 
+/// DUP-3 / TASK-1735: level-counting counterpart to [`TracingBuf`].
+///
+/// `TracingBuf` captures *rendered text*; several tests only need "how many
+/// WARN events did this call emit?", and each grew its own bespoke
+/// `tracing::Subscriber` impl inside a production module file — along with a
+/// private copy of the global-dispatcher workaround below, whose absence is a
+/// silent flake rather than a failure.
+#[cfg(feature = "test-support")]
+mod level_counter {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Once};
+
+    /// Minimal `tracing::Subscriber` that counts `WARN`-level events, so a
+    /// test can assert on warn counts without pulling `tracing-subscriber`
+    /// layer machinery into the assertion.
+    #[derive(Clone, Default)]
+    pub struct WarnCounter(Arc<AtomicUsize>);
+
+    impl WarnCounter {
+        /// Number of `WARN` events observed so far.
+        #[must_use]
+        pub fn count(&self) -> usize {
+            self.0.load(Ordering::SeqCst)
+        }
+    }
+
+    impl tracing::Subscriber for WarnCounter {
+        fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            if *event.metadata().level() == tracing::Level::WARN {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        fn enter(&self, _span: &tracing::span::Id) {}
+        fn exit(&self, _span: &tracing::span::Id) {}
+    }
+
+    /// Keep one globally-registered dispatcher alive for the whole test
+    /// binary. `tracing` caches each callsite's `Interest` process-wide
+    /// against the dispatchers registered the moment that callsite is first
+    /// hit; with only scoped (`with_default`) subscribers, a parallel test
+    /// thread can first-hit a warn callsite while none is registered, caching
+    /// `Interest::never()` so the warn these tests count never fires again and
+    /// the assertion fails at random — under `cargo test`'s shared-process
+    /// threads as well as under nextest. A global dispatcher is never
+    /// unregistered, so the cache can no longer answer "never". This one
+    /// counts into a throwaway counter nobody reads.
+    fn pin_global_dispatcher() {
+        static INSTALL: Once = Once::new();
+        INSTALL.call_once(|| {
+            let _ = tracing::subscriber::set_global_default(WarnCounter::default());
+            // Callsites hit before this point resolved against an empty
+            // dispatcher list; recompute them now that one is registered.
+            tracing::callsite::rebuild_interest_cache();
+        });
+    }
+
+    /// Count the `WARN` events `f` emits.
+    ///
+    /// Runs `f` with a fresh counting subscriber installed as the
+    /// thread-local default, returning its result alongside the warn count.
+    /// Handles the `Interest`-cache pin above, so callers never have to
+    /// rediscover that hazard.
+    ///
+    /// **Scope:** the subscriber is the *thread-local* default, so only
+    /// warnings `f` emits on the calling thread are counted. If `f` fans out
+    /// to worker threads — an `ignore` parallel walker, `rayon`, a spawned
+    /// scope — their warnings reach the global dispatcher instead and are not
+    /// counted. Do not assert warn counts across a parallel walk with this.
+    pub fn count_warnings<T>(f: impl FnOnce() -> T) -> (T, usize) {
+        pin_global_dispatcher();
+        let counter = WarnCounter::default();
+        let out = tracing::subscriber::with_default(counter.clone(), f);
+        (out, counter.count())
+    }
+}
+
+#[cfg(feature = "test-support")]
+pub use level_counter::{count_warnings, WarnCounter};
+
 /// Pin the property guaranteed by `Debug` formatting on `Path::display()`
 /// (or any value carrying user-controlled text):
 ///
@@ -100,5 +187,43 @@ pub fn assert_debug_escapes_control_chars<T: std::fmt::Debug>(value: T) {
     assert!(
         rendered.contains("\\n"),
         "expected escaped newline in Debug rendering: {rendered}"
+    );
+}
+
+/// Write `content` to `path`, creating any missing parent directories.
+///
+/// DUP-1 / TASK-1736: the `about` extensions' `#[cfg(test)]` modules each
+/// grew a byte-identical six-line `write` helper for building tempdir
+/// fixtures. Hoisting it here gives the family one definition, so a future
+/// tightening (propagating the IO error, richer `expect` messages) lands
+/// once instead of drifting between copies. Import it as
+/// `use ops_about::test_support::write_file as write;` to keep existing
+/// call sites unchanged.
+///
+/// # Panics
+///
+/// If the parent directories cannot be created or the file cannot be
+/// written — this is fixture setup, where a failure is a broken test, not a
+/// condition to handle.
+pub fn write_file(path: &std::path::Path, content: &str) {
+    // The workspace bans `unwrap`/`expect`/`panic!` outside `#[cfg(test)]`,
+    // and this module is compiled as library code, so failures are reported
+    // through `assert!` — which carries the same message and the same
+    // "broken fixture" semantics.
+    if let Some(parent) = path.parent() {
+        let created = std::fs::create_dir_all(parent);
+        assert!(
+            created.is_ok(),
+            "create fixture dir {}: {:?}",
+            parent.display(),
+            created.err()
+        );
+    }
+    let written = std::fs::write(path, content);
+    assert!(
+        written.is_ok(),
+        "write fixture file {}: {:?}",
+        path.display(),
+        written.err()
     );
 }

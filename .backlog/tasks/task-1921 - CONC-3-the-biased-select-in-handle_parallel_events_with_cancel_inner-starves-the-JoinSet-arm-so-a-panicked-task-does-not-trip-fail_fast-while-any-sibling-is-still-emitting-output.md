@@ -4,9 +4,11 @@ title: >-
   CONC-3: the biased select in handle_parallel_events_with_cancel_inner starves
   the JoinSet arm, so a panicked task does not trip fail_fast while any sibling
   is still emitting output
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1986
 created_date: '2026-08-27 15:44'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - concurrency

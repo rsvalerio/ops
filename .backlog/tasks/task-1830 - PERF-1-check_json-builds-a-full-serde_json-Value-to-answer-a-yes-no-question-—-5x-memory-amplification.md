@@ -3,9 +3,11 @@ id: TASK-1830
 title: >-
   PERF-1: check_json builds a full serde_json::Value to answer a yes/no question
   — 5x memory amplification
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2004
 created_date: '2026-08-27 15:20'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - performance

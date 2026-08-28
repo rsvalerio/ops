@@ -3,9 +3,11 @@ id: TASK-1881
 title: >-
   READ-4: data.rs carries two comments that describe the opposite of what the
   code does — a phantom # Panics section and an inverted allocation claim
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1985
 created_date: '2026-08-27 15:33'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - readability

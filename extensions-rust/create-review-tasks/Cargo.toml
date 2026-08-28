@@ -18,7 +18,10 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 ops-extension = { workspace = true, features = ["test-support"] }
+ops-about = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
+tracing-subscriber = { workspace = true }
+serial_test = { workspace = true }
 
 [lints]
 workspace = true

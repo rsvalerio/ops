@@ -3,9 +3,11 @@ id: TASK-1787
 title: >-
   TEST-5: CargoUpdateProvider::provide and run_cargo_update_dry_run have zero
   coverage — there is no seam to inject a subprocess result
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1995
 created_date: '2026-08-27 11:23'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - test-quality

@@ -3,9 +3,11 @@ id: TASK-1824
 title: >-
   ERR-9: CheckError::Parse renders the parser error to a String, breaking the
   source() chain
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2004
 created_date: '2026-08-27 11:33'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - error-handling

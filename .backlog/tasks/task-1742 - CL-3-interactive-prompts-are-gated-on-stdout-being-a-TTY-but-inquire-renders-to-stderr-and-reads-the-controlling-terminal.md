@@ -3,9 +3,11 @@ id: TASK-1742
 title: >-
   CL-3: interactive prompts are gated on stdout being a TTY, but inquire renders
   to stderr and reads the controlling terminal
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1982
 created_date: '2026-08-27 11:13'
+updated_date: '2026-08-28 14:08'
 labels:
   - code-review-rust
   - readability

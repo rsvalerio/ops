@@ -4,9 +4,11 @@ title: >-
   READ-5: the layout math assumes one terminal column per glyph for the
   config-supplied separator char and spinner frame, so a wide-glyph theme
   silently overflows every line
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1987
 created_date: '2026-08-27 15:54'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - readability

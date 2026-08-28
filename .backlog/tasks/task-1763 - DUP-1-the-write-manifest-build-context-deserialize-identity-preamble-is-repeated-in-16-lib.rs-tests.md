@@ -3,9 +3,11 @@ id: TASK-1763
 title: >-
   DUP-1: the write-manifest / build-context / deserialize-identity preamble is
   repeated in 16 lib.rs tests
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1992
 created_date: '2026-08-27 11:20'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - duplication

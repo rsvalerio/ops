@@ -3,9 +3,11 @@ id: TASK-1888
 title: >-
   TEST-11: upgrade_legacy_hook_bails_if_file_replaced_after_initial_check
   asserts on a temp-file name randomised staging can never produce
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2008
 created_date: '2026-08-27 15:34'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - tests

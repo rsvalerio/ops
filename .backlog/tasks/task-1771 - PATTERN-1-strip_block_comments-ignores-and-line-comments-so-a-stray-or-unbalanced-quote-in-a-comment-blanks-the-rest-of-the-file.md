@@ -3,9 +3,11 @@ id: TASK-1771
 title: >-
   PATTERN-1: strip_block_comments ignores # and // line comments, so a stray /*
   or unbalanced quote in a comment blanks the rest of the file
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2001
 created_date: '2026-08-27 11:21'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - idioms-correctness

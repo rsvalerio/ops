@@ -1,9 +1,11 @@
 ---
 id: TASK-1776
 title: 'TEST-5: RustDepsProvider and the identity metrics module have zero tests'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1993
 created_date: '2026-08-27 11:22'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - test-quality

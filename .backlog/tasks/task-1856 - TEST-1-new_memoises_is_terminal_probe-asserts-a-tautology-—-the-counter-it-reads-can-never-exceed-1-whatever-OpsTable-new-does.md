@@ -3,9 +3,11 @@ id: TASK-1856
 title: >-
   TEST-1: new_memoises_is_terminal_probe asserts a tautology — the counter it
   reads can never exceed 1, whatever OpsTable::new does
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1984
 created_date: '2026-08-27 15:28'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - testing

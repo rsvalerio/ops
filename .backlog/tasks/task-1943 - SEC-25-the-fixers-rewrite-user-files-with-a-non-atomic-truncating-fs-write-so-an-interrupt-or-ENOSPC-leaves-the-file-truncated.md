@@ -3,9 +3,11 @@ id: TASK-1943
 title: >-
   SEC-25: the fixers rewrite user files with a non-atomic truncating fs::write,
   so an interrupt or ENOSPC leaves the file truncated
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2011
 created_date: '2026-08-27 15:48'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - security

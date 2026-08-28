@@ -4,9 +4,11 @@ title: >-
   SEC-11: read_head_branch ships the raw .git/HEAD ref through git_info.branch —
   none of the SEC-2 control-byte / bidi hardening applied to remote_url covers
   it
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2007
 created_date: '2026-08-27 15:29'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - security

@@ -3,9 +3,11 @@ id: TASK-1887
 title: >-
   ERR-2: DataProviderError::computation_failed fabricates a std::io::Error to
   carry a message that has nothing to do with I/O
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1985
 created_date: '2026-08-27 15:34'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - error-handling

@@ -3,9 +3,11 @@ id: TASK-1821
 title: >-
   DUP-3: cargo-deny severity classification is duplicated across the gate and
   the renderer, so the two can silently disagree
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1997
 created_date: '2026-08-27 11:33'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - duplication

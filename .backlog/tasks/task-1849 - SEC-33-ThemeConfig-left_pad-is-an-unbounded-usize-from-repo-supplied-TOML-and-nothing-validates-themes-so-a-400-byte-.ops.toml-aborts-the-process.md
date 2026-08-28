@@ -3,9 +3,11 @@ id: TASK-1849
 title: >-
   SEC-33: ThemeConfig::left_pad is an unbounded usize from repo-supplied TOML
   and nothing validates [themes], so a 400-byte .ops.toml aborts the process
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1983
 created_date: '2026-08-27 15:25'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - security

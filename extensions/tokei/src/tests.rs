@@ -10,10 +10,37 @@
 //! Prefer `tempfile::tempdir()` plus canned fixture files for default `cargo test`
 //! coverage; ignored tests remain available for ad-hoc smoke runs via
 //! `cargo test -- --ignored`.
+//!
+//! TEST-18 (TASK-1977): five tests used to scan the live crate directory
+//! without that gate, and paid for it with `> 0` assertions that would have
+//! passed on almost any input. They now build a [`fixture_project`] tree with
+//! known contents and assert the exact counts it implies.
 
 use super::*;
 use ops_duckdb::{init_schema, DataIngestor, DuckDb};
 use ops_extension::{Extension, ExtensionType};
+
+// -- fixtures --
+
+/// Number of files in [`fixture_project`], and therefore the exact record
+/// count every scan of it must produce.
+const FIXTURE_FILE_COUNT: usize = 2;
+/// Lines of code across [`fixture_project`]: one per source file.
+const FIXTURE_TOTAL_CODE: i64 = 2;
+/// Distinct languages in [`fixture_project`]: Rust and Python.
+const FIXTURE_LANGUAGE_COUNT: i64 = 2;
+
+/// A deterministic two-file, two-language project in a tempdir.
+///
+/// `src/lib.rs` and `app.py` each hold exactly one line of code and one
+/// comment line, so every count derived from this tree is exact.
+fn fixture_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
+    std::fs::write(dir.path().join("src/lib.rs"), "// comment\nfn a() {}\n").expect("write rust");
+    std::fs::write(dir.path().join("app.py"), "# comment\nprint(1)\n").expect("write python");
+    dir
+}
 
 // -- Extension trait tests --
 
@@ -149,6 +176,194 @@ fn collect_tokei_excludes_target_and_git() {
     }
 }
 
+// CL-3 (TASK-1974): exclusion is anchored to direct children of the scan
+// root. A directory with an excluded name deeper in the tree is real source
+// and is counted.
+#[test]
+fn collect_tokei_counts_build_dir_nested_under_src() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src/build")).expect("mkdir src/build");
+    std::fs::write(dir.path().join("src/build/gen.rs"), "fn nested() {}\n").expect("write nested");
+    // Same name at the root: pruned.
+    std::fs::create_dir_all(dir.path().join("build")).expect("mkdir build");
+    std::fs::write(dir.path().join("build/out.rs"), "fn artifact() {}\n").expect("write artifact");
+
+    let value = super::collect_tokei(dir.path()).expect("collect");
+    let files: Vec<String> = value
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|v| v["file"].as_str().unwrap_or_default().to_owned())
+        .collect();
+
+    assert_eq!(
+        files.len(),
+        1,
+        "expected only the nested source; got {files:?}"
+    );
+    assert!(
+        files.iter().any(|f| f.ends_with("src/build/gen.rs")),
+        "nested build/ holds real source and must be counted; got {files:?}"
+    );
+}
+
+// CL-3 (TASK-1974): only *directories* are pruned. A plain file whose name
+// matches an entry is source like any other.
+#[test]
+fn collect_tokei_counts_file_named_like_an_excluded_dir() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("build"), "#!/bin/sh\necho hi\n").expect("write script");
+
+    let value = super::collect_tokei(dir.path()).expect("collect");
+    let files: Vec<String> = value
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|v| v["file"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(files, vec!["build".to_owned()]);
+}
+
+// -- scan bound tests (SEC-33, TASK-1970) --
+
+#[test]
+fn scan_tokei_skips_files_over_the_byte_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("small.rs"), "fn a() {}\n").expect("write small");
+    let big = "fn b() {}\n".repeat(64);
+    std::fs::write(dir.path().join("big.rs"), &big).expect("write big");
+
+    let limits = super::ScanLimits {
+        file_bytes: 32,
+        ..super::ScanLimits::DEFAULT
+    };
+    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+
+    assert_eq!(scan.skipped_oversize, 1);
+    assert_eq!(scan.records.len(), 1);
+    assert_eq!(scan.records[0]["file"], "small.rs");
+    assert!(!scan.truncated);
+}
+
+#[test]
+fn scan_tokei_truncates_at_the_file_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for name in &["a.rs", "b.rs", "c.rs"] {
+        std::fs::write(dir.path().join(name), "fn x() {}\n").expect("write source");
+    }
+
+    let limits = super::ScanLimits {
+        files: 2,
+        ..super::ScanLimits::DEFAULT
+    };
+    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+
+    assert_eq!(scan.records.len(), 2, "cap must bound what is materialised");
+    assert!(scan.truncated, "a truncated result must say so");
+}
+
+/// The file cap counts **candidates**, not directory entries: a file tokei has
+/// no language for is never opened, counted, or materialised, so it must not
+/// consume the budget. Counting every regular file instead would make an
+/// asset-heavy but ordinary repository — images, fixtures, data — truncate
+/// before reaching any source at all, turning a correct statistic into a
+/// warned-but-wrong one. The cap bounds the expensive half (read + count),
+/// which is what `ScanLimits::files` documents.
+#[test]
+fn unsupported_files_do_not_consume_the_file_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for name in &["a.png", "b.png", "c.png", "d.bin", "e.bin"] {
+        std::fs::write(dir.path().join(name), "not source\n").expect("write asset");
+    }
+    std::fs::write(dir.path().join("only.rs"), "fn x() {}\n").expect("write source");
+
+    let limits = super::ScanLimits {
+        files: 2,
+        ..super::ScanLimits::DEFAULT
+    };
+    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+
+    assert_eq!(
+        scan.records.len(),
+        1,
+        "the source file must be reached despite five unsupported files: {:?}",
+        scan.records
+    );
+    assert_eq!(scan.records[0]["file"], "only.rs");
+    assert!(
+        !scan.truncated,
+        "one candidate against a cap of two is not a truncated scan"
+    );
+}
+
+#[test]
+fn scan_tokei_honours_the_depth_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("top.rs"), "fn top() {}\n").expect("write top");
+    std::fs::create_dir_all(dir.path().join("a/b")).expect("mkdir nested");
+    std::fs::write(dir.path().join("a/b/deep.rs"), "fn deep() {}\n").expect("write deep");
+
+    let limits = super::ScanLimits {
+        depth: 1,
+        ..super::ScanLimits::DEFAULT
+    };
+    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+
+    assert_eq!(scan.records.len(), 1);
+    assert_eq!(scan.records[0]["file"], "top.rs");
+}
+
+// -- scan root error tests (ERR-2, TASK-1972) --
+
+#[test]
+fn collect_tokei_errors_on_missing_directory() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let missing = dir.path().join("does-not-exist");
+    let err = super::collect_tokei(&missing)
+        .expect_err("a nonexistent root must not read as an empty project");
+    assert!(
+        err.to_string().contains("cannot read scan root"),
+        "error should name the failure, got: {err}"
+    );
+}
+
+#[test]
+fn collect_tokei_errors_when_root_is_a_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("lib.rs");
+    std::fs::write(&file, "fn a() {}\n").expect("write source");
+    let err = super::collect_tokei(&file).expect_err("a file root is not a scannable directory");
+    assert!(
+        err.to_string().contains("is not a directory"),
+        "error should name the failure, got: {err}"
+    );
+}
+
+/// ERR-2 (TASK-1972): a file tokei cannot open is counted, not silently
+/// dropped from the statistics.
+#[cfg(unix)]
+#[test]
+fn scan_tokei_counts_unreadable_files() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let secret = dir.path().join("secret.rs");
+    std::fs::write(&secret, "fn a() {}\n").expect("write source");
+    std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+
+    // Root ignores the mode bits; there is nothing to assert in that case.
+    if std::fs::File::open(&secret).is_ok() {
+        return;
+    }
+
+    let scan = super::scan_tokei(dir.path(), super::ScanLimits::DEFAULT).expect("scan");
+    assert!(scan.records.is_empty());
+    assert_eq!(
+        scan.skipped_unreadable, 1,
+        "an unreadable file must be counted, not silently dropped"
+    );
+}
+
 #[test]
 fn tokei_default_excluded_contains_expected_dirs() {
     let exc: std::collections::HashSet<&str> =
@@ -193,7 +408,8 @@ fn report_to_json_includes_stats_fields() {
 #[test]
 fn flatten_tokei_empty_languages() {
     let languages = Languages::new();
-    let result = flatten_tokei_to_json(&languages, Path::new("/workspace"));
+    let result =
+        serde_json::Value::Array(flatten_tokei_records(&languages, Path::new("/workspace")));
     assert!(result.is_array());
     assert!(result.as_array().unwrap().is_empty());
 }
@@ -207,7 +423,7 @@ fn flatten_tokei_real_project_structure() {
     let excluded: &[&str] = &[];
     languages.get_statistics(&[&manifest_dir], excluded, &config);
 
-    let result = flatten_tokei_to_json(&languages, &manifest_dir);
+    let result = serde_json::Value::Array(flatten_tokei_records(&languages, &manifest_dir));
     let arr = result.as_array().unwrap();
     assert!(!arr.is_empty(), "real project should have files");
 
@@ -241,7 +457,7 @@ fn flatten_tokei_strips_workspace_prefix() {
     let excluded: &[&str] = &[];
     languages.get_statistics(&[&manifest_dir], excluded, &config);
 
-    let result = flatten_tokei_to_json(&languages, &manifest_dir);
+    let result = serde_json::Value::Array(flatten_tokei_records(&languages, &manifest_dir));
     let arr = result.as_array().unwrap();
 
     for record in arr {
@@ -264,6 +480,9 @@ fn collect_tokei_on_real_project() {
     assert!(!result.as_array().unwrap().is_empty());
 }
 
+// The counterpart to `collect_tokei_errors_on_missing_directory`: a readable
+// but genuinely empty directory is an empty *success*, so a caller can tell
+// the two apart (ERR-2, TASK-1972).
 #[test]
 fn collect_tokei_on_empty_dir() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -345,13 +564,13 @@ fn ingestor_load_errors_when_json_missing() {
 
 #[test]
 fn load_tokei_succeeds_after_collect() {
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project = fixture_project();
     let data_dir = tempfile::tempdir().expect("tempdir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init schema");
 
     // Collect data first
-    let ctx = Context::test_context(manifest_dir);
+    let ctx = Context::test_context(project.path().to_path_buf());
     let ingestor = TokeiIngestor;
     ingestor
         .collect(&ctx, data_dir.path())
@@ -360,40 +579,40 @@ fn load_tokei_succeeds_after_collect() {
     let load_result = ingestor
         .load(data_dir.path(), &db)
         .expect("ingestor.load should succeed");
-    assert!(load_result.record_count > 0);
+    assert_eq!(
+        load_result.record_count,
+        u64::try_from(FIXTURE_FILE_COUNT).expect("fits")
+    );
 
     let conn = db.lock().expect("lock");
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM tokei_files", [], |row| row.get(0))
         .expect("count query");
     drop(conn);
-    assert!(count > 0);
+    assert_eq!(count, i64::try_from(FIXTURE_FILE_COUNT).expect("fits"));
 }
 
-#[test]
-fn single_ingestion_entry_point() {
-    // Compile-time guarantee that `load_tokei` no longer exists; if a future
-    // refactor reintroduces it as a public symbol, this test will fail to
-    // compile after the corresponding line is uncommented.
-    // let _ = super::load_tokei; // intentionally commented out
-}
+// TEST-1 (TASK-1978): the single-entry-point invariant used to live here as a
+// test with a fully commented-out body, which could never fail. It is now a
+// `compile_fail` doctest on the crate root, which actually breaks when
+// `load_tokei` is reintroduced.
 
 // -- query_tokei_files tests --
 
 #[test]
 fn query_tokei_files_returns_json_array() {
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project = fixture_project();
     let data_dir = tempfile::tempdir().expect("tempdir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
 
-    let ctx = Context::test_context(manifest_dir);
+    let ctx = Context::test_context(project.path().to_path_buf());
     let ingestor = TokeiIngestor;
     ingestor.collect(&ctx, data_dir.path()).expect("collect");
     let _ = ingestor.load(data_dir.path(), &db).expect("load");
 
     let result = query_tokei_files(&db).expect("query should succeed");
     let arr = result.as_array().expect("should be array");
-    assert!(!arr.is_empty());
+    assert_eq!(arr.len(), FIXTURE_FILE_COUNT);
 
     // Verify all expected fields present with correct types
     for record in arr {
@@ -442,25 +661,31 @@ fn tokei_ingestor_load_without_collect_fails() {
 
 #[test]
 fn flatten_tokei_with_unrelated_prefix_keeps_full_path() {
-    // When workspace_root is not a prefix of the file path, the full path is kept
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // When workspace_root is not a prefix of the file path, the full path is kept.
+    let project = fixture_project();
     let mut languages = Languages::new();
     let config = TokeiConfig::default();
     let excluded: &[&str] = &[];
-    languages.get_statistics(&[&manifest_dir], excluded, &config);
+    languages.get_statistics(&[project.path()], excluded, &config);
 
-    // Use a completely unrelated root
-    let unrelated_root = Path::new("/nonexistent/path/that/doesnt/match");
-    let result = flatten_tokei_to_json(&languages, unrelated_root);
+    // Use a root that shares no prefix with the fixture. Built from the
+    // platform's own root component so the test carries no unix-only path
+    // assumption (TEST-18, TASK-1977).
+    let unrelated_root = std::env::temp_dir().join("ops-tokei-unrelated-root");
+    let result = serde_json::Value::Array(flatten_tokei_records(&languages, &unrelated_root));
     let arr = result.as_array().unwrap();
-    assert!(!arr.is_empty());
+    assert_eq!(arr.len(), FIXTURE_FILE_COUNT);
 
-    // Files should retain full absolute paths since prefix doesn't match
+    // Files should retain full absolute paths since the prefix does not match.
     for record in arr {
         let file = record["file"].as_str().unwrap();
         assert!(
-            file.starts_with('/') || file.contains(&manifest_dir.to_string_lossy().to_string()),
-            "file should retain full path when prefix doesn't match, got: {file}"
+            Path::new(file).is_absolute(),
+            "file should retain its absolute path when prefix doesn't match, got: {file}"
+        );
+        assert!(
+            Path::new(file).starts_with(project.path()),
+            "file should still point into the fixture, got: {file}"
         );
     }
 }
@@ -469,11 +694,13 @@ fn flatten_tokei_with_unrelated_prefix_keeps_full_path() {
 
 #[test]
 fn tokei_files_create_sql_with_real_json() {
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project = fixture_project();
     let data_dir = tempfile::tempdir().expect("tempdir");
 
-    // Collect real data to get a valid JSON file
-    let ctx = Context::test_context(manifest_dir);
+    // Collect from the canned fixture to get a valid JSON file. The
+    // assertions concern only the generated SQL, so there is nothing here a
+    // workspace scan would add (TEST-18, TASK-1977).
+    let ctx = Context::test_context(project.path().to_path_buf());
     let ingestor = TokeiIngestor;
     ingestor.collect(&ctx, data_dir.path()).expect("collect");
 
@@ -493,11 +720,11 @@ fn tokei_files_create_sql_with_real_json() {
 
 #[test]
 fn tokei_languages_view_aggregates_correctly() {
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project = fixture_project();
     let data_dir = tempfile::tempdir().expect("tempdir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
 
-    let ctx = Context::test_context(manifest_dir);
+    let ctx = Context::test_context(project.path().to_path_buf());
     let ingestor = TokeiIngestor;
     ingestor.collect(&ctx, data_dir.path()).expect("collect");
     let _ = ingestor.load(data_dir.path(), &db).expect("load");
@@ -520,6 +747,7 @@ fn tokei_languages_view_aggregates_correctly() {
         files_total, view_total,
         "languages view should aggregate all file-level code counts"
     );
+    assert_eq!(files_total, FIXTURE_TOTAL_CODE);
 
     // Verify language count matches distinct languages
     let distinct_langs: i64 = conn
@@ -537,6 +765,7 @@ fn tokei_languages_view_aggregates_correctly() {
         distinct_langs, view_langs,
         "view should have one row per language"
     );
+    assert_eq!(distinct_langs, FIXTURE_LANGUAGE_COUNT);
 }
 
 /// READ-5 (TASK-0504): pin the lossy contract — non-UTF-8 bytes in a

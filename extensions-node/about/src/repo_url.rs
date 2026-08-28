@@ -48,7 +48,33 @@ fn contains_control_chars(raw: &str) -> bool {
 /// SSH form, scrubbing) still allocate; only the fall-through clean path
 /// stays alloc-free, where it dominates the per-`parse_package_json`
 /// invocation count.
+///
+/// SEC-11 / TASK-1722: whatever the rewrite branches produce is finally
+/// checked against an `http://` / `https://` scheme allowlist. The rewrite
+/// branches themselves only ever emit `https://`, so the check exists for
+/// the fall-through and the `git+<body>` branch, which previously returned
+/// the input verbatim: `javascript:alert(1)`, `data:text/html;…`,
+/// `vbscript:x`, `file:///etc/passwd`, and their `git+`-prefixed twins all
+/// reached the parsed `PackageJson::repository` field and were
+/// rendered into the About card and `ops about --json`. Anything outside
+/// the allowlist returns an empty `String`, which callers already treat as
+/// a missing field — the same drop-the-field defence used for control
+/// characters (TASK-1165), path traversal (TASK-1111) and hostless
+/// authorities (TASK-1256).
 pub fn normalize_repo_url(raw: &str) -> std::borrow::Cow<'_, str> {
+    let normalized = normalize_repo_url_shape(raw);
+    if normalized.starts_with("https://") || normalized.starts_with("http://") {
+        normalized
+    } else {
+        std::borrow::Cow::Borrowed("")
+    }
+}
+
+/// Apply the shorthand / SSH / `git+` rewrite branches, without the scheme
+/// allowlist. Split out of [`normalize_repo_url`] for SEC-11 / TASK-1722 so
+/// the allowlist guards every branch's result in one place rather than being
+/// repeated at each `return`.
+fn normalize_repo_url_shape(raw: &str) -> std::borrow::Cow<'_, str> {
     /// (shorthand prefix, host) for npm hostname shortcuts.
     const HOST_PREFIXES: &[(&str, &str)] = &[
         ("github:", "github.com"),
@@ -426,10 +452,12 @@ mod tests {
     }
 
     /// PATTERN-1 / TASK-1060: a scoped npm package name like `@scope/name`
-    /// is NOT a repo shorthand and must fall through unchanged.
+    /// is NOT a repo shorthand and must not be rewritten into a github URL.
+    /// SEC-11 / TASK-1722: it is not an `http(s)` URL either, so the scheme
+    /// allowlist now drops the field instead of surfacing the raw value.
     #[test]
-    fn normalize_scoped_npm_name_falls_through() {
-        assert_eq!(normalize_repo_url("@scope/name"), "@scope/name");
+    fn normalize_scoped_npm_name_is_dropped() {
+        assert_eq!(normalize_repo_url("@scope/name"), "");
     }
 
     /// SEC-2 / TASK-1080 + TASK-1165: an embedded LF inside a `github:`
@@ -598,5 +626,48 @@ mod tests {
         // SEC-2 / TASK-1165: the dropped-field policy means the rendered
         // string is empty, not a silent rewrite to attacker-chosen segments.
         assert!(out.is_empty(), "field must be dropped on control byte");
+    }
+
+    /// SEC-11 / TASK-1722: the verbatim fall-through used to hand any
+    /// non-URL scheme straight to the rendered `repository` field. Each of
+    /// these is a live injection or local-resource-disclosure sink for a
+    /// consumer that renders the value as a hyperlink.
+    #[test]
+    fn normalize_drops_non_http_schemes() {
+        for raw in [
+            "javascript:alert(1)",
+            "data:text/html;base64,AAA",
+            "vbscript:x",
+            "file:///etc/passwd",
+            "JavaScript:alert(1)",
+        ] {
+            assert_eq!(normalize_repo_url(raw), "", "scheme survived: {raw:?}");
+        }
+    }
+
+    /// SEC-11 / TASK-1722: the `git+` branch strips the prefix and then
+    /// returns the body through `scrub_full_url_path`, which preserves any
+    /// scheme it finds (and passes a scheme-less body through untouched).
+    #[test]
+    fn normalize_drops_git_plus_non_http_schemes() {
+        for raw in ["git+javascript:alert(1)", "git+file:///etc/passwd"] {
+            assert_eq!(normalize_repo_url(raw), "", "scheme survived: {raw:?}");
+        }
+    }
+
+    /// SEC-11 / TASK-1722: the allowlist must not disturb any accepted
+    /// shape — every rewrite branch already emits `https://`.
+    #[test]
+    fn normalize_accepted_shapes_still_round_trip() {
+        for (raw, want) in [
+            ("github:owner/repo", "https://github.com/owner/repo"),
+            ("expressjs/express", "https://github.com/expressjs/express"),
+            ("git+ssh://git@github.com/o/r.git", "https://github.com/o/r"),
+            ("git://github.com/o/r", "https://github.com/o/r"),
+            ("https://github.com/o/r", "https://github.com/o/r"),
+            ("http://example.com/o/r", "http://example.com/o/r"),
+        ] {
+            assert_eq!(normalize_repo_url(raw), want, "input: {raw:?}");
+        }
     }
 }

@@ -22,8 +22,6 @@ mod go_syntax;
 mod go_work;
 mod modules;
 
-use std::path::Path;
-
 use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
 use ops_core::project_identity::{base_about_fields, AboutFieldDef};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
@@ -66,7 +64,7 @@ impl DataProvider for GoIdentityProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         provide_identity_from_manifest(ctx.working_directory.as_path(), |root| {
-            let go_mod = parse_go_mod(root);
+            let go_mod = go_mod::parse(root);
             // DUP-1 (TASK-0484): GoWork was a single-field newtype with no
             // semantic value. Use the parsed `Vec<String>` directly.
             let go_work_use_dirs = go_work::parse_use_dirs(root);
@@ -104,7 +102,7 @@ impl DataProvider for GoIdentityProvider {
 /// card omits a meaningless `1`.
 fn compute_module_count(
     go_work_use_dirs: Option<&[String]>,
-    go_mod: Option<&GoMod>,
+    go_mod: Option<&go_mod::GoMod>,
 ) -> Option<usize> {
     if let Some(use_dirs) = go_work_use_dirs {
         return Some(use_dirs.len());
@@ -116,23 +114,6 @@ fn compute_module_count(
     has_local_replaces.then(|| m.local_replaces.len().saturating_add(1))
 }
 
-// --- go.mod parsing ---
-
-struct GoMod {
-    module: Option<String>,
-    go_version: Option<String>,
-    local_replaces: Vec<String>,
-}
-
-fn parse_go_mod(project_root: &Path) -> Option<GoMod> {
-    let raw = go_mod::parse(project_root)?;
-    Some(GoMod {
-        module: raw.module,
-        go_version: raw.go_version,
-        local_replaces: raw.local_replaces,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,7 +122,7 @@ mod tests {
     #[test]
     fn compute_module_count_workspace_precedence() {
         let work = vec!["./a".to_string(), "./b".to_string()];
-        let m = GoMod {
+        let m = go_mod::GoMod {
             module: Some("x".to_string()),
             go_version: None,
             local_replaces: vec!["./c".to_string()],
@@ -152,7 +133,7 @@ mod tests {
 
     #[test]
     fn compute_module_count_single_module_returns_none() {
-        let m = GoMod {
+        let m = go_mod::GoMod {
             module: Some("x".to_string()),
             go_version: None,
             local_replaces: Vec::new(),
@@ -162,7 +143,7 @@ mod tests {
 
     #[test]
     fn compute_module_count_with_local_replaces() {
-        let m = GoMod {
+        let m = go_mod::GoMod {
             module: Some("x".to_string()),
             go_version: None,
             local_replaces: vec!["./a".to_string(), "./b".to_string()],

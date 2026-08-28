@@ -3,9 +3,11 @@ id: TASK-1786
 title: >-
   ARCH-11: ops-about-terraform declares `anyhow` and `ops-git` dependencies it
   never uses
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2001
 created_date: '2026-08-27 11:23'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - structure-readability

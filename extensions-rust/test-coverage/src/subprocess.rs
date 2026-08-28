@@ -84,8 +84,9 @@ pub fn format_cargo_exit(status: ExitStatus) -> String {
 /// in the error so SIGKILL/OOM kills are distinguishable from a real
 /// cargo failure.
 ///
-/// ERR-1 / TASK-1057: when the exit is non-zero but stdout contains a
-/// parseable llvm-cov JSON document, `collect_coverage` treats it as a
+/// ERR-1 / TASK-1057: when the exit is non-zero but the report file named
+/// by `--output-path` holds a parseable llvm-cov JSON document,
+/// `collect_coverage` treats it as a
 /// soft failure (warn + continue) so the per-file coverage for the
 /// passing slice of the workspace is preserved. This helper still
 /// surfaces the non-zero exit; the caller decides whether to demote it.

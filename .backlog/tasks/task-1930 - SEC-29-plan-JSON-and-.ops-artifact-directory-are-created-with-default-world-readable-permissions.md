@@ -3,9 +3,11 @@ id: TASK-1930
 title: >-
   SEC-29: plan JSON and .ops artifact directory are created with default
   world-readable permissions
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2002
 created_date: '2026-08-27 15:46'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - security

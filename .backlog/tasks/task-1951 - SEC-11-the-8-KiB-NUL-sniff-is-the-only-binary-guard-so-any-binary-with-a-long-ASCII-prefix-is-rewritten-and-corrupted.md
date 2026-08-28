@@ -3,9 +3,11 @@ id: TASK-1951
 title: >-
   SEC-11: the 8 KiB NUL sniff is the only binary guard, so any binary with a
   long ASCII prefix is rewritten and corrupted
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2011
 created_date: '2026-08-27 15:49'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - security

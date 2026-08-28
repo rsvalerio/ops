@@ -3,9 +3,11 @@ id: TASK-1810
 title: >-
   SEC-14: open_refusing_symlinks only guards the final path component, so a
   symlinked intermediate directory still escapes the workspace
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1984
 created_date: '2026-08-27 11:31'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - security

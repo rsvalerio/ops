@@ -3,9 +3,11 @@ id: TASK-1893
 title: >-
   ERR-13: every filesystem failure in MetadataIngestor::collect surfaces as a
   bare 'IO error' with no path
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1999
 created_date: '2026-08-27 15:35'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - idioms-correctness

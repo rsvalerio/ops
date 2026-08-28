@@ -3,9 +3,11 @@ id: TASK-1857
 title: >-
   SEC-25: create_ingest_dir chmods and writes into a pre-existing ingest dir
   without proving it is a real directory
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2006
 created_date: '2026-08-27 15:28'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - security

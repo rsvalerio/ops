@@ -3,9 +3,11 @@ id: TASK-1820
 title: >-
   TEST-5: write_summary, CheckError's Display/source, and the InvalidUtf8
   variant have zero coverage
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2004
 created_date: '2026-08-27 11:33'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - test-quality

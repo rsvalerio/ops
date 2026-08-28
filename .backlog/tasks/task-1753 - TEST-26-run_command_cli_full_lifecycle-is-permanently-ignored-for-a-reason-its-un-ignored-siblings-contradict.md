@@ -3,9 +3,11 @@ id: TASK-1753
 title: >-
   TEST-26: run_command_cli_full_lifecycle is permanently #[ignore]d for a reason
   its un-ignored siblings contradict
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1982
 created_date: '2026-08-27 11:15'
+updated_date: '2026-08-28 14:08'
 labels:
   - code-review-rust
   - test-quality

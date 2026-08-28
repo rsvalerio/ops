@@ -3,9 +3,11 @@ id: TASK-1844
 title: >-
   PATTERN-1: EMOJI_COLS is hardcoded to 2, but the Node stack glyph and the
   field-emoji fallback are one column wide, so those rows misalign
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1984
 created_date: '2026-08-27 15:24'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - correctness

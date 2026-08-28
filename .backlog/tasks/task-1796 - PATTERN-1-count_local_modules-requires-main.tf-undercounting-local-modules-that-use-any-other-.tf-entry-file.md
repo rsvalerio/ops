@@ -3,9 +3,11 @@ id: TASK-1796
 title: >-
   PATTERN-1: count_local_modules requires main.tf, undercounting local modules
   that use any other .tf entry file
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2001
 created_date: '2026-08-27 11:24'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - idioms-correctness

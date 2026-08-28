@@ -4,9 +4,11 @@ title: >-
   SEC-31: has_staged_files uses --diff-filter=ACMR, so a delete-only staged
   index reads as 'nothing staged' and --changed-only skips the whole gate with
   exit 0
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2009
 created_date: '2026-08-27 15:38'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - security

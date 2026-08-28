@@ -3,9 +3,11 @@ id: TASK-1948
 title: >-
   ERR-1: expand_path silently discards the shellexpand error and falls back to
   the literal path
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2002
 created_date: '2026-08-27 15:48'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - error-handling

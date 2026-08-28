@@ -3,9 +3,11 @@ id: TASK-1797
 title: >-
   DUP-1: the verb + whitespace-boundary check is implemented twice, in
   starts_with_known_verb and parse_action_line
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1995
 created_date: '2026-08-27 11:24'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - duplication

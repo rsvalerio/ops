@@ -3,9 +3,11 @@ id: TASK-1860
 title: >-
   READ-1: display_cmd nests a second, always-true args.is_empty() check inside
   the first, leaving a dead fall-through and a duplicated binding
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1983
 created_date: '2026-08-27 15:29'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - readability
