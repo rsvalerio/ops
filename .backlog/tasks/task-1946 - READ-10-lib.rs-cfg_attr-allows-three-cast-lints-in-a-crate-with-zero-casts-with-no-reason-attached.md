@@ -3,11 +3,11 @@ id: TASK-1946
 title: >-
   READ-10: lib.rs cfg_attr allows three cast lints in a crate with zero casts,
   with no reason attached
-status: To Do
+status: Done
 assignee:
   - TASK-2000
 created_date: '2026-08-27 15:48'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 15:53'
 labels:
   - code-review-rust
   - readability
@@ -47,7 +47,13 @@ Workspace context: the same three dead cast allows have already been filed again
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The three cast lint allows are removed from the crate-root cfg_attr, and the crate still builds and clippy-cleans under the workspace lint policy
-- [ ] #2 The remaining clippy::unwrap_used suppression carries a stated reason explaining that test code uses unwrap and expect as its failure mechanism
-- [ ] #3 No new -W or -A clippy flags are introduced anywhere; the workspace [workspace.lints] policy remains the single source of lint configuration
+- [x] #1 The three cast lint allows are removed from the crate-root cfg_attr, and the crate still builds and clippy-cleans under the workspace lint policy
+- [x] #2 The remaining clippy::unwrap_used suppression carries a stated reason explaining that test code uses unwrap and expect as its failure mechanism
+- [x] #3 No new -W or -A clippy flags are introduced anywhere; the workspace [workspace.lints] policy remains the single source of lint configuration
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The three dead cast allows are removed; the remaining clippy::unwrap_used allow carries reason = "test code uses unwrap and expect as its failure mechanism (ERR-5 scanning guidance)" plus a comment explaining the deletion. No -W/-A flags added; ops verify clippy gate is clean.
+<!-- SECTION:NOTES:END -->

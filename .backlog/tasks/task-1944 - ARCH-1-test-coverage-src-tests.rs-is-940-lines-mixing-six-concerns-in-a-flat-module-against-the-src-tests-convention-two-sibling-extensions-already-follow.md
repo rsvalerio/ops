@@ -4,11 +4,11 @@ title: >-
   ARCH-1: test-coverage/src/tests.rs is 940 lines mixing six concerns in a flat
   module, against the src/tests/ convention two sibling extensions already
   follow
-status: To Do
+status: Done
 assignee:
   - TASK-2000
 created_date: '2026-08-27 15:48'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 15:53'
 labels:
   - code-review-rust
   - architecture
@@ -43,8 +43,14 @@ Note that `ingestor.rs` and `views.rs` also carry their own inline `#[cfg(test)]
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 src/tests.rs is replaced by a src/tests/ directory with one file per concern, mirroring the production module names (parse, subprocess, provider, ingest, views, wiring)
-- [ ] #2 No single file in src/tests/ exceeds roughly 300 lines, and every test lives with the concern it exercises rather than in append order
-- [ ] #3 The three-way split of test placement is settled: either the inline modules in ingestor.rs and views.rs move under src/tests/, or a one-line note in the tests module states why they stay inline
-- [ ] #4 The full crate test suite passes with no test removed or renamed as part of the move
+- [x] #1 src/tests.rs is replaced by a src/tests/ directory with one file per concern, mirroring the production module names (parse, subprocess, provider, ingest, views, wiring)
+- [x] #2 No single file in src/tests/ exceeds roughly 300 lines, and every test lives with the concern it exercises rather than in append order
+- [x] #3 The three-way split of test placement is settled: either the inline modules in ingestor.rs and views.rs move under src/tests/, or a one-line note in the tests module states why they stay inline
+- [x] #4 The full crate test suite passes with no test removed or renamed as part of the move
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+src/tests.rs (940 lines) is replaced by src/tests/ with mod.rs (shared fixtures + placement rule), wiring.rs, parse.rs, parse_edge.rs, collect.rs, subprocess.rs, provider.rs, ingest.rs, views.rs. Largest file is views.rs at 257 lines; parse tests are split into parse.rs (well-formed/dedup) and parse_edge.rs (malformed input) purely for size, mirroring the sibling cargo-toml/src/tests/parse_edge.rs precedent. Three-way placement settled: views.rs inline tests moved under src/tests/views.rs; ingestor.rs keeps its inline module because its tests bind the module-private PIPELINE const, and tests/mod.rs states that rule. All 62 crate tests pass, none removed or renamed.
+<!-- SECTION:NOTES:END -->
