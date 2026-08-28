@@ -49,7 +49,9 @@ pub struct HookConfig {
     pub hook_filename: &'static str,
     /// The full hook script to install.
     pub hook_script: &'static str,
-    /// Environment variable that, when set to `"1"`, skips execution.
+    /// Environment variable that skips execution when set to a truthy value.
+    /// [`should_skip`] is the source of truth for which values count
+    /// (READ-5 / TASK-1916).
     pub skip_env_var: &'static str,
     /// Substrings in an existing hook that mark it as a legacy ops hook
     /// (will be overwritten).
