@@ -8,7 +8,22 @@
 
 use std::path::Path;
 
-use crate::go_syntax::{is_block_opener, strip_line_comment};
+use crate::go_syntax::{
+    has_embedded_parent_dir_segment, is_block_opener, is_block_terminator, strip_line_comment,
+    strip_verb, unquote_token,
+};
+
+/// Which block-form directive is currently open.
+///
+/// PATTERN-1 (TASK-1727): modfile parses *every* verb in block form, not just
+/// `replace`. Before this, `module (` fell through to the prefix matcher and
+/// set the module name to the literal `"("`.
+#[derive(Clone, Copy)]
+enum Block {
+    Replace,
+    Module,
+    Go,
+}
 
 #[derive(Debug, Default)]
 pub struct GoMod {
@@ -22,37 +37,44 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
     let content = ops_about::manifest_io::read_optional_text(&path, "go.mod")?;
 
     let mut out = GoMod::default();
-    let mut in_replace_block = false;
+    let mut block: Option<Block> = None;
 
     for raw in content.lines() {
         let line = strip_line_comment(raw).trim();
         if line.is_empty() {
             continue;
         }
-        if in_replace_block {
-            if line == ")" {
-                in_replace_block = false;
+        if let Some(open) = block {
+            if is_block_terminator(line) {
+                block = None;
                 continue;
             }
-            if let Some(target) = parse_replace_directive(line) {
-                out.local_replaces.push(target);
+            match open {
+                Block::Replace => {
+                    if let Some(target) = parse_replace_directive(line) {
+                        out.local_replaces.push(target);
+                    }
+                }
+                // A block-form `module (` / `go (` holds a single entry; keep
+                // the first, matching cmd/go's "only one such directive".
+                Block::Module => set_module(&mut out, line),
+                Block::Go => set_go_version(&mut out, line),
             }
             continue;
         }
-        if let Some(rest) = line.strip_prefix("module ") {
-            // ERR-2 / TASK-1167: a `module ""` or `module    ` line must drop
-            // to None so the directory-name fallback in lib.rs fires, matching
-            // the trim_nonempty policy applied by the Node and Python identity
-            // providers.
-            let trimmed = rest.trim();
-            if !trimmed.is_empty() {
-                out.module = Some(trimmed.to_string());
-            }
-        } else if let Some(rest) = line.strip_prefix("go ") {
-            out.go_version = Some(rest.trim().to_string());
-        } else if is_block_opener(line, "replace") {
-            in_replace_block = true;
-        } else if let Some(rest) = line.strip_prefix("replace ") {
+        // Block openers must be tested before the verb matcher: `module (`
+        // otherwise parses as the module path `(`.
+        if is_block_opener(line, "replace") {
+            block = Some(Block::Replace);
+        } else if is_block_opener(line, "module") {
+            block = Some(Block::Module);
+        } else if is_block_opener(line, "go") {
+            block = Some(Block::Go);
+        } else if let Some(rest) = strip_verb(line, "module") {
+            set_module(&mut out, rest);
+        } else if let Some(rest) = strip_verb(line, "go") {
+            set_go_version(&mut out, rest);
+        } else if let Some(rest) = strip_verb(line, "replace") {
             if let Some(target) = parse_replace_directive(rest) {
                 out.local_replaces.push(target);
             }
@@ -62,9 +84,36 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
     Some(out)
 }
 
+/// ERR-2 / TASK-1167: a `module ""` or `module    ` line must drop to None so
+/// the directory-name fallback in `lib.rs` fires, matching the `trim_nonempty`
+/// policy applied by the Node and Python identity providers.
+fn set_module(out: &mut GoMod, rest: &str) {
+    if out.module.is_some() {
+        return;
+    }
+    let value = unquote_token(rest.trim());
+    if !value.is_empty() {
+        out.module = Some(value.into_owned());
+    }
+}
+
+fn set_go_version(out: &mut GoMod, rest: &str) {
+    if out.go_version.is_some() {
+        return;
+    }
+    let value = unquote_token(rest.trim());
+    if !value.is_empty() {
+        out.go_version = Some(value.into_owned());
+    }
+}
+
 fn parse_replace_directive(rest: &str) -> Option<String> {
     let (_, target) = rest.split_once("=>")?;
-    let target = target.trim();
+    // PATTERN-1 (TASK-1727): cmd/go *requires* quoting for a target containing
+    // a space, and a quoted target starts with `"` — so none of the `./`,
+    // `../`, `/` prefix arms below matched and the local replace was dropped.
+    let target = unquote_token(target.trim());
+    let target = target.as_ref();
     if target.is_empty() {
         return None;
     }
@@ -89,12 +138,11 @@ fn parse_replace_directive(rest: &str) -> Option<String> {
         || is_windows_absolute(target)
     {
         // PATTERN-1 (TASK-1212): reject embedded `..` cancellation segments
-        // past the leading `./` / `../` prefix the matcher already accepts.
-        // Mirrors the SEC-14 scrub policy in `extensions/about/src/workspace.rs`
-        // (`resolve_member_globs`, TASK-1071) so adversarial fixtures cannot
-        // smuggle traversal through a local-replace target. The leading run
-        // of `..` segments is allowed (cmd/go accepts `../../shared`); we
-        // reject `..` only once a real path segment has appeared.
+        // past the leading `./` / `../` prefix the matcher already accepts, so
+        // adversarial fixtures cannot smuggle traversal through a local-replace
+        // target. SEC-14 (TASK-1721): the predicate lives in `go_syntax` and is
+        // shared with the `go.work` `use` directive path, which enforced only
+        // the *first* component and so let `./api/../../../etc` through.
         if has_embedded_parent_dir_segment(target) {
             tracing::warn!(
                 target = %target,
@@ -105,26 +153,6 @@ fn parse_replace_directive(rest: &str) -> Option<String> {
         return Some(target.to_string());
     }
     None
-}
-
-/// True when `target` (split on `/` and `\\`) contains a `..` segment that
-/// appears *after* a non-dot, non-empty segment. The leading run of `.`/`..`
-/// prefix segments is allowed.
-fn has_embedded_parent_dir_segment(target: &str) -> bool {
-    let mut seen_normal = false;
-    for seg in target.split(['/', '\\']) {
-        if seg.is_empty() || seg == "." {
-            continue;
-        }
-        if seg == ".." {
-            if seen_normal {
-                return true;
-            }
-            continue;
-        }
-        seen_normal = true;
-    }
-    false
 }
 
 /// Match cmd/go's module version token shape: a leading `v` followed by an
@@ -462,12 +490,81 @@ mod tests {
         let m = parse(dir.path()).unwrap();
         // Single bare go.mod with no surviving local replaces ⇒ count is None.
         assert!(m.local_replaces.is_empty());
-        let go_mod = crate::GoMod {
-            module: m.module,
-            go_version: m.go_version,
-            local_replaces: m.local_replaces,
-        };
-        assert_eq!(crate::compute_module_count(None, Some(&go_mod)), None);
+        // DUP-1 (TASK-1731): `lib.rs` consumes `go_mod::GoMod` directly, so
+        // the test no longer hand-constructs a second identical struct.
+        assert_eq!(crate::compute_module_count(None, Some(&m)), None);
+    }
+
+    /// PATTERN-1 (TASK-1727): modfile lexes Go string literals, and quoting is
+    /// required for any token containing a space. Left quoted, the module name
+    /// rendered as `m"` on the About card.
+    #[test]
+    fn parses_quoted_module_and_replace_target() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module \"example.com/m\"\n\ngo \"1.22\"\n\nreplace ex.com/m => \"./has space/sub\"\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.module.as_deref(), Some("example.com/m"));
+        assert_eq!(m.go_version.as_deref(), Some("1.22"));
+        assert_eq!(m.local_replaces, vec!["./has space/sub"]);
+        // The About-card name derives from the unquoted path.
+        assert_eq!(
+            crate::modules::last_segment(m.module.as_deref()).as_deref(),
+            Some("m")
+        );
+    }
+
+    /// PATTERN-1 (TASK-1727): modfile splits verb from argument on arbitrary
+    /// whitespace; `strip_prefix("module ")` dropped every tab-separated form
+    /// silently, so the module name fell back to the directory and the Go
+    /// version vanished from the card.
+    #[test]
+    fn parses_tab_separated_directives() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module\texample.com/m\n\ngo\t1.22\n\nreplace\tex.com/m => ./api\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.module.as_deref(), Some("example.com/m"));
+        assert_eq!(m.go_version.as_deref(), Some("1.22"));
+        assert_eq!(m.local_replaces, vec!["./api"]);
+    }
+
+    /// PATTERN-1 (TASK-1727): every verb has a block form. `module (` used to
+    /// fall through to the prefix matcher and set the module to the literal
+    /// `"("`, so the About card was titled `(`.
+    #[test]
+    fn parses_block_form_module_and_go_directives() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module (\n\texample.com/m\n)\n\ngo (\n\t1.22\n)\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.module.as_deref(), Some("example.com/m"));
+        assert_eq!(m.go_version.as_deref(), Some("1.22"));
+    }
+
+    /// PATTERN-1 (TASK-1724): a `)` terminator carrying a trailing comment
+    /// must close the block in go.mod too, in either spacing.
+    #[test]
+    fn replace_block_terminator_accepts_trailing_comment() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace (\n\tex.com/a => ./api\n) // local pins\n\ngo 1.22\n",
+        )
+        .unwrap();
+        let m = parse(dir.path()).unwrap();
+        assert_eq!(m.local_replaces, vec!["./api"]);
+        // The block closed, so the trailing `go` line was still parsed.
+        assert_eq!(m.go_version.as_deref(), Some("1.22"));
     }
 
     #[test]
