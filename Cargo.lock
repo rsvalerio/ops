@@ -1775,12 +1775,10 @@ dependencies = [
 name = "ops-about-go"
 version = "0.43.1"
 dependencies = [
- "anyhow",
  "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
- "ops-git",
  "serde_json",
  "tempfile",
  "tracing",
