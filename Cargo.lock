@@ -1818,17 +1818,16 @@ dependencies = [
 name = "ops-about-python"
 version = "0.44.0"
 dependencies = [
- "anyhow",
  "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
- "ops-git",
  "serde",
  "serde_json",
  "tempfile",
  "toml 1.1.4+spec-1.1.0",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
