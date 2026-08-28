@@ -7,6 +7,288 @@
 
 use super::*;
 
+// -- TEST-5 / TASK-1845, ERR-4 / TASK-1827: the `ops deps` command path --
+
+/// Drives `run_deps`, `ensure_tools` and `DepsProvider::provide` end to end
+/// without a real `cargo-edit` / `cargo-deny` installation and without
+/// touching the network.
+///
+/// The seam is the one `check_tool_in_times_out_on_hung_probe` already uses:
+/// `ops_core::subprocess::run_cargo` resolves the binary through `$CARGO`, so
+/// a shell script on disk stands in for cargo and decides what every probe
+/// and every collection call returns. The other seam is `run_deps`' own
+/// `DataRegistry` parameter, which exists so a stub provider can be
+/// registered under `DATA_PROVIDER_NAME`.
+mod command_path_tests {
+    use super::*;
+    use crate::test_support::{CwdGuard, EnvVarGuard};
+    use ops_extension::{DataProviderSchema, DataRegistry};
+    use serial_test::serial;
+
+    /// A `$CARGO` stand-in. `body` is the shell script body; `exit 0` makes
+    /// every `cargo <sub> --version` probe report the tool as installed.
+    #[cfg(unix)]
+    fn fake_cargo(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = dir.join("fake-cargo");
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("write fake cargo");
+        let mut perms = std::fs::metadata(&path).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms).expect("chmod");
+        path
+    }
+
+    /// A provider that yields a caller-supplied JSON payload under the
+    /// `deps` key, and records whether the context it was handed was in
+    /// refresh mode.
+    struct StubProvider {
+        payload: serde_json::Value,
+        saw_refresh: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl DataProvider for StubProvider {
+        fn name(&self) -> &'static str {
+            DATA_PROVIDER_NAME
+        }
+
+        fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            self.saw_refresh
+                .store(ctx.is_refreshing(), std::sync::atomic::Ordering::SeqCst);
+            Ok(self.payload.clone())
+        }
+
+        fn schema(&self) -> DataProviderSchema {
+            DataProviderSchema::new("stub", vec![])
+        }
+    }
+
+    /// Registry carrying a stub `deps` provider plus the flag it sets.
+    fn stub_registry(
+        payload: serde_json::Value,
+    ) -> (DataRegistry, std::sync::Arc<std::sync::atomic::AtomicBool>) {
+        let saw_refresh = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut registry = DataRegistry::new();
+        let _ = registry.register(
+            DATA_PROVIDER_NAME,
+            Box::new(StubProvider {
+                payload,
+                saw_refresh: std::sync::Arc::clone(&saw_refresh),
+            }),
+        );
+        (registry, saw_refresh)
+    }
+
+    fn clean_report_json() -> serde_json::Value {
+        serde_json::to_value(DepsReport::default()).expect("serialize default report")
+    }
+
+    fn advisory_report_json() -> serde_json::Value {
+        serde_json::to_value(DepsReport {
+            deny: DenyResult {
+                advisories: vec![AdvisoryEntry {
+                    id: "RUSTSEC-2024-0001".into(),
+                    package: "openssl".into(),
+                    severity: "error".into(),
+                    title: "buffer overflow".into(),
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .expect("serialize advisory report")
+    }
+
+    /// TEST-5 / TASK-1845 AC#1: the happy path returns `Ok` — the command
+    /// wiring (config load → theme resolve → provider → decode → render)
+    /// holds together.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn run_deps_returns_ok_for_a_clean_report() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), "exit 0"));
+        let _cwd = CwdGuard::set(dir.path());
+
+        let (registry, _) = stub_registry(clean_report_json());
+        run_deps(&registry, &DepsOptions::new(false)).expect("clean report must return Ok");
+    }
+
+    /// TEST-5 / TASK-1845 AC#2: the product's actual contract — `ops deps`
+    /// fails CI when there are dependency issues. `has_issues` → `bail!` is
+    /// the only place "fail loudly" becomes a non-zero exit, and it was the
+    /// one place with no test: a refactor that rendered the report and
+    /// returned `Ok(())` regardless passed the entire suite.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn run_deps_errs_when_the_report_carries_an_actionable_advisory() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), "exit 0"));
+        let _cwd = CwdGuard::set(dir.path());
+
+        let (registry, _) = stub_registry(advisory_report_json());
+        let err = run_deps(&registry, &DepsOptions::new(false))
+            .expect_err("an actionable advisory must fail the gate");
+        assert!(
+            err.to_string().contains("dependency issues"),
+            "expected the gate's bail, got: {err}"
+        );
+    }
+
+    /// TEST-5 / TASK-1845 AC#3: `opts.refresh` must reach `ctx.refresh` and
+    /// therefore the provider — otherwise `ops deps --refresh` silently
+    /// serves the cached payload it was asked to discard.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn run_deps_propagates_refresh_to_the_provider_context() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), "exit 0"));
+        let _cwd = CwdGuard::set(dir.path());
+
+        let (registry, saw_refresh) = stub_registry(clean_report_json());
+        run_deps(&registry, &DepsOptions::new(false)).expect("clean report must return Ok");
+        assert!(
+            !saw_refresh.load(std::sync::atomic::Ordering::SeqCst),
+            "refresh must default to false"
+        );
+
+        let (registry, saw_refresh) = stub_registry(clean_report_json());
+        run_deps(&registry, &DepsOptions::new(true)).expect("clean report must return Ok");
+        assert!(
+            saw_refresh.load(std::sync::atomic::Ordering::SeqCst),
+            "opts.refresh must reach ctx.is_refreshing() at the provider"
+        );
+    }
+
+    /// ERR-4 / TASK-1827: `get_or_provide` serves a *previously persisted*
+    /// payload when one exists, and `DepsReport` keeps gaining fields, so a
+    /// cache written by an older `ops` is a live failure mode. Its bare `?`
+    /// used to surface serde's own message — `missing field \`upgrades\`` —
+    /// which reads as a bug in ops and hides the one-word remedy.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn run_deps_stale_cached_payload_names_the_report_and_refresh() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), "exit 0"));
+        let _cwd = CwdGuard::set(dir.path());
+
+        // A payload an older `ops` could plausibly have persisted: the
+        // `upgrades` section had not been added yet.
+        let stale = serde_json::json!({ "deny": DenyResult::default() });
+        let (registry, _) = stub_registry(stale);
+
+        let err = run_deps(&registry, &DepsOptions::new(false))
+            .expect_err("an undecodable cached payload must surface");
+        let chain = format!("{err:#}");
+        assert!(
+            chain.contains("dependency report payload"),
+            "error must name the deps report payload; got: {chain}"
+        );
+        assert!(
+            chain.contains("data cache"),
+            "error must say the payload may come from the data cache; got: {chain}"
+        );
+        assert!(
+            chain.contains("--refresh"),
+            "error must point at --refresh; got: {chain}"
+        );
+        assert!(
+            chain.contains("upgrades"),
+            "serde's own diagnosis must be preserved in the chain; got: {chain}"
+        );
+    }
+
+    /// ERR-4 / TASK-1827 AC#3: a provider-registry failure must name the
+    /// provider being resolved rather than surfacing bare.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn run_deps_provider_failure_names_the_deps_provider() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), "exit 0"));
+        let _cwd = CwdGuard::set(dir.path());
+
+        // Empty registry: `get_or_provide` fails with `NotFound`.
+        let registry = DataRegistry::new();
+        let err = run_deps(&registry, &DepsOptions::new(false))
+            .expect_err("a missing provider must surface");
+        let chain = format!("{err:#}");
+        assert!(
+            chain.contains(DATA_PROVIDER_NAME) && chain.contains("data provider"),
+            "error must name the deps data provider; got: {chain}"
+        );
+    }
+
+    /// TEST-5 / TASK-1845 AC#5: `ensure_tools` reports a missing tool with
+    /// the `cargo install <crate>` hint. A non-zero probe exit is what
+    /// "not installed" looks like to `check_tool_in`.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn ensure_tools_reports_the_missing_tool_with_an_install_hint() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), "exit 101"));
+        let _cwd = CwdGuard::set(dir.path());
+
+        let err = ensure_tools().expect_err("a failing probe must report the tool as missing");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("cargo upgrade is not installed"),
+            "must name the first missing tool: {msg}"
+        );
+        assert!(
+            msg.contains("cargo install cargo-edit"),
+            "must carry the install hint: {msg}"
+        );
+    }
+
+    /// TEST-5 / TASK-1845 AC#4: close the provider-to-consumer round trip.
+    /// `types/tests.rs` builds a `DepsReport` by hand, so it cannot catch a
+    /// provider emitting a shape `run_deps` then fails to decode. Drive the
+    /// real `DepsProvider::provide` against a fake cargo that emits a
+    /// parseable upgrade table and a clean `cargo deny`, then decode its
+    /// JSON exactly as `run_deps` does.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn deps_provider_output_round_trips_into_a_deps_report() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // `cargo upgrade --dry-run` prints the table on stdout; `cargo deny
+        // check` exits 0 with no diagnostics. Dispatch on the subcommand,
+        // which `run_cargo` passes as the first argument.
+        let script = r#"case "$1" in
+  upgrade)
+    printf 'name   old req compatible latest  new req note\n'
+    printf '====   ======= ========== ======  ======= ====\n'
+    printf 'clap   3.0.0   3.2.25     4.6.0   3.2.25  incompatible\n'
+    printf 'serde  1.0.100 1.0.228    1.0.228 1.0.228\n'
+    exit 0 ;;
+  deny) exit 0 ;;
+  *) exit 0 ;;
+esac"#;
+        let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), script));
+
+        let mut ctx = Context::new(
+            std::sync::Arc::new(ops_core::config::Config::empty()),
+            dir.path().to_path_buf(),
+        );
+        let value = DepsProvider
+            .provide(&mut ctx)
+            .expect("provider must succeed against a well-formed cargo");
+
+        let report: DepsReport =
+            serde_json::from_value(value).expect("provider JSON must decode as a DepsReport");
+        assert_eq!(report.upgrades.compatible.len(), 1);
+        assert_eq!(report.upgrades.compatible[0].name, "serde");
+        assert_eq!(report.upgrades.incompatible.len(), 1);
+        assert_eq!(report.upgrades.incompatible[0].name, "clap");
+        assert!(report.deny.advisories.is_empty());
+        assert!(!has_issues(&report), "a clean deny run must pass the gate");
+    }
+}
+
 // -- Extension trait tests --
 
 mod extension_tests {
@@ -36,12 +318,12 @@ mod user_config_tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join(".ops.toml"), "stack = \"rust\"\n")
             .expect("write .ops.toml");
-        let prev = std::env::current_dir().expect("cwd");
-        std::env::set_current_dir(dir.path()).expect("chdir");
+        // TEST-23 / TASK-1842: the restore lives in a `Drop` guard so the
+        // panic this test can produce cannot leave the whole binary running
+        // in a tempdir that `TempDir::drop` then deletes.
+        let _cwd = crate::test_support::CwdGuard::set(dir.path());
 
         let ctx = build_user_context().expect("build_user_context");
-
-        std::env::set_current_dir(&prev).expect("restore cwd");
 
         assert_eq!(
             ctx.config().stack.as_deref(),
@@ -95,6 +377,66 @@ fn has_issues_warning_is_actionable_only_on_strict_gate() {
         !has_issues(&relaxed),
         "relaxed gate (bans): warning must be informational"
     );
+}
+
+/// DUP-3 / TASK-1821: the gate (`severity_is_actionable`) and the renderer
+/// (`SeverityClass`) must not be able to disagree. Both now classify through
+/// the same `SeverityClass::classify`, so this walks every severity string
+/// the crate can produce — the five cargo-deny values, the
+/// `<missing-severity>` sentinel, and an unknown one — and asserts the gate
+/// decision matches the rendered status. A one-sided edit to either module
+/// fails here rather than shipping a red report on a zero exit (or the
+/// reverse).
+#[test]
+fn gate_and_renderer_agree_on_every_severity() {
+    use crate::format::SeverityClass;
+    use crate::parse::MISSING_SEVERITY_SENTINEL;
+    use ops_core::report::ReportStatus;
+
+    // (severity, actionable on the strict gate, actionable on the relaxed
+    // bans gate, rendered status)
+    let cases: &[(&str, bool, bool, ReportStatus)] = &[
+        ("error", true, true, ReportStatus::Error),
+        ("warning", true, false, ReportStatus::Warning),
+        ("note", false, false, ReportStatus::Info),
+        ("help", false, false, ReportStatus::Info),
+        ("info", false, false, ReportStatus::Info),
+        (MISSING_SEVERITY_SENTINEL, true, true, ReportStatus::Error),
+        ("critical", true, true, ReportStatus::Error),
+    ];
+
+    for &(severity, strict, relaxed, status) in cases {
+        assert_eq!(
+            severity_is_actionable(severity, false),
+            strict,
+            "strict gate disagreed for severity {severity:?}"
+        );
+        assert_eq!(
+            severity_is_actionable(severity, true),
+            relaxed,
+            "relaxed (bans) gate disagreed for severity {severity:?}"
+        );
+        assert_eq!(
+            SeverityClass::classify(severity).report_status(),
+            status,
+            "renderer disagreed for severity {severity:?}"
+        );
+        // The load-bearing invariant: anything the renderer paints as an
+        // error must fail the strict gate, and anything it paints as info
+        // must not.
+        if status == ReportStatus::Error {
+            assert!(
+                severity_is_actionable(severity, false),
+                "renderer says Error but the gate passes for severity {severity:?}"
+            );
+        }
+        if status == ReportStatus::Info {
+            assert!(
+                !severity_is_actionable(severity, false),
+                "renderer says Info but the gate fails for severity {severity:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -340,15 +682,20 @@ fn check_tool_in_times_out_on_hung_probe() {
         probe_args: &["probe-test", "--version"],
     };
 
-    // SAFETY: serial guards against concurrent env mutation; the helper reads
-    // these vars synchronously on this thread.
-    unsafe { std::env::set_var("CARGO", &fake) };
-    unsafe { std::env::set_var(ops_core::subprocess::TIMEOUT_ENV, "1") };
-    let result = check_tool_in(&tool, dir.path());
-    unsafe { std::env::remove_var(ops_core::subprocess::TIMEOUT_ENV) };
-    unsafe { std::env::remove_var("CARGO") };
+    // TEST-23 / TASK-1842: the env mutations are reverted by `Drop`, which
+    // runs on the unwind path too. Without that, an assertion failure here
+    // leaked a `$CARGO` pointing at `exec sleep 30` plus a 1-second
+    // subprocess timeout into every later test in the binary, turning one
+    // clear failure into a cascade of unrelated timeout errors. The
+    // `unsafe`/SAFETY argument lives on the guard itself and covers
+    // restore-on-unwind, not just the `#[serial]` concurrency point.
+    let _cargo = crate::test_support::EnvVarGuard::set("CARGO", &fake);
+    let _timeout = crate::test_support::EnvVarGuard::set(ops_core::subprocess::TIMEOUT_ENV, "1");
 
-    let err = result.expect_err("hung probe must error rather than block");
+    // Assertions can sit directly after the call now that cleanup no longer
+    // depends on reaching the end of the body.
+    let err =
+        check_tool_in(&tool, dir.path()).expect_err("hung probe must error rather than block");
     let msg = format!("{err}");
     assert!(
         msg.contains("timed out") || msg.contains("wedged"),
