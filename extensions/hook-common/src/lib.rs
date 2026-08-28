@@ -171,4 +171,42 @@ mod tests {
         let _guard = EnvGuard::remove(cfg.skip_env_var);
         assert!(!should_skip(&cfg));
     }
+
+    /// TEST-6 (TASK-1884): the accepted-token set is the operator's opt-out
+    /// contract. Pin every documented spelling so a refactor to `v == "1"`
+    /// cannot silently remove the escape hatch.
+    #[test]
+    #[serial_test::serial]
+    fn should_skip_accepts_documented_truthy_tokens() {
+        let cfg = commit_config();
+        for value in ["1", "true", "yes", "on"] {
+            let _guard = EnvGuard::set(cfg.skip_env_var, value);
+            assert!(should_skip(&cfg), "{value:?} must skip");
+        }
+    }
+
+    /// TEST-6 (TASK-1884): the doc promises case-insensitivity.
+    #[test]
+    #[serial_test::serial]
+    fn should_skip_is_case_insensitive() {
+        let cfg = commit_config();
+        for value in ["TRUE", "Yes", "ON", "On", "TrUe"] {
+            let _guard = EnvGuard::set(cfg.skip_env_var, value);
+            assert!(should_skip(&cfg), "{value:?} must skip");
+        }
+    }
+
+    /// TEST-6 (TASK-1884): the rejection half of the contract, which nothing
+    /// covered. A refactor to "set means true" would make `SKIP_...=false` —
+    /// the spelling an operator reaches for to *re-enable* the hook —
+    /// silently disable every pre-commit and pre-push check.
+    #[test]
+    #[serial_test::serial]
+    fn should_skip_rejects_set_but_falsy_values() {
+        let cfg = commit_config();
+        for value in ["0", "false", "FALSE", "no", "off", "", "maybe", " 1"] {
+            let _guard = EnvGuard::set(cfg.skip_env_var, value);
+            assert!(!should_skip(&cfg), "{value:?} must not skip");
+        }
+    }
 }
