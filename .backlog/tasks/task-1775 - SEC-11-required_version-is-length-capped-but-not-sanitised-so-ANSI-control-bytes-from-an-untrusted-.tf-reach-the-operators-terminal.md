@@ -3,11 +3,11 @@ id: TASK-1775
 title: >-
   SEC-11: required_version is length-capped but not sanitised, so ANSI/control
   bytes from an untrusted .tf reach the operator's terminal
-status: To Do
+status: Done
 assignee:
   - TASK-2001
 created_date: '2026-08-27 11:22'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:24'
 labels:
   - code-review-rust
   - security
@@ -33,7 +33,7 @@ So `required_version = "1.0\u{1b}[2J\u{1b}[31mCOMPROMISED"` (or any string with 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 extract_required_version rejects or escapes control characters (including ESC, CR, BEL) so no raw control byte can reach stack_detail
-- [ ] #2 The cap and the sanitisation are both covered by tests, including an ESC-bearing value under the 64-char cap
-- [ ] #3 Preferred implementation reuses or introduces a shared ops_about helper so sibling stack providers can adopt the same policy
+- [x] #1 extract_required_version rejects or escapes control characters (including ESC, CR, BEL) so no raw control byte can reach stack_detail
+- [x] #2 The cap and the sanitisation are both covered by tests, including an ESC-bearing value under the 64-char cap
+- [x] #3 Preferred implementation reuses or introduces a shared ops_about helper so sibling stack providers can adopt the same policy
 <!-- AC:END -->

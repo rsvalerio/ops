@@ -3,11 +3,11 @@ id: TASK-1768
 title: >-
   PATTERN-1: line-oriented HCL scanner drops required_version when a comment
   follows `terraform {` or a `}` closes on the value line
-status: To Do
+status: Done
 assignee:
   - TASK-2001
 created_date: '2026-08-27 11:20'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:24'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -46,8 +46,8 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 extract_required_version returns the constraint when the terraform block opener carries a trailing # or // comment
-- [ ] #2 A closing brace on the same line as the value (required_version = ">= 1.5" }) still yields the constraint
-- [ ] #3 Line comments are stripped outside of double-quoted strings before structural matching, and a # or // inside a quoted value is still preserved
-- [ ] #4 Regression tests cover both shapes
+- [x] #1 extract_required_version returns the constraint when the terraform block opener carries a trailing # or // comment
+- [x] #2 A closing brace on the same line as the value (required_version = ">= 1.5" }) still yields the constraint
+- [x] #3 Line comments are stripped outside of double-quoted strings before structural matching, and a # or // inside a quoted value is still preserved
+- [x] #4 Regression tests cover both shapes
 <!-- AC:END -->

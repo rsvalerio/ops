@@ -3,11 +3,11 @@ id: TASK-1779
 title: >-
   FN-1: extract_required_version spans 93 lines mixing comment stripping, brace
   tracking, key matching, quote parsing and capping
-status: To Do
+status: Done
 assignee:
   - TASK-2001
 created_date: '2026-08-27 11:22'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:24'
 labels:
   - code-review-rust
   - structure-readability
@@ -31,7 +31,7 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 extract_required_version is decomposed so comment stripping, block-path tracking and assignment parsing are separate, individually testable units
-- [ ] #2 No function in the file exceeds the 50-line FN-1 threshold
-- [ ] #3 Existing behaviour and tests are preserved; cargo test -p ops-about-terraform passes
+- [x] #1 extract_required_version is decomposed so comment stripping, block-path tracking and assignment parsing are separate, individually testable units
+- [x] #2 No function in the file exceeds the 50-line FN-1 threshold
+- [x] #3 Existing behaviour and tests are preserved; cargo test -p ops-about-terraform passes
 <!-- AC:END -->
