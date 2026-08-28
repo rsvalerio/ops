@@ -3,11 +3,11 @@ id: TASK-1724
 title: >-
   PATTERN-1: go.work block terminator `)` with a trailing comment is swallowed
   as a use directive and leaves the block open
-status: To Do
+status: Done
 assignee:
   - TASK-1989
 created_date: '2026-08-27 11:11'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 15:29'
 labels:
   - code-review-rust
   - correctness
@@ -83,8 +83,8 @@ failure is silent.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `parse_use_dirs` strips the line comment before any structural test (block opener, `)` terminator, directive), matching the normalization order already used in go_mod.rs:28
-- [ ] #2 Regression test: a go.work whose block terminator is `) // members` followed by further top-level lines yields exactly the real use dirs — no `)` entry, no absorbed trailing lines
-- [ ] #3 Regression test asserts the same for a tab-indented terminator and for `)` followed by a no-whitespace inline comment (`)//members`)
-- [ ] #4 Existing go_work tests (inline comments in block, nested-opener warn, single-line use) still pass
+- [x] #1 `parse_use_dirs` strips the line comment before any structural test (block opener, `)` terminator, directive), matching the normalization order already used in go_mod.rs:28
+- [x] #2 Regression test: a go.work whose block terminator is `) // members` followed by further top-level lines yields exactly the real use dirs — no `)` entry, no absorbed trailing lines
+- [x] #3 Regression test asserts the same for a tab-indented terminator and for `)` followed by a no-whitespace inline comment (`)//members`)
+- [x] #4 Existing go_work tests (inline comments in block, nested-opener warn, single-line use) still pass
 <!-- AC:END -->

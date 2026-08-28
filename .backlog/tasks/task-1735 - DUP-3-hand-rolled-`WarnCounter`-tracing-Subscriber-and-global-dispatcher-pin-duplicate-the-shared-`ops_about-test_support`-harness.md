@@ -3,11 +3,11 @@ id: TASK-1735
 title: >-
   DUP-3: hand-rolled `WarnCounter` tracing Subscriber and global-dispatcher pin
   duplicate the shared `ops_about::test_support` harness
-status: To Do
+status: Done
 assignee:
   - TASK-1989
 created_date: '2026-08-27 11:12'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 15:29'
 labels:
   - code-review-rust
   - duplication
@@ -69,7 +69,7 @@ assertions they serve.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A level-counting tracing test harness lives in `extensions/about/src/test_support.rs` behind the `test-support` feature, alongside `TracingBuf`, carrying the `Interest`-cache/global-dispatcher workaround and its rationale
-- [ ] #2 `extensions-go/about/src/modules.rs` deletes the local `WarnCounter` and `pin_global_dispatcher` and uses the shared harness
-- [ ] #3 `collect_units_dotdot_prefixed_dir_is_in_tree` and `collect_units_absolute_use_directive_is_marked_out_of_tree` still assert the same warn counts (0 and 1) and remain non-flaky under `cargo test` (shared-process threads) as well as nextest
+- [x] #1 A level-counting tracing test harness lives in `extensions/about/src/test_support.rs` behind the `test-support` feature, alongside `TracingBuf`, carrying the `Interest`-cache/global-dispatcher workaround and its rationale
+- [x] #2 `extensions-go/about/src/modules.rs` deletes the local `WarnCounter` and `pin_global_dispatcher` and uses the shared harness
+- [x] #3 `collect_units_dotdot_prefixed_dir_is_in_tree` and `collect_units_absolute_use_directive_is_marked_out_of_tree` still assert the same warn counts (0 and 1) and remain non-flaky under `cargo test` (shared-process threads) as well as nextest
 <!-- AC:END -->

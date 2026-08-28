@@ -3,11 +3,11 @@ id: TASK-1738
 title: >-
   ARCH-11: ops-about-go declares `anyhow` and `ops-git` dependencies it never
   uses
-status: To Do
+status: Done
 assignee:
   - TASK-1989
 created_date: '2026-08-27 11:13'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 15:29'
 labels:
   - code-review-rust
   - architecture
@@ -61,7 +61,7 @@ reasonably concludes this crate does its own git resolution.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `anyhow` and `ops-git` are removed from `extensions-go/about/Cargo.toml` and the crate still builds (`cargo build -p ops-about-go --all-targets`)
-- [ ] #2 `linkme` is retained, with a short comment recording that `impl_extension!` requires it in the calling crate
-- [ ] #3 `cargo clippy --all-targets --workspace -- -D warnings` and `cargo nextest run -p ops-about-go` pass
+- [x] #1 `anyhow` and `ops-git` are removed from `extensions-go/about/Cargo.toml` and the crate still builds (`cargo build -p ops-about-go --all-targets`)
+- [x] #2 `linkme` is retained, with a short comment recording that `impl_extension!` requires it in the calling crate
+- [x] #3 `cargo clippy --all-targets --workspace -- -D warnings` and `cargo nextest run -p ops-about-go` pass
 <!-- AC:END -->

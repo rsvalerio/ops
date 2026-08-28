@@ -3,11 +3,11 @@ id: TASK-1731
 title: >-
   DUP-1: lib.rs re-declares an identical `GoMod` struct and copies it
   field-by-field from `go_mod::GoMod`
-status: To Do
+status: Done
 assignee:
   - TASK-1989
 created_date: '2026-08-27 11:12'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 15:29'
 labels:
   - code-review-rust
   - duplication
@@ -71,8 +71,8 @@ Neither indirection layer earns its maintenance cost.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `lib.rs` uses `go_mod::GoMod` directly; the duplicate local struct and `parse_go_mod` are deleted (or `parse_go_mod` becomes a plain re-export/alias with no field copying)
-- [ ] #2 `compute_module_count` takes `Option<&go_mod::GoMod>` and the go_mod test at go_mod.rs:465 stops hand-constructing a second GoMod
-- [ ] #3 `modules::workspace_use_dirs` is removed and `collect_units` calls `crate::go_work::parse_use_dirs` directly, or the wrapper gains behaviour that justifies it
-- [ ] #4 All existing tests in lib.rs, go_mod.rs and modules.rs still pass unchanged in intent
+- [x] #1 `lib.rs` uses `go_mod::GoMod` directly; the duplicate local struct and `parse_go_mod` are deleted (or `parse_go_mod` becomes a plain re-export/alias with no field copying)
+- [x] #2 `compute_module_count` takes `Option<&go_mod::GoMod>` and the go_mod test at go_mod.rs:465 stops hand-constructing a second GoMod
+- [x] #3 `modules::workspace_use_dirs` is removed and `collect_units` calls `crate::go_work::parse_use_dirs` directly, or the wrapper gains behaviour that justifies it
+- [x] #4 All existing tests in lib.rs, go_mod.rs and modules.rs still pass unchanged in intent
 <!-- AC:END -->

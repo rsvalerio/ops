@@ -3,11 +3,11 @@ id: TASK-1727
 title: >-
   PATTERN-1: go.mod/go.work parsers prefix-match strings instead of tokenizing —
   quoted paths, tab separators and block-form `module (` all mis-parse
-status: To Do
+status: Done
 assignee:
   - TASK-1989
 created_date: '2026-08-27 11:11'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 15:29'
 labels:
   - code-review-rust
   - correctness
@@ -77,10 +77,10 @@ tool-generated repository produces without any intent.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A shared tokenizer helper in `go_syntax.rs` splits a modfile line into verb + arguments on arbitrary whitespace and unquotes Go-style quoted tokens; both parsers use it instead of `strip_prefix("<verb> ")`
-- [ ] #2 `module "example.com/m"` yields module `example.com/m` (no quotes) and the About card name `m`
-- [ ] #3 `use "./api"` yields the use dir `./api`, and `replace ex.com/m => "./has space/sub"` is retained in `local_replaces` as `./has space/sub`
-- [ ] #4 Tab-separated verbs (`module\texample.com/m`, `go\t1.22`, `use\t./api`) parse identically to their space-separated forms
-- [ ] #5 Block-form `module (\n\texample.com/m\n)` yields module `example.com/m`, and never the literal `(`; the same for `go (`
-- [ ] #6 Existing go_mod and go_work tests still pass, including the embedded-`//` (TASK-1107) and inline-comment block-opener (TASK-1255) cases
+- [x] #1 A shared tokenizer helper in `go_syntax.rs` splits a modfile line into verb + arguments on arbitrary whitespace and unquotes Go-style quoted tokens; both parsers use it instead of `strip_prefix("<verb> ")`
+- [x] #2 `module "example.com/m"` yields module `example.com/m` (no quotes) and the About card name `m`
+- [x] #3 `use "./api"` yields the use dir `./api`, and `replace ex.com/m => "./has space/sub"` is retained in `local_replaces` as `./has space/sub`
+- [x] #4 Tab-separated verbs (`module\texample.com/m`, `go\t1.22`, `use\t./api`) parse identically to their space-separated forms
+- [x] #5 Block-form `module (\n\texample.com/m\n)` yields module `example.com/m`, and never the literal `(`; the same for `go (`
+- [x] #6 Existing go_mod and go_work tests still pass, including the embedded-`//` (TASK-1107) and inline-comment block-opener (TASK-1255) cases
 <!-- AC:END -->
