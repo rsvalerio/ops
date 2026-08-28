@@ -119,7 +119,11 @@ impl DataProvider for GitInfoProvider {
                 data_field!(
                     "remote_url",
                     "Option<String>",
-                    "Normalized https URL for the origin remote"
+                    // READ-4 / TASK-1878: this said "Normalized https URL",
+                    // the same claim PATTERN-1 / TASK-1237 invalidated on
+                    // `RemoteInfo.url`. The schema string is the description
+                    // consumers read, so it must not promise TLS either.
+                    "Normalized origin remote URL, preserving the input scheme (https/http/ssh/git; scp-style becomes ssh)"
                 ),
                 data_field!(
                     "branch",
