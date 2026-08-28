@@ -69,20 +69,36 @@ where
     E: Fn(Option<&OsStr>) -> bool,
     C: Fn(&[u8]) -> Result<(), CheckError>,
 {
-    let files =
-        ops_text_fixers::discovery::discover(&opts.root, opts.tracked_only).with_context(|| {
+    let discovered = ops_text_fixers::discovery::discover(&opts.root, opts.tracked_only)
+        .with_context(|| {
             format!(
                 "{label}: file discovery failed for root {} (tracked_only={})",
                 opts.root.display(),
                 opts.tracked_only
             )
         })?;
+    if let Some(fallback) = discovered.fallback {
+        // `--tracked` could not be honoured, so the candidate set silently
+        // widened from the git index to every non-ignored file. Say so.
+        writeln!(
+            writer,
+            "{label}: --tracked unavailable ({fallback}); falling back to a full walk of {}",
+            opts.root.display()
+        )
+        .with_context(|| format!("{label}: writing the discovery fallback notice failed"))?;
+    }
+    for error in &discovered.walk_errors {
+        // A directory the walk could not traverse hides an unknown number of
+        // candidates; a checker that reports "clean" over them is fail-open.
+        writeln!(writer, "{label}: walk error: {error}")
+            .with_context(|| format!("{label}: writing the walk-error notice failed"))?;
+    }
     let mut report = CheckerReport::default();
 
-    // The counters below tally entries of `files`, an in-memory `Vec` produced
-    // by one discovery walk, so their totals are bounded by its length and the
-    // `saturating_add` guards can never actually saturate.
-    for path in files {
+    // The counters below tally entries of `discovered.files`, an in-memory
+    // `Vec` produced by one discovery walk, so their totals are bounded by its
+    // length and the `saturating_add` guards can never actually saturate.
+    for path in discovered.files {
         if !ext_ok(path.extension()) {
             continue;
         }

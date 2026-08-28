@@ -292,9 +292,11 @@ pub fn run_before_push(
 }
 
 /// Run a text-fixer and translate its [`FixerReport`] into a process exit
-/// code: success when nothing changed, `FAILURE` when at least one file was
-/// rewritten. Mirrors the `pre-commit-hooks` contract so a commit hook
-/// driver fails the commit on change.
+/// code: `FAILURE` when at least one file was rewritten, and also when at
+/// least one file could not be read or written back. The first half mirrors
+/// the `pre-commit-hooks` contract so a commit hook driver fails the commit on
+/// change; the second keeps "could not check" from passing as "clean", which
+/// is what a gate's exit zero is taken to mean.
 fn run_text_fixer<F>(label: &str, tracked: bool, fixer: F) -> anyhow::Result<ExitCode>
 where
     F: FnOnce(
@@ -306,8 +308,9 @@ where
     let opts = ops_text_fixers::FixerOptions::new(cwd, tracked);
     let mut stdout = std::io::stdout();
     let report = fixer(&opts, &mut stdout)?;
-    ops_text_fixers::write_summary(&report, label, &mut stdout);
-    if report.changed() {
+    ops_text_fixers::write_summary(&report, label, &mut stdout)
+        .with_context(|| format!("{label}: writing the summary line failed"))?;
+    if report.changed() || report.failed() {
         Ok(ExitCode::FAILURE)
     } else {
         Ok(ExitCode::SUCCESS)
