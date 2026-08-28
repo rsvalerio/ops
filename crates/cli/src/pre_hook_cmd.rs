@@ -14,6 +14,7 @@ pub const COMMIT_OPS: HookOps = HookOps {
     skip_env_var: ops_run_before_commit::SKIP_ENV_VAR,
     should_skip: ops_run_before_commit::should_skip,
     preflight: Some((ops_run_before_commit::has_staged_files, "no staged files")),
+    gate: None,
 };
 
 pub const PUSH_OPS: HookOps = HookOps {
@@ -25,6 +26,9 @@ pub const PUSH_OPS: HookOps = HookOps {
     skip_env_var: ops_run_before_push::SKIP_ENV_VAR,
     should_skip: ops_run_before_push::should_skip,
     preflight: None,
+    // git describes the push on the hook's stdin; the installed hook forwards
+    // it, and this gate skips a delete-only or empty push (SEC-11 / TASK-1906).
+    gate: Some(ops_run_before_push::skip_reason),
 };
 
 pub fn run_before_commit_install(config: &ops_core::config::Config) -> anyhow::Result<()> {

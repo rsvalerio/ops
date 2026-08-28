@@ -213,10 +213,20 @@ fn run_hook_dispatch(
     }
     if (hook.should_skip)() {
         ops_core::ui::note(format!(
-            "[{}] {}=1 — skipping",
+            // Not `=1`: `should_skip` accepts 1/true/yes/on, so naming the
+            // value here would misdescribe how the run was skipped (READ-4).
+            "[{}] {} set — skipping",
             hook.hook_name, hook.skip_env_var
         ));
         return Ok(ExitCode::SUCCESS);
+    }
+    // Unconditional gate (pre-push ref updates), distinct from the
+    // `--changed-only` preflight below.
+    if let Some(gate) = hook.gate {
+        if let Some(reason) = gate() {
+            ops_core::ui::note(format!("[{}] {reason} — skipping", hook.hook_name));
+            return Ok(ExitCode::SUCCESS);
+        }
     }
     if changed_only {
         match hook.preflight {
@@ -562,6 +572,12 @@ program = "true"
             std::env::remove_var(name);
             Self { name, original }
         }
+
+        fn set(name: &'static str, value: &str) -> Self {
+            let original = std::env::var_os(name);
+            std::env::set_var(name, value);
+            Self { name, original }
+        }
     }
 
     impl Drop for EnvVarGuard {
@@ -596,6 +612,70 @@ program = "true"
             "error must name the hook + flag, got: {msg}"
         );
     }
+
+    /// SEC-11 / TASK-1906: the pre-push gate consumes git's ref-update
+    /// stream (forwarded by the installed hook) and decides run vs skip. A
+    /// delete-only push and an empty push must short-circuit with SUCCESS
+    /// *without* running the configured command — the command here is
+    /// `false`, so a run would surface as FAILURE.
+    #[test]
+    #[serial_test::serial]
+    fn run_hook_dispatch_push_gate_skips_delete_only_and_empty_pushes() {
+        const ZERO: &str = "0000000000000000000000000000000000000000";
+        const OID: &str = "1111111111111111111111111111111111111111";
+
+        let (_dir, _guard) = crate::test_utils::with_temp_config(PUSH_FALSE_CONFIG);
+        let _skip_guard = EnvVarGuard::unset("SKIP_OPS_RUN_BEFORE_PUSH");
+        let success = format!("{:?}", ExitCode::SUCCESS);
+
+        for stream in [
+            format!("(delete) {ZERO} refs/heads/old {OID}\n"),
+            String::new(),
+        ] {
+            let _refs_guard = EnvVarGuard::set(ops_run_before_push::REF_UPDATES_ENV_VAR, &stream);
+            let config = ops_core::config::load_config_or_default("test-push-gate");
+            let code =
+                run_hook_dispatch(std::sync::Arc::new(config), &pre_hook_cmd::PUSH_OPS, false)
+                    .expect("gated dispatch must not error");
+            assert_eq!(
+                format!("{code:?}"),
+                success,
+                "stream {stream:?} must short-circuit before running the command"
+            );
+        }
+    }
+
+    /// The counterpart to the test above: a normal ref update runs the
+    /// configured command, so the gate cannot silently disable the hook.
+    #[test]
+    #[serial_test::serial]
+    fn run_hook_dispatch_push_gate_runs_for_a_normal_ref_update() {
+        const OID_A: &str = "1111111111111111111111111111111111111111";
+        const OID_B: &str = "2222222222222222222222222222222222222222";
+
+        let (_dir, _guard) = crate::test_utils::with_temp_config(PUSH_FALSE_CONFIG);
+        let _skip_guard = EnvVarGuard::unset("SKIP_OPS_RUN_BEFORE_PUSH");
+        let _refs_guard = EnvVarGuard::set(
+            ops_run_before_push::REF_UPDATES_ENV_VAR,
+            &format!("refs/heads/main {OID_A} refs/heads/main {OID_B}\n"),
+        );
+
+        let config = ops_core::config::load_config_or_default("test-push-gate");
+        let code = run_hook_dispatch(std::sync::Arc::new(config), &pre_hook_cmd::PUSH_OPS, false)
+            .expect("dispatch must not error");
+        assert_eq!(
+            format!("{code:?}"),
+            format!("{:?}", ExitCode::FAILURE),
+            "a real push must run the configured command"
+        );
+    }
+
+    /// `.ops.toml` binding `run-before-push` to a command that fails, so the
+    /// two gate tests above can tell "ran" from "skipped" by exit code.
+    const PUSH_FALSE_CONFIG: &str = r#"
+[commands.run-before-push]
+program = "false"
+"#;
 
     /// Every "config still missing" path through
     /// `prompt_hook_install` must report FAILURE — git treats SUCCESS as
