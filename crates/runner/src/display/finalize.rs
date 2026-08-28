@@ -55,6 +55,13 @@ impl ProgressDisplay {
         let Some(ref mut tap) = self.tap else {
             return;
         };
+        // PERF-2 / TASK-1928: flush before draining the truncation record.
+        // The tap file is buffered, so this is both the point where the tap
+        // becomes complete on disk for a downstream reader and the point
+        // where a deferred write failure (ENOSPC noticed only when the
+        // buffer spilled) is discovered — in time for the very report
+        // below.
+        tap.flush();
         let Some((step_id, kind)) = tap.take_truncation() else {
             return;
         };

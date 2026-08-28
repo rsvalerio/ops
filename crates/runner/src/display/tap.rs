@@ -7,18 +7,35 @@
 //! implementation in `display.rs`.
 
 use std::fs::File;
-use std::io::{ErrorKind, Write};
+use std::io::{BufWriter, ErrorKind, Write};
 use std::path::PathBuf;
 
 /// Tap-file writer with truncation tracking.
 ///
-/// On the first write failure the inner `File` handle is dropped to suppress
-/// the rest of the run's tap output (avoiding a noisy log per line). The
-/// failure kind and the step id that triggered it are captured so
+/// On the first write failure the inner handle is dropped to suppress the
+/// rest of the run's tap output (avoiding a noisy log per line). The failure
+/// kind and the step id that triggered it are captured so
 /// `on_run_finished` can emit a single user-visible "tap truncated" warning
 /// and best-effort append a marker line at the end of the tap file itself.
+///
+/// # Buffering (PERF-2 / TASK-1928)
+///
+/// The file is wrapped in a [`BufWriter`]. `std::fs::File` has no buffering
+/// of its own, so the previous bare-`File` handle cost at least one
+/// `write(2)` per captured output line — and `on_step_output` taps *every*
+/// `StepOutput` event, stdout included, one per newline in the capture
+/// buffer. A 4 MiB capture at ~60 bytes a line is ~70k events, i.e. ~140k
+/// syscalls for a single step. Those syscalls land on the synchronous
+/// display thread, which is also the event pump, so they are backpressure
+/// on the mpsc drain and thus a plausible source of the very
+/// `StepOutputDropped` events the display exists to warn about.
+///
+/// Buffering trades that for a flush discipline: an unflushed tail would be
+/// lost if the process ended without one. Both exits are covered —
+/// [`Self::flush`] is called at `RunFinished`, and the [`Drop`] impl flushes
+/// whatever remains.
 pub struct TapWriter {
-    file: Option<File>,
+    file: Option<BufWriter<File>>,
     path: Option<PathBuf>,
     truncation: Option<(String, String)>,
     /// CONC-7 / TASK-1176: capture the `io::ErrorKind` of the first write
@@ -34,7 +51,7 @@ pub struct TapWriter {
 impl TapWriter {
     pub(crate) fn new(path: PathBuf) -> Self {
         let file = match File::create(&path) {
-            Ok(f) => Some(f),
+            Ok(f) => Some(BufWriter::new(f)),
             Err(e) => {
                 // ERR-7 (TASK-0940): Debug-format path/error so a tap path
                 // configured in `.ops.toml` containing newlines or ANSI
@@ -64,17 +81,47 @@ impl TapWriter {
         // interface does not surface EAGAIN distinctly, and a retry-once
         // strategy is documented as optional in the task. Subsequent lines
         // no-op rather than spamming.
+        //
+        // PERF-2 / TASK-1928: the write now lands in the `BufWriter`, so a
+        // failure usually surfaces on the flush that spills the buffer
+        // (here, at `RunFinished`, or in `Drop`) rather than on the line
+        // that filled it. `record_failure` is therefore shared by both
+        // paths: whichever notices first disables the tap and records the
+        // step id it was on.
         if let Some(ref mut f) = self.file {
             if let Err(e) = writeln!(f, "{line}") {
-                tracing::debug!(error = %e, "tap file write failed; disabling further tap writes");
-                self.truncation = Some((
-                    step_id.unwrap_or("<unknown>").to_string(),
-                    e.kind().to_string(),
-                ));
-                self.truncation_kind = Some(e.kind());
-                self.file = None;
+                self.record_failure(&e, step_id);
             }
         }
+    }
+
+    /// Flush buffered tap output to disk.
+    ///
+    /// PERF-2 / TASK-1928: called at `RunFinished` so the tap file is
+    /// complete for a downstream reader the moment the run reports done,
+    /// not merely by the time the process exits. A flush failure is
+    /// recorded exactly like a write failure, so `report_tap_truncation`
+    /// still surfaces it in the same run.
+    pub(crate) fn flush(&mut self) {
+        if let Some(ref mut f) = self.file {
+            if let Err(e) = f.flush() {
+                self.record_failure(&e, None);
+            }
+        }
+    }
+
+    /// Disable the tap and record the first failure. See `write_line`.
+    fn record_failure(&mut self, e: &std::io::Error, step_id: Option<&str>) {
+        tracing::debug!(error = %e, "tap file write failed; disabling further tap writes");
+        self.truncation = Some((
+            step_id.unwrap_or("<unknown>").to_string(),
+            e.kind().to_string(),
+        ));
+        self.truncation_kind = Some(e.kind());
+        // Dropping the `BufWriter` discards whatever it still holds. The
+        // buffer could not be written anyway — that is what just failed —
+        // and the truncation is now recorded and reported.
+        self.file = None;
     }
 
     /// Drain a pending truncation record. Returns `Some((step_id, kind))`
@@ -88,7 +135,13 @@ impl TapWriter {
     /// only inspects the file (no stderr capture) still sees the truncation.
     /// If the open also fails, the caller's stderr warning is the only
     /// visible signal.
-    pub(crate) fn append_marker(&self, line: &str) {
+    pub(crate) fn append_marker(&mut self, line: &str) {
+        // PERF-2 / TASK-1928: the marker is appended through a *second*
+        // handle on the same path, so anything still sitting in our buffer
+        // must reach the file first or the marker would land ahead of the
+        // lines it marks. On the usual path here the tap has already been
+        // disabled by the failure, so this is a no-op.
+        self.flush();
         let Some(path) = self.path.as_ref() else {
             return;
         };
@@ -140,6 +193,17 @@ impl TapWriter {
                 );
             }
         }
+    }
+}
+
+impl Drop for TapWriter {
+    /// PERF-2 / TASK-1928: last-resort flush. `RunFinished` is the normal
+    /// flush point; this covers the runs that never reach it (an early
+    /// return, an error path, a `?` in the caller) so a buffered tail is not
+    /// silently lost. `BufWriter`'s own `Drop` would also attempt a flush,
+    /// but it swallows the error — here it is at least visible in the log.
+    fn drop(&mut self) {
+        self.flush();
     }
 }
 
@@ -212,6 +276,65 @@ mod tests {
         assert!(
             after.contains("MARKER"),
             "non-StorageFull/BrokenPipe kind should still attempt the marker append; got: {after}"
+        );
+    }
+
+    /// PERF-2 / TASK-1928: with buffering, "the lines were written" is no
+    /// longer the same claim as "the lines are on disk". Pin both flush
+    /// points: an explicit `flush` (what `RunFinished` calls) makes the file
+    /// complete while the writer is still alive, and `Drop` catches a run
+    /// that never reached `RunFinished`.
+    #[test]
+    fn buffered_lines_reach_disk_at_the_explicit_flush_point() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tap.txt");
+        let mut tap = TapWriter::new(path.clone());
+        // Comfortably more than one 8 KiB buffer's worth, so the test
+        // exercises both spilled and still-buffered content.
+        for i in 0..2_000 {
+            tap.write_line(&format!("line {i}"), Some("step"));
+        }
+        tap.flush();
+        let after_flush = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            after_flush.lines().count(),
+            2_000,
+            "every line must be on disk once the run has flushed"
+        );
+        assert!(after_flush.starts_with("line 0\n"));
+        assert!(after_flush.trim_end().ends_with("line 1999"));
+        // Still usable after a flush.
+        tap.write_line("trailing", Some("step"));
+        drop(tap);
+        let after_drop = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            after_drop.trim_end().ends_with("trailing"),
+            "Drop must flush the tail written after the last explicit flush"
+        );
+    }
+
+    /// The truncation contract survives buffering: the first failure still
+    /// disables the tap, records the step id and kind exactly once, and
+    /// leaves subsequent writes as no-ops.
+    #[test]
+    fn first_write_failure_still_disables_the_tap_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tap.txt");
+        let mut tap = TapWriter::new(path);
+        tap.write_line("before", Some("step-a"));
+        // Simulate the failure the buffered writer would report on spill.
+        tap.record_failure(
+            &std::io::Error::from(ErrorKind::StorageFull),
+            Some("step-b"),
+        );
+        assert!(tap.file.is_none(), "tap must be disabled after a failure");
+        tap.write_line("after", Some("step-c"));
+        let (step_id, kind) = tap.take_truncation().expect("truncation recorded");
+        assert_eq!(step_id, "step-b");
+        assert!(kind.contains("storage") || kind.contains("space"), "{kind}");
+        assert!(
+            tap.take_truncation().is_none(),
+            "the truncation record is drained exactly once"
         );
     }
 
