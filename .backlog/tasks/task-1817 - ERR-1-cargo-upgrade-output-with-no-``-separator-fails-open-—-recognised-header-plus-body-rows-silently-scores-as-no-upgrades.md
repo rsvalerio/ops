@@ -3,11 +3,11 @@ id: TASK-1817
 title: >-
   ERR-1: cargo-upgrade output with no `====` separator fails open — recognised
   header plus body rows silently scores as "no upgrades"
-status: To Do
+status: Done
 assignee:
   - TASK-1997
 created_date: '2026-08-27 11:33'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 20:24'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -38,9 +38,9 @@ Note the current warn-only behaviour is pinned by `parse/upgrade/table_tests.rs:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 interpret_upgrade_output returns Err when stdout contained body/content lines but no `====` separator row was seen, instead of Ok(vec![])
-- [ ] #2 The bail message names the missing-separator drift case and is distinguishable from the header-drift (TASK-1074) and row-shape-drift (TASK-1202) messages
-- [ ] #3 The existing TASK-1026 tracing::warn! is kept or moved so the drift stays observable in logs
-- [ ] #4 A test drives interpret_upgrade_output(Some(0), <recognised header + body rows, no separator>, b"") and asserts it errs
-- [ ] #5 parse_upgrade_table_warns_on_missing_separator is updated (or superseded) so it no longer pins the warn-only fail-open behaviour
+- [x] #1 interpret_upgrade_output returns Err when stdout contained body/content lines but no `====` separator row was seen, instead of Ok(vec![])
+- [x] #2 The bail message names the missing-separator drift case and is distinguishable from the header-drift (TASK-1074) and row-shape-drift (TASK-1202) messages
+- [x] #3 The existing TASK-1026 tracing::warn! is kept or moved so the drift stays observable in logs
+- [x] #4 A test drives interpret_upgrade_output(Some(0), <recognised header + body rows, no separator>, b"") and asserts it errs
+- [x] #5 parse_upgrade_table_warns_on_missing_separator is updated (or superseded) so it no longer pins the warn-only fail-open behaviour
 <!-- AC:END -->

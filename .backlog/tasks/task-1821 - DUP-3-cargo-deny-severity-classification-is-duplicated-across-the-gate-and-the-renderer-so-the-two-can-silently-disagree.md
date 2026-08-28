@@ -3,11 +3,11 @@ id: TASK-1821
 title: >-
   DUP-3: cargo-deny severity classification is duplicated across the gate and
   the renderer, so the two can silently disagree
-status: To Do
+status: Done
 assignee:
   - TASK-1997
 created_date: '2026-08-27 11:33'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 20:26'
 labels:
   - code-review-rust
   - duplication
@@ -55,10 +55,10 @@ The two lists agree today, and both TASK-0601 and TASK-0602 had to be filed and 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The set of known cargo-deny severity strings and their benign/actionable partition is defined exactly once in the crate
-- [ ] #2 has_issues classifies through that single definition instead of its own match on &str
-- [ ] #3 The bans-only 'warning is informational' relaxation is preserved and still expressed at the call site, not baked into the shared classifier
-- [ ] #4 Unknown severities still fail closed in the gate and still render as SeverityClass::Unknown / ReportStatus::Error
-- [ ] #5 A test asserts the gate and the renderer agree for every known severity plus MISSING_SEVERITY_SENTINEL and an unknown value, so a future one-sided edit fails
-- [ ] #6 Existing has_issues and SeverityClass tests still pass unchanged
+- [x] #1 The set of known cargo-deny severity strings and their benign/actionable partition is defined exactly once in the crate
+- [x] #2 has_issues classifies through that single definition instead of its own match on &str
+- [x] #3 The bans-only 'warning is informational' relaxation is preserved and still expressed at the call site, not baked into the shared classifier
+- [x] #4 Unknown severities still fail closed in the gate and still render as SeverityClass::Unknown / ReportStatus::Error
+- [x] #5 A test asserts the gate and the renderer agree for every known severity plus MISSING_SEVERITY_SENTINEL and an unknown value, so a future one-sided edit fails
+- [x] #6 Existing has_issues and SeverityClass tests still pass unchanged
 <!-- AC:END -->

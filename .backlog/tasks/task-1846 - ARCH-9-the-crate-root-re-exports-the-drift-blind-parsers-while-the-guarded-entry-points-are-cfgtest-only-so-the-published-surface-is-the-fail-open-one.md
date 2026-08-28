@@ -3,11 +3,11 @@ id: TASK-1846
 title: >-
   ARCH-9: the crate root re-exports the drift-blind parsers while the guarded
   entry points are cfg(test)-only, so the published surface is the fail-open one
-status: To Do
+status: Done
 assignee:
   - TASK-1997
 created_date: '2026-08-27 15:24'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 20:41'
 labels:
   - code-review-rust
   - structure-readability
@@ -57,9 +57,9 @@ The fix is to decide which of these are API and which are implementation. `parse
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_upgrade_table is no longer a root-level public function that silently discards UpgradeParseDiagnostics — it is made crate-private, removed, or changed to hand the diagnostics back to the caller
-- [ ] #2 interpret_upgrade_output is exported on the same terms as interpret_deny_result rather than only under cfg(test)
-- [ ] #3 pub use types::* is replaced by an explicit re-export list so adding a type to types.rs is not automatically a public API change
-- [ ] #4 Existing table_tests.rs and exit_code_tests.rs keep their coverage, calling whatever the guarded entry point becomes
-- [ ] #5 The crate still compiles with no unused-import or dead-code warnings and the workspace clippy lints stay clean
+- [x] #1 parse_upgrade_table is no longer a root-level public function that silently discards UpgradeParseDiagnostics — it is made crate-private, removed, or changed to hand the diagnostics back to the caller
+- [x] #2 interpret_upgrade_output is exported on the same terms as interpret_deny_result rather than only under cfg(test)
+- [x] #3 pub use types::* is replaced by an explicit re-export list so adding a type to types.rs is not automatically a public API change
+- [x] #4 Existing table_tests.rs and exit_code_tests.rs keep their coverage, calling whatever the guarded entry point becomes
+- [x] #5 The crate still compiles with no unused-import or dead-code warnings and the workspace clippy lints stay clean
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1827
 title: >-
   ERR-4: run_deps propagates the cached-payload deserialization failure with no
   context, leaving operators a bare serde message
-status: To Do
+status: Done
 assignee:
   - TASK-1997
 created_date: '2026-08-27 11:34'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 20:29'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -40,8 +40,8 @@ ERR-14 applies in the same spot: the failing field path is not surfaced either, 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The serde_json::from_value failure in run_deps carries context naming the deps report payload and the fact that it may come from the data cache
-- [ ] #2 The context (or the error message) points the operator at re-running with --refresh
-- [ ] #3 ctx.get_or_provide's error carries context naming the deps data provider
-- [ ] #4 A test asserts that deserializing a stale/incompatible cached payload produces an error whose Display chain mentions both the deps report and --refresh
+- [x] #1 The serde_json::from_value failure in run_deps carries context naming the deps report payload and the fact that it may come from the data cache
+- [x] #2 The context (or the error message) points the operator at re-running with --refresh
+- [x] #3 ctx.get_or_provide's error carries context naming the deps data provider
+- [x] #4 A test asserts that deserializing a stale/incompatible cached payload produces an error whose Display chain mentions both the deps report and --refresh
 <!-- AC:END -->
