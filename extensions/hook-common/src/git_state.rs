@@ -52,9 +52,14 @@ pub fn git_timeout_from_env(env_var: &str, max_secs: u64) -> Option<Duration> {
     };
     match raw.parse::<u64>() {
         Ok(0) | Err(_) => {
+            // ERR-7 (TASK-0937 / TASK-1886): `raw` is the most directly
+            // attacker-supplied string in the crate — it is logged precisely
+            // *because* it failed to parse, and this warn lands in the
+            // developer's terminal on every commit. Debug-format it so
+            // embedded newlines and ANSI escapes cannot forge log lines.
             tracing::warn!(
                 env = env_var,
-                value = %raw,
+                value = ?raw,
                 "unparseable or zero value; falling back to default timeout"
             );
             None
@@ -86,8 +91,10 @@ pub fn read_stderr_bounded(
         Ok(bytes) => bytes,
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Vec::new(),
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            // ERR-7 (TASK-0937 / TASK-1886): the program name is
+            // caller-supplied and reaches the same operator-facing stream.
             tracing::debug!(
-                program = %program,
+                program = ?program,
                 "stderr drain thread disconnected before sending; using empty stderr"
             );
             Vec::new()
@@ -125,10 +132,14 @@ pub fn read_stderr_bounded(
 /// must either close the pipe read end on `wait_timeout` return or move
 /// to a non-blocking drain that observes the parent's cancellation.
 ///
-/// # Panics
+/// # Stderr pipe invariant
 ///
-/// If the spawned child has no stderr pipe, which cannot happen because the
-/// command is configured with `Stdio::piped()`.
+/// READ-4 (TASK-1894): `.stderr(Stdio::piped())` guarantees `child.stderr` is
+/// `Some`. The impossible arm drops the sender rather than panicking (see the
+/// comment on it), which also keeps `read_stderr_bounded` from waiting out its
+/// full grace period. This function has no panicking path; it reports every
+/// failure as a [`HasStagedFilesError`], per the crate's typed-error policy
+/// for hooks. Do not "restore" an `unwrap` here.
 ///
 /// # Errors
 ///
@@ -276,6 +287,66 @@ mod tests {
         assert_eq!(
             git_timeout_from_env(TEST_ENV, 300),
             Some(Duration::from_mins(5))
+        );
+    }
+
+    /// ERR-7 (TASK-0937 / TASK-1886): the unparseable-value warn renders the
+    /// raw env value through the `?` formatter, so a value like
+    /// `$'10s\nWARN forged log line'` cannot inject a second log line or
+    /// rewrite the terminal around it with an ANSI escape. Mirrors
+    /// `git::tests::git_pointer_path_debug_escapes_control_characters`, but
+    /// asserts on the rendered event rather than the value alone so the
+    /// field's sigil itself is pinned.
+    #[test]
+    #[serial_test::serial]
+    fn git_timeout_from_env_warn_escapes_control_characters() {
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone)]
+        struct VecWriter(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for VecWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().write(buf)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
+            type Writer = Self;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let _g = EnvGuard::set(TEST_ENV, "10s\nWARN forged log line\u{1b}[31m");
+
+        let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_writer(VecWriter(Arc::clone(&buf)))
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            assert_eq!(git_timeout_from_env(TEST_ENV, 300), None);
+        });
+
+        let logged = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
+        let value_line = logged
+            .lines()
+            .find(|l| l.contains("unparseable or zero value"))
+            .unwrap_or_else(|| panic!("expected the warn line, got: {logged}"));
+        assert!(
+            value_line.contains("\\n"),
+            "newline must be escaped, not emitted raw: {value_line}"
+        );
+        assert!(
+            !value_line.contains('\u{1b}'),
+            "ANSI escape must not reach the terminal: {value_line}"
+        );
+        assert!(
+            !logged.contains("WARN forged log line\n"),
+            "the value must not be able to forge a log line: {logged}"
         );
     }
 }
