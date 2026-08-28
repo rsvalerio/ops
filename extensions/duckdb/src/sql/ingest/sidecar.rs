@@ -55,8 +55,11 @@ pub const MAX_SIDECAR_BYTES: u64 = 4 * 1024 * 1024;
 ///
 /// # Errors
 ///
-/// [`DbError::Io`] if the sidecar is missing or unreadable, or
-/// [`DbError::SidecarTooLarge`] if it exceeds `MAX_SIDECAR_BYTES`.
+/// [`DbError::Io`] if the sidecar is missing or unreadable. Exceeding
+/// [`MAX_SIDECAR_BYTES`] also surfaces as `DbError::Io`, with
+/// [`std::io::ErrorKind::InvalidData`] — there is no dedicated oversize
+/// variant (READ-4 / TASK-1875: this section used to name a
+/// `DbError::SidecarTooLarge` that does not exist).
 pub fn read_workspace_sidecar(data_dir: &Path, name: &str) -> DbResult<std::ffi::OsString> {
     use std::io::Read;
     let workspace_path = sidecar_path(data_dir, name);

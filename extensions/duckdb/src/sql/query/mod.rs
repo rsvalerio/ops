@@ -1,11 +1,11 @@
 //! Query functions for extracting project and crate-level metrics from `DuckDB`.
 //!
 //! Split by query family for cohesion:
-//! - [`helpers`] — shared scaffolding (locking, `CrateCoverage`, per-crate builders)
-//! - [`loc`]      — LOC, file count, per-language queries over `tokei_files`,
+//! - `helpers` — shared scaffolding (locking, `CrateCoverage`, per-crate builders)
+//! - `loc`      — LOC, file count, per-language queries over `tokei_files`,
 //!   plus the Rust region breakdown over `rust_loc_summary`
-//! - [`coverage`] — project/per-crate coverage over `coverage_files`
-//! - [`deps`]     — dependency count and per-crate deps over `crate_dependencies`
+//! - `coverage` — project/per-crate coverage over `coverage_files`
+//! - `deps`     — dependency count and per-crate deps over `crate_dependencies`
 
 mod coverage;
 mod deps;

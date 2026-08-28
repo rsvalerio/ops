@@ -301,8 +301,10 @@ where
     for row in rows {
         let (path, val) = row.with_context(|| format!("reading {label} row"))?;
         // ERR-1: a duplicate key is a query-shape invariant violation
-        // (workspace glob bug, dropped GROUP BY) — surface it instead of
-        // silently overwriting the prior row.
+        // (workspace glob bug, dropped GROUP BY). The map still takes the
+        // later value — `HashMap::insert` overwrites — so this warns *and*
+        // overwrites; it does not prevent the overwrite (READ-4 /
+        // TASK-1875: the comment used to claim otherwise).
         if result.insert(path.clone(), val).is_some() {
             tracing::warn!(
                 label,
@@ -411,10 +413,6 @@ mod tests {
         assert!(sql.contains("SUM(c.lines_covered)"));
     }
 
-    /// SEC-12 AC #1: an attacker-shaped "prefix" cannot reach the formatted
-    /// SQL because `ColumnAlias::new` rejects non-identifier strings before
-    /// a value can be passed in. This is the regression guard the typed
-    /// signature is meant to provide.
     /// ERR-1: a query that returns the same key twice (e.g. dropped GROUP BY)
     /// must not silently produce a single row in the resulting map. Pinning
     /// behaviour via in-memory `DuckDB` so the regression is visible without a
@@ -479,6 +477,14 @@ mod tests {
         assert_eq!(res.get("b").copied(), Some(5));
     }
 
+    /// SEC-12 AC #1: an attacker-shaped "prefix" cannot reach the formatted
+    /// SQL because `ColumnAlias::new` rejects non-identifier strings before
+    /// a value can be passed in. This is the regression guard the typed
+    /// signature is meant to provide.
+    ///
+    /// READ-4 / TASK-1875: this paragraph previously sat on
+    /// `collect_per_crate_map_keeps_one_entry_for_duplicate_keys`, a test
+    /// about duplicate map keys that makes no SEC-12 claim at all.
     #[test]
     fn column_alias_rejects_non_identifier_prefix() {
         assert!(ColumnAlias::new("c.").is_err());
