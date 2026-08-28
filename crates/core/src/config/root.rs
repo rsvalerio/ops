@@ -43,6 +43,32 @@ pub struct Config {
     pub stack: Option<String>,
 }
 
+/// Mutable state threaded through [`Config::walk_composite`].
+///
+/// The two sets carry **opposite** meanings and neither may be conflated with
+/// the other:
+///
+/// - `visiting` is the current DFS *path*: a node is inserted on entry and
+///   removed on every exit path, so re-encountering one is the cycle signal
+///   (ERR-1 / TASK-1221). It is cleared between sibling roots.
+/// - `validated` maps each node whose subtree has fully validated to that
+///   subtree's *height*, and is never cleared — it is the memo that keeps the
+///   walk linear (SEC-33 / TASK-1832).
+#[derive(Debug, Default)]
+pub struct CompositeWalk<'a> {
+    visiting: std::collections::HashSet<&'a str>,
+    validated: std::collections::HashMap<&'a str, usize>,
+}
+
+#[cfg(test)]
+impl CompositeWalk<'_> {
+    /// ERR-1 / TASK-1221: lets the invariant tests assert that the DFS path
+    /// set is empty on every exit, without making the field public.
+    pub fn path_is_empty(&self) -> bool {
+        self.visiting.is_empty()
+    }
+}
+
 impl Config {
     /// Construct a blank `Config` for the documented degradation paths
     /// ([`load_config_or_default`] fallback, [`init_template`] scaffolding).
@@ -63,22 +89,45 @@ impl Config {
 
     /// Validate all command specs. Called after loading to fail fast on invalid config.
     ///
-    /// Validates exec specs unconditionally. Composite specs are not checked
-    /// here because composite commands may reference stack defaults or
-    /// extension-registered commands that are not known at config load time —
-    /// see [`Config::validate_commands`] for full composite validation.
+    /// This is the validation the shipped binary actually runs — the loader's
+    /// `load_config_at` calls it on every `ops` invocation. It covers:
+    ///
+    /// - every exec spec ([`ExecCommandSpec::validate`]);
+    /// - every theme ([`ThemeConfig::validate`], SEC-33 / TASK-1849);
+    /// - alias hygiene against the config's own command names
+    ///   ([`Config::validate_aliases`], SEC-31 / TASK-1818).
+    ///
+    /// **Composite reference, cycle, and depth checks are not run here.** A
+    /// composite may reference a stack default or an extension-registered
+    /// command that is not known at config load time, so those checks need an
+    /// `externals` list the loader does not have; they live in
+    /// [`Config::validate_commands`] and are re-caught at dispatch by the
+    /// runner's `expand_inner`. Alias hygiene, by contrast, is *not*
+    /// duplicated anywhere downstream, which is why it runs here (SEC-31 /
+    /// TASK-1818): the externals it cannot see only make the check narrower,
+    /// never wrong.
     ///
     /// # Errors
     ///
-    /// If any exec spec fails [`ExecCommandSpec::validate`]. Composite specs are
-    /// not checked here — see [`Config::validate_commands`].
+    /// If any exec spec fails [`ExecCommandSpec::validate`], any theme fails
+    /// [`ThemeConfig::validate`], or alias hygiene fails. Composite reference /
+    /// cycle / depth checks are not performed — see
+    /// [`Config::validate_commands`].
     pub fn validate(&self) -> anyhow::Result<()> {
         for (name, spec) in &self.commands {
             if let CommandSpec::Exec(exec) = spec {
                 exec.validate(name)?;
             }
         }
-        Ok(())
+        // SEC-33 / TASK-1849: `[themes]` was the one config section nothing
+        // screened, so an unbounded `left_pad` reached `" ".repeat(n)` and
+        // aborted the process from a ~400-byte `.ops.toml`.
+        for (name, theme) in &self.themes {
+            theme.validate(name)?;
+        }
+        let own_names: std::collections::HashSet<&str> =
+            self.commands.keys().map(String::as_str).collect();
+        self.validate_aliases(&own_names)
     }
 
     /// Validate exec specs and every composite's references against the
@@ -111,22 +160,48 @@ impl Config {
             .chain(externals.iter().copied())
             .collect();
 
+        // SEC-33 / TASK-1832: `state.validated` is the third DFS colour and is
+        // deliberately carried across the sibling roots — that is what makes
+        // the whole pass O(V+E). `state.visiting` is reset per root; see
+        // [`CompositeWalk`] and [`Config::walk_composite`].
+        let mut state = CompositeWalk::default();
         for (name, spec) in &self.commands {
             if let CommandSpec::Composite(_) = spec {
-                let mut visiting = std::collections::HashSet::new();
-                self.walk_composite(name, &known, &mut visiting, 0)?;
+                state.visiting.clear();
+                self.walk_composite(name, &known, &mut state, 0)?;
             }
         }
 
-        // ERR-1 / TASK-1181, TASK-1182: alias hygiene. The CLI's `External`
-        // dispatcher matches the literal command name first and only falls
-        // through to alias lookup when no command exists by that name, so
-        // an alias that collides with an existing command name is silently
-        // dead. Symmetrically, `resolve_alias` does an order-dependent
-        // linear scan and would invisibly shadow whichever command happens
-        // to appear later in the IndexMap when two commands declare the
-        // same alias. Catch both up-front so misconfigurations fail loud
-        // at validate time rather than as ghost behaviour at invocation.
+        self.validate_aliases(&known)
+    }
+
+    /// ERR-1 / TASK-1181, TASK-1182: alias hygiene.
+    ///
+    /// The CLI's `External` dispatcher matches the literal command name first
+    /// and only falls through to alias lookup when no command exists by that
+    /// name, so an alias that collides with an existing command name is
+    /// silently dead. Symmetrically, [`Config::resolve_alias`] does an
+    /// order-dependent linear scan and would invisibly shadow whichever
+    /// command happens to appear later in the `IndexMap` when two commands
+    /// declare the same alias. Catch both up-front so misconfigurations fail
+    /// loud at validate time rather than as ghost behaviour at invocation.
+    ///
+    /// SEC-31 / TASK-1818: this used to live inside
+    /// [`Config::validate_commands`], which has no production caller — so the
+    /// shipped binary ran neither rule and dispatched to whichever command sat
+    /// earlier in the map. It is now reachable from [`Config::validate`], the
+    /// one validation `load_config_at` performs, with `known` narrowed to the
+    /// config's own command names. `validate_commands` still passes the wider
+    /// set including `externals`; a narrower `known` only makes the
+    /// collides-with-a-command-name rule miss external names, never
+    /// false-positive, and the duplicate-alias rule does not depend on it at
+    /// all.
+    ///
+    /// # Errors
+    ///
+    /// If an alias collides with a name in `known`, or two commands declare
+    /// the same alias.
+    fn validate_aliases(&self, known: &std::collections::HashSet<&str>) -> anyhow::Result<()> {
         let mut alias_owner: std::collections::HashMap<&str, &str> =
             std::collections::HashMap::new();
         for (name, spec) in &self.commands {
@@ -161,19 +236,48 @@ impl Config {
     /// would silently produce false-positive cycle errors on re-validation.
     /// The invariant is now: if this function inserted `name` into `visiting`,
     /// it removes it before returning, regardless of outcome.
+    ///
+    /// SEC-33 / TASK-1832: `validated` is the **second, independent** set and
+    /// carries the opposite meaning — `visiting` is the current DFS *path*
+    /// (inserted on entry, removed on every exit; that is the cycle signal),
+    /// while `validated` is the set of nodes whose entire subtree already
+    /// returned `Ok` and is never cleared. Without it the walker re-descended
+    /// into every shared subtree once per incoming edge, so a 31-command
+    /// diamond chain (`c0 = ["c1","c1"]`, `c1 = ["c2","c2"]`, …) cost 2^30
+    /// visits and hung `ops <anything>` — an unauthenticated local `DoS` from
+    /// repo-supplied `.ops.toml`, well inside every existing size cap. Skipping
+    /// a `validated` node is sound: a node that completed with no cycle cannot
+    /// acquire one by being reached from a second parent, because a cycle
+    /// through it would have been a cycle on the first descent too. Dropping
+    /// `validated` in a refactor restores the exponential blowup silently — the
+    /// diamond tests still pass, only the timing changes.
     pub(crate) fn walk_composite<'a>(
         &'a self,
         name: &'a str,
         known: &std::collections::HashSet<&'a str>,
-        visiting: &mut std::collections::HashSet<&'a str>,
+        state: &mut CompositeWalk<'a>,
         depth: usize,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<usize> {
+        // Memo hit. The stored value is the subtree's *height* (edges below
+        // this node), not a bare "seen" flag: the depth limit is measured from
+        // whichever root we entered by, so a node validated at depth 10 can
+        // still blow the limit when reached again at depth 95. Re-checking
+        // `depth + height` keeps the memoised path bit-identical to the
+        // re-walked one instead of quietly failing open.
+        if let Some(&height) = state.validated.get(name) {
+            if depth.saturating_add(height) > MAX_COMPOSITE_DEPTH {
+                anyhow::bail!(
+                    "command '{name}': composite expansion exceeded depth limit {MAX_COMPOSITE_DEPTH}"
+                );
+            }
+            return Ok(height);
+        }
         if depth > MAX_COMPOSITE_DEPTH {
             anyhow::bail!(
                 "command '{name}': composite expansion exceeded depth limit {MAX_COMPOSITE_DEPTH}"
             );
         }
-        if !visiting.insert(name) {
+        if !state.visiting.insert(name) {
             // `name` was already in the set: this is the cycle signal, and
             // the prior insertion belongs to an ancestor frame which is
             // responsible for removing it on its own way out.
@@ -182,7 +286,8 @@ impl Config {
         // From here we own the `visiting` entry for `name`. Drive the body
         // through a single result binding so the post-loop `remove` runs on
         // every path — including unknown-ref bail and recursive Err.
-        let mut result: anyhow::Result<()> = Ok(());
+        let mut result: anyhow::Result<usize> = Ok(0);
+        let mut height = 0usize;
         if let Some(CommandSpec::Composite(c)) = self.commands.get(name) {
             for sub in &c.commands {
                 let sub_str = sub.as_str();
@@ -198,14 +303,26 @@ impl Config {
                 // validate path, not this one.
                 if let Some(CommandSpec::Composite(_)) = self.commands.get(sub_str) {
                     let next = depth.saturating_add(1);
-                    if let Err(e) = self.walk_composite(sub_str, known, visiting, next) {
-                        result = Err(e);
-                        break;
+                    match self.walk_composite(sub_str, known, state, next) {
+                        Ok(child_height) => {
+                            height = height.max(child_height.saturating_add(1));
+                        }
+                        Err(e) => {
+                            result = Err(e);
+                            break;
+                        }
                     }
                 }
             }
         }
-        visiting.remove(name);
+        state.visiting.remove(name);
+        if result.is_ok() {
+            // Only a subtree that fully validated may be memoised; a node whose
+            // walk bailed must be re-walked so the same error surfaces from
+            // every root that reaches it.
+            state.validated.insert(name, height);
+            result = Ok(height);
+        }
         result
     }
 

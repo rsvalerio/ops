@@ -171,7 +171,18 @@ pub struct ThemeConfig {
     #[serde(default)]
     pub description: Option<String>,
     /// Number of spaces to prepend to all rendered output lines (left margin).
-    #[serde(default = "default_left_pad")]
+    ///
+    /// SEC-33 / TASK-1849: bounded by [`MAX_LEFT_PAD`] at the serde layer.
+    /// This value sizes an allocation directly (`" ".repeat(left_pad)` in
+    /// `theme::ConfigurableTheme::new`, `runner::display::style`), so an
+    /// unbounded `usize` from a repo-supplied `.ops.toml` was a ~400-byte
+    /// capacity-overflow panic / OOM-abort primitive. The bound is enforced
+    /// during deserialization so an out-of-range value can never be stored,
+    /// and again in [`Self::validate`] for programmatically-built configs.
+    #[serde(
+        default = "default_left_pad",
+        deserialize_with = "deserialize_left_pad"
+    )]
     pub left_pad: usize,
     /// Optional prefix printed before "Running:" in plain plan headers (e.g. "🚀 ").
     #[serde(default)]
@@ -202,6 +213,33 @@ pub struct ThemeConfig {
 
 const fn default_left_pad() -> usize {
     1
+}
+
+/// SEC-33 / TASK-1849: upper bound on [`ThemeConfig::left_pad`].
+///
+/// `left_pad` is a left margin measured in terminal columns. 1024 is already
+/// an order of magnitude past the widest realistic terminal, so the bound
+/// cannot reject a legitimate theme, while capping the allocation the value
+/// drives at one kibibyte of spaces.
+pub const MAX_LEFT_PAD: usize = 1024;
+
+/// SEC-33 / TASK-1849: reject an out-of-range `left_pad` during
+/// deserialization, before the value is ever stored on a [`ThemeConfig`].
+///
+/// serde reports the offending key path (`themes.<name>.left_pad`) around this
+/// error, so the operator sees which theme and field is at fault.
+fn deserialize_left_pad<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+    let value = usize::deserialize(deserializer)?;
+    if value > MAX_LEFT_PAD {
+        return Err(D::Error::custom(format!(
+            "left_pad must be at most {MAX_LEFT_PAD} (got {value})"
+        )));
+    }
+    Ok(value)
 }
 
 // The `{spinner}` / `{msg}` / `{elapsed}` tokens in `running_template` are
@@ -275,6 +313,41 @@ impl ThemeConfig {
             layout_kind: LayoutKind::Flat,
             report: ReportTheme::default(),
         }
+    }
+
+    /// SEC-33 / TASK-1849: screen the theme's numeric knobs at config-load
+    /// time. `Config::validate` — the one validation `load_config_at` runs —
+    /// calls this for every entry in `[themes]`, which until TASK-1849 was the
+    /// only config section nothing validated at all.
+    ///
+    /// The serde layer ([`deserialize_left_pad`]) already rejects an
+    /// out-of-range `left_pad` before it can be stored, so for a TOML-sourced
+    /// theme this is defence in depth; it is the *only* screen for a
+    /// programmatically-built [`ThemeConfig`] (extensions, test-support
+    /// constructors), and it is what puts the theme name in the message.
+    ///
+    /// Audit of the remaining numeric fields, so the next reader does not have
+    /// to redo it:
+    ///
+    /// - `running_template_overhead: usize` — only ever `saturating_sub`ed
+    ///   from a `u16` column count; it shrinks a width, never sizes an
+    ///   allocation, so any value is inert.
+    /// - `OutputConfig::columns` is a `u16` and `stderr_tail_lines` caps a
+    ///   ring buffer; both live outside `ThemeConfig` and are bounded by their
+    ///   own types.
+    ///
+    /// `left_pad` is therefore the only allocation lever in this type.
+    ///
+    /// # Errors
+    ///
+    /// If `left_pad` exceeds [`MAX_LEFT_PAD`].
+    pub fn validate(&self, name: &str) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.left_pad <= MAX_LEFT_PAD,
+            "theme '{name}': left_pad must be at most {MAX_LEFT_PAD} (got {})",
+            self.left_pad
+        );
+        Ok(())
     }
 
     /// Get the icon for a given step status.

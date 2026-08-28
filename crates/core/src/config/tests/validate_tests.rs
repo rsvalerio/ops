@@ -141,6 +141,55 @@ fn exec_spec_validate_allows_tab() {
     assert!(e.validate("ok").is_ok());
 }
 
+/// SEC-11 / TASK-1826: a NUL in an `env` **value** reaches `Command::env`
+/// unscreened before the fix and surfaces as std's anonymous "nul byte found
+/// in provided data". Validation must name the command and the variable.
+#[test]
+fn exec_spec_validate_rejects_nul_in_env_value() {
+    let mut e = exec_spec("echo", &["hi"]);
+    e.env.insert("TOKEN".to_string(), "se\u{0}cret".to_string());
+    let err = e.validate("deploy").unwrap_err().to_string();
+    assert!(err.contains("deploy"), "expected command name, got: {err}");
+    assert!(err.contains("env[TOKEN]"), "expected the key, got: {err}");
+    assert!(
+        err.contains("control character"),
+        "expected control char mention: {err}"
+    );
+}
+
+/// SEC-11 / TASK-1826: a control character in an env **key** is rejected too —
+/// the key is half of what `Command::env` receives.
+#[test]
+fn exec_spec_validate_rejects_control_char_in_env_key() {
+    let mut e = exec_spec("echo", &["hi"]);
+    e.env.insert("BA\nD".to_string(), "x".to_string());
+    let err = e.validate("deploy").unwrap_err().to_string();
+    assert!(err.contains("deploy"), "expected command name, got: {err}");
+    assert!(err.contains("env key"), "expected env-key mention: {err}");
+}
+
+/// SEC-11 / TASK-1826: an `=` in an env key produces an entry the child's
+/// `getenv` can never retrieve, so it fails at load naming the key.
+#[test]
+fn exec_spec_validate_rejects_equals_in_env_key() {
+    let mut e = exec_spec("echo", &["hi"]);
+    e.env.insert("A=B".to_string(), "x".to_string());
+    let err = e.validate("deploy").unwrap_err().to_string();
+    assert!(err.contains("deploy"), "expected command name, got: {err}");
+    assert!(err.contains("A=B"), "expected the key, got: {err}");
+    assert!(err.contains('='), "expected the '=' rule, got: {err}");
+}
+
+/// SEC-11 / TASK-1826: an ordinary env map still validates — the new screen
+/// must not reject legitimate configs (tab stays allowed, as in `args`).
+#[test]
+fn exec_spec_validate_accepts_plain_env() {
+    let mut e = exec_spec("echo", &["hi"]);
+    e.env.insert("RUST_LOG".to_string(), "debug".to_string());
+    e.env.insert("TABBED".to_string(), "a\tb".to_string());
+    e.validate("ok").expect("plain env must validate");
+}
+
 /// TASK-1430: typo of the `program` field reports the Exec error, not
 /// the misleading Composite "missing field `commands`".
 #[test]
@@ -313,14 +362,25 @@ fn global_config_path_uses_appdata_on_windows() {
 mod read_config_file_error_paths {
     use super::*;
 
-    /// TQ-EFF-001: Test that permission-denied errors are handled gracefully.
+    /// TQ-EFF-001 / TEST-2 (TASK-1835): an unreadable config file must fail
+    /// **loud** — `Err`, not the `Ok(None)` that means "file absent". The two
+    /// outcomes are the fail-closed / fail-open fork of the config reader, and
+    /// the sibling `read_config_file_missing_returns_ok_none` pins the other
+    /// side of it. The name says `returns_err` because that is what the body
+    /// asserts; the previous name documented the opposite contract.
     ///
     /// This test is Unix-only because it uses `std::os::unix::fs::PermissionsExt`
     /// to set file permissions. Windows file permissions work differently (ACLs)
     /// and would require a different test approach.
+    ///
+    /// TEST-18 (TASK-1835): `chmod 0o000` is bypassed by `CAP_DAC_OVERRIDE`, so
+    /// under a privileged sandbox (CI as root, fakeroot) the read succeeds and
+    /// there is nothing to assert. Detect that case the way
+    /// `edit.rs::sync_parent_dir_warns_when_parent_open_fails` does — probe the
+    /// open first, and only assert the refusal when the OS actually denied it.
     #[cfg(unix)]
     #[test]
-    fn read_config_file_permission_denied_returns_none() {
+    fn read_config_file_permission_denied_returns_err() {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir().expect("tempdir");
@@ -329,10 +389,31 @@ mod read_config_file_error_paths {
 
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
 
+        // Independent probe: does this process actually get EACCES here?
+        let dac_enforced = std::fs::File::open(&path)
+            .err()
+            .is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied);
         let result = read_config_file(&path);
-        assert!(result.is_err(), "permission denied should return Err");
 
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+        // Restore permissions before any assertion so a failure cannot leave a
+        // 0o000 file behind for the `TempDir` teardown.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).ok();
+
+        if dac_enforced {
+            let err = result.expect_err("permission denied must return Err, never Ok(None)");
+            assert!(
+                format!("{err:#}").contains("unreadable.toml"),
+                "error must name the offending file, got: {err:#}"
+            );
+        } else {
+            // Privileged sandbox: DAC was bypassed, so the read is expected to
+            // succeed. Pin that it is not silently swallowed as "absent".
+            let overlay = result.expect("privileged read must succeed");
+            assert!(
+                overlay.is_some(),
+                "a readable file must never map to Ok(None)"
+            );
+        }
     }
 }
 
@@ -532,16 +613,16 @@ fn walk_composite_clears_visiting_on_unknown_ref_error() {
         "outer".to_string(),
         CommandSpec::Composite(CompositeCommandSpec::new(["nope"])),
     );
-    let mut visiting: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut state = crate::config::root::CompositeWalk::default();
     let known: std::collections::HashSet<&str> =
         config.commands.keys().map(String::as_str).collect();
     let err = config
-        .walk_composite("outer", &known, &mut visiting, 0)
+        .walk_composite("outer", &known, &mut state, 0)
         .expect_err("unknown ref must error");
     assert!(format!("{err:#}").contains("unknown command 'nope'"));
     assert!(
-        visiting.is_empty(),
-        "visiting must be cleared after error; got: {visiting:?}"
+        state.path_is_empty(),
+        "visiting must be cleared after error; got: {state:?}"
     );
 }
 
@@ -559,16 +640,16 @@ fn walk_composite_clears_visiting_on_recursive_error() {
         "mid".to_string(),
         CommandSpec::Composite(CompositeCommandSpec::new(["nope"])),
     );
-    let mut visiting: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut state = crate::config::root::CompositeWalk::default();
     let known: std::collections::HashSet<&str> =
         config.commands.keys().map(String::as_str).collect();
     let err = config
-        .walk_composite("outer", &known, &mut visiting, 0)
+        .walk_composite("outer", &known, &mut state, 0)
         .expect_err("nested unknown ref must error");
     assert!(format!("{err:#}").contains("unknown command 'nope'"));
     assert!(
-        visiting.is_empty(),
-        "visiting must be cleared even on recursive error; got: {visiting:?}"
+        state.path_is_empty(),
+        "visiting must be cleared even on recursive error; got: {state:?}"
     );
 }
 
@@ -582,4 +663,259 @@ fn scale_columns_handles_huge_widths_without_wrapping() {
     // 8000 cols: in u16, 8000 * 9 wraps; the u32-promoted version returns 7200.
     assert_eq!(scale_columns(8000), 7200);
     assert_eq!(scale_columns(u16::MAX), 58_981);
+}
+
+/// SEC-31 / TASK-1818: the two alias-hygiene rules must run in the **shipped
+/// binary**. They lived only in `validate_commands`, which has no production
+/// caller, so a `.ops.toml` declaring the same alias twice loaded cleanly and
+/// then dispatched to whichever command happened to sit earlier in the
+/// `IndexMap` — silently running the wrong command. This test goes through the
+/// real load entry point, not a direct `validate_commands` call.
+#[test]
+#[serial]
+fn load_config_rejects_duplicate_alias_across_commands() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let _xdg = EnvGuard::set(
+        "XDG_CONFIG_HOME",
+        dir.path().join("xdg-empty").display().to_string(),
+    );
+    let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
+    crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
+    std::fs::write(
+        dir.path().join(".ops.toml"),
+        r#"
+[commands.build]
+program = "cargo"
+aliases = ["b"]
+
+[commands.bench]
+program = "cargo"
+aliases = ["b"]
+"#,
+    )
+    .unwrap();
+
+    let err = crate::config::load_config_at(dir.path())
+        .expect_err("a duplicate alias must fail the real load path");
+
+    let msg = format!("{err:#}");
+    assert!(msg.contains("'b'"), "error must name the alias, got: {msg}");
+    assert!(
+        msg.contains("build") && msg.contains("bench"),
+        "error must name both owners, got: {msg}"
+    );
+}
+
+/// SEC-31 / TASK-1818: the symmetric rule — an alias shadowing an existing
+/// command name is silently dead at dispatch, and must fail the real load
+/// path rather than at invocation time.
+#[test]
+#[serial]
+fn load_config_rejects_alias_shadowing_a_command_name() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let _xdg = EnvGuard::set(
+        "XDG_CONFIG_HOME",
+        dir.path().join("xdg-empty").display().to_string(),
+    );
+    let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
+    crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
+    std::fs::write(
+        dir.path().join(".ops.toml"),
+        r#"
+[commands.build]
+program = "cargo"
+
+[commands.bench]
+program = "cargo"
+aliases = ["build"]
+"#,
+    )
+    .unwrap();
+
+    let err = crate::config::load_config_at(dir.path())
+        .expect_err("an alias shadowing a command name must fail the real load path");
+
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("collides with an existing command name"),
+        "error must explain the collision, got: {msg}"
+    );
+    assert!(msg.contains("build"), "error must name the alias: {msg}");
+}
+
+/// SEC-33 / TASK-1832: `walk_composite` kept no memory of subtrees it had
+/// already validated, so every extra incoming edge re-walked the whole
+/// subtree. A 31-command `.ops.toml` where each composite lists the next one
+/// twice therefore cost 2^30 visits and hung `ops <anything>` — an
+/// unauthenticated local `DoS` from repo-supplied config, well inside every size
+/// cap. With the `validated` memo the walk is O(V+E) and returns instantly.
+///
+/// TEST-15: the budget is deliberately enormous (five seconds against a walk
+/// that now takes microseconds) so the test cannot flake on a loaded CI box
+/// while still failing decisively if the memo is dropped — 2^30 visits do not
+/// complete in five seconds on any machine.
+#[test]
+fn validate_commands_doubling_chain_is_not_exponential() {
+    use crate::config::CompositeCommandSpec;
+    let mut config = Config::default();
+    let depth = 30;
+    for i in 0..depth {
+        let next = format!("c{}", i + 1);
+        config.commands.insert(
+            format!("c{i}"),
+            // Each composite lists its successor *twice*: without memoisation
+            // this doubles the visit count at every level.
+            CommandSpec::Composite(CompositeCommandSpec::new([next.clone(), next])),
+        );
+    }
+    config.commands.insert(
+        format!("c{depth}"),
+        CommandSpec::Exec(exec_spec("true", &[])),
+    );
+
+    let started = std::time::Instant::now();
+    config
+        .validate_commands(&[])
+        .expect("a doubling chain is a DAG, not a cycle");
+    let elapsed = started.elapsed();
+
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "validation must be linear in the command count, took {elapsed:?}"
+    );
+}
+
+/// SEC-33 / TASK-1832: memoisation must not weaken the depth limit. A node
+/// validated at a shallow depth can still blow `MAX_COMPOSITE_DEPTH` when
+/// reached again from a deeper root, so the memo stores each subtree's height
+/// and re-checks `depth + height` on every hit. A bare "seen" flag would fail
+/// open here.
+#[test]
+fn validate_commands_memo_still_enforces_depth_limit() {
+    use crate::config::CompositeCommandSpec;
+    let mut config = Config::default();
+    // A straight chain c0 -> c1 -> ... -> cN with N > MAX_COMPOSITE_DEPTH.
+    // `validate_commands` walks every composite as a root, so the deepest
+    // suffixes memoise first and the full-length root then hits the memo.
+    let n = MAX_COMPOSITE_DEPTH + 5;
+    for i in 0..n {
+        config.commands.insert(
+            format!("c{i}"),
+            CommandSpec::Composite(CompositeCommandSpec::new([format!("c{}", i + 1)])),
+        );
+    }
+    config
+        .commands
+        .insert(format!("c{n}"), CommandSpec::Exec(exec_spec("true", &[])));
+
+    let err = config
+        .validate_commands(&[])
+        .expect_err("an over-deep chain must still be rejected");
+    assert!(
+        format!("{err:#}").contains("depth"),
+        "expected a depth-limit error, got: {err:#}"
+    );
+}
+
+/// SEC-33 / TASK-1849: `left_pad` sizes `" ".repeat(n)` in three renderers,
+/// and nothing validated `[themes]`, so a ~400-byte `.ops.toml` could panic
+/// the process with a capacity overflow. It must now be a clean `Err` from the
+/// real load path.
+#[test]
+#[serial]
+fn load_config_rejects_usize_max_left_pad() {
+    let err = load_config_with_left_pad(&usize::MAX.to_string());
+    assert!(
+        err.contains("left_pad"),
+        "error must name the field, got: {err}"
+    );
+}
+
+/// SEC-33 / TASK-1849: the allocation-failure shape (`memory allocation of
+/// 50000000000 bytes failed`, an abort) is rejected the same way.
+#[test]
+#[serial]
+fn load_config_rejects_huge_left_pad() {
+    let err = load_config_with_left_pad("50000000000");
+    assert!(
+        err.contains("left_pad"),
+        "error must name the field, got: {err}"
+    );
+}
+
+/// SEC-33 / TASK-1849: a realistic margin still loads — the bound must not
+/// reject legitimate themes.
+#[test]
+#[serial]
+fn load_config_accepts_ordinary_left_pad() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let _xdg = EnvGuard::set(
+        "XDG_CONFIG_HOME",
+        dir.path().join("xdg-empty").display().to_string(),
+    );
+    let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
+    crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
+    std::fs::write(dir.path().join(".ops.toml"), theme_toml("4")).unwrap();
+
+    let config = crate::config::load_config_at(dir.path()).expect("an ordinary left_pad must load");
+    assert_eq!(config.themes["wide"].left_pad, 4);
+}
+
+/// SEC-33 / TASK-1849: `ThemeConfig::validate` is the screen for a
+/// programmatically-built theme, which never passes through serde. Its message
+/// names the theme so an operator can find it.
+#[test]
+fn theme_validate_rejects_out_of_range_left_pad_and_names_the_theme() {
+    use crate::config::theme_types::MAX_LEFT_PAD;
+    let mut theme = crate::config::theme_types::ThemeConfig::classic();
+    theme.left_pad = MAX_LEFT_PAD + 1;
+
+    let err = theme
+        .validate("gigantic")
+        .expect_err("an out-of-range left_pad must be rejected")
+        .to_string();
+
+    assert!(err.contains("gigantic"), "must name the theme, got: {err}");
+    assert!(err.contains("left_pad"), "must name the field, got: {err}");
+}
+
+/// A `.ops.toml` defining and selecting a theme with the given `left_pad`.
+fn theme_toml(left_pad: &str) -> String {
+    format!(
+        r#"
+[output]
+theme = "wide"
+
+[themes.wide]
+icon_pending = "o"
+icon_running = ""
+icon_succeeded = "+"
+icon_failed = "x"
+icon_skipped = "-"
+separator_char = "."
+step_indent = "  "
+running_template = "  {{spinner}}{{msg}} {{elapsed}}"
+tick_chars = "|/-\\ "
+running_template_overhead = 7
+summary_prefix = ""
+summary_separator = ""
+left_pad = {left_pad}
+"#
+    )
+}
+
+/// Load a `.ops.toml` carrying `left_pad` and return the rendered error chain.
+fn load_config_with_left_pad(left_pad: &str) -> String {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let _xdg = EnvGuard::set(
+        "XDG_CONFIG_HOME",
+        dir.path().join("xdg-empty").display().to_string(),
+    );
+    let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
+    crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
+    std::fs::write(dir.path().join(".ops.toml"), theme_toml(left_pad)).unwrap();
+
+    let err = crate::config::load_config_at(dir.path())
+        .expect_err("an out-of-range left_pad must be a clean Err, not a panic or an abort");
+    format!("{err:#}")
 }
