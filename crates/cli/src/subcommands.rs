@@ -60,7 +60,7 @@ pub fn run_about(
 #[cfg(feature = "stack-rust")]
 pub fn run_deps(config: &Config, refresh: bool) -> anyhow::Result<()> {
     let (_cwd, registry) = cli_data_context(config)?;
-    let opts = ops_deps::DepsOptions { refresh };
+    let opts = ops_deps::DepsOptions::new(refresh);
     ops_deps::run_deps(&registry, &opts)
 }
 

@@ -31,11 +31,30 @@ use ops_extension::{
 use std::time::Duration;
 
 pub use format::build_report;
+
+// ARCH-9 / TASK-1846: the published parse surface is the *guarded* one. Both
+// tools now expose the same pair — a `run_cargo_*` entry point that spawns,
+// and an `interpret_*_output` / `interpret_*_result` entry point that applies
+// every drift guard to an already-collected `(exit code, output)` triple.
+// `parse_upgrade_table` used to sit here too: it is
+// `parse_upgrade_table_inner(stdout).0`, so it *discards*
+// `UpgradeParseDiagnostics` and thereby bypasses the header-drift (TASK-1074),
+// row-shape-drift (TASK-1202) and missing-separator (TASK-1817) guards this
+// crate spent four tasks building. Exporting the obvious-looking name for the
+// one function that cannot fail and cannot warn made opting out of the whole
+// fail-closed posture the path of least resistance, so it is now crate-private.
 pub use parse::{
-    categorize_upgrades, interpret_deny_result, parse_deny_output, parse_upgrade_table,
+    categorize_upgrades, interpret_deny_result, interpret_upgrade_output, parse_deny_output,
     run_cargo_deny, run_cargo_upgrade_dry_run,
 };
-pub use types::*;
+
+// ARCH-4 / TASK-1846: an explicit re-export list, not `pub use types::*`.
+// The glob made every type added to `types.rs` a public API change by
+// default, including ones meant as internals.
+pub use types::{
+    AdvisoryEntry, BanEntry, DenyEntry, DenyResult, DepsReport, LicenseEntry, SourceEntry,
+    UpgradeEntry, UpgradeResult,
+};
 
 pub const NAME: &str = "deps";
 pub const DESCRIPTION: &str = "Dependency health: upgrades, advisories, licenses, bans, sources";
@@ -137,8 +156,29 @@ pub fn build_user_context() -> anyhow::Result<Context> {
 }
 
 /// Options for the deps command.
+///
+/// API-9 / TASK-1850: `#[non_exhaustive]` matches every other public type
+/// this crate exports (`UpgradeEntry`, `DenyResult`, `DepsReport`,
+/// `DepsExtension`, …) and keeps the next `ops deps` flag additive. This is
+/// the options bag most likely to grow, and `#[non_exhaustive]` cannot be
+/// added once external exhaustive-literal construction sites exist without
+/// breaking them — so the cost of the attribute only goes up with time.
+/// Construct via [`DepsOptions::new`] or [`Default`] plus struct-update
+/// syntax.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct DepsOptions {
+    /// Re-collect dependency data instead of serving the payload persisted
+    /// in the data cache. Wired to `ops deps --refresh`.
     pub refresh: bool,
+}
+
+impl DepsOptions {
+    /// Options with `refresh` set as given and every other field defaulted.
+    #[must_use]
+    pub const fn new(refresh: bool) -> Self {
+        Self { refresh }
+    }
 }
 
 /// Run the deps command: check tool availability, collect data, print report.
@@ -175,8 +215,25 @@ pub fn run_deps(
     let theme = ops_theme::resolve_theme(&ctx.config().output.theme, &ctx.config().themes)
         .map_err(|e| anyhow::anyhow!("deps: {e}"))?;
 
-    let value = ctx.get_or_provide(DATA_PROVIDER_NAME, data_registry)?;
-    let report: DepsReport = serde_json::from_value(std::sync::Arc::unwrap_or_clone(value))?;
+    // ERR-4 / TASK-1827: both of these were the crate's only bare `?`s, so a
+    // failure surfaced as serde's or the registry's own message with nothing
+    // naming `ops deps`. The deserialize one matters most: `get_or_provide`
+    // serves a *previously persisted* payload when one exists, and
+    // `DepsReport` is `#[non_exhaustive]` and still growing fields — so a
+    // cache written by an older `ops` is a live failure mode whose remedy
+    // (`--refresh`) the operator cannot guess from `missing field
+    // `upgrades``.
+    let value = ctx
+        .get_or_provide(DATA_PROVIDER_NAME, data_registry)
+        .with_context(|| {
+            format!("deps: the `{DATA_PROVIDER_NAME}` data provider failed to produce a report")
+        })?;
+    let report: DepsReport = serde_json::from_value(std::sync::Arc::unwrap_or_clone(value))
+        .context(
+            "deps: failed to decode the dependency report payload; it may have been written to \
+             the data cache by an older `ops`. Re-run with `ops deps --refresh` to discard the \
+             cached payload and re-collect it",
+        )?;
 
     for line in theme.render_report(&build_report(&report), columns) {
         println!("{line}");
@@ -187,6 +244,42 @@ pub fn run_deps(
     }
 
     Ok(())
+}
+
+/// DUP-3 / TASK-0989, TASK-1821: the crate's single severity-classifier
+/// feeds both gates. The *partition* — which cargo-deny severity strings
+/// exist and which of them are benign — lives exactly once, in
+/// [`format::SeverityClass::classify`], the same definition the renderer
+/// uses for icons, colours and [`ops_core::report::ReportStatus`]. Encoding
+/// it twice meant a drift between the two copies was undetectable from
+/// either side: each module's own tests still passed while the visible row
+/// status contradicted the process exit code.
+///
+/// `relax_warning = true` is the bans-only relaxation (cargo-deny emits
+/// duplicate-crate diagnostics at `warning` and project policy treats those
+/// as informational — "transitive, usually harmless"). It stays here, at
+/// the call site, rather than inside the shared classifier: it is a policy
+/// of *this gate*, not a fact about the severity string.
+///
+/// ERR-2 (TASK-0601): unknown severities fail closed and fire a
+/// `tracing::warn!` so schema drift surfaces in logs without skipping the
+/// gate — mirroring `SeverityClass::Unknown` rendering as
+/// `ReportStatus::Error`.
+fn severity_is_actionable(severity: &str, relax_warning: bool) -> bool {
+    match format::SeverityClass::classify(severity) {
+        format::SeverityClass::Error => true,
+        format::SeverityClass::Warning => !relax_warning,
+        // Known-benign in cargo-deny output: informational diagnostics
+        // that should not fail CI.
+        format::SeverityClass::Info => false,
+        format::SeverityClass::Unknown => {
+            tracing::warn!(
+                severity = %severity,
+                "TASK-0601: unknown cargo-deny severity treated as actionable (fail-closed); update SeverityClass::classify if this is benign"
+            );
+            true
+        }
+    }
 }
 
 /// Returns true if the report contains any actionable issues.
@@ -204,50 +297,26 @@ pub fn run_deps(
 /// unknown severities fire a one-off `tracing::warn!` so schema drift
 /// surfaces in logs without skipping the gate.
 fn has_issues(report: &DepsReport) -> bool {
-    // DUP-3 / TASK-0989: single severity-classifier shared by both gates;
-    // `relax_warning = true` is the bans-only relaxation (cargo-deny emits
-    // duplicate-crate diagnostics at `warning` and project policy treats
-    // those as informational — "transitive, usually harmless"). Advisories
-    // / licenses / sources keep the strict gate. A future cargo-deny
-    // severity (`critical`, `notice`, …) is now a one-line edit on this
-    // helper instead of two parallel match arms.
-    fn is_actionable(severity: &str, relax_warning: bool) -> bool {
-        match severity {
-            "error" => true,
-            "warning" => !relax_warning,
-            // Known-benign in cargo-deny output: informational diagnostics
-            // that should not fail CI.
-            "note" | "help" | "info" => false,
-            other => {
-                tracing::warn!(
-                    severity = %other,
-                    "TASK-0601: unknown cargo-deny severity treated as actionable (fail-closed); update has_issues if this is benign"
-                );
-                true
-            }
-        }
-    }
-
     report
         .deny
         .advisories
         .iter()
-        .any(|e| is_actionable(&e.severity, false))
+        .any(|e| severity_is_actionable(&e.severity, false))
         || report
             .deny
             .licenses
             .iter()
-            .any(|e| is_actionable(&e.severity, false))
+            .any(|e| severity_is_actionable(&e.severity, false))
         || report
             .deny
             .bans
             .iter()
-            .any(|e| is_actionable(&e.severity, true))
+            .any(|e| severity_is_actionable(&e.severity, true))
         || report
             .deny
             .sources
             .iter()
-            .any(|e| is_actionable(&e.severity, false))
+            .any(|e| severity_is_actionable(&e.severity, false))
 }
 
 // ── Extension + DataProvider ────────────────────────────────────────────────

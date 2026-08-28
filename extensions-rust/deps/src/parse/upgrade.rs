@@ -37,10 +37,25 @@ pub fn run_cargo_upgrade_dry_run(working_dir: &Path) -> anyhow::Result<Vec<Upgra
     interpret_upgrade_output(output.status.code(), &output.stdout, &output.stderr)
 }
 
-/// Map a `cargo upgrade --dry-run` `(exit_code, stdout, stderr)` triple to
-/// either a parsed `Vec<UpgradeEntry>` or an error including the stderr
-/// tail. Split out so unit tests can pin the exit-code semantics without
-/// spawning the binary.
+/// Interpret an already-collected `cargo upgrade --dry-run` result.
+///
+/// Maps an `(exit_code, stdout, stderr)` triple to either a parsed
+/// `Vec<UpgradeEntry>` or an error carrying the stderr tail. Split out from
+/// [`run_cargo_upgrade_dry_run`] so callers (and tests) can pin the
+/// exit-code and format-drift semantics without spawning the binary.
+///
+/// ARCH-9 / TASK-1846: this is the *guarded* upgrade entry point, published
+/// on the same terms as [`super::interpret_deny_result`]. It is the only
+/// path that applies [`check_missing_separator_drift`],
+/// [`check_header_drift`] and [`check_row_shape_drift`], so it is what
+/// callers who want the crate's fail-closed posture should reach for.
+///
+/// # Errors
+///
+/// If `cargo upgrade` was killed by a signal, exited non-zero, or produced
+/// a table whose separator row, header line, or row shape indicates
+/// cargo-edit format drift — in every case rather than scoring the run as
+/// "no upgrades available".
 pub fn interpret_upgrade_output(
     exit_code: Option<i32>,
     stdout: &[u8],
@@ -50,6 +65,7 @@ pub fn interpret_upgrade_output(
         Some(0) => {
             let stdout = String::from_utf8_lossy(stdout);
             let (entries, diag) = parse_upgrade_table_inner(&stdout);
+            check_missing_separator_drift(&diag)?;
             check_header_drift(&diag)?;
             check_row_shape_drift(&diag)?;
             Ok(entries)
@@ -68,6 +84,24 @@ pub fn interpret_upgrade_output(
             )
         }
     }
+}
+
+/// ERR-1 / TASK-1817: the third fail-open permutation. `check_header_drift`
+/// (TASK-1074) and `check_row_shape_drift` (TASK-1202) are both gated on
+/// `saw_separator`, so output that carries content lines but *no* `====`
+/// separator row escaped both guards and scored as "no upgrades available".
+/// The separator is pure decoration upstream, which makes dropping it the
+/// most likely rendering change cargo-edit could make.
+fn check_missing_separator_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Result<()> {
+    if !diag.saw_separator && diag.content_lines > 0 {
+        anyhow::bail!(
+            "cargo upgrade --dry-run produced {content_lines} content line(s) but no `====` \
+             separator row, so no column geometry could be derived; refusing to score as \
+             `no upgrades` — suspect cargo-edit table-rendering drift",
+            content_lines = diag.content_lines
+        );
+    }
+    Ok(())
 }
 
 fn check_header_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Result<()> {
@@ -113,6 +147,15 @@ fn check_row_shape_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Result<()> {
 /// row rather than splitting on whitespace, so multi-word notes (e.g. "pinned
 /// by parent") and any future column additions don't silently shift values
 /// across `UpgradeEntry` fields.
+///
+/// **ARCH-9 / TASK-1846: not a drift-safe entry point.** This discards
+/// [`UpgradeParseDiagnostics`], so it bypasses [`check_missing_separator_drift`]
+/// (TASK-1817), [`check_header_drift`] (TASK-1074) and
+/// [`check_row_shape_drift`] (TASK-1202) — an unrecognised table silently
+/// yields an empty `Vec` that reads as "no upgrades available". Production
+/// code goes through [`interpret_upgrade_output`]; this is `#[cfg(test)]`-only
+/// and exists so the column-slicing tests can drive the geometry directly.
+#[cfg(test)]
 #[must_use]
 pub fn parse_upgrade_table(stdout: &str) -> Vec<UpgradeEntry> {
     parse_upgrade_table_inner(stdout).0
@@ -130,6 +173,12 @@ struct UpgradeParseDiagnostics {
     saw_recognised_header: bool,
     /// Number of non-empty lines observed after the `====` separator.
     body_lines: usize,
+    /// Number of non-empty, non-header, non-separator lines observed
+    /// anywhere in the output. ERR-1 / TASK-1817:
+    /// [`check_missing_separator_drift`] uses it to tell "cargo printed
+    /// nothing at all" (legitimately zero upgrades) apart from "cargo printed
+    /// a table we could not align because the separator row is gone".
+    content_lines: usize,
     /// Number of rows successfully parsed into an `UpgradeEntry`.
     /// ERR-1 / TASK-1202: combined with `body_lines`, this lets
     /// [`interpret_upgrade_output`] fail closed when every body row was
@@ -202,6 +251,7 @@ fn parse_upgrade_table_inner(stdout: &str) -> (Vec<UpgradeEntry>, UpgradeParseDi
         saw_separator,
         saw_recognised_header,
         body_lines,
+        content_lines: total_content_lines,
         entries_emitted: entries.len(),
     };
     (entries, diag)
@@ -299,6 +349,29 @@ fn clamp_to_char_boundaries(line: &str, start: usize, end: usize) -> Option<(usi
     Some((s, e))
 }
 
+/// Sentinel `end` for the final column: "read to the end of the *data* row".
+/// [`clamp_to_char_boundaries`] applies `end.min(line.len())` against the row
+/// being sliced, so this resolves per row rather than against the separator.
+const COLUMN_END_OF_ROW: usize = usize::MAX;
+
+/// Derive `(start, end)` byte ranges from a `====` separator row.
+///
+/// **The invariant this does *not* rely on.** cargo-edit sizes each `=` run
+/// to its *header token's* length, not to the widest value in the column —
+/// the crate's own fixtures prove it (`latest` is a 6-wide `======` above
+/// 7-char `1.0.228`; `note` is a 4-wide `====` above `incompatible`). Every
+/// interior column absorbs that: its `end` chains forward to the next
+/// column's `start`, which sits past the over-wide value.
+///
+/// CL-3 / TASK-1836: the **final** fixed column has nothing to chain to. It
+/// used to be given `end = line.len()` — the length of the *separator* row —
+/// which clamped it to the header token's width and silently truncated any
+/// wider value (`new req` `1.10.100` decoded as `1.10.10`). That was worse
+/// than a dropped row: the row still filled all five columns, so
+/// `parse_upgrade_row` returned `Some`, no drift guard fired, nothing was
+/// logged, and `ops deps` printed a version that does not exist. The last
+/// column now reads to the end of the data row, the same trick
+/// [`slice_note`] already used for the note column.
 fn separator_columns(line: &str) -> Vec<(usize, usize)> {
     let bytes = line.as_bytes();
     let mut cols = Vec::new();
@@ -316,9 +389,13 @@ fn separator_columns(line: &str) -> Vec<(usize, usize)> {
             i = i.saturating_add(1);
         }
     }
-    let len = line.len();
     cols.iter()
-        .zip(cols.iter().skip(1).map(|c| c.0).chain(std::iter::once(len)))
+        .zip(
+            cols.iter()
+                .skip(1)
+                .map(|c| c.0)
+                .chain(std::iter::once(COLUMN_END_OF_ROW)),
+        )
         .map(|(&(start, _), end)| (start, end))
         .collect()
 }
