@@ -138,7 +138,8 @@ pub fn find_workspace_root_with_depth(
 /// Rejects (with [`tracing::warn`]) any candidate whose canonical path
 /// does not lie on the canonical start's ancestor chain — i.e. a
 /// symlink in the lexical walk that would otherwise redirect the
-/// discovered root outside the user's intended logical path.
+/// discovered root outside the user's intended logical path — and any
+/// candidate whose parent cannot be canonicalized at all.
 ///
 /// SEC-25 / TASK-1204: addresses the symlink-retarget gap documented on
 /// [`find_workspace_root`]. The lenient walk reaches each ancestor via
@@ -149,6 +150,26 @@ pub fn find_workspace_root_with_depth(
 /// downstream provider (units, coverage, deps) then targets the wrong
 /// workspace. The strict variant adds a per-candidate canonicalize step
 /// so a redirected ancestor is detected and skipped.
+///
+/// # Scope of the guarantee (TASK-1785)
+///
+/// The check is evaluated against the **canonical** start path, which the
+/// shared walk resolves once up front. Two consequences callers must not
+/// mistake for a stronger guarantee:
+///
+/// - A symlink *inside the caller's own `start` path* is resolved before
+///   the walk begins, so the strict variant walks the resolved chain and
+///   accepts what it finds there — exactly like the lenient variant. It
+///   does **not** re-anchor discovery to the caller's pre-canonical,
+///   logical path.
+/// - Because every lexical ancestor of an already-canonical path is itself
+///   canonical on a quiescent filesystem, the off-chain rejection normally
+///   fires only when an ancestor is swapped for a symlink *during* the walk
+///   (the TOCTOU window), or when the per-candidate canonicalize fails.
+///
+/// The per-candidate decision is factored into [`strict_candidate_action`]
+/// so both rejection arms are directly testable without racing the
+/// filesystem.
 ///
 /// Lenient siblings remain available for callers that explicitly opt
 /// out (e.g. legacy `find_workspace_root` / `find_workspace_root_with_depth`),
@@ -180,41 +201,60 @@ pub fn find_workspace_root_strict_with_depth(
     start: &Path,
     max_depth: usize,
 ) -> Result<PathBuf, FindWorkspaceRootError> {
-    walk_ancestors(
-        start,
-        max_depth,
-        |current, cargo_toml, start_canonical| match fs::canonicalize(current) {
-            Ok(canonical_parent) => {
-                if start_canonical.starts_with(&canonical_parent) {
-                    if manifest_declares_workspace(&cargo_toml) {
-                        return CandidateAction::AcceptWorkspace(canonical_parent);
-                    }
-                    CandidateAction::RecordFirst(canonical_parent)
-                } else {
-                    tracing::warn!(
-                        cargo_toml = ?cargo_toml.display(),
-                        lexical_parent = ?current.display(),
-                        canonical_parent = ?canonical_parent.display(),
-                        canonical_start = ?start_canonical.display(),
-                        "SEC-25 / TASK-1204: candidate Cargo.toml's canonical parent escapes the canonical start's ancestor chain; rejecting"
-                    );
-                    CandidateAction::Skip
+    walk_ancestors(start, max_depth, |current, cargo_toml, start_canonical| {
+        strict_candidate_action(current, &cargo_toml, start_canonical, &|p| {
+            fs::canonicalize(p)
+        })
+    })
+}
+
+/// The strict variant's per-candidate decision, with the canonicalizer
+/// injected.
+///
+/// TASK-1785: both rejection arms — an off-chain canonical parent and a
+/// failed canonicalize — are unreachable through a quiescent filesystem
+/// (see "Scope of the guarantee" on [`find_workspace_root_strict`]), so
+/// they were previously untested despite being the entire reason the
+/// strict variant exists. Taking `canonicalize` as a parameter lets tests
+/// drive both arms deterministically instead of racing a symlink swap.
+pub fn strict_candidate_action(
+    current: &Path,
+    cargo_toml: &Path,
+    start_canonical: &Path,
+    canonicalize: &dyn Fn(&Path) -> std::io::Result<PathBuf>,
+) -> CandidateAction {
+    match canonicalize(current) {
+        Ok(canonical_parent) => {
+            if start_canonical.starts_with(&canonical_parent) {
+                if manifest_declares_workspace(cargo_toml) {
+                    return CandidateAction::AcceptWorkspace(canonical_parent);
                 }
-            }
-            Err(e) => {
+                CandidateAction::RecordFirst(canonical_parent)
+            } else {
                 tracing::warn!(
-                    path = ?current.display(),
-                    error = ?e,
-                    "TASK-1204: failed to canonicalize candidate manifest's parent; skipping ancestor"
+                    cargo_toml = ?cargo_toml.display(),
+                    lexical_parent = ?current.display(),
+                    canonical_parent = ?canonical_parent.display(),
+                    canonical_start = ?start_canonical.display(),
+                    "SEC-25 / TASK-1204: candidate Cargo.toml's canonical parent escapes the canonical start's ancestor chain; rejecting"
                 );
                 CandidateAction::Skip
             }
-        },
-    )
+        }
+        Err(e) => {
+            tracing::warn!(
+                path = ?current.display(),
+                error = ?e,
+                "TASK-1204: failed to canonicalize candidate manifest's parent; skipping ancestor"
+            );
+            CandidateAction::Skip
+        }
+    }
 }
 
 /// Action returned by the per-candidate check closure in [`walk_ancestors`].
-enum CandidateAction {
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+pub enum CandidateAction {
     /// The candidate is the workspace root — return it immediately.
     AcceptWorkspace(PathBuf),
     /// The candidate is a valid Cargo.toml but not a workspace root; record it
@@ -292,8 +332,14 @@ fn walk_ancestors(
 }
 
 /// True iff the manifest at `path` contains a top-level `[workspace]` table
-/// header. Read errors return false — the walk will keep looking and ultimately
-/// fall back to the first Cargo.toml seen.
+/// header. A missing manifest returns false — the walk will keep looking and
+/// ultimately fall back to the first Cargo.toml seen.
+///
+/// SEC-11 / TASK-1781: any *other* read failure (permission denied, the
+/// `read_capped_to_string` byte cap, a non-UTF-8 manifest) is logged at
+/// `warn` level rather than `debug`, so a legitimately large or unreadable
+/// workspace root that gets silently skipped is visible in the default log
+/// output instead of being indistinguishable from "no workspace declared".
 ///
 /// PERF-3 / TASK-1512: avoids a full `toml::Value` parse (which allocates the
 /// entire AST only to check for one key). Instead performs a line-level scan
@@ -306,10 +352,10 @@ fn manifest_declares_workspace(path: &Path) -> bool {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
         Err(e) => {
-            tracing::debug!(
+            tracing::warn!(
                 path = ?path.display(),
                 error = ?e,
-                "Cargo.toml unreadable during workspace walk; skipping candidate"
+                "SEC-11 / TASK-1781: Cargo.toml unreadable during workspace walk (not NotFound); treating as 'no workspace declared' and continuing to climb"
             );
             return false;
         }
@@ -322,6 +368,15 @@ fn manifest_declares_workspace(path: &Path) -> bool {
 /// Skips lines that fall inside triple-quoted multi-line strings (`"""` or
 /// `'''`). A bare `[workspace]` on a line that is not inside such a string is
 /// enough to declare the manifest as workspace-bearing.
+///
+/// SEC-11 / TASK-1781: the header is located by scanning for the closing `]`
+/// that is not inside a quoted key, so a trailing comment
+/// (`[workspace] # the root`) no longer defeats the match, and the first
+/// dotted key segment is unquoted before comparison so `["workspace"]` and
+/// `[ 'workspace'.package ]` are recognised too. A false negative here is
+/// security-relevant: the walk simply keeps climbing past the real root and
+/// into attacker-plantable ancestors (see the threat model on
+/// [`find_workspace_root`]).
 pub fn content_declares_workspace(content: &str) -> bool {
     let mut in_multiline_string = false;
     let mut multiline_delim: &str = "\"\"\"";
@@ -352,14 +407,71 @@ pub fn content_declares_workspace(content: &str) -> bool {
             continue;
         }
 
-        if let Some(inside) = trimmed.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+        if let Some(inside) = table_header_body(trimmed) {
+            // `[[array.of.tables]]` — not a plain table header.
             if inside.starts_with('[') {
                 continue;
             }
-            let key = inside.trim();
-            if key == "workspace" || key.starts_with("workspace.") {
+            if first_key_is_workspace(inside) {
                 return true;
             }
+        }
+    }
+    false
+}
+
+/// Given a trimmed line that starts with `[`, return the text between that
+/// bracket and the first `]` that lies outside a quoted key, or `None` when
+/// the line has no closing bracket.
+///
+/// Anything after the closing bracket (whitespace, a `# comment`) is ignored,
+/// which is what makes `[workspace] # root` match.
+fn table_header_body(trimmed: &str) -> Option<&str> {
+    let rest = trimmed.strip_prefix('[')?;
+    let mut in_basic = false;
+    let mut in_literal = false;
+    let mut escaped = false;
+    for (i, c) in rest.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            // Inside a basic string, `\` escapes the next character (notably `\"`).
+            '\\' if in_basic => escaped = true,
+            '"' if !in_literal => in_basic = !in_basic,
+            '\'' if !in_basic => in_literal = !in_literal,
+            ']' if !in_basic && !in_literal => return rest.get(..i),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// True iff the first dotted key of a table header is `workspace`, ignoring
+/// surrounding whitespace and basic/literal quoting.
+fn first_key_is_workspace(inside: &str) -> bool {
+    let s = inside.trim_start();
+    let mut chars = s.chars();
+    let Some(quote) = chars.next().filter(|c| *c == '"' || *c == '\'') else {
+        // Bare key: runs to the first `.` (or the end of the header).
+        let key = s.split('.').next().unwrap_or(s).trim_end();
+        return key == "workspace";
+    };
+    // Quoted key: everything up to the matching close quote. Escapes only
+    // apply to basic (double-quoted) strings. `chars` is already positioned
+    // just past the opening quote.
+    let mut key = String::new();
+    while let Some(c) = chars.next() {
+        if c == '\\' && quote == '"' {
+            match chars.next() {
+                Some(escaped) => key.push(escaped),
+                None => return false,
+            }
+        } else if c == quote {
+            return key == "workspace";
+        } else {
+            key.push(c);
         }
     }
     false
