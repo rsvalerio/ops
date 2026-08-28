@@ -82,7 +82,7 @@ pub use tracing_capture::TracingBuf;
 #[cfg(feature = "test-support")]
 mod level_counter {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Once};
+    use std::sync::Arc;
 
     /// Minimal `tracing::Subscriber` that counts `WARN`-level events, so a
     /// test can assert on warn counts without pulling `tracing-subscriber`
@@ -116,26 +116,6 @@ mod level_counter {
         fn exit(&self, _span: &tracing::span::Id) {}
     }
 
-    /// Keep one globally-registered dispatcher alive for the whole test
-    /// binary. `tracing` caches each callsite's `Interest` process-wide
-    /// against the dispatchers registered the moment that callsite is first
-    /// hit; with only scoped (`with_default`) subscribers, a parallel test
-    /// thread can first-hit a warn callsite while none is registered, caching
-    /// `Interest::never()` so the warn these tests count never fires again and
-    /// the assertion fails at random — under `cargo test`'s shared-process
-    /// threads as well as under nextest. A global dispatcher is never
-    /// unregistered, so the cache can no longer answer "never". This one
-    /// counts into a throwaway counter nobody reads.
-    fn pin_global_dispatcher() {
-        static INSTALL: Once = Once::new();
-        INSTALL.call_once(|| {
-            let _ = tracing::subscriber::set_global_default(WarnCounter::default());
-            // Callsites hit before this point resolved against an empty
-            // dispatcher list; recompute them now that one is registered.
-            tracing::callsite::rebuild_interest_cache();
-        });
-    }
-
     /// Count the `WARN` events `f` emits.
     ///
     /// Runs `f` with a fresh counting subscriber installed as the
@@ -149,7 +129,7 @@ mod level_counter {
     /// scope — their warnings reach the global dispatcher instead and are not
     /// counted. Do not assert warn counts across a parallel walk with this.
     pub fn count_warnings<T>(f: impl FnOnce() -> T) -> (T, usize) {
-        pin_global_dispatcher();
+        super::pin_global_dispatcher();
         let counter = WarnCounter::default();
         let out = tracing::subscriber::with_default(counter.clone(), f);
         (out, counter.count())
@@ -158,6 +138,61 @@ mod level_counter {
 
 #[cfg(feature = "test-support")]
 pub use level_counter::{count_warnings, WarnCounter};
+
+/// Keep one globally-registered dispatcher alive for the whole test binary.
+///
+/// `tracing` caches each callsite's `Interest` process-wide against the
+/// dispatchers registered the moment that callsite is first hit; with only
+/// scoped (`with_default`) subscribers, a parallel test thread can first-hit a
+/// warn callsite while none is registered, caching `Interest::never()` so the
+/// warn these helpers observe never fires again and the assertion fails at
+/// random — under `cargo test`'s shared-process threads as well as under
+/// nextest. A global dispatcher is never unregistered, so the cache can no
+/// longer answer "never". This one counts into a throwaway counter nobody
+/// reads.
+///
+/// DUP-3 / TASK-1735, TASK-1794: one definition for the whole workspace. Every
+/// per-crate copy of this workaround was a copy whose *absence* is a silent
+/// flake rather than a failure, so the copies could not be spotted by a
+/// failing test.
+#[cfg(feature = "test-support")]
+fn pin_global_dispatcher() {
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        let _ = tracing::subscriber::set_global_default(WarnCounter::default());
+        // Callsites hit before this point resolved against an empty
+        // dispatcher list; recompute them now that one is registered.
+        tracing::callsite::rebuild_interest_cache();
+    });
+}
+
+/// Capture the rendered `WARN`-level tracing records `body` emits on the
+/// calling thread.
+///
+/// DUP-3 / TASK-1794: the text-capturing counterpart to [`count_warnings`] —
+/// crates that assert on the *content* of a warn record (that a field was
+/// `Debug`-formatted, that a specific reason was logged) previously each grew
+/// their own `BufWriter` + `MakeWriter` + dispatcher-pin module. Uses
+/// [`TracingBuf`], whose lock and UTF-8 handling recover rather than panic.
+///
+/// ANSI colouring is disabled so the capture contains no escape bytes of the
+/// subscriber's own making — assertions about escapes in the *record* stay
+/// meaningful.
+///
+/// **Scope:** the subscriber is the thread-local default, so only records
+/// `body` emits on the calling thread are captured.
+#[cfg(feature = "test-support")]
+pub fn capture_warn<F: FnOnce()>(body: F) -> String {
+    pin_global_dispatcher();
+    let buf = TracingBuf::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buf.clone())
+        .with_max_level(tracing::Level::WARN)
+        .with_ansi(false)
+        .finish();
+    tracing::subscriber::with_default(subscriber, body);
+    buf.captured()
+}
 
 /// Pin the property guaranteed by `Debug` formatting on `Path::display()`
 /// (or any value carrying user-controlled text):
@@ -176,17 +211,33 @@ pub use level_counter::{count_warnings, WarnCounter};
 /// is the assertion this helper exists to make.
 pub fn assert_debug_escapes_control_chars<T: std::fmt::Debug>(value: T) {
     let rendered = format!("{value:?}");
-    assert!(
-        !rendered.contains('\n'),
-        "raw newline leaked into Debug rendering: {rendered}"
-    );
-    assert!(
-        !rendered.contains('\u{1b}'),
-        "raw ANSI ESC leaked into Debug rendering: {rendered}"
-    );
+    assert_rendered_escapes_control_chars(&rendered);
     assert!(
         rendered.contains("\\n"),
         "expected escaped newline in Debug rendering: {rendered}"
+    );
+}
+
+/// The half of [`assert_debug_escapes_control_chars`] that applies to an
+/// already-rendered string: no raw newline and no raw ANSI `ESC` survived.
+///
+/// DUP-3 / TASK-1794: callers that capture a real `tracing` record (rather
+/// than rendering a value themselves) assert the same property on the captured
+/// text — trim the record's own trailing newline first. Splitting it out keeps
+/// one definition instead of a second copy at every capture site.
+///
+/// # Panics
+///
+/// If `rendered` carries a raw newline or a raw ANSI `ESC` — that is the
+/// assertion this helper exists to make.
+pub fn assert_rendered_escapes_control_chars(rendered: &str) {
+    assert!(
+        !rendered.contains('\n'),
+        "raw newline leaked into rendered output: {rendered}"
+    );
+    assert!(
+        !rendered.contains('\u{1b}'),
+        "raw ANSI ESC leaked into rendered output: {rendered}"
     );
 }
 
