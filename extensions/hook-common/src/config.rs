@@ -72,7 +72,17 @@ pub fn ensure_config_command(
         .entry("commands")
         .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
         .as_table_mut()
-        .context("commands is not a table")?;
+        // ERR-4 / ERR-13 (TASK-1895): name the file and the offending key.
+        // `config_dir` is a parameter, so the `.ops.toml` that was read is not
+        // necessarily the one in the operator's cwd — and `ops <hook>-install`
+        // is typically their first interaction with ops in a repo.
+        .with_context(|| {
+            format!(
+                "{}: top-level TOML key `commands` is not a table \
+                 (expected `[commands]` holding a `[commands.<name>]` entry per command)",
+                config_path.display()
+            )
+        })?;
 
     let mut cmd = toml_edit::Table::new();
     let mut arr = toml_edit::Array::new();
@@ -199,6 +209,39 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             malformed,
             "malformed .ops.toml must not be overwritten"
+        );
+    }
+
+    /// ERR-4 (TASK-1895): the one hand-written error on this path used to say
+    /// only "commands is not a table" — naming neither the `.ops.toml` it came
+    /// from (which need not be the one in the cwd) nor that `commands` is a
+    /// top-level TOML key rather than a CLI argument.
+    #[test]
+    fn ensure_config_non_table_commands_error_names_path_and_key() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join(".ops.toml");
+        std::fs::write(&path, "commands = \"verify\"\n").unwrap();
+
+        let selected = vec!["verify".to_string()];
+        let mut buf = Vec::new();
+        let err = ensure_config_command(&cfg, dir.path(), &selected, &mut buf)
+            .expect_err("a non-table `commands` must be an error");
+
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains(&path.display().to_string()),
+            "error must name the .ops.toml path: {rendered}"
+        );
+        assert!(
+            rendered.contains("`commands`") && rendered.contains("table"),
+            "error must name the offending key and the expected shape: {rendered}"
+        );
+
+        // The user's file is left alone.
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "commands = \"verify\"\n"
         );
     }
 
