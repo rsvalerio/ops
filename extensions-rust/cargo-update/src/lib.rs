@@ -410,7 +410,7 @@ ops_extension::impl_extension! {
     stack: Some(ops_extension::Stack::Rust),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
-        registry.register(DATA_PROVIDER_NAME, Box::new(CargoUpdateProvider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(CargoUpdateProvider));
     },
     factory: CARGO_UPDATE_FACTORY = |_, _| {
         Some((NAME, Box::new(CargoUpdateExtension)))
@@ -431,7 +431,7 @@ impl DataProvider for CargoUpdateProvider {
         // Display with `anyhow!("{}: {}", ctx, e)`. Downstream consumers
         // (structured logs, error inspectors) can walk `.source()` /
         // `anyhow::Chain` to distinguish spawn failures from timeouts.
-        let output = run_cargo_update_dry_run(&ctx.working_directory).map_err(|e| {
+        let output = run_cargo_update_dry_run(ctx.working_directory()).map_err(|e| {
             DataProviderError::from(anyhow::Error::new(e).context("cargo update --dry-run failed"))
         })?;
 

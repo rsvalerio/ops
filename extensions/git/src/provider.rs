@@ -104,7 +104,7 @@ impl DataProvider for GitInfoProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let info = GitInfo::collect(&ctx.working_directory);
+        let info = GitInfo::collect(ctx.working_directory());
         serde_json::to_value(&info).map_err(DataProviderError::from)
     }
 

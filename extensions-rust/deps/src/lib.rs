@@ -159,17 +159,20 @@ pub fn run_deps(
     // this constructed `Config::empty()`, so any `[deps]`/global settings
     // that happen to be added to `Config` would silently no-op for `ops
     // deps` while working for `ops about deps`.
+    // ARCH-9 / TASK-1874: `refresh` is set through the consuming builder, not
+    // by assignment — it changes cache semantics for every provider that runs
+    // on this context afterwards.
     let mut ctx = build_user_context()?;
     if opts.refresh {
-        ctx.refresh = true;
+        ctx = ctx.with_refresh();
     }
 
     // Resolve the theme + column width from the same config the runner commands
     // use, BEFORE `get_or_provide` borrows `ctx` mutably. `ops deps` now renders
     // through the shared theme machinery (`render_report`) instead of hand-rolled
     // `println!`, so a custom theme restyles it exactly as it restyles `ops verify`.
-    let columns = ctx.config.output.resolve_columns();
-    let theme = ops_theme::resolve_theme(&ctx.config.output.theme, &ctx.config.themes)
+    let columns = ctx.config().output.resolve_columns();
+    let theme = ops_theme::resolve_theme(&ctx.config().output.theme, &ctx.config().themes)
         .map_err(|e| anyhow::anyhow!("deps: {e}"))?;
 
     let value = ctx.get_or_provide(DATA_PROVIDER_NAME, data_registry)?;
@@ -275,7 +278,7 @@ ops_extension::impl_extension! {
         );
     },
     register_data_providers: |_self, registry| {
-        registry.register(DATA_PROVIDER_NAME, Box::new(DepsProvider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(DepsProvider));
     },
     factory: DEPS_FACTORY = |_, _| {
         Some((NAME, Box::new(DepsExtension)))
@@ -290,13 +293,13 @@ impl DataProvider for DepsProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let upgrade_entries = run_cargo_upgrade_dry_run(&ctx.working_directory)
+        let upgrade_entries = run_cargo_upgrade_dry_run(ctx.working_directory())
             .context("cargo upgrade failed")
             .map_err(DataProviderError::from)?;
 
         let upgrades = categorize_upgrades(upgrade_entries);
 
-        let deny = run_cargo_deny(&ctx.working_directory)
+        let deny = run_cargo_deny(ctx.working_directory())
             .context("cargo deny failed")
             .map_err(DataProviderError::from)?;
 

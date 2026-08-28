@@ -87,7 +87,7 @@ impl DataProvider for RustCoverageProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let cwd = ctx.working_directory.clone();
+        let cwd = ctx.working_directory_arc().clone();
         let manifest = match load_workspace_manifest(ctx) {
             Ok(m) => Some(m),
             Err(e) => {

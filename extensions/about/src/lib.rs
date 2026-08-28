@@ -116,8 +116,13 @@ pub fn run_about(
     writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let config = std::sync::Arc::new(ops_core::config::Config::empty());
+    // ARCH-9 / TASK-1874: `refresh` is fixed at construction time. It changes
+    // cache semantics for every provider that runs on this context, so it is
+    // not something a provider mid-traversal may reassign.
     let mut ctx = ops_extension::Context::new(config, cwd.to_path_buf());
-    ctx.refresh = opts.refresh;
+    if opts.refresh {
+        ctx = ctx.with_refresh();
+    }
 
     warm_generic_providers(&mut ctx, data_registry, opts.refresh);
     let mut identity = resolve_identity(&mut ctx, data_registry, cwd)?;
@@ -360,7 +365,7 @@ mod tests {
 
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
-        ctx.db = Some(std::sync::Arc::new(db));
+        ctx.attach_db(std::sync::Arc::new(db));
 
         let mut identity = ProjectIdentity::default();
         enrich_from_db(&ctx, &mut identity);
@@ -381,7 +386,7 @@ mod tests {
 
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
-        ctx.db = Some(std::sync::Arc::new(db));
+        ctx.attach_db(std::sync::Arc::new(db));
 
         let mut identity = ProjectIdentity::default();
         identity.loc = Some(42);
@@ -398,7 +403,7 @@ mod tests {
 
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
-        ctx.db = Some(std::sync::Arc::new(db));
+        ctx.attach_db(std::sync::Arc::new(db));
 
         let mut identity = ProjectIdentity::default();
         identity.loc = Some(100);

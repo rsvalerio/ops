@@ -46,7 +46,7 @@ impl DataProvider for RustIdentityProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let manifest = load_workspace_manifest(ctx)?;
-        let cwd = ctx.working_directory.clone();
+        let cwd = ctx.working_directory_arc().clone();
 
         let pkg = manifest.package.as_ref();
         let ws_pkg = manifest.workspace.as_ref().and_then(|w| w.package.as_ref());

@@ -43,8 +43,8 @@ ops_extension::impl_extension! {
     stack: Some(ops_extension::Stack::Go),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
-        registry.register(DATA_PROVIDER_NAME, Box::new(GoIdentityProvider));
-        registry.register(modules::PROVIDER_NAME, Box::new(modules::GoUnitsProvider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(GoIdentityProvider));
+        let _ = registry.register(modules::PROVIDER_NAME, Box::new(modules::GoUnitsProvider));
     },
     factory: GO_ABOUT_FACTORY = |_, _| {
         Some((NAME, Box::new(AboutGoExtension)))
@@ -63,7 +63,7 @@ impl DataProvider for GoIdentityProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        provide_identity_from_manifest(ctx.working_directory.as_path(), |root| {
+        provide_identity_from_manifest(ctx.working_directory(), |root| {
             let go_mod = go_mod::parse(root);
             // DUP-1 (TASK-0484): GoWork was a single-field newtype with no
             // semantic value. Use the parsed `Vec<String>` directly.

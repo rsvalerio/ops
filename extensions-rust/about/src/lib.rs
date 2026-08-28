@@ -61,13 +61,13 @@ ops_extension::impl_extension! {
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_commands: |_self, _registry| {},
     register_data_providers: |_self, registry| {
-        registry.register(DATA_PROVIDER_NAME, Box::new(identity::RustIdentityProvider));
-        registry.register(units::PROVIDER_NAME, Box::new(units::RustUnitsProvider));
-        registry.register(
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(identity::RustIdentityProvider));
+        let _ = registry.register(units::PROVIDER_NAME, Box::new(units::RustUnitsProvider));
+        let _ = registry.register(
             coverage_provider::PROVIDER_NAME,
             Box::new(coverage_provider::RustCoverageProvider),
         );
-        registry.register(
+        let _ = registry.register(
             deps_provider::PROVIDER_NAME,
             Box::new(deps_provider::RustDepsProvider),
         );

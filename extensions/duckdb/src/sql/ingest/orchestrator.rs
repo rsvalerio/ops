@@ -111,7 +111,7 @@ where
 
     // CONC-2 / TASK-0909: drop_table_if_exists MUST run inside the per-table
     // ingest_mutex critical section, before the table_has_data probe.
-    if ctx.refresh {
+    if ctx.is_refreshing() {
         drop_table_if_exists(db, table_name)
             .with_context(|| format!("provide_via_ingestor({table_name}): drop phase"))?;
     }
@@ -564,11 +564,11 @@ mod tests {
         let done2 = Arc::clone(&query_done);
         let h2 = std::thread::spawn(move || {
             bar2.wait();
-            let mut ctx = ops_extension::Context::new(
+            let ctx = ops_extension::Context::new(
                 Arc::new(ops_core::config::Config::empty()),
                 PathBuf::from("/tmp"),
-            );
-            ctx.refresh = true;
+            )
+            .with_refresh();
             let result = provide_via_ingestor(&db2, &ctx, "race_table", &TrivialIngestor, |_| {
                 Ok(serde_json::Value::Null)
             });

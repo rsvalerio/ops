@@ -20,7 +20,7 @@ impl DataProvider for PythonUnitsProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let units = collect_units(ctx.working_directory.as_path());
+        let units = collect_units(ctx.working_directory());
         serde_json::to_value(&units).map_err(DataProviderError::from)
     }
 }

@@ -38,7 +38,7 @@ fn downcast_duckdb(handle: Option<&Arc<dyn ops_extension::DuckDbHandle>>) -> Opt
 
 /// Try to provide data from `DuckDB` first, falling back to a direct computation.
 ///
-/// Clones `ctx.db` Arc to split the borrow so `db_fn` can hold `&DuckDb`
+/// Clones the `ctx.db()` Arc to split the borrow so `db_fn` can hold `&DuckDb`
 /// while `ctx` is still accessible. Arc refcount bump is negligible vs I/O cost.
 ///
 /// # Errors
@@ -54,7 +54,7 @@ where
     F: FnOnce(&DuckDb, &Context) -> Result<serde_json::Value, anyhow::Error>,
     G: FnOnce(&mut Context) -> Result<serde_json::Value, anyhow::Error>,
 {
-    let db_arc = ctx.db.clone();
+    let db_arc = ctx.db().cloned();
     if let Some(db) = downcast_duckdb(db_arc.as_ref()) {
         return db_fn(db, ctx).map_err(Into::into);
     }
@@ -64,7 +64,7 @@ where
 /// Extract the [`DuckDb`] handle from a context by downcasting from the trait object.
 #[must_use]
 pub fn get_db(ctx: &Context) -> Option<&DuckDb> {
-    downcast_duckdb(ctx.db.as_ref())
+    downcast_duckdb(ctx.db())
 }
 
 pub const NAME: &str = "duckdb";
@@ -99,7 +99,7 @@ ops_extension::impl_extension! {
     types: ExtensionType::DATASOURCE,
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |this, registry| {
-        registry.register(
+        let _ = registry.register(
             DATA_PROVIDER_NAME,
             Box::new(DuckDbProvider {
                 db_path: this.db_path.clone(),
@@ -122,12 +122,12 @@ impl DataProvider for DuckDbProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        if ctx.db.is_some() {
+        if ctx.db().is_some() {
             return Ok(serde_json::Value::Null);
         }
         let db = DuckDb::open(&self.db_path).map_err(DataProviderError::computation_error)?;
         init_schema(&db).map_err(DataProviderError::computation_error)?;
-        ctx.db = Some(Arc::new(db));
+        ctx.attach_db(Arc::new(db));
         Ok(serde_json::Value::Null)
     }
 }
@@ -184,7 +184,7 @@ mod tests {
         };
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = Context::new(config, std::path::PathBuf::from("."));
-        ctx.db = Some(std::sync::Arc::new(db));
+        ctx.attach_db(std::sync::Arc::new(db));
         let result = provider.provide(&mut ctx).expect("provide should succeed");
         assert!(result.is_null());
     }
@@ -199,10 +199,10 @@ mod tests {
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = Context::new(config, std::path::PathBuf::from("."));
 
-        assert!(ctx.db.is_none(), "ctx.db should start as None");
+        assert!(ctx.db().is_none(), "ctx.db() should start as None");
         let result = provider.provide(&mut ctx).expect("provide should succeed");
         assert!(result.is_null());
-        assert!(ctx.db.is_some(), "ctx.db should be set after provide()");
+        assert!(ctx.db().is_some(), "ctx.db() should be set after provide()");
         assert!(db_path.exists(), "database file should be created");
     }
 

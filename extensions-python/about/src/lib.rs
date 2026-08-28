@@ -45,8 +45,8 @@ ops_extension::impl_extension! {
     stack: Some(ops_extension::Stack::Python),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
-        registry.register(DATA_PROVIDER_NAME, Box::new(PythonIdentityProvider));
-        registry.register(units::PROVIDER_NAME, Box::new(units::PythonUnitsProvider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(PythonIdentityProvider));
+        let _ = registry.register(units::PROVIDER_NAME, Box::new(units::PythonUnitsProvider));
     },
     factory: PYTHON_ABOUT_FACTORY = |_, _| {
         Some((NAME, Box::new(AboutPythonExtension)))
@@ -71,7 +71,7 @@ impl DataProvider for PythonIdentityProvider {
         // — the parse-once / build-identity scaffold lives in `ops_about`,
         // and the Python provider only needs to project pyproject.toml onto
         // a [`ParsedManifest`].
-        provide_identity_from_manifest(ctx.working_directory.as_path(), |root| {
+        provide_identity_from_manifest(ctx.working_directory(), |root| {
             let Pyproject {
                 name,
                 version,

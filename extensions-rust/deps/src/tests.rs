@@ -29,7 +29,7 @@ mod user_config_tests {
     /// falling back to `Config::empty()`. We chdir to a tempdir that
     /// contains a config file with a recognizable `stack` and confirm the
     /// resulting Context carries that value through to the data provider
-    /// boundary (i.e. `ctx.config.stack`).
+    /// boundary (i.e. `ctx.config().stack`).
     #[test]
     #[serial]
     fn build_user_context_loads_stack_from_local_ops_toml() {
@@ -44,7 +44,7 @@ mod user_config_tests {
         std::env::set_current_dir(&prev).expect("restore cwd");
 
         assert_eq!(
-            ctx.config.stack.as_deref(),
+            ctx.config().stack.as_deref(),
             Some("rust"),
             "Context.config must carry stack from the loaded user config"
         );

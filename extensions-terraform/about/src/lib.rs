@@ -47,7 +47,7 @@ ops_extension::impl_extension! {
     stack: Some(ops_extension::Stack::Terraform),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
-        registry.register(DATA_PROVIDER_NAME, Box::new(TerraformIdentityProvider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(TerraformIdentityProvider));
     },
     factory: TERRAFORM_ABOUT_FACTORY = |_, _| {
         Some((NAME, Box::new(AboutTerraformExtension)))
@@ -66,7 +66,7 @@ impl DataProvider for TerraformIdentityProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        provide_identity_from_manifest(ctx.working_directory.as_path(), |root| {
+        provide_identity_from_manifest(ctx.working_directory(), |root| {
             let required_version = find_required_version(root);
             let module_count = count_local_modules(root);
 

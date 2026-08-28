@@ -38,7 +38,7 @@ impl DataProvider for RustReviewTargetsProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let root = find_workspace_root_strict(ctx.working_directory.as_path())
+        let root = find_workspace_root_strict(ctx.working_directory())
             .map_err(DataProviderError::computation_error)?;
         let manifest = CargoTomlProvider::with_root(root.clone()).provide_typed(ctx)?;
         let members = resolved_workspace_members(&manifest, &root);

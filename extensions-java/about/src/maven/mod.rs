@@ -23,7 +23,7 @@ impl DataProvider for MavenIdentityProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        provide_identity_from_manifest(ctx.working_directory.as_path(), |root| {
+        provide_identity_from_manifest(ctx.working_directory(), |root| {
             let pom = parse_pom_xml(root).unwrap_or_default();
             let module_count = (!pom.modules.is_empty()).then_some(pom.modules.len());
 

@@ -30,7 +30,7 @@ impl DataProvider for FailingProvider {
 #[test]
 fn query_data_returns_provider_value() {
     let mut registry = DataRegistry::new();
-    registry.register(
+    let _ = registry.register(
         "fixed",
         Box::new(FixedProvider {
             value: serde_json::json!({"hello": "world"}),
@@ -47,7 +47,7 @@ fn query_data_returns_provider_value() {
 #[test]
 fn query_data_caches_results() {
     let mut registry = DataRegistry::new();
-    registry.register(
+    let _ = registry.register(
         "fixed",
         Box::new(FixedProvider {
             value: serde_json::json!(42),
@@ -72,7 +72,7 @@ fn query_data_unknown_provider_errors() {
 #[test]
 fn query_data_failing_provider_errors() {
     let mut registry = DataRegistry::new();
-    registry.register("failing", Box::new(FailingProvider));
+    let _ = registry.register("failing", Box::new(FailingProvider));
     let mut runner = test_runner(HashMap::new());
     runner.register_data_providers(registry);
 
@@ -122,7 +122,7 @@ fn query_data_shares_inner_cache_across_outer_calls() {
     let calls = StdArc::new(AtomicUsize::new(0));
 
     let mut sub_registry = DataRegistry::new();
-    sub_registry.register(
+    let _ = sub_registry.register(
         "inner",
         Box::new(CountingInner {
             calls: StdArc::clone(&calls),
@@ -131,13 +131,13 @@ fn query_data_shares_inner_cache_across_outer_calls() {
     let sub_registry = StdArc::new(sub_registry);
 
     let mut main_registry = DataRegistry::new();
-    main_registry.register(
+    let _ = main_registry.register(
         "inner",
         Box::new(CountingInner {
             calls: StdArc::clone(&calls),
         }),
     );
-    main_registry.register(
+    let _ = main_registry.register(
         "outer",
         Box::new(ComposingOuter {
             sub_registry: StdArc::clone(&sub_registry),
@@ -170,7 +170,7 @@ fn query_data_shares_inner_cache_across_outer_calls() {
 #[test]
 fn re_registering_providers_invalidates_cache() {
     let mut registry_a = DataRegistry::new();
-    registry_a.register(
+    let _ = registry_a.register(
         "x",
         Box::new(FixedProvider {
             value: serde_json::json!("from-a"),
@@ -182,7 +182,7 @@ fn re_registering_providers_invalidates_cache() {
     assert_eq!(*v_a, serde_json::json!("from-a"));
 
     let mut registry_b = DataRegistry::new();
-    registry_b.register(
+    let _ = registry_b.register(
         "x",
         Box::new(FixedProvider {
             value: serde_json::json!("from-b"),
@@ -212,7 +212,7 @@ fn query_data_shares_cwd_arc_with_provider() {
             "arc_capture"
         }
         fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-            let arc = std::sync::Arc::clone(&ctx.working_directory);
+            let arc = std::sync::Arc::clone(ctx.working_directory_arc());
             *self.captured.lock().unwrap() = Some(arc);
             Ok(serde_json::Value::Null)
         }
@@ -220,7 +220,7 @@ fn query_data_shares_cwd_arc_with_provider() {
 
     let captured = std::sync::Arc::new(Mutex::new(None));
     let mut registry = DataRegistry::new();
-    registry.register(
+    let _ = registry.register(
         "arc_capture",
         Box::new(ArcCapturingProvider {
             captured: std::sync::Arc::clone(&captured),

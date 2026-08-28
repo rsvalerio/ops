@@ -147,7 +147,7 @@ ops_extension::impl_extension! {
             .root
             .as_ref()
             .map_or_else(CargoTomlProvider::new, |p| CargoTomlProvider::with_root(p.clone()));
-        registry.register(DATA_PROVIDER_NAME, Box::new(provider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(provider));
     },
     factory: CARGO_TOML_FACTORY = |_, _| {
         Some((NAME, Box::new(CargoTomlExtension::new())))
@@ -215,7 +215,7 @@ impl CargoTomlProvider {
     /// cannot be read (including exceeding the SEC-33 byte cap), or the manifest
     /// fails to parse or resolve its workspace inheritance.
     pub fn provide_typed(&self, ctx: &mut Context) -> Result<CargoToml, DataProviderError> {
-        let root = self.resolve_root(&ctx.working_directory)?;
+        let root = self.resolve_root(ctx.working_directory())?;
         let cargo_toml = root.join("Cargo.toml");
 
         // SEC-33 (TASK-0926): byte-cap the manifest read so an adversarial

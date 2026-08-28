@@ -47,8 +47,8 @@ ops_extension::impl_extension! {
     stack: Some(ops_extension::Stack::Node),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
-        registry.register(DATA_PROVIDER_NAME, Box::new(NodeIdentityProvider));
-        registry.register(units::PROVIDER_NAME, Box::new(units::NodeUnitsProvider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(NodeIdentityProvider));
+        let _ = registry.register(units::PROVIDER_NAME, Box::new(units::NodeUnitsProvider));
     },
     factory: NODE_ABOUT_FACTORY = |_, _| {
         Some((NAME, Box::new(AboutNodeExtension)))
@@ -69,7 +69,7 @@ impl DataProvider for NodeIdentityProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        provide_identity_from_manifest(ctx.working_directory.as_path(), |root| {
+        provide_identity_from_manifest(ctx.working_directory(), |root| {
             let PackageJson {
                 name,
                 version,

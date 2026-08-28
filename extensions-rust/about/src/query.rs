@@ -352,14 +352,14 @@ pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, Data
     // `ctx.working_directory` end before `ctx.cached(...)` /
     // `provider.provide_typed(ctx)` need a mutable borrow).
     let cache = typed_manifest_cache();
-    let current_freshness = cargo_toml_freshness(ctx.working_directory.as_path());
+    let current_freshness = cargo_toml_freshness(ctx.working_directory());
 
-    if ctx.refresh {
+    if ctx.is_refreshing() {
         let mut guard = lock_typed_manifest_cache(cache);
-        guard.map.remove(ctx.working_directory.as_path());
+        guard.map.remove(ctx.working_directory());
     } else {
         let mut guard = lock_typed_manifest_cache(cache);
-        if let Some(entry) = guard.map.get_mut(ctx.working_directory.as_path()) {
+        if let Some(entry) = guard.map.get_mut(ctx.working_directory()) {
             // CONC-2 / TASK-0843 + TASK-1198: serve the cached Arc only
             // when both the mtime AND the byte length match. Pairing
             // mtime with size closes the second-resolution-mtime window
@@ -430,11 +430,11 @@ pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, Data
         // shared and only the typed fields are produced.
         CargoToml::deserialize(cached.as_ref()).map_err(DataProviderError::computation_error)?
     } else {
-        let provider = match find_workspace_root_strict(ctx.working_directory.as_path()) {
+        let provider = match find_workspace_root_strict(ctx.working_directory()) {
             Ok(root) => CargoTomlProvider::with_root(root),
             Err(err) => {
                 tracing::debug!(
-                    cwd = ?ctx.working_directory.display(),
+                    cwd = ?ctx.working_directory().display(),
                     error = ?err,
                     "TASK-1204: strict workspace-root resolution failed; surfacing typed error"
                 );
@@ -451,7 +451,7 @@ pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, Data
     // doc generator) and silently no-op'ing any re-expansion attempt.
     let resolved_members = Arc::new(resolved_workspace_members(
         &manifest,
-        ctx.working_directory.as_path(),
+        ctx.working_directory(),
     ));
 
     let loaded = LoadedManifest {
@@ -464,7 +464,7 @@ pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, Data
     // entry, the map key, and the victim-queue push all reference the
     // same heap allocation (the map needs an owned `PathBuf` slot; the
     // entry+queue share the `Arc`).
-    let owned_cwd: PathBuf = ctx.working_directory.as_path().to_path_buf();
+    let owned_cwd: PathBuf = ctx.working_directory().to_path_buf();
     let key_arc: Arc<PathBuf> = Arc::new(owned_cwd.clone());
     {
         let mut guard = lock_typed_manifest_cache(cache);
@@ -864,7 +864,7 @@ mod tests {
             "second call must reuse cached Arc"
         );
 
-        ctx.refresh = true;
+        let mut ctx = ctx.with_refresh();
         let third = load_workspace_manifest(&mut ctx).expect("load3");
         assert!(
             !Arc::ptr_eq(&first.manifest, &third.manifest),

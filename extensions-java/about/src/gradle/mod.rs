@@ -32,7 +32,7 @@ impl DataProvider for GradleIdentityProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        provide_identity_from_manifest(ctx.working_directory.as_path(), |root| {
+        provide_identity_from_manifest(ctx.working_directory(), |root| {
             let settings = parse_gradle_settings(root);
             let props = parse_gradle_properties(root);
             let build = parse_gradle_build(root);

@@ -140,7 +140,7 @@ mod tests {
         // Lock now poisoned — query path should log + return None.
         let config = Arc::new(Config::empty());
         let mut ctx = Context::new(config, std::path::PathBuf::from("/tmp"));
-        ctx.db = Some(db);
+        ctx.attach_db(db);
 
         let registry = DataRegistry::new();
         assert!(query_language_stats(&mut ctx, &registry).is_none());

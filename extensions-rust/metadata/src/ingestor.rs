@@ -18,7 +18,7 @@ impl DataIngestor for MetadataIngestor {
 
     fn collect(&self, ctx: &Context, data_dir: &Path) -> DbResult<()> {
         std::fs::create_dir_all(data_dir).map_err(DbError::Io)?;
-        let output = run_cargo_metadata(&ctx.working_directory).map_err(|e| match e {
+        let output = run_cargo_metadata(ctx.working_directory()).map_err(|e| match e {
             ops_core::subprocess::RunError::Io(io) => DbError::Io(io),
             ops_core::subprocess::RunError::Timeout(t) => DbError::Timeout {
                 label: t.label,
