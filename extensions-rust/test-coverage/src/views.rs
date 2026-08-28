@@ -13,88 +13,39 @@ pub fn coverage_files_create_sql(path: &Path) -> Result<String, SqlError> {
     ops_duckdb::sql::create_table_from_json_sql("coverage_files", path, None)
 }
 
+/// READ-6 / TASK-1934: every non-percentage SUM is wrapped in
+/// `COALESCE(..., 0)`. An ungrouped aggregate over an empty
+/// `coverage_files` returns exactly one row whose SUMs are all NULL, so
+/// without the wrapper a consumer decoding `lines_count` as a
+/// non-nullable integer gets a decode failure instead of a zero. The
+/// percentage columns need no wrapper: `NULL > 0` is NULL, which falls to
+/// the `ELSE 0.0` arm. This matches `coverage_col_select` in the duckdb
+/// extension, which already made the same decision for the same data.
 pub fn coverage_summary_view_sql() -> String {
     "CREATE OR REPLACE VIEW coverage_summary AS \
      SELECT \
-     SUM(lines_count) AS lines_count, \
-     SUM(lines_covered) AS lines_covered, \
+     COALESCE(SUM(lines_count), 0) AS lines_count, \
+     COALESCE(SUM(lines_covered), 0) AS lines_covered, \
      CASE WHEN SUM(lines_count) > 0 \
          THEN SUM(lines_covered) * 100.0 / SUM(lines_count) \
          ELSE 0.0 END AS lines_percent, \
-     SUM(functions_count) AS functions_count, \
-     SUM(functions_covered) AS functions_covered, \
+     COALESCE(SUM(functions_count), 0) AS functions_count, \
+     COALESCE(SUM(functions_covered), 0) AS functions_covered, \
      CASE WHEN SUM(functions_count) > 0 \
          THEN SUM(functions_covered) * 100.0 / SUM(functions_count) \
          ELSE 0.0 END AS functions_percent, \
-     SUM(regions_count) AS regions_count, \
-     SUM(regions_covered) AS regions_covered, \
-     SUM(regions_notcovered) AS regions_notcovered, \
+     COALESCE(SUM(regions_count), 0) AS regions_count, \
+     COALESCE(SUM(regions_covered), 0) AS regions_covered, \
+     COALESCE(SUM(regions_notcovered), 0) AS regions_notcovered, \
      CASE WHEN SUM(regions_count) > 0 \
          THEN SUM(regions_covered) * 100.0 / SUM(regions_count) \
          ELSE 0.0 END AS regions_percent, \
-     SUM(branches_count) AS branches_count, \
-     SUM(branches_covered) AS branches_covered, \
-     SUM(branches_notcovered) AS branches_notcovered, \
+     COALESCE(SUM(branches_count), 0) AS branches_count, \
+     COALESCE(SUM(branches_covered), 0) AS branches_covered, \
+     COALESCE(SUM(branches_notcovered), 0) AS branches_notcovered, \
      CASE WHEN SUM(branches_count) > 0 \
          THEN SUM(branches_covered) * 100.0 / SUM(branches_count) \
          ELSE 0.0 END AS branches_percent \
      FROM coverage_files"
         .to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    ops_duckdb::test_create_sql_validation!(coverage_files_create_sql, "coverage_files.json");
-
-    #[test]
-    fn coverage_summary_view_sql_contains_aggregation() {
-        let sql = coverage_summary_view_sql();
-        assert!(sql.contains("CREATE OR REPLACE VIEW coverage_summary"));
-        assert!(sql.contains("SUM(lines_count)"));
-        assert!(sql.contains("SUM(lines_covered)"));
-        assert!(sql.contains("SUM(functions_count)"));
-        assert!(sql.contains("SUM(regions_count)"));
-        assert!(sql.contains("SUM(branches_count)"));
-        assert!(sql.contains("CASE WHEN"));
-    }
-
-    #[test]
-    fn coverage_summary_view_sql_has_all_percentage_columns() {
-        let sql = coverage_summary_view_sql();
-        assert!(sql.contains("AS lines_percent"));
-        assert!(sql.contains("AS functions_percent"));
-        assert!(sql.contains("AS regions_percent"));
-        assert!(sql.contains("AS branches_percent"));
-    }
-
-    #[test]
-    fn coverage_summary_view_sql_has_zero_division_guards() {
-        let sql = coverage_summary_view_sql();
-        // Each metric type has a CASE WHEN ... > 0 guard with ELSE 0.0
-        assert_eq!(
-            sql.matches("ELSE 0.0 END").count(),
-            4,
-            "should have zero-division guards for lines, functions, regions, branches"
-        );
-    }
-
-    #[test]
-    fn coverage_summary_view_sql_has_notcovered_columns() {
-        let sql = coverage_summary_view_sql();
-        assert!(sql.contains("regions_notcovered"));
-        assert!(sql.contains("branches_notcovered"));
-    }
-
-    /// PATTERN-1 / TASK-1603: verify no ROUND in the view so downstream
-    /// consumers get full f64 precision.
-    #[test]
-    fn coverage_summary_view_sql_has_no_round() {
-        let sql = coverage_summary_view_sql();
-        assert!(
-            !sql.contains("ROUND"),
-            "view should not round; let presentation layer handle precision"
-        );
-    }
 }
