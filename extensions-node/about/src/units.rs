@@ -363,7 +363,13 @@ fn warn_if_unsupported_pnpm_scalar(s: &str) {
 fn strip_trailing_yaml_comment(s: &str) -> &str {
     let mut in_single = false;
     let mut in_double = false;
-    let mut prev_ws = true; // a leading `#` (no preceding char) acts as a comment too
+    // YAML 1.2 separates a trailing comment from content with `s-white` —
+    // space or tab, nothing else. `char::is_whitespace` is the wider Unicode
+    // set, and treating any member of it as a separator resurrects TASK-1729
+    // one level up: `a\u{a0}#b` is one literal scalar, but NBSP-as-separator
+    // truncates it to `a`. A leading `#` (no preceding char) still opens a
+    // comment, hence the `true` seed.
+    let mut prev_ws = true;
     for (i, c) in s.char_indices() {
         match c {
             '\'' if !in_double => in_single = !in_single,
@@ -376,7 +382,7 @@ fn strip_trailing_yaml_comment(s: &str) -> &str {
             }
             _ => {}
         }
-        prev_ws = c.is_whitespace();
+        prev_ws = matches!(c, ' ' | '\t');
     }
     s
 }
@@ -744,6 +750,29 @@ mod tests {
         let yaml = "packages:\n  - \u{0120}#literal\n  - \u{30a0}#literal\n";
         let pats = parse_pnpm_workspace_yaml(yaml).items;
         assert_eq!(pats, vec!["\u{0120}#literal", "\u{30a0}#literal"]);
+    }
+
+    /// A non-ASCII Unicode space between content and `#` is not a YAML
+    /// comment separator (`s-white` is space or tab only), so the `#` stays
+    /// literal. Same class as the multibyte case above, one level up: there
+    /// the NBSP was a misread byte, here it is a real NBSP character.
+    #[test]
+    fn pnpm_unicode_space_before_hash_does_not_start_a_comment() {
+        let yaml = "packages:\n  - a\u{a0}#b\n";
+        let pats = parse_pnpm_workspace_yaml(yaml).items;
+        assert_eq!(pats, vec!["a\u{a0}#b"]);
+    }
+
+    /// The separator that *does* count: a plain ASCII space (and a tab) still
+    /// opens a trailing comment, so tightening the rule above did not simply
+    /// disable comment stripping.
+    #[test]
+    fn pnpm_ascii_space_and_tab_before_hash_still_start_a_comment() {
+        let space = parse_pnpm_workspace_yaml("packages:\n  - pkgs/* # comment\n").items;
+        assert_eq!(space, vec!["pkgs/*"]);
+
+        let tab = parse_pnpm_workspace_yaml("packages:\n  - pkgs/*\t# comment\n").items;
+        assert_eq!(tab, vec!["pkgs/*"]);
     }
 
     /// ERR-2 / TASK-1725: an empty `workspaces` entry used to resolve to the

@@ -256,15 +256,42 @@ fn count_entry(entry: &DirEntry, working_dir: &Path) -> Option<(String, FileCoun
 fn count_streaming(path: &Path, region: Region) -> std::io::Result<FileCounts> {
     let mut reader = BufReader::new(std::fs::File::open(path)?);
     let mut counts = FileCounts::default();
-    let mut line = Vec::new();
+    // Blank-vs-non-blank state for the line currently being scanned, carried
+    // across chunk boundaries. `started` marks bytes seen since the last
+    // newline, so a trailing newline does not manufacture an extra line.
+    let mut blank = true;
+    let mut started = false;
+
+    // Scan `BufReader`'s own buffer in place. Nothing beyond that fixed
+    // capacity is ever held, which is the whole point of this path.
     loop {
-        line.clear();
-        if reader.read_until(b'\n', &mut line)? == 0 {
-            break;
-        }
-        let blank = line.iter().all(u8::is_ascii_whitespace);
+        let consumed = {
+            let chunk = reader.fill_buf()?;
+            if chunk.is_empty() {
+                break;
+            }
+            for &byte in chunk {
+                if byte == b'\n' {
+                    counts.add_fallback_line(region, blank);
+                    blank = true;
+                    started = false;
+                } else {
+                    started = true;
+                    if !byte.is_ascii_whitespace() {
+                        blank = false;
+                    }
+                }
+            }
+            chunk.len()
+        };
+        reader.consume(consumed);
+    }
+
+    // A final line with no trailing newline still counts.
+    if started {
         counts.add_fallback_line(region, blank);
     }
+
     Ok(counts)
 }
 

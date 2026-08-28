@@ -501,6 +501,75 @@ fn oversized_file_degrades_to_a_line_count_without_aborting_the_scan() {
     );
 }
 
+/// The streaming fallback must stay bounded by its reader's buffer, not by
+/// the longest line in the file. `read_until(b'\n')` accumulated a whole line
+/// into one `Vec`, so a single over-cap line — a generated table, a minified
+/// blob, any machine-written `.rs` with no newlines — reproduced in memory
+/// exactly the allocation `MAX_SOURCE_BYTES` exists to prevent, on the very
+/// path chosen to avoid it. One line past the cap, and no newline at all.
+#[test]
+fn a_single_line_larger_than_the_cap_is_counted_without_buffering_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
+    std::fs::write(dir.path().join("src/lib.rs"), "pub fn f() {}\n").expect("write lib.rs");
+
+    let cap = usize::try_from(crate::MAX_SOURCE_BYTES).expect("cap fits in usize");
+    let one_long_line = "x".repeat(cap.saturating_add(1024));
+    std::fs::write(dir.path().join("wide.rs"), &one_long_line).expect("write wide.rs");
+
+    let value = crate::collect_rust_loc(dir.path()).expect("collect");
+    let records = value.as_array().expect("array");
+
+    assert!(
+        records.iter().any(|r| r["file"] == "src/lib.rs"),
+        "the normal file's rows must still be emitted: {records:?}"
+    );
+    let wide: Vec<_> = records.iter().filter(|r| r["file"] == "wide.rs").collect();
+    assert_eq!(wide.len(), 1, "one degraded row for the over-cap file");
+    assert_eq!(
+        wide[0]["code"].as_u64(),
+        Some(1),
+        "an unterminated final line counts once"
+    );
+    assert_eq!(wide[0]["blanks"].as_u64(), Some(0));
+}
+
+/// Blank-vs-non-blank state has to survive a chunk boundary now that the
+/// scan works in fixed-size reads: a run of blank lines longer than the
+/// reader's buffer must not be reclassified as code, and a line whose only
+/// non-blank byte lands in a later chunk must not stay blank.
+#[test]
+fn blank_state_survives_chunk_boundaries() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cap = usize::try_from(crate::MAX_SOURCE_BYTES).expect("cap fits in usize");
+
+    // Blank lines well past any buffer size, then one very long line that is
+    // blank until its final byte, then a normal line.
+    let mut src = "\n".repeat(cap / 8);
+    src.push_str(&" ".repeat(cap));
+    src.push_str("x\n");
+    src.push('\n');
+    std::fs::write(dir.path().join("chunks.rs"), &src).expect("write chunks.rs");
+
+    let value = crate::collect_rust_loc(dir.path()).expect("collect");
+    let records = value.as_array().expect("array");
+    let row = records
+        .iter()
+        .find(|r| r["file"] == "chunks.rs")
+        .expect("chunks.rs row");
+
+    assert_eq!(
+        row["code"].as_u64(),
+        Some(1),
+        "only the line carrying a non-blank byte is code"
+    );
+    assert_eq!(
+        row["blanks"].as_u64(),
+        u64::try_from(cap / 8 + 1).ok(),
+        "every blank line, across chunk boundaries, stays blank"
+    );
+}
+
 // -- degradation policy (lib.rs:120-126, lib.rs:135-144, counter.rs syn pass) --
 
 /// Pins the **unreadable-file** branch of the warn-and-skip policy: a

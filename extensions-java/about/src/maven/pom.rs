@@ -31,12 +31,13 @@ use std::path::Path;
 #[non_exhaustive]
 pub(super) struct PomData {
     /// Maven `<artifactId>` — coordinate, first-write-wins on duplicates.
-    /// [`try_set_once`] is the single owner of that policy; every field of
-    /// this struct is written through it.
+    /// [`try_set_once`] is the single owner of that policy for the scalar
+    /// `Option` fields below. The `Vec` fields (`modules`, `developers`) are
+    /// collections, not single-valued: they append every entry they see.
     pub(super) artifact_id: Option<String>,
     /// Maven `<name>` — display name, first-write-wins on duplicates (see
-    /// [`try_set_once`], which owns the duplicate-resolution policy for the
-    /// whole struct). Provider prefers this over `artifact_id` when both are
+    /// [`try_set_once`], which owns duplicate resolution for the scalar
+    /// fields). Provider prefers this over `artifact_id` when both are
     /// present.
     pub(super) name: Option<String>,
     pub(super) version: Option<String>,
