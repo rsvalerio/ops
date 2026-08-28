@@ -3,11 +3,11 @@ id: TASK-1819
 title: >-
   PERF-3: serde_json::to_value(json!(...)) deep-copies the whole payload and
   adds an unreachable error branch
-status: To Do
+status: Done
 assignee:
   - TASK-1996
 created_date: '2026-08-27 11:33'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 15:13'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -41,7 +41,7 @@ The pattern was presumably copied from `extensions-rust/about/src/units.rs:169` 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The redundant serde_json::to_value wrapper is removed; the json! Value is returned directly
-- [ ] #2 The unreachable map_err(DataProviderError::from) branch is gone
-- [ ] #3 Existing provider tests still pass unchanged
+- [x] #1 The redundant serde_json::to_value wrapper is removed; the json! Value is returned directly
+- [x] #2 The unreachable map_err(DataProviderError::from) branch is gone
+- [x] #3 Existing provider tests still pass unchanged
 <!-- AC:END -->

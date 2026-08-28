@@ -3,11 +3,11 @@ id: TASK-1814
 title: >-
   DUP-3: member_package_name re-implements ops-about-rust's crate-manifest
   reader and drops its SEC-14 member-path guard
-status: To Do
+status: Done
 assignee:
   - TASK-1996
 created_date: '2026-08-27 11:32'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 15:13'
 labels:
   - code-review-rust
   - duplication
@@ -33,8 +33,14 @@ The copy is not faithful in one respect: `resolve_crate_display_name` opens with
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 member_package_name is removed and the display-name resolution delegates to the shared ops-about-rust helper (re-exported from that crate's lib.rs alongside resolved_workspace_members)
-- [ ] #2 The member -> Cargo.toml join is guarded against absolute and '..' member entries, matching resolve_crate_display_name's SEC-14 / TASK-1246 behaviour
-- [ ] #3 Existing tests (package names, missing manifest fallback, malformed manifest fallback) still pass unchanged against the shared helper
-- [ ] #4 A test covers an absolute or '..' member entry reaching the provider and asserts no read is attempted outside the workspace root
+- [x] #1 member_package_name is removed and the display-name resolution delegates to the shared ops-about-rust helper (re-exported from that crate's lib.rs alongside resolved_workspace_members)
+- [x] #2 The member -> Cargo.toml join is guarded against absolute and '..' member entries, matching resolve_crate_display_name's SEC-14 / TASK-1246 behaviour
+- [x] #3 Existing tests (package names, missing manifest fallback, malformed manifest fallback) still pass unchanged against the shared helper
+- [x] #4 A test covers an absolute or '..' member entry reaching the provider and asserts no read is attempted outside the workspace root
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1996: ops-about-rust now re-exports read_crate_metadata, CrateMetadata and member_path_is_workspace_safe for sibling Rust-stack extension crates.
+<!-- SECTION:NOTES:END -->

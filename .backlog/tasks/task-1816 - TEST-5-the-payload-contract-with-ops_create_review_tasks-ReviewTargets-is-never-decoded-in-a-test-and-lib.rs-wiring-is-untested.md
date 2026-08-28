@@ -3,11 +3,11 @@ id: TASK-1816
 title: >-
   TEST-5: the payload contract with ops_create_review_tasks::ReviewTargets is
   never decoded in a test, and lib.rs wiring is untested
-status: To Do
+status: Done
 assignee:
   - TASK-1996
 created_date: '2026-08-27 11:32'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 15:12'
 labels:
   - code-review-rust
   - test-quality
@@ -35,8 +35,8 @@ Untested public surface, in the same file pair:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test decodes the payload produced by provide() into ops_create_review_tasks::ReviewTargets and asserts skill plus every target's name and path
-- [ ] #2 A test asserts RustReviewTargetsProvider::name() equals ops_create_review_tasks::DATA_PROVIDER_NAME
-- [ ] #3 A test registers CreateReviewTasksRustExtension's data providers into a registry and asserts the review_targets key resolves to this provider
-- [ ] #4 The cfg_attr(test, allow(...)) block in lib.rs is either justified by the new tests or removed
+- [x] #1 A test decodes the payload produced by provide() into ops_create_review_tasks::ReviewTargets and asserts skill plus every target's name and path
+- [x] #2 A test asserts RustReviewTargetsProvider::name() equals ops_create_review_tasks::DATA_PROVIDER_NAME
+- [x] #3 A test registers CreateReviewTasksRustExtension's data providers into a registry and asserts the review_targets key resolves to this provider
+- [x] #4 The cfg_attr(test, allow(...)) block in lib.rs is either justified by the new tests or removed
 <!-- AC:END -->

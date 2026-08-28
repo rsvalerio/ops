@@ -3,11 +3,11 @@ id: TASK-1839
 title: >-
   PATTERN-1: display-name fallback collapses distinct workspace members to the
   same review-target name, and the name is the created task's only identity
-status: To Do
+status: Done
 assignee:
   - TASK-1996
 created_date: '2026-08-27 15:22'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 15:13'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -41,7 +41,7 @@ Reachability is not limited to hand-written literal members. Glob-expanded membe
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The display-name fallback yields a distinct name for two members whose last path segment is equal (e.g. crates/parser and tools/parser)
-- [ ] #2 A test builds a workspace with two same-leaf-named members whose manifests are unparseable and asserts the two emitted target names differ
-- [ ] #3 The uniqueness expectation stated on ops_create_review_tasks::ReviewTarget::name is referenced in a comment or doc at the point the fallback name is produced
+- [x] #1 The display-name fallback yields a distinct name for two members whose last path segment is equal (e.g. crates/parser and tools/parser)
+- [x] #2 A test builds a workspace with two same-leaf-named members whose manifests are unparseable and asserts the two emitted target names differ
+- [x] #3 The uniqueness expectation stated on ops_create_review_tasks::ReviewTarget::name is referenced in a comment or doc at the point the fallback name is produced
 <!-- AC:END -->
