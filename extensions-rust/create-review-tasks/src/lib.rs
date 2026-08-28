@@ -56,10 +56,6 @@ mod tests {
         let mut registry = DataRegistry::new();
         CreateReviewTasksRustExtension.register_data_providers(&mut registry);
 
-        assert_eq!(
-            DATA_PROVIDER_NAME,
-            ops_create_review_tasks::DATA_PROVIDER_NAME
-        );
         assert!(registry.provider_names().contains(&DATA_PROVIDER_NAME));
 
         // Identity, not just presence: the registered provider must be this

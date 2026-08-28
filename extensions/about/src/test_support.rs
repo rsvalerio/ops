@@ -142,6 +142,12 @@ mod level_counter {
     /// thread-local default, returning its result alongside the warn count.
     /// Handles the `Interest`-cache pin above, so callers never have to
     /// rediscover that hazard.
+    ///
+    /// **Scope:** the subscriber is the *thread-local* default, so only
+    /// warnings `f` emits on the calling thread are counted. If `f` fans out
+    /// to worker threads — an `ignore` parallel walker, `rayon`, a spawned
+    /// scope — their warnings reach the global dispatcher instead and are not
+    /// counted. Do not assert warn counts across a parallel walk with this.
     pub fn count_warnings<T>(f: impl FnOnce() -> T) -> (T, usize) {
         pin_global_dispatcher();
         let counter = WarnCounter::default();

@@ -298,10 +298,13 @@ fn handle_licenses(line: &str, in_license: &mut bool, data: &mut PomData) -> boo
     false
 }
 
-/// Match opening tags for POM sections. Single-line `<scm>...</scm>` and
-/// `<licenses>...</licenses>` blocks are extracted in place and reported as
-/// [`SectionOutcome::Consumed`], leaving the caller in `TopLevel` **without**
-/// re-parsing the line at top level.
+/// Match opening tags for POM sections. Single-line `<scm>...</scm>`,
+/// `<licenses>...</licenses>` and `<developers>...</developers>` blocks are
+/// extracted in place and reported as [`SectionOutcome::Consumed`], leaving
+/// the caller in `TopLevel` **without** re-parsing the line at top level.
+///
+/// Consuming the collapsed `<developers>` form is load-bearing, not tidiness:
+/// falling through would hand a line containing `<name>` to `parse_top_level`.
 fn match_section_open(line: &str, data: &mut PomData) -> SectionOutcome {
     if line == "<modules>" {
         return SectionOutcome::Entered(PomSection::Modules);
@@ -338,6 +341,37 @@ fn match_section_open(line: &str, data: &mut PomData) -> SectionOutcome {
         && line.matches("<licenses>").count() == 1
     {
         try_set_once(&mut data.license, line, "<name>", "</name>");
+        return SectionOutcome::Consumed;
+    }
+
+    // PATTERN-1: a single-line `<developers>...</developers>` used to fall
+    // through to `parse_top_level`, whose `<name>` rule then captured the
+    // developer's name as the *project* name — and the provider prefers
+    // `name` over `artifact_id`, so the project displayed as a person. Handle
+    // the collapsed form here and keep the developer, mirroring the multi-line
+    // `handle_developers` policy (every `<name>` inside a `<developer>`).
+    if line.starts_with("<developers>")
+        && line.ends_with("</developers>")
+        && line.matches("<developers>").count() == 1
+    {
+        let mut rest = line;
+        while let Some(start) = rest.find("<developer>") {
+            let Some(after) = rest.get(start.saturating_add("<developer>".len())..) else {
+                break;
+            };
+            let Some(end) = after.find("</developer>") else {
+                break;
+            };
+            if let Some(entry) = after.get(..end) {
+                if let Some(val) = extract_xml_value(entry, "<name>", "</name>") {
+                    data.developers.push(val.to_string());
+                }
+            }
+            let Some(next) = after.get(end.saturating_add("</developer>".len())..) else {
+                break;
+            };
+            rest = next;
+        }
         return SectionOutcome::Consumed;
     }
 
@@ -979,5 +1013,60 @@ mod tests {
 
         let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.artifact_id, Some("attr".to_string()));
+    }
+
+    /// PATTERN-1: a `<developers>` container collapsed onto one line must not
+    /// leak its developer `<name>` into the project `<name>`. The provider
+    /// prefers `name` over `artifact_id`, so the regression rendered the
+    /// project as whoever was listed first.
+    #[test]
+    fn single_line_developers_does_not_become_the_project_name() {
+        let mut data = PomData::default();
+        let outcome = match_section_open(
+            "<developers><developer><name>Jane Doe</name></developer></developers>",
+            &mut data,
+        );
+
+        assert!(matches!(outcome, SectionOutcome::Consumed));
+        assert_eq!(data.name, None, "developer name must not set project name");
+        assert_eq!(data.developers, vec!["Jane Doe".to_string()]);
+    }
+
+    /// End-to-end through the real parser: the project keeps its own
+    /// `artifactId` and stays nameless, and the developer lands in
+    /// `developers` rather than in `name`.
+    #[test]
+    fn parse_pom_single_line_developers_does_not_hijack_the_project_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project>\n<artifactId>camel</artifactId>\n<developers><developer><name>Jane Doe</name></developer></developers>\n</project>",
+        )
+        .unwrap();
+
+        let pom = parse_pom_xml(dir.path()).unwrap();
+        assert_eq!(pom.artifact_id, Some("camel".to_string()));
+        assert!(
+            pom.name.is_none(),
+            "developer name leaked into the project name: {:?}",
+            pom.name
+        );
+        assert_eq!(pom.developers, vec!["Jane Doe".to_string()]);
+    }
+
+    /// The collapsed form carries every `<developer>`, matching the multi-line
+    /// `handle_developers` policy rather than keeping only the first.
+    #[test]
+    fn single_line_developers_keeps_every_developer() {
+        let mut data = PomData::default();
+        let outcome = match_section_open(
+            "<developers><developer><name>Jane</name></developer>\
+<developer><name>Ada</name></developer></developers>",
+            &mut data,
+        );
+
+        assert!(matches!(outcome, SectionOutcome::Consumed));
+        assert_eq!(data.name, None);
+        assert_eq!(data.developers, vec!["Jane".to_string(), "Ada".to_string()]);
     }
 }

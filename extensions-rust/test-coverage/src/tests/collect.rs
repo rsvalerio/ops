@@ -6,8 +6,18 @@
 //! writes a synthetic report to the `--output-path` file and returns a
 //! synthetic [`Output`], exactly as cargo would.
 
-use crate::parse::{collect_coverage_with, has_parseable_coverage_data};
+use crate::parse::has_parseable_coverage_data;
+
+// Everything below drives a synthetic `Output`, which these tests build via
+// `ExitStatusExt::from_raw` — a unix-only trait. The tests that need it are
+// `#[cfg(unix)]`, so their imports must be too, or a non-unix build warns on
+// three unused imports. `has_parseable_coverage_data` above is exercised by
+// the one test that is not gated, so it stays unconditional.
+#[cfg(unix)]
+use crate::parse::collect_coverage_with;
+#[cfg(unix)]
 use crate::subprocess::check_llvm_cov_output;
+#[cfg(unix)]
 use std::process::Output;
 
 /// A cargo runner double: writes `report` to the `--output-path` file and

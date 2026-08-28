@@ -107,6 +107,11 @@ pub(crate) const EXCLUDED_DIRS: &[&str] = &["target", ".git"];
 /// [`counter::FileCounts::add_fallback_line`] over a streaming read, so
 /// the degradation costs test attribution rather than the file itself.
 /// First-party Rust source does not approach this size.
+///
+/// The cap is **per file, not per scan**: the walk runs on `ignore`'s
+/// parallel walker, so peak resident cost is this figure multiplied by the
+/// worker count (`ignore` defaults to the available parallelism). The cap
+/// bounds what any one worker can hold, not the process total.
 pub const MAX_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Walk `working_dir` for `.rs` files and classify each one.
@@ -224,7 +229,14 @@ fn count_entry(entry: &DirEntry, working_dir: &Path) -> Option<(String, FileCoun
         }
     } else {
         match std::fs::read_to_string(path) {
-            Ok(source) => count_source(&source, region),
+            // `count_source` warns on the nesting-depth cap but takes only
+            // `&str`, so it has no path to name. Entering a span here adds the
+            // field to that warn without widening its signature; every other
+            // warn on this path already Debug-formats the path itself.
+            Ok(source) => {
+                let _span = tracing::warn_span!("rust-loc.count_source", path = ?path).entered();
+                count_source(&source, region)
+            }
             Err(error) => {
                 tracing::warn!(path = ?path, %error, "rust-loc: skipping unreadable file");
                 return None;

@@ -728,12 +728,20 @@ mod tests {
         assert_eq!(pats, vec!["#literal-pattern"]);
     }
 
-    /// PATTERN-1 / TASK-1729: `U+0120` encodes as `C4 A0`; reading that
-    /// trailing `A0` as Latin-1 NBSP made the parser treat the following
-    /// literal `#` as the start of a comment and truncate the entry.
+    /// PATTERN-1 / TASK-1729: `U+0120` encodes as `C4 A0` and `U+30A0` as
+    /// `E3 82 A0`; reading that trailing `A0` as Latin-1 NBSP made the parser
+    /// treat the following literal `#` as the start of a comment and truncate
+    /// the entry.
+    ///
+    /// The scalars are deliberately **unquoted**. Inside quotes
+    /// `strip_trailing_yaml_comment` skips the `#` branch on quote state
+    /// alone, so a quoted fixture passes under the old byte-wise loop too and
+    /// pins nothing. Unquoted, the only thing standing between `#` and a
+    /// comment is whether the preceding scalar byte was read as whitespace —
+    /// which is exactly the regression.
     #[test]
     fn pnpm_hash_after_multibyte_scalar_is_not_a_comment() {
-        let yaml = "packages:\n  - '\u{0120}#literal'\n  - \"\u{30a0}#literal\"\n";
+        let yaml = "packages:\n  - \u{0120}#literal\n  - \u{30a0}#literal\n";
         let pats = parse_pnpm_workspace_yaml(yaml).items;
         assert_eq!(pats, vec!["\u{0120}#literal", "\u{30a0}#literal"]);
     }
