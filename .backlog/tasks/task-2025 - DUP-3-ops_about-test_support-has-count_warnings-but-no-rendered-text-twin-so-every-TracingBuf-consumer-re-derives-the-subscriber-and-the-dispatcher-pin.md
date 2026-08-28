@@ -6,6 +6,7 @@ title: >-
 status: Triage
 assignee: []
 created_date: '2026-08-28 20:11'
+updated_date: '2026-08-28 20:27'
 labels:
   - code-review-rust
   - duplication
@@ -54,3 +55,9 @@ Related but distinct: TASK-2014 covers replacing *hand-rolled* subscribers with 
 - [ ] #3 extensions-python/about's local capture_warns is deleted and its count_warnings(|| ()) pin workaround goes with it
 - [ ] #4 The three remaining inline TracingBuf + fmt()::finish() sites route through the helper
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1995 added `ops_about::test_support::capture_warn`, the rendered-text twin of `count_warnings`, with the dispatcher pin hoisted to a single definition shared by both. The remaining work here is migrating the other TracingBuf consumers onto it.
+<!-- SECTION:NOTES:END -->

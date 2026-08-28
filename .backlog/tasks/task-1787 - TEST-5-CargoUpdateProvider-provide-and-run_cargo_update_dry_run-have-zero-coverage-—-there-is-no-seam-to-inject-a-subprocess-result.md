@@ -3,11 +3,11 @@ id: TASK-1787
 title: >-
   TEST-5: CargoUpdateProvider::provide and run_cargo_update_dry_run have zero
   coverage — there is no seam to inject a subprocess result
-status: To Do
+status: Done
 assignee:
   - TASK-1995
 created_date: '2026-08-27 11:23'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:26'
 labels:
   - code-review-rust
   - test-quality
@@ -60,8 +60,14 @@ fixed by the same seam.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The output-interpretation half of provide is extracted into a function taking a std::process::Output (or equivalent seam), mirroring deps::interpret_upgrade_output
-- [ ] #2 Tests cover the non-zero-exit branch (message content and escaping), the success branch (stderr is what gets parsed, and the resulting JSON shape), and the RunError mapping
-- [ ] #3 A test pins run_cargo_update_dry_run's argv, working directory and timeout constant without spawning cargo
-- [ ] #4 The tests assert on values returned by production code, not on locally rebuilt copies of its expressions
+- [x] #1 The output-interpretation half of provide is extracted into a function taking a std::process::Output (or equivalent seam), mirroring deps::interpret_upgrade_output
+- [x] #2 Tests cover the non-zero-exit branch (message content and escaping), the success branch (stderr is what gets parsed, and the resulting JSON shape), and the RunError mapping
+- [x] #3 A test pins run_cargo_update_dry_run's argv, working directory and timeout constant without spawning cargo
+- [x] #4 The tests assert on values returned by production code, not on locally rebuilt copies of its expressions
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1995: `interpret_output(&Output)` extracted (mirrors deps::interpret_upgrade_output) and `map_run_error` named, both covered by tests built on a hand-made `std::process::Output`. `cargo_update_invocation` describes the subprocess call as data, so a test pins argv, working dir, timeout and label with no spawn.
+<!-- SECTION:NOTES:END -->

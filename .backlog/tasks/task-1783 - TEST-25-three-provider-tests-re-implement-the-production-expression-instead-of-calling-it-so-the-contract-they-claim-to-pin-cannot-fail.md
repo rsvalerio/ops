@@ -3,11 +3,11 @@ id: TASK-1783
 title: >-
   TEST-25: three provider tests re-implement the production expression instead
   of calling it, so the contract they claim to pin cannot fail
-status: To Do
+status: Done
 assignee:
   - TASK-1995
 created_date: '2026-08-27 11:23'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:26'
 labels:
   - code-review-rust
   - test-quality
@@ -66,8 +66,16 @@ the same file).
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 non_zero_exit_stderr_tail_debug_escapes_control_bytes drives the real non-zero-exit branch of CargoUpdateProvider::provide (via an injected Output/runner seam) and fails if the {:?} formatting at lib.rs:458 is reverted to {}
-- [ ] #2 provide_wraps_run_error_with_context_preserving_source_chain asserts on the anyhow::Error actually returned by provide, and fails if the .context(..) wrap is flattened back into anyhow!("{}: {}", ..)
-- [ ] #3 warn_breadcrumb_debug_escapes_control_characters asserts on a tracing record captured from a real parse_update_output call, and fails if a ?field is changed to %field; the assertion body reuses ops_about::test_support::assert_debug_escapes_control_chars rather than re-deriving it
-- [ ] #4 No test in this file constructs a copy of a production format!/anyhow! expression as its subject under test
+- [x] #1 non_zero_exit_stderr_tail_debug_escapes_control_bytes drives the real non-zero-exit branch of CargoUpdateProvider::provide (via an injected Output/runner seam) and fails if the {:?} formatting at lib.rs:458 is reverted to {}
+- [x] #2 provide_wraps_run_error_with_context_preserving_source_chain asserts on the anyhow::Error actually returned by provide, and fails if the .context(..) wrap is flattened back into anyhow!("{}: {}", ..)
+- [x] #3 warn_breadcrumb_debug_escapes_control_characters asserts on a tracing record captured from a real parse_update_output call, and fails if a ?field is changed to %field; the assertion body reuses ops_about::test_support::assert_debug_escapes_control_chars rather than re-deriving it
+- [x] #4 No test in this file constructs a copy of a production format!/anyhow! expression as its subject under test
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1995: all three mirror tests now drive production code — non_zero_exit_* and the success/stderr branch go through `interpret_output`, the RunError wrap through `map_run_error`, and the breadcrumb test captures a real tracing record from `parse_update_output`.
+
+AC #3 substitution: the shared assertion is reused via `ops_about::test_support::assert_rendered_escapes_control_chars` (extracted from `assert_debug_escapes_control_chars`, which now delegates to it) rather than by calling `assert_debug_escapes_control_chars` directly. That helper also requires an escaped `\n` in the rendering, which is unrepresentable here: `parse_update_output` splits on `lines()`, so no newline can reach a per-line breadcrumb. The ESC half — the half that fails when a `?field` becomes `%field` — is asserted on the captured record.
+<!-- SECTION:NOTES:END -->

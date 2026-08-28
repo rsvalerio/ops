@@ -3,11 +3,11 @@ id: TASK-1794
 title: >-
   DUP-3: test_log_capture re-implements ops_about::test_support::TracingBuf and
   the global-dispatcher pin, with panicking locks
-status: To Do
+status: Done
 assignee:
   - TASK-1995
 created_date: '2026-08-27 11:24'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:26'
 labels:
   - code-review-rust
   - duplication
@@ -62,8 +62,18 @@ to avoid.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 test_log_capture::BufWriter is replaced by ops_about::test_support::TracingBuf (dev-dependency ops-about with the test-support feature), or the shared module gains the capture_warn wrapper and this crate calls it
-- [ ] #2 warn_breadcrumb_debug_escapes_control_characters delegates to ops_about::test_support::assert_debug_escapes_control_chars instead of re-deriving the assertion
-- [ ] #3 No lock().unwrap() or String::from_utf8(..).unwrap() remains in the crate's tracing-capture path — poison is recovered and decoding is lossy
-- [ ] #4 The pin_global_dispatcher workaround lives in one shared place rather than a per-crate copy (coordinate with TASK-1735, which tracks the extensions-go copy)
+- [x] #1 test_log_capture::BufWriter is replaced by ops_about::test_support::TracingBuf (dev-dependency ops-about with the test-support feature), or the shared module gains the capture_warn wrapper and this crate calls it
+- [x] #2 warn_breadcrumb_debug_escapes_control_characters delegates to ops_about::test_support::assert_debug_escapes_control_chars instead of re-deriving the assertion
+- [x] #3 No lock().unwrap() or String::from_utf8(..).unwrap() remains in the crate's tracing-capture path — poison is recovered and decoding is lossy
+- [x] #4 The pin_global_dispatcher workaround lives in one shared place rather than a per-crate copy (coordinate with TASK-1735, which tracks the extensions-go copy)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1995: the local `test_log_capture` module is gone. `ops_about::test_support` gained a shared `capture_warn` (built on TracingBuf, whose lock and UTF-8 handling recover instead of panicking) and `pin_global_dispatcher` was hoisted to one definition serving both `count_warnings` and `capture_warn`. cargo-update dev-depends on ops-about with the test-support feature.
+
+AC #2 substitution: the test delegates to `assert_rendered_escapes_control_chars` — the shared half of `assert_debug_escapes_control_chars`, which now calls it — because the record is captured from a real parse and can carry no newline (see TASK-1783 notes). Nothing is re-derived in this crate.
+
+AC #4: the dispatcher pin now lives only in ops_about::test_support. The extensions-go copy TASK-1735 tracked is already Done; the three remaining copies elsewhere are tracked by TASK-2014.
+<!-- SECTION:NOTES:END -->

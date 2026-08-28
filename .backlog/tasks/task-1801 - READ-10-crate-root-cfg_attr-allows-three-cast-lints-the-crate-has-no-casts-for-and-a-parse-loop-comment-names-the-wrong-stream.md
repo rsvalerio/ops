@@ -3,11 +3,11 @@ id: TASK-1801
 title: >-
   READ-10: crate-root cfg_attr allows three cast lints the crate has no casts
   for, and a parse-loop comment names the wrong stream
-status: To Do
+status: Done
 assignee:
   - TASK-1995
 created_date: '2026-08-27 11:25'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:27'
 labels:
   - code-review-rust
   - readability
@@ -69,7 +69,13 @@ documentation of eight prior parser bugs.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The three cast-lint allows are removed from the crate-root cfg_attr (or converted to #[expect] so they self-delete), leaving only suppressions that actually fire
-- [ ] #2 cargo clippy --all-targets still passes under the workspace deny policy with no extra flags
-- [ ] #3 The parse-loop comment at lib.rs:141-143 names stderr, matching the function's parameter and the call site at :462
+- [x] #1 The three cast-lint allows are removed from the crate-root cfg_attr (or converted to #[expect] so they self-delete), leaving only suppressions that actually fire
+- [x] #2 cargo clippy --all-targets still passes under the workspace deny policy with no extra flags
+- [x] #3 The parse-loop comment at lib.rs:141-143 names stderr, matching the function's parameter and the call site at :462
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1995: the three dead cast allows are removed from the crate-root cfg_attr (only unwrap_used remains, with the reason recorded); the parse-loop comment now names stderr. `ops verify` runs clippy --workspace --all-features --all-targets -D warnings and is clean.
+<!-- SECTION:NOTES:END -->

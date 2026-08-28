@@ -3,11 +3,11 @@ id: TASK-1799
 title: >-
   SEC-11: parse_action_line accepts any token as a version — is_version_token
   exists but only gates the warn, never the parse
-status: To Do
+status: Done
 assignee:
   - TASK-1995
 created_date: '2026-08-27 11:25'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:27'
 labels:
   - code-review-rust
   - security
@@ -56,8 +56,14 @@ present-but-empty version reads as "known" to every consumer that checks
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_action_line validates the version position with is_version_token (or an equivalent shape check) before accepting the line
-- [ ] #2 A token that does not look like a version produces no entry and reaches the existing format-drift warn, rather than being published as the version
-- [ ] #3 strip_v_prefix can no longer yield an empty version into UpdateEntry.from/.to
-- [ ] #4 Tests cover 'Adding foo v', a non-version token in the version position, and confirm the legitimate v-prefixed and bare-numeric forms still parse (parse_no_v_prefix_passthrough must keep passing or be consciously re-specified)
+- [x] #1 parse_action_line validates the version position with is_version_token (or an equivalent shape check) before accepting the line
+- [x] #2 A token that does not look like a version produces no entry and reaches the existing format-drift warn, rather than being published as the version
+- [x] #3 strip_v_prefix can no longer yield an empty version into UpdateEntry.from/.to
+- [x] #4 Tests cover 'Adding foo v', a non-version token in the version position, and confirm the legitimate v-prefixed and bare-numeric forms still parse (parse_no_v_prefix_passthrough must keep passing or be consciously re-specified)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1995: parse_action_line now validates the version position with `is_version_shaped` (optional v prefix + ASCII digit, control-free) and returns a dedicated `Rejected(reason)` outcome, so a bad token produces no entry and always reaches a warn — including `Adding foo v`, which carries no `v<digit>` token and so could never have reached the existing starts_with_known_verb gate. The warn stays a single site in parse_update_output, so no line warns twice; non-action `Updating` lines (git repository, index progress) still stay silent.
+<!-- SECTION:NOTES:END -->
