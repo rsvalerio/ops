@@ -3,7 +3,7 @@
 //! ARCH-1 / TASK-1545: split out from the legacy `tests.rs`.
 
 use crate::{check_metadata_output, MetadataProvider};
-use ops_extension::{Context, DataProvider};
+use ops_extension::{Context, DataProvider, DataProviderError};
 
 #[test]
 fn metadata_provider_name() {
@@ -31,12 +31,37 @@ fn metadata_provider_returns_valid_json() {
     assert!(value.get("workspace_root").is_some());
 }
 
+/// TEST-11 / TASK-1900: `provide` can fail for at least four unrelated
+/// reasons — cargo missing from `PATH`, the subprocess exceeding
+/// `CARGO_METADATA_TIMEOUT`, a `DuckDB` failure before cargo ran at all, and
+/// the one this test is named for: cargo ran and found no `Cargo.toml`. A
+/// bare `is_err()` is green in every one of those environments, so it
+/// certified "something went wrong" rather than the behaviour under test.
+/// Follow the pattern TASK-1546 established at `ingestor.rs`: match the
+/// variant, assert the chain names the cargo-metadata origin *and* the
+/// missing manifest, and panic with a distinguishable message on the
+/// impostor failures.
 #[test]
 fn metadata_provider_fails_in_non_cargo_dir() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut ctx = Context::test_context(dir.path().to_path_buf());
-    let result = MetadataProvider.provide(&mut ctx);
-    assert!(result.is_err());
+    let err = MetadataProvider
+        .provide(&mut ctx)
+        .expect_err("a directory with no Cargo.toml must fail");
+    let chain = format!("{err:#}");
+    assert!(
+        matches!(err, DataProviderError::ComputationFailed(_)),
+        "expected ComputationFailed carrying the cargo-metadata chain, got: {err:?}"
+    );
+    assert!(
+        chain.contains("cargo metadata"),
+        "failure must attribute itself to cargo metadata; a missing `cargo` on PATH or a \
+         DuckDB failure before cargo ran would not: {chain}"
+    );
+    assert!(
+        chain.contains("Cargo.toml"),
+        "failure must be the missing-manifest one, not a timeout or a spawn error: {chain}"
+    );
 }
 
 #[test]
@@ -49,16 +74,20 @@ fn metadata_schema_has_expected_fields() {
     assert!(field_names.contains(&"members"));
 }
 
+/// TEST-1 / TASK-1901: `#[cfg(unix)]` sits on the `fn`, not on the
+/// assertion. With it on the assertion the test still existed off-unix but
+/// compiled to setup with no assertion — a test that cannot fail. Its two
+/// siblings below already had the correct shape.
+#[cfg(unix)]
 #[test]
 fn check_metadata_output_success() {
     use std::process::Output;
+    // ExitStatus::default() is success (code 0) on unix.
     let output = Output {
         status: std::process::ExitStatus::default(),
         stdout: vec![],
         stderr: vec![],
     };
-    // ExitStatus::default() is success (code 0) on unix
-    #[cfg(unix)]
     assert!(check_metadata_output(&output).is_ok());
 }
 
@@ -111,21 +140,21 @@ fn check_metadata_output_failure_signal_kill_says_signal() {
     );
 }
 
-/// PATTERN-1 / TASK-1059: `cargo metadata` must run with `--locked`
-/// so the read-only ingestor cannot mutate Cargo.lock. The actual
-/// subprocess invocation goes through `run_cargo`; pin the arg list
-/// at the source-of-truth here so a future refactor cannot silently
-/// drop the flag.
+/// PATTERN-1 / TASK-1059: `cargo metadata` must run with `--locked` so the
+/// read-only ingestor cannot mutate Cargo.lock.
+///
+/// TEST-25 / TASK-1899: assert on [`crate::CARGO_METADATA_ARGS`] — the array
+/// `run_cargo_metadata` actually hands to `run_cargo` — rather than on
+/// `include_str!` of the source file. Reformatting `lib.rs` can no longer
+/// fail this test. Bypassing the constant cannot pass silently either:
+/// `run_cargo_metadata` is its only user, so a call site that stops reading
+/// it makes the `pub(crate) const` dead and the workspace's
+/// `-D warnings` gate rejects the build.
 #[test]
 fn run_cargo_metadata_arg_list_includes_locked() {
-    // Read the current source of `run_cargo_metadata` and verify
-    // the static arg list includes `--locked`. This is a coarse
-    // pin but it withstands moving the function body around without
-    // requiring a fake `cargo` on PATH.
-    let src = include_str!("../lib.rs");
-    let needle = "[\"metadata\", \"--format-version\", \"1\", \"--locked\"]";
-    assert!(
-        src.contains(needle),
-        "run_cargo_metadata arg list must include --locked (TASK-1059); src missing: {needle}"
+    assert_eq!(
+        crate::CARGO_METADATA_ARGS,
+        ["metadata", "--format-version", "1", "--locked"],
+        "cargo metadata must run with --locked (TASK-1059)"
     );
 }
