@@ -1,9 +1,21 @@
-//! UTC stamp for backlog task frontmatter, with no time crate dependency.
+//! UTC stamp for backlog task frontmatter.
 //!
-//! The workspace deliberately avoids `chrono` / `time`; `created_date` needs
-//! only a UTC civil date plus minute resolution, so this module implements
-//! the standard days-since-epoch → (year, month, day) reduction (Howard
-//! Hinnant's `civil_from_days`) in plain `u64` arithmetic.
+//! `created_date` needs only a UTC civil date plus minute resolution, but the
+//! epoch → civil-date reduction that produces it is exactly the arithmetic
+//! TIME-1 forbids hand-rolling, so it is delegated to `chrono`. That crate is
+//! already compiled into the `ops` binary through `duckdb -> arrow ->
+//! arrow-arith`, so depending on it directly costs no extra build time and no
+//! new supply-chain surface.
+//!
+//! ERR-6: reading the clock is fallible and says so. When the host clock reads
+//! before 1970-01-01 — a container started before NTP steps it, an RTC-less
+//! board that boots at 0, a VM restored from a bad snapshot — [`UtcStamp::now`]
+//! returns an error naming the clock instead of substituting the Unix epoch.
+//! A silent substitution would date every task file, the
+//! `review-request-<date>-<n>` title, and the sequence namespace those ids are
+//! allocated in `1970-01-01`, unrecoverably and without any signal.
+
+use anyhow::Context as _;
 
 /// UTC calendar stamp at minute resolution, pre-formatted for frontmatter.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,88 +27,57 @@ pub struct UtcStamp {
 }
 
 impl UtcStamp {
-    /// Convert Unix seconds (UTC) into a [`UtcStamp`].
-    ///
-    /// The input contract is `SystemTime::now()`-shaped: non-negative and
-    /// far below the `u64` overflow horizon (max representable days ≈ 5.8e11
-    /// years), so the arithmetic below cannot overflow for any wall-clock
-    /// value this CLI can observe.
-    pub(crate) fn from_unix_secs(secs: u64) -> Self {
-        let days = secs / 86_400;
-        let day_secs = secs % 86_400;
-        let (year, month, day) = civil_from_days(days);
-        let hour = day_secs / 3_600;
-        let minute = (day_secs % 3_600) / 60;
-
-        // PERF-13: build both fields with `write!` into the destination
-        // String instead of `format!` intermediates.
-        use std::fmt::Write as _;
-        let mut date = String::new();
-        // `fmt::Write for String` never returns `Err`, so there is nothing to
-        // report and nothing to panic on.
-        let _ = write!(date, "{year:04}-{month:02}-{day:02}");
-        let mut minutes = String::new();
-        let _ = write!(minutes, "{hour:02}:{minute:02}");
-        Self { date, minutes }
+    /// Convert Unix seconds (UTC) into a [`UtcStamp`], or `None` when the
+    /// instant lies outside the range `chrono` can represent (roughly year
+    /// 262143 — unreachable for any wall-clock value, but the conversion
+    /// refuses rather than clamping).
+    pub(crate) fn from_unix_secs(secs: u64) -> Option<Self> {
+        let at = chrono::DateTime::from_timestamp(i64::try_from(secs).ok()?, 0)?;
+        Some(Self {
+            date: at.format("%Y-%m-%d").to_string(),
+            minutes: at.format("%H:%M").to_string(),
+        })
     }
 
     /// Stamp for the current wall-clock time.
-    #[must_use = "reading the clock and discarding the stamp is always a bug"]
-    pub(crate) fn now() -> Self {
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-        Self::from_unix_secs(secs)
+    ///
+    /// # Errors
+    ///
+    /// The host clock reads before 1970-01-01, or so far after it that the
+    /// instant has no calendar representation.
+    pub(crate) fn now() -> anyhow::Result<Self> {
+        Self::at(std::time::SystemTime::now())
     }
-}
 
-/// Days since 1970-01-01 → `(year, month, day)` in the proleptic Gregorian
-/// calendar (Howard Hinnant, "chrono-Compatible Dates"). `u64` arithmetic is
-/// sufficient because the input is non-negative by construction.
-///
-/// Every operation below is spelled `saturating_*` so the reduction is total,
-/// and every one of them is *exactly* the checked result for the inputs this
-/// module can produce. `days` comes from `secs / 86_400`, so it is at most
-/// `u64::MAX / 86_400` (~2.1e14) and the epoch shift cannot overflow; each
-/// product stays far below `u64::MAX` because `era`, `yoe`, `doy` and `mp` are
-/// bounded by the ranges annotated on their lines; and each subtraction's right
-/// operand is provably no larger than its left one — the invariants Hinnant's
-/// derivation establishes (`doe <= 146_096` makes `doe / 146_096 <= 1` while
-/// `doe - doe / 1_460 + doe / 36_524 >= 146_000` there, `yoe <= 399` makes the
-/// day-count of whole years before `yoe` at most `doe`, and `mp <= 11` makes
-/// `(153 * mp + 2) / 5 <= 337 <= doy` whenever `mp` was derived from `doy`).
-const fn civil_from_days(days: u64) -> (u64, u64, u64) {
-    let z = days.saturating_add(719_468);
-    let era = z / 146_097;
-    let doe = z % 146_097; // [0, 146096]
-    let yoe_numerator = doe
-        .saturating_sub(doe / 1_460)
-        .saturating_add(doe / 36_524)
-        .saturating_sub(doe / 146_096);
-    let yoe = yoe_numerator / 365; // [0, 399]
-    let y = yoe.saturating_add(era.saturating_mul(400));
-    // Days occupied by the whole years preceding `yoe` within this era.
-    let days_before_yoe = yoe
-        .saturating_mul(365)
-        .saturating_add(yoe / 4)
-        .saturating_sub(yoe / 100);
-    let doy = doe.saturating_sub(days_before_yoe); // [0, 365]
-    let mp = doy.saturating_mul(5).saturating_add(2) / 153; // [0, 11]
-    let d = doy
-        .saturating_sub(mp.saturating_mul(153).saturating_add(2) / 5)
-        .saturating_add(1); // [1, 31]
-    let m = if mp < 10 {
-        mp.saturating_add(3)
-    } else {
-        mp.saturating_sub(9)
-    }; // [1, 12]
-    let y = if m <= 2 { y.saturating_add(1) } else { y };
-    (y, m, d)
+    /// [`UtcStamp::now`] against an explicit clock reading; the seam the
+    /// pre-epoch test drives.
+    ///
+    /// # Errors
+    ///
+    /// As [`UtcStamp::now`].
+    pub(crate) fn at(reading: std::time::SystemTime) -> anyhow::Result<Self> {
+        let since_epoch = reading
+            .duration_since(std::time::UNIX_EPOCH)
+            .context("system clock reads before 1970-01-01; refusing to date review tasks")?;
+        let secs = since_epoch.as_secs();
+        Self::from_unix_secs(secs).with_context(|| {
+            format!(
+                "system clock reads {secs} seconds after 1970-01-01, which is not a \
+                 representable date; refusing to date review tasks"
+            )
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The formatted stamp for `secs`, which every case below expects to be
+    /// representable.
+    fn stamp(secs: u64) -> UtcStamp {
+        UtcStamp::from_unix_secs(secs).expect("timestamp must be representable")
+    }
 
     /// TEST-11: pin the full formatted stamp, not just `is_some`-style
     /// structural checks. Expected values verified against `date -u -d @…`.
@@ -111,7 +92,7 @@ mod tests {
             (1_767_225_540, "2025-12-31", "23:59"),
         ];
         for &(secs, date, minutes) in cases {
-            let stamp = UtcStamp::from_unix_secs(secs);
+            let stamp = stamp(secs);
             assert_eq!(stamp.date, date, "date for epoch secs {secs}");
             assert_eq!(stamp.minutes, minutes, "minutes for epoch secs {secs}");
         }
@@ -121,8 +102,7 @@ mod tests {
     /// produce an impossible `2024-02-30`.
     #[test]
     fn day_after_leap_day_rolls_to_march() {
-        let stamp = UtcStamp::from_unix_secs(1_709_164_800 + 86_400);
-        assert_eq!(stamp.date, "2024-03-01");
+        assert_eq!(stamp(1_709_164_800 + 86_400).date, "2024-03-01");
     }
 
     /// Non-leap century boundary: 2100-02-28 → 2100-03-01 (2100 is divisible
@@ -130,17 +110,50 @@ mod tests {
     #[test]
     fn non_leap_century_skips_feb_29() {
         // 2100-02-28 00:00:00 UTC = 4_107_456_000 (verified against `date -u`).
-        let feb_28 = UtcStamp::from_unix_secs(4_107_456_000);
-        assert_eq!(feb_28.date, "2100-02-28");
-        let next = UtcStamp::from_unix_secs(4_107_456_000 + 86_400);
-        assert_eq!(next.date, "2100-03-01");
+        assert_eq!(stamp(4_107_456_000).date, "2100-02-28");
+        assert_eq!(stamp(4_107_456_000 + 86_400).date, "2100-03-01");
     }
 
     /// Year boundary rollover (December 31 → January 1, year increments).
     #[test]
     fn year_rolls_at_december_midnight() {
-        let stamp = UtcStamp::from_unix_secs(1_767_225_540 + 60);
+        let stamp = stamp(1_767_225_540 + 60);
         assert_eq!(stamp.date, "2026-01-01");
         assert_eq!(stamp.minutes, "00:00");
+    }
+
+    /// An instant past the representable calendar range is refused, not
+    /// clamped to some plausible-looking date.
+    #[test]
+    fn unrepresentable_timestamp_is_refused() {
+        assert!(UtcStamp::from_unix_secs(u64::MAX).is_none());
+    }
+
+    /// ERR-6: a clock reading before the epoch is an error naming the clock,
+    /// never a stamp dated 1970-01-01.
+    #[test]
+    fn pre_epoch_clock_is_an_error_naming_the_clock() {
+        let reading = std::time::UNIX_EPOCH
+            .checked_sub(std::time::Duration::from_secs(1))
+            .expect("a pre-epoch SystemTime must be constructible");
+        let err = UtcStamp::at(reading).expect_err("a pre-epoch clock must not produce a stamp");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("system clock reads before 1970-01-01"),
+            "error must name the clock, got: {rendered}"
+        );
+    }
+
+    /// The ordinary path still yields a stamp from the real clock.
+    #[test]
+    fn now_reads_the_host_clock() {
+        let stamp = UtcStamp::now().expect("the host clock must be readable");
+        assert_eq!(stamp.date.len(), 10, "date shape, got: {}", stamp.date);
+        assert_eq!(
+            stamp.minutes.len(),
+            5,
+            "minutes shape, got: {}",
+            stamp.minutes
+        );
     }
 }

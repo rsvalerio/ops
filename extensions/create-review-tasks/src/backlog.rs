@@ -43,44 +43,46 @@ pub fn require_backlog_tasks_dir(workspace_root: &Path) -> anyhow::Result<()> {
     }
 }
 
-/// Next free main-task number: one more than the highest `task-<n>` id found
-/// across every [`TASK_DIRS`] directory that exists (dotted subtask ids share
-/// their parent's number, so the integer part alone determines allocation).
-/// Returns 1 for an empty backlog.
-pub fn next_main_task_number(workspace_root: &Path) -> u32 {
-    let backlog_root = workspace_root.join(".backlog");
-    let mut max = 0u32;
-    for_each_task_file(&backlog_root, |_dir, file_name| {
-        if let Some(n) = leading_task_number(file_name) {
-            max = max.max(n);
-        }
-    });
-    max.saturating_add(1)
+/// The identifiers one allocation attempt claims, both read from a single
+/// scan of the backlog tree.
+pub struct NextIds {
+    /// Next free main-task number; 1 for an empty backlog.
+    pub number: u32,
+    /// Next `review-request-<date>-<n>` sequence for the requested date; 1
+    /// when this is the first request of the day.
+    pub sequence: u32,
 }
 
-/// Sequence number for a `review-request-<date>-<n>` main task created on
-/// `date`: one more than the highest `<n>` already present in any task
-/// filename whose slug starts with `review-request-<date>-`. Returns 1 when
-/// this is the first request of the day.
-pub fn next_daily_sequence(workspace_root: &Path, date: &str) -> u32 {
+/// Allocate both ids from **one** walk of every [`TASK_DIRS`] directory that
+/// exists: one more than the highest `task-<n>` id (dotted subtask ids share
+/// their parent's number, so the integer part alone determines allocation),
+/// and one more than the highest `<n>` in a `review-request-<date>-<n>` slug
+/// for `date`.
+///
+/// DUP-1: the two allocators used to be the same scan-extract-max loop run
+/// twice. Deriving both maxima from one listing makes them consistent with
+/// each other by construction — no concurrent writer can land between them —
+/// and cuts the per-attempt directory I/O in half.
+pub fn next_ids(workspace_root: &Path, date: &str) -> NextIds {
     let prefix = format!("review-request-{date}-");
     let backlog_root = workspace_root.join(".backlog");
-    let mut max = 0u32;
+    let mut max_number = 0u32;
+    let mut max_sequence = 0u32;
     for_each_task_file(&backlog_root, |_dir, file_name| {
-        if let Some(n) = review_request_sequence(file_name, &prefix) {
-            max = max.max(n);
+        let Some(parsed) = TaskFileName::parse(file_name) else {
+            return;
+        };
+        if let Some(number) = parsed.number {
+            max_number = max_number.max(number);
+        }
+        if let Some(sequence) = parsed.review_request_sequence(&prefix) {
+            max_sequence = max_sequence.max(sequence);
         }
     });
-    max.saturating_add(1)
-}
-
-/// The `<n>` of the `review-request-<date>-<n>` slug in `file_name`, where
-/// `prefix` is `review-request-<date>-`. `None` when the name carries no
-/// request for that date.
-fn review_request_sequence(file_name: &str, prefix: &str) -> Option<u32> {
-    let (_, rest) = file_name.split_once(prefix)?;
-    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    digits.parse::<u32>().ok()
+    NextIds {
+        number: max_number.saturating_add(1),
+        sequence: max_sequence.saturating_add(1),
+    }
 }
 
 /// Identifiers one run has reserved by creating its main task file: the file
@@ -99,17 +101,17 @@ pub struct MainTaskClaim<'a> {
 /// main-task number or the review-request title in `claim`. Returns the
 /// offending filename, or `None` when the claim is uncontested.
 ///
-/// Allocation reads the tree twice — once for the number, once for the daily
-/// sequence — and those scans are not atomic with each other or with the
-/// write. A run that interleaves between them can reach a plan sharing this
-/// run's number or its sequence while landing on a *different* filename,
-/// which `create_new` cannot detect. Re-reading the tree once the main task
-/// file exists closes that gap: the file is a reservation every other run can
-/// see, so whichever run observes a conflict stands down. At most one run can
-/// miss the conflict, because whoever checks last necessarily sees both files.
+/// Allocation reads the tree once, but that read is not atomic with the write
+/// that follows it. A run that allocates between this run's scan and its
+/// create can reach a plan sharing this run's number or its sequence while
+/// landing on a *different* filename, which `create_new` cannot detect.
+/// Re-reading the tree once the main task file exists closes that gap: the
+/// file is a reservation every other run can see, so whichever run observes a
+/// conflict stands down. At most one run can miss the conflict, because
+/// whoever checks last necessarily sees both files.
 pub fn conflicting_claim(workspace_root: &Path, claim: &MainTaskClaim<'_>) -> Option<String> {
     let backlog_root = workspace_root.join(".backlog");
-    let own_slug = format!("{}.md", slugify(claim.title));
+    let own_slug = file_slug(claim.title);
     let mut conflict = None;
     for_each_task_file(&backlog_root, |dir, file_name| {
         // The claimant's own reservation lives in `tasks`; an identically
@@ -117,11 +119,12 @@ pub fn conflicting_claim(workspace_root: &Path, claim: &MainTaskClaim<'_>) -> Op
         if conflict.is_some() || (dir == "tasks" && file_name == claim.file_name) {
             return;
         }
+        let Some(parsed) = TaskFileName::parse(file_name) else {
+            return;
+        };
         // A dotted subtask counts too: it means another run owns the number.
-        let claims_number = leading_task_number(file_name) == Some(claim.number);
-        let claims_title = file_name
-            .split_once(" - ")
-            .is_some_and(|(_, slug)| slug == own_slug);
+        let claims_number = parsed.number == Some(claim.number);
+        let claims_title = parsed.slug == own_slug;
         if claims_number || claims_title {
             conflict = Some(file_name.to_string());
         }
@@ -129,11 +132,58 @@ pub fn conflicting_claim(workspace_root: &Path, claim: &MainTaskClaim<'_>) -> Op
     conflict
 }
 
-/// The integer part of a `task-<n>` / `task-<n>.<mm>` filename, if the name
-/// starts with the `task-` prefix followed by at least one digit.
-fn leading_task_number(file_name: &str) -> Option<u32> {
-    let rest = file_name.strip_prefix("task-")?;
-    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+/// A backlog task filename split into the parts every scan here reasons
+/// about: `task-<n>[.<mm>] - <slug>.md`.
+///
+/// READ-6: id allocation, daily-sequence allocation and the claim re-check
+/// all go through this one parser, so they cannot disagree about where a
+/// filename's number ends and its slug begins.
+struct TaskFileName<'a> {
+    /// Integer part of the `task-<n>` id, when the name carries one.
+    number: Option<u32>,
+    /// Slug between the `" - "` separator and the `.md` extension.
+    slug: &'a str,
+}
+
+impl<'a> TaskFileName<'a> {
+    /// Split `file_name`, or `None` when it is not a markdown file at all.
+    ///
+    /// Every file the backlog CLI writes is `<id> - <slug>.md`; a name with
+    /// no `" - "` separator still yields its id, so id allocation keeps
+    /// seeing a slugless `task-0500.md` and can never hand its number out
+    /// twice. Such a name has an empty slug, which matches no
+    /// review-request prefix and no claim title (both are always non-empty).
+    fn parse(file_name: &'a str) -> Option<Self> {
+        let stem = file_name.strip_suffix(".md")?;
+        let (id, slug) = stem.split_once(" - ").unwrap_or((stem, ""));
+        Some(Self {
+            number: leading_task_number(id),
+            slug,
+        })
+    }
+
+    /// The `<n>` of this name's `review-request-<date>-<n>` slug, where
+    /// `prefix` is `review-request-<date>-`. Anchored at both ends: the
+    /// prefix must *start* the slug and the digits must be all that follows
+    /// it, so a task merely mentioning a review request in its title (`task-
+    /// 1900 - Fix-review-request-2026-08-27-3-flakiness.md`) contributes
+    /// nothing to that day's sequence.
+    fn review_request_sequence(&self, prefix: &str) -> Option<u32> {
+        let digits = self.slug.strip_prefix(prefix)?;
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        digits.parse::<u32>().ok()
+    }
+}
+
+/// The integer part of a `task-<n>` / `task-<n>.<mm>` id, if it starts with
+/// the `task-` prefix followed by at least one digit.
+fn leading_task_number(id: &str) -> Option<u32> {
+    let digits = id
+        .strip_prefix("task-")?
+        .split(|c: char| !c.is_ascii_digit())
+        .next()?;
     digits.parse::<u32>().ok()
 }
 
@@ -163,6 +213,11 @@ fn for_each_task_file(backlog_root: &Path, mut f: impl FnMut(&str, &str)) {
 /// - `"Main task"` → `Main-task`
 /// - `"REVIEW: Run skill code-review-rust against ops-core"`
 ///   → `REVIEW-Run-skill-code-review-rust-against-ops-core`
+///
+/// Non-ASCII letters are outside the alphabet and collapse like any other
+/// run: `"naïve-crate"` → `"na-ve-crate"`, and a wholly non-ASCII title slugs
+/// to the empty string. Filenames therefore go through [`file_slug`], which
+/// substitutes a placeholder rather than emitting `task-0042.01 - .md`.
 #[must_use = "slugify is pure; discarding it means the title was formatted for nothing"]
 pub fn slugify(title: &str) -> String {
     let mut out = String::with_capacity(title.len());
@@ -177,6 +232,21 @@ pub fn slugify(title: &str) -> String {
         }
     }
     out.trim_matches('-').to_string()
+}
+
+/// Slug substituted when a title carries no character the slug alphabet
+/// keeps, so a filename always has a non-empty slug component.
+const EMPTY_SLUG: &str = "untitled";
+
+/// [`slugify`] for the filename position, where an empty slug would produce
+/// the unusable `task-0042.01 - .md`.
+fn file_slug(title: &str) -> String {
+    let slug = slugify(title);
+    if slug.is_empty() {
+        EMPTY_SLUG.to_string()
+    } else {
+        slug
+    }
 }
 
 /// Render one task markdown file (frontmatter only, no body sections) into
@@ -203,7 +273,7 @@ pub fn render_task_file<W: Write>(
     };
     writeln!(w, "---")?;
     writeln!(w, "id: {id}")?;
-    writeln!(w, "title: {}", yaml_single_quoted(title))?;
+    writeln!(w, "title: {}", yaml_scalar(title))?;
     writeln!(w, "status: To Do")?;
     writeln!(w, "assignee: []")?;
     writeln!(w, "created_date: '{} {}'", stamp.date, stamp.minutes)?;
@@ -221,14 +291,59 @@ pub fn render_task_file<W: Write>(
     Ok(())
 }
 
-/// YAML single-quoted scalar: wrap in `'` and double any embedded `'`.
-/// The backlog CLI quotes titles containing `: `; quoting unconditionally is
-/// byte-compatible for our titles and safe for any future label/title shape.
+/// YAML scalar for a frontmatter value.
+///
+/// SEC-11: a single-quoted scalar cannot encode a control character — a
+/// newline in the value would split the scalar across lines and desynchronise
+/// the document, so the `---` terminator is read as a second document and the
+/// file the crate just wrote no longer parses. Values are validated at the
+/// provider boundary, but the encoder does not rely on that: anything the
+/// single-quoted form cannot represent is emitted as a double-quoted scalar
+/// with escapes instead.
+fn yaml_scalar(value: &str) -> String {
+    if value.chars().any(char::is_control) {
+        yaml_double_quoted(value)
+    } else {
+        yaml_single_quoted(value)
+    }
+}
+
+/// YAML single-quoted scalar: wrap in `'` and double any embedded `'`. The
+/// backlog CLI quotes titles containing `: `; quoting unconditionally is
+/// byte-compatible for our titles. Only safe for control-character-free
+/// values — [`yaml_scalar`] owns that decision.
 fn yaml_single_quoted(value: &str) -> String {
     let mut out = String::with_capacity(value.len().saturating_add(2));
     out.push('\'');
     out.push_str(&value.replace('\'', "''"));
     out.push('\'');
+    out
+}
+
+/// YAML double-quoted scalar, the only form that can carry a control
+/// character: `\\`, `"` and the C0/C1 controls are escaped, everything else
+/// (non-ASCII included) is emitted literally.
+fn yaml_double_quoted(value: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(value.len().saturating_add(2));
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            // `fmt::Write for String` never returns `Err`, so there is
+            // nothing to report and nothing to panic on.
+            control if control.is_control() => {
+                let _ = write!(out, "\\x{:02x}", u32::from(control));
+            }
+            other => out.push(other),
+        }
+    }
+    out.push('"');
     out
 }
 
@@ -239,7 +354,7 @@ pub fn main_task_id(number: u32) -> String {
 
 /// Filename for a main task: `task-0042 - <slug>.md`.
 pub fn main_task_file_name(number: u32, title: &str) -> String {
-    format!("task-{number:04} - {}.md", slugify(title))
+    format!("task-{number:04} - {}.md", file_slug(title))
 }
 
 /// Id for the subtask at 1-based `index` under main-task `number`:
@@ -250,12 +365,16 @@ pub fn subtask_id(number: u32, index: usize) -> String {
 
 /// Filename for a subtask: `task-0042.03 - <slug>.md`.
 pub fn subtask_file_name(number: u32, index: usize, title: &str) -> String {
-    format!("task-{number:04}.{index:02} - {}.md", slugify(title))
+    format!("task-{number:04}.{index:02} - {}.md", file_slug(title))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Date for the cases that only assert on the main-task number; no
+    /// fixture below carries a review request for it.
+    const ANY_DATE: &str = "2026-01-01";
 
     fn scratch_backlog(files: &[(&str, &str)]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -289,13 +408,13 @@ mod tests {
     #[test]
     fn next_number_starts_at_one_for_empty_backlog() {
         let dir = scratch_backlog(&[]);
-        assert_eq!(next_main_task_number(dir.path()), 1);
+        assert_eq!(next_ids(dir.path(), ANY_DATE).number, 1);
     }
 
     #[test]
     fn next_number_ignores_dotted_subtask_fraction() {
         let dir = scratch_backlog(&[("tasks", "task-0007.09 - child.md")]);
-        assert_eq!(next_main_task_number(dir.path()), 8);
+        assert_eq!(next_ids(dir.path(), ANY_DATE).number, 8);
     }
 
     /// Id allocation must never reuse a number that lives in `completed`
@@ -309,7 +428,7 @@ mod tests {
             ("archive/tasks", "task-1670 - archived.md"),
             ("archive/completed", "task-0003 - old.md"),
         ]);
-        assert_eq!(next_main_task_number(dir.path()), 1671);
+        assert_eq!(next_ids(dir.path(), ANY_DATE).number, 1671);
     }
 
     #[test]
@@ -319,13 +438,21 @@ mod tests {
             ("tasks", "notes.md"),
             ("tasks", "task-0020 - real.md"),
         ]);
-        assert_eq!(next_main_task_number(dir.path()), 21);
+        // A slugless name still reserves its number: allocation must never
+        // hand out an id some file already carries.
+        assert_eq!(
+            next_ids(dir.path(), ANY_DATE).number,
+            21,
+            "sanity: the fixture's highest slugged id is 20"
+        );
+        let dir = scratch_backlog(&[("tasks", "task-0030.md"), ("tasks", "task-0020 - real.md")]);
+        assert_eq!(next_ids(dir.path(), ANY_DATE).number, 31);
     }
 
     #[test]
     fn daily_sequence_starts_at_one() {
         let dir = scratch_backlog(&[]);
-        assert_eq!(next_daily_sequence(dir.path(), "2026-08-20"), 1);
+        assert_eq!(next_ids(dir.path(), "2026-08-20").sequence, 1);
     }
 
     #[test]
@@ -335,7 +462,7 @@ mod tests {
             ("tasks", "task-1671.01 - REVIEW-Run-skill.md"),
             ("completed", "task-1600 - review-request-2026-08-20-2.md"),
         ]);
-        assert_eq!(next_daily_sequence(dir.path(), "2026-08-20"), 3);
+        assert_eq!(next_ids(dir.path(), "2026-08-20").sequence, 3);
     }
 
     /// A request from another day must not inflate today's sequence, and a
@@ -348,13 +475,13 @@ mod tests {
             ("tasks", "task-1600 - review-request-2026-08-19-4.md"),
             ("tasks", "task-1601 - review-request-2026-08-2-9.md"),
         ]);
-        assert_eq!(next_daily_sequence(dir.path(), "2026-08-20"), 1);
+        assert_eq!(next_ids(dir.path(), "2026-08-20").sequence, 1);
     }
 
     #[test]
     fn daily_sequence_skips_non_numeric_suffix() {
         let dir = scratch_backlog(&[("tasks", "task-1600 - review-request-2026-08-20-notes.md")]);
-        assert_eq!(next_daily_sequence(dir.path(), "2026-08-20"), 1);
+        assert_eq!(next_ids(dir.path(), "2026-08-20").sequence, 1);
     }
 
     /// The claim helper the concurrent commit path relies on. The
@@ -534,6 +661,129 @@ mod tests {
         assert_eq!(
             subtask_file_name(42, 3, "REVIEW: Run against x"),
             "task-0042.03 - REVIEW-Run-against-x.md"
+        );
+    }
+
+    /// READ-6: a task whose *title* embeds a review-request id must not
+    /// inflate that day's sequence — the prefix has to start the slug and the
+    /// digits have to be all that follows it.
+    #[test]
+    fn daily_sequence_ignores_a_review_request_id_embedded_in_a_title() {
+        let dir = scratch_backlog(&[
+            (
+                "tasks",
+                "task-1900 - Fix-review-request-2026-08-27-3-flakiness.md",
+            ),
+            ("tasks", "task-1901 - review-request-2026-08-27-1.md"),
+        ]);
+        assert_eq!(next_ids(dir.path(), "2026-08-27").sequence, 2);
+    }
+
+    /// Both ids come from the same listing, so one call answers what two
+    /// separate walks used to.
+    #[test]
+    fn next_ids_reads_number_and_sequence_from_one_scan() {
+        let dir = scratch_backlog(&[
+            ("tasks", "task-0010 - review-request-2026-08-20-1.md"),
+            ("completed", "task-0020 - review-request-2026-08-20-4.md"),
+        ]);
+        let ids = next_ids(dir.path(), "2026-08-20");
+        assert_eq!(ids.number, 21);
+        assert_eq!(ids.sequence, 5);
+    }
+
+    /// TEST-8 boundary: a backlog whose highest id is `u32::MAX` cannot
+    /// advance, so allocation returns the same number rather than wrapping.
+    #[test]
+    fn next_number_saturates_at_u32_max() {
+        let dir = scratch_backlog(&[("tasks", "task-4294967295 - highest.md")]);
+        assert_eq!(next_ids(dir.path(), ANY_DATE).number, u32::MAX);
+    }
+
+    /// The documented "treat an unreadable directory like an absent one"
+    /// policy (TEST-6), pinned rather than asserted only in prose.
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_task_dir_is_skipped_like_an_absent_one() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = scratch_backlog(&[
+            ("tasks", "task-0002 - open.md"),
+            ("completed", "task-0500 - done.md"),
+        ]);
+        let completed = dir.path().join(".backlog").join("completed");
+        std::fs::set_permissions(&completed, std::fs::Permissions::from_mode(0o000))
+            .expect("chmod 000");
+        // Root ignores the mode bits, so the policy is unobservable there.
+        let unreadable = std::fs::read_dir(&completed).is_err();
+        let ids = next_ids(dir.path(), ANY_DATE);
+        std::fs::set_permissions(&completed, std::fs::Permissions::from_mode(0o755))
+            .expect("restore mode");
+        if unreadable {
+            assert_eq!(ids.number, 3, "the unreadable directory must be skipped");
+        }
+    }
+
+    /// A non-UTF-8 filename is skipped, not a panic and not an aborted scan
+    /// that would silently under-count the tree (TEST-6).
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_file_name_is_skipped_without_aborting_the_scan() {
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let dir = scratch_backlog(&[("tasks", "task-0002 - open.md")]);
+        let tasks = dir.path().join(".backlog").join("tasks");
+        let name = std::ffi::OsStr::from_bytes(b"task-0500 - \xff.md");
+        std::fs::write(tasks.join(name), "").expect("write non-utf8 name");
+        assert_eq!(
+            next_ids(dir.path(), ANY_DATE).number,
+            3,
+            "the undecodable name must be skipped, the rest of the scan must continue"
+        );
+    }
+
+    /// SEC-11 boundary: non-ASCII letters are outside the slug alphabet, and
+    /// a wholly non-ASCII title must not produce `task-NNNN.MM - .md`.
+    #[test]
+    fn slugify_and_file_names_pin_non_ascii_titles() {
+        assert_eq!(slugify("naïve-crate"), "na-ve-crate");
+        assert_eq!(slugify("日本語"), "");
+        assert_eq!(
+            main_task_file_name(42, "日本語"),
+            "task-0042 - untitled.md",
+            "an empty slug must not yield `task-0042 - .md`"
+        );
+        assert_eq!(
+            subtask_file_name(42, 1, "日本語"),
+            "task-0042.01 - untitled.md"
+        );
+    }
+
+    /// SEC-11: a title carrying a newline must still render as a single YAML
+    /// document — a single-quoted scalar cannot encode one.
+    #[test]
+    fn control_characters_render_as_a_double_quoted_scalar() {
+        assert_eq!(yaml_scalar("plain"), "'plain'");
+        assert_eq!(yaml_scalar("it's"), "'it''s'");
+        assert_eq!(yaml_scalar("ops\ncore"), "\"ops\\ncore\"");
+        assert_eq!(yaml_scalar("esc\u{1b}[31m"), "\"esc\\x1b[31m\"");
+        assert_eq!(yaml_scalar("tab\tsep\r"), "\"tab\\tsep\\r\"");
+
+        let stamp = UtcStamp {
+            date: "2026-08-20".to_string(),
+            minutes: "19:02".to_string(),
+        };
+        let mut buf = Vec::new();
+        render_task_file(&mut buf, "TASK-0001", "ops\ncore", &stamp, None).expect("render");
+        let rendered = String::from_utf8(buf).expect("utf8");
+        assert!(
+            rendered.contains("title: \"ops\\ncore\"\n"),
+            "the newline must be escaped inside the scalar, got: {rendered}"
+        );
+        assert_eq!(
+            rendered.lines().filter(|line| *line == "---").count(),
+            2,
+            "the frontmatter must stay one document, got: {rendered}"
         );
     }
 }
