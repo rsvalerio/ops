@@ -43,18 +43,20 @@ fn display_cmd_for_composite_returns_child_list() {
 /// - Event emission
 /// - Result aggregation
 ///
-/// It is ignored because it:
-/// - Spawns real subprocesses
-/// - Writes to stderr (visible in test output)
-/// - Requires `echo` to be available
+/// TEST-26 (TASK-1753): this used to be `#[ignore]`d "spawns real
+/// subprocesses; writes to stderr; requires `echo`". None of those
+/// distinguishes it from tests that run by default beside it —
+/// `run_command_returns_success_for_valid_command` spawns `echo` through the
+/// same runner, `run_command_returns_failure_for_failing_command` spawns
+/// `false`, and `cli_run_echo_reports_resolved_command_and_timing_in_stderr`
+/// in `tests/integration.rs` spawns the whole binary and asserts on its
+/// stderr. Since this is the *only* assertion that the CLI run path emits
+/// `PlanStarted` / `StepFinished` / `RunFinished { success }`, ignoring it
+/// meant that emission was covered by nothing in `ops next` / `ops qa-next`.
 ///
-/// **Re-enable criteria:**
-/// - Run with `cargo test -- --ignored` in environments with echo available
-/// - Or mock subprocess execution using a trait-based approach
-///
-/// **Tracking:** Run periodically in CI to validate full integration.
+/// `with_temp_config` serialises on `CWD_MUTEX`, so running by default does
+/// not race the other cwd-dependent tests.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "spawns real subprocesses; run with --ignored. Validates full CLI lifecycle."]
 async fn run_command_cli_full_lifecycle() {
     let (_dir, _guard) = crate::test_utils::with_temp_config(
         r#"
@@ -627,8 +629,9 @@ mod run_command_dry_run_tests {
 
         let key = "OPS_TEST_DRY_RUN_NON_UTF8";
         let bad: OsString = OsString::from_vec(vec![0xff, 0xfe]);
-        // SAFETY: serialised by #[serial_test::serial] to avoid env races.
-        unsafe { std::env::set_var(key, &bad) };
+        // TEST-23: RAII, so the var is restored even if the assertions below
+        // panic. Env races are additionally excluded by #[serial_test::serial].
+        let _guard = crate::test_utils::EnvVarGuard::set(key, &bad);
 
         let config = TestConfigBuilder::new()
             .exec("leaks_env", "echo", &[format!("${key}").as_str()])
@@ -636,8 +639,6 @@ mod run_command_dry_run_tests {
         let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         let mut buf = Vec::new();
         let result = run_command_dry_run_to(&runner, "leaks_env", &mut buf);
-        // SAFETY: serialised by #[serial_test::serial].
-        unsafe { std::env::remove_var(key) };
         let err = result.expect_err("dry-run must propagate non-UTF-8 env failure");
         let msg = format!("{err:#}");
         assert!(

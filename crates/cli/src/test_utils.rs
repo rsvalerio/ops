@@ -183,6 +183,62 @@ pub fn capture_debug<F: FnOnce()>(f: F) -> String {
     capture_tracing(tracing::Level::DEBUG, f)
 }
 
+/// RAII guard for a process-global environment variable: snapshot the
+/// original value on construction and restore it on drop, **including when
+/// the test panics between the two**.
+///
+/// TEST-23 (TASK-1752): a bare `remove_var` after a fallible assertion never
+/// runs when that assertion fails, so the variable leaks into every later
+/// test in the same binary. `serial_test::serial` serialises execution; it
+/// does not restore process state. Every test in this crate that touches the
+/// environment goes through this guard.
+pub struct EnvVarGuard {
+    name: &'static str,
+    original: Option<std::ffi::OsString>,
+}
+
+impl EnvVarGuard {
+    /// Remove `name` for the scope of the guard.
+    pub fn unset(name: &'static str) -> Self {
+        let guard = Self {
+            name,
+            original: std::env::var_os(name),
+        };
+        std::env::remove_var(name);
+        guard
+    }
+
+    /// Set `name` to `value` for the scope of the guard.
+    pub fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        let guard = Self {
+            name,
+            original: std::env::var_os(name),
+        };
+        std::env::set_var(name, value);
+        guard
+    }
+
+    /// Change the value again without losing the original snapshot, for
+    /// tests that sweep a variable through several values in one loop.
+    pub fn set_value(&self, value: impl AsRef<std::ffi::OsStr>) {
+        std::env::set_var(self.name, value);
+    }
+
+    /// Clear the value without losing the original snapshot.
+    pub fn unset_value(&self) {
+        std::env::remove_var(self.name);
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        match self.original.take() {
+            Some(v) => std::env::set_var(self.name, v),
+            None => std::env::remove_var(self.name),
+        }
+    }
+}
+
 #[cfg(test)]
 mod cwd_guard_tests {
     use super::*;
