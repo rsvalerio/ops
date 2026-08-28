@@ -158,6 +158,88 @@ async fn fail_fast_aborts_siblings_when_a_task_panics() {
     );
 }
 
+/// CONC-3 / TASK-1921: the panic trigger must fire while a sibling is still
+/// flooding `StepOutput`, not only once the flood stops.
+///
+/// The pre-fix loop polled its two `select!` arms `biased`, top-to-bottom,
+/// so the `JoinSet` arm was reached only on an iteration where `rx.recv()`
+/// was *pending*. This test removes that window on purpose: the flooding
+/// task never returns on its own, and the event callback sleeps a
+/// millisecond per event, so the producer always refills the channel before
+/// the loop polls it again and `rx.recv()` is ready every single time. The
+/// panicked sibling is then the only way out of the loop — under `biased`
+/// it is never observed and this test hangs to its timeout, which is
+/// precisely the `fail_fast` promise the CONC-6 / TASK-1177 contract makes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fail_fast_trips_on_panic_while_a_sibling_floods_output() {
+    let (tx, rx) = mpsc::channel(64);
+    let abort = Arc::new(AbortSignal::new());
+    let mut join_set: tokio::task::JoinSet<StepResult> = tokio::task::JoinSet::new();
+
+    // Task A floods the event channel and never completes on its own; only
+    // `abort_all` (or a closed channel) can stop it.
+    let flood_tx = tx.clone();
+    join_set.spawn(async move {
+        let buf: std::sync::Arc<str> = std::sync::Arc::from("noisy output line");
+        loop {
+            let ev = RunnerEvent::StepOutput {
+                id: "flooder".into(),
+                line: crate::command::events::OutputLine::whole(std::sync::Arc::clone(&buf)),
+                stderr: false,
+            };
+            if flood_tx.send(ev).await.is_err() {
+                break;
+            }
+        }
+        StepResult::success("flooder", Duration::ZERO)
+    });
+
+    // Task B panics once the flood is underway. It emits no StepFailed
+    // event, so the JoinSet arm is the only thing that can notice it.
+    join_set.spawn(async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        panic!("simulated task panic under flood");
+    });
+
+    // Only the flooder holds a sender now, so the channel closes exactly
+    // when the flooder is aborted.
+    drop(tx);
+
+    let mut seen = 0_usize;
+    let mut harvested: Vec<(tokio::task::Id, Result<StepResult, tokio::task::JoinError>)> =
+        Vec::new();
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        CommandRunner::handle_parallel_events_with_cancel_inner(
+            rx,
+            true, // fail_fast
+            Arc::clone(&abort),
+            &mut join_set,
+            &mut |_| {
+                seen += 1;
+                // Blocking on purpose: it keeps the channel saturated so
+                // `rx.recv()` is ready on every poll of the loop.
+                std::thread::sleep(Duration::from_millis(1));
+            },
+            &mut harvested,
+        ),
+    )
+    .await
+    .expect("panicked task must trip fail_fast while the sibling is still flooding");
+
+    assert!(
+        abort.is_set(),
+        "abort must be tripped by the panicked task despite the ongoing flood"
+    );
+    assert_eq!(harvested.len(), 2, "both tasks must have been harvested");
+    // The flood is unbounded; a bounded event count is the observable proof
+    // that the abort landed mid-flood rather than after it drained.
+    assert!(
+        seen < 2_000,
+        "abort should land while the flood is in flight, saw {seen} events first"
+    );
+}
+
 /// TASK-0334: panic payloads from `JoinError` must not surface verbatim in
 /// `StepResult.message`.
 #[tokio::test(flavor = "multi_thread")]

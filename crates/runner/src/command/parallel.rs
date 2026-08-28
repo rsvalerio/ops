@@ -547,13 +547,48 @@ impl CommandRunner {
         let mut cancelled = false;
         let mut rx_open = true;
         loop {
+            // CONC-3 / TASK-1921: harvest every *already finished* task
+            // before parking on the `select!`.
+            //
+            // This loop's whole reason for watching the `JoinSet` is that a
+            // task which **panics** emits no `StepFailed` event, so the join
+            // arm is the only trigger `fail_fast` has for that failure class
+            // (CONC-6 / TASK-1177). Leaving that to the `select!` alone made
+            // the trigger conditional on the event channel being *idle*:
+            // `select!` returns as soon as any arm is ready, so on a plan of
+            // chatty steps — a permanently non-empty mpsc, which is exactly
+            // the workload `fail_fast` exists to cut short — the join arm
+            // could go unpolled for as long as a sibling kept talking, and
+            // the panic surfaced only once the flood stopped. That is the
+            // pre-TASK-1177 behaviour the doc comment above says was fixed.
+            //
+            // `try_join_next_with_id` never yields, so this cannot starve
+            // event delivery in the other direction: it drains what is
+            // already complete and falls through to the `select!` for
+            // everything else.
+            while let Some(joined) = join_set.try_join_next_with_id() {
+                Self::harvest_joined(
+                    Some(joined),
+                    fail_fast,
+                    &abort,
+                    join_set,
+                    &mut cancelled,
+                    harvested_results,
+                );
+            }
             // Stop once the events channel closed AND the JoinSet is
-            // empty — both are required to fully drain.
+            // empty — both are required to fully drain. Checked *after* the
+            // pre-drain above: that drain can be what empties the JoinSet,
+            // and entering the `select!` with both arms disabled panics.
             if !rx_open && join_set.is_empty() {
                 break;
             }
+            // No `biased` here: the two arms are peers. `biased` polls
+            // strictly top-to-bottom, which would reinstate exactly the
+            // starvation described above for tasks that finish *while* the
+            // select is parked; the randomised default gives the join arm a
+            // fair chance on every iteration.
             tokio::select! {
-                biased;
                 ev = rx.recv(), if rx_open => {
                     match ev {
                         Some(ev) => {
@@ -572,25 +607,53 @@ impl CommandRunner {
                     }
                 }
                 joined = join_set.join_next_with_id(), if !join_set.is_empty() => {
-                    match joined {
-                        Some(Ok((task_id, result))) => {
-                            harvested_results.push((task_id, Ok(result)));
-                        }
-                        Some(Err(join_err)) => {
-                            // CONC-6 / TASK-1177: a JoinError that is NOT a
-                            // cancellation surfaces a panicked task. Trip
-                            // fail_fast so live siblings stop.
-                            if !join_err.is_cancelled() && fail_fast && !cancelled {
-                                abort.set();
-                                join_set.abort_all();
-                                cancelled = true;
-                            }
-                            harvested_results.push((join_err.id(), Err(join_err)));
-                        }
-                        None => {}
-                    }
+                    Self::harvest_joined(
+                        joined,
+                        fail_fast,
+                        &abort,
+                        join_set,
+                        &mut cancelled,
+                        harvested_results,
+                    );
                 }
             }
+        }
+    }
+
+    /// CONC-3 / TASK-1921: record one joined task, tripping `fail_fast` on a
+    /// panic. Shared by the non-blocking pre-drain and the `select!` arm in
+    /// [`Self::handle_parallel_events_with_cancel_inner`] so the two cannot
+    /// drift apart.
+    // The parameters are exactly the state the two call sites already hold
+    // in `handle_parallel_events_with_cancel_inner` (itself carrying the
+    // same allow). Bundling them into a struct would exist only to satisfy
+    // the lint, and would have to be threaded back out again because
+    // `join_set` and `harvested_results` are borrowed mutably.
+    #[allow(clippy::too_many_arguments)]
+    fn harvest_joined(
+        joined: Option<Result<(tokio::task::Id, StepResult), tokio::task::JoinError>>,
+        fail_fast: bool,
+        abort: &Arc<AbortSignal>,
+        join_set: &mut tokio::task::JoinSet<StepResult>,
+        cancelled: &mut bool,
+        harvested_results: &mut Vec<(tokio::task::Id, Result<StepResult, tokio::task::JoinError>)>,
+    ) {
+        match joined {
+            Some(Ok((task_id, result))) => {
+                harvested_results.push((task_id, Ok(result)));
+            }
+            Some(Err(join_err)) => {
+                // CONC-6 / TASK-1177: a JoinError that is NOT a
+                // cancellation surfaces a panicked task. Trip
+                // fail_fast so live siblings stop.
+                if !join_err.is_cancelled() && fail_fast && !*cancelled {
+                    abort.set();
+                    join_set.abort_all();
+                    *cancelled = true;
+                }
+                harvested_results.push((join_err.id(), Err(join_err)));
+            }
+            None => {}
         }
     }
 }
