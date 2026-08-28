@@ -179,3 +179,43 @@ fn render_summary_text_matches_render_summary_done_case() {
         assert_eq!(via_summary, via_text);
     }
 }
+
+/// READ-6 / TASK-1973 AC#3: a report row label that already carries an SGR
+/// sequence must not change the geometry. The layout used to measure the
+/// label prefix with the ANSI-blind `display_width` and the assembled line
+/// with the ANSI-aware `visible_width`, so the two halves of the same line
+/// disagreed by exactly the escape's byte length and the frame bent.
+#[test]
+fn boxed_report_row_with_sgr_label_matches_border_width() {
+    use crate::style::visible_width;
+    let theme = ConfigurableTheme::new(ThemeConfig {
+        layout_kind: LayoutKind::Boxed,
+        left_pad: 0,
+        ..ThemeConfig::compact()
+    });
+    let cols: u16 = 70;
+
+    let mut plain = Report::new("Health");
+    plain.push(ReportRow::new(ReportStatus::Ok, "Advisories", "None"));
+    let mut styled = Report::new("Health");
+    styled.push(ReportRow::new(
+        ReportStatus::Ok,
+        "\x1b[1;31mAdvisories\x1b[0m",
+        "None",
+    ));
+
+    let plain_lines = theme.render_report(&plain, cols);
+    let styled_lines = theme.render_report(&styled, cols);
+    assert_eq!(plain_lines.len(), styled_lines.len());
+    for (p, s) in plain_lines.iter().zip(styled_lines.iter()) {
+        assert_eq!(
+            visible_width(p),
+            visible_width(s),
+            "an SGR-carrying label must not change the geometry: {p:?} vs {s:?}"
+        );
+    }
+    // And the framed lines are still exactly the border width.
+    for line in styled_lines.iter().skip(1) {
+        assert_eq!(visible_width(line), usize::from(cols), "{line:?}");
+    }
+}

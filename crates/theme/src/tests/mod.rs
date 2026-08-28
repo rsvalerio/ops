@@ -14,6 +14,7 @@ mod boxed_layout;
 mod deserialize;
 mod edge_case_width;
 mod error_block_color;
+mod error_block_sanitise;
 mod format_duration;
 mod left_pad;
 mod render_basics;
