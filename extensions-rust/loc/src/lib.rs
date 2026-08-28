@@ -7,15 +7,9 @@
 //! `tokei` has no model for, since `#[cfg(test)]` blocks live in the
 //! same file as the code they exercise.
 
-#![cfg_attr(
-    test,
-    allow(
-        clippy::unwrap_used,
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss
-    )
-)]
+// `src/tests.rs` relies on `unwrap()`; the crate performs no numeric
+// casts, in tests or otherwise, so no cast lint is suppressed here.
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod counter;
 mod ingestor;
@@ -25,15 +19,17 @@ pub mod views;
 
 pub use ingestor::RustLocIngestor;
 
+use std::io::{BufRead as _, BufReader};
 use std::path::Path;
+use std::sync::{Mutex, PoisonError};
 
-use ignore::{DirEntry, WalkBuilder};
+use ignore::{DirEntry, WalkBuilder, WalkState};
 use ops_duckdb::DuckDb;
 use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
 };
 
-use counter::{count_source, region_from_path, FileCounts};
+use counter::{count_source, region_from_path, FileCounts, Region};
 
 pub const NAME: &str = "rust-loc";
 pub const DESCRIPTION: &str = "Rust line counts split into production, test, and example code";
@@ -96,59 +92,168 @@ impl DataProvider for RustLocProvider {
 /// `TOKEI_DEFAULT_EXCLUDED` policy in the tokei extension.
 pub(crate) const EXCLUDED_DIRS: &[&str] = &["target", ".git"];
 
+/// Largest `.rs` file that is read into memory, lexed, and parsed.
+///
+/// `count_source` holds several times a file's byte size resident while
+/// it runs: the owned source, one slice and one `LineKind` per line, the
+/// full `proc_macro2::TokenStream`, the `syn::File` AST, and
+/// proc-macro2's `span-locations` source map (which retains its own copy
+/// of the source plus a line table). Nothing in a workspace is off
+/// limits to the walk — vendored bindgen output, a generated parser
+/// table, a concatenated build artifact — so without a gate one
+/// machine-written file can OOM the whole `ops` process.
+///
+/// Over-cap files are still counted, by
+/// [`counter::FileCounts::add_fallback_line`] over a streaming read, so
+/// the degradation costs test attribution rather than the file itself.
+/// First-party Rust source does not approach this size.
+pub const MAX_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
+
 /// Walk `working_dir` for `.rs` files and classify each one.
 ///
 /// Anything that cannot be read — an individual file, or a whole
 /// subtree the walker cannot descend — is logged and skipped rather
 /// than aborting the scan: a partial count is more useful than none,
 /// and an unreadable path is not a data-integrity problem for a
-/// display-only statistic. Both failure modes warn, so a silently
-/// short count is always accompanied by a log line.
+/// display-only statistic. A file larger than [`MAX_SOURCE_BYTES`]
+/// degrades the same way, to a streaming blank-vs-non-blank count
+/// instead of a parse. Every one of those paths warns, so a silently
+/// short or degraded count is always accompanied by a log line.
+///
+/// The walk runs on `ignore`'s parallel walker; rows are sorted by
+/// `(file, region)` before returning, so the output does not depend on
+/// worker scheduling.
 ///
 /// # Errors
 ///
-/// If a discovered source file cannot be read, or the collected records
-/// fail to serialize.
+/// None today: every failure mode above is warned and skipped, per the
+/// degradation policy just described, and the only exit builds a
+/// `serde_json::Value::Array` from an already-materialised `Vec`, which
+/// cannot fail. The `Result` is kept because
+/// `ops_duckdb::try_provide_from_db` and `DataIngestor::collect` both
+/// require a fallible closure, and because a future cancellation check
+/// or hard resource limit would legitimately use it. Do not convert the
+/// warn-and-skip branches into `?` to make this section true — the
+/// partial-count policy is deliberate.
 pub fn collect_rust_loc(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
-    let mut records = Vec::new();
+    // Counting is CPU-bound, per-file independent, and shares no mutable
+    // state: proc-macro2's `span-locations` source map is a thread-local
+    // and `invalidate_current_thread_spans` only touches the calling
+    // thread's copy, so each worker simply keeps its own. The only shared
+    // state is the row sink, locked once per file.
+    let records = Mutex::new(Vec::new());
 
-    let walker = WalkBuilder::new(working_dir)
+    WalkBuilder::new(working_dir)
         .filter_entry(|entry| !is_excluded_dir(entry))
-        .build();
+        .build_parallel()
+        .run(|| {
+            Box::new(|entry| {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(error) => {
+                        tracing::warn!(%error, "rust-loc: skipping unwalkable path");
+                        return WalkState::Continue;
+                    }
+                };
+                if let Some((relative, counts)) = count_entry(&entry, working_dir) {
+                    let mut sink = records.lock().unwrap_or_else(PoisonError::into_inner);
+                    push_records(&mut sink, &relative, &counts);
+                }
+                WalkState::Continue
+            })
+        });
 
-    for entry in walker {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(error) => {
-                tracing::warn!(%error, "rust-loc: skipping unwalkable path");
-                continue;
-            }
-        };
-        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-            continue;
-        }
-        let path = entry.path();
-        if path.extension().is_none_or(|ext| ext != "rs") {
-            continue;
-        }
+    let mut records = records.into_inner().unwrap_or_else(PoisonError::into_inner);
+    // Workers finish in arbitrary order. Sorting keeps the JSON sidecar
+    // and the DuckDB ingest byte-stable across runs, so a diff of two
+    // collections shows real changes only.
+    records.sort_by(|a, b| row_key(a).cmp(&row_key(b)));
+    Ok(serde_json::Value::Array(records))
+}
 
-        let source = match std::fs::read_to_string(path) {
-            Ok(source) => source,
-            Err(error) => {
-                // Debug-format the path so embedded newlines or ANSI
-                // escapes cannot forge log lines, matching the
-                // project-wide path-log policy.
-                tracing::warn!(path = ?path, %error, "rust-loc: skipping unreadable file");
-                continue;
-            }
-        };
+/// Sort key giving the emitted rows a deterministic order.
+fn row_key(row: &serde_json::Value) -> (&str, &str) {
+    (
+        row["file"].as_str().unwrap_or_default(),
+        row["region"].as_str().unwrap_or_default(),
+    )
+}
 
-        let relative = relativize_path(path, working_dir);
-        let counts = count_source(&source, region_from_path(Path::new(&relative)));
-        push_records(&mut records, &relative, &counts);
+/// Classify one walk entry, or `None` if it is not a `.rs` file or
+/// could not be read.
+///
+/// Every skip warns, per the degradation policy on [`collect_rust_loc`].
+fn count_entry(entry: &DirEntry, working_dir: &Path) -> Option<(String, FileCounts)> {
+    if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+        return None;
+    }
+    let path = entry.path();
+    if path.extension().is_none_or(|ext| ext != "rs") {
+        return None;
     }
 
-    Ok(serde_json::Value::Array(records))
+    let relative = relativize_path(path, working_dir);
+    let region = region_from_path(Path::new(&relative));
+
+    // Gate on the walker's own metadata, before the contents are pulled
+    // into memory: reading first and measuring afterwards would already
+    // have paid the allocation the cap exists to avoid. Debug-format
+    // every path so embedded newlines or ANSI escapes cannot forge log
+    // lines, matching the project-wide path-log policy.
+    let size = match entry.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(error) => {
+            tracing::warn!(path = ?path, %error, "rust-loc: skipping file with unreadable metadata");
+            return None;
+        }
+    };
+
+    let counts = if size > MAX_SOURCE_BYTES {
+        tracing::warn!(
+            path = ?path,
+            size,
+            max_bytes = MAX_SOURCE_BYTES,
+            "rust-loc: file over the size cap; counting blank vs non-blank only"
+        );
+        match count_streaming(path, region) {
+            Ok(counts) => counts,
+            Err(error) => {
+                tracing::warn!(path = ?path, %error, "rust-loc: skipping unreadable file");
+                return None;
+            }
+        }
+    } else {
+        match std::fs::read_to_string(path) {
+            Ok(source) => count_source(&source, region),
+            Err(error) => {
+                tracing::warn!(path = ?path, %error, "rust-loc: skipping unreadable file");
+                return None;
+            }
+        }
+    };
+
+    Some((relative, counts))
+}
+
+/// Count an over-cap file without holding it in memory.
+///
+/// The blank-vs-non-blank split of [`counter::count_fallback`], fed one
+/// line at a time. Reads bytes rather than `str` so that invalid UTF-8
+/// in a machine-written file still yields a count, and treats an
+/// all-ASCII-whitespace line as blank.
+fn count_streaming(path: &Path, region: Region) -> std::io::Result<FileCounts> {
+    let mut reader = BufReader::new(std::fs::File::open(path)?);
+    let mut counts = FileCounts::default();
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            break;
+        }
+        let blank = line.iter().all(u8::is_ascii_whitespace);
+        counts.add_fallback_line(region, blank);
+    }
+    Ok(counts)
 }
 
 /// Is this entry a build/VCS directory to prune?

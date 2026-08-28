@@ -28,12 +28,33 @@
 //! - A file `proc_macro2` cannot lex, or `syn` cannot parse, falls back
 //!   to [`count_fallback`]: blank vs non-blank only, all attributed to
 //!   the file-level region.
+//! - Delimiter nesting is bounded at [`MAX_NESTING_DEPTH`]. The token
+//!   walkers recurse once per nesting level, so a pathologically nested
+//!   file would overflow the stack — which aborts the process with
+//!   `SIGSEGV` and cannot be caught. Anything deeper than the cap warns
+//!   and falls back to [`count_fallback`] instead, keeping the
+//!   never-fails contract for the scan as a whole.
 
 use std::path::Path;
 use std::str::FromStr;
 
 use proc_macro2::{TokenStream, TokenTree};
 use quote::ToTokens;
+
+/// Maximum delimiter nesting depth the token walkers will descend.
+///
+/// `mark_tokens`, `stream_has_test_ident` and `fold_span_range` recurse
+/// once per `()`/`[]`/`{}` level. `proc_macro2`'s own lexer is
+/// deliberately iterative (it even ships a hand-written non-recursive
+/// `Drop` for `TokenStream`), so a deeply nested but perfectly valid
+/// file — generated code, a macro-expansion fixture, a checked-in fuzz
+/// corpus — lexes fine and then overflows the stack inside the walkers.
+/// A stack overflow is not a panic: it aborts the process and cannot be
+/// caught, so it would kill the whole `ops` run rather than degrading.
+///
+/// Hand-written Rust does not come close to this depth; the cap exists
+/// only to turn an unrecoverable abort into a warned fallback.
+pub const MAX_NESTING_DEPTH: usize = 128;
 
 /// How a single source line is classified.
 ///
@@ -79,7 +100,7 @@ pub struct Locs {
 
 impl Locs {
     /// The four buckets partition the lines of a single file region: every
-    /// line of the file bumps exactly one of them once (see [`Locs::add`]),
+    /// line of the file bumps exactly one of them once (see `Locs::add`),
     /// so their sum equals that region's line count, which is bounded by the
     /// source's byte length (`<= isize::MAX`). The sum therefore cannot
     /// exceed `u64::MAX` and each `saturating_add` returns the exact total.
@@ -128,6 +149,23 @@ impl FileCounts {
         }
     }
 
+    /// Record one line of degraded, blank-vs-non-blank counting.
+    ///
+    /// The building block behind [`count_fallback`], exposed so a caller
+    /// that must not hold a whole file in memory (an over-cap file, read
+    /// a line at a time) can produce the same shape of counts.
+    ///
+    /// Called once per source line, so each bucket is bounded by that
+    /// file's line count and `saturating_add` returns the exact total.
+    pub const fn add_fallback_line(&mut self, region: Region, blank: bool) {
+        let bucket = self.bucket_mut(region);
+        if blank {
+            bucket.blanks = bucket.blanks.saturating_add(1);
+        } else {
+            bucket.code = bucket.code.saturating_add(1);
+        }
+    }
+
     /// Iterate the non-empty regions, for row emission.
     pub fn non_empty(&self) -> impl Iterator<Item = (Region, Locs)> {
         [
@@ -173,8 +211,7 @@ pub fn region_from_path(path: &Path) -> Region {
 ///
 /// `span-locations` makes every parse retain an owned copy of the
 /// source plus a line table in a thread-local source map that is never
-/// truncated on its own, and this function parses `src` twice (once to
-/// lex, once for `syn`). Left alone, a whole-workspace scan would hold
+/// truncated on its own. Left alone, a whole-workspace scan would hold
 /// several times the tree's byte size resident until the thread exits.
 /// Dropping the map on entry bounds the retention at one file's worth.
 /// This invalidates every previously issued `Span`, which is safe here
@@ -196,7 +233,13 @@ pub fn count_source(src: &str, base: Region) -> FileCounts {
     };
 
     let mut kinds = vec![LineKind::Blank; line_count];
-    mark_tokens(&stream, &lines, &mut kinds);
+    if mark_tokens(&stream, &lines, &mut kinds, 0) == Walk::DepthExceeded {
+        tracing::warn!(
+            max_depth = MAX_NESTING_DEPTH,
+            "rust-loc: delimiter nesting exceeds the depth cap; counting blank vs non-blank only"
+        );
+        return count_fallback(src, base);
+    }
 
     // Any line still Blank was not covered by a token, so it lies in a
     // gap: whitespace or a comment, nothing else is possible.
@@ -208,7 +251,7 @@ pub fn count_source(src: &str, base: Region) -> FileCounts {
 
     let mut regions = vec![base; line_count];
     if base == Region::Main {
-        if let Ok(file) = syn::parse_file(src) {
+        if let Ok(file) = parse_file(src, stream) {
             mark_test_items(&file.items, &mut regions);
         }
     }
@@ -220,29 +263,61 @@ pub fn count_source(src: &str, base: Region) -> FileCounts {
     counts
 }
 
+/// Parse `src` into a `syn::File`, reusing the stream already lexed.
+///
+/// `syn::parse_file` re-lexes the source from scratch, so calling it
+/// doubles the lexing cost of every file in the workspace.
+/// `syn::parse2` takes the `TokenStream` we already hold instead.
+///
+/// The one behavioural difference is the shebang: `parse_file` strips a
+/// leading `#!...` line, `parse2` does not, and `#!` is otherwise the
+/// start of an inner attribute. That case is rare enough not to be
+/// worth restructuring the lexing pass around, so it keeps the
+/// re-lexing path.
+fn parse_file(src: &str, stream: TokenStream) -> syn::Result<syn::File> {
+    if has_shebang(src) {
+        syn::parse_file(src)
+    } else {
+        syn::parse2(stream)
+    }
+}
+
+/// Does `src` open with a `#!...` shebang line rather than an inner
+/// attribute (`#![...]`)?
+fn has_shebang(src: &str) -> bool {
+    src.strip_prefix("#!")
+        .is_some_and(|rest| !rest.trim_start().starts_with('['))
+}
+
 /// Degraded counting for input the lexer or parser rejects.
 #[must_use]
 pub fn count_fallback(src: &str, base: Region) -> FileCounts {
     let mut counts = FileCounts::default();
-    let bucket = counts.bucket_mut(base);
-    // One increment per `src.lines()` item, so each bucket is bounded by
-    // `src.len() <= isize::MAX` and `saturating_add` returns the exact count.
     for line in src.lines() {
-        if line.trim().is_empty() {
-            bucket.blanks = bucket.blanks.saturating_add(1);
-        } else {
-            bucket.code = bucket.code.saturating_add(1);
-        }
+        counts.add_fallback_line(base, line.trim().is_empty());
     }
     counts
 }
 
 // -- token walking --
 
+/// Whether a recursive token walk ran to completion.
+///
+/// Distinguished from a plain `bool` so callers cannot mistake
+/// "finished" for "found something".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Walk {
+    Complete,
+    DepthExceeded,
+}
+
 /// Mark every line touched by a token as [`LineKind::Code`], except doc
 /// comments, which the lexer rewrites into `#[doc = "..."]` attributes
 /// and which are reclassified as [`LineKind::Doc`].
-fn mark_tokens(stream: &TokenStream, lines: &[&str], kinds: &mut [LineKind]) {
+fn mark_tokens(stream: &TokenStream, lines: &[&str], kinds: &mut [LineKind], depth: usize) -> Walk {
+    if depth >= MAX_NESTING_DEPTH {
+        return Walk::DepthExceeded;
+    }
     let mut iter = stream.clone().into_iter().peekable();
 
     while let Some(tt) = iter.next() {
@@ -269,12 +344,17 @@ fn mark_tokens(stream: &TokenStream, lines: &[&str], kinds: &mut [LineKind]) {
                 // inside the braces. Mark only the delimiters and
                 // recurse.
                 mark_span_line_range(group.span_open(), kinds, LineKind::Code);
-                mark_tokens(&group.stream(), lines, kinds);
+                if mark_tokens(&group.stream(), lines, kinds, depth.saturating_add(1))
+                    == Walk::DepthExceeded
+                {
+                    return Walk::DepthExceeded;
+                }
                 mark_span_line_range(group.span_close(), kinds, LineKind::Code);
             }
             other => mark_span_line_range(other.span(), kinds, LineKind::Code),
         }
     }
+    Walk::Complete
 }
 
 /// Does the source at `span`'s start begin a comment?
@@ -384,12 +464,21 @@ fn attr_is_test_gate(attr: &syn::Attribute) -> bool {
         return true;
     }
     if path.is_ident("cfg") {
-        return stream_has_test_ident(&attr.to_token_stream());
+        return stream_has_test_ident(&attr.to_token_stream(), 0);
     }
     false
 }
 
-fn stream_has_test_ident(stream: &TokenStream) -> bool {
+/// Does `stream` mention the bare `test` ident outside a `not(..)`?
+///
+/// Recursion is bounded by [`MAX_NESTING_DEPTH`] for the reasons given
+/// on that constant. Past the cap the answer is `false`: a `cfg`
+/// predicate nested that deep is not a real test gate, and treating it
+/// as production code keeps the walk from aborting the process.
+fn stream_has_test_ident(stream: &TokenStream, depth: usize) -> bool {
+    if depth >= MAX_NESTING_DEPTH {
+        return false;
+    }
     let mut iter = stream.clone().into_iter().peekable();
     while let Some(tt) = iter.next() {
         match tt {
@@ -403,7 +492,11 @@ fn stream_has_test_ident(stream: &TokenStream) -> bool {
                     return true;
                 }
             }
-            TokenTree::Group(group) if stream_has_test_ident(&group.stream()) => return true,
+            TokenTree::Group(group)
+                if stream_has_test_ident(&group.stream(), depth.saturating_add(1)) =>
+            {
+                return true
+            }
             _ => {}
         }
     }
@@ -417,16 +510,25 @@ fn stream_has_test_ident(stream: &TokenStream) -> bool {
 /// only the first token's span when joining is unavailable.
 fn item_line_range(item: &syn::Item) -> Option<(usize, usize)> {
     let mut range: Option<(usize, usize)> = None;
-    fold_span_range(&item.to_token_stream(), &mut range);
+    fold_span_range(&item.to_token_stream(), &mut range, 0);
     range
 }
 
-fn fold_span_range(stream: &TokenStream, range: &mut Option<(usize, usize)>) {
+/// Fold every token's span into `range`.
+///
+/// Recursion is bounded by [`MAX_NESTING_DEPTH`]. Past the cap the
+/// remaining nested spans are skipped; the enclosing group's open and
+/// close delimiters are still folded in, so the range stays a superset
+/// of the item's first and last lines.
+fn fold_span_range(stream: &TokenStream, range: &mut Option<(usize, usize)>, depth: usize) {
+    if depth >= MAX_NESTING_DEPTH {
+        return;
+    }
     for tt in stream.clone() {
         match tt {
             TokenTree::Group(group) => {
                 extend(range, group.span_open());
-                fold_span_range(&group.stream(), range);
+                fold_span_range(&group.stream(), range, depth.saturating_add(1));
                 extend(range, group.span_close());
             }
             other => extend(range, other.span()),

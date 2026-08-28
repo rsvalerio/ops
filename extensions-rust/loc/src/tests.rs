@@ -18,7 +18,7 @@ use ops_duckdb::{init_schema, DataIngestor, DuckDb};
 use ops_extension::{Context, DataProvider, Extension, ExtensionType};
 
 use super::{RustLocExtension, RustLocIngestor, RustLocProvider};
-use crate::counter::{count_source, region_from_path, LineKind, Locs, Region};
+use crate::counter::{count_source, region_from_path, LineKind, Locs, Region, MAX_NESTING_DEPTH};
 
 // -- Extension trait tests --
 
@@ -287,6 +287,29 @@ fn unlexable_source_falls_back_to_blank_versus_nonblank() {
     assert_eq!(counts.main.blanks, 1);
 }
 
+/// Pins the [`MAX_NESTING_DEPTH`] bail-out (SEC-33). The input below
+/// lexes cleanly — `proc_macro2`'s lexer is iterative — so without the
+/// cap the recursive token walkers would overflow the stack, which
+/// aborts the test process with `SIGSEGV` rather than failing an
+/// assertion.
+#[test]
+fn nesting_past_the_depth_cap_degrades_instead_of_overflowing() {
+    let depth = MAX_NESTING_DEPTH * 8;
+    let src = format!(
+        "fn f() {{\n    let _ = {}{};\n}}\n",
+        "(".repeat(depth),
+        ")".repeat(depth)
+    );
+
+    let counts = count_source(&src, Region::Main);
+
+    assert_eq!(counts.main.lines(), 3, "every line still counted");
+    assert_eq!(
+        counts.main.code, 3,
+        "the fallback counts each non-blank line as code"
+    );
+}
+
 #[test]
 fn empty_source_counts_nothing() {
     assert_eq!(count_source("", Region::Main).main, Locs::default());
@@ -378,6 +401,32 @@ fn collect_rust_loc_splits_regions_across_a_canned_tree() {
     }
 }
 
+/// `collect_rust_loc` walks in parallel, so workers finish in arbitrary
+/// order; it sorts before returning. Pins that the emitted rows are
+/// deterministic rather than schedule-dependent.
+#[test]
+fn collect_rust_loc_returns_rows_sorted_by_file_and_region() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_fixture_tree(dir.path());
+
+    let value = crate::collect_rust_loc(dir.path()).expect("collect");
+    let keys: Vec<(String, String)> = value
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|r| {
+            (
+                r["file"].as_str().unwrap_or_default().to_string(),
+                r["region"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+
+    let mut sorted = keys.clone();
+    sorted.sort();
+    assert_eq!(keys, sorted, "rows must come back in (file, region) order");
+}
+
 /// Region attribution keys off the workspace-relative path. An absolute
 /// prefix such as `/home/someone/tests/ws` must not leak a `tests`
 /// component into the classification.
@@ -413,6 +462,147 @@ fn collect_rust_loc_skips_build_directories() {
         .map(|r| r["file"].as_str().unwrap_or_default())
         .collect();
     assert_eq!(files, vec!["src/lib.rs"], "build dirs must be pruned");
+}
+
+/// Pins the `MAX_SOURCE_BYTES` gate (SEC-33): a file past the cap is
+/// counted by the streaming blank-vs-non-blank fallback instead of being
+/// read, lexed and `syn`-parsed at full size, and its presence never
+/// stops the rest of the scan from being emitted.
+#[test]
+fn oversized_file_degrades_to_a_line_count_without_aborting_the_scan() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
+    std::fs::write(dir.path().join("src/lib.rs"), "pub fn f() {}\n").expect("write lib.rs");
+
+    let filler = "// filler filler filler filler filler filler filler filler\n";
+    let cap = usize::try_from(crate::MAX_SOURCE_BYTES).expect("cap fits in usize");
+    let repeats = cap / filler.len() + 2;
+    std::fs::write(dir.path().join("big.rs"), filler.repeat(repeats)).expect("write big.rs");
+
+    let value = crate::collect_rust_loc(dir.path()).expect("collect");
+    let records = value.as_array().expect("array");
+
+    assert!(
+        records.iter().any(|r| r["file"] == "src/lib.rs"),
+        "the normal file's rows must still be emitted: {records:?}"
+    );
+    let big: Vec<_> = records.iter().filter(|r| r["file"] == "big.rs").collect();
+    assert_eq!(big.len(), 1, "one degraded row for the over-cap file");
+    assert_eq!(big[0]["region"], "main");
+    assert_eq!(
+        big[0]["code"].as_u64(),
+        u64::try_from(repeats).ok(),
+        "the fallback counts every non-blank line as code"
+    );
+    assert_eq!(
+        big[0]["comments"].as_u64(),
+        Some(0),
+        "the degraded count does no comment classification"
+    );
+}
+
+// -- degradation policy (lib.rs:120-126, lib.rs:135-144, counter.rs syn pass) --
+
+/// Pins the **unreadable-file** branch of the warn-and-skip policy: a
+/// `.rs` file holding invalid UTF-8 makes `read_to_string` fail with
+/// `InvalidData` for every user, root included, so the walk must warn,
+/// skip it, and still return the valid file's rows.
+#[test]
+fn unreadable_file_is_skipped_and_the_rest_of_the_scan_survives() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
+    std::fs::write(dir.path().join("src/lib.rs"), "pub fn f() {}\n").expect("write lib.rs");
+    std::fs::write(dir.path().join("src/broken.rs"), b"fn f() {}\n\xff\xfe\n")
+        .expect("write broken");
+
+    let value = crate::collect_rust_loc(dir.path()).expect("collect must not error");
+    let files: Vec<&str> = value
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|r| r["file"].as_str().unwrap_or_default())
+        .collect();
+
+    assert_eq!(
+        files,
+        vec!["src/lib.rs"],
+        "the valid file's rows survive and the undecodable one is skipped"
+    );
+}
+
+/// Pins the **unwalkable-path** branch of the warn-and-skip policy: a
+/// subdirectory the process cannot descend produces a walker `Err`,
+/// which must be warned and skipped rather than aborting the scan.
+///
+/// Skips itself when the process can read the directory anyway (running
+/// as root), rather than passing vacuously.
+#[cfg(unix)]
+#[test]
+fn unwalkable_subdirectory_is_skipped_and_the_rest_of_the_scan_survives() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
+    std::fs::write(dir.path().join("src/lib.rs"), "pub fn f() {}\n").expect("write lib.rs");
+
+    let locked = dir.path().join("locked");
+    std::fs::create_dir_all(&locked).expect("mkdir locked");
+    std::fs::write(locked.join("hidden.rs"), "fn g() {}\n").expect("write hidden.rs");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000))
+        .expect("chmod locked");
+
+    let readable_anyway = std::fs::read_dir(&locked).is_ok();
+    if readable_anyway {
+        // Restore before bailing so the tempdir can be cleaned up.
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755))
+            .expect("restore permissions");
+        eprintln!("skipped: this process can read a 0o000 directory (running as root)");
+        return;
+    }
+
+    let result = crate::collect_rust_loc(dir.path());
+
+    // Restore before asserting, so a failure still leaves a removable tree.
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755))
+        .expect("restore permissions");
+
+    let value = result.expect("collect must not error");
+    let files: Vec<&str> = value
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|r| r["file"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        files,
+        vec!["src/lib.rs"],
+        "the readable file's rows survive the unwalkable subtree"
+    );
+}
+
+/// Pins the **lexes-but-does-not-parse** branch: `let x = 1;` at file
+/// scope is a valid token stream but not a valid top-level item, so
+/// `TokenStream::from_str` succeeds and `syn` rejects the file. The
+/// whole test-attribution pass is then skipped, and every line —
+/// including the `#[cfg(test)]` module that would otherwise be a test
+/// gate — stays attributed to the file's base region.
+///
+/// Distinct from `unlexable_source_falls_back_to_blank_versus_nonblank`,
+/// which covers the earlier `TokenStream::from_str` failure and its
+/// different outcome (no classification at all).
+#[test]
+fn source_that_lexes_but_fails_syn_keeps_every_line_in_the_base_region() {
+    let src = "let x = 1;\n#[cfg(test)]\nmod t {}\n";
+
+    let counts = count_source(src, Region::Main);
+
+    assert_eq!(counts.test, Locs::default(), "no test split without syn");
+    assert_eq!(counts.example, Locs::default());
+    assert_eq!(counts.main.lines(), 3, "all three lines counted as main");
+    assert_eq!(
+        counts.main.code, 3,
+        "the lexer still classifies each line as code"
+    );
 }
 
 #[test]
