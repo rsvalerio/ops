@@ -9,10 +9,12 @@ license.workspace = true
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
 ops-about = { workspace = true }
-ops-git = { workspace = true }
+# ARCH-11 / TASK-1749: `linkme` has no `linkme::` path in this crate's
+# source, but `ops_extension::impl_extension!` expands to
+# `#[linkme::distributed_slice(...)]`, so it must stay a direct dependency.
+# A plain grep for unused deps will "find" it again — it is not unused.
 linkme = { workspace = true }
 serde_json = { workspace = true }
-anyhow = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
