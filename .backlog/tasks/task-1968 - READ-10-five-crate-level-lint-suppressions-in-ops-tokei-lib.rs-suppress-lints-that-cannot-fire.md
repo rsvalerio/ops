@@ -3,11 +3,11 @@ id: TASK-1968
 title: >-
   READ-10: five crate-level lint suppressions in ops-tokei lib.rs suppress lints
   that cannot fire
-status: To Do
+status: Done
 assignee:
   - TASK-2012
 created_date: '2026-08-27 15:53'
-updated_date: '2026-08-28 14:18'
+updated_date: '2026-08-28 15:57'
 labels:
   - code-review-rust
   - readability
@@ -36,6 +36,29 @@ This crate is the template several other extension crates were copied from. The 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 The crate-root cfg_attr(test, allow(..)) block in extensions/tokei/src/lib.rs lists only clippy::unwrap_used; the three cast lints are removed
-- [ ] #2 The allow(dead_code) attributes on DESCRIPTION and SHORTNAME are removed and the crate still builds clean under cargo clippy --all-targets --workspace -- -D warnings
-- [ ] #3 Any suppression that survives is written as expect(lint, reason = ...) with the reason stated inline, per docs/clippy.md
+- [x] #2 The allow(dead_code) attributes on DESCRIPTION and SHORTNAME are removed and the crate still builds clean under cargo clippy --all-targets --workspace -- -D warnings
+- [x] #3 Any suppression that survives is written as expect(lint, reason = ...) with the reason stated inline, per docs/clippy.md
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2012 (branch code-review/TASK-2012).
+
+AC #1 substituted: the block was not reduced to `clippy::unwrap_used`, it was
+removed entirely. Writing the survivor as
+`#![cfg_attr(test, expect(clippy::unwrap_used, reason = "..."))]` made clippy
+report `unfulfilled_lint_expectation` -- proof that `allow-unwrap-in-tests =
+true` in `clippy.toml` already relaxes it workspace-wide, so the crate-root
+entry suppressed nothing either. AC #1 as written (keep unwrap_used, drop the
+three cast lints) and AC #3 (any survivor written as `expect` with a reason)
+cannot both hold; removing the block satisfies the intent of both. A comment at
+the crate root records why there is no block.
+
+AC #2 and #3 met: the `allow(dead_code)` attributes on DESCRIPTION and SHORTNAME
+are gone and `cargo clippy --workspace --all-features --all-targets -- -D
+warnings` is clean.
+
+Follow-up filed: TASK-2015 (docs/clippy.md still documents the four-lint block
+as universal).
+<!-- SECTION:NOTES:END -->

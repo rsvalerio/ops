@@ -3,11 +3,11 @@ id: TASK-1978
 title: >-
   TEST-1: single_ingestion_entry_point has an entirely commented-out body and
   can never fail
-status: To Do
+status: Done
 assignee:
   - TASK-2012
 created_date: '2026-08-27 15:56'
-updated_date: '2026-08-28 14:18'
+updated_date: '2026-08-28 15:59'
 labels:
   - code-review-rust
   - test-quality
@@ -41,6 +41,20 @@ The intent traces to the DUP-1 cleanup noted at lines 326-330 (TASK-0226), which
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 single_ingestion_entry_point either enforces the invariant with a mechanism that actually fails when load_tokei is reintroduced, such as a compile_fail doctest, or is deleted
-- [ ] #2 No test in extensions/tokei/src/tests.rs has an empty or fully commented-out body
+- [x] #1 single_ingestion_entry_point either enforces the invariant with a mechanism that actually fails when load_tokei is reintroduced, such as a compile_fail doctest, or is deleted
+- [x] #2 No test in extensions/tokei/src/tests.rs has an empty or fully commented-out body
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2012 (branch code-review/TASK-2012).
+
+`single_ingestion_entry_point` is deleted. The invariant it claimed to hold is
+now a `compile_fail` doctest on the crate root of `extensions/tokei/src/lib.rs`
+naming `ops_tokei::load_tokei`, which fails the moment the symbol is
+reintroduced. `cargo test -p ops-tokei` runs it: "extensions/tokei/src/lib.rs -
+(line 9) - compile fail ... ok". A comment at the old site points at the
+doctest so the history is not lost. No test in the file has an empty or
+commented-out body.
+<!-- SECTION:NOTES:END -->
