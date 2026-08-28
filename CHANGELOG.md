@@ -2,6 +2,63 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.44.0](https://github.com/rsvalerio/ops/compare/0fc0f4ddc5720e0f334d4014bc55b3c4776c736c..v0.44.0) - 2026-08-28
+#### 🚀 Features
+- (**run-before-push**) gate the hook on git's ref-update stream - ([07e4d33](https://github.com/rsvalerio/ops/commit/07e4d33be4ea3898f6f2f4ce1d19599d9e33fed4)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**about-go**) reject go.work use directives with embedded parent-dir segments - ([f29b1a8](https://github.com/rsvalerio/ops/commit/f29b1a8164f724bdac9e0030140101265544c6f4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-go**) parse quoted, tab-separated and block-form directives - ([fec0277](https://github.com/rsvalerio/ops/commit/fec02774fe251c03ebcb606452b4685e4550a0b6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-go**) tokenize modfile lines and share the traversal guard - ([5ede2e6](https://github.com/rsvalerio/ops/commit/5ede2e6f4f8de6166b4f5bc526d1763ff85eb210)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-java**) scope gradle description to depth 0 and share the escape-aware quote scan - ([95913a9](https://github.com/rsvalerio/ops/commit/95913a940b3b1ccf6925b54283f9791b112d489d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-java**) stop single-line POM containers leaking into top-level fields - ([5063c44](https://github.com/rsvalerio/ops/commit/5063c4498c347a49b1a3c163b5668b9efe9fb29a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-node**) drop blank workspace globs and strip YAML comments by char - ([71d1da2](https://github.com/rsvalerio/ops/commit/71d1da2d5bc8be61127f3af312504231eb5ac73b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-node**) reject repository URLs outside the http(s) allowlist - ([850cf8c](https://github.com/rsvalerio/ops/commit/850cf8c03b0c6f1f77319b34b886bfe05b7cf21e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**create-review-tasks**) validate provider input and harden id allocation - ([fa67e96](https://github.com/rsvalerio/ops/commit/fa67e96c0f6503dab918caa7274617bf12c40f9c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**create-review-tasks-rust**) resolve a review target for every supported project shape - ([ac6f363](https://github.com/rsvalerio/ops/commit/ac6f363939be562e79e1f9888d2323324bbd32e2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**java**) stop a single-line <developers> block hijacking the project name - ([0feb21f](https://github.com/rsvalerio/ops/commit/0feb21f7cdf3abc05b4e00fba0a71fd015513d47)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**rust-loc**) bound the streaming fallback by the reader, not the line - ([77c1af9](https://github.com/rsvalerio/ops/commit/77c1af9385ce4ff04b12e4627c3afb56d5bb0095)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**rust-loc**) bound scan recursion and file size, and walk in parallel - ([5228f63](https://github.com/rsvalerio/ops/commit/5228f631c11507874730c48b857c6944eb9903c7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**test-coverage**) COALESCE coverage_summary counts so an empty table yields 0 - ([5908d2c](https://github.com/rsvalerio/ops/commit/5908d2c9f497a0efd61998f488ee41f70a21d05d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tokei**) bound the source scan and anchor its exclusions to the root - ([bf3535d](https://github.com/rsvalerio/ops/commit/bf3535d3bfe4f87ded3e88e88026f249d0a46e6e)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**clippy**) refresh the site-local allow census after the drain - ([49aef12](https://github.com/rsvalerio/ops/commit/49aef12d34ad26f214bee4a12752eb0b5f4ab8b5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**readme**) document the hook skip environment variables - ([5077d82](https://github.com/rsvalerio/ops/commit/5077d821ef652f5374b5bd5773ec1332475261d2)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**about**) add a shared warn-counting tracing harness - ([3b3ed0e](https://github.com/rsvalerio/ops/commit/3b3ed0e1f0ad3c44151b1cda815eff88021abd8e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) add a shared write_file fixture helper to test_support - ([b75d82b](https://github.com/rsvalerio/ops/commit/b75d82bb6adb4272ebe1033b59822ee59e56e37a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-java**) assert the exact directory-name fallback and pin the new parser invariants - ([22107ea](https://github.com/rsvalerio/ops/commit/22107eac5d239f7224240e80374136231a90a964)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-node**) use the shared write_file fixture helper - ([a3af5c8](https://github.com/rsvalerio/ops/commit/a3af5c822fbfb4c4d2cf19bc9238465f8373e311)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**test-coverage**) split tests.rs into src/tests/ by concern - ([ae7dace](https://github.com/rsvalerio/ops/commit/ae7dace14b4c3479e4dd094ce36becd6b6d81432)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tokei**) pin that unsupported files do not consume the file cap - ([b0574c8](https://github.com/rsvalerio/ops/commit/b0574c8449de9fcd9511c4c177b999600e09d790)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**tokei**) replace live workspace scans with a canned fixture - ([10a911d](https://github.com/rsvalerio/ops/commit/10a911d152bc2e117e9a37c15a87468d0316b866)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**about-go**) drop the unused anyhow and ops-git dependencies - ([827757c](https://github.com/rsvalerio/ops/commit/827757c56b1bf8a42a339877a112ecf447a24b95)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**create-review-tasks**) depend on chrono for calendar arithmetic - ([289f4fd](https://github.com/rsvalerio/ops/commit/289f4fd869ba1ec13c42aa9288488f4ad143b45c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**create-review-tasks-rust**) add tracing-capture and serial test dependencies - ([9b61c34](https://github.com/rsvalerio/ops/commit/9b61c342309e470942f3e6846c73f4fd4e0ac1f6)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about-go**) consume go_mod::GoMod directly - ([8c74430](https://github.com/rsvalerio/ops/commit/8c74430b242908bc7148add0a905fd07a9d4df06)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-rust**) re-export the crate-manifest reader and member-path guard - ([1b48a8a](https://github.com/rsvalerio/ops/commit/1b48a8a9ac84f688645c280b98c01328efd1b3d3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**test-coverage**) name the soft-fail predicate and inject the cargo runner - ([222e1eb](https://github.com/rsvalerio/ops/commit/222e1eb090fa1e97a8663ae4afac0726cf1e0db2)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**about-java**) drop unused deps and the dead cast-lint allows - ([26edee4](https://github.com/rsvalerio/ops/commit/26edee4dfaede42b35ed5107df32b986d9d19a77)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 164 - ([3cc1921](https://github.com/rsvalerio/ops/commit/3cc1921c1b91dbb2be59c790e73589cf229e45d0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 178 - ([bf36283](https://github.com/rsvalerio/ops/commit/bf3628395ae15932e026772a7ef41ec3157ce7d1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 171 - ([f87d09c](https://github.com/rsvalerio/ops/commit/f87d09c1a3d69b52fe51d14a023f29ba83644701)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 166 - ([5e53d0d](https://github.com/rsvalerio/ops/commit/5e53d0d68b56d03c8f99e642fe18119c499f481b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 156 - ([826c291](https://github.com/rsvalerio/ops/commit/826c291a811c8a8b4394754da90094938a65cc16)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 155 - ([2e51c21](https://github.com/rsvalerio/ops/commit/2e51c21c8a6b12e0a4ee7f6365969320589ecea5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 157 - ([73628b7](https://github.com/rsvalerio/ops/commit/73628b74858a680488a501657ec137ad1fe3b2f9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 162 - ([bf9c1bb](https://github.com/rsvalerio/ops/commit/bf9c1bb186d6b5ae75614ff819fa5cdf952426e4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 176 - ([56dc563](https://github.com/rsvalerio/ops/commit/56dc56376a43c3782f2233da9796d050fd982230)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 154 - ([504b87d](https://github.com/rsvalerio/ops/commit/504b87d4b63899f03d0e428ba8971771745b6ab0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) triage 262 findings into waves 148-178 - ([2bc1a54](https://github.com/rsvalerio/ops/commit/2bc1a543cf63829b7c1250a7798366043d8231da)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**coderabbit**) skip reviewing the .backlog directory - ([480f6b9](https://github.com/rsvalerio/ops/commit/480f6b9d512ef7590f665d37bb95db7a9ce1d22e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**test-coverage**) drop three dead cast allows and give unwrap_used a reason - ([c22214b](https://github.com/rsvalerio/ops/commit/c22214bb3fb940bd3abd9dd52a7edda64c0f3fee)) - [@rsvalerio](https://github.com/rsvalerio)
+- save backlog tasks - ([d13dca5](https://github.com/rsvalerio/ops/commit/d13dca5f337e4324ddb3076580dab786fb25aff4)) - [@rsvalerio](https://github.com/rsvalerio)
+- save backlog tasks - ([0fc0f4d](https://github.com/rsvalerio/ops/commit/0fc0f4ddc5720e0f334d4014bc55b3c4776c736c)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.43.1](https://github.com/rsvalerio/ops/compare/78b62d1125f328dc92fe36ddd94939b60165cbca..v0.43.1) - 2026-08-27
 #### 🐛 Bug Fixes
 - (**about**) pin in-flight cache entries and reject partial-segment globs - ([fcdf5c2](https://github.com/rsvalerio/ops/commit/fcdf5c256948f4c708cba0c8449fb093bc40b7eb)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
