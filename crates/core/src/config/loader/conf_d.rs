@@ -58,12 +58,30 @@ fn read_conf_d_files(dir: &Path) -> anyhow::Result<Option<Vec<PathBuf>>> {
 /// dropped. Users whose overlay "mysteriously does nothing" in CI should see
 /// a loud failure instead of a tracing warning that gets swallowed.
 ///
-/// ERR-4 / TASK-1448: a `.toml` entry that resolves to a broken symlink
-/// (`DirEntry::path` exists in the listing but `File::open` reports
-/// `NotFound`) is treated as a hard error here rather than being silently
-/// mapped to `Ok(None)` by [`super::read_capped_toml_file`]. The listing already
-/// proved the entry existed; an unreadable target between listing and open
-/// is the "loud failure" contract, not benign absence.
+/// ERR-4 / TASK-1448 + TEST-1 / TASK-1852: the `Ok(None)` arm below is a hard
+/// error rather than benign absence. `read_dir` already proved the entry
+/// existed, so an entry that then reads as "missing" means the tree changed
+/// under us — the "loud failure" contract, not absence.
+///
+/// **What actually reaches that arm today.** The original ERR-4 wording named
+/// the broken-symlink case, but SEC-25 / TASK-1468 put `O_NOFOLLOW` on the
+/// config open, and a dangling symlink under `O_NOFOLLOW` returns `ELOOP`
+/// (which `text::open_refusing_symlinks` maps to `InvalidInput`), not
+/// `NotFound` — so a broken symlink now takes the `Err(e)` arm carrying the
+/// symlink-refusal message. The only remaining route into `Ok(None)` is a
+/// **delete or rename between `read_dir` and `open`**: a genuine TOCTOU race,
+/// kept as defence in depth. It has no unit test because reproducing it needs
+/// a scheduler-timed unlink inside the loop; `merge_conf_d_rejects_broken_\
+/// symlink` pins the symlink route instead and asserts the *specific* message,
+/// so deleting either branch fails the suite.
+///
+/// **Symlinks in `.ops.d` stay refused** — recorded decision, TASK-1852.
+/// `.ops.d` is workspace-relative and therefore repo-supplied: the same
+/// attacker-controlled trust boundary as `.ops.toml`. The SEC-14 / TASK-1847
+/// relaxation applies only to the user's own `~/.config/ops/config.toml`; see
+/// [`super::SymlinkPolicy`] for why the two differ. A repo that wants to share
+/// config fragments should commit the fragment, not a link out of the
+/// workspace.
 pub(super) fn merge_conf_d(config: &mut Config, workspace_root: &Path) -> anyhow::Result<()> {
     let Some(files) = read_conf_d_files(&workspace_root.join(".ops.d"))? else {
         return Ok(());
@@ -189,7 +207,14 @@ args = ["hello"]
     /// ERR-4 / TASK-1448: a broken `.toml` symlink in `.ops.d` is listed by
     /// `read_dir` but fails to open at merge time. The "loud failure"
     /// contract on `merge_conf_d` requires this to abort the load, not to be
-    /// silently mapped to `Ok(None)` by `read_capped_toml_file`.
+    /// silently mapped to `Ok(None)`.
+    ///
+    /// TEST-1 / TASK-1852: the assertion pins the **specific** error the code
+    /// produces today — the SEC-25 `O_NOFOLLOW` refusal, since a dangling
+    /// symlink returns `ELOOP` rather than `NotFound`. Asserting only that the
+    /// message names `dangling.toml` was satisfied by *either* branch, so the
+    /// `Ok(None)` bail this test is named for could have been deleted with the
+    /// suite still green.
     #[cfg(unix)]
     #[test]
     #[serial_test::serial]
@@ -211,6 +236,40 @@ args = ["hello"]
         assert!(
             msg.contains("dangling.toml"),
             "error must name the broken overlay, got: {msg}"
+        );
+        assert!(
+            msg.contains("refusing to follow symlink"),
+            "a dangling symlink must take the SEC-25 refusal branch (ELOOP), \
+             not the disappeared-overlay bail, got: {msg}"
+        );
+    }
+
+    /// SEC-14 / TASK-1847 + TASK-1852 (recorded decision): the symlink
+    /// relaxation for the user's own global config must NOT reach `.ops.d`.
+    /// A `.ops.d` fragment symlinked to a real, readable file outside the
+    /// workspace is still refused, because `.ops.d` is repo-supplied content.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn merge_conf_d_refuses_symlink_to_a_real_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let ops_d = dir.path().join(".ops.d");
+        fs::create_dir(&ops_d).unwrap();
+        let target = dir.path().join("real.toml");
+        fs::write(&target, "[commands.linked]\nprogram = \"echo\"\n").unwrap();
+        std::os::unix::fs::symlink(&target, ops_d.join("linked.toml")).unwrap();
+
+        let mut config = Config::default();
+        let err = merge_conf_d(&mut config, dir.path())
+            .expect_err("a symlinked .ops.d fragment must still be refused");
+
+        assert!(
+            format!("{err:#}").contains("refusing to follow symlink"),
+            "workspace-relative config paths keep the SEC-25 policy, got: {err:#}"
+        );
+        assert!(
+            !config.commands.contains_key("linked"),
+            "the refused overlay must not have been merged"
         );
     }
 
