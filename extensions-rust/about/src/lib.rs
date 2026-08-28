@@ -40,6 +40,14 @@ pub const DATA_PROVIDER_NAME: &str = "project_identity";
 /// shared by the about providers. See [`query::resolved_workspace_members`].
 pub use query::resolved_workspace_members;
 
+/// Re-exported for sibling Rust-stack extension crates (DUP-3 / TASK-1814):
+/// the shared crate-manifest reader and the SEC-14 / TASK-1246 member-path
+/// guard that protects it, so no sibling maintains a second copy of the
+/// read/parse/log policy or of the absolute-and-`..` rejection. See
+/// [`units::read_crate_metadata`] and [`query::member_path_is_workspace_safe`].
+pub use query::member_path_is_workspace_safe;
+pub use units::{read_crate_metadata, CrateMetadata};
+
 pub struct AboutRustExtension;
 
 ops_extension::impl_extension! {

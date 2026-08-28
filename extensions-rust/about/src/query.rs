@@ -667,6 +667,8 @@ fn contains_unsupported_glob_meta(member: &str) -> bool {
     member.contains(['?', '[', ']', '{', '}'])
 }
 
+/// Whether a `[workspace].members` entry is safe to join onto the root.
+///
 /// SEC-14 / TASK-1246: a workspace member must be a relative path with
 /// no `..` segments. `Path::join` discards `cwd` when the operand is
 /// absolute and walks parents on `..`, so a hostile root `Cargo.toml`
@@ -675,6 +677,7 @@ fn contains_unsupported_glob_meta(member: &str) -> bool {
 /// root. Rejecting those shapes up front matches the
 /// `append_tree_directory` (SEC-14 / TASK-0811) and `scrub_path_segments`
 /// (SEC-14 / TASK-1111) policies on the rendering side.
+#[must_use]
 pub fn member_path_is_workspace_safe(member: &str) -> bool {
     use std::path::Component;
     let p = Path::new(member);
