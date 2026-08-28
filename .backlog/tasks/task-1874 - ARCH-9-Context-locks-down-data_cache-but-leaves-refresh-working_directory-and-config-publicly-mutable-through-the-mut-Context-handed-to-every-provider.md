@@ -3,11 +3,11 @@ id: TASK-1874
 title: >-
   ARCH-9: Context locks down data_cache but leaves refresh, working_directory
   and config publicly mutable through the &mut Context handed to every provider
-status: To Do
+status: Done
 assignee:
   - TASK-1985
 created_date: '2026-08-27 15:31'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 19:25'
 labels:
   - code-review-rust
   - api-design
@@ -56,3 +56,9 @@ Every `DataProvider` receives `&mut Context`, so every provider — including a 
 - [ ] #3 Call sites across the workspace's extension crates are migrated to the accessors and the workspace builds clean under the existing clippy policy
 - [ ] #4 A test asserts that a provider invoked through Context::get_or_provide cannot change the refresh flag or working directory observed by a sibling provider in the same traversal
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Every Context field is now private. Accessors: config(), config_arc(), working_directory() -> &Path, working_directory_arc(), is_refreshing(); mutators are the constructors, with_refresh() and clear_provider_results() (AC#1). `db` follows the same treatment for reads (db() -> Option<&Arc<dyn DuckDbHandle>>) but keeps a named mutator, Context::attach_db: unlike refresh/working_directory it is genuinely provider-assigned (ops-duckdb opens the handle lazily and installs it so siblings reuse the connection), which adds a capability rather than reinterpreting what earlier providers did — rationale recorded in the rustdoc (AC#2). Migrated ~30 call sites across crates/runner, crates/cli, extensions/*, extensions-{rust,java,node,go,python,terraform}; the two `ctx.refresh = ...` assignment sites (ops-about run_about, ops-deps) now use the with_refresh() builder (AC#3). Test provider_cannot_change_the_context_its_siblings_observe pins that a transitively composed provider sees exactly the caller-configured refresh flag and cwd; context_accessors_report_the_constructed_values covers the accessors and Arc sharing (AC#4).
+<!-- SECTION:NOTES:END -->

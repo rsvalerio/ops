@@ -3,11 +3,11 @@ id: TASK-1868
 title: >-
   ARCH-9: EXTENSION_REGISTRY publishes no ordering or name-uniqueness contract,
   so linkme link order decides which extension wins a config_name collision
-status: To Do
+status: Done
 assignee:
   - TASK-1985
 created_date: '2026-08-27 15:30'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 19:24'
 labels:
   - code-review-rust
   - architecture
@@ -45,3 +45,9 @@ The second identity leak is that `ExtensionFactory` returns `(&'static str, Box<
 - [ ] #3 Duplicate config_name resolution is deterministic across builds — either via a sorting accessor exported from ops-extension, or by a documented rule the CLI consumer enforces before dedup_compiled_extensions runs
 - [ ] #4 A test pins the collision outcome: two factories claiming the same config name resolve to the same winner regardless of the order the pairs are supplied in
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+EXTENSION_REGISTRY rustdoc now states slot order is unspecified and slot indices are not stable ids (AC#1). ExtensionFactory rustdoc documents config-name vs Extension::name() and what happens when they disagree (AC#2). New pub fn ops_extension::sort_compiled_extensions imposes a total order on (config_name, Extension::name()); collect_compiled_extensions in crates/cli/src/registry/discovery.rs routes every probed pair through it before dedup_compiled_extensions, so the last-write-wins collision winner is pinned across builds (AC#3). Tests: sort_compiled_extensions_pins_the_collision_winner_regardless_of_input_order (AC#4), sort_compiled_extensions_orders_distinct_config_names.
+<!-- SECTION:NOTES:END -->

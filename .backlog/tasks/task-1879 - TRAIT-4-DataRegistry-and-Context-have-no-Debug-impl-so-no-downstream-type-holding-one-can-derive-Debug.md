@@ -3,11 +3,11 @@ id: TASK-1879
 title: >-
   TRAIT-4: DataRegistry and Context have no Debug impl, so no downstream type
   holding one can derive Debug
-status: To Do
+status: Done
 assignee:
   - TASK-1985
 created_date: '2026-08-27 15:32'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 19:25'
 labels:
   - code-review-rust
   - idioms
@@ -40,3 +40,12 @@ The `Debug` bound is also absent from the `DataProvider` trait itself, so an ext
 - [ ] #3 A test asserts the Debug output of each type names the entries it holds, so the impls do not silently rot into an empty struct
 - [ ] #4 Whether DataProvider should gain a Debug supertrait bound is decided and the decision recorded in the trait's rustdoc
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: hand-written impl Debug for DataRegistry printing provider keys in registration order plus pending duplicate_inserts.
+AC#2: hand-written impl Debug for Context printing working_directory, refresh, cached_keys, in_flight and db presence (a bool, not the handle). Keys only, never cached values; both key lists are sorted so the rendering is deterministic despite HashMap/HashSet iteration order. `config` is deliberately omitted with an #[allow(clippy::missing_fields_in_debug)] and the reason next to it: it is a large invariant tree that would dominate every rendering.
+AC#3: data_registry_debug_names_its_providers_and_pending_audit_entries and context_debug_lists_keys_but_never_cached_values (the latter also asserts the cached value string never appears).
+AC#4: decided against adding Debug as a DataProvider supertrait; recorded in the trait's rustdoc under "Why no Debug supertrait" — it is a breaking change for out-of-tree implementers, the registry's Debug already names providers by their registered key (the identity every diagnostic in the crate uses), and providers commonly hold connection handles whose derived Debug is what should not reach a log.
+<!-- SECTION:NOTES:END -->

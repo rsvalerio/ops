@@ -3,11 +3,11 @@ id: TASK-1887
 title: >-
   ERR-2: DataProviderError::computation_failed fabricates a std::io::Error to
   carry a message that has nothing to do with I/O
-status: To Do
+status: Done
 assignee:
   - TASK-1985
 created_date: '2026-08-27 15:34'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:26'
 labels:
   - code-review-rust
   - error-handling
@@ -47,3 +47,11 @@ The type is public and lands in the error chain that `SharedError`'s alternate-D
 - [ ] #2 The replacement carries the message with no fabricated source, and DataProviderError stays Clone with its existing Display output for this constructor unchanged
 - [ ] #3 A test asserts that downcasting the source chain of a computation_failed error does not yield a std::io::Error
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1 + AC#2: added the message-carrying variant DataProviderError::ComputationMessage(String) (the enum is #[non_exhaustive], so this is not a breaking change) and computation_failed now builds it. No fabricated source at all — source() returns None — and no io::Error is constructed. Display is byte-identical ("data computation failed: {msg}"), and the enum is still Clone.
+AC#3: computation_failed_has_no_fabricated_io_source walks the whole source chain and asserts no link downcasts to std::io::Error.
+Two in-repo assertions that matched on ComputationFailed for a computation_failed()-produced error were updated to ComputationMessage: crates/extension/src/tests.rs::data_provider_error_computation_failed and extensions/about/src/identity.rs::build_identity_value_rejects_non_utf8_cwd (plus the two rustdoc references in identity.rs). ComputationFailed keeps its meaning: a real wrapped source error, which is what computation_error still produces.
+<!-- SECTION:NOTES:END -->

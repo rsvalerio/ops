@@ -3,11 +3,11 @@ id: TASK-1885
 title: >-
   ARCH-11: ops-extension pins bitflags = "2" directly instead of inheriting it
   from [workspace.dependencies]
-status: To Do
+status: Done
 assignee:
   - TASK-1985
 created_date: '2026-08-27 15:33'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 19:26'
 labels:
   - code-review-rust
   - architecture
@@ -48,3 +48,10 @@ tracing = { workspace = true }
 - [ ] #1 bitflags is declared once in the root [workspace.dependencies] table
 - [ ] #2 crates/extension/Cargo.toml inherits it with bitflags = { workspace = true } and the workspace builds unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: bitflags = "2" added to the root [workspace.dependencies] table, next to indexmap.
+AC#2: crates/extension/Cargo.toml now reads bitflags = { workspace = true }; the workspace builds unchanged (ops verify green, 2539 tests pass).
+<!-- SECTION:NOTES:END -->

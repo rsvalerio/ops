@@ -3,11 +3,11 @@ id: TASK-1889
 title: >-
   ERR-9: ComputationFailed and Serialization interpolate their own #[source]
   into the #[error] message, so chain-walking printers render the cause twice
-status: To Do
+status: Done
 assignee:
   - TASK-1985
 created_date: '2026-08-27 15:34'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:26'
 labels:
   - code-review-rust
   - error-handling
@@ -49,3 +49,14 @@ This is the exact shape ERR-9 names. It differs from the textbook case in one wa
 - [ ] #2 The #[error] format strings for ComputationFailed and Serialization are re-derived against those paths, dropping the {0:#} self-interpolation if the chain still reaches operators without it
 - [ ] #3 A test pins the rendered output for each display path in use ({e}, {e:#}, {e:?} through anyhow), so a future format-string change cannot silently drop a root cause or reintroduce duplication
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: display paths enumerated across the workspace and recorded as a table in ComputationFailed's rustdoc —
+  - {e:#} in tracing::warn!: extensions/about/src/providers.rs (warm_providers) and six enrichment sites in extensions/about/src/lib.rs;
+  - {e} / to_string(): this crate's tests, plus any operator log that omits the #;
+  - {e:?} via anyhow::Error: extensions/create-review-tasks/src/lib.rs (fetch_review_targets) and providers::load_or_default.
+AC#2: re-derived and {0:#} SURVIVES the analysis. thiserror generates write!(f, "...: {}", self.0) for a plain {0}, which does not propagate the alternate flag to SharedError's chain-walking Display — so dropping the # loses everything past the outermost context on every {e:#} AND every {e} site above. An alternate-aware SharedError does not change that: the flag never reaches it. The only cost of keeping {0:#} is that anyhow's {:?} repeats the chain under "Caused by:". Duplication in one debug report is cheaper than a lost root cause in every operator warning, so the format strings are unchanged and the reason is now recorded in the variant rustdoc with the named callers, so the next reviewer does not re-open this.
+AC#3: computation_failed_rendering_is_pinned_on_every_display_path pins {e}, {e:#} and {:?}-through-anyhow (including that anyhow still walks the #[source] chain); serialization_rendering_flattens_its_chain pins the sibling variant so the two cannot drift apart.
+<!-- SECTION:NOTES:END -->
