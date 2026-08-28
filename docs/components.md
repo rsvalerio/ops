@@ -283,7 +283,7 @@ All `[output]` knobs and the components they affect:
 | `output.columns` | `u16` | `80` | [2] Pending Step Line, [5] Separator Dots |
 | `output.show_error_detail` | `bool` | `true` | [7] Error Detail Box |
 
-**Config sources** (later overrides earlier): embedded default → global `~/.config/ops/config.toml` → local `.ops.toml` → environment `CARGO_OPS_*`.
+**Config sources** (later overrides earlier): embedded default → global `~/.config/ops/config.toml` → local `.ops.toml` → `.ops.d/*.toml` fragments (sorted by filename) → environment `OPS__*`.
 
 ---
 
