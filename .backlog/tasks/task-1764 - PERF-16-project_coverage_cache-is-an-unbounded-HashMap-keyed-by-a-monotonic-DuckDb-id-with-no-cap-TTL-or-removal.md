@@ -3,9 +3,11 @@ id: TASK-1764
 title: >-
   PERF-16: project_coverage_cache is an unbounded HashMap keyed by a monotonic
   DuckDb id with no cap, TTL, or removal
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1993
 created_date: '2026-08-27 11:20'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - performance

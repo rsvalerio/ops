@@ -3,9 +3,11 @@ id: TASK-1889
 title: >-
   ERR-9: ComputationFailed and Serialization interpolate their own #[source]
   into the #[error] message, so chain-walking printers render the cause twice
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1985
 created_date: '2026-08-27 15:34'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - error-handling

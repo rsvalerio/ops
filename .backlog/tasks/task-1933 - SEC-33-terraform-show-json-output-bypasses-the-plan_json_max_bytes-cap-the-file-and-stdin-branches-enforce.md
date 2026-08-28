@@ -3,9 +3,11 @@ id: TASK-1933
 title: >-
   SEC-33: terraform show -json output bypasses the plan_json_max_bytes cap the
   file and stdin branches enforce
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2002
 created_date: '2026-08-27 15:46'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - security

@@ -3,9 +3,11 @@ id: TASK-1972
 title: >-
   ERR-2: collect_tokei returns a Result that can never be Err, and its # Errors
   doc describes a failure that does not exist
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2012
 created_date: '2026-08-27 15:54'
+updated_date: '2026-08-28 14:18'
 labels:
   - code-review-rust
   - error-handling

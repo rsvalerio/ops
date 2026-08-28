@@ -3,9 +3,11 @@ id: TASK-1859
 title: >-
   ERR-7: is_hard_failure stops at the first DbError, so a MutexPoisoned nested
   under DbError::External logs at warn instead of error
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2006
 created_date: '2026-08-27 15:29'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - error-handling

@@ -3,9 +3,11 @@ id: TASK-1811
 title: >-
   SEC-25: the metadata size gate is advisory — --tracked follows a symlinked
   device and fs::read is unbounded
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2004
 created_date: '2026-08-27 11:32'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - security

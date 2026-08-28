@@ -3,9 +3,11 @@ id: TASK-1850
 title: >-
   API-9: DepsOptions is the one public type in the crate without
   #[non_exhaustive], breaking the convention lib.rs itself documents
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1997
 created_date: '2026-08-27 15:25'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - structure-readability

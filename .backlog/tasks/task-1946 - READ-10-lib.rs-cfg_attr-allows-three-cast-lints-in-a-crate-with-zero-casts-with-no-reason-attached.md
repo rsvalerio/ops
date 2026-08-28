@@ -3,9 +3,11 @@ id: TASK-1946
 title: >-
   READ-10: lib.rs cfg_attr allows three cast lints in a crate with zero casts,
   with no reason attached
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2000
 created_date: '2026-08-27 15:48'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - readability

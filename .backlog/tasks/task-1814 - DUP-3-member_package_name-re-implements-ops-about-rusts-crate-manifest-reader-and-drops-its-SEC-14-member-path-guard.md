@@ -3,9 +3,11 @@ id: TASK-1814
 title: >-
   DUP-3: member_package_name re-implements ops-about-rust's crate-manifest
   reader and drops its SEC-14 member-path guard
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1996
 created_date: '2026-08-27 11:32'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - duplication

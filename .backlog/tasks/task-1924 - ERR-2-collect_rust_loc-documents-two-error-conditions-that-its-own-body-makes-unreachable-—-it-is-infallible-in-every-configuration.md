@@ -3,9 +3,11 @@ id: TASK-1924
 title: >-
   ERR-2: collect_rust_loc documents two error conditions that its own body makes
   unreachable — it is infallible in every configuration
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1998
 created_date: '2026-08-27 15:45'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - error-handling

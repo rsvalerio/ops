@@ -3,9 +3,11 @@ id: TASK-1721
 title: >-
   SEC-14: go.work `use` directive with embedded `..` escapes the project root
   and reads an out-of-tree go.mod
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1989
 created_date: '2026-08-27 11:10'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - security

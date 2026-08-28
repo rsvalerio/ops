@@ -3,9 +3,11 @@ id: TASK-1788
 title: >-
   DUP-1: write() test helper in ops-about-terraform is a verbatim copy of the
   one in three sibling about crates
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2001
 created_date: '2026-08-27 11:23'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - duplication

@@ -4,9 +4,11 @@ title: >-
   PERF-10: the whole-workspace .rs scan is fully serial — one thread reads,
   lexes and syn-parses every file in sequence while ignore's parallel walker
   sits unused
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1998
 created_date: '2026-08-27 15:46'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - performance

@@ -3,9 +3,11 @@ id: TASK-1805
 title: >-
   ERR-1: from_env lossy-renders a non-UTF-8 TMPDIR through Path::display(),
   contradicting its own documented Errors contract
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1984
 created_date: '2026-08-27 11:29'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - error-handling

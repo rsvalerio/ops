@@ -4,9 +4,11 @@ title: >-
   TEST-6: every degraded and give-up path in the allocation loop is untested —
   the MAX_ALLOCATION_ATTEMPTS bail, the silent directory skips, and the public
   entry point
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2005
 created_date: '2026-08-27 15:23'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - test-quality

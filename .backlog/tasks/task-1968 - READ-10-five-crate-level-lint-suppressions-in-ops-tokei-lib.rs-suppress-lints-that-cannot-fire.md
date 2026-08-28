@@ -3,9 +3,11 @@ id: TASK-1968
 title: >-
   READ-10: five crate-level lint suppressions in ops-tokei lib.rs suppress lints
   that cannot fire
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2012
 created_date: '2026-08-27 15:53'
+updated_date: '2026-08-28 14:18'
 labels:
   - code-review-rust
   - readability

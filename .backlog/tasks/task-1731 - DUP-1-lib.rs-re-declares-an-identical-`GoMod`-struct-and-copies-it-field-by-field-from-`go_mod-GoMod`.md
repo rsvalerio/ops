@@ -3,9 +3,11 @@ id: TASK-1731
 title: >-
   DUP-1: lib.rs re-declares an identical `GoMod` struct and copies it
   field-by-field from `go_mod::GoMod`
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1989
 created_date: '2026-08-27 11:12'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - duplication

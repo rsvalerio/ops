@@ -4,9 +4,11 @@ title: >-
   TEST-5: has_staged_files (the production preflight) has zero coverage — every
   test goes through a cfg(test)-only shim that bypasses the cwd and env-timeout
   wiring
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2009
 created_date: '2026-08-27 15:39'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - tests

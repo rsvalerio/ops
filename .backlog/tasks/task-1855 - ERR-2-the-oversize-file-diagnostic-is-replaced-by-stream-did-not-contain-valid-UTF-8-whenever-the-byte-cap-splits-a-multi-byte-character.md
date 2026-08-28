@@ -3,9 +3,11 @@ id: TASK-1855
 title: >-
   ERR-2: the oversize-file diagnostic is replaced by 'stream did not contain
   valid UTF-8' whenever the byte cap splits a multi-byte character
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1983
 created_date: '2026-08-27 15:28'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - error-handling

@@ -3,9 +3,11 @@ id: TASK-1835
 title: >-
   TEST-2: read_config_file_permission_denied_returns_none is named for the
   opposite outcome and silently passes as a no-op under root
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1983
 created_date: '2026-08-27 15:22'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - testing

@@ -4,9 +4,11 @@ title: >-
   READ-10: lib.rs carries four lint suppressions that suppress nothing — three
   cast allows with no casts in the crate, and module_inception on a module that
   is not nested
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1985
 created_date: '2026-08-27 15:33'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - readability

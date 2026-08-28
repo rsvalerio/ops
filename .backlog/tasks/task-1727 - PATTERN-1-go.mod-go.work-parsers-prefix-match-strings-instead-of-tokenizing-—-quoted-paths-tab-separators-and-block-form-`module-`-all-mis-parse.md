@@ -3,9 +3,11 @@ id: TASK-1727
 title: >-
   PATTERN-1: go.mod/go.work parsers prefix-match strings instead of tokenizing —
   quoted paths, tab separators and block-form `module (` all mis-parse
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1989
 created_date: '2026-08-27 11:11'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - correctness

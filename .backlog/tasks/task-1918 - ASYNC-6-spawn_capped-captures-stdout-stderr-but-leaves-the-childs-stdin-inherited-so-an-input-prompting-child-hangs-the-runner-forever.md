@@ -3,9 +3,11 @@ id: TASK-1918
 title: >-
   ASYNC-6: spawn_capped captures stdout/stderr but leaves the child's stdin
   inherited, so an input-prompting child hangs the runner forever
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1986
 created_date: '2026-08-27 15:43'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - async

@@ -3,9 +3,11 @@ id: TASK-1782
 title: >-
   PERF-3: find_required_version re-reads and re-parses the four named candidate
   .tf files during the read_dir fallback
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2001
 created_date: '2026-08-27 11:23'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - idioms-correctness

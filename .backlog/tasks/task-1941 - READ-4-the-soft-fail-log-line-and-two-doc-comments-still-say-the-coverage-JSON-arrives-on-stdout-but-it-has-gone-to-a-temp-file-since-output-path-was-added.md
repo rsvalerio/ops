@@ -4,9 +4,11 @@ title: >-
   READ-4: the soft-fail log line and two doc comments still say the coverage
   JSON arrives on stdout, but it has gone to a temp file since --output-path was
   added
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2000
 created_date: '2026-08-27 15:47'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - readability

@@ -3,9 +3,11 @@ id: TASK-1917
 title: >-
   READ-10: crate-level cfg_attr allows three cast lints in a crate with zero
   casts, with no reason attached
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2009
 created_date: '2026-08-27 15:41'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - readability

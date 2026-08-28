@@ -3,9 +3,11 @@ id: TASK-1812
 title: >-
   ERR-6: single-package Rust projects yield zero review targets and fail with a
   misleading 'nothing to review'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1996
 created_date: '2026-08-27 11:32'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - idioms-correctness

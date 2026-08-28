@@ -3,9 +3,11 @@ id: TASK-1779
 title: >-
   FN-1: extract_required_version spans 93 lines mixing comment stripping, brace
   tracking, key matching, quote parsing and capping
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2001
 created_date: '2026-08-27 11:22'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - structure-readability

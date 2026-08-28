@@ -3,9 +3,11 @@ id: TASK-1929
 title: >-
   DUP-1: the soft-fail predicate is copied into its own regression test, so the
   test guards a private copy instead of collect_coverage
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2000
 created_date: '2026-08-27 15:46'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - duplication

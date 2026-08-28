@@ -3,9 +3,11 @@ id: TASK-1744
 title: >-
   READ-6: split_at_unquoted_close_paren is not backslash-aware, so Kotlin
   include() args with escaped quotes are silently dropped
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1990
 created_date: '2026-08-27 11:13'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - structure-readability

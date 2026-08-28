@@ -3,9 +3,11 @@ id: TASK-1826
 title: >-
   SEC-11: ExecCommandSpec::validate skips the env map, so a NUL in an env value
   reaches Command::env unnamed
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1983
 created_date: '2026-08-27 11:33'
+updated_date: '2026-08-28 14:08'
 labels:
   - code-review-rust
   - security

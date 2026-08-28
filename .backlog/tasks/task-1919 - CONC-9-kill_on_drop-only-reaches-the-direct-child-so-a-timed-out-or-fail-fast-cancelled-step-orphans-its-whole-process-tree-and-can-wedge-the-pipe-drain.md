@@ -4,9 +4,11 @@ title: >-
   CONC-9: kill_on_drop only reaches the direct child, so a timed-out or
   fail-fast-cancelled step orphans its whole process tree and can wedge the pipe
   drain
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1986
 created_date: '2026-08-27 15:44'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - concurrency

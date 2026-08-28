@@ -3,9 +3,11 @@ id: TASK-1891
 title: >-
   ERR-1: multi-row metadata_raw passes ingest with a warn but hard-fails every
   read, bricking the DuckDB file
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1999
 created_date: '2026-08-27 15:35'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - idioms-correctness

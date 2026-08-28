@@ -3,9 +3,11 @@ id: TASK-1926
 title: >-
   TEST-6: none of the three warn-and-skip degradation paths in the rust-loc scan
   has a test — the crate's central documented policy is entirely unverified
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1998
 created_date: '2026-08-27 15:45'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - test-quality

@@ -3,9 +3,11 @@ id: TASK-1785
 title: >-
   TEST-6: strict workspace-root symlink rejection path has no test; the test
   named for it builds no symlink
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1994
 created_date: '2026-08-27 11:23'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - test-quality

@@ -3,9 +3,11 @@ id: TASK-1768
 title: >-
   PATTERN-1: line-oriented HCL scanner drops required_version when a comment
   follows `terraform {` or a `}` closes on the value line
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2001
 created_date: '2026-08-27 11:20'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - idioms-correctness

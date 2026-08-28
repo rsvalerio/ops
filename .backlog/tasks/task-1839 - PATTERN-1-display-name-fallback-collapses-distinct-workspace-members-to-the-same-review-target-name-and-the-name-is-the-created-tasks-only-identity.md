@@ -3,9 +3,11 @@ id: TASK-1839
 title: >-
   PATTERN-1: display-name fallback collapses distinct workspace members to the
   same review-target name, and the name is the created task's only identity
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1996
 created_date: '2026-08-27 15:22'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - idioms-correctness

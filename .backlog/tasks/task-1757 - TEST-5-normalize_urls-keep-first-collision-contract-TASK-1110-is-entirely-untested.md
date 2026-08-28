@@ -3,9 +3,11 @@ id: TASK-1757
 title: >-
   TEST-5: normalize_urls keep-first collision contract (TASK-1110) is entirely
   untested
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1992
 created_date: '2026-08-27 11:18'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - test-quality

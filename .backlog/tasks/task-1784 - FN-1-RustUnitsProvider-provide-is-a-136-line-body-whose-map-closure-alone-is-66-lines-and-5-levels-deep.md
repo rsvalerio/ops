@@ -3,9 +3,11 @@ id: TASK-1784
 title: >-
   FN-1: RustUnitsProvider::provide is a 136-line body whose map closure alone is
   66 lines and 5 levels deep
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1993
 created_date: '2026-08-27 11:23'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - structure

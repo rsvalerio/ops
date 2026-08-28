@@ -3,9 +3,11 @@ id: TASK-1974
 title: >-
   CL-3: TOKEI_DEFAULT_EXCLUDED entries are gitignore globs that match files and
   any directory depth, not the top-level build dirs the doc describes
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2012
 created_date: '2026-08-27 15:55'
+updated_date: '2026-08-28 14:18'
 labels:
   - code-review-rust
   - cognitive-load

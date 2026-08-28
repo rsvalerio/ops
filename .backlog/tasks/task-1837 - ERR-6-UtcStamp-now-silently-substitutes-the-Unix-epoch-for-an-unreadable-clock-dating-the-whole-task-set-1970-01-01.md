@@ -3,9 +3,11 @@ id: TASK-1837
 title: >-
   ERR-6: UtcStamp::now silently substitutes the Unix epoch for an unreadable
   clock, dating the whole task set 1970-01-01
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2005
 created_date: '2026-08-27 15:22'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - error-handling

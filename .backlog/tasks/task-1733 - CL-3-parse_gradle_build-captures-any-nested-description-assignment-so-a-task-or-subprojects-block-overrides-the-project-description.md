@@ -3,9 +3,11 @@ id: TASK-1733
 title: >-
   CL-3: parse_gradle_build captures any nested description assignment, so a task
   or subprojects block overrides the project description
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1990
 created_date: '2026-08-27 11:12'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - idioms-correctness

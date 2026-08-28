@@ -4,9 +4,11 @@ title: >-
   READ-6: the three backlog-filename parsers in backlog.rs disagree on
   anchoring, so next_daily_sequence matches review-request-<date>-<n> anywhere
   in a filename
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2005
 created_date: '2026-08-27 15:21'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - readability-consistency

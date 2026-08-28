@@ -3,9 +3,11 @@ id: TASK-1735
 title: >-
   DUP-3: hand-rolled `WarnCounter` tracing Subscriber and global-dispatcher pin
   duplicate the shared `ops_about::test_support` harness
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1989
 created_date: '2026-08-27 11:12'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - duplication

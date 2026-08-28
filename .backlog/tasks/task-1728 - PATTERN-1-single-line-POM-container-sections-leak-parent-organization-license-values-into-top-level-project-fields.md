@@ -3,9 +3,11 @@ id: TASK-1728
 title: >-
   PATTERN-1: single-line POM container sections leak parent/organization/license
   values into top-level project fields
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1990
 created_date: '2026-08-27 11:11'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - idioms-correctness

@@ -3,9 +3,11 @@ id: TASK-1886
 title: >-
   ERR-7: install.rs and git_state.rs log attacker-influenced paths and env
   values with Display, contradicting the crate's own Debug-escaping policy
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2008
 created_date: '2026-08-27 15:33'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - security

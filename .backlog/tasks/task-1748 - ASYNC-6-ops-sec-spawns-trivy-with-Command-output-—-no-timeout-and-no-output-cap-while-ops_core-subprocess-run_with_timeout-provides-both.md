@@ -3,9 +3,11 @@ id: TASK-1748
 title: >-
   ASYNC-6: ops sec spawns trivy with Command::output() — no timeout and no
   output cap, while ops_core::subprocess::run_with_timeout provides both
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1982
 created_date: '2026-08-27 11:14'
+updated_date: '2026-08-28 14:08'
 labels:
   - code-review-rust
   - idioms

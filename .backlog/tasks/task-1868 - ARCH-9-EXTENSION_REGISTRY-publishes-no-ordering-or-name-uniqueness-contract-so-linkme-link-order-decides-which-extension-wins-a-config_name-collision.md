@@ -3,9 +3,11 @@ id: TASK-1868
 title: >-
   ARCH-9: EXTENSION_REGISTRY publishes no ordering or name-uniqueness contract,
   so linkme link order decides which extension wins a config_name collision
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1985
 created_date: '2026-08-27 15:30'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - architecture

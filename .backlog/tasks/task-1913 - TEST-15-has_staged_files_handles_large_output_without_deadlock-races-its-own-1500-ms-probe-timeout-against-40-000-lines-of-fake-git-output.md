@@ -3,9 +3,11 @@ id: TASK-1913
 title: >-
   TEST-15: has_staged_files_handles_large_output_without_deadlock races its own
   1500 ms probe timeout against 40 000 lines of fake-git output
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2009
 created_date: '2026-08-27 15:40'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - tests

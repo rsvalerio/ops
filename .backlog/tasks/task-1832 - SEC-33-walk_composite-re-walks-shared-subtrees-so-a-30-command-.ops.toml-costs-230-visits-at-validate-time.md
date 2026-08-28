@@ -3,9 +3,11 @@ id: TASK-1832
 title: >-
   SEC-33: walk_composite re-walks shared subtrees, so a 30-command .ops.toml
   costs 2^30 visits at validate time
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1983
 created_date: '2026-08-27 15:21'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - security

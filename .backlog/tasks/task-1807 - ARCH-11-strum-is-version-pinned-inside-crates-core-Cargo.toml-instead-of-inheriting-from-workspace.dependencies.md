@@ -3,9 +3,11 @@ id: TASK-1807
 title: >-
   ARCH-11: strum is version-pinned inside crates/core/Cargo.toml instead of
   inheriting from [workspace.dependencies]
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1983
 created_date: '2026-08-27 11:30'
+updated_date: '2026-08-28 14:08'
 labels:
   - code-review-rust
   - architecture

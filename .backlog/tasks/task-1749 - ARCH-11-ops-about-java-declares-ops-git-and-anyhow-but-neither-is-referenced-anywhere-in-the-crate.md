@@ -3,9 +3,11 @@ id: TASK-1749
 title: >-
   ARCH-11: ops-about-java declares ops-git and anyhow but neither is referenced
   anywhere in the crate
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1990
 created_date: '2026-08-27 11:14'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - structure-readability

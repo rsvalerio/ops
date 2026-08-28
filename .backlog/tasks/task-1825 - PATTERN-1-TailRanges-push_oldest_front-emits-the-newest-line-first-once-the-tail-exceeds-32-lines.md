@@ -3,9 +3,11 @@ id: TASK-1825
 title: >-
   PATTERN-1: TailRanges::push_oldest_front emits the newest line first once the
   tail exceeds 32 lines
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1984
 created_date: '2026-08-27 11:33'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - correctness

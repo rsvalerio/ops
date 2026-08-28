@@ -3,9 +3,11 @@ id: TASK-1724
 title: >-
   PATTERN-1: go.work block terminator `)` with a trailing comment is swallowed
   as a use directive and leaves the block open
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1989
 created_date: '2026-08-27 11:11'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - correctness

@@ -3,9 +3,11 @@ id: TASK-1955
 title: >-
   ERR-1: an unreadable file is silently skipped, so a permission error makes the
   fixer report the repo clean and the hook pass
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2011
 created_date: '2026-08-27 15:50'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - idioms

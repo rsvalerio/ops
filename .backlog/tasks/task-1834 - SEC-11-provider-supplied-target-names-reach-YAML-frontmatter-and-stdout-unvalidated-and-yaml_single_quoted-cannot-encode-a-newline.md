@@ -3,9 +3,11 @@ id: TASK-1834
 title: >-
   SEC-11: provider-supplied target names reach YAML frontmatter and stdout
   unvalidated, and yaml_single_quoted cannot encode a newline
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2005
 created_date: '2026-08-27 15:22'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - security

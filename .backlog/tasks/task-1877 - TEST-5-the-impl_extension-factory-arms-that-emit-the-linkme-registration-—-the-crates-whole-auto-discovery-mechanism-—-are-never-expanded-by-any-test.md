@@ -3,9 +3,11 @@ id: TASK-1877
 title: >-
   TEST-5: the impl_extension! factory arms that emit the linkme registration —
   the crate's whole auto-discovery mechanism — are never expanded by any test
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1985
 created_date: '2026-08-27 15:32'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - test-quality

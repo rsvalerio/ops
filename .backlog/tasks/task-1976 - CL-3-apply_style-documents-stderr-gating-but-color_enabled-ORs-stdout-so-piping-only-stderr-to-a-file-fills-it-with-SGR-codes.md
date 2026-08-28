@@ -3,9 +3,11 @@ id: TASK-1976
 title: >-
   CL-3: apply_style documents stderr gating but color_enabled ORs stdout, so
   piping only stderr to a file fills it with SGR codes
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1987
 created_date: '2026-08-27 15:55'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - idioms

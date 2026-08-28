@@ -4,9 +4,11 @@ title: >-
   SEC-21: the theme renders raw subprocess stderr and error text to the terminal
   without ui::sanitise_line, so a failing command can repaint the operator's
   screen
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1987
 created_date: '2026-08-27 15:53'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - security

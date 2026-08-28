@@ -3,9 +3,11 @@ id: TASK-1869
 title: >-
   SEC-33: parse_remote_url has no length bound on host / owner / repo, so a 4
   MiB single-line remote propagates whole into git_info JSON and About cards
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2007
 created_date: '2026-08-27 15:30'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - security

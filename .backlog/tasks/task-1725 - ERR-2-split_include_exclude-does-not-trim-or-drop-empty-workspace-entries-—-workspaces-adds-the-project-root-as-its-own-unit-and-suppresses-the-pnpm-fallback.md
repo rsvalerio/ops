@@ -4,9 +4,11 @@ title: >-
   ERR-2: split_include_exclude does not trim or drop empty workspace entries —
   "workspaces": [""] adds the project root as its own unit and suppresses the
   pnpm fallback
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1991
 created_date: '2026-08-27 11:11'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - idioms

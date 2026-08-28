@@ -4,9 +4,11 @@ title: >-
   ERR-13: both reads of the llvm-cov report drop the path — one discards the IO
   error entirely, the other reports 'reading llvm-cov JSON report' with no file
   named
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2000
 created_date: '2026-08-27 15:49'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - error-handling

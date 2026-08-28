@@ -3,9 +3,11 @@ id: TASK-1880
 title: >-
   READ-6: parse_remote_url normalises the scheme to lowercase but leaves the
   host in its original case, so git_info.host is not canonical
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2007
 created_date: '2026-08-27 15:32'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - readability

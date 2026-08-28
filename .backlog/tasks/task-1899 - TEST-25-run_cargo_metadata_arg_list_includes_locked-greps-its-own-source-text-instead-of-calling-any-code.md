@@ -3,9 +3,11 @@ id: TASK-1899
 title: >-
   TEST-25: run_cargo_metadata_arg_list_includes_locked greps its own source text
   instead of calling any code
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1999
 created_date: '2026-08-27 15:37'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - test-quality

@@ -3,9 +3,11 @@ id: TASK-1816
 title: >-
   TEST-5: the payload contract with ops_create_review_tasks::ReviewTargets is
   never decoded in a test, and lib.rs wiring is untested
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1996
 created_date: '2026-08-27 11:32'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - test-quality

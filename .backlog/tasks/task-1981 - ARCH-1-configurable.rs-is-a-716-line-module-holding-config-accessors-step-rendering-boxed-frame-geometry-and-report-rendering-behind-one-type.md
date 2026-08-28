@@ -3,9 +3,11 @@ id: TASK-1981
 title: >-
   ARCH-1: configurable.rs is a 716-line module holding config accessors, step
   rendering, boxed-frame geometry and report rendering behind one type
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1987
 created_date: '2026-08-27 15:56'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - architecture

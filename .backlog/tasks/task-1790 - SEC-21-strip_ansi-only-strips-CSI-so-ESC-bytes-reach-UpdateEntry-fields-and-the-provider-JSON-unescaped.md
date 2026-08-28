@@ -3,9 +3,11 @@ id: TASK-1790
 title: >-
   SEC-21: strip_ansi only strips CSI, so ESC bytes reach UpdateEntry fields and
   the provider JSON unescaped
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1995
 created_date: '2026-08-27 11:24'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - security

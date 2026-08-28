@@ -3,9 +3,11 @@ id: TASK-1818
 title: >-
   SEC-31: Config::validate_commands has no production caller, so the
   alias-collision rules never run in the shipped binary
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1983
 created_date: '2026-08-27 11:33'
+updated_date: '2026-08-28 14:08'
 labels:
   - code-review-rust
   - security

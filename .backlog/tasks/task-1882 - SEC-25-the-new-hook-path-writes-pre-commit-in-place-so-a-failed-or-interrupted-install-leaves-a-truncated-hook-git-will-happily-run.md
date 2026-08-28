@@ -3,9 +3,11 @@ id: TASK-1882
 title: >-
   SEC-25: the new-hook path writes pre-commit in place, so a failed or
   interrupted install leaves a truncated hook git will happily run
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2008
 created_date: '2026-08-27 15:33'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - security

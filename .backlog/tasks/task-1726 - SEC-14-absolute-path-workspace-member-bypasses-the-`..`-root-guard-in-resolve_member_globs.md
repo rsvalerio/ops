@@ -3,9 +3,11 @@ id: TASK-1726
 title: >-
   SEC-14: absolute-path workspace member bypasses the `..` root guard in
   resolve_member_globs
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2003
 created_date: '2026-08-27 11:11'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - security

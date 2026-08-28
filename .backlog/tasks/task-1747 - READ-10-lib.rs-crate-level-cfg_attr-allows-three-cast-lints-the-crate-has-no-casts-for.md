@@ -3,9 +3,11 @@ id: TASK-1747
 title: >-
   READ-10: lib.rs crate-level cfg_attr allows three cast lints the crate has no
   casts for
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1990
 created_date: '2026-08-27 11:14'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - structure-readability

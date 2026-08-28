@@ -3,9 +3,11 @@ id: TASK-1804
 title: >-
   DUP-7: resolve_from_simple_dep re-lists all 12 DetailedDepSpec fields instead
   of using ..Default::default()
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1994
 created_date: '2026-08-27 11:26'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - duplication

@@ -3,9 +3,11 @@ id: TASK-1777
 title: >-
   READ-3: trim_nonempty is imported 360 lines into the file, between two
   function definitions
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1992
 created_date: '2026-08-27 11:22'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - readability

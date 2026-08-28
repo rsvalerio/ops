@@ -3,9 +3,11 @@ id: TASK-1730
 title: >-
   READ-6: truncate_to_width char-sums widths while its sibling helpers use
   cluster-aware display_width
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2003
 created_date: '2026-08-27 11:12'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - readability

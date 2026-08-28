@@ -4,9 +4,11 @@ title: >-
   ERR-1: partial cargo-deny decode loss is invisible — the exit-1 guard only
   catches total decode failure, so a per-code schema change silently drops whole
   diagnostic classes
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1997
 created_date: '2026-08-27 15:23'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - idioms-correctness

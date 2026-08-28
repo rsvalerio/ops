@@ -3,9 +3,11 @@ id: TASK-1902
 title: >-
   TEST-5: Metadata::from_context — the only Context/DataRegistry entry point in
   the crate — has no test
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1999
 created_date: '2026-08-27 15:38'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - test-quality

@@ -3,9 +3,11 @@ id: TASK-1927
 title: >-
   SEC-32: terraform plan artifacts are left on disk on every error path after
   the plan runs
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2002
 created_date: '2026-08-27 15:46'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - security

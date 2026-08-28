@@ -3,9 +3,11 @@ id: TASK-1950
 title: >-
   DUP-1: the capped-read block is duplicated verbatim between read_stdin_capped
   and read_json_file
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2002
 created_date: '2026-08-27 15:49'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - duplication

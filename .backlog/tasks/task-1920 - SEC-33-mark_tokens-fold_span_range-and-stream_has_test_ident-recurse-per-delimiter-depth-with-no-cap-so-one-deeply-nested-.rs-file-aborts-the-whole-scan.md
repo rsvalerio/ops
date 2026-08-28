@@ -4,9 +4,11 @@ title: >-
   SEC-33: mark_tokens, fold_span_range and stream_has_test_ident recurse per
   delimiter depth with no cap, so one deeply nested .rs file aborts the whole
   scan
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1998
 created_date: '2026-08-27 15:44'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - security

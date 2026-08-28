@@ -3,9 +3,11 @@ id: TASK-1746
 title: >-
   READ-6: inquire cancellation is handled three different ways; theme select /
   extension show / new-command surface Esc as 'ops: error:' and exit 1
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1982
 created_date: '2026-08-27 11:13'
+updated_date: '2026-08-28 14:08'
 labels:
   - code-review-rust
   - readability

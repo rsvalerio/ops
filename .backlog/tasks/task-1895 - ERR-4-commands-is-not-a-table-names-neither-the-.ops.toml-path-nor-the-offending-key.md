@@ -3,10 +3,11 @@ id: TASK-1895
 title: >-
   ERR-4: 'commands is not a table' names neither the .ops.toml path nor the
   offending key
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2008
 created_date: '2026-08-27 15:35'
-updated_date: '2026-08-27 15:36'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - idioms

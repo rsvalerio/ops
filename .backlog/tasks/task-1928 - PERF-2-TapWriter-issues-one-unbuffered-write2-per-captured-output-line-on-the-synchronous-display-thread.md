@@ -3,9 +3,11 @@ id: TASK-1928
 title: >-
   PERF-2: TapWriter issues one unbuffered write(2) per captured output line on
   the synchronous display thread
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1986
 created_date: '2026-08-27 15:46'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - performance

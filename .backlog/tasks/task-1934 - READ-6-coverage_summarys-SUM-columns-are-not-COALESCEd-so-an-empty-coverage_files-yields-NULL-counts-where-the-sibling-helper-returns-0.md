@@ -3,9 +3,11 @@ id: TASK-1934
 title: >-
   READ-6: coverage_summary's SUM columns are not COALESCEd, so an empty
   coverage_files yields NULL counts where the sibling helper returns 0
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2000
 created_date: '2026-08-27 15:46'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - readability

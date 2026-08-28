@@ -4,9 +4,11 @@ title: >-
   SEC-21: sanitise_line lets C1 control characters and bidi overrides through,
   so the 'cannot smuggle terminal control codes' guarantee is narrower than
   documented
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1984
 created_date: '2026-08-27 15:23'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - security

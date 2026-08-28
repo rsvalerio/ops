@@ -3,9 +3,11 @@ id: TASK-1892
 title: >-
   SEC-25: the hook file itself is the one entity in the write path with no
   symlink check, so ops reports 'already installed' for a hook it does not own
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2008
 created_date: '2026-08-27 15:35'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - security

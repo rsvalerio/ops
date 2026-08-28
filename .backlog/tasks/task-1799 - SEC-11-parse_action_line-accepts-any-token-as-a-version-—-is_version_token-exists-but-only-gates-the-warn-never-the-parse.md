@@ -3,9 +3,11 @@ id: TASK-1799
 title: >-
   SEC-11: parse_action_line accepts any token as a version — is_version_token
   exists but only gates the warn, never the parse
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1995
 created_date: '2026-08-27 11:25'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - security

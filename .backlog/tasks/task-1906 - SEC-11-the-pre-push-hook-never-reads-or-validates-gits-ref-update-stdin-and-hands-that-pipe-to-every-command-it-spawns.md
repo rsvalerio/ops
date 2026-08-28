@@ -3,9 +3,11 @@ id: TASK-1906
 title: >-
   SEC-11: the pre-push hook never reads or validates git's ref-update stdin, and
   hands that pipe to every command it spawns
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2010
 created_date: '2026-08-27 15:39'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - security

@@ -3,9 +3,11 @@ id: TASK-1741
 title: >-
   READ-5: PomData field docs state last-write-wins but try_set_once implements
   first-write-wins
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1990
 created_date: '2026-08-27 11:13'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - structure-readability

@@ -3,9 +3,11 @@ id: TASK-1813
 title: >-
   ERR-2: FailedFile collapses I/O errors into parse failures — a
   deleted-but-tracked file fails the hook
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2004
 created_date: '2026-08-27 11:32'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - error-handling

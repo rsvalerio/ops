@@ -3,9 +3,11 @@ id: TASK-1722
 title: >-
   SEC-11: normalize_repo_url has no URL-scheme allowlist —
   javascript:/data:/file: reach the rendered repository field
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1991
 created_date: '2026-08-27 11:11'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - security

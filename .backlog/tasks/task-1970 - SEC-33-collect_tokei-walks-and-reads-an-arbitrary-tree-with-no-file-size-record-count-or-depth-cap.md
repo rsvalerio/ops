@@ -3,9 +3,11 @@ id: TASK-1970
 title: >-
   SEC-33: collect_tokei walks and reads an arbitrary tree with no file-size,
   record-count or depth cap
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2012
 created_date: '2026-08-27 15:54'
+updated_date: '2026-08-28 14:18'
 labels:
   - code-review-rust
   - security

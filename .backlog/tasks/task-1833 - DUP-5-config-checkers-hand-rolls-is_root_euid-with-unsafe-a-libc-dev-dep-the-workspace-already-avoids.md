@@ -3,9 +3,11 @@ id: TASK-1833
 title: >-
   DUP-5: config-checkers hand-rolls is_root_euid with unsafe + a libc dev-dep
   the workspace already avoids
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2004
 created_date: '2026-08-27 15:21'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - duplication

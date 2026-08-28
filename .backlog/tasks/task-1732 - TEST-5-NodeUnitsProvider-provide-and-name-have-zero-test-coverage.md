@@ -1,9 +1,11 @@
 ---
 id: TASK-1732
 title: 'TEST-5: NodeUnitsProvider::provide and ::name have zero test coverage'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1991
 created_date: '2026-08-27 11:12'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - tests

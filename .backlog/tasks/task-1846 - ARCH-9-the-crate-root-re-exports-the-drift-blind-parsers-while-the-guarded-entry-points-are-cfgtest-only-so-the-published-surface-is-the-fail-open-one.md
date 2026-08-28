@@ -3,9 +3,11 @@ id: TASK-1846
 title: >-
   ARCH-9: the crate root re-exports the drift-blind parsers while the guarded
   entry points are cfg(test)-only, so the published surface is the fail-open one
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1997
 created_date: '2026-08-27 15:24'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - structure-readability

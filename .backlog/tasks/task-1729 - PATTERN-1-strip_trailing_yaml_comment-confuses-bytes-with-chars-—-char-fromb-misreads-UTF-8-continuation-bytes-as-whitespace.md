@@ -3,9 +3,11 @@ id: TASK-1729
 title: >-
   PATTERN-1: strip_trailing_yaml_comment confuses bytes with chars —
   char::from(b) misreads UTF-8 continuation bytes as whitespace
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1991
 created_date: '2026-08-27 11:12'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - idioms

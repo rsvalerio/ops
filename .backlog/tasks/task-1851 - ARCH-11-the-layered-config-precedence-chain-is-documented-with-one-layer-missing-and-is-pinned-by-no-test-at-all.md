@@ -3,9 +3,11 @@ id: TASK-1851
 title: >-
   ARCH-11: the layered-config precedence chain is documented with one layer
   missing and is pinned by no test at all
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1983
 created_date: '2026-08-27 15:25'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - architecture

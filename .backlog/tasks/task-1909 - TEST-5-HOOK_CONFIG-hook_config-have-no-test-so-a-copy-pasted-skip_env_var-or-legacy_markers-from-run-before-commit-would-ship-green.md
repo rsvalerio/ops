@@ -3,9 +3,11 @@ id: TASK-1909
 title: >-
   TEST-5: HOOK_CONFIG / hook_config() have no test, so a copy-pasted
   skip_env_var or legacy_markers from run-before-commit would ship green
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2010
 created_date: '2026-08-27 15:39'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - test-quality

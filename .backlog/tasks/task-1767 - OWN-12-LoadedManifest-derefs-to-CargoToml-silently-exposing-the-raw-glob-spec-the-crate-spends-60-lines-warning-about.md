@@ -3,9 +3,11 @@ id: TASK-1767
 title: >-
   OWN-12: LoadedManifest derefs to CargoToml, silently exposing the raw glob
   spec the crate spends 60 lines warning about
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1993
 created_date: '2026-08-27 11:20'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - idioms

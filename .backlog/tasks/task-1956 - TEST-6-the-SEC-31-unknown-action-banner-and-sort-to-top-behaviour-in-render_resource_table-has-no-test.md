@@ -3,9 +3,11 @@ id: TASK-1956
 title: >-
   TEST-6: the SEC-31 unknown-action banner and sort-to-top behaviour in
   render_resource_table has no test
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2002
 created_date: '2026-08-27 15:50'
+updated_date: '2026-08-28 14:15'
 labels:
   - code-review-rust
   - testing

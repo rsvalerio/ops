@@ -3,9 +3,11 @@ id: TASK-1925
 title: >-
   PERF-3: the bounded stderr ring stores Arc<str> views, so keeping 5 tail lines
   pins each step's entire capture buffer for the whole plan
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1986
 created_date: '2026-08-27 15:45'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - performance

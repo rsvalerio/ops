@@ -3,9 +3,11 @@ id: TASK-1842
 title: >-
   TEST-23: process-wide CWD and env mutations in tests.rs are restored by hand,
   so any panic leaks them into every later test in the binary
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1997
 created_date: '2026-08-27 15:23'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - test-quality

@@ -3,9 +3,11 @@ id: TASK-1865
 title: >-
   SEC-38: the provider-cycle guard lives in Context::get_or_provide, but the
   public DataRegistry::provide dispatch path bypasses it entirely
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1985
 created_date: '2026-08-27 15:30'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - security

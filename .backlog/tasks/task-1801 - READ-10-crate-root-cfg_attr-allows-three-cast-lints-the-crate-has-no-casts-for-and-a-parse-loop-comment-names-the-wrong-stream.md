@@ -3,9 +3,11 @@ id: TASK-1801
 title: >-
   READ-10: crate-root cfg_attr allows three cast lints the crate has no casts
   for, and a parse-loop comment names the wrong stream
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1995
 created_date: '2026-08-27 11:25'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - readability

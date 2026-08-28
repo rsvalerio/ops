@@ -3,9 +3,11 @@ id: TASK-1875
 title: >-
   READ-4: # Errors sections name error variants that do not exist, and one test
   carries another test's doc comment
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2006
 created_date: '2026-08-27 15:31'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - readability

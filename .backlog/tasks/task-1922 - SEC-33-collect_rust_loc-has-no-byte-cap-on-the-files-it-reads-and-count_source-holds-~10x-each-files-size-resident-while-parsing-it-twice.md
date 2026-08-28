@@ -3,9 +3,11 @@ id: TASK-1922
 title: >-
   SEC-33: collect_rust_loc has no byte cap on the files it reads, and
   count_source holds ~10x each file's size resident while parsing it twice
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1998
 created_date: '2026-08-27 15:45'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - security

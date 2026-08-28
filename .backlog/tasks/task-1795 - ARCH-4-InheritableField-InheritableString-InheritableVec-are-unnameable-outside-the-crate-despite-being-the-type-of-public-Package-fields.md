@@ -3,9 +3,11 @@ id: TASK-1795
 title: >-
   ARCH-4: InheritableField/InheritableString/InheritableVec are unnameable
   outside the crate despite being the type of public Package fields
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1994
 created_date: '2026-08-27 11:24'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - architecture

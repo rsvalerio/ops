@@ -3,9 +3,11 @@ id: TASK-1978
 title: >-
   TEST-1: single_ingestion_entry_point has an entirely commented-out body and
   can never fail
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2012
 created_date: '2026-08-27 15:56'
+updated_date: '2026-08-28 14:18'
 labels:
   - code-review-rust
   - test-quality

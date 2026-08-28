@@ -3,9 +3,11 @@ id: TASK-1766
 title: >-
   DUP-3: units.rs test reimplements
   ops_about::test_support::assert_debug_escapes_control_chars inline
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1992
 created_date: '2026-08-27 11:20'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - duplication

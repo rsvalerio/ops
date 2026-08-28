@@ -3,9 +3,11 @@ id: TASK-1778
 title: >-
   PATTERN-1: cargo's `Downgrading` lockfile verb is silently dropped — no entry,
   no count, no drift warn
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1995
 created_date: '2026-08-27 11:22'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - correctness

@@ -3,9 +3,11 @@ id: TASK-1876
 title: >-
   READ-5: a section header with a trailing comment ([remote "origin"] # primary)
   silently drops the whole origin section
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2007
 created_date: '2026-08-27 15:31'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - readability

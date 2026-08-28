@@ -3,9 +3,11 @@ id: TASK-1783
 title: >-
   TEST-25: three provider tests re-implement the production expression instead
   of calling it, so the contract they claim to pin cannot fail
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1995
 created_date: '2026-08-27 11:23'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - test-quality

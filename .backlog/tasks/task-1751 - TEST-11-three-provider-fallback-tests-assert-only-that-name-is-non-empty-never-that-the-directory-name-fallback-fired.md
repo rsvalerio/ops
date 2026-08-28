@@ -3,9 +3,11 @@ id: TASK-1751
 title: >-
   TEST-11: three provider fallback tests assert only that name is non-empty,
   never that the directory-name fallback fired
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1990
 created_date: '2026-08-27 11:15'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - test-quality

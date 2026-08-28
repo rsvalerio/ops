@@ -3,9 +3,11 @@ id: TASK-1827
 title: >-
   ERR-4: run_deps propagates the cached-payload deserialization failure with no
   context, leaving operators a bare serde message
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1997
 created_date: '2026-08-27 11:34'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - idioms-correctness

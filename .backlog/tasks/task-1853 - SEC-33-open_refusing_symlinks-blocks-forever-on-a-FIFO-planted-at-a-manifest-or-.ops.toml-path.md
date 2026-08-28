@@ -3,9 +3,11 @@ id: TASK-1853
 title: >-
   SEC-33: open_refusing_symlinks blocks forever on a FIFO planted at a manifest
   or .ops.toml path
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1984
 created_date: '2026-08-27 15:27'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - security

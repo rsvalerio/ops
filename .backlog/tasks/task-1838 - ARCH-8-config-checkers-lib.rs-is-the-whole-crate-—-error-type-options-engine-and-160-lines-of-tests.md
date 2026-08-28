@@ -3,9 +3,11 @@ id: TASK-1838
 title: >-
   ARCH-8: config-checkers lib.rs is the whole crate — error type, options,
   engine, and 160 lines of tests
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2004
 created_date: '2026-08-27 15:22'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - structure-readability

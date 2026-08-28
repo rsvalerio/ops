@@ -3,9 +3,11 @@ id: TASK-1817
 title: >-
   ERR-1: cargo-upgrade output with no `====` separator fails open — recognised
   header plus body rows silently scores as "no upgrades"
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1997
 created_date: '2026-08-27 11:33'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - idioms-correctness

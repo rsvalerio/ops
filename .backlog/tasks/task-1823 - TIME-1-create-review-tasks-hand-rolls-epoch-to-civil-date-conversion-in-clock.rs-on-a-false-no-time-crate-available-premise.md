@@ -3,9 +3,11 @@ id: TASK-1823
 title: >-
   TIME-1: create-review-tasks hand-rolls epoch-to-civil-date conversion in
   clock.rs on a false 'no time crate available' premise
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2005
 created_date: '2026-08-27 11:33'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - idioms-correctness

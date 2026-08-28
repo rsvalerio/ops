@@ -3,9 +3,11 @@ id: TASK-1932
 title: >-
   CONC-14: no SIGTERM/SIGINT shutdown path — on signal no destructor runs, so
   children are orphaned and EchoGuard never restores the terminal
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1986
 created_date: '2026-08-27 15:46'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - concurrency

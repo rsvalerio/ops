@@ -3,9 +3,11 @@ id: TASK-1938
 title: >-
   TEST-6: collect_coverage has no seam for the cargo runner, so its soft-fail
   demotion, temp-file wiring, and non-UTF-8 path arm are all untested
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2000
 created_date: '2026-08-27 15:47'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - test-quality

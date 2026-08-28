@@ -3,9 +3,11 @@ id: TASK-1793
 title: >-
   ERR-6: InheritableField::default() uses an empty-string sentinel, making an
   absent [package] version indistinguishable from version = ""
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1994
 created_date: '2026-08-27 11:24'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - api-design

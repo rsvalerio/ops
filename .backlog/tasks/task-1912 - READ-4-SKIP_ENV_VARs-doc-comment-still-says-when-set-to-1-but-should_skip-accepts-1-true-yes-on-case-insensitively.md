@@ -3,9 +3,11 @@ id: TASK-1912
 title: >-
   READ-4: SKIP_ENV_VAR's doc comment still says 'when set to 1', but should_skip
   accepts 1/true/yes/on case-insensitively
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2010
 created_date: '2026-08-27 15:40'
+updated_date: '2026-08-28 14:17'
 labels:
   - code-review-rust
   - readability

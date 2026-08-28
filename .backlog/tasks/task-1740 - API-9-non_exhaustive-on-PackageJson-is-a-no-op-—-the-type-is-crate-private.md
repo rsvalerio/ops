@@ -1,9 +1,11 @@
 ---
 id: TASK-1740
 title: 'API-9: #[non_exhaustive] on PackageJson is a no-op — the type is crate-private'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1991
 created_date: '2026-08-27 11:13'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - api

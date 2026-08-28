@@ -4,9 +4,11 @@ title: >-
   DUP-1: next_main_task_number and next_daily_sequence are the same
   scan-extract-max loop, and running them separately is what creates the race
   conflicting_claim exists to patch
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2005
 created_date: '2026-08-27 11:34'
+updated_date: '2026-08-28 14:16'
 labels:
   - code-review-rust
   - duplication

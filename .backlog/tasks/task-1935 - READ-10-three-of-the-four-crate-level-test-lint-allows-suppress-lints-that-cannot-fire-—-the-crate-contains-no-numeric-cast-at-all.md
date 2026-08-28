@@ -3,9 +3,11 @@ id: TASK-1935
 title: >-
   READ-10: three of the four crate-level test lint allows suppress lints that
   cannot fire — the crate contains no numeric cast at all
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1998
 created_date: '2026-08-27 15:46'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - readability

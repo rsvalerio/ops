@@ -3,9 +3,11 @@ id: TASK-1690
 title: >-
   DOCS: refresh the site-local allow census in docs/clippy.md after the
   temporary-allow drain
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1988
 created_date: '2026-08-26 21:54'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - documentation

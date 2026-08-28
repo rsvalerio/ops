@@ -3,9 +3,11 @@ id: TASK-1901
 title: >-
   TEST-1: two tests carry assertions that cannot fail for the reason the test
   name claims
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1999
 created_date: '2026-08-27 15:38'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - test-quality

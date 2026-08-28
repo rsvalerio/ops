@@ -3,9 +3,11 @@ id: TASK-1836
 title: >-
   CL-3: the last fixed column is clamped to the `====` separator's width,
   silently truncating any value wider than its header token
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1997
 created_date: '2026-08-27 15:22'
+updated_date: '2026-08-28 14:13'
 labels:
   - code-review-rust
   - idioms-correctness

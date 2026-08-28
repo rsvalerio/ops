@@ -3,9 +3,11 @@ id: TASK-1852
 title: >-
   TEST-1: merge_conf_d's broken-symlink guard is unreachable since O_NOFOLLOW
   landed, and its regression test passes on the wrong error
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1983
 created_date: '2026-08-27 15:26'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - testing

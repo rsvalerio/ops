@@ -3,9 +3,11 @@ id: TASK-1798
 title: >-
   READ-6: DataProviderSchema advertises kebab-case dependency keys that the
   emitted JSON never contains
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1994
 created_date: '2026-08-27 11:25'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - api-design

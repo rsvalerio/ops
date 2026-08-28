@@ -3,9 +3,11 @@ id: TASK-1940
 title: >-
   SEC-25: detect_workspace_escape fails open when canonicalize errors, and now
   serves the joined-path canonicalization from a runner-lifetime cache
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1986
 created_date: '2026-08-27 15:47'
+updated_date: '2026-08-28 14:10'
 labels:
   - code-review-rust
   - security

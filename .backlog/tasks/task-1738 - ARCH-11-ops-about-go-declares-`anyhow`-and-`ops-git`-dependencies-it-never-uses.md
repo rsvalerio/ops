@@ -3,9 +3,11 @@ id: TASK-1738
 title: >-
   ARCH-11: ops-about-go declares `anyhow` and `ops-git` dependencies it never
   uses
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1989
 created_date: '2026-08-27 11:13'
+updated_date: '2026-08-28 14:11'
 labels:
   - code-review-rust
   - architecture

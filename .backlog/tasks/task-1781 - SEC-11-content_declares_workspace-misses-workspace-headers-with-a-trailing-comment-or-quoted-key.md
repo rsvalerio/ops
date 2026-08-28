@@ -3,9 +3,11 @@ id: TASK-1781
 title: >-
   SEC-11: content_declares_workspace misses [workspace] headers with a trailing
   comment or quoted key
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1994
 created_date: '2026-08-27 11:23'
+updated_date: '2026-08-28 14:12'
 labels:
   - code-review-rust
   - security

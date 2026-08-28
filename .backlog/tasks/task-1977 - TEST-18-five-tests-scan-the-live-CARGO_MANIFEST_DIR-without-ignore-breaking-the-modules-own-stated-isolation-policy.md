@@ -3,9 +3,11 @@ id: TASK-1977
 title: >-
   TEST-18: five tests scan the live CARGO_MANIFEST_DIR without #[ignore],
   breaking the module's own stated isolation policy
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2012
 created_date: '2026-08-27 15:55'
+updated_date: '2026-08-28 14:18'
 labels:
   - code-review-rust
   - test-quality

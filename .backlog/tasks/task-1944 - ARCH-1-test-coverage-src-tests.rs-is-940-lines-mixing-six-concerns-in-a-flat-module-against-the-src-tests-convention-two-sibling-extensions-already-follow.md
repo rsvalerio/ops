@@ -4,9 +4,11 @@ title: >-
   ARCH-1: test-coverage/src/tests.rs is 940 lines mixing six concerns in a flat
   module, against the src/tests/ convention two sibling extensions already
   follow
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2000
 created_date: '2026-08-27 15:48'
+updated_date: '2026-08-28 14:14'
 labels:
   - code-review-rust
   - architecture

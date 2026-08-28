@@ -3,9 +3,11 @@ id: TASK-1879
 title: >-
   TRAIT-4: DataRegistry and Context have no Debug impl, so no downstream type
   holding one can derive Debug
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-1985
 created_date: '2026-08-27 15:32'
+updated_date: '2026-08-28 14:09'
 labels:
   - code-review-rust
   - idioms
