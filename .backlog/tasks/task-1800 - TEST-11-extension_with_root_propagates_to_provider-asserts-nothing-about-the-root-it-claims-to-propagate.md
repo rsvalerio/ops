@@ -3,11 +3,11 @@ id: TASK-1800
 title: >-
   TEST-11: extension_with_root_propagates_to_provider asserts nothing about the
   root it claims to propagate
-status: To Do
+status: Done
 assignee:
   - TASK-1994
 created_date: '2026-08-27 11:25'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:19'
 labels:
   - code-review-rust
   - test-quality
@@ -38,7 +38,7 @@ The fix is available without new machinery: the sibling test `provider_resolve_r
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 extension_with_root_propagates_to_provider drives the registered provider (e.g. via provide/provide_typed with a Context whose working_directory is unrelated to the root) and asserts it parsed the manifest at the configured root — package_name() == Some("test-crate")
-- [ ] #2 A companion assertion shows the override actually overrides: with a Context working_directory pointing somewhere else, the configured root still wins
-- [ ] #3 The written Cargo.toml fixture is load-bearing rather than dead setup
+- [x] #1 extension_with_root_propagates_to_provider drives the registered provider (e.g. via provide/provide_typed with a Context whose working_directory is unrelated to the root) and asserts it parsed the manifest at the configured root — package_name() == Some("test-crate")
+- [x] #2 A companion assertion shows the override actually overrides: with a Context working_directory pointing somewhere else, the configured root still wins
+- [x] #3 The written Cargo.toml fixture is load-bearing rather than dead setup
 <!-- AC:END -->

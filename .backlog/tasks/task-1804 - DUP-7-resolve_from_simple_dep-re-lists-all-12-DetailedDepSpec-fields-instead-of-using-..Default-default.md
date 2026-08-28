@@ -3,11 +3,11 @@ id: TASK-1804
 title: >-
   DUP-7: resolve_from_simple_dep re-lists all 12 DetailedDepSpec fields instead
   of using ..Default::default()
-status: To Do
+status: Done
 assignee:
   - TASK-1994
 created_date: '2026-08-27 11:26'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:18'
 labels:
   - code-review-rust
   - duplication
@@ -56,7 +56,22 @@ Low severity: no current defect, and the `default_features: true` default is cor
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resolve_from_simple_dep constructs DetailedDepSpec with struct-update syntax over DetailedDepSpec::default(), listing only version, features, optional and default_features
-- [ ] #2 resolve_from_detailed_dep is reviewed the same way: fields it copies verbatim from the workspace spec stay explicit, fields it deliberately clears fall through to Default where that matches
-- [ ] #3 Existing resolver tests in src/tests/inheritance.rs pass unchanged, in particular resolve_simple_ws_dep_with_local_optional_and_features and resolve_detailed_ws_dep_propagates_git_fields
+- [x] #1 resolve_from_simple_dep constructs DetailedDepSpec with struct-update syntax over DetailedDepSpec::default(), listing only version, features, optional and default_features
+- [x] #2 resolve_from_detailed_dep is reviewed the same way: fields it copies verbatim from the workspace spec stay explicit, fields it deliberately clears fall through to Default where that matches
+- [x] #3 Existing resolver tests in src/tests/inheritance.rs pass unchanged, in particular resolve_simple_ws_dep_with_local_optional_and_features and resolve_detailed_ws_dep_propagates_git_fields
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-1994.
+
+AC #1: `resolve_from_simple_dep` now lists only version/features/optional/
+default_features over `..DetailedDepSpec::default()`.
+
+AC #2: `resolve_from_detailed_dep` was reviewed and deliberately left exhaustive, with
+the rationale recorded on the function. Every field there except `workspace` is copied
+from the workspace spec, so the exhaustive literal is the compile-time guard that a
+newly added cargo dependency key gets propagated rather than silently defaulted away —
+the opposite trade-off from the simple-dep constructor, which decides only four fields.
+<!-- SECTION:NOTES:END -->

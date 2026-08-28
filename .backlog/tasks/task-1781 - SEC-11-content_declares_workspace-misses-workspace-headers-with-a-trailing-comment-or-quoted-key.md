@@ -3,11 +3,11 @@ id: TASK-1781
 title: >-
   SEC-11: content_declares_workspace misses [workspace] headers with a trailing
   comment or quoted key
-status: To Do
+status: Done
 assignee:
   - TASK-1994
 created_date: '2026-08-27 11:23'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 19:48'
 labels:
   - code-review-rust
   - security
@@ -46,9 +46,9 @@ Existing tests (`content_declares_workspace_*` in `src/tests/find_root.rs:305-34
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 content_declares_workspace returns true for a line of the form '[workspace] # comment' and '[workspace.package]   # shared metadata'
-- [ ] #2 content_declares_workspace returns true for a quoted table key: ["workspace"] and [ "workspace" ]
-- [ ] #3 Existing false-positive guarantees are preserved: [workspace] inside a triple-quoted basic or literal multi-line string, and a '# [workspace]' comment line, still return false
-- [ ] #4 A read failure other than NotFound (e.g. the read_capped_to_string byte cap) is surfaced or logged at warn level rather than being indistinguishable from 'no workspace declared'
-- [ ] #5 Regression tests added in src/tests/find_root.rs for each accepted and rejected shape above
+- [x] #1 content_declares_workspace returns true for a line of the form '[workspace] # comment' and '[workspace.package]   # shared metadata'
+- [x] #2 content_declares_workspace returns true for a quoted table key: ["workspace"] and [ "workspace" ]
+- [x] #3 Existing false-positive guarantees are preserved: [workspace] inside a triple-quoted basic or literal multi-line string, and a '# [workspace]' comment line, still return false
+- [x] #4 A read failure other than NotFound (e.g. the read_capped_to_string byte cap) is surfaced or logged at warn level rather than being indistinguishable from 'no workspace declared'
+- [x] #5 Regression tests added in src/tests/find_root.rs for each accepted and rejected shape above
 <!-- AC:END -->

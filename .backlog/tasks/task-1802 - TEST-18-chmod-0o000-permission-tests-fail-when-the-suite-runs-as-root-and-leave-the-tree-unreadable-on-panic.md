@@ -3,11 +3,11 @@ id: TASK-1802
 title: >-
   TEST-18: chmod 0o000 permission tests fail when the suite runs as root and
   leave the tree unreadable on panic
-status: To Do
+status: Done
 assignee:
   - TASK-1994
 created_date: '2026-08-27 11:25'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:19'
 labels:
   - code-review-rust
   - test-quality
@@ -52,8 +52,27 @@ Fix shape: put the restore in a `Drop` guard so cleanup is unconditional, and ma
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Neither test fails when the suite runs as uid 0: the privilege precondition is probed and the test skips (or is documented #[ignore] with a run instruction) instead of asserting an outcome the environment cannot produce
-- [ ] #2 Permission restoration happens in a Drop guard so a panic anywhere in the test body still leaves the tempdir removable
-- [ ] #3 The set_permissions result is no longer discarded with .ok() where the test's correctness depends on it having taken effect
-- [ ] #4 Both tests still assert the typed error (DataProviderError::ComputationFailed / FindWorkspaceRootError variant) on an environment where the permission bits do apply
+- [x] #1 Neither test fails when the suite runs as uid 0: the privilege precondition is probed and the test skips (or is documented #[ignore] with a run instruction) instead of asserting an outcome the environment cannot produce
+- [x] #2 Permission restoration happens in a Drop guard so a panic anywhere in the test body still leaves the tempdir removable
+- [x] #3 The set_permissions result is no longer discarded with .ok() where the test's correctness depends on it having taken effect
+- [x] #4 Both tests still assert the typed error (DataProviderError::ComputationFailed / FindWorkspaceRootError variant) on an environment where the permission bits do apply
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-1994. Added `tests::PermGuard` (Drop-based restore) and
+`tests::skip_no_dac_enforcement`, used by both tests.
+
+- `PermGuard::deny_all` chmods 0o000 with `expect` (AC #3 — no more silent `.ok()`),
+  then probes the operation actually under test; if the probe still succeeds the guard
+  restores the mode and returns `None`, and the test prints why it is skipping (AC #1 —
+  no assertion under `CAP_DAC_OVERRIDE` / uid 0 or a mode-ignoring mount).
+- Restoration is unconditional via `Drop` (AC #2), so a panic anywhere in the body
+  still leaves the `TempDir` removable.
+- AC #4: `provider_unreadable_file_returns_error` now asserts
+  `DataProviderError::ComputationFailed` rather than bare `is_err()`, and
+  `find_root_canonicalize_perm_denied_returns_typed_error` keeps its typed
+  `FindWorkspaceRootError` assertion. The provider test is now `#[cfg(unix)]` outright
+  rather than compiling to a no-op on Windows.
+<!-- SECTION:NOTES:END -->

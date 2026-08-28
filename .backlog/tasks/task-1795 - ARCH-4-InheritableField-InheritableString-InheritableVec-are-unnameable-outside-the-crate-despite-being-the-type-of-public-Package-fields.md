@@ -3,11 +3,11 @@ id: TASK-1795
 title: >-
   ARCH-4: InheritableField/InheritableString/InheritableVec are unnameable
   outside the crate despite being the type of public Package fields
-status: To Do
+status: Done
 assignee:
   - TASK-1994
 created_date: '2026-08-27 11:24'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:19'
 labels:
   - code-review-rust
   - architecture
@@ -49,9 +49,41 @@ Decide per item and make it explicit: re-export it, or demote it to `pub(crate)`
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 InheritableField, InheritableString and InheritableVec are either re-exported from lib.rs (so every public Package field has a nameable type) or Package's fields no longer expose them
-- [ ] #2 Each pub item in the private inheritance and workspace_root modules is either re-exported from lib.rs or demoted to pub(crate): resolve_string_field, resolve_vec_field, resolve_optional_string, resolve_readme, resolve_publish, content_declares_workspace
-- [ ] #3 InheritableField::value and InheritableField::as_str carry #[must_use], consistent with the other accessors in types.rs
-- [ ] #4 In-crate tests reference the types through the public path rather than crate::types::... where a re-export exists
-- [ ] #5 cargo clippy passes with the workspace lint policy unchanged (no new -W flags)
+- [x] #1 InheritableField, InheritableString and InheritableVec are either re-exported from lib.rs (so every public Package field has a nameable type) or Package's fields no longer expose them
+- [x] #2 Each pub item in the private inheritance and workspace_root modules is either re-exported from lib.rs or demoted to pub(crate): resolve_string_field, resolve_vec_field, resolve_optional_string, resolve_readme, resolve_publish, content_declares_workspace
+- [x] #3 InheritableField::value and InheritableField::as_str carry #[must_use], consistent with the other accessors in types.rs
+- [x] #4 In-crate tests reference the types through the public path rather than crate::types::... where a re-export exists
+- [x] #5 cargo clippy passes with the workspace lint policy unchanged (no new -W flags)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-1994.
+
+AC #1: `InheritableField`, `InheritableString` and `InheritableVec` are now re-exported
+from lib.rs, so every public `Package` field has a nameable type and consumers can match
+on `Value` vs `Inherited` instead of routing through accessors.
+
+AC #2 satisfied by substitution. The literal "demote to `pub(crate)`" option is not
+available in this workspace: `clippy::redundant_pub_crate` is on via the workspace
+`[workspace.lints]` nursery group and rejects `pub(crate)` inside a private module,
+pointing at `pub` instead — which is why those items were spelled `pub` in the first
+place. Since `inheritance` and `workspace_root` are private modules, `pub` there is
+already crate-internal, so the two options collapse: the decision is "not re-exported".
+Made that explicit instead, in the exact place ARCH-4 asks for it — a comment on the
+lib.rs re-export block naming `resolve_string_field`, `resolve_vec_field`,
+`resolve_optional_string`, `resolve_readme`, `resolve_publish`,
+`content_declares_workspace`, `strict_candidate_action` and `CandidateAction` as
+deliberately crate-internal, and recording why they stay `pub`.
+
+AC #3: `InheritableField::value` and `as_str` now carry `#[must_use]` (a new `is_absent`
+accessor does too).
+
+AC #4: in-crate tests now reference `crate::InheritableField` / `crate::InheritableString`
+/ `crate::InheritableVec` / `crate::ReadmeSpec` through the public re-export path rather
+than `crate::types::...`.
+
+AC #5: `cargo clippy --workspace --all-features --all-targets -- -D warnings` passes
+with the workspace lint policy unchanged (no added -W flags, no new allows).
+<!-- SECTION:NOTES:END -->
