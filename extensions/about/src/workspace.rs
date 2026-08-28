@@ -29,135 +29,44 @@ use crate::manifest_io::read_optional_text;
 /// unsupported and fails **closed** — the candidate is dropped (treated as
 /// matching) and a `tracing::warn` is emitted, rather than the previous
 /// fail-open behaviour that silently let the unit through.
-#[allow(clippy::too_many_lines)]
+///
+/// FN-1 / TASK-1743: the body used to inline five concerns — member-value
+/// validation, glob-shape validation, directory enumeration with per-entry
+/// error classification, relative-path derivation, and post-processing —
+/// across 136 lines nested six deep under a bare
+/// `#[allow(clippy::too_many_lines)]`. Each concern now has a name; what is
+/// left here is the orchestration: validate the member, expand it, filter the
+/// excludes, sort and dedup.
 pub fn resolve_member_globs(
     members: &[String],
     excludes: &[String],
     root: &Path,
     marker: &str,
 ) -> Vec<(String, String)> {
+    let mut resolver = Resolver::new(root, marker);
     let mut resolved: Vec<(String, String)> = Vec::new();
-    // PERF-3 / TASK-1149: lazily canonicalize `root` once across the whole
-    // resolution. The recovery path below (run when `strip_prefix(root)`
-    // misses, e.g. macOS `/var` ↔ `/private/var` or any symlinked workspace
-    // root) re-canonicalised the *same* root for every directory entry,
-    // turning a one-shot fallback into O(N) syscalls on monorepos with
-    // hundreds of members. Cache the result on first miss; `None` means the
-    // canonicalize call itself failed (we still try `path` canonicalize
-    // below, but the strip can't succeed without a valid root canonical).
-    let mut root_canonical: Option<Option<std::path::PathBuf>> = None;
     for member in members {
-        // PATTERN-1 (TASK-1071): reject `..` traversal in member values before
-        // any I/O. Workspace config is operator-controlled so the impact is
-        // low, but `root.join(member)` is otherwise the only surface where a
-        // `../sibling` entry escapes the workspace root. Aligns with the
-        // SEC-13 dot-only-segment work in `git/src/remote.rs`.
-        if Path::new(member)
-            .components()
-            .any(|c| matches!(c, Component::ParentDir))
-        {
-            tracing::warn!(member, "workspace member contains `..` traversal; skipping");
+        if let Some(escape) = member_escape(member) {
+            tracing::warn!(
+                member,
+                escape = escape.reason(),
+                "workspace member escapes the workspace root; skipping"
+            );
             continue;
         }
-        if let Some((prefix, suffix)) = member.split_once('*') {
-            // PATTERN-1 (TASK-1069): the original implementation found the
-            // first `*` and treated everything before it as the prefix,
-            // silently ignoring any suffix after it. That meant `**/foo`
-            // (prefix `""`) brute-force-scanned the workspace root, and
-            // `prefix/*/suffix` silently flattened to `prefix/*`. Reject
-            // both shapes explicitly with a `tracing::warn` so the
-            // divergence is observable rather than silent.
-            // PATTERN-1 (TASK-1069 follow-up): the `*` must span a *whole* path
-            // segment (`*`, `packages/*`). The previous check only rejected a
-            // suffix containing `/`, so a partial-segment pattern like
-            // `packages/*-internal` or `packages/foo*` passed and was then
-            // expanded as a bare `read_dir(prefix)` — the text around the `*`
-            // was silently dropped and every sibling directory matched.
-            let is_recursive = member.contains("**");
-            let is_full_segment = suffix.is_empty() && (prefix.is_empty() || prefix.ends_with('/'));
-            if is_recursive || !is_full_segment {
-                tracing::warn!(
-                    member,
-                    "workspace member glob shape unsupported (only a whole-segment trailing `*`, e.g. `packages/*`); skipping"
-                );
-                continue;
+        match classify_member_pattern(member) {
+            MemberPattern::Unsupported => tracing::warn!(
+                member,
+                "workspace member glob shape unsupported (only a whole-segment trailing `*`, e.g. `packages/*`); skipping"
+            ),
+            MemberPattern::SegmentGlob(prefix) => {
+                resolved.extend(resolver.expand_segment_glob(member, prefix));
             }
-            let parent = root.join(prefix);
-            // ERR-1 (TASK-0517): a read_dir error here used to silently
-            // produce "No project units found". Log at warn so a permissions
-            // or missing-prefix issue is visible without changing the
-            // best-effort behavior that lets the rest of the globs resolve.
-            match std::fs::read_dir(&parent) {
-                Ok(entries) => {
-                    // ERR-1 (TASK-0942): replace `entries.flatten()` with an
-                    // explicit match so a per-entry IO error (EACCES on a
-                    // sibling member, EIO, ...) is visible at warn level
-                    // rather than silently disappearing into "no project
-                    // units found". Mirrors the policy the surrounding
-                    // `read_dir` arm already adopted in TASK-0517.
-                    for entry in entries {
-                        let entry = match entry {
-                            Ok(e) => e,
-                            Err(e) => {
-                                tracing::warn!(
-                                    member,
-                                    parent = ?parent.display(),
-                                    error = ?e,
-                                    "workspace glob entry unreadable; skipping"
-                                );
-                                continue;
-                            }
-                        };
-                        let path = entry.path();
-                        if !path.is_dir() {
-                            continue;
-                        }
-                        if let Some(manifest) = try_read_manifest(&path, marker) {
-                            // ERR-1 (TASK-1070): a `strip_prefix` failure
-                            // here used to silently drop a successfully-read
-                            // manifest — typically when `root` and
-                            // `entry.path()` disagree on symlink resolution
-                            // (common on macOS via `/var` vs
-                            // `/private/var`). Try canonicalising both
-                            // sides as a fallback, log a tracing breadcrumb
-                            // either way, and fall back to the absolute
-                            // path so the unit is not silently lost.
-                            let rel_string = path.strip_prefix(root).map_or_else(
-                                |_| {
-                                    // PERF-3 (TASK-1149): memoise the
-                                    // canonicalised root across the whole
-                                    // member loop, not per entry.
-                                    let root_canon = root_canonical
-                                        .get_or_insert_with(|| std::fs::canonicalize(root).ok())
-                                        .as_deref();
-                                    recover_relative_path(&path, root, root_canon)
-                                },
-                                |rel| rel.to_string_lossy().to_string(),
-                            );
-                            resolved.push((rel_string, manifest));
-                        }
-                    }
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    // ERR-7 (TASK-0665): Debug-format the path so embedded
-                    // newlines / ANSI escapes cannot forge log lines.
-                    tracing::debug!(
-                        member,
-                        parent = ?parent.display(),
-                        "workspace glob prefix does not exist; skipping"
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        member,
-                        parent = ?parent.display(),
-                        error = ?e,
-                        "workspace glob prefix unreadable; member skipped"
-                    );
+            MemberPattern::Literal(literal) => {
+                if let Some(manifest) = try_read_manifest(&root.join(literal), marker) {
+                    resolved.push((literal.to_string(), manifest));
                 }
             }
-        } else if let Some(manifest) = try_read_manifest(&root.join(member), marker) {
-            resolved.push((member.clone(), manifest));
         }
     }
     if !excludes.is_empty() {
@@ -166,6 +75,250 @@ pub fn resolve_member_globs(
     resolved.sort_by(|a, b| a.0.cmp(&b.0));
     resolved.dedup_by(|a, b| a.0 == b.0);
     resolved
+}
+
+/// How a `[workspace].members` value escapes the workspace root.
+///
+/// See [`member_escape`] for the containment invariant these represent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MemberEscape {
+    /// A `..` component walks out of the root.
+    ParentTraversal,
+    /// An absolute (or drive-prefixed) path. `Path::join` *discards* the base
+    /// when the joined path is absolute, so the root is not merely escaped —
+    /// it is ignored entirely.
+    Absolute,
+}
+
+impl MemberEscape {
+    /// Stable log token naming the escape, for the warn at the call site.
+    const fn reason(self) -> &'static str {
+        match self {
+            Self::ParentTraversal => "parent-traversal",
+            Self::Absolute => "absolute-path",
+        }
+    }
+}
+
+/// Whether `member` breaks the containment invariant, and how.
+///
+/// **Containment invariant**: `root.join(member)` resolves inside `root` only
+/// when `member` is *relative* **and** free of `..` components. Both halves
+/// are enforced here, before any I/O:
+///
+/// - **`..`** (PATTERN-1 / TASK-1071): `root.join("../sibling")` walks out of
+///   the workspace root. Aligns with the SEC-13 dot-only-segment work in
+///   `git/src/remote.rs`.
+/// - **absolute** (SEC-14 / TASK-1726): an absolute member has no
+///   `ParentDir` component — `/etc/foo` decomposes to `RootDir, Normal,
+///   Normal` — so the `..` check alone let it through, and
+///   `root.join("/etc/foo")` is `/etc/foo`, discarding `root`. That made the
+///   *simpler* of the two escapes the open one: a checked-in manifest could
+///   direct reads anywhere on the filesystem and echo the contents into
+///   rendered `about` output. Windows drive prefixes (`C:\…`, and the
+///   drive-relative `C:foo`) are rejected for the same reason.
+///
+/// Workspace config is operator-authored, so the impact is bounded — but the
+/// guard exists precisely so a reviewer can conclude members cannot escape
+/// `root`, and that conclusion has to be true.
+///
+/// Pure and filesystem-free: it inspects the string's path components only.
+fn member_escape(member: &str) -> Option<MemberEscape> {
+    Path::new(member).components().find_map(|c| match c {
+        Component::ParentDir => Some(MemberEscape::ParentTraversal),
+        Component::RootDir | Component::Prefix(_) => Some(MemberEscape::Absolute),
+        Component::CurDir | Component::Normal(_) => None,
+    })
+}
+
+/// The glob shape of a member value, once [`member_escape`] has cleared it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MemberPattern<'a> {
+    /// No `*` at all: a literal member directory, joined straight onto the
+    /// root.
+    Literal(&'a str),
+    /// A supported whole-segment trailing `*`. The payload is the directory
+    /// prefix to enumerate — `""` for a bare `*`, `"packages/"` for
+    /// `packages/*`.
+    SegmentGlob(&'a str),
+    /// Carries a `*` in a position this module does not support.
+    Unsupported,
+}
+
+/// Classify the glob shape of `member`.
+///
+/// PATTERN-1 (TASK-1069): the original implementation found the first `*` and
+/// treated everything before it as the prefix, silently ignoring any suffix.
+/// That made `**/foo` (prefix `""`) brute-force-scan the workspace root and
+/// flattened `prefix/*/suffix` to `prefix/*`.
+///
+/// PATTERN-1 (TASK-1069 follow-up): the `*` must span a *whole* path segment
+/// (`*`, `packages/*`). The earlier check only rejected a suffix containing
+/// `/`, so a partial-segment pattern like `packages/*-internal` or
+/// `packages/foo*` passed and was then expanded as a bare `read_dir(prefix)`
+/// — the text around the `*` was silently dropped and every sibling directory
+/// matched.
+///
+/// Pure and filesystem-free, so the shape rules are unit-testable on their own.
+fn classify_member_pattern(member: &str) -> MemberPattern<'_> {
+    let Some((prefix, suffix)) = member.split_once('*') else {
+        return MemberPattern::Literal(member);
+    };
+    let is_recursive = member.contains("**");
+    let is_full_segment = suffix.is_empty() && (prefix.is_empty() || prefix.ends_with('/'));
+    if is_recursive || !is_full_segment {
+        return MemberPattern::Unsupported;
+    }
+    MemberPattern::SegmentGlob(prefix)
+}
+
+/// Per-resolution filesystem state, so the expansion helpers can share the
+/// root, the marker filename, and the memoised canonical root without
+/// threading five parameters through each other.
+struct Resolver<'a> {
+    root: &'a Path,
+    marker: &'a str,
+    /// PERF-3 / TASK-1149: lazily canonicalize `root` once across the whole
+    /// resolution. The recovery path (run when `strip_prefix(root)` misses,
+    /// e.g. macOS `/var` ↔ `/private/var` or any symlinked workspace root)
+    /// re-canonicalised the *same* root for every directory entry, turning a
+    /// one-shot fallback into O(N) syscalls on monorepos with hundreds of
+    /// members.
+    ///
+    root_canonical: RootCanonical,
+}
+
+/// Memo state for the canonicalised workspace root (PERF-3 / TASK-1149).
+///
+/// A named enum rather than `Option<Option<PathBuf>>`: all three states are
+/// meaningful and the nested-option spelling made which `None` meant what a
+/// matter of counting layers.
+enum RootCanonical {
+    /// Not attempted — no `strip_prefix` has missed yet, so the syscall has
+    /// not been paid for.
+    Unattempted,
+    /// `canonicalize(root)` succeeded.
+    Resolved(std::path::PathBuf),
+    /// `canonicalize(root)` failed. The strip cannot succeed without a valid
+    /// canonical root, so recovery goes straight to the absolute-path
+    /// fallback. Cached so the failing syscall is not repeated per entry.
+    Failed,
+}
+
+impl<'a> Resolver<'a> {
+    const fn new(root: &'a Path, marker: &'a str) -> Self {
+        Self {
+            root,
+            marker,
+            root_canonical: RootCanonical::Unattempted,
+        }
+    }
+
+    /// Enumerate `<root>/<prefix>` and collect a
+    /// `(relative_path, manifest_contents)` pair for every child directory
+    /// holding `marker`.
+    fn expand_segment_glob(&mut self, member: &str, prefix: &str) -> Vec<(String, String)> {
+        let parent = self.root.join(prefix);
+        let Some(entries) = open_glob_parent(member, &parent) else {
+            return Vec::new();
+        };
+        let mut resolved = Vec::new();
+        for entry in entries {
+            let Some(path) = glob_child_dir(member, &parent, entry) else {
+                continue;
+            };
+            let Some(manifest) = try_read_manifest(&path, self.marker) else {
+                continue;
+            };
+            resolved.push((self.relative_path(&path), manifest));
+        }
+        resolved
+    }
+
+    /// Render `path` relative to the workspace root.
+    ///
+    /// ERR-1 (TASK-1070): a `strip_prefix` failure here used to silently drop
+    /// a successfully-read manifest — typically when `root` and
+    /// `entry.path()` disagree on symlink resolution (common on macOS via
+    /// `/var` vs `/private/var`). Canonicalise both sides as a fallback, log
+    /// a breadcrumb either way, and fall back to the absolute path so the
+    /// unit is not silently lost.
+    fn relative_path(&mut self, path: &Path) -> String {
+        let root = self.root;
+        if let Ok(rel) = path.strip_prefix(root) {
+            return rel.to_string_lossy().to_string();
+        }
+        if matches!(self.root_canonical, RootCanonical::Unattempted) {
+            self.root_canonical =
+                std::fs::canonicalize(root).map_or(RootCanonical::Failed, RootCanonical::Resolved);
+        }
+        let root_canon = match &self.root_canonical {
+            RootCanonical::Resolved(canonical) => Some(canonical.as_path()),
+            RootCanonical::Unattempted | RootCanonical::Failed => None,
+        };
+        recover_relative_path(path, root, root_canon)
+    }
+}
+
+/// Open the directory a segment glob expands over.
+///
+/// ERR-1 (TASK-0517): a `read_dir` error here used to silently produce "No
+/// project units found". Log at warn so a permissions or missing-prefix issue
+/// is visible, without changing the best-effort behaviour that lets the rest
+/// of the globs resolve. A missing prefix is routine (an optional
+/// `packages/` directory) and stays at debug.
+fn open_glob_parent(member: &str, parent: &Path) -> Option<std::fs::ReadDir> {
+    match std::fs::read_dir(parent) {
+        Ok(entries) => Some(entries),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // ERR-7 (TASK-0665): Debug-format the path so embedded newlines /
+            // ANSI escapes cannot forge log lines.
+            tracing::debug!(
+                member,
+                parent = ?parent.display(),
+                "workspace glob prefix does not exist; skipping"
+            );
+            None
+        }
+        Err(e) => {
+            tracing::warn!(
+                member,
+                parent = ?parent.display(),
+                error = ?e,
+                "workspace glob prefix unreadable; member skipped"
+            );
+            None
+        }
+    }
+}
+
+/// Accept one `read_dir` item as a candidate member directory.
+///
+/// ERR-1 (TASK-0942): the per-entry `Result` is matched explicitly rather
+/// than `flatten()`ed, so an IO error on one entry (EACCES on a sibling
+/// member, EIO, ...) is visible at warn level instead of disappearing into
+/// "no project units found". Mirrors the policy `open_glob_parent` adopted in
+/// TASK-0517. Non-directories are skipped silently — they are ordinary files
+/// sitting beside the members, not an error.
+fn glob_child_dir(
+    member: &str,
+    parent: &Path,
+    entry: std::io::Result<std::fs::DirEntry>,
+) -> Option<std::path::PathBuf> {
+    let entry = match entry {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!(
+                member,
+                parent = ?parent.display(),
+                error = ?e,
+                "workspace glob entry unreadable; skipping"
+            );
+            return None;
+        }
+    };
+    let path = entry.path();
+    path.is_dir().then_some(path)
 }
 
 /// ERR-1 (TASK-1070): recover a workspace-relative path when
@@ -639,6 +792,126 @@ mod tests {
             vec!["packages/foo"],
             "`..` traversal must be rejected; sibling member must still load"
         );
+    }
+
+    /// SEC-14 / TASK-1726: an **absolute** member decomposes to `RootDir,
+    /// Normal, …` with no `ParentDir` component, so the `..` guard alone let
+    /// it through — and `root.join("/abs/path")` discards `root` entirely.
+    /// Pin that an absolute member resolves to nothing while a valid relative
+    /// sibling in the same call still loads.
+    #[test]
+    fn absolute_member_is_rejected_sibling_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
+
+        // A tempdir sibling of `root`, holding a valid marker file, that an
+        // absolute member would otherwise read straight out of.
+        let outside = dir.path().join("outside");
+        write(&outside.join("package.json"), r#"{"name":"escape"}"#);
+        assert!(outside.is_absolute(), "the escape target must be absolute");
+
+        // Valid in-root member must still load.
+        write(&root.join("packages/foo/package.json"), r#"{"name":"foo"}"#);
+
+        let resolved = resolve_member_globs(
+            &[
+                outside.to_string_lossy().into_owned(),
+                "packages/foo".to_string(),
+            ],
+            &[],
+            &root,
+            "package.json",
+        );
+        let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["packages/foo"],
+            "an absolute member must be rejected; the relative sibling must still load"
+        );
+    }
+
+    /// SEC-14 / TASK-1726: the glob branch joins `root.join(prefix)`, so it
+    /// has the same absolute-path hole. An absolute glob must not enumerate
+    /// the directory it names.
+    #[test]
+    fn absolute_glob_member_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let outside = dir.path().join("outside");
+        write(&outside.join("secret/package.json"), r#"{"name":"escape"}"#);
+
+        let pattern = format!("{}/*", outside.to_string_lossy());
+        let resolved = resolve_member_globs(&[pattern], &[], &root, "package.json");
+        assert!(
+            resolved.is_empty(),
+            "an absolute glob must not enumerate outside the root, got {resolved:?}"
+        );
+    }
+
+    /// FN-1 / TASK-1743: member-value validation is now a pure predicate, so
+    /// the containment invariant is testable without touching the filesystem.
+    #[test]
+    fn member_escape_classifies_both_escapes() {
+        // Relative, no `..`: contained.
+        assert_eq!(member_escape("packages/foo"), None);
+        assert_eq!(member_escape("packages/*"), None);
+        assert_eq!(member_escape("./packages/foo"), None);
+        assert_eq!(member_escape(""), None);
+
+        // `..` anywhere in the value walks out of the root.
+        assert_eq!(member_escape(".."), Some(MemberEscape::ParentTraversal));
+        assert_eq!(
+            member_escape("../sibling"),
+            Some(MemberEscape::ParentTraversal)
+        );
+        assert_eq!(
+            member_escape("packages/../../etc"),
+            Some(MemberEscape::ParentTraversal)
+        );
+
+        // Absolute: `Path::join` would discard the root outright.
+        assert_eq!(member_escape("/etc"), Some(MemberEscape::Absolute));
+        assert_eq!(member_escape("/etc/foo"), Some(MemberEscape::Absolute));
+        assert_eq!(member_escape("/"), Some(MemberEscape::Absolute));
+    }
+
+    /// FN-1 / TASK-1743: glob-shape validation is likewise pure, so every
+    /// supported and unsupported shape is pinned without a tempdir.
+    #[test]
+    fn classify_member_pattern_covers_every_shape() {
+        assert_eq!(
+            classify_member_pattern("packages/foo"),
+            MemberPattern::Literal("packages/foo")
+        );
+        assert_eq!(
+            classify_member_pattern("packages/*"),
+            MemberPattern::SegmentGlob("packages/")
+        );
+        // A bare `*` enumerates the root itself.
+        assert_eq!(classify_member_pattern("*"), MemberPattern::SegmentGlob(""));
+
+        // Partial-segment globs would silently drop the text around the `*`.
+        assert_eq!(
+            classify_member_pattern("packages/foo*"),
+            MemberPattern::Unsupported
+        );
+        assert_eq!(
+            classify_member_pattern("packages/*-internal"),
+            MemberPattern::Unsupported
+        );
+        // Multi-segment and recursive shapes.
+        assert_eq!(
+            classify_member_pattern("packages/*/sub"),
+            MemberPattern::Unsupported
+        );
+        assert_eq!(
+            classify_member_pattern("**/foo"),
+            MemberPattern::Unsupported
+        );
+        assert_eq!(classify_member_pattern("**"), MemberPattern::Unsupported);
     }
 
     /// PATTERN-1 (TASK-1069): non-trivial suffix-after-`*` (e.g.
