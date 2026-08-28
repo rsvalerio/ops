@@ -110,7 +110,7 @@ authors = ["Alice", "Bob"]
     let pkg = manifest.package.as_ref().unwrap();
     assert_eq!(
         pkg.authors,
-        crate::types::InheritableField::Value(vec!["Alice".to_string(), "Bob".to_string()])
+        crate::InheritableField::Value(vec!["Alice".to_string(), "Bob".to_string()])
     );
 }
 
@@ -142,14 +142,14 @@ publish = false
     let pkg = manifest.package.as_ref().unwrap();
     assert_eq!(
         pkg.keywords,
-        crate::types::InheritableField::Value(vec!["a".to_string(), "b".to_string()])
+        crate::InheritableField::Value(vec!["a".to_string(), "b".to_string()])
     );
     assert_eq!(
         pkg.categories,
-        crate::types::InheritableField::Value(vec!["dev-tools".to_string()])
+        crate::InheritableField::Value(vec!["dev-tools".to_string()])
     );
     match pkg.readme.as_ref().expect("readme set") {
-        crate::types::ReadmeSpec::Path(p) => assert_eq!(p, "README.md"),
+        crate::ReadmeSpec::Path(p) => assert_eq!(p, "README.md"),
         other => panic!("expected ReadmeSpec::Path after inheritance, got {other:?}"),
     }
     assert_eq!(
@@ -179,7 +179,7 @@ members = []
     let pkg = manifest.package.as_ref().unwrap();
     assert_eq!(
         pkg.version,
-        crate::types::InheritableField::Inherited { workspace: true }
+        crate::InheritableField::Inherited { workspace: true }
     );
 }
 
@@ -336,24 +336,123 @@ serde = { version = "1", optional = false }
 
 #[test]
 fn inheritable_field_value_and_inherited() {
-    let val: crate::types::InheritableField<String> =
-        crate::types::InheritableField::Value("hello".to_string());
+    let val: crate::InheritableField<String> = crate::InheritableField::Value("hello".to_string());
     assert_eq!(val.value(), Some(&"hello".to_string()));
     assert_eq!(val.as_str(), Some("hello"));
 
-    let inherited: crate::types::InheritableField<String> =
-        crate::types::InheritableField::Inherited { workspace: true };
+    let inherited: crate::InheritableField<String> =
+        crate::InheritableField::Inherited { workspace: true };
     assert_eq!(inherited.value(), None);
     assert_eq!(inherited.as_str(), None);
 }
 
+/// ERR-6 / TASK-1793: the default is `Absent`, not `Value(T::default())`.
+/// The old contract (`as_str() == Some("")`, `value() == Some(&vec![])`) made
+/// an undeclared field indistinguishable from an empty one.
 #[test]
-fn inheritable_field_default() {
-    let field = crate::types::InheritableString::default();
-    assert_eq!(field.as_str(), Some(""));
+fn inheritable_field_default_is_absent() {
+    let field = crate::InheritableString::default();
+    assert!(field.is_absent());
+    assert_eq!(field.as_str(), None);
+    assert_eq!(field.value(), None);
 
-    let vec_field = crate::types::InheritableVec::default();
-    assert_eq!(vec_field.value(), Some(&vec![]));
+    let vec_field = crate::InheritableVec::default();
+    assert!(vec_field.is_absent());
+    assert_eq!(vec_field.value(), None);
+}
+
+/// ERR-6 / TASK-1793: `Absent` must survive the provider's
+/// typed → JSON → typed round-trip, otherwise the distinction is only
+/// in-process and every cross-extension consumer reading via
+/// `Context::cached` still sees the sentinel.
+#[test]
+fn inheritable_field_absent_round_trips_through_json() {
+    let manifest = CargoToml::parse("[package]\nname = \"test\"\n").expect("should parse");
+    let json = serde_json::to_value(&manifest).expect("serialize");
+    assert!(
+        json["package"]["version"].is_null(),
+        "an absent field must serialise as null, got {:?}",
+        json["package"]["version"]
+    );
+
+    let back: CargoToml = serde_json::from_value(json).expect("deserialize");
+    assert_eq!(back.package_version(), None);
+    assert!(back
+        .package
+        .as_ref()
+        .expect("package exists")
+        .version
+        .is_absent());
+}
+
+/// SEC-31 / TASK-1789: `publish = { workspace = true }` against a
+/// `[workspace.package]` with no `publish` key must stay unresolved.
+///
+/// `WorkspacePackage::publish` defaults to `PublishSpec::None`, which
+/// `is_publishable()` maps to `Some(true)`, so substituting it would flip the
+/// safe default open — the signal loss TASK-1196 introduced `Option<bool>`
+/// to prevent. Mirrors
+/// `resolve_package_inheritance_missing_ws_value_stays_inherited`.
+#[test]
+fn resolve_package_inheritance_undeclared_ws_publish_stays_inherited() {
+    let toml = r#"
+[package]
+name = "member"
+version = "0.1.0"
+publish = { workspace = true }
+
+[workspace]
+members = []
+
+[workspace.package]
+version = "1.0.0"
+"#;
+    let mut manifest = CargoToml::parse(toml).expect("should parse");
+    manifest.resolve_package_inheritance();
+
+    let pkg = manifest.package.as_ref().unwrap();
+    assert!(
+        matches!(
+            pkg.publish,
+            crate::PublishSpec::Inherited { workspace: true }
+        ),
+        "an undeclared workspace publish must leave the member unresolved, got {:?}",
+        pkg.publish
+    );
+    assert_eq!(
+        pkg.publish.is_publishable(),
+        None,
+        "unresolved publish must not read as publishable"
+    );
+}
+
+/// SEC-31 / TASK-1789: a workspace that *does* declare `publish` still
+/// resolves, for both the `Bool` and `Registries` shapes.
+#[test]
+fn resolve_package_inheritance_declared_ws_publish_still_resolves() {
+    for (ws_publish, expected) in [("false", Some(false)), (r#"["my-registry"]"#, Some(true))] {
+        let toml = format!(
+            r#"
+[package]
+name = "member"
+version = "0.1.0"
+publish = {{ workspace = true }}
+
+[workspace]
+members = []
+
+[workspace.package]
+publish = {ws_publish}
+"#
+        );
+        let mut manifest = CargoToml::parse(&toml).expect("should parse");
+        manifest.resolve_package_inheritance();
+        assert_eq!(
+            manifest.package.as_ref().unwrap().publish.is_publishable(),
+            expected,
+            "workspace publish = {ws_publish} should resolve"
+        );
+    }
 }
 
 #[test]
@@ -519,7 +618,7 @@ edition = "2024"
     // version has workspace=true but ws.package has no version → stays inherited
     assert_eq!(
         pkg.version,
-        crate::types::InheritableField::Inherited { workspace: true }
+        crate::InheritableField::Inherited { workspace: true }
     );
     // edition was already a direct value, should remain unchanged
     assert_eq!(pkg.edition.as_str(), Some("2021"));

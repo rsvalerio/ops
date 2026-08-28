@@ -45,15 +45,101 @@ version = "0.1.0"
     assert!(result.is_err(), "missing name should fail to parse");
 }
 
+/// ERR-6 / TASK-1793: an omitted `version` key is *absent*, not `""`.
+///
+/// This test previously pinned the empty-string sentinel
+/// (`package_version() == Some("")`), which is truthy in every
+/// `Option`-based fallback chain and so suppressed `[workspace.package]`
+/// inheritance in every consumer.
 #[test]
 fn parse_with_missing_required_version() {
     let toml = r#"
 [package]
 name = "test"
 "#;
-    let manifest = CargoToml::parse(toml).expect("should parse with default version");
+    let manifest = CargoToml::parse(toml).expect("should parse with an absent version");
     assert_eq!(manifest.package_name(), Some("test"));
+    assert_eq!(manifest.package_version(), None);
+
+    let pkg = manifest.package.as_ref().expect("package exists");
+    assert!(pkg.version.is_absent());
+    assert_eq!(pkg.version, crate::InheritableField::Absent);
+}
+
+/// ERR-6 / TASK-1793: the companion — a declared-but-empty version is a
+/// value, and must stay distinguishable from the absent case above.
+#[test]
+fn parse_with_empty_version_is_not_absent() {
+    let toml = r#"
+[package]
+name = "test"
+version = ""
+"#;
+    let manifest = CargoToml::parse(toml).expect("should parse");
     assert_eq!(manifest.package_version(), Some(""));
+
+    let pkg = manifest.package.as_ref().expect("package exists");
+    assert!(!pkg.version.is_absent());
+    assert_eq!(
+        pkg.version,
+        crate::InheritableField::Value(String::new()),
+        "an explicit empty string is a declared value, not an absence"
+    );
+}
+
+/// ERR-6 / TASK-1793: the same distinction holds for every other
+/// `#[serde(default)]` `InheritableString` field on `[package]`.
+#[test]
+fn parse_absent_inheritable_string_fields_are_all_absent() {
+    let absent = CargoToml::parse("[package]\nname = \"test\"\n").expect("should parse");
+    let a = absent.package.as_ref().expect("package exists");
+    for (label, field) in [
+        ("version", &a.version),
+        ("edition", &a.edition),
+        ("rust_version", &a.rust_version),
+        ("description", &a.description),
+        ("documentation", &a.documentation),
+        ("homepage", &a.homepage),
+        ("repository", &a.repository),
+        ("license", &a.license),
+    ] {
+        assert!(field.is_absent(), "{label} should be Absent when omitted");
+        assert_eq!(field.as_str(), None, "{label}.as_str() should be None");
+    }
+    assert!(
+        a.authors.is_absent(),
+        "authors should be Absent when omitted"
+    );
+
+    let declared = CargoToml::parse(
+        r#"
+[package]
+name = "test"
+version = ""
+edition = ""
+rust-version = ""
+description = ""
+documentation = ""
+homepage = ""
+repository = ""
+license = ""
+"#,
+    )
+    .expect("should parse");
+    let d = declared.package.as_ref().expect("package exists");
+    for (label, field) in [
+        ("version", &d.version),
+        ("edition", &d.edition),
+        ("rust_version", &d.rust_version),
+        ("description", &d.description),
+        ("documentation", &d.documentation),
+        ("homepage", &d.homepage),
+        ("repository", &d.repository),
+        ("license", &d.license),
+    ] {
+        assert!(!field.is_absent(), "{label} = \"\" must not read as Absent");
+        assert_eq!(field.as_str(), Some(""), "{label}.as_str() should be Some");
+    }
 }
 
 #[test]

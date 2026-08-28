@@ -151,4 +151,74 @@ version = "2.0.0"
         );
         assert!(result.is_none());
     }
+
+    /// ERR-6 / TASK-1793: a `[package]` that *exists* but omits the field
+    /// must still fall through to `[workspace.package]`.
+    ///
+    /// This is the cross-crate consequence of the empty-string sentinel:
+    /// `InheritableField::default()` used to be `Value("")`, so
+    /// `p.version.as_str()` returned `Some("")` for an omitted key and the
+    /// `.or_else(...)` fallback never fired — `about` reported an empty
+    /// version and description instead of the workspace's values. Note the
+    /// `authors` arm in `resolve_identity_fields` had to hand-roll a
+    /// `!wp.authors.is_empty()` guard for exactly this reason.
+    #[test]
+    fn resolve_field_falls_back_to_workspace_when_package_omits_the_key() {
+        let manifest = parse_pkg(
+            r#"
+[package]
+name = "member"
+
+[workspace.package]
+version = "2.0.0"
+description = "ws desc"
+"#,
+        );
+        let pkg = manifest.package.as_ref();
+        let ws_pkg = manifest.workspace.as_ref().and_then(|w| w.package.as_ref());
+
+        assert_eq!(
+            resolve_field(
+                pkg,
+                ws_pkg,
+                |p: &ops_cargo_toml::Package| p.version.as_str(),
+                |wp| wp.version.as_deref(),
+            )
+            .as_deref(),
+            Some("2.0.0")
+        );
+        assert_eq!(
+            resolve_field(
+                pkg,
+                ws_pkg,
+                |p: &ops_cargo_toml::Package| p.description.as_str(),
+                |wp| wp.description.as_deref(),
+            )
+            .as_deref(),
+            Some("ws desc")
+        );
+    }
+
+    /// ERR-6 / TASK-1793: the guard rail for the test above — a member that
+    /// *declares* an empty string keeps it, rather than silently inheriting.
+    #[test]
+    fn resolve_field_declared_empty_string_beats_workspace() {
+        let manifest = parse_pkg(
+            r#"
+[package]
+name = "member"
+description = ""
+
+[workspace.package]
+description = "ws desc"
+"#,
+        );
+        let result = resolve_field(
+            manifest.package.as_ref(),
+            manifest.workspace.as_ref().and_then(|w| w.package.as_ref()),
+            |p: &ops_cargo_toml::Package| p.description.as_str(),
+            |wp| wp.description.as_deref(),
+        );
+        assert_eq!(result.as_deref(), Some(""));
+    }
 }
