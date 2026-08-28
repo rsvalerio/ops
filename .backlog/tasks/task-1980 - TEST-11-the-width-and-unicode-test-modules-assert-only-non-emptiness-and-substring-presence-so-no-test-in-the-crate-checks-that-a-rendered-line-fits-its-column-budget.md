@@ -4,11 +4,11 @@ title: >-
   TEST-11: the width and unicode test modules assert only non-emptiness and
   substring presence, so no test in the crate checks that a rendered line fits
   its column budget
-status: To Do
+status: Done
 assignee:
   - TASK-1987
 created_date: '2026-08-27 15:56'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:30'
 labels:
   - code-review-rust
   - test-quality

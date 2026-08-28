@@ -3,11 +3,11 @@ id: TASK-1976
 title: >-
   CL-3: apply_style documents stderr gating but color_enabled ORs stdout, so
   piping only stderr to a file fills it with SGR codes
-status: To Do
+status: Done
 assignee:
   - TASK-1987
 created_date: '2026-08-27 15:55'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:29'
 labels:
   - code-review-rust
   - idioms
@@ -44,3 +44,9 @@ The cross-crate cause is `ops_core::style::color_enabled`, whose OR was chosen f
 - [ ] #2 the apply_style and apply_with_prefix doc comments state the gate that the code implements
 - [ ] #3 a test pins that with stderr redirected and stdout a TTY the rendered step line contains no 0x1b byte
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#3 substitution: a test harness cannot give a process a real TTY on stdout, so "stdout a TTY, stderr redirected" is pinned in two halves that together cover the scenario — `gate_ignores_stdout_and_follows_stderr` asks the pure resolver about exactly that stream combination (theme gate false while ops-core's OR-gate is true), and `step_line_is_plain_when_stderr_is_redirected` renders a real step line in this process, where stderr is redirected, and asserts it carries no 0x1b.
+<!-- SECTION:NOTES:END -->

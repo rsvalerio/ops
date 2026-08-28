@@ -3,11 +3,11 @@ id: TASK-1973
 title: >-
   READ-6: the same layout pipeline measures some strings with ANSI-blind
   display_width and others with ANSI-aware visible_width
-status: To Do
+status: Done
 assignee:
   - TASK-1987
 created_date: '2026-08-27 15:54'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:30'
 labels:
   - code-review-rust
   - readability

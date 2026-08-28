@@ -3,11 +3,11 @@ id: TASK-1979
 title: >-
   TEST-25: every error-block colour test asserts against a local
   re-implementation of render_error_block that has already drifted from it
-status: To Do
+status: Done
 assignee:
   - TASK-1987
 created_date: '2026-08-27 15:56'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:30'
 labels:
   - code-review-rust
   - test-quality
