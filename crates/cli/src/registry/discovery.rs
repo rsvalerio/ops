@@ -20,7 +20,8 @@ pub fn resolve_stack(config: &Config, workspace_root: &Path) -> Option<Stack> {
     Stack::resolve(config.stack.as_deref(), workspace_root)
 }
 
-/// Returns all compiled-in extensions as (`config_name`, extension) pairs.
+/// Returns all compiled-in extensions as (`config_name`, extension) pairs, in
+/// a deterministic order.
 /// Does not filter by config or stack — caller decides what to do with disabled extensions.
 ///
 /// Extensions self-register via `impl_extension!` with a `factory:` arm,
@@ -35,8 +36,10 @@ pub fn collect_compiled_extensions(
     // an extension that compiled in but quietly opts out was
     // indistinguishable from one that never linked. Emit a one-shot debug
     // event per slot so `RUST_LOG=ops=debug` answers "the X extension is not
-    // running for me" without changing behaviour for the success path.
-    ops_extension::EXTENSION_REGISTRY
+    // running for me" without changing behaviour for the success path. The
+    // `slot` index is a link-order artifact, not a stable identifier for an
+    // extension — it is a within-process breadcrumb only (ARCH-9 / TASK-1868).
+    let probed: Vec<(&'static str, Box<dyn Extension>)> = ops_extension::EXTENSION_REGISTRY
         .iter()
         .enumerate()
         .filter_map(|(slot, factory)| {
@@ -49,7 +52,13 @@ pub fn collect_compiled_extensions(
             }
             pair
         })
-        .collect()
+        .collect();
+    // ARCH-9 / TASK-1868: `EXTENSION_REGISTRY` yields pairs in unspecified
+    // linker order, and `dedup_compiled_extensions` below is last-write-wins —
+    // so without this the winner of a `config_name` collision is decided by
+    // link order and can flip between builds. Sorting is done in ops-extension
+    // so every consumer of the slice inherits the same total order.
+    ops_extension::sort_compiled_extensions(probed)
 }
 
 /// Collect all built-in extensions (feature-gated), filtered by config and stack.
@@ -218,7 +227,13 @@ fn select_enabled(
 /// `config_name` with no breadcrumb.
 ///
 /// **Resolution policy**: last-write-wins on duplicate `config_name`,
-/// matching `register_extension_commands`.
+/// matching `register_extension_commands`. ARCH-9 / TASK-1868: which pair is
+/// *last* is only meaningful because [`collect_compiled_extensions`] has
+/// already run the probed pairs through
+/// `ops_extension::sort_compiled_extensions`, imposing a total order on
+/// `(config_name, Extension::name())`. Callers that build the `pairs` vector
+/// some other way must sort it the same way, or the surviving extension for a
+/// collision becomes link-order dependent again.
 ///
 /// **Iteration order**: `BTreeMap` yields entries
 /// sorted by `config_name`. The `enabled = None` branch of

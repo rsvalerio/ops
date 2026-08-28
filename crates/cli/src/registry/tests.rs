@@ -435,7 +435,7 @@ fn register_extension_data_providers_warns_on_cross_extension_collision() {
         }
         fn register_commands(&self, _registry: &mut CommandRegistry) {}
         fn register_data_providers(&self, registry: &mut DataRegistry) {
-            registry.register("shared", Box::new(StubProvider("a")));
+            let _ = registry.register("shared", Box::new(StubProvider("a")));
         }
     }
     struct ExtB;
@@ -445,7 +445,7 @@ fn register_extension_data_providers_warns_on_cross_extension_collision() {
         }
         fn register_commands(&self, _registry: &mut CommandRegistry) {}
         fn register_data_providers(&self, registry: &mut DataRegistry) {
-            registry.register("shared", Box::new(StubProvider("b")));
+            let _ = registry.register("shared", Box::new(StubProvider("b")));
         }
     }
 
@@ -548,8 +548,8 @@ fn register_extension_data_providers_warns_on_in_extension_duplicate() {
         }
         fn register_commands(&self, _registry: &mut CommandRegistry) {}
         fn register_data_providers(&self, registry: &mut DataRegistry) {
-            registry.register("provider_x", Box::new(StubProvider));
-            registry.register("provider_x", Box::new(StubProvider));
+            let _ = registry.register("provider_x", Box::new(StubProvider));
+            let _ = registry.register("provider_x", Box::new(StubProvider));
         }
     }
 
