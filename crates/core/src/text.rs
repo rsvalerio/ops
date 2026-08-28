@@ -210,17 +210,24 @@ fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> 
     // bare `PermissionDenied`/`NotFound`/`IsADirectory` surfaces with the
     // file name, matching the oversize InvalidData branch below.
     let mut file = open_refusing_symlinks(path).map_err(|e| with_path(&e, path))?;
-    let mut buf = String::new();
+    // ERR-2 / TASK-1855: read **bytes**, not a `String`. `read_to_string`
+    // decodes the truncated `cap + 1` window and fails with "stream did not
+    // contain valid UTF-8" whenever byte `cap` lands inside a multi-byte
+    // sequence — which any oversized non-ASCII file does routinely. That
+    // error short-circuited the size check below, so the one input that
+    // needs the "raise OPS_MANIFEST_MAX_BYTES" hint was exactly the input
+    // that never got it. Size first, decode second.
+    let mut bytes = Vec::new();
     let limit = cap.saturating_add(1);
     (&mut file)
         .take(limit)
-        .read_to_string(&mut buf)
+        .read_to_end(&mut bytes)
         .map_err(|e| with_path(&e, path))?;
     // `usize` is never wider than `u64` on any target rustc supports, so the
     // widening is total and the fallback is unreachable; saturating to
     // `u64::MAX` would report the file as oversize, which is the safe
     // direction for a size cap.
-    if u64::try_from(buf.len()).unwrap_or(u64::MAX) > cap {
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(
@@ -229,7 +236,14 @@ fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> 
             ),
         ));
     }
-    Ok(buf)
+    // Under the cap: a UTF-8 failure here is a genuinely corrupt file, and
+    // keeps the same `InvalidData` kind `read_to_string` produced before.
+    String::from_utf8(bytes).map_err(|e| {
+        with_path(
+            &std::io::Error::new(std::io::ErrorKind::InvalidData, e.utf8_error()),
+            path,
+        )
+    })
 }
 
 fn with_path(e: &std::io::Error, path: &Path) -> std::io::Error {
@@ -488,6 +502,52 @@ mod tests {
         std::fs::write(&path, vec![b'a'; 17]).unwrap();
         let err = read_capped_to_string_with(&path, 16).expect_err("must reject oversize");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    /// ERR-2 / TASK-1855: an oversized file whose cap boundary splits a
+    /// multi-byte character must still report the cap and the override env
+    /// var. Before the size/decode reorder, `read_to_string` failed first
+    /// with "stream did not contain valid UTF-8" and the cap branch was dead
+    /// for exactly the inputs that needed it.
+    #[test]
+    fn read_capped_to_string_oversize_multibyte_boundary_reports_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big-utf8");
+        // cap = 4, content = "aaa€": the 3-byte '€' starts at byte 3, so the
+        // `cap + 1` window ends mid-sequence.
+        std::fs::write(&path, "aaa\u{20ac}".as_bytes()).unwrap();
+
+        let err = read_capped_to_string_with(&path, 4).expect_err("must reject oversize");
+
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        let msg = err.to_string();
+        assert!(msg.contains("4-byte cap"), "must name the cap, got: {msg}");
+        assert!(
+            msg.contains(MANIFEST_MAX_BYTES_ENV),
+            "must name the override env var, got: {msg}"
+        );
+    }
+
+    /// ERR-2 / TASK-1855: the reorder must not swallow a genuine encoding
+    /// failure — an under-cap file that is not valid UTF-8 still errors.
+    #[test]
+    fn read_capped_to_string_under_cap_invalid_utf8_still_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("garbage");
+        std::fs::write(&path, [0xffu8, 0xfe, 0xfd]).unwrap();
+
+        let err = read_capped_to_string_with(&path, 1024).expect_err("invalid UTF-8 must error");
+
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("cap"),
+            "an under-cap file must not report the size cap, got: {msg}"
+        );
+        assert!(
+            msg.contains("garbage"),
+            "error must name the file, got: {msg}"
+        );
     }
 
     #[test]
