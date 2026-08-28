@@ -2,8 +2,13 @@
 //!
 //! READ-9 / TASK-0950: helpers gate on `stdout().is_terminal() && !NO_COLOR`
 //! before emitting SGR escape codes so redirected output (CI logs, pipes,
-//! captured test buffers) stays plain text. Mirrors the gating in
-//! `theme::style::sgr::color_enabled` so the two color subsystems agree.
+//! captured test buffers) stays plain text.
+//!
+//! CL-3 / TASK-1976: the two colour subsystems share the per-stream
+//! [`stdout_is_terminal`] / [`stderr_is_terminal`] probes and the
+//! [`no_color_env`] reading, but not the stream they gate on — these helpers
+//! write to stdout, while `theme::style::sgr` renders to stderr and gates on
+//! stderr alone.
 
 use std::borrow::Cow;
 use std::io::IsTerminal;
@@ -21,9 +26,24 @@ use std::sync::OnceLock;
 /// a real terminal means there is a human reader who benefits from styling;
 /// emitting SGR into the other stream is the same risk the per-stream-only
 /// gate already accepted on the styled branch.
+///
+/// CL-3 / TASK-1976: this OR is the right answer for the stdout-bound
+/// helpers in this module. It is *not* the right answer for the theme crate,
+/// which renders exclusively to stderr and now gates on
+/// [`stderr_is_terminal`] alone — sharing the probes, not the OR.
 #[must_use]
 pub fn color_enabled() -> bool {
-    (stdout_is_terminal() || stderr_is_terminal()) && !no_color_env()
+    color_enabled_from(stdout_is_terminal(), stderr_is_terminal(), no_color_env())
+}
+
+/// Pure resolver behind [`color_enabled`].
+///
+/// Split out so the rule is testable without a real terminal on either
+/// stream — and so the theme crate's stderr-only gate (CL-3 / TASK-1976) can
+/// be pinned against it.
+#[must_use]
+pub const fn color_enabled_from(stdout_tty: bool, stderr_tty: bool, no_color: bool) -> bool {
+    (stdout_tty || stderr_tty) && !no_color
 }
 
 /// PERF-3 / TASK-1439: shared, memoised `stdout().is_terminal()` probe.
