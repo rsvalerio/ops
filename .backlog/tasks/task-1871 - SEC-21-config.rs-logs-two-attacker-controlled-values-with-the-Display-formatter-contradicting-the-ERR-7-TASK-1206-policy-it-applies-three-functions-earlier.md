@@ -4,11 +4,11 @@ title: >-
   SEC-21: config.rs logs two attacker-controlled values with the Display
   formatter, contradicting the ERR-7 / TASK-1206 policy it applies three
   functions earlier
-status: To Do
+status: Done
 assignee:
   - TASK-2007
 created_date: '2026-08-27 15:31'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 23:26'
 labels:
   - code-review-rust
   - security
@@ -41,8 +41,8 @@ Two other call sites in the same file break that policy:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_head_branch logs the HEAD path with the Debug formatter (path = ?head_path.display()), matching read_origin_url
-- [ ] #2 is_origin_header logs the rejected header line with the Debug formatter so control bytes are escaped
-- [ ] #3 a test pins the escaping contract for both values, in the style of read_origin_url_path_debug_escapes_control_characters
-- [ ] #4 a grep for tracing macros in extensions/git shows no remaining Display-formatted path or raw-config-line field
+- [x] #1 read_head_branch logs the HEAD path with the Debug formatter (path = ?head_path.display()), matching read_origin_url
+- [x] #2 is_origin_header logs the rejected header line with the Debug formatter so control bytes are escaped
+- [x] #3 a test pins the escaping contract for both values, in the style of read_origin_url_path_debug_escapes_control_characters
+- [x] #4 a grep for tracing macros in extensions/git shows no remaining Display-formatted path or raw-config-line field
 <!-- AC:END -->

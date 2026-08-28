@@ -3,11 +3,11 @@ id: TASK-1866
 title: >-
   SEC-33: read_head_branch still has no byte cap on the .git/HEAD read —
   TASK-0927 was closed with every AC ticked but nothing was implemented
-status: To Do
+status: Done
 assignee:
   - TASK-2007
 created_date: '2026-08-27 15:30'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 23:27'
 labels:
   - code-review-rust
   - security
@@ -31,9 +31,15 @@ This is a **regression / false close**: TASK-0927 (`SEC-33: read_head_branch has
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_head_branch reads at most a pub const MAX_HEAD_BYTES (4 KiB is ample for 'ref: refs/heads/<longname>') using the File::open + Read::take shape already used by read_origin_url
-- [ ] #2 an oversized HEAD returns None and emits one tracing::warn! mirroring the read_origin_url cap-exceeded event, rather than allocating the file
-- [ ] #3 the cap is enforced on raw bytes before any decoding, matching the TASK-1620 ordering fix in read_origin_url
-- [ ] #4 a unit test writes a HEAD payload one byte over the cap and asserts None; existing head_branch_* tests still pass
-- [ ] #5 TASK-0927 is referenced in the fix so the false-closed record is visibly superseded
+- [x] #1 read_head_branch reads at most a pub const MAX_HEAD_BYTES (4 KiB is ample for 'ref: refs/heads/<longname>') using the File::open + Read::take shape already used by read_origin_url
+- [x] #2 an oversized HEAD returns None and emits one tracing::warn! mirroring the read_origin_url cap-exceeded event, rather than allocating the file
+- [x] #3 the cap is enforced on raw bytes before any decoding, matching the TASK-1620 ordering fix in read_origin_url
+- [x] #4 a unit test writes a HEAD payload one byte over the cap and asserts None; existing head_branch_* tests still pass
+- [x] #5 TASK-0927 is referenced in the fix so the false-closed record is visibly superseded
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-0927 (falsely closed) is referenced in the MAX_HEAD_BYTES doc comment and the read_head_branch doc, so the superseded record is visible from the code.
+<!-- SECTION:NOTES:END -->

@@ -3,11 +3,11 @@ id: TASK-1880
 title: >-
   READ-6: parse_remote_url normalises the scheme to lowercase but leaves the
   host in its original case, so git_info.host is not canonical
-status: To Do
+status: Done
 assignee:
   - TASK-2007
 created_date: '2026-08-27 15:32'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 23:26'
 labels:
   - code-review-rust
   - readability
@@ -36,7 +36,7 @@ Half the value is canonical and half is not, with no comment explaining the asym
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the host is lowercased (ASCII) before it is stored in RemoteInfo.host and interpolated into RemoteInfo.url, matching the scheme's canonicalisation
-- [ ] #2 a unit test pins that 'HTTPS://GitHub.COM/o/r' yields host 'github.com' and url 'https://github.com/o/r'
-- [ ] #3 the owner/repo case is left untouched (forge path segments are case-sensitive) and a comment records why host and scheme are treated differently from the path
+- [x] #1 the host is lowercased (ASCII) before it is stored in RemoteInfo.host and interpolated into RemoteInfo.url, matching the scheme's canonicalisation
+- [x] #2 a unit test pins that 'HTTPS://GitHub.COM/o/r' yields host 'github.com' and url 'https://github.com/o/r'
+- [x] #3 the owner/repo case is left untouched (forge path segments are case-sensitive) and a comment records why host and scheme are treated differently from the path
 <!-- AC:END -->

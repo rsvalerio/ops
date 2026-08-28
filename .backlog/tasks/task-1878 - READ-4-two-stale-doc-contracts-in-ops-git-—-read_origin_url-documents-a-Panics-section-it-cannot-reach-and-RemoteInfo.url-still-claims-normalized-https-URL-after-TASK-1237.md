@@ -4,11 +4,11 @@ title: >-
   READ-4: two stale doc contracts in ops-git — read_origin_url documents a #
   Panics section it cannot reach, and RemoteInfo.url still claims 'normalized
   https URL' after TASK-1237
-status: To Do
+status: Done
 assignee:
   - TASK-2007
 created_date: '2026-08-27 15:32'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 23:27'
 labels:
   - code-review-rust
   - readability
@@ -42,7 +42,13 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the # Panics section is removed from read_origin_url, or rewritten to describe an actually reachable panic
-- [ ] #2 RemoteInfo.url's field doc states that the input scheme is preserved (https/http/ssh/git, with scp-style normalised to ssh) and stops claiming https
-- [ ] #3 a scan of the crate's remaining doc comments confirms no other post-TASK-1237 'https' or panic claim survives
+- [x] #1 the # Panics section is removed from read_origin_url, or rewritten to describe an actually reachable panic
+- [x] #2 RemoteInfo.url's field doc states that the input scheme is preserved (https/http/ssh/git, with scp-style normalised to ssh) and stops claiming https
+- [x] #3 a scan of the crate's remaining doc comments confirms no other post-TASK-1237 'https' or panic claim survives
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1878 AC#3: the scan also caught the provider schema description ("Normalized https URL for the origin remote", extensions/git/src/provider.rs) — fixed in the same wave.
+<!-- SECTION:NOTES:END -->
