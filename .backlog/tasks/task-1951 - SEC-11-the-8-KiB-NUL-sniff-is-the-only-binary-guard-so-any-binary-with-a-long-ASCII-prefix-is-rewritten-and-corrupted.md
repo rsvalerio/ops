@@ -3,11 +3,11 @@ id: TASK-1951
 title: >-
   SEC-11: the 8 KiB NUL sniff is the only binary guard, so any binary with a
   long ASCII prefix is rewritten and corrupted
-status: To Do
+status: Done
 assignee:
   - TASK-2011
 created_date: '2026-08-27 15:49'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:36'
 labels:
   - code-review-rust
   - security
@@ -43,8 +43,22 @@ Note the two fixers are not symmetric in blast radius: `fix_eof` only touches th
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The binary guard used by run_fixer inspects the entire buffer, not a fixed 8 KiB prefix
-- [ ] #2 A non-UTF-8 buffer is either rejected as non-text or the docs state explicitly why it is fixed anyway
-- [ ] #3 An end-to-end test writes a fixture that is ASCII for more than 8 KiB followed by binary payload bytes containing a 0x20 0x0A pair, runs both fixers, and asserts the file is byte-identical afterwards
-- [ ] #4 binary.rs test nul_outside_sniff_window_is_not_binary is updated or removed so it no longer asserts the corrupting behaviour
+- [x] #1 The binary guard used by run_fixer inspects the entire buffer, not a fixed 8 KiB prefix
+- [x] #2 A non-UTF-8 buffer is either rejected as non-text or the docs state explicitly why it is fixed anyway
+- [x] #3 An end-to-end test writes a fixture that is ASCII for more than 8 KiB followed by binary payload bytes containing a 0x20 0x0A pair, runs both fixers, and asserts the file is byte-identical afterwards
+- [x] #4 binary.rs test nul_outside_sniff_window_is_not_binary is updated or removed so it no longer asserts the corrupting behaviour
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2011. `binary::is_probably_binary` is replaced by `binary::is_text`, which scans the **entire** buffer for NUL and additionally requires valid UTF-8. `run_fixer` reads the whole file before asking, so the 8 KiB sniff window bought nothing and cost correctness.
+
+AC#2: non-UTF-8 is rejected as non-text. The module doc records the trade — both fixers reason only about ASCII whitespace, so restricting to UTF-8 rules out NUL-free binary formats that the NUL test cannot detect at any offset, at the cost of leaving a legacy single-byte-encoded text file untouched. Not fixing a file is recoverable; corrupting one is not.
+
+AC#4: `nul_outside_sniff_window_is_not_binary` is replaced by `nul_far_past_the_old_8_kib_sniff_window_is_still_not_text`, which asserts the opposite, plus `nul_free_non_utf8_is_not_text`.
+
+AC#3: `tests::a_binary_payload_past_the_old_sniff_window_is_left_byte_identical` — 9000 ASCII bytes, a `P5` header, then `0x20 0x0A 0xFF 0x00 0x20 0x0A`; both fixers run and the file is asserted byte-identical.
+
+Non-text files are counted in `FixerReport::files_skipped` and shown in the summary, but not listed one line per file: every file in the tree is a candidate here (unlike the config checkers, which filter by extension), so per-file lines for every image and font would bury the skips that matter. Rationale is in `runner::write_skip`.
+<!-- SECTION:NOTES:END -->

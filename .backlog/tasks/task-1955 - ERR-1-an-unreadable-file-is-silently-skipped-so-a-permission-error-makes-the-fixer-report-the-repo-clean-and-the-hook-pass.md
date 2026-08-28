@@ -3,11 +3,11 @@ id: TASK-1955
 title: >-
   ERR-1: an unreadable file is silently skipped, so a permission error makes the
   fixer report the repo clean and the hook pass
-status: To Do
+status: Done
 assignee:
   - TASK-2011
 created_date: '2026-08-27 15:50'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:37'
 labels:
   - code-review-rust
   - idioms
@@ -46,8 +46,25 @@ Reachable causes, all mundane: a file mode-600 owned by another user (very commo
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A file that cannot be read is reported on the writer with its path and the underlying io error, not silently skipped
-- [ ] #2 FixerReport carries the number of skipped files and write_summary includes it, so scanned + skipped accounts for every discovered path
-- [ ] #3 The module doc states whether an unreadable file makes the run exit non-zero, and the code matches that statement
-- [ ] #4 A test makes one fixture unreadable, runs a fixer, and asserts the skip is reported rather than the run looking clean
+- [x] #1 A file that cannot be read is reported on the writer with its path and the underlying io error, not silently skipped
+- [x] #2 FixerReport carries the number of skipped files and write_summary includes it, so scanned + skipped accounts for every discovered path
+- [x] #3 The module doc states whether an unreadable file makes the run exit non-zero, and the code matches that statement
+- [x] #4 A test makes one fixture unreadable, runs a fixer, and asserts the skip is reported rather than the run looking clean
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2011. The `let Ok(bytes) = fs::read(..) else { continue }` is gone. `runner::read_candidate` classifies every discovered path, and the outcome is always visible:
+
+- read/metadata failure -> `FixerReport::files_failed` with the path, the `io::ErrorKind` and the message, rendered as `<label>: <path>: read: <err>`;
+- deliberate skips (over the cap, not a regular file, vanished, not text) -> `FixerReport::files_skipped`.
+
+AC#2 is satisfied in a refined form (**substitution**): the accounting is three-way, not two-way. `files_scanned + files_skipped + files_failed` accounts for every discovered path, and `write_summary` prints all four numbers. An unreadable file is a *failure*, not a skip, because "could not check" on a gate is closer to "failed" than to "passed" — so counting it under `files_skipped` as the AC literally asks would have understated it. `tests::every_discovered_file_is_accounted_for` pins the identity.
+
+AC#3: the lib.rs module doc has an "# Exit-code contract" section stating that the CLI exits non-zero when `changed()` **or** `failed()`; `crates/cli/src/subcommands.rs::run_text_fixer` matches it.
+
+AC#4: `tests::an_unreadable_file_is_reported_rather_than_making_the_run_look_clean` (chmod 0000 fixture, self-skipping under root).
+
+The companion swallow in `discovery::walk` is fixed too: `walker.flatten()` dropped every `ignore::Error`, so an unreadable directory contributed zero files in silence. The walk now collects those into `Discovery::walk_errors` and both consumers print them. Test: `discovery::tests::a_directory_the_walk_cannot_enter_is_reported_not_swallowed`.
+<!-- SECTION:NOTES:END -->

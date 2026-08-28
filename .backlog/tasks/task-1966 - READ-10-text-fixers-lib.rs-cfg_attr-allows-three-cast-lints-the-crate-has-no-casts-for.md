@@ -3,11 +3,11 @@ id: TASK-1966
 title: >-
   READ-10: text-fixers lib.rs cfg_attr allows three cast lints the crate has no
   casts for
-status: To Do
+status: Done
 assignee:
   - TASK-2011
 created_date: '2026-08-27 15:53'
-updated_date: '2026-08-28 14:18'
+updated_date: '2026-08-28 23:39'
 labels:
   - code-review-rust
   - readability
@@ -51,7 +51,19 @@ This is the same copy-paste template flagged on three sibling crates already —
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The crate-level cfg_attr no longer allows cast_possible_truncation, cast_precision_loss or cast_sign_loss
-- [ ] #2 cargo clippy --all-targets --workspace -- -D warnings is clean after the removal
-- [ ] #3 The remaining suppression uses expect with a reason, or the reason is documented next to it per docs/clippy.md
+- [x] #1 The crate-level cfg_attr no longer allows cast_possible_truncation, cast_precision_loss or cast_sign_loss
+- [x] #2 cargo clippy --all-targets --workspace -- -D warnings is clean after the removal
+- [x] #3 The remaining suppression uses expect with a reason, or the reason is documented next to it per docs/clippy.md
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2011. The whole `#![cfg_attr(test, allow(..))]` block is removed, not just the three cast lints (AC#1).
+
+`clippy::unwrap_used` turned out to be dead here too: `clippy.toml` sets `allow-unwrap-in-tests = true` workspace-wide, so the lint never fires in a `#[cfg(test)]` module in the first place. Writing it as `#[expect]` proves it — clippy reports the expectation as unfulfilled, which is how this was caught. This is the same conclusion TASK-1968 reached for `extensions/tokei`, so the crate root now carries the same explanatory comment in place of the block, naming this task and both reasons: no `as` cast exists anywhere in the crate (and the workspace denies `clippy::as_conversions` anyway), and `unwrap_used` is already relaxed by `clippy.toml`. That satisfies AC#3 — `expect` is not usable, so the reason is documented next to the (absent) suppression per `docs/clippy.md`.
+
+AC#2: `cargo clippy --workspace --all-targets -- -D warnings` is clean.
+
+The finding's worry was concrete for this crate: the arithmetic here is all buffer offsets, and the three cast allows would have absorbed the first `cast_possible_truncation` anyone introduced. The wave added `usize::try_from` / `u64::try_from` conversions in `runner::read_bounded`, and with the allows gone clippy is what keeps them honest.
+<!-- SECTION:NOTES:END -->
