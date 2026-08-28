@@ -259,6 +259,67 @@ fn parse_gradle_settings_inline_comment() {
     assert_eq!(s.includes, vec!["core"]);
 }
 
+/// READ-6 / TASK-1744: the Kotlin `include(...)` and Groovy bare-`include`
+/// spellings of the same argument must agree. The Kotlin path used to split
+/// at the `)` *inside* the string because its quote scan was not
+/// backslash-aware, and the module was silently dropped.
+#[test]
+fn parse_gradle_settings_escaped_quote_include_parity_between_kotlin_and_groovy() {
+    let expected = vec![r#"legacy\")module"#.to_string()];
+
+    let kotlin_dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        kotlin_dir.path().join("settings.gradle.kts"),
+        "include(\"legacy\\\")module\")\n",
+    )
+    .unwrap();
+    let kotlin = parse_gradle_settings(kotlin_dir.path()).unwrap();
+
+    let groovy_dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        groovy_dir.path().join("settings.gradle"),
+        "include \"legacy\\\")module\"\n",
+    )
+    .unwrap();
+    let groovy = parse_gradle_settings(groovy_dir.path()).unwrap();
+
+    assert_eq!(kotlin.includes, expected);
+    assert_eq!(groovy.includes, expected);
+}
+
+/// READ-6 / TASK-1744: comment stripping happens once, and quote-aware, so a
+/// module path containing `//` is no longer truncated to nothing.
+#[test]
+fn parse_gradle_settings_include_argument_containing_double_slash_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle.kts"),
+        "include(\"a//b\") // trailing note\n",
+    )
+    .unwrap();
+
+    let s = parse_gradle_settings(dir.path()).unwrap();
+    assert_eq!(s.includes, vec!["a//b".to_string()]);
+}
+
+/// CL-3 / TASK-1733: `rootProject.name` inside a block is not the root
+/// project's name; a top-level assignment elsewhere in the file still wins.
+#[test]
+fn parse_gradle_settings_nested_root_project_name_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle"),
+        "rootProject.name = 'real'\n\
+         gradle.beforeProject {\n\
+         rootProject.name = 'nested'\n\
+         }\n",
+    )
+    .unwrap();
+
+    let s = parse_gradle_settings(dir.path()).unwrap();
+    assert_eq!(s.root_project_name, Some("real".to_string()));
+}
+
 #[test]
 fn parse_gradle_settings_missing_file() {
     let dir = tempfile::tempdir().unwrap();
@@ -422,6 +483,94 @@ fn parse_gradle_build_kts() {
     assert_eq!(b.description, Some("Kotlin Build".to_string()));
 }
 
+/// CL-3 / TASK-1733: a `description` inside a task block is that *task's*
+/// description; the root project's own assignment must win regardless of
+/// which comes last in the file.
+#[test]
+fn parse_gradle_build_root_description_wins_over_task_block() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("build.gradle"),
+        "description = 'The real project description'\n\
+         \n\
+         tasks.register('generateDocs') {\n\
+         description = 'Generates the API docs'\n\
+         }\n",
+    )
+    .unwrap();
+
+    let b = parse_gradle_build(dir.path()).unwrap();
+    assert_eq!(
+        b.description,
+        Some("The real project description".to_string())
+    );
+}
+
+/// CL-3 / TASK-1733: with no root-level assignment, a nested one must not be
+/// promoted — the project simply has no description.
+#[test]
+fn parse_gradle_build_task_block_description_alone_yields_none() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("build.gradle.kts"),
+        "subprojects {\n\
+         description = \"A subproject\"\n\
+         }\n",
+    )
+    .unwrap();
+
+    let b = parse_gradle_build(dir.path()).unwrap();
+    assert_eq!(b.description, None);
+}
+
+/// CL-3 / TASK-1733: the Groovy bare-method form (`description 'text'`) is
+/// subject to the same depth rule as the assignment form.
+#[test]
+fn parse_gradle_build_bare_method_inside_block_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("build.gradle"),
+        "task hello {\n\
+         description 'Says hello'\n\
+         }\n",
+    )
+    .unwrap();
+
+    let b = parse_gradle_build(dir.path()).unwrap();
+    assert_eq!(b.description, None);
+}
+
+/// CL-3 / TASK-1733: a `{` inside a string literal must not open a phantom
+/// block and lock out the following top-level assignment.
+#[test]
+fn parse_gradle_build_brace_inside_quoted_value_is_not_a_block() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("build.gradle"),
+        "group = 'com.example{'\n\
+         description = 'Still top level'\n",
+    )
+    .unwrap();
+
+    let b = parse_gradle_build(dir.path()).unwrap();
+    assert_eq!(b.description, Some("Still top level".to_string()));
+}
+
+/// CL-3 / TASK-1733: first writer wins, matching the Maven parser's
+/// `try_set_once`.
+#[test]
+fn parse_gradle_build_duplicate_top_level_description_keeps_first() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("build.gradle"),
+        "description = 'first'\ndescription = 'second'\n",
+    )
+    .unwrap();
+
+    let b = parse_gradle_build(dir.path()).unwrap();
+    assert_eq!(b.description, Some("first".to_string()));
+}
+
 #[test]
 fn parse_gradle_build_missing_file() {
     let dir = tempfile::tempdir().unwrap();
@@ -466,16 +615,21 @@ fn gradle_provider_provide_full() {
     assert_eq!(result["module_label"], "subprojects");
 }
 
+/// TEST-11 / TASK-1751: `settings.gradle` exists but declares no
+/// `rootProject.name`, so the identity falls back to the working-directory
+/// name. Asserting the exact value is the whole coverage of that fallback —
+/// `!name.is_empty()` also passes for a hardcoded placeholder or the wrong
+/// ancestor directory.
 #[test]
-fn gradle_provider_provide_minimal() {
+fn gradle_provider_provide_settings_without_root_project_name_falls_back_to_dir_name() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("settings.gradle"), "// empty settings\n").unwrap();
 
     let mut ctx = Context::test_context(dir.path().to_path_buf());
     let result = GradleIdentityProvider.provide(&mut ctx).unwrap();
 
-    let name = result["name"].as_str().unwrap();
-    assert!(!name.is_empty());
+    let expected = dir.path().file_name().unwrap().to_str().unwrap();
+    assert_eq!(result["name"], expected);
     assert_eq!(result["stack_detail"], "Gradle");
     assert!(result["version"].is_null());
 }
