@@ -3,11 +3,11 @@ id: TASK-1894
 title: >-
   READ-4: has_staged_files_with_timeout documents a # Panics contract for a
   panic the function deliberately no longer has
-status: To Do
+status: Done
 assignee:
   - TASK-2008
 created_date: '2026-08-27 15:35'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:04'
 labels:
   - code-review-rust
   - readability
@@ -47,6 +47,6 @@ There is no `unwrap`, `expect`, `panic!`, `unreachable!`, or slice index anywher
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The # Panics section on has_staged_files_with_timeout is removed, since the function has no panicking path
-- [ ] #2 The Stdio::piped() invariant it described is preserved as a plain note (the inline comment on the None arm already states it), so the reasoning is not lost
+- [x] #1 The # Panics section on has_staged_files_with_timeout is removed, since the function has no panicking path
+- [x] #2 The Stdio::piped() invariant it described is preserved as a plain note (the inline comment on the None arm already states it), so the reasoning is not lost
 <!-- AC:END -->

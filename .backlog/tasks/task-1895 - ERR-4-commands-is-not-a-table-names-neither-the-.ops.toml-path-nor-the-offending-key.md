@@ -3,11 +3,11 @@ id: TASK-1895
 title: >-
   ERR-4: 'commands is not a table' names neither the .ops.toml path nor the
   offending key
-status: To Do
+status: Done
 assignee:
   - TASK-2008
 created_date: '2026-08-27 15:35'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:05'
 labels:
   - code-review-rust
   - idioms
@@ -39,7 +39,7 @@ The operator sees `commands is not a table` and nothing else — not the file it
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The 'commands is not a table' error names the .ops.toml path it was read from
-- [ ] #2 A test writes an .ops.toml whose top-level commands key is a non-table and asserts the error text contains the file path
-- [ ] #3 The message makes clear that the top-level TOML key "commands" is the offending key and states what shape was expected
+- [x] #1 The 'commands is not a table' error names the .ops.toml path it was read from
+- [x] #2 A test writes an .ops.toml whose top-level commands key is a non-table and asserts the error text contains the file path
+- [x] #3 The message makes clear that the top-level TOML key "commands" is the offending key and states what shape was expected
 <!-- AC:END -->

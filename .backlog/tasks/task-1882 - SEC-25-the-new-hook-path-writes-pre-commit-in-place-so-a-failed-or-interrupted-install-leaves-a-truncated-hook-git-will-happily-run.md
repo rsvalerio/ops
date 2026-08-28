@@ -3,11 +3,11 @@ id: TASK-1882
 title: >-
   SEC-25: the new-hook path writes pre-commit in place, so a failed or
   interrupted install leaves a truncated hook git will happily run
-status: To Do
+status: Done
 assignee:
   - TASK-2008
 created_date: '2026-08-27 15:33'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 22:58'
 labels:
   - code-review-rust
   - security
@@ -47,8 +47,8 @@ The fix already exists in the same file: route the create path through the same 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 install_hook's create path stages the hook payload in a temp sibling and renames it into place atomically, so .git/hooks/<hook> is never observable in a partially written state
-- [ ] #2 If any step of the create path fails, no file is left at the hook path (the staged temp file is removed and the error is propagated with context)
-- [ ] #3 A test simulates a write failure (or interruption) during first-time install and asserts that no file — in particular no empty file — remains at .git/hooks/pre-commit afterwards
-- [ ] #4 A test asserts an empty or truncated pre-existing hook file is not reported to the operator as a foreign user-authored hook
+- [x] #1 install_hook's create path stages the hook payload in a temp sibling and renames it into place atomically, so .git/hooks/<hook> is never observable in a partially written state
+- [x] #2 If any step of the create path fails, no file is left at the hook path (the staged temp file is removed and the error is propagated with context)
+- [x] #3 A test simulates a write failure (or interruption) during first-time install and asserts that no file — in particular no empty file — remains at .git/hooks/pre-commit afterwards
+- [x] #4 A test asserts an empty or truncated pre-existing hook file is not reported to the operator as a foreign user-authored hook
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1886
 title: >-
   ERR-7: install.rs and git_state.rs log attacker-influenced paths and env
   values with Display, contradicting the crate's own Debug-escaping policy
-status: To Do
+status: Done
 assignee:
   - TASK-2008
 created_date: '2026-08-27 15:33'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:00'
 labels:
   - code-review-rust
   - security
@@ -36,8 +36,8 @@ Three sites in the same crate use `%` (Display) instead, on values that are exac
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 sync_parent_dir formats its parent path and io::Error tracing fields with ? (Debug) rather than %
-- [ ] #2 git_timeout_from_env formats the raw env value with ? so control characters and ANSI escapes are escaped in the warn line
-- [ ] #3 read_stderr_bounded formats program with ?
-- [ ] #4 A test asserts a control-character-bearing env value is escaped in the git_timeout_from_env warn output, mirroring git_pointer_path_debug_escapes_control_characters
+- [x] #1 sync_parent_dir formats its parent path and io::Error tracing fields with ? (Debug) rather than %
+- [x] #2 git_timeout_from_env formats the raw env value with ? so control characters and ANSI escapes are escaped in the warn line
+- [x] #3 read_stderr_bounded formats program with ?
+- [x] #4 A test asserts a control-character-bearing env value is escaped in the git_timeout_from_env warn output, mirroring git_pointer_path_debug_escapes_control_characters
 <!-- AC:END -->
