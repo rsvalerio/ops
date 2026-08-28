@@ -8,12 +8,74 @@ use std::path::Path;
 
 /// Factory function that creates an extension instance given config and workspace root.
 /// Registered automatically by `impl_extension!` when the `factory:` arm is provided.
+///
+/// Returns `None` when the extension's prerequisites are not met (wrong
+/// stack, a required tool missing from `PATH`, disabled in config); the
+/// extension is then compiled in but inactive.
+///
+/// # The returned config name
+///
+/// ARCH-9 / TASK-1868: the `&'static str` in the returned pair is the
+/// **config name** — the key users write in `extensions.enabled` and the key
+/// consumers deduplicate on. It is a value independent of
+/// [`Extension::name`], which is what diagnostics, the data-provider audit
+/// trail and [`ExtensionInfo`] report. Nothing checks that the two agree.
+///
+/// They **should** be equal. When they disagree nothing fails: the extension
+/// is selected under the config name and then described everywhere by
+/// `Extension::name()`, so a user who enables `foo` sees log lines about
+/// `bar` and cannot tell which extension actually loaded. Factories generated
+/// by `impl_extension!` derive both from the same constant, which is the
+/// reason to use the macro rather than writing a factory by hand.
 pub type ExtensionFactory = fn(&Config, &Path) -> Option<(&'static str, Box<dyn Extension>)>;
 
 /// Distributed slice collecting all extension factories at link time.
 /// Extensions contribute to this slice via `impl_extension!` with a `factory:` arm.
+///
+/// # Ordering is unspecified
+///
+/// ARCH-9 / TASK-1868: `linkme` makes **no guarantee** about slot order. It is
+/// whatever the linker emits and it can change with link order, LTO settings
+/// or a toolchain bump, with no source change. Therefore:
+///
+/// - never resolve a `config_name` collision by relying on which factory
+///   appears first or last — run the probed pairs through
+///   [`sort_compiled_extensions`] first, which imposes a total order and
+///   makes the surviving extension the same on every build;
+/// - never treat a slot index as a stable identifier for an extension. It is
+///   a link-order artifact, useful only as a within-process debugging
+///   breadcrumb.
+///
+/// Uniqueness is not enforced here either: nothing stops two factories
+/// returning the same config name. See [`ExtensionFactory`] for the
+/// config-name-versus-[`Extension::name`] relationship.
 #[linkme::distributed_slice]
 pub static EXTENSION_REGISTRY: [ExtensionFactory];
+
+/// Impose a deterministic total order on probed extension factory results.
+///
+/// ARCH-9 / TASK-1868: [`EXTENSION_REGISTRY`] hands out pairs in unspecified
+/// link order, and every consumer collapses them into a map — which means the
+/// *link order* decides which extension survives a `config_name` collision.
+/// That is genuine functional non-determinism: the winner can flip between
+/// builds. Sorting by `(config_name, Extension::name())` before the collapse
+/// pins the winner, so every consumer inherits the guarantee instead of
+/// rediscovering the hazard.
+///
+/// The sort is stable, so two pairs agreeing on *both* keys keep their
+/// relative link order — but they are then indistinguishable to every
+/// consumer, so which one wins is not observable.
+#[must_use]
+pub fn sort_compiled_extensions(
+    mut pairs: Vec<(&'static str, Box<dyn Extension>)>,
+) -> Vec<(&'static str, Box<dyn Extension>)> {
+    pairs.sort_by(|(a_config, a_ext), (b_config, b_ext)| {
+        a_config
+            .cmp(b_config)
+            .then_with(|| a_ext.name().cmp(b_ext.name()))
+    });
+    pairs
+}
 
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -117,21 +179,21 @@ impl CommandRegistry {
     /// wiring layer can warn about within-extension self-shadowing instead
     /// of letting the silent overwrite swallow the first registration.
     ///
-    /// CL-5 / TASK-0661: this registry is **last-write-wins** (matching
-    /// `IndexMap::insert` semantics) so config-defined commands can shadow
-    /// extension-provided commands when merged at the wiring layer.
-    /// Contrast with [`crate::DataRegistry::register`] which is
-    /// **first-write-wins**: data providers are security-trusted built-ins
-    /// (identity, metadata) that must not be silently shadowed by a later
-    /// extension. The asymmetry is intentional.
+    /// CL-5 / TASK-0661, CL-3 / TASK-1872: this registry is
+    /// **last-write-wins** (matching `IndexMap::insert` semantics). The
+    /// rationale and the contrast with [`crate::DataRegistry::register`]'s
+    /// first-write-wins policy are documented once, in
+    /// [`crate::registry_duplicate_policy`]; do not restate them here or on
+    /// the sibling method.
     pub fn insert(&mut self, id: CommandId, spec: CommandSpec) -> Option<CommandSpec> {
-        // PATTERN-3 / TASK-0753: route through `Entry` so the duplicate-input
-        // path consults the hash map exactly once. The previous shape did a
+        // PATTERN-3 / TASK-0753: route through `Entry` so a registration
+        // consults the hash map exactly once. The previous shape did a
         // `contains_key`, then cloned the input id into the audit trail, then
-        // called `insert` — three probes per registration. The audit clone
-        // now uses the key already stored in the map, leaving the input `id`
-        // untouched so the caller's allocation moves straight into the map
-        // (or is dropped) without a heap copy on the duplicate path.
+        // called `insert` — three probes per registration. READ-4 /
+        // TASK-1881: the cost profile that buys is one probe instead of
+        // three; the duplicate path still pays a key clone, because `entry`
+        // consumed the input `id` and the audit trail needs an owned copy of
+        // the key that stayed in the map.
         match self.inner.entry(id) {
             indexmap::map::Entry::Occupied(mut occupied) => {
                 self.duplicate_inserts.push(occupied.key().clone());

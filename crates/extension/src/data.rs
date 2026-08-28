@@ -111,6 +111,20 @@ impl DataProviderSchema {
 ///     }
 /// }
 /// ```
+///
+/// # Why no `Debug` supertrait
+///
+/// TRAIT-4 / TASK-1879: adding `Debug` as a supertrait was considered and
+/// **rejected**. It would be a breaking change for every out-of-tree
+/// implementer for a benefit that is already covered: [`DataRegistry`]'s
+/// `Debug` impl names providers by their registered key, which is the
+/// identity every diagnostic in this crate (the duplicate-insert breadcrumb,
+/// `provider_names`, `DataProviderError::NotFound`) already reports. A
+/// concrete provider type name would add nothing a key does not, and
+/// providers commonly hold connection handles and credentials whose derived
+/// `Debug` output is exactly what should not reach a log. Implementers who
+/// want a representation may derive `Debug` on their own type; nothing here
+/// prevents it.
 pub trait DataProvider: Send + Sync {
     /// Returns the unique name of this data provider.
     ///
@@ -120,8 +134,8 @@ pub trait DataProvider: Send + Sync {
     /// Provides data, potentially using context for caching or configuration.
     ///
     /// Implementations may:
-    /// - Use `ctx.db` to query an attached database handle
-    /// - Use `ctx.config` to access configuration
+    /// - Use `ctx.db()` to query an attached database handle
+    /// - Use `ctx.config()` to access configuration
     /// - Run external commands or read files
     ///
     /// The result is cached by `Context::get_or_provide` for subsequent calls.
@@ -136,11 +150,13 @@ pub trait DataProvider: Send + Sync {
     ///   itself; it originates from `DataRegistry::provide` /
     ///   `Context::get_or_provide` when the requested provider name is not
     ///   registered.
-    /// - [`DataProviderError::Cycle`] (SEC-38 / TASK-0744) is returned by
-    ///   [`Context::get_or_provide`] when a provider transitively re-requests
-    ///   its own key. Implementations that compose other providers via
-    ///   `ctx.get_or_provide(...)` should propagate this variant rather than
-    ///   swallowing it, so the cycle surfaces at the originating call site.
+    /// - [`DataProviderError::Cycle`] (SEC-38 / TASK-0744, TASK-1865) is
+    ///   returned by [`DataRegistry::provide`] — and therefore by
+    ///   [`Context::get_or_provide`], which dispatches through it — when a
+    ///   provider transitively re-requests a key already in flight.
+    ///   Implementations that compose other providers should propagate this
+    ///   variant rather than swallowing it, so the cycle surfaces at the
+    ///   originating call site.
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError>;
 
     /// Returns a schema describing what data this provider exposes.
@@ -199,11 +215,11 @@ impl DataRegistry {
     /// refused: the first provider wins and the second is recorded for the
     /// CLI wiring layer to surface as a `tracing::warn!`.
     ///
-    /// CL-5 / TASK-0661: this registry is **first-write-wins** because the
-    /// providers are security-trusted built-ins. Contrast with
-    /// [`crate::CommandRegistry::insert`] which is **last-write-wins** so
-    /// config commands can intentionally shadow extension-provided
-    /// commands. The two policies diverge by design.
+    /// CL-5 / TASK-0661, CL-3 / TASK-1872: this registry is
+    /// **first-write-wins**. The rationale and the contrast with
+    /// [`crate::CommandRegistry::insert`]'s last-write-wins policy are
+    /// documented once, in [`crate::registry_duplicate_policy`]; do not
+    /// restate them here or on the sibling method.
     ///
     /// CL-5 / TASK-0756: the previous implementation also fired a
     /// `debug_assert!(false)` on collision, which weaponised tests against
@@ -221,17 +237,37 @@ impl DataRegistry {
     /// provider are at least observable in logs. The aggregated
     /// `tracing::warn!` emitted by the CLI wiring layer via
     /// [`take_duplicate_inserts`](Self::take_duplicate_inserts) remains the
-    /// primary user-facing signal; the debug breadcrumb here is the
+    /// aggregated user-facing signal; the debug breadcrumb here is the
     /// finer-grained drop-site trace.
-    pub fn register(&mut self, name: impl Into<String>, provider: Box<dyn DataProvider>) {
+    ///
+    /// CL-3 / TASK-1872: the outcome is also returned. Previously `register`
+    /// returned `()`, so from the call site a rejected registration was
+    /// indistinguishable from an accepted one and the *only* failure channel
+    /// was an audit `Vec` some later, unrelated caller had to remember to
+    /// drain — a precondition the compiler cannot check, and one that had
+    /// already been missed once on the sibling registry (DUP-3 / TASK-1225).
+    /// Returning the rejected provider mirrors
+    /// [`crate::CommandRegistry::insert`]'s shape and makes ignoring the
+    /// outcome an explicit `let _ = …` rather than the invisible default.
+    ///
+    /// Returns `None` when `name` was free and the provider was installed,
+    /// or `Some(provider)` handing back the rejected value when a provider
+    /// was already registered under `name`.
+    #[must_use = "a returned provider was rejected as a duplicate and is about to be dropped; \
+                  bind it with `let _ = …` to accept that, or keep it"]
+    pub fn register(
+        &mut self,
+        name: impl Into<String>,
+        provider: Box<dyn DataProvider>,
+    ) -> Option<Box<dyn DataProvider>> {
         let name = name.into();
-        // PATTERN-3 / TASK-1489: route through `IndexMap::entry` so the
-        // happy path consults the inner map exactly once, mirroring the
-        // sibling `CommandRegistry::insert` (CL-5 / TASK-0756) which was
-        // previously migrated under PATTERN-3 / TASK-0753. The audit-trail
-        // clone reuses the key already stored in the map on the duplicate
-        // path so the incoming allocation moves straight into the audit
-        // Vec without an extra copy.
+        // PATTERN-3 / TASK-1489: route through `IndexMap::entry` so the happy
+        // path consults the inner map exactly once, mirroring the sibling
+        // `CommandRegistry::insert` (CL-5 / TASK-0756) which was previously
+        // migrated under PATTERN-3 / TASK-0753. READ-4 / TASK-1881: the cost
+        // profile that buys is one hash probe instead of two on the happy
+        // path; the duplicate path pays a clone of the key already stored in
+        // the map, because `entry` consumed the incoming `name`.
         match self.providers.entry(name) {
             indexmap::map::Entry::Occupied(occupied) => {
                 // SEC-21 / TASK-1226: `name` is `impl Into<String>` and may be
@@ -245,12 +281,14 @@ impl DataRegistry {
                 tracing::debug!(
                     provider_name = ?occupied.key(),
                     dropped_provider_reports_name = %provider.name(),
-                    "DataRegistry::register dropping duplicate provider (first-write-wins); incoming Box<dyn DataProvider> will be dropped at end of scope"
+                    "DataRegistry::register rejecting duplicate provider (first-write-wins); the incoming Box<dyn DataProvider> is returned to the caller"
                 );
                 self.duplicate_inserts.push(occupied.key().clone());
+                Some(provider)
             }
             indexmap::map::Entry::Vacant(vacant) => {
                 vacant.insert(provider);
+                None
             }
         }
     }
@@ -302,19 +340,54 @@ impl DataRegistry {
             .unwrap_or_default()
     }
 
+    /// Dispatch to the provider registered under `name`.
+    ///
+    /// SEC-38 / TASK-1865: the re-entrancy guard lives **here**, at the single
+    /// dispatch point, rather than in the caching wrapper
+    /// [`Context::get_or_provide`]. Previously the `in_flight` marker was set
+    /// only by `get_or_provide`, so a provider composing others through this
+    /// method (or through a `&dyn DataProvider` obtained from
+    /// [`DataRegistry::get`]) re-entered the provider graph unguarded and an
+    /// A -> B -> A cycle recursed until stack overflow — an abort, not a
+    /// catchable error. Both public entry points now cross this function, so
+    /// the guard cannot be bypassed by picking the other one.
+    ///
+    /// The marker is cleared on both the success and the failure path so a
+    /// provider that fails does not poison later requests for the same key.
+    ///
     /// # Errors
     ///
     /// [`DataProviderError::NotFound`] if no provider is registered under
-    /// `name`, or whatever error the provider itself returns.
+    /// `name`, [`DataProviderError::Cycle`] if a provider for `name` is
+    /// already executing on `ctx`, or whatever error the provider itself
+    /// returns.
     pub fn provide(
         &self,
         name: &str,
         ctx: &mut Context,
     ) -> Result<serde_json::Value, DataProviderError> {
-        self.providers
+        let provider = self
+            .providers
             .get(name)
-            .ok_or_else(|| DataProviderError::not_found(name))?
-            .provide(ctx)
+            .ok_or_else(|| DataProviderError::not_found(name))?;
+        ctx.enter_provider(name)?;
+        let result = provider.provide(ctx);
+        ctx.exit_provider(name);
+        result
+    }
+}
+
+/// TRAIT-4 / TASK-1879: hand-written because `Box<dyn DataProvider>` is not
+/// `Debug`, which is a reason to write the impl rather than to have none —
+/// without it no downstream type holding a `DataRegistry` can derive `Debug`,
+/// and the omission propagates outward. Prints the provider names in
+/// registration order plus any audit-trail entries not yet drained.
+impl std::fmt::Debug for DataRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DataRegistry")
+            .field("providers", &self.providers.keys())
+            .field("duplicate_inserts", &self.duplicate_inserts)
+            .finish()
     }
 }
 
@@ -336,10 +409,18 @@ impl IntoIterator for DataRegistry {
 /// # Downcast contract
 ///
 /// The only concrete type stored behind `Arc<dyn DuckDbHandle>` in production
-/// code is `ops_duckdb::DuckDb`. Downcast call sites should:
+/// code is `ops_duckdb::DuckDb`.
+///
+/// **Reborrow as `&dyn DuckDbHandle` first.** The blanket impl below covers
+/// every `'static + Send + Sync` type, and `Arc<dyn DuckDbHandle>` is one of
+/// them — so method resolution on an `Arc` (or `&Arc`) receiver matches the
+/// blanket impl *for the smart pointer* before it derefs, and `as_any()`
+/// hands back the erased `Arc` instead of the handle. Every downcast from it
+/// then returns `None`. Downcast call sites should:
 ///
 /// ```text
-/// let db: Option<&ops_duckdb::DuckDb> = handle
+/// let erased: &dyn DuckDbHandle = handle.as_ref();
+/// let db: Option<&ops_duckdb::DuckDb> = erased
 ///     .as_any()
 ///     .downcast_ref::<ops_duckdb::DuckDb>();
 /// ```
@@ -383,27 +464,38 @@ impl<T: std::any::Any + Send + Sync> DuckDbHandle for T {
 /// `pub`; reads go through [`Context::cached`] and writes go through
 /// [`Context::get_or_provide`] so callers cannot bypass the
 /// caching/provider contract by inserting raw values directly.
+///
+/// ARCH-9 / TASK-1874: every remaining field is private too. Providers
+/// receive `&mut Context`, so a public field is a mutation channel one
+/// provider can use to change what its *siblings* observe later in the same
+/// traversal — `refresh` flips the cache-bypass semantics for every
+/// subsequent `get_or_provide` on this context, and `working_directory`
+/// re-points path resolution for every provider that runs afterwards (a
+/// confused deputy within a single command invocation). Reads go through
+/// [`Context::config`], [`Context::working_directory`],
+/// [`Context::is_refreshing`] and [`Context::db`]; the only mutators are the
+/// constructors, [`Context::with_refresh`], [`Context::attach_db`] and
+/// [`Context::clear_provider_results`].
 #[non_exhaustive]
 pub struct Context {
-    pub config: Arc<Config>,
-    pub(crate) data_cache: HashMap<String, Arc<serde_json::Value>>,
+    config: Arc<Config>,
+    data_cache: HashMap<String, Arc<serde_json::Value>>,
     /// SEC-38 / TASK-0744: keys whose providers are currently executing on
-    /// this context. Inserted before `registry.provide` and removed on the
-    /// way out, so a provider that transitively re-requests its own key
-    /// surfaces as `DataProviderError::Cycle` instead of recursing until
-    /// stack overflow.
-    pub(crate) in_flight: HashSet<String>,
+    /// this context. Inserted before dispatching in
+    /// [`DataRegistry::provide`] and removed on the way out, so a provider
+    /// that transitively re-requests its own key surfaces as
+    /// `DataProviderError::Cycle` instead of recursing until stack overflow.
+    in_flight: HashSet<String>,
     /// PERF-3 / TASK-0890: stored as `Arc<PathBuf>` so the runner can hand
     /// out cheap `Arc::clone`s on every `query_data` invocation instead of
-    /// deep-cloning the inner path. Public field access still works through
-    /// `Arc`'s `Deref<Target = PathBuf>` (e.g. `ctx.working_directory.as_path()`,
-    /// `&ctx.working_directory`); comparisons against a bare `PathBuf` need
-    /// to dereference explicitly (`*ctx.working_directory == ...`).
-    pub working_directory: Arc<PathBuf>,
+    /// deep-cloning the inner path. Read it as a `&Path` via
+    /// [`Context::working_directory`], or share the allocation via
+    /// [`Context::working_directory_arc`].
+    working_directory: Arc<PathBuf>,
     /// When true, data providers should re-collect data instead of using cached/persisted results.
-    pub refresh: bool,
+    refresh: bool,
     #[cfg(feature = "duckdb")]
-    pub db: Option<Arc<dyn DuckDbHandle>>,
+    db: Option<Arc<dyn DuckDbHandle>>,
 }
 
 impl Context {
@@ -428,6 +520,97 @@ impl Context {
             #[cfg(feature = "duckdb")]
             db: None,
         }
+    }
+
+    /// The configuration this invocation was started with.
+    ///
+    /// ARCH-9 / TASK-1874: read-only. Swapping the config mid-traversal would
+    /// change what every later provider sees, so the field is set once by the
+    /// constructors.
+    #[must_use]
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    /// Share the config allocation with a provider that needs to hold on to
+    /// it beyond the borrow of `&Context`.
+    #[must_use]
+    pub const fn config_arc(&self) -> &Arc<Config> {
+        &self.config
+    }
+
+    /// The directory paths in this invocation resolve against.
+    ///
+    /// ARCH-9 / TASK-1874: read-only. Re-pointing it mid-traversal would make
+    /// providers composed later read from a directory the caller never asked
+    /// for.
+    #[must_use]
+    pub fn working_directory(&self) -> &std::path::Path {
+        self.working_directory.as_path()
+    }
+
+    /// Share the cwd allocation (PERF-3 / TASK-0890) without deep-cloning the
+    /// inner [`PathBuf`].
+    #[must_use]
+    pub const fn working_directory_arc(&self) -> &Arc<PathBuf> {
+        &self.working_directory
+    }
+
+    /// Whether providers should re-collect instead of serving cached or
+    /// persisted results.
+    ///
+    /// ARCH-9 / TASK-1874: read-only for providers. Set it at construction
+    /// time via [`Context::with_refresh`]; a provider that assigned to it
+    /// would change caching behaviour for every sibling that ran afterwards.
+    #[must_use]
+    pub const fn is_refreshing(&self) -> bool {
+        self.refresh
+    }
+
+    /// The attached database handle, if the duckdb extension has installed
+    /// one on this context.
+    #[cfg(feature = "duckdb")]
+    #[must_use]
+    pub fn db(&self) -> Option<&Arc<dyn DuckDbHandle>> {
+        self.db.as_ref()
+    }
+
+    /// Attach (or replace) the database handle.
+    ///
+    /// ARCH-9 / TASK-1874: unlike `refresh` and `working_directory`, `db` is
+    /// genuinely provider-assigned — the duckdb extension opens the handle
+    /// lazily on first use and installs it here so sibling providers reuse
+    /// the same connection. That is a *capability being added*, not a
+    /// reinterpretation of what earlier providers already did, so it keeps a
+    /// mutator. It is a named method rather than a public field so the
+    /// assignment is greppable and cannot be confused with the read-only
+    /// fields around it.
+    #[cfg(feature = "duckdb")]
+    pub fn attach_db(&mut self, db: Arc<dyn DuckDbHandle>) {
+        self.db = Some(db);
+    }
+
+    /// SEC-38 / TASK-1865: mark `key` as executing on this context.
+    ///
+    /// Returns [`DataProviderError::Cycle`] when a provider for `key` is
+    /// already in flight — the re-entrancy that would otherwise recurse to a
+    /// stack overflow. Called by [`DataRegistry::provide`], the single
+    /// dispatch point, so no public entry point can skip it.
+    pub(crate) fn enter_provider(&mut self, key: &str) -> Result<(), DataProviderError> {
+        if self.in_flight.insert(key.to_string()) {
+            Ok(())
+        } else {
+            Err(DataProviderError::Cycle {
+                key: key.to_string(),
+            })
+        }
+    }
+
+    /// Clear the in-flight marker set by [`Context::enter_provider`]. Called
+    /// on both the success and the failure path so a failed provider does not
+    /// poison later requests for the same key.
+    pub(crate) fn exit_provider(&mut self, key: &str) {
+        self.in_flight.remove(key);
     }
 
     /// Read-only accessor for an entry in the data cache (API-9 / TASK-0349).
@@ -457,16 +640,13 @@ impl Context {
 
     /// Get cached value or compute via provider and cache.
     ///
-    /// SEC-38 / TASK-0744: detects re-entrant requests for an in-flight key
-    /// (a provider transitively asking for itself, e.g. A → B → A) and
-    /// returns [`DataProviderError::Cycle`] instead of recursing into stack
-    /// overflow. The in-flight marker is inserted before dispatching to the
-    /// provider and removed regardless of success/failure so a provider
-    /// that fails does not poison the cache for retry.
-    ///
-    /// PERF-3 / TASK-1132: `key.to_string()` is allocated exactly once on a
-    /// cache miss and reused for both the `in_flight` insertion and the
-    /// final `data_cache` insertion. The previous shape allocated twice.
+    /// SEC-38 / TASK-0744, TASK-1865: re-entrant requests for an in-flight key
+    /// (a provider transitively asking for itself, e.g. A → B → A) surface as
+    /// [`DataProviderError::Cycle`] instead of recursing into stack overflow.
+    /// The guard itself lives in [`DataRegistry::provide`] — the single
+    /// dispatch point — so it also covers callers that reach a provider
+    /// without going through this cache wrapper. This method is the cache
+    /// fast-path plus a call into that dispatch.
     ///
     /// ERR-1 / TASK-1170: when `self.refresh` is true the cache fast-path is
     /// bypassed and the provider is re-invoked, then the fresh value
@@ -476,11 +656,6 @@ impl Context {
     /// regression that became user-visible once TASK-0993 folded the cache
     /// onto the persistent runner `Context`, which lives across repeat
     /// queries within a single runner lifetime.
-    ///
-    /// # Panics
-    ///
-    /// If the `in_flight` entry inserted at the top of the call is missing by
-    /// the time the provider returns — an internal invariant violation.
     ///
     /// # Errors
     ///
@@ -496,19 +671,9 @@ impl Context {
                 return Ok(Arc::clone(v));
             }
         }
-        let owned_key = key.to_string();
-        if !self.in_flight.insert(owned_key) {
-            return Err(DataProviderError::Cycle {
-                key: key.to_string(),
-            });
-        }
-        let result = registry.provide(key, self);
-        // The entry was inserted above and nothing between the two points
-        // removes it, so `take` always hits; re-allocating the key is a
-        // cost-free fallback that keeps this path panic-free.
-        let owned_key = self.in_flight.take(key).unwrap_or_else(|| key.to_string());
-        let v = Arc::new(result?);
-        self.data_cache.insert(owned_key, Arc::clone(&v));
+        let value = registry.provide(key, self)?;
+        let v = Arc::new(value);
+        self.data_cache.insert(key.to_string(), Arc::clone(&v));
         Ok(v)
     }
 
@@ -521,5 +686,33 @@ impl Context {
     pub fn clear_provider_results(&mut self) {
         self.data_cache.clear();
         self.in_flight.clear();
+    }
+}
+
+/// TRAIT-4 / TASK-1879: hand-written because the optional `Arc<dyn
+/// DuckDbHandle>` is not `Debug`. Prints cache and in-flight **keys only** —
+/// never the cached values, which are arbitrary provider output and may be
+/// large or carry data that has no business in a panic message. Keys are
+/// sorted so the rendering is deterministic across runs despite the backing
+/// `HashMap`/`HashSet` iteration order.
+// `config` is deliberately omitted: it is a large tree whose own `Debug` would
+// dominate every rendering of a `Context`, and it is invariant for the
+// lifetime of the context, so it tells a reader nothing about *this* traversal.
+// Read it through `Context::config()` when it is what you actually want.
+#[allow(clippy::missing_fields_in_debug)]
+impl std::fmt::Debug for Context {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut cached: Vec<&str> = self.data_cache.keys().map(String::as_str).collect();
+        cached.sort_unstable();
+        let mut in_flight: Vec<&str> = self.in_flight.iter().map(String::as_str).collect();
+        in_flight.sort_unstable();
+        let mut s = f.debug_struct("Context");
+        s.field("working_directory", &self.working_directory)
+            .field("refresh", &self.refresh)
+            .field("cached_keys", &cached)
+            .field("in_flight", &in_flight);
+        #[cfg(feature = "duckdb")]
+        s.field("db", &self.db.is_some());
+        s.finish()
     }
 }
