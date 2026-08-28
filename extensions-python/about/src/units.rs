@@ -43,9 +43,44 @@ struct RawUv {
 #[derive(Debug, Deserialize)]
 struct RawWorkspace {
     #[serde(default)]
-    members: Vec<String>,
+    members: Vec<RawGlob>,
     #[serde(default)]
-    exclude: Vec<String>,
+    exclude: Vec<RawGlob>,
+}
+
+/// One entry of `[tool.uv.workspace].members` / `.exclude`.
+///
+/// PATTERN-1 / TASK-1774: a plain `Vec<String>` makes the whole workspace
+/// shape fail on a single non-string element, which zeroes the unit list for a
+/// manifest whose remaining globs are perfectly good. Tolerating the bad
+/// element — with a warn naming the field — degrades that entry only.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawGlob {
+    Pattern(String),
+    Unsupported(toml::Value),
+}
+
+/// Keep the string globs and warn once per unusable entry.
+fn string_globs(entries: Vec<RawGlob>, field: &str, manifest_path: &Path) -> Vec<String> {
+    entries
+        .into_iter()
+        .filter_map(|entry| match entry {
+            RawGlob::Pattern(p) => Some(p),
+            RawGlob::Unsupported(value) => {
+                // ERR-7 / TASK-0974: Debug-format the path so embedded
+                // newlines / ANSI cannot forge log records.
+                tracing::warn!(
+                    path = ?manifest_path.display(),
+                    field = %format!("tool.uv.workspace.{field}"),
+                    kind = value.type_str(),
+                    recovery = "skip-entry",
+                    "unsupported workspace glob entry; keeping the remaining entries"
+                );
+                None
+            }
+        })
+        .collect()
 }
 
 fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
@@ -71,13 +106,14 @@ fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
             return Vec::new();
         }
     };
+    let manifest_path = root.join("pyproject.toml");
     raw.tool
         .and_then(|t| t.uv)
         .and_then(|u| u.workspace)
         .map(|w| {
             ops_about::workspace::resolve_member_globs(
-                &w.members,
-                &w.exclude,
+                &string_globs(w.members, "members", &manifest_path),
+                &string_globs(w.exclude, "exclude", &manifest_path),
                 root,
                 "pyproject.toml",
             )
@@ -150,13 +186,14 @@ mod tests {
     /// ERR-7 / TASK-0974: workspace-shape parse warn now includes the
     /// manifest path. Pin the formatter so embedded newlines / ANSI in an
     /// attacker-controlled checkout path cannot forge log records.
+    /// DUP-3 / TASK-1766: share the assertion with its `lib.rs` sibling via
+    /// `ops_about::test_support::assert_debug_escapes_control_chars` rather
+    /// than re-deriving it inline, so tightening the shared helper upgrades
+    /// both sites at once.
     #[test]
     fn workspace_pyproject_path_debug_escapes_control_characters() {
         let p = Path::new("a\nb\u{1b}[31mc/pyproject.toml");
-        let rendered = format!("{:?}", p.display());
-        assert!(!rendered.contains('\n'));
-        assert!(!rendered.contains('\u{1b}'));
-        assert!(rendered.contains("\\n"));
+        ops_about::test_support::assert_debug_escapes_control_chars(p.display());
     }
 
     #[test]
@@ -278,6 +315,78 @@ members = ["libs/blank"]
         assert_ne!(units[0].name, "  ");
         assert!(units[0].version.is_none());
         assert!(units[0].description.is_none());
+    }
+
+    /// TEST-5 / TASK-1756: the crate doc promises that a malformed root
+    /// manifest degrades to *no units* rather than looking like a project
+    /// without a workspace, and says so via `tracing::warn!` (TASK-0394 /
+    /// TASK-0974). Both halves were previously unasserted.
+    #[test]
+    fn invalid_root_pyproject_yields_no_units() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join("pyproject.toml"), "[tool.uv.workspace\n");
+        assert!(collect_units(dir.path()).is_empty());
+    }
+
+    /// TEST-5 / TASK-1756: a *member* whose own manifest is unparseable must
+    /// still appear as a unit, falling back to the `format_unit_name`
+    /// directory name — the shared `parse_package_metadata` warn-and-default
+    /// path was never exercised from this crate.
+    #[test]
+    fn invalid_member_pyproject_falls_back_to_the_directory_name() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "root"
+
+[tool.uv.workspace]
+members = ["packages/broken"]
+"#,
+        );
+        write(
+            &dir.path().join("packages/broken/pyproject.toml"),
+            "[project\nname = \"broken\"\n",
+        );
+
+        let units = collect_units(dir.path());
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].path, "packages/broken");
+        assert_eq!(units[0].name, format_unit_name("packages/broken"));
+        assert!(units[0].version.is_none());
+    }
+
+    /// PATTERN-1 / TASK-1774: one non-string element in `members` /
+    /// `exclude` must degrade that entry only. A plain `Vec<String>` failed
+    /// the whole workspace shape and zeroed a unit list whose remaining globs
+    /// were perfectly good.
+    #[test]
+    fn non_string_workspace_glob_entry_does_not_zero_the_unit_list() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "root"
+
+[tool.uv.workspace]
+members = ["packages/*", 42]
+exclude = ["packages/internal-*", { bad = true }]
+"#,
+        );
+        write(
+            &dir.path().join("packages/public/pyproject.toml"),
+            "[project]\nname = \"public\"\n",
+        );
+        write(
+            &dir.path().join("packages/internal-thing/pyproject.toml"),
+            "[project]\nname = \"internal-thing\"\n",
+        );
+
+        let units = collect_units(dir.path());
+        assert_eq!(units.len(), 1, "got: {units:?}");
+        assert_eq!(units[0].name, "public");
     }
 
     #[test]

