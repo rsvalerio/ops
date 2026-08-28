@@ -17,9 +17,15 @@ impl DataIngestor for MetadataIngestor {
     }
 
     fn collect(&self, ctx: &Context, data_dir: &Path) -> DbResult<()> {
-        std::fs::create_dir_all(data_dir).map_err(DbError::Io)?;
-        let output = run_cargo_metadata(ctx.working_directory()).map_err(|e| match e {
-            ops_core::subprocess::RunError::Io(io) => DbError::Io(io),
+        std::fs::create_dir_all(data_dir)
+            .map_err(|e| io_at("creating metadata ingest directory", data_dir, &e))?;
+        let working_dir = ctx.working_directory();
+        let output = run_cargo_metadata(working_dir).map_err(|e| match e {
+            ops_core::subprocess::RunError::Io(io) => io_at(
+                "running `cargo metadata` in working directory",
+                working_dir,
+                &io,
+            ),
             ops_core::subprocess::RunError::Timeout(t) => DbError::Timeout {
                 label: t.label,
                 timeout_secs: t.timeout.as_secs(),
@@ -36,24 +42,33 @@ impl DataIngestor for MetadataIngestor {
         // DuckDB's `read_json_auto`, corrupting the database with truncated
         // input. With `atomic_write` the destination either holds the previous
         // payload or the full new payload — never a partial write.
-        ops_core::config::atomic_write(&path, &output.stdout).map_err(DbError::Io)?;
+        ops_core::config::atomic_write(&path, &output.stdout)
+            .map_err(|e| io_at("writing staged cargo metadata JSON", &path, &e))?;
         Ok(())
     }
 
     fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<LoadResult> {
         init_schema(db)?;
         let path = data_dir.join("metadata.json");
-        {
-            let conn = db.lock()?;
-            build_views(&conn, &path)?;
-        }
+        // CONC-2 / TASK-1907: one guard across table creation *and* the reads
+        // of that table. The previous shape scoped `build_views` in its own
+        // block and re-acquired the lock on the very next line, which
+        // released nothing useful (nothing runs in between) while splitting
+        // `CREATE OR REPLACE TABLE metadata_raw` from the `count(*)` and
+        // `workspace_root` reads whose results are persisted into the
+        // `data_sources` provenance row below. Anything replacing
+        // `metadata_raw` in that gap would leave the recorded provenance
+        // describing data that is no longer there. The orchestrator's
+        // per-table ingest mutex
+        // (`extensions/duckdb/src/sql/ingest/orchestrator.rs`) happens to
+        // close the gap today, but `DataIngestor::load` is a public trait
+        // method and its signature promises no such caller, so the atomicity
+        // is enforced here instead of depended on from a distance.
         let conn = db.lock()?;
+        build_views(&conn, &path)?;
         let record_count = query_record_count(&conn)?;
-        if record_count > 1 {
-            tracing::warn!(
-                rows = record_count,
-                "metadata_raw has multiple workspace_root rows; using first"
-            );
+        if record_count != 1 {
+            return Err(reject_non_singleton(&conn, record_count));
         }
         let workspace_root = extract_workspace_root(&conn)?;
         drop(conn);
@@ -85,6 +100,58 @@ fn build_views(conn: &duckdb::Connection, path: &Path) -> DbResult<()> {
     conn.execute(&view_sql, [])
         .map_err(|e| DbError::query_failed("crate_dependencies view", e))?;
     Ok(())
+}
+
+/// ERR-13 / TASK-1893: `DbError::Io` renders as `"IO error: {0}"` and a bare
+/// `std::io::Error` names no path, so an ENOSPC/EACCES on the ingest
+/// directory, on the working directory, and on the staged JSON file all
+/// render identically — `IO error: Permission denied (os error 13)`, with
+/// nothing telling the operator which of the three failed. Rewrap with the
+/// operation and the path it acted on. `ErrorKind` is preserved so callers
+/// that branch on `NotFound` / `PermissionDenied` still can, and the variant
+/// stays `DbError::Io` so a genuine filesystem failure is not laundered into
+/// `DbError::External` (which `collect`'s tests use to mean "cargo ran and
+/// failed").
+fn io_at(op: &str, path: &Path, e: &std::io::Error) -> DbError {
+    DbError::Io(std::io::Error::new(
+        e.kind(),
+        format!("{op} {}: {e}", path.display()),
+    ))
+}
+
+/// ERR-1 / TASK-1891: `metadata_raw` is a singleton table, and
+/// [`crate::query_metadata_raw`] — the only reader — hard-fails on any row
+/// count other than one. `load` used to accept a multi-row table with a
+/// `tracing::warn!`, which left the two halves of the crate disagreeing:
+/// the very next call in the same request failed, and because the table
+/// then reported `table_has_data()`, every subsequent run skipped
+/// re-ingest and replayed the same failure. Enforce the reader's
+/// invariant here, where the bad state can still be undone: drop the
+/// table (and the view that depends on it) so the next run re-ingests
+/// from scratch rather than inheriting an unreadable database.
+fn reject_non_singleton(conn: &duckdb::Connection, record_count: u64) -> DbError {
+    tracing::warn!(
+        rows = record_count,
+        "metadata_raw must hold exactly one workspace_root row; dropping the table so the \
+         next run re-ingests"
+    );
+    // Best-effort teardown: if it fails the error below still surfaces, and
+    // the operator sees both the invariant breach and why the state is
+    // sticky. `crate_dependencies` selects from `metadata_raw`, so it has to
+    // go first.
+    if let Err(e) = conn
+        .execute_batch("DROP VIEW IF EXISTS crate_dependencies; DROP TABLE IF EXISTS metadata_raw;")
+    {
+        tracing::warn!(
+            error = %e,
+            "failed to drop metadata_raw after a non-singleton ingest; the next run may \
+             replay this failure"
+        );
+    }
+    external_err(anyhow::anyhow!(
+        "metadata_raw must contain exactly one row, found {record_count}; \
+         dropped metadata_raw so the next ingest starts clean"
+    ))
 }
 
 /// FN-1 / TASK-1543: count rows in `metadata_raw` and map the raw `i64` to
@@ -187,6 +254,35 @@ mod tests {
         }
     }
 
+    /// ERR-13 / TASK-1893: an IO failure inside `collect` must name the path
+    /// it acted on, so the three filesystem edges (ingest dir, working
+    /// directory, staged JSON file) are distinguishable in a CI log without
+    /// reading the source. Drive the `create_dir_all` edge by pointing the
+    /// data dir at a child of a regular *file*, which no filesystem will let
+    /// us create a directory under.
+    #[test]
+    fn metadata_collect_io_error_names_the_offending_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocker = dir.path().join("not-a-directory");
+        std::fs::write(&blocker, b"x").expect("seed blocking file");
+        let data_dir = blocker.join("ingest");
+
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let ctx = ops_extension::Context::test_context(manifest_dir);
+        let err = MetadataIngestor
+            .collect(&ctx, &data_dir)
+            .expect_err("create_dir_all under a regular file must fail");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains(&data_dir.display().to_string()),
+            "IO error must name the path it operated on, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("creating metadata ingest directory"),
+            "IO error must name the operation that failed, got: {rendered}"
+        );
+    }
+
     /// SEC-25 / TASK-0933: a successful `MetadataIngestor::collect` must
     /// leave no `.tmp.*` leftover from the `atomic_write` sibling-temp
     /// pattern. Pin the cargo-metadata stdout write on the same crash-safe
@@ -282,15 +378,15 @@ mod tests {
         assert_eq!(path_dep_count, 1, "path dep (source=null) must be retained");
     }
 
-    /// ERR-1 (TASK-1043): when `metadata_raw` ends up with more than one
-    /// row (multi-target metadata, partial re-ingest without truncate), the
-    /// `workspace_root` SELECT silently picked an arbitrary first row. The
-    /// loader now emits a `tracing::warn!` carrying the row count so the
-    /// discrepancy is observable. Drive the path with a JSON array of two
-    /// cargo-metadata objects (`DuckDB`'s `read_json_auto` yields one row per
-    /// array element) and assert the warn fires.
+    /// ERR-1 / TASK-1891 (was TASK-1043): when `metadata_raw` ends up with
+    /// more than one row (multi-target metadata, partial re-ingest without
+    /// truncate), `load` must reject the ingest rather than committing a
+    /// state that `query_metadata_raw` then refuses to read. Drive the path
+    /// with a JSON array of two cargo-metadata objects (`DuckDB`'s
+    /// `read_json_auto` yields one row per array element) and assert both
+    /// the warn and the error.
     #[test]
-    fn metadata_load_warns_when_metadata_raw_has_multiple_rows() {
+    fn metadata_load_rejects_metadata_raw_with_multiple_rows() {
         use ops_about::test_support::TracingBuf;
 
         let data_dir = tempfile::tempdir().unwrap();
@@ -312,17 +408,66 @@ mod tests {
         let ingestor = MetadataIngestor;
         let result =
             tracing::subscriber::with_default(subscriber, || ingestor.load(data_dir.path(), &db));
-        assert!(result.is_ok(), "load should succeed (warn-only path)");
+        let err = result.expect_err("a two-row metadata_raw must not load successfully");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("exactly one row") && rendered.contains("found 2"),
+            "error must name the invariant and the observed count, got: {rendered}"
+        );
 
         let logs = buf.captured();
         assert!(
-            logs.contains("multiple workspace_root rows"),
-            "expected warn about multiple workspace_root rows, got: {logs}"
+            logs.contains("exactly one workspace_root row"),
+            "expected warn about the singleton invariant, got: {logs}"
         );
         assert!(
             logs.contains("rows=2"),
             "warn should include rows=2 field, got: {logs}"
         );
+    }
+
+    /// ERR-1 / TASK-1891 AC #2 + #3: the halves of the crate must agree.
+    /// Drive `load` and then `query_metadata_raw` against the *same*
+    /// `DuckDb`, and assert the combined outcome — a rejected load leaves no
+    /// `metadata_raw` behind, so the orchestrator's `table_has_data()` probe
+    /// re-ingests on the next run instead of replaying the read failure
+    /// forever.
+    #[test]
+    fn metadata_load_rejection_leaves_no_sticky_metadata_raw() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let metadata_json = serde_json::Value::Array(vec![
+            ingest_metadata().root("/test/a").value(),
+            ingest_metadata().root("/test/b").value(),
+        ]);
+        write_metadata_json(data_dir.path(), &metadata_json);
+
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let ingestor = MetadataIngestor;
+        ingestor
+            .load(data_dir.path(), &db)
+            .expect_err("two-row load must fail");
+
+        // The reader is the other half of the invariant: it must fail too,
+        // and for the *absence* of the table rather than a row-count
+        // mismatch, proving nothing readable-but-broken was committed.
+        let read_err = crate::query_metadata_raw(&db)
+            .expect_err("no metadata_raw should remain after a rejected load");
+        let rendered = format!("{read_err:#}");
+        assert!(
+            !rendered.contains("exactly one row"),
+            "a rejected load must not leave a multi-row table behind, got: {rendered}"
+        );
+
+        let conn = db.lock().expect("lock");
+        let tables: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'metadata_raw'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("catalog probe");
+        drop(conn);
+        assert_eq!(tables, 0, "metadata_raw must be gone after a rejected load");
     }
 
     /// PATTERN-1 / TASK-1056: the same dependency declared under two
