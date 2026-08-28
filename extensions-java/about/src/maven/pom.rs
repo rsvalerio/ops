@@ -30,10 +30,14 @@ use std::path::Path;
 #[derive(Default)]
 #[non_exhaustive]
 pub(super) struct PomData {
-    /// Maven `<artifactId>` — coordinate, last-write-wins on duplicates.
+    /// Maven `<artifactId>` — coordinate, first-write-wins on duplicates.
+    /// [`try_set_once`] is the single owner of that policy; every field of
+    /// this struct is written through it.
     pub(super) artifact_id: Option<String>,
-    /// Maven `<name>` — display name, last-write-wins on duplicates.
-    /// Provider prefers this over `artifact_id` when both are present.
+    /// Maven `<name>` — display name, first-write-wins on duplicates (see
+    /// [`try_set_once`], which owns the duplicate-resolution policy for the
+    /// whole struct). Provider prefers this over `artifact_id` when both are
+    /// present.
     pub(super) name: Option<String>,
     pub(super) version: Option<String>,
     pub(super) description: Option<String>,
@@ -62,6 +66,26 @@ enum PomSection {
     Skip {
         close: &'static str,
     },
+}
+
+/// Outcome of matching a top-level line against the section openers.
+///
+/// PATTERN-1 / TASK-1728: `match_section_open` used to return
+/// `Option<PomSection>`, where `None` meant *both* "not a section opener,
+/// fall through to `parse_top_level`" and "single-line container, already
+/// consumed — do **not** fall through". The dispatcher could not tell them
+/// apart and always fell through, so a single-line `<parent>` /
+/// `<organization>` / `<licenses>` block leaked its children into the
+/// top-level fields. The three states are now distinct variants, so the
+/// invariant lives in the type rather than in a comment (CL-3).
+enum SectionOutcome {
+    /// A multi-line section opened; the parser moves into it.
+    Entered(PomSection),
+    /// A single-line container was handled in place. The line must not be
+    /// re-parsed at top level.
+    Consumed,
+    /// Not a section opener at all — the caller parses it at top level.
+    NotASection,
 }
 
 /// Top-level container sections to skip wholesale: their inner `<url>`,
@@ -184,10 +208,10 @@ fn dispatch_started_line(line: &str, section: &mut PomSection, data: &mut PomDat
         return true;
     }
     if matches!(section, PomSection::TopLevel) {
-        if let Some(new_section) = match_section_open(line, data) {
-            *section = new_section;
-        } else {
-            parse_top_level(line, data);
+        match match_section_open(line, data) {
+            SectionOutcome::Entered(new_section) => *section = new_section,
+            SectionOutcome::Consumed => {}
+            SectionOutcome::NotASection => parse_top_level(line, data),
         }
         return false;
     }
@@ -275,22 +299,23 @@ fn handle_licenses(line: &str, in_license: &mut bool, data: &mut PomData) -> boo
 }
 
 /// Match opening tags for POM sections. Single-line `<scm>...</scm>` and
-/// `<licenses>...</licenses>` blocks are extracted in place and leave the
-/// caller in `TopLevel`.
-fn match_section_open(line: &str, data: &mut PomData) -> Option<PomSection> {
+/// `<licenses>...</licenses>` blocks are extracted in place and reported as
+/// [`SectionOutcome::Consumed`], leaving the caller in `TopLevel` **without**
+/// re-parsing the line at top level.
+fn match_section_open(line: &str, data: &mut PomData) -> SectionOutcome {
     if line == "<modules>" {
-        return Some(PomSection::Modules);
+        return SectionOutcome::Entered(PomSection::Modules);
     }
     if line == "<developers>" {
-        return Some(PomSection::Developers {
+        return SectionOutcome::Entered(PomSection::Developers {
             in_developer: false,
         });
     }
     if line == "<scm>" {
-        return Some(PomSection::Scm);
+        return SectionOutcome::Entered(PomSection::Scm);
     }
     if line == "<licenses>" {
-        return Some(PomSection::Licenses { in_license: false });
+        return SectionOutcome::Entered(PomSection::Licenses { in_license: false });
     }
 
     // Single-line forms: `<scm><url>...</url></scm>` or
@@ -299,7 +324,7 @@ fn match_section_open(line: &str, data: &mut PomData) -> Option<PomSection> {
     // to keep the partial-input handler honest.
     if line.starts_with("<scm>") && line.ends_with("</scm>") && line.matches("<scm>").count() == 1 {
         try_set_once(&mut data.scm_url, line, "<url>", "</url>");
-        return None;
+        return SectionOutcome::Consumed;
     }
     // READ-2 / TASK-0691: a single-line `<licenses>...</licenses>` may carry
     // multiple `<license>` children. Unlike the `<scm>` shortcut above (which
@@ -313,20 +338,20 @@ fn match_section_open(line: &str, data: &mut PomData) -> Option<PomSection> {
         && line.matches("<licenses>").count() == 1
     {
         try_set_once(&mut data.license, line, "<name>", "</name>");
-        return None;
+        return SectionOutcome::Consumed;
     }
 
     for (open, close) in SKIP_SECTIONS {
         if line == *open {
-            return Some(PomSection::Skip { close });
+            return SectionOutcome::Entered(PomSection::Skip { close });
         }
         // Single-line container — ignore entirely.
         if line.starts_with(*open) && line.ends_with(*close) {
-            return None;
+            return SectionOutcome::Consumed;
         }
     }
 
-    None
+    SectionOutcome::NotASection
 }
 
 /// Parse top-level simple elements (artifactId, version, description, name, url).
@@ -724,6 +749,51 @@ mod tests {
 
         let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.scm_url, Some("https://example.com".to_string()));
+        // PATTERN-1 / TASK-1728: the consumed container line must not be
+        // re-parsed at top level (it carries no `<name>`, but the old
+        // fall-through would have run `parse_top_level` on it).
+        assert_eq!(pom.name, None);
+    }
+
+    /// PATTERN-1 / TASK-1728: a single-line `<parent>` block — the standard
+    /// shape in Maven multi-module children — must not leak the parent's
+    /// coordinates into the child's own `artifactId` / `version`.
+    #[test]
+    fn parse_pom_single_line_parent_does_not_leak_coordinates() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            r"<project>
+    <parent><artifactId>parent-pom</artifactId><version>9.9.9</version></parent>
+    <artifactId>child</artifactId>
+    <version>1.0.0</version>
+</project>",
+        )
+        .unwrap();
+
+        let pom = parse_pom_xml(dir.path()).unwrap();
+        assert_eq!(pom.artifact_id, Some("child".to_string()));
+        assert_eq!(pom.version, Some("1.0.0".to_string()));
+    }
+
+    /// PATTERN-1 / TASK-1728: a single-line `<organization>` block must not
+    /// contribute its `<name>` / `<url>` to the project name or SCM URL.
+    #[test]
+    fn parse_pom_single_line_organization_ignored_entirely() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            r"<project>
+    <organization><name>Acme</name><url>https://acme.example</url></organization>
+    <artifactId>real</artifactId>
+</project>",
+        )
+        .unwrap();
+
+        let pom = parse_pom_xml(dir.path()).unwrap();
+        assert_eq!(pom.name, None);
+        assert_eq!(pom.scm_url, None);
+        assert_eq!(pom.artifact_id, Some("real".to_string()));
     }
 
     #[test]
@@ -737,6 +807,9 @@ mod tests {
 
         let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.license, Some("MIT".to_string()));
+        // PATTERN-1 / TASK-1728: the license `<name>` must not double as the
+        // project name via a top-level re-parse of the consumed line.
+        assert_eq!(pom.name, None);
     }
 
     #[test]
