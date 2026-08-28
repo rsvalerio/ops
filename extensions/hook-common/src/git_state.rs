@@ -105,6 +105,18 @@ pub fn read_stderr_bounded(
 /// Returns `true` if `git diff --cached --quiet` reports staged changes
 /// in `dir`, with a hard upper bound on wall-clock time.
 ///
+/// # Every staged change kind counts
+///
+/// SEC-31 / TASK-1903: the probe deliberately passes **no** `--diff-filter`,
+/// so additions, copies, modifications, renames, deletions (`D`), type
+/// changes (`T`) and unmerged paths (`U`) all report as staged work. It used
+/// to filter on `ACMR`, which made a delete-only or conflicted index read as
+/// "nothing staged": callers gate a pre-commit check suite on this predicate,
+/// so that combination skipped the whole gate with exit 0 on exactly the
+/// commits most likely to break a build (a removed module, a removed fixture,
+/// a half-resolved merge). A gate must fail closed; if a future caller wants
+/// a narrower question, it belongs in a separate, explicitly named predicate.
+///
 /// ASYNC-6 / TASK-0589: pre-commit hooks run on the developer's critical
 /// path. A hung `git diff --cached` (FUSE-backed worktree, network-mounted
 /// `.git`, lock contention) used to hang the commit indefinitely. The
@@ -157,7 +169,8 @@ pub fn has_staged_files_with_timeout(
 
     let mut child = Command::new(program)
         .current_dir(dir)
-        .args(["diff", "--cached", "--quiet", "--diff-filter=ACMR"])
+        // No `--diff-filter`: see "Every staged change kind counts" above.
+        .args(["diff", "--cached", "--quiet"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
