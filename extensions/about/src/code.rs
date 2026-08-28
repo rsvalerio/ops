@@ -77,9 +77,7 @@ pub fn run_about_code_with(
     data_registry: &DataRegistry,
     writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(ops_core::config::Config::empty());
-    let mut ctx = Context::new(config, cwd);
+    let mut ctx = crate::providers::subpage_context("code")?;
 
     let stats = query_language_stats(&mut ctx, data_registry);
     let lines = format_language_stats_section(stats.as_deref());
@@ -90,6 +88,20 @@ pub fn run_about_code_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// TEST-5 / TASK-1739: `run_about_code_with` is the one runner with no
+    /// worded empty state — with no `DuckDB` handle `query_language_stats`
+    /// returns `None`, `format_language_stats_section` returns no lines, and
+    /// the runner emits a single bare newline. Pinned so the silence is a
+    /// deliberate contract rather than an accident, and so a future
+    /// "No language data available." message is a visible change.
+    #[test]
+    fn run_about_code_with_emits_nothing_but_a_newline_for_an_empty_registry() {
+        let registry = DataRegistry::new();
+        let mut out: Vec<u8> = Vec::new();
+        run_about_code_with(&registry, &mut out).expect("runner must succeed");
+        assert_eq!(String::from_utf8(out).unwrap(), "\n");
+    }
 
     #[test]
     fn format_language_stats_section_empty() {

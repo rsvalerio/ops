@@ -6,7 +6,7 @@ use std::io::{IsTerminal, Write};
 
 use ops_core::project_identity::ProjectDependencies;
 use ops_core::style::{cyan, dim};
-use ops_extension::{Context, DataRegistry};
+use ops_extension::DataRegistry;
 
 use crate::providers::{load_or_default, warm_providers};
 use crate::text_util::tty_style;
@@ -34,9 +34,7 @@ pub fn run_about_deps_with(
     writer: &mut dyn Write,
     is_tty: bool,
 ) -> anyhow::Result<()> {
-    let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(ops_core::config::Config::empty());
-    let mut ctx = Context::new(config, cwd);
+    let mut ctx = crate::providers::subpage_context("deps")?;
 
     warm_providers(&mut ctx, data_registry, &["duckdb", "metadata"], "deps");
 
@@ -102,6 +100,19 @@ pub fn format_dependencies_section(deps: &ProjectDependencies, is_tty: bool) -> 
 mod tests {
     use super::*;
     use ops_core::project_identity::UnitDeps;
+
+    /// TEST-5 / TASK-1739: same gap as the other runners — the empty-state
+    /// string had no assertion behind it.
+    #[test]
+    fn run_about_deps_with_reports_no_data_for_an_empty_registry() {
+        let registry = DataRegistry::new();
+        let mut out: Vec<u8> = Vec::new();
+        run_about_deps_with(&registry, &mut out, false).expect("runner must succeed");
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "No dependency data available.\n"
+        );
+    }
 
     #[test]
     fn format_dependencies_section_empty() {

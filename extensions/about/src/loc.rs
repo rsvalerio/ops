@@ -197,9 +197,7 @@ pub fn run_about_loc_with(
     data_registry: &DataRegistry,
     writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(ops_core::config::Config::empty());
-    let mut ctx = Context::new(config, cwd);
+    let mut ctx = crate::providers::subpage_context("loc")?;
 
     let page = query_rust_loc_stats(&mut ctx, data_registry);
     match format_rust_loc_section(page.as_ref()) {
@@ -214,6 +212,21 @@ pub fn run_about_loc_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// TEST-5 / TASK-1739: with no `DuckDB` handle on the context,
+    /// `query_rust_loc_stats` yields `None` and the runner takes its
+    /// Rust-only "not applicable here" branch. That string had no assertion
+    /// behind it.
+    #[test]
+    fn run_about_loc_with_reports_no_data_for_an_empty_registry() {
+        let registry = DataRegistry::new();
+        let mut out: Vec<u8> = Vec::new();
+        run_about_loc_with(&registry, &mut out).expect("runner must succeed");
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "No Rust LOC data available.\n"
+        );
+    }
 
     /// A region row carrying only the fields the ordering and totals
     /// assertions read; the per-line-kind columns get their own fixture
