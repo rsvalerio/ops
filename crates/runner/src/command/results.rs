@@ -114,17 +114,47 @@ pub struct CommandOutput {
 /// is no point allocating beyond `usize::MAX` bytes regardless. READ-4 /
 /// TASK-1058 aligned this doc with the parser's actual type.
 ///
-/// **PERF-3 / TASK-0905 — peak-RSS budget for parallel plans.** This cap
-/// applies *per spawn × per stream*, so the worst-case in-flight capture
-/// budget is `OPS_MAX_PARALLEL × 2 × cap`. With the defaults
+/// **PERF-3 / TASK-0905 — in-flight capture budget.** This cap applies
+/// *per spawn × per stream*, so the worst case for buffers being filled at
+/// any one moment is `OPS_MAX_PARALLEL × 2 × cap`. With the defaults
 /// (`OPS_MAX_PARALLEL=32`, `cap=4 MiB`) that's ≤ 256 MiB; raising
-/// `OPS_OUTPUT_BYTE_CAP` to `64M` on a 32-way plan reserves up to 4 GiB.
-/// Operators tuning the cap on tight CI runners should also dial down
-/// `OPS_MAX_PARALLEL` accordingly. There is intentionally no global
-/// semaphore on capture bytes — the per-stream guarantee is the contract,
-/// and a global cap would silently truncate output on parallel-plan
-/// pressure rather than the documented "first cap bytes are kept"
-/// behaviour callers depend on.
+/// `OPS_OUTPUT_BYTE_CAP` to `64M` on a 32-way plan reserves up to 4 GiB
+/// in flight.
+///
+/// **PERF-16 / TASK-1923 — retention is governed by plan length, not by
+/// parallel width.** The in-flight number above is *not* the runner's peak.
+/// `build_step_result` moves each capped `stdout` / `stderr` `String` into
+/// the returned [`StepResult`], and both `run_plan` and `run_plan_parallel`
+/// accumulate one `StepResult` per step into a `Vec` that lives until the
+/// whole plan finishes and the caller drops it. Retained capture bytes are
+/// therefore bounded by
+///
+/// ```text
+/// steps × 2 × cap        (not min(steps, OPS_MAX_PARALLEL) × 2 × cap)
+/// ```
+///
+/// With the defaults, a 200-step plan of noisy steps retains up to 1.6 GiB.
+/// **Dialing `OPS_MAX_PARALLEL` down does not reduce this** — at
+/// `OPS_MAX_PARALLEL=1` the bound is unchanged, because every step's
+/// capture is still held until the plan returns. The knobs that do govern
+/// it are `OPS_OUTPUT_BYTE_CAP` (the bound is linear in it) and the number
+/// of steps in a single plan.
+///
+/// *Decision (TASK-1923) — success-path captures stay populated.* Dropping
+/// `StepResult.stdout` / `.stderr` for steps whose output has already been
+/// emitted as `StepOutput` events and written to the tap would cut the
+/// bound to the failing steps alone, but both fields are `pub` on a
+/// `#[non_exhaustive]` struct and are part of the shape embedders read
+/// after a plan (`log_step_results` in the CLI is only the in-tree
+/// consumer). Silently emptying them on success would turn a memory fix
+/// into a behavioural change that no type signature announces. The bound is
+/// documented rather than tightened, and the formula above is pinned by
+/// `retained_capture_bytes_scale_with_plan_length`.
+///
+/// There is intentionally no global semaphore on capture bytes — the
+/// per-stream guarantee is the contract, and a global cap would silently
+/// truncate output on parallel-plan pressure rather than the documented
+/// "first cap bytes are kept" behaviour callers depend on.
 pub const DEFAULT_OUTPUT_BYTE_CAP: usize = 4 * 1024 * 1024; // 4 MiB / stream
 
 const OUTPUT_CAP_ENV: &str = "OPS_OUTPUT_BYTE_CAP";
@@ -140,6 +170,12 @@ static OUTPUT_BYTE_CAP: OnceLock<usize> = OnceLock::new();
 /// parallel ceiling × 2 streams could reserve more than this many bytes
 /// for in-flight captures. Picked at 1 GiB so the default configuration
 /// stays silent and only operator-driven escalations trip the alarm.
+///
+/// PERF-16 / TASK-1923: this covers the **in-flight** budget only. Retained
+/// captures scale with plan length and are not visible to this warning —
+/// see the retention section on [`DEFAULT_OUTPUT_BYTE_CAP`]. The threshold
+/// is deliberately not re-derived from plan length: the cap resolves once
+/// per process, before any plan is known.
 const PEAK_CAPTURE_WARN_BYTES: usize = 1024 * 1024 * 1024;
 
 /// ERR-2 / TASK-0840: pure parser for the `OPS_OUTPUT_BYTE_CAP` env value.
