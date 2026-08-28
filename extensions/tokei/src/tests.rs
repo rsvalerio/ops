@@ -262,6 +262,40 @@ fn scan_tokei_truncates_at_the_file_cap() {
     assert!(scan.truncated, "a truncated result must say so");
 }
 
+/// The file cap counts **candidates**, not directory entries: a file tokei has
+/// no language for is never opened, counted, or materialised, so it must not
+/// consume the budget. Counting every regular file instead would make an
+/// asset-heavy but ordinary repository — images, fixtures, data — truncate
+/// before reaching any source at all, turning a correct statistic into a
+/// warned-but-wrong one. The cap bounds the expensive half (read + count),
+/// which is what `ScanLimits::files` documents.
+#[test]
+fn unsupported_files_do_not_consume_the_file_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for name in &["a.png", "b.png", "c.png", "d.bin", "e.bin"] {
+        std::fs::write(dir.path().join(name), "not source\n").expect("write asset");
+    }
+    std::fs::write(dir.path().join("only.rs"), "fn x() {}\n").expect("write source");
+
+    let limits = super::ScanLimits {
+        files: 2,
+        ..super::ScanLimits::DEFAULT
+    };
+    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+
+    assert_eq!(
+        scan.records.len(),
+        1,
+        "the source file must be reached despite five unsupported files: {:?}",
+        scan.records
+    );
+    assert_eq!(scan.records[0]["file"], "only.rs");
+    assert!(
+        !scan.truncated,
+        "one candidate against a cap of two is not a truncated scan"
+    );
+}
+
 #[test]
 fn scan_tokei_honours_the_depth_cap() {
     let dir = tempfile::tempdir().expect("tempdir");

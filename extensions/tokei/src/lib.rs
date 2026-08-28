@@ -153,8 +153,16 @@ pub(crate) struct ScanLimits {
     /// each file whole into memory to count its lines, so a checked-in
     /// multi-GB `.sql` dump would otherwise be resident all at once.
     pub file_bytes: u64,
-    /// Upper bound on the number of files scanned, and therefore on the
-    /// number of records materialised.
+    /// Upper bound on the number of files **scanned** — that is, opened,
+    /// counted, and materialised as records.
+    ///
+    /// Counts candidates, not directory entries. A file tokei has no language
+    /// for is never opened, so it does not consume this budget; capping on
+    /// every regular file instead would make an asset-heavy but entirely
+    /// ordinary repository truncate before reaching any source, trading a
+    /// correct statistic for a warned-but-wrong one. This bounds the
+    /// expensive half of the walk (read + count), not the cheap half
+    /// (`read_dir` + an extension lookup), which `depth` bounds instead.
     pub files: usize,
     /// Upper bound on walk depth. `ignore` defaults to unlimited.
     pub depth: usize,
