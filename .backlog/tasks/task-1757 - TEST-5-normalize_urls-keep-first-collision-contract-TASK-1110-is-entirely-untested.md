@@ -3,11 +3,11 @@ id: TASK-1757
 title: >-
   TEST-5: normalize_urls keep-first collision contract (TASK-1110) is entirely
   untested
-status: To Do
+status: Done
 assignee:
   - TASK-1992
 created_date: '2026-08-27 11:18'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 20:04'
 labels:
   - code-review-rust
   - test-quality
@@ -34,8 +34,29 @@ Neither half of that contract has a test:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test feeds normalize_urls two raw keys that collapse to the same normalised key and asserts the first-seen (BTreeMap-order) URL is the one retained
-- [ ] #2 A test asserts the collision emits a tracing warn carrying both raw keys and both URLs (via ops_about::test_support)
-- [ ] #3 A test covers the end-to-end case: a pyproject.toml with both `Homepage` and `home page` yields the first-seen URL in ProjectIdentity.homepage
-- [ ] #4 Reverting normalize_urls to a naive .collect() makes at least one of the new tests fail
+- [x] #1 A test feeds normalize_urls two raw keys that collapse to the same normalised key and asserts the first-seen (BTreeMap-order) URL is the one retained
+- [x] #2 A test asserts the collision emits a tracing warn carrying both raw keys and both URLs (via ops_about::test_support)
+- [x] #3 A test covers the end-to-end case: a pyproject.toml with both `Homepage` and `home page` yields the first-seen URL in ProjectIdentity.homepage
+- [x] #4 Reverting normalize_urls to a naive .collect() makes at least one of the new tests fail
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`colliding_url_keys_keep_the_first_seen_entry_and_warn` feeds `normalize_urls`
+two raw keys that collapse to one normalised key and asserts both halves of
+the contract: the first-seen (BTreeMap-order) URL is retained, and the warn
+carries `first_key`, `first_url`, `duplicate_key`, `duplicate_url` and
+`recovery="keep-first"`.
+`colliding_url_keys_in_a_manifest_keep_the_first_seen_homepage` covers the
+end-to-end path through a real `pyproject.toml`.
+
+Note on the colliding pair: `normalize_url_key` lowercases and maps `-` to a
+space, so "Homepage" (-> "homepage") and "home page" do NOT collide — the
+example in the finding is off by one. The tests use "Home-Page" / "home page",
+which both normalise to "home page".
+
+AC#4 verified empirically: temporarily replacing the body with
+`urls.iter().map(|(k, v)| (normalize_url_key(k), (k, v))).collect()` fails
+both new tests (2 failed / 43 passed); reverted afterwards.
+<!-- SECTION:NOTES:END -->

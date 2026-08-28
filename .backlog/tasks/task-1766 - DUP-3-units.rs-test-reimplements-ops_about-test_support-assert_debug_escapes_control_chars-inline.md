@@ -3,11 +3,11 @@ id: TASK-1766
 title: >-
   DUP-3: units.rs test reimplements
   ops_about::test_support::assert_debug_escapes_control_chars inline
-status: To Do
+status: Done
 assignee:
   - TASK-1992
 created_date: '2026-08-27 11:20'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 20:06'
 labels:
   - code-review-rust
   - duplication
@@ -38,7 +38,27 @@ Its sibling in the same crate, `pyproject_path_debug_escapes_control_characters`
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 workspace_pyproject_path_debug_escapes_control_characters calls ops_about::test_support::assert_debug_escapes_control_chars
-- [ ] #2 The inline format!/assert! trio is deleted
-- [ ] #3 The test still fails if the tracing warn at units.rs:66 is switched from the ? formatter to %
+- [x] #1 workspace_pyproject_path_debug_escapes_control_characters calls ops_about::test_support::assert_debug_escapes_control_chars
+- [x] #2 The inline format!/assert! trio is deleted
+- [x] #3 The test still fails if the tracing warn at units.rs:66 is switched from the ? formatter to %
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`workspace_pyproject_path_debug_escapes_control_characters` now calls
+`ops_about::test_support::assert_debug_escapes_control_chars(p.display())`
+and the inline `format!` / three-`assert!` trio is deleted, matching its
+`lib.rs` sibling.
+
+AC#3 substitution (obsolete as literally written): the test -- in both its old
+and new form -- never invokes the `tracing::warn!` at units.rs:66, so
+switching that site from the `?` formatter to `%` could not have failed it.
+The property actually under test is that `Debug` rendering escapes control
+characters, which is what the `?` formatter relies on; the shared helper pins
+exactly that, and now pins it identically for both sites, which is the drift
+the finding was about. Pinning the macro's own formatter would need a
+warn-capture test around `read_workspace_members`; that is a different
+contract, and the same warn site is now exercised on the recovery axis by
+TASK-1756's new `invalid_root_pyproject_yields_no_units`.
+<!-- SECTION:NOTES:END -->

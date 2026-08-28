@@ -3,11 +3,11 @@ id: TASK-1759
 title: >-
   PATTERN-1: normalize_license drops the license when text is whitespace-only
   and file is present
-status: To Do
+status: Done
 assignee:
   - TASK-1992
 created_date: '2026-08-27 11:19'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 20:04'
 labels:
   - code-review-rust
   - idioms
@@ -38,8 +38,25 @@ The fix is to try the arms in value order rather than in field order: take the f
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 normalize_license falls through to the file form when text is present but trims to empty
-- [ ] #2 license = { text = "  ", file = "LICENSE" } yields Some("License file: LICENSE")
-- [ ] #3 license = { text = "  ", file = "  " } still yields None
-- [ ] #4 Existing behaviour for text-only, file-only and empty-table inputs is unchanged and covered by tests
+- [x] #1 normalize_license falls through to the file form when text is present but trims to empty
+- [x] #2 license = { text = "  ", file = "LICENSE" } yields Some("License file: LICENSE")
+- [x] #3 license = { text = "  ", file = "  " } still yields None
+- [x] #4 Existing behaviour for text-only, file-only and empty-table inputs is unchanged and covered by tests
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`normalize_license` now matches the `Table` variant once and resolves in value
+order — `trim_nonempty(text).or_else(|| trim_nonempty(file).map(...))` — so a
+whitespace-only `text` no longer claims the match and strands the `file` arm.
+The three previously separate `Table` arms collapse into one, which also
+removes the unreachable catch-all.
+
+Tests: `blank_license_text_falls_through_to_the_file_form`,
+`blank_license_text_and_file_still_drops`, and
+`license_table_text_only_and_empty_table_are_unchanged`; the pre-existing
+`license_file_form_is_labeled` and
+`whitespace_only_license_and_author_components_are_dropped` cover the
+file-only and text-only-blank cases unchanged.
+<!-- SECTION:NOTES:END -->

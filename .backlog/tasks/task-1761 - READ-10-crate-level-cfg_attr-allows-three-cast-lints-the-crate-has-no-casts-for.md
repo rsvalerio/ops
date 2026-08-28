@@ -3,11 +3,11 @@ id: TASK-1761
 title: >-
   READ-10: crate-level cfg_attr allows three cast lints the crate has no casts
   for
-status: To Do
+status: Done
 assignee:
   - TASK-1992
 created_date: '2026-08-27 11:19'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 20:05'
 labels:
   - code-review-rust
   - readability
@@ -45,7 +45,22 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 clippy::cast_possible_truncation, cast_precision_loss and cast_sign_loss are removed from the crate-level cfg_attr
-- [ ] #2 The remaining clippy::unwrap_used allow keeps a short comment stating why it is needed for test modules
-- [ ] #3 cargo clippy --all-targets --workspace -- -D warnings passes
+- [x] #1 clippy::cast_possible_truncation, cast_precision_loss and cast_sign_loss are removed from the crate-level cfg_attr
+- [x] #2 The remaining clippy::unwrap_used allow keeps a short comment stating why it is needed for test modules
+- [x] #3 cargo clippy --all-targets --workspace -- -D warnings passes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The crate-level attribute is now
+`#![cfg_attr(test, allow(clippy::unwrap_used))]` on one line, with a comment
+above it recording why `unwrap_used` is needed for the test modules and why
+the three `cast_*` allows were dropped (the crate performs no numeric
+conversion at all, so they were pre-authorisation for unreviewed casts).
+`cargo clippy --workspace --all-features --all-targets -- -D warnings` passes.
+
+Note: the identical block in `extensions-node/about/src/lib.rs` is TASK-1747
+and the text-fixers copy is TASK-1966 — both already tracked, so no sweep task
+filed here.
+<!-- SECTION:NOTES:END -->

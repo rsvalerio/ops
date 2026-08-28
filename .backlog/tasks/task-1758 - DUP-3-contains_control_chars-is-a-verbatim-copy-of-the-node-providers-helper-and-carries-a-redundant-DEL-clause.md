@@ -3,11 +3,11 @@ id: TASK-1758
 title: >-
   DUP-3: contains_control_chars is a verbatim copy of the node provider's helper
   and carries a redundant DEL clause
-status: To Do
+status: Done
 assignee:
   - TASK-1992
 created_date: '2026-08-27 11:19'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 20:04'
 labels:
   - code-review-rust
   - duplication
@@ -41,8 +41,20 @@ Two separate problems in three lines:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 contains_control_chars lives in one place (ops_about::text_util, alongside trim_nonempty) and both the Python and Node providers call it
-- [ ] #2 The redundant `|| c == '\\u{007f}'` clause is removed and the doc comment states correctly that char::is_control already covers C0, DEL and C1
-- [ ] #3 A test pins that U+007F and a C1 code point (e.g. U+0085) are both rejected, so the simplification is not a behaviour change
-- [ ] #4 The Python provider's local copy is deleted, not left as a wrapper
+- [x] #1 contains_control_chars lives in one place (ops_about::text_util, alongside trim_nonempty) and both the Python and Node providers call it
+- [x] #2 The redundant `|| c == '\\u{007f}'` clause is removed and the doc comment states correctly that char::is_control already covers C0, DEL and C1
+- [x] #3 A test pins that U+007F and a C1 code point (e.g. U+0085) are both rejected, so the simplification is not a behaviour change
+- [x] #4 The Python provider's local copy is deleted, not left as a wrapper
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`contains_control_chars` now lives once, in `ops_about::text_util`, and both
+`extensions-python/about/src/lib.rs` and
+`extensions-node/about/src/repo_url.rs` import it — neither keeps a local
+wrapper. The redundant `|| c == '\u{007f}'` clause is gone and the doc comment
+now states correctly that `char::is_control` already covers C0, DEL and C1.
+`contains_control_chars_covers_c0_del_and_c1` pins U+007F and U+0085 alongside
+LF and ESC, so the simplification is proven not to be a behaviour change.
+<!-- SECTION:NOTES:END -->
