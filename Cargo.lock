@@ -1889,12 +1889,13 @@ version = "0.44.0"
 dependencies = [
  "anyhow",
  "linkme",
+ "ops-about",
  "ops-core",
  "ops-extension",
+ "proptest",
  "serde",
  "serde_json",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
