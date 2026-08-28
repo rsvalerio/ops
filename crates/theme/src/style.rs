@@ -8,8 +8,9 @@
 //! - [`sgr`]   — SGR token parsing, gated style application,
 //!   `precompute_sgr_prefix` / `apply_with_prefix` (rendering crate
 //!   internal API).
-//! - [`strip`] — ANSI escape stripping and visible-width measurement
-//!   (cross-crate read-only API; no TTY/env coupling).
+//! - [`strip`] — ANSI escape stripping, visible-width measurement and
+//!   width-bounded truncation (cross-crate read-only API; no TTY/env
+//!   coupling).
 //!
 //! The flat `theme::style::*` re-exports below preserve the previous
 //! module-level API so consumers do not need to import the submodules
@@ -18,8 +19,13 @@
 mod sgr;
 mod strip;
 
+pub(crate) use sgr::color_enabled;
 pub use sgr::{apply_style, apply_style_gated, apply_with_prefix, precompute_sgr_prefix};
-pub use strip::{strip_ansi, visible_width};
+// The pure gate resolver is exercised by the crate's own tests (CL-3 /
+// TASK-1976); production code always goes through `color_enabled`.
+#[cfg(test)]
+pub(crate) use sgr::color_enabled_for;
+pub use strip::{strip_ansi, truncate_to_width, visible_width, ELLIPSIS};
 
 #[cfg(test)]
 mod tests {
@@ -82,12 +88,25 @@ mod tests {
             Just("\x1b)0".to_string()),
             Just("\x1b#8".to_string()),
         ];
-        // Visible text excludes raw control bytes; UnicodeWidthStr and
-        // UnicodeWidthChar disagree on those (a pre-existing wart that is
-        // out of scope for the dedup), so the contract holds for any
-        // input that mixes well-formed escapes with normal printable text.
+        // SEC-11 / TASK-1967: raw C0 and C1 code points used to be excluded
+        // from this corpus because `UnicodeWidthStr` and `UnicodeWidthChar`
+        // disagree on them. They no longer survive `strip_ansi` (which drops
+        // every control character except tab) nor `visible_width` (which
+        // skips the same set), so the contract now holds over them too and
+        // they are part of the corpus rather than a documented wart.
+        let controls = prop_oneof![
+            Just("\r".to_string()),
+            Just("\n".to_string()),
+            Just("\u{8}".to_string()),
+            Just("\u{7}".to_string()),
+            Just("\u{7f}".to_string()),
+            Just("\u{85}".to_string()),
+            Just("\u{9b}2J".to_string()),
+            Just("\u{9d}0;title\u{9c}".to_string()),
+            Just("\u{90}payload\u{9c}".to_string()),
+        ];
         let visible = "[a-zA-Z0-9 résumé café 🚀ビルド]{0,8}";
-        let chunk = prop_oneof![escapes, visible.prop_map(String::from)];
+        let chunk = prop_oneof![escapes, controls, visible.prop_map(String::from)];
         let strategy = proptest::collection::vec(chunk, 0..12).prop_map(|v| v.concat());
 
         proptest!(|(s in strategy)| {
@@ -97,8 +116,69 @@ mod tests {
                 "visible_width disagrees with display_width(&strip_ansi(_)) for {:?}",
                 s
             );
-            prop_assert!(!strip_ansi(&s).contains('\x1b'));
+            let stripped = strip_ansi(&s);
+            prop_assert!(!stripped.contains('\x1b'));
+            // SEC-11 / TASK-1967 AC#2: no C0 byte other than tab, no DEL and
+            // no C1 code point survives, for any input.
+            prop_assert!(
+                !stripped
+                    .chars()
+                    .any(|c| (c.is_control() && c != '\t') || ('\u{80}'..='\u{9f}').contains(&c)),
+                "control byte survived strip_ansi for {:?} -> {:?}",
+                s,
+                stripped
+            );
         });
+    }
+
+    /// SEC-11 / TASK-1967 AC#1: the 8-bit C1 introducers are equivalent to
+    /// their two-byte `ESC` forms, so their payloads must be consumed rather
+    /// than counted as visible text.
+    #[test]
+    fn c1_introducers_are_consumed_like_their_esc_forms() {
+        assert_eq!(strip_ansi("\u{9b}2Jhello"), "hello");
+        assert_eq!(strip_ansi("\u{9b}1;31mred\u{9b}0m"), "red");
+        assert_eq!(strip_ansi("\u{9d}0;window-title\u{7}after"), "after");
+        assert_eq!(strip_ansi("\u{9d}8;;https://example.com\u{9c}link"), "link");
+        assert_eq!(strip_ansi("\u{90}payload\u{9c}tail"), "tail");
+        assert_eq!(strip_ansi("\u{9e}pm\u{9c}x"), "x");
+        assert_eq!(strip_ansi("\u{9f}apc\u{9c}x"), "x");
+        assert_eq!(visible_width("\u{9b}2Jhello"), 5);
+    }
+
+    /// SEC-11 / TASK-1967 AC#2: bare C0 bytes never survive stripping, so a
+    /// caller cannot print a "stripped" string that still moves the cursor.
+    #[test]
+    fn bare_control_bytes_are_stripped() {
+        assert_eq!(strip_ansi("a\rb\nc\u{8}d\u{7f}e"), "abcde");
+        // Tab is the one control character that is kept: it is legitimate
+        // layout, and `sanitise_line` in ops-core preserves it too.
+        assert_eq!(strip_ansi("a\tb"), "a\tb");
+        assert_eq!(strip_ansi("\u{85}next"), "next");
+        assert_eq!(visible_width("a\rb"), 2);
+    }
+
+    /// CL-3 / TASK-1969: the truncation policy — visible width is bounded,
+    /// escapes survive, and a cut string is marked with the ellipsis and
+    /// reset.
+    #[test]
+    fn truncate_to_width_bounds_visible_width() {
+        assert_eq!(truncate_to_width("hello", 10), "hello");
+        assert_eq!(truncate_to_width("hello", 5), "hello");
+        assert_eq!(truncate_to_width("hello", 3), "he\u{2026}");
+        assert_eq!(truncate_to_width("hello", 1), "\u{2026}");
+        assert_eq!(truncate_to_width("hello", 0), "");
+        // Wide glyphs never straddle the budget.
+        let cjk = truncate_to_width("构建项目", 5);
+        assert_eq!(visible_width(&cjk), 5);
+        assert_eq!(cjk, "构建\u{2026}");
+        // Escapes are preserved and the cut is reset.
+        let styled = truncate_to_width("\x1b[31mredtext\x1b[0m", 4);
+        assert_eq!(visible_width(&styled), 4);
+        assert!(styled.starts_with("\x1b[31m"));
+        assert!(styled.ends_with("\x1b[0m"));
+        // Control characters are dropped even when the string already fits.
+        assert_eq!(truncate_to_width("a\rb", 10), "ab");
     }
 
     #[test]
