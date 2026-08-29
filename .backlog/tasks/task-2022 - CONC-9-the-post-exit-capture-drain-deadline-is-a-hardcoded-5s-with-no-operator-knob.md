@@ -3,11 +3,11 @@ id: TASK-2022
 title: >-
   CONC-9: the post-exit capture drain deadline is a hardcoded 5s with no
   operator knob
-status: To Do
+status: Done
 assignee:
   - TASK-2043
 created_date: '2026-08-28 19:42'
-updated_date: '2026-08-29 11:35'
+updated_date: '2026-08-29 12:51'
 labels:
   - code-review-rust
   - concurrency
@@ -38,6 +38,12 @@ Options: expose `OPS_OUTPUT_DRAIN_GRACE_SECS` through the same `parse`-and-warn 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the post-exit drain deadline is either env-overridable with the crate's standard parse/clamp/warn shape, or documented as deliberately fixed with the reasoning
-- [ ] #2 if a knob is added, an out-of-range or unparseable value falls back to the default with a tracing::warn, matching OPS_OUTPUT_BYTE_CAP
+- [x] #1 the post-exit drain deadline is either env-overridable with the crate's standard parse/clamp/warn shape, or documented as deliberately fixed with the reasoning
+- [x] #2 if a knob is added, an out-of-range or unparseable value falls back to the default with a tracing::warn, matching OPS_OUTPUT_BYTE_CAP
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in code-review wave TASK-2043. The post-exit drain deadline is now operator-tunable via OPS_OUTPUT_DRAIN_GRACE_SECS, resolved through parallel.rs::resolve_env_usize — the same parse/clamp/warn-on-fallback resolver OPS_MAX_PARALLEL and OPS_PARALLEL_EVENT_BUDGET use (widened to pub(super) rather than copying it, DUP-1). Default 5s unchanged; ceiling 3600s so an operator cannot restore the unbounded pre-TASK-1919 hang; unset/empty means default; 0, unparseable, or above-ceiling values warn and fall back/clamp. Resolved once per process in a OnceLock, mirroring output_byte_cap. POST_KILL_DRAIN_GRACE stays a fixed 2s — it is a post-SIGKILL EOF observation, not a workload-dependent wait. New drain_grace_knob_tests cover unset/valid/unparseable/zero/empty/clamp.
+<!-- SECTION:NOTES:END -->

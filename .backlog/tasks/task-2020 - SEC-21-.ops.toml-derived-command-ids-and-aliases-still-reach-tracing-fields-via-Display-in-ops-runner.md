@@ -3,11 +3,11 @@ id: TASK-2020
 title: >-
   SEC-21: .ops.toml-derived command ids and aliases still reach tracing fields
   via Display in ops-runner
-status: To Do
+status: Done
 assignee:
   - TASK-2043
 created_date: '2026-08-28 19:28'
-updated_date: '2026-08-29 11:35'
+updated_date: '2026-08-29 12:51'
 labels:
   - code-review-rust
   - security
@@ -38,7 +38,13 @@ Note `CommandId` derives `Debug`, so a bare `?id` renders `CommandId("x")` and c
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 every .ops.toml-derived string (command id, alias, display label) reaching a tracing field in ops-runner is rendered with the Debug formatter
-- [ ] #2 CommandId fields render as the bare quoted id (?id.as_str()), not as CommandId("..."), so existing log-shape expectations hold
-- [ ] #3 a unit test pins the escape for an id containing a newline and an ANSI escape, mirroring program_field_debug_escapes_control_characters
+- [x] #1 every .ops.toml-derived string (command id, alias, display label) reaching a tracing field in ops-runner is rendered with the Debug formatter
+- [x] #2 CommandId fields render as the bare quoted id (?id.as_str()), not as CommandId("..."), so existing log-shape expectations hold
+- [x] #3 a unit test pins the escape for an id containing a newline and an ANSI escape, mirroring program_field_debug_escapes_control_characters
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in code-review wave TASK-2043. Every .ops.toml-derived string reaching a tracing field in ops-runner now uses the Debug (?) formatter: resolve.rs (expansion depth id, build_alias_map alias/existing/new), mod.rs (merge_alias_for alias/config_owner/new, register_commands command, run_exec #[instrument] id), exec.rs (terminal-event drop id, dropped-count step_id), parallel.rs (cancelled/panicked id), plus display/progress_state.rs (display_map fallback id, duplicate-bar id) which the sweep found in the same crate. CommandId fields render as ?id.as_str() so the shape stays a bare quoted id rather than CommandId("x"). New unit test command_id_field_debug_escapes_control_characters in exec.rs mirrors program_field_debug_escapes_control_characters and also asserts the replaced Display rendering would NOT have escaped. Also hardened parallel.rs `value = %raw` (env-var value on the unparseable-knob warn) to ?raw, same injection class.
+<!-- SECTION:NOTES:END -->
