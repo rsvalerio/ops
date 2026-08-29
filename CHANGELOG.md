@@ -2,6 +2,69 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.46.0](https://github.com/rsvalerio/ops/compare/35b65b967ad5e82e0c0f70612f8490074c0fd5f9..v0.46.0) - 2026-08-29
+#### 🚀 Features
+- (**about-rust**) expand workspace.exclude globs like members globs - ([6189b63](https://github.com/rsvalerio/ops/commit/6189b631613ab35423b6d192e89bd8743314b680)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) make the post-exit capture drain deadline operator-tunable - ([c78b318](https://github.com/rsvalerio/ops/commit/c78b318ecce77812275980e68d33433c28afb8c8)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+#### 🐛 Bug Fixes
+- (**about**) make the duckdb-off enrich_from_db stubs const fn - ([cf8f935](https://github.com/rsvalerio/ops/commit/cf8f935bf78749211af428b91e5e724e92941013)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-rust**) log a non-Rust directory at debug instead of warn - ([6911339](https://github.com/rsvalerio/ops/commit/691133978944f873d6c9b26527c6f6f88b0c0e92)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-terraform**) match heredoc terminators with real UAX #31 tables - ([62b151b](https://github.com/rsvalerio/ops/commit/62b151b9fa892a6dd90955f5bdab6c16164a0cd2)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**about-terraform**) honour heredoc spelling and Unicode terminators - ([3d158f3](https://github.com/rsvalerio/ops/commit/3d158f3269a2be340a5cbfc1ff8bb9cf4d58bc8c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**about-terraform**) skip heredoc bodies in the HCL scanner - ([5bf47a5](https://github.com/rsvalerio/ops/commit/5bf47a51d63c571e37db6024a36c93a5a5652f4a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-toml**) reject a workspace manifest that resolves outside its own directory - ([eb7bc68](https://github.com/rsvalerio/ops/commit/eb7bc68031dc0f397f37ab082d77abee0c19268b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) let a second Ctrl-C force-quit a wedged shutdown - ([d039170](https://github.com/rsvalerio/ops/commit/d0391700dbdf0f32822f8e9ec7e700522520f33d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**core**) explain an intermediate-component symlink refusal in the logs - ([d98c53d](https://github.com/rsvalerio/ops/commit/d98c53df07c7c19dab222fd72e0696f66961c2a5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) sanitise untrusted text in every OpsTable cell - ([034ee47](https://github.com/rsvalerio/ops/commit/034ee475ac254475814da7f0b43b704aac014235)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) probe cargo tools in the caller's working directory - ([c5eefeb](https://github.com/rsvalerio/ops/commit/c5eefeb44b554e10c91eb97470c8b63c36f0aab6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) require a trusted owner for a sticky ingest staging parent - ([25195f9](https://github.com/rsvalerio/ops/commit/25195f9ac5d52945f8b3c2f21148a4f1d1647350)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**duckdb**) make the ingest staging parent unwritable to other principals - ([a9be82e](https://github.com/rsvalerio/ops/commit/a9be82e787f5a57a873891ffc946b624a011f48e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) reborrow the handle as &dyn DuckDbHandle before downcasting - ([5c48b46](https://github.com/rsvalerio/ops/commit/5c48b466668ba13b489f8af5f36e83bf31bd4771)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**extension**) raise the provider budget above the coverage timeout - ([f9eff86](https://github.com/rsvalerio/ops/commit/f9eff8611f212a5fc6f155c859e5c4aecbb76b47)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**extension**) bound provider dispatch in time and stop DataProviderError skipping its cause - ([de298a6](https://github.com/rsvalerio/ops/commit/de298a665829875a88d7a5d4a6eae5c692f2015a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) floor the gitdir containment anchor below the filesystem root - ([688c946](https://github.com/rsvalerio/ops/commit/688c94614e7aec0fd569c0b01bc75ed8837008e5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**metadata**) remove the staged metadata.json on every load exit - ([1ef9dc5](https://github.com/rsvalerio/ops/commit/1ef9dc5b300d15b82b2c65a9a3d2d87f355c3c24)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**runner**) render config-derived command ids and aliases with Debug in logs - ([76ac565](https://github.com/rsvalerio/ops/commit/76ac565eddff038c0c3dd48dc9dd7fe2b94656a6)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**theme**) measure and paint tab as one column - ([f621ca8](https://github.com/rsvalerio/ops/commit/f621ca8c705eeb8c8cab434bbe82ec12e8784e8e)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**about-rust**) memoize the workspace-root walk per cwd - ([eda04d6](https://github.com/rsvalerio/ops/commit/eda04d6fcf8f3948b3519b5fcdf0d3eb0ca51f35)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**clippy**) describe layer 2 as per-crate rather than a block every root carries - ([5883434](https://github.com/rsvalerio/ops/commit/5883434b93c3412cb5faa9046e86029bea687c29)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) note that the Arc-receiver pin depends on the trait being in scope - ([6977807](https://github.com/rsvalerio/ops/commit/6977807fcc871260e579bff53717136f4e3700a0)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**extension**) record why the DuckDbHandle blanket impl stays - ([7e2f508](https://github.com/rsvalerio/ops/commit/7e2f508669aac5f18ca780a6b382600a8409a521)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**runner**) record why the post-kill drain grace stays a fixed constant - ([24af3e8](https://github.com/rsvalerio/ops/commit/24af3e832b029bef18b1c6cad8d7a20f8adac537)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**rust-loc**) state why EXCLUDED_DIRS prunes at any depth - ([6b42d7e](https://github.com/rsvalerio/ops/commit/6b42d7e0451606ec32f8954214333a42f3f78047)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**about-rust**) serialise the workspace-root cache against manifest tests - ([8a839df](https://github.com/rsvalerio/ops/commit/8a839df782023bd3a371cf6c6648f7956f938653)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**cli**) run create-review-tasks, run-before-push and deps as commands - ([3904d8d](https://github.com/rsvalerio/ops/commit/3904d8da5c457e00c34c8619e6cf944774cebcdd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) pin the deps --refresh flag through to DepsOptions - ([10bfdb8](https://github.com/rsvalerio/ops/commit/10bfdb85f5be243b0e9f621fb2db7bbeefc544eb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) model the installed /bin/sh hook and derive the truncated prefix - ([e0f7b02](https://github.com/rsvalerio/ops/commit/e0f7b020018393e9586d3fc1bc126ea312bc5566)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**about-node**) drop the unused anyhow and ops-git dependencies - ([bf0d846](https://github.com/rsvalerio/ops/commit/bf0d846bcbc4e818c0de68bfa0c9a65c92f1e099)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about**) re-export the shared tracing harness instead of redefining it - ([670dc4a](https://github.com/rsvalerio/ops/commit/670dc4a55a8eb4a52f461ca8df19f276c98a52b0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-python**) replace capture_warns with the shared capture_tracing - ([fc124a6](https://github.com/rsvalerio/ops/commit/fc124a61e237b784451ae0558f546a526ffc0b5e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-rust**) route the coverage-provider warn captures through capture_tracing - ([98cf7cb](https://github.com/rsvalerio/ops/commit/98cf7cbf76e197b5002647153536d16de8c182fd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) drop the local tracing-capture and CwdGuard copies - ([2586631](https://github.com/rsvalerio/ops/commit/258663193579dbdeeae5f17b2dde109f8a1c3dbc)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) make test_utils the one home for the tracing and cwd harnesses - ([2401112](https://github.com/rsvalerio/ops/commit/2401112dc2e0b2ad16032312fd195efd5eeca47b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) use the shared mutex-serialised CwdGuard - ([0bf9e4a](https://github.com/rsvalerio/ops/commit/0bf9e4a21dacebf0b2ac49d0fa54d14c4919eb7a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git**) capture the origin-url warn through the shared harness - ([6a39cf0](https://github.com/rsvalerio/ops/commit/6a39cf0050b900b7a1f90b37b656bc8a42202594)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) re-export the shared CwdGuard instead of a weaker copy - ([96fd47f](https://github.com/rsvalerio/ops/commit/96fd47fdd854f24a5605003ef544e046f8e703aa)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close code-review wave 183 - ([052483c](https://github.com/rsvalerio/ops/commit/052483ce4475c962d34930403be52501aa8e1754)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 188 - ([5008ab3](https://github.com/rsvalerio/ops/commit/5008ab382014dc1ce1afe8029fe8e4a9cfe19591)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 185 - ([0b16e17](https://github.com/rsvalerio/ops/commit/0b16e17c388ebcc5be7554a67e035f618354ba9a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 186 - ([d3e6122](https://github.com/rsvalerio/ops/commit/d3e6122aa5a43369c1b28598a1f723ffbffac5ac)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 179 - ([479b6c4](https://github.com/rsvalerio/ops/commit/479b6c4412015052979d7c33a3afea12a5479919)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 187 - ([2d87834](https://github.com/rsvalerio/ops/commit/2d87834b7c42f6446609887c5078c69a1f45242f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 181 - ([1db9281](https://github.com/rsvalerio/ops/commit/1db92812ae410b9af02cecff562dcbda7ce08b52)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 184 - ([6843c50](https://github.com/rsvalerio/ops/commit/6843c509f1383bc7a70ca51e6252ff8b671d2351)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 182 - ([6dbbac0](https://github.com/rsvalerio/ops/commit/6dbbac0d9d6d1b3f4d7d917f19cfbda9b48f3f07)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 180 - ([a8288ca](https://github.com/rsvalerio/ops/commit/a8288ca32e46b321c16be0a22c15b5c5d4501135)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**backlog**) triage waves 179-188 - ([35b65b9](https://github.com/rsvalerio/ops/commit/35b65b967ad5e82e0c0f70612f8490074c0fd5f9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+
+- - -
+
 ## [v0.45.2](https://github.com/rsvalerio/ops/compare/a21aa06a3213053b807a6deeea2ae3d2c263406a..v0.45.2) - 2026-08-29
 #### 🐛 Bug Fixes
 - (**about**) size the about-card emoji column by measured display width - ([e555e04](https://github.com/rsvalerio/ops/commit/e555e04a25c4b45ff1795f7b4f41a32f68a9281c)) - [@rsvalerio](https://github.com/rsvalerio)
