@@ -2,6 +2,32 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.47.0](https://github.com/rsvalerio/ops/compare/8752701ea542179823ca40e384ad75b68a5281ae..v0.47.0) - 2026-08-29
+#### 🚀 Features
+- (**config**) add [data] provider_budget_secs for the provider dispatch budget - ([6a4a759](https://github.com/rsvalerio/ops/commit/6a4a759ca5bc6085d78b03c5fc0869db3a2c4f57)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**about-rust**) exclude members nested under a literal exclude entry - ([b564244](https://github.com/rsvalerio/ops/commit/b564244c166e82639f88d08dbc3d0c5694e9d1a3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) stage ingest data through a verified directory handle - ([4c6b4e0](https://github.com/rsvalerio/ops/commit/4c6b4e0573f8d9610b04a0a93db5e9453f4eb921)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) let the tokei and rust-loc walks abort on the dispatch deadline - ([0f9eb65](https://github.com/rsvalerio/ops/commit/0f9eb6557c44b46fa70ed2a371b0518129386cbe)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-loc**) poll the deadline inside the streaming line count - ([a9440b5](https://github.com/rsvalerio/ops/commit/a9440b58b7b803268837f1984eb19f55b0ed9ad1)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+#### 🧪 Testing
+- (**run-cmd**) assert signal shutdown and disposition reset in one test - ([bd1f280](https://github.com/rsvalerio/ops/commit/bd1f280a406c72bc651a8a48e4453be1f93f3ebc)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔄 CI/CD
+- (**clippy**) lint the default-feature build alongside --all-features - ([47f0a44](https://github.com/rsvalerio/ops/commit/47f0a44a4943fb2394646bb653f6e9f3a2e277d3)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about-terraform**) recognise heredoc openers in one place - ([f084560](https://github.com/rsvalerio/ops/commit/f084560564c6f8e16c71c2572a532a3ec73bbbc5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**test-support**) capture tracing through the shared harness - ([9fabca6](https://github.com/rsvalerio/ops/commit/9fabca693ac28b1c5be008fc0b7c6c997079763b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**test-utils**) collapse the four env-var guards onto one - ([73cbef9](https://github.com/rsvalerio/ops/commit/73cbef903bba9f5dd088b5948fb1afed4ca45d6a)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close code-review wave 190 - ([782d8d1](https://github.com/rsvalerio/ops/commit/782d8d1e89d29c6ef42979af7e304168f9050c9d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 189 - ([27d0f02](https://github.com/rsvalerio/ops/commit/27d0f028ef161f7a502d5c49d296502fe83a100c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 192 - ([d1c71d2](https://github.com/rsvalerio/ops/commit/d1c71d2457283d1376a339693ae38b966b083855)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 191 - ([4de8586](https://github.com/rsvalerio/ops/commit/4de85861a9d0c0e93d90230fe284eab79ca30ad8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 193 - ([115e046](https://github.com/rsvalerio/ops/commit/115e0461ba0d5e3409cd05e15a4f02a1636a26a2)) - [@rsvalerio](https://github.com/rsvalerio)
+- save backlog tasks - ([8752701](https://github.com/rsvalerio/ops/commit/8752701ea542179823ca40e384ad75b68a5281ae)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.46.0](https://github.com/rsvalerio/ops/compare/35b65b967ad5e82e0c0f70612f8490074c0fd5f9..v0.46.0) - 2026-08-29
 #### 🚀 Features
 - (**about-rust**) expand workspace.exclude globs like members globs - ([6189b63](https://github.com/rsvalerio/ops/commit/6189b631613ab35423b6d192e89bd8743314b680)) - [@rsvalerio](https://github.com/rsvalerio)
