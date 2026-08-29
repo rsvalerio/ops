@@ -426,20 +426,13 @@ mod tests {
     fn glob_prefix_warn_debug_escapes_control_characters() {
         let dir = tempfile::tempdir().expect("tempdir");
         let member = "a\nb\u{1b}[31mc/*";
-        let buf = ops_about::test_support::TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
         // The parent does not exist, so `read_dir` fails and the warn fires.
-        let expanded = tracing::subscriber::with_default(subscriber, || {
-            expand_member_glob(member, &dir.path().join("a\nb\u{1b}[31mc"), dir.path())
-        });
+        let (logs, expanded) =
+            ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+                expand_member_glob(member, &dir.path().join("a\nb\u{1b}[31mc"), dir.path())
+            });
         assert!(expanded.is_empty(), "unreadable prefix expands to nothing");
 
-        let logs = buf.captured();
         assert!(
             logs.contains("workspace glob prefix unreadable"),
             "expected the unreadable-prefix warn, got: {logs}"
@@ -764,33 +757,26 @@ mod tests {
     /// of being silently reinterpreted as a prefix that would over-exclude.
     #[test]
     fn unsupported_exclude_shapes_stay_literal_and_warn() {
-        let buf = ops_about::test_support::TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
         let exclude = vec![
             "crates/**".to_string(),
             "crates/{core,cli}".to_string(),
             "crates/foo?".to_string(),
         ];
-        let excluded_literally = tracing::subscriber::with_default(subscriber, || {
-            let set = ExcludeSet::from_entries(&exclude);
-            (
-                set.excludes("crates/**"),
-                set.excludes("crates/core"),
-                set.excludes("crates/foo"),
-            )
-        });
+        let (logs, excluded_literally) =
+            ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+                let set = ExcludeSet::from_entries(&exclude);
+                (
+                    set.excludes("crates/**"),
+                    set.excludes("crates/core"),
+                    set.excludes("crates/foo"),
+                )
+            });
 
         assert_eq!(
             excluded_literally,
             (true, false, false),
             "unsupported shapes must match literally, never as a prefix"
         );
-        let logs = buf.captured();
         assert_eq!(
             logs.matches("workspace exclude glob shape not supported")
                 .count(),

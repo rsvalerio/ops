@@ -462,7 +462,7 @@ mod tests {
     /// the warn and the error.
     #[test]
     fn metadata_load_rejects_metadata_raw_with_multiple_rows() {
-        use ops_about::test_support::TracingBuf;
+        use ops_about::test_support::capture_tracing;
 
         let data_dir = tempfile::tempdir().unwrap();
         let dir = ingest_anchor(&data_dir);
@@ -473,16 +473,9 @@ mod tests {
         ]);
         write_metadata_json(&dir, &metadata_json);
 
-        let buf = TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
         let db = DuckDb::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
-        let result = tracing::subscriber::with_default(subscriber, || ingestor.load(&dir, &db));
+        let (logs, result) = capture_tracing(tracing::Level::WARN, || ingestor.load(&dir, &db));
         let err = result.expect_err("a two-row metadata_raw must not load successfully");
         let rendered = format!("{err:#}");
         assert!(
@@ -490,7 +483,6 @@ mod tests {
             "error must name the invariant and the observed count, got: {rendered}"
         );
 
-        let logs = buf.captured();
         assert!(
             logs.contains("exactly one workspace_root row"),
             "expected warn about the singleton invariant, got: {logs}"

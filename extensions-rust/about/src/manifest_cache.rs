@@ -612,16 +612,10 @@ mod tests {
             "mutex must be poisoned for the test premise"
         );
 
-        let buf = ops_about::test_support::TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
         let mut ctx = Context::test_context(dir.path().to_path_buf());
-        let result =
-            tracing::subscriber::with_default(subscriber, || load_workspace_manifest(&mut ctx));
+        let (logs, result) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+            load_workspace_manifest(&mut ctx)
+        });
         assert!(result.is_ok(), "poisoned cache must recover, not propagate");
 
         // After recovery the cache itself is no longer poisoned-blocking
@@ -631,7 +625,6 @@ mod tests {
             "cache must be unpoisoned after into_inner recovery"
         );
 
-        let logs = buf.captured();
         evict(&canonical(dir.path()));
         logs
     }
