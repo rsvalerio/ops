@@ -3,11 +3,11 @@ id: TASK-1858
 title: >-
   ERR-1: has_manifest_in_dir swallows the read_dir error itself, contradicting
   the breadcrumb policy documented two lines below it
-status: To Do
+status: Done
 assignee:
   - TASK-1984
 created_date: '2026-08-27 15:28'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-29 00:37'
 labels:
   - code-review-rust
   - error-handling
@@ -57,7 +57,13 @@ The likely error is not exotic: EACCES on an unreadable directory during the anc
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A failing dir.read_dir() in has_manifest_in_dir emits a tracing::debug breadcrumb naming the directory and the error, matching the per-entry arm below it
-- [ ] #2 The path is still treated as 'no manifest here' so the ancestor walk continues — this is a diagnostics fix, not a behaviour change
-- [ ] #3 A Unix test makes a directory unreadable and asserts the breadcrumb fires, guarded against the privileged-sandbox case the way the sibling tests in this crate already are
+- [x] #1 A failing dir.read_dir() in has_manifest_in_dir emits a tracing::debug breadcrumb naming the directory and the error, matching the per-entry arm below it
+- [x] #2 The path is still treated as 'no manifest here' so the ancestor walk continues — this is a diagnostics fix, not a behaviour change
+- [x] #3 A Unix test makes a directory unreadable and asserts the breadcrumb fires, guarded against the privileged-sandbox case the way the sibling tests in this crate already are
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-1984. `has_manifest_in_dir` replaces `if let Ok(entries) = dir.read_dir()` with an explicit match that emits a tracing::debug breadcrumb naming the directory and the error, matching the per-entry arm below it and `manifest_present` above it. The failure is still treated as "no manifest here" so the ancestor walk continues — diagnostics only. Test: stack::tests::extension_walk_read_dir_error_logs_debug_breadcrumb chmods a directory to 0o000, captures DEBUG-level tracing, asserts the breadcrumb fires and names the directory, restores permissions, and returns early under is_root_euid() the way the sibling TASK-1033 test does.
+<!-- SECTION:NOTES:END -->

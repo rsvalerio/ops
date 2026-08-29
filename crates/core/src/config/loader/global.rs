@@ -224,8 +224,18 @@ fn load_global_config_at(config: &mut Config, global_path: &Path) -> anyhow::Res
             "global config: legacy bare-extension file is shadowed by canonical .toml; edits to the legacy file are ignored"
         );
     }
+    // SEC-14 / TASK-1847: the global config **follows** symlinks; the
+    // workspace-relative layers do not. `~/.config/**` being a symlink is the
+    // normal state under GNU Stow / chezmoi / nix home-manager, and `$HOME` is
+    // the user's own — not a privilege boundary. Applying the repo-local
+    // SEC-25 refusal here made a dotfile-managed global config abort the whole
+    // layered load: `load_config_at` propagates this `Err` with `?` *before*
+    // `.ops.toml` and `.ops.d` are read at all, so the user lost every command,
+    // theme, and stack setting from their own repo over a symlink in their home
+    // directory. The byte cap still applies. Read `super::SymlinkPolicy` before
+    // changing this, and do not widen `Follow` over the workspace paths.
     for path in &[toml_path, bare_path] {
-        match super::read_config_file(path) {
+        match super::read_config_file_following_symlinks(path) {
             Ok(Some(overlay)) => {
                 debug!(path = ?path.display(), "merging global config");
                 merge_config(config, overlay);

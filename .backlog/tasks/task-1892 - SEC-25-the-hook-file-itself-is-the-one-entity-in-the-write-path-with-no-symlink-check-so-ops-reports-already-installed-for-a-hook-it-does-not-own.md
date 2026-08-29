@@ -3,11 +3,11 @@ id: TASK-1892
 title: >-
   SEC-25: the hook file itself is the one entity in the write path with no
   symlink check, so ops reports 'already installed' for a hook it does not own
-status: To Do
+status: Done
 assignee:
   - TASK-2008
 created_date: '2026-08-27 15:35'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:04'
 labels:
   - code-review-rust
   - security
@@ -42,7 +42,7 @@ if existing == config.hook_script {
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 install_hook rejects a symlinked <git_dir>/hooks/<hook_filename> with a clear error, consistent with the existing symlink refusals for .git, hooks/ and HEAD
-- [ ] #2 A #[cfg(unix)] test symlinks pre-commit at a file containing the exact ops hook script and asserts install_hook errors instead of reporting 'Hook already installed'
-- [ ] #3 A #[cfg(unix)] test symlinks pre-commit at a file containing a legacy ops marker and asserts the symlink is not silently replaced by a regular file
+- [x] #1 install_hook rejects a symlinked <git_dir>/hooks/<hook_filename> with a clear error, consistent with the existing symlink refusals for .git, hooks/ and HEAD
+- [x] #2 A #[cfg(unix)] test symlinks pre-commit at a file containing the exact ops hook script and asserts install_hook errors instead of reporting 'Hook already installed'
+- [x] #3 A #[cfg(unix)] test symlinks pre-commit at a file containing a legacy ops marker and asserts the symlink is not silently replaced by a regular file
 <!-- AC:END -->

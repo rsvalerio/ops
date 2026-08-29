@@ -3,11 +3,11 @@ id: TASK-1853
 title: >-
   SEC-33: open_refusing_symlinks blocks forever on a FIFO planted at a manifest
   or .ops.toml path
-status: To Do
+status: Done
 assignee:
   - TASK-1984
 created_date: '2026-08-27 15:27'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-29 00:36'
 labels:
   - code-review-rust
   - security
@@ -57,8 +57,14 @@ Fix direction: add `libc::O_NONBLOCK` to `custom_flags` and then `fstat` the ret
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 open_refusing_symlinks cannot block indefinitely: the open is non-blocking and the descriptor's type is checked before any read
-- [ ] #2 A path that is a FIFO, character device, block device, or socket is refused with a stable named error rather than opened
-- [ ] #3 A Unix regression test mkfifo's a manifest path and asserts read_capped_to_string returns an Err promptly rather than blocking
-- [ ] #4 The rustdoc states the boundary the primitive enforces (regular files only, no symlink at the final component) rather than naming the O_NOFOLLOW flag alone
+- [x] #1 open_refusing_symlinks cannot block indefinitely: the open is non-blocking and the descriptor's type is checked before any read
+- [x] #2 A path that is a FIFO, character device, block device, or socket is refused with a stable named error rather than opened
+- [x] #3 A Unix regression test mkfifo's a manifest path and asserts read_capped_to_string returns an Err promptly rather than blocking
+- [x] #4 The rustdoc states the boundary the primitive enforces (regular files only, no symlink at the final component) rather than naming the O_NOFOLLOW flag alone
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-1984, in the same component walk as TASK-1810. Every open in the walk carries O_NONBLOCK (plus O_NOFOLLOW and O_CLOEXEC), and the descriptor type is checked with fstat before any read: intermediate components must be S_IFDIR, the final one must be S_IFREG. A FIFO, socket, or character/block device is refused with the stable InvalidInput surface "refusing to open non-regular file at <path>"; a directory keeps the platform IsADirectory surface. O_NONBLOCK is cleared with fcntl once the type check passes so the read keeps blocking semantics. Rustdoc states the enforced boundary rather than naming the flag. Test: read_capped_to_string_refuses_fifo_without_blocking mkfifos a go.mod and runs the read on a helper thread with a 10s recv_timeout, so a regression fails the test instead of hanging the suite.
+<!-- SECTION:NOTES:END -->

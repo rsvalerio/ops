@@ -3,11 +3,11 @@ id: TASK-1890
 title: >-
   SEC-14: an absolute gitdir: pointer is returned unvalidated, skipping the
   containment anchor every relative pointer must pass
-status: To Do
+status: Done
 assignee:
   - TASK-2008
 created_date: '2026-08-27 15:34'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:03'
 labels:
   - code-review-rust
   - security
@@ -44,8 +44,8 @@ Reachability: `find_git_dir` walks up from the cwd and probes each ancestor's `.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An absolute gitdir: target is canonicalised and validated before being returned, rather than returned verbatim
-- [ ] #2 The validation states an explicit containment rule for absolute targets (documented in the function doc alongside the existing MAX_GITDIR_PARENT_TRAVERSAL rationale) and rejects targets outside it with a tracing::debug! breadcrumb, matching the relative-pointer refusal paths
-- [ ] #3 A test plants a .git pointer file containing an absolute path to a HEAD-bearing directory outside the worktree and asserts find_git_dir refuses it
-- [ ] #4 A test asserts a legitimate absolute worktree pointer (the shape git itself writes) still resolves
+- [x] #1 An absolute gitdir: target is canonicalised and validated before being returned, rather than returned verbatim
+- [x] #2 The validation states an explicit containment rule for absolute targets (documented in the function doc alongside the existing MAX_GITDIR_PARENT_TRAVERSAL rationale) and rejects targets outside it with a tracing::debug! breadcrumb, matching the relative-pointer refusal paths
+- [x] #3 A test plants a .git pointer file containing an absolute path to a HEAD-bearing directory outside the worktree and asserts find_git_dir refuses it
+- [x] #4 A test asserts a legitimate absolute worktree pointer (the shape git itself writes) still resolves
 <!-- AC:END -->

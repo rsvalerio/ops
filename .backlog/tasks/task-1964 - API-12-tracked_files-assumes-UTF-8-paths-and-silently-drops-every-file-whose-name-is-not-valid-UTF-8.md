@@ -3,11 +3,11 @@ id: TASK-1964
 title: >-
   API-12: tracked_files assumes UTF-8 paths and silently drops every file whose
   name is not valid UTF-8
-status: To Do
+status: Done
 assignee:
   - TASK-2011
 created_date: '2026-08-27 15:52'
-updated_date: '2026-08-28 14:18'
+updated_date: '2026-08-28 23:38'
 labels:
   - code-review-rust
   - api-design
@@ -48,7 +48,17 @@ Note the asymmetry: `walk` (discovery.rs:69-75) handles such paths fine — `ign
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A tracked path whose bytes are not valid UTF-8 is included in the candidate set on unix rather than dropped
-- [ ] #2 The walk and tracked modes return the same file set for a fixture containing a non-UTF-8 filename, asserted by a test
-- [ ] #3 If any path is still dropped, the drop is reported rather than silently skipped
+- [x] #1 A tracked path whose bytes are not valid UTF-8 is included in the candidate set on unix rather than dropped
+- [x] #2 The walk and tracked modes return the same file set for a fixture containing a non-UTF-8 filename, asserted by a test
+- [x] #3 If any path is still dropped, the drop is reported rather than silently skipped
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2011. `str::from_utf8` is gone from the tracked path. `discovery::push_decoded` is `#[cfg(unix)]`-split: on Unix it builds the path from the raw bytes with `OsStr::from_bytes` — lossless, allocation-free, and infallible, so nothing can be dropped (AC#1). On other targets git emits UTF-8, so the `from_utf8` route stays there, and a chunk that still fails to decode is counted into `Discovery::undecodable_paths` rather than swallowed; `run_fixer` prints `N tracked path(s) skipped: filename is not valid UTF-8 on this platform` (AC#3).
+
+The contract is stated in the discovery module doc under "# Path encoding".
+
+AC#2: `discovery::tests::tracked_mode_keeps_a_non_utf8_filename_and_agrees_with_the_walk` creates a latin-1 `café.txt` (0xE9), stages it, and asserts the tracked set equals the walk set and `undecodable_paths == 0`.
+<!-- SECTION:NOTES:END -->

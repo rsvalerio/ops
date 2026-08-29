@@ -226,7 +226,7 @@ fn tracked_but_deleted_file_is_skipped_rather_than_failing_the_hook() {
 
 #[test]
 #[cfg(unix)]
-fn tracked_symlink_to_a_character_device_is_skipped_not_read() {
+fn tracked_symlink_to_a_character_device_is_never_a_candidate() {
     let device = Path::new("/dev/zero");
     if !device.exists() {
         return;
@@ -238,6 +238,12 @@ fn tracked_symlink_to_a_character_device_is_skipped_not_read() {
     // A committed symlink to an endless device: `metadata()` reports length
     // 0, so a size gate lets it past, and an unbounded read never reaches
     // EOF. It must be rejected on file *type*, before any read.
+    //
+    // `ops_text_fixers::discovery` now applies that type test to both of its
+    // modes, so the symlink is dropped from the candidate set before this
+    // crate sees it and never reaches the checker's own `NotRegularFile`
+    // skip. The hazard is handled one layer earlier; the property under test
+    // is unchanged — the device is not read, and the run stays clean.
     std::os::unix::fs::symlink(device, root.join("evil.json")).unwrap();
     if !stage_all(root) {
         return;
@@ -248,10 +254,27 @@ fn tracked_symlink_to_a_character_device_is_skipped_not_read() {
     let report = run_check_json(&opts, &mut buf).unwrap();
 
     assert!(!report.failed(), "failures: {:?}", report.files_failed);
-    assert_eq!(report.files_scanned, 1);
-    assert_eq!(report.files_skipped, 1);
+    assert_eq!(report.files_scanned, 1, "only ok.json is read");
+    assert_eq!(report.files_skipped, 0);
     let out = String::from_utf8(buf).unwrap();
-    assert!(out.contains("not a regular file"), "out was {out:?}");
+    assert!(!out.contains("evil.json"), "out was {out:?}");
+}
+
+/// A walk error means the traversal silently omitted candidates, so the run
+/// cannot honestly report "clean". Before this, the error was printed to the
+/// writer and dropped: `failed()` stayed false and the CLI exited 0 over
+/// directories it never read.
+#[test]
+fn walk_errors_make_the_report_fail() {
+    let report = CheckerReport {
+        walk_errors: vec!["IO error for operation on /x: permission denied".to_string()],
+        ..CheckerReport::default()
+    };
+    assert!(
+        report.failed(),
+        "a traversal that lost candidates must not report success"
+    );
+    assert!(!CheckerReport::default().failed());
 }
 
 #[test]
@@ -271,6 +294,7 @@ fn write_summary_reports_each_counter_in_its_own_slot() {
             },
         ],
         files_skipped: 3,
+        walk_errors: Vec::new(),
     };
 
     let mut buf = Vec::new();
@@ -278,7 +302,29 @@ fn write_summary_reports_each_counter_in_its_own_slot() {
 
     assert_eq!(
         String::from_utf8(buf).unwrap(),
-        "check-json: scanned 7 file(s), 2 failed, 3 skipped\n"
+        "check-json: scanned 7 file(s), 2 failed, 3 skipped, 0 walk error(s)\n"
+    );
+}
+
+/// A run whose only problem is a traversal error must say so in the summary:
+/// `failed()` is true (the walk hid candidates), so a line reporting only
+/// "0 failed" would contradict the non-zero exit.
+#[test]
+fn the_summary_reports_walk_errors() {
+    let report = CheckerReport {
+        files_scanned: 1,
+        files_failed: Vec::new(),
+        files_skipped: 0,
+        walk_errors: vec!["denied/: permission denied".to_string()],
+    };
+    assert!(report.failed(), "a walk error must fail the run");
+
+    let mut buf = Vec::new();
+    write_summary(&report, "check-json", &mut buf).unwrap();
+
+    assert_eq!(
+        String::from_utf8(buf).unwrap(),
+        "check-json: scanned 1 file(s), 0 failed, 0 skipped, 1 walk error(s)\n"
     );
 }
 

@@ -3,11 +3,11 @@ id: TASK-1959
 title: >-
   SEC-33: every discovered file is read whole into memory with no size cap, so
   one large tracked file OOMs the pre-commit hook
-status: To Do
+status: Done
 assignee:
   - TASK-2011
 created_date: '2026-08-27 15:50'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:37'
 labels:
   - code-review-rust
   - security
@@ -39,8 +39,20 @@ Nothing bounds the input:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_fixer enforces a documented maximum file size before reading the whole file into memory
-- [ ] #2 The size check is performed on an already-open file handle rather than as a metadata call followed by an independent read
-- [ ] #3 The cap is configurable through FixerOptions and has a documented default
-- [ ] #4 Files skipped for exceeding the cap are reported on the writer and counted in FixerReport, not silently dropped
+- [x] #1 run_fixer enforces a documented maximum file size before reading the whole file into memory
+- [x] #2 The size check is performed on an already-open file handle rather than as a metadata call followed by an independent read
+- [x] #3 The cap is configurable through FixerOptions and has a documented default
+- [x] #4 Files skipped for exceeding the cap are reported on the writer and counted in FixerReport, not silently dropped
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2011. `FixerOptions` gained `max_bytes` with `DEFAULT_MAX_BYTES = 16 MiB` (documented in `options.rs`, matching `ops-config-checkers` so the two file-walking extensions agree) and a `with_max_bytes` builder — AC#1 and AC#3.
+
+AC#2: the cap is enforced on the open handle and on the read, never as a standalone `metadata()` followed by an independent `fs::read`. `runner::open_regular_file` stats by path only as a *type* guard (opening a FIFO would block before any handle check), then opens once, takes `File::metadata` from the handle, and `read_bounded` reads through `Read::take(max_bytes + 1)` — the extra byte is what makes an over-cap file detectable rather than silently truncated and then written back, which for a fixer would destroy everything past the cap.
+
+AC#4: over-cap files are counted in `FixerReport::files_skipped` and named on the writer as `skipped (size N exceeds cap M)`. `tests::a_file_over_the_cap_is_skipped_reported_and_counted` asserts the count, the line, and that the file is untouched.
+
+The symlink filter from TASK-1947 closes the related device/FIFO arm: such a path never reaches the read.
+<!-- SECTION:NOTES:END -->

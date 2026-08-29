@@ -3,11 +3,11 @@ id: TASK-1957
 title: >-
   ERR-13: the write error carries no path and aborts the whole run, discarding
   the report of files already rewritten
-status: To Do
+status: Done
 assignee:
   - TASK-2011
 created_date: '2026-08-27 15:50'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:37'
 labels:
   - code-review-rust
   - idioms
@@ -39,8 +39,22 @@ There is also a policy question worth settling: one unwritable file (read-only f
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A failing write produces an error message that names the file path, verified by a test asserting the path substring appears in the error chain
-- [ ] #2 The fs::read on line 129 carries the same path context, or the crate uses fs_err throughout
-- [ ] #3 A write failure no longer discards the list of files already rewritten: the report of prior changes is still surfaced to the caller
-- [ ] #4 The decision to abort or continue after a per-file write failure is explicit in the function doc, and the code matches it
+- [x] #1 A failing write produces an error message that names the file path, verified by a test asserting the path substring appears in the error chain
+- [x] #2 The fs::read on line 129 carries the same path context, or the crate uses fs_err throughout
+- [x] #3 A write failure no longer discards the list of files already rewritten: the report of prior changes is still surfaced to the caller
+- [x] #4 The decision to abort or continue after a per-file write failure is explicit in the function doc, and the code matches it
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2011.
+
+AC#1 is satisfied by **substitution**, and the substitution is the point of the fix. There is no longer an error chain to inspect for a per-file write failure, because the `?` that discarded the report is gone: a write failure is recorded in `FixerReport::files_failed` (path + `FailureKind::Write(kind)` + message) and rendered on the writer as `<label>: <path>: write: <err>`, and the run continues. `tests::a_failing_write_names_the_path_keeps_going_and_leaves_the_file_intact` asserts the path appears both in the record and in the rendered line — the same guarantee the AC was after, on the surface that now carries it.
+
+AC#2: `runner::read_candidate` renders read and metadata failures with the same path-prefixed line, so the read on the old line 129 carries path context too. `fs_err` was not adopted: the crate has exactly two I/O sites and both now go through `read_candidate` / `atomic::replace`.
+
+AC#3: the report survives. `run_fixer` only aborts on discovery failure or writer failure, so the list of files already rewritten always reaches the caller and `write_summary` always prints.
+
+AC#4: the continue-on-failure decision and its reasoning are in the `run_fixer` doc under "# Per-file failures do not abort the run". The CLI turns `failed()` into a non-zero exit.
+<!-- SECTION:NOTES:END -->

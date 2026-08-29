@@ -313,6 +313,56 @@ mod tests {
         );
     }
 
+    /// ERR-1 / TASK-1858: the `read_dir` call itself — where the most likely
+    /// error lands, EACCES on an unreadable directory — used to be dropped by
+    /// an `if let Ok(..)` with no else arm, two lines above a comment
+    /// asserting the opposite policy. Terraform is the only stack using
+    /// extension-based detection, so the silent failure made an unreadable
+    /// directory report "no manifest" and the user got `Generic` with zero
+    /// signal at any log level.
+    ///
+    /// TEST-19 (TASK-1033): chmod 0o000 does not deny root, whose DAC bypass
+    /// would make `read_dir` succeed and the breadcrumb never fire — the
+    /// assertion would then fail for an environmental reason. Skip under
+    /// root, as the sibling test above does.
+    #[cfg(unix)]
+    #[test]
+    fn extension_walk_read_dir_error_logs_debug_breadcrumb() {
+        use std::os::unix::fs::PermissionsExt;
+
+        if crate::test_utils::is_root_euid() {
+            return;
+        }
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let locked = dir.path().join("locked");
+        std::fs::create_dir(&locked).expect("locked dir");
+        let mut perms = std::fs::metadata(&locked).unwrap().permissions();
+        perms.set_mode(0o000);
+        std::fs::set_permissions(&locked, perms).unwrap();
+
+        let (log, found) = crate::test_utils::capture_tracing(tracing::Level::DEBUG, || {
+            super::detect::has_manifest_in_dir(Stack::Terraform, &locked)
+        });
+
+        let mut restore = std::fs::metadata(&locked).unwrap().permissions();
+        restore.set_mode(0o755);
+        std::fs::set_permissions(&locked, restore).unwrap();
+
+        assert!(
+            !found,
+            "an unreadable directory must still be reported as 'no manifest here'"
+        );
+        assert!(
+            log.contains("read_dir failed"),
+            "expected a read_dir breadcrumb, got: {log}"
+        );
+        assert!(
+            log.contains("locked"),
+            "breadcrumb must name the directory, got: {log}"
+        );
+    }
+
     #[test]
     fn resolve_config_override_wins_over_detect() {
         let dir = tempfile::tempdir().expect("tempdir");

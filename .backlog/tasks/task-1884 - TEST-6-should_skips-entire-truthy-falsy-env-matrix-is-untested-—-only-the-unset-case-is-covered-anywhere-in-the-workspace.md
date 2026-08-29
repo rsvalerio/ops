@@ -3,11 +3,11 @@ id: TASK-1884
 title: >-
   TEST-6: should_skip's entire truthy/falsy env matrix is untested — only the
   unset case is covered anywhere in the workspace
-status: To Do
+status: Done
 assignee:
   - TASK-2008
 created_date: '2026-08-27 15:33'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 22:59'
 labels:
   - code-review-rust
   - tests
@@ -44,8 +44,8 @@ So none of the following is pinned anywhere:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test asserts should_skip returns true for each documented token: 1, true, yes, on
-- [ ] #2 A test asserts case-insensitivity for at least TRUE / Yes / ON
-- [ ] #3 A test asserts should_skip returns false for set-but-falsy values: 0, false, the empty string, and an arbitrary string such as maybe
-- [ ] #4 The new tests use EnvGuard and #[serial_test::serial] so they cannot race other env-mutating tests
+- [x] #1 A test asserts should_skip returns true for each documented token: 1, true, yes, on
+- [x] #2 A test asserts case-insensitivity for at least TRUE / Yes / ON
+- [x] #3 A test asserts should_skip returns false for set-but-falsy values: 0, false, the empty string, and an arbitrary string such as maybe
+- [x] #4 The new tests use EnvGuard and #[serial_test::serial] so they cannot race other env-mutating tests
 <!-- AC:END -->

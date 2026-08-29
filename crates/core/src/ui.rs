@@ -15,11 +15,39 @@ use std::io::Write;
 
 /// SEC-21 (TASK-0981): sanitise a single line for stderr emission.
 ///
-/// Escapes ESC (`\x1b`) and any non-`\t` control character (`< 0x20`, `\x7f`)
-/// using `\xNN` so an attacker-controlled error message cannot smuggle ANSI
-/// escapes or terminal control codes into operator-facing output. Newlines are
-/// the responsibility of the caller — they are split before reaching this
-/// helper so each physical line gets its own `ops: <level>:` prefix.
+/// # Character classes neutralised
+///
+/// Every character in these classes is replaced by a printable escape, so it
+/// reaches the terminal as text rather than as a control sequence:
+///
+/// | Class | Range | Rendered as |
+/// |---|---|---|
+/// | C0 controls (including ESC `U+001B`) | `U+0000..=U+001F` | `\xNN` |
+/// | DEL | `U+007F` | `\x7f` |
+/// | C1 controls (including CSI `U+009B`, OSC `U+009D`) | `U+0080..=U+009F` | `\xNN` |
+/// | Bidi overrides / embeddings | `U+202A..=U+202E` | `\u{NNNN}` |
+/// | Bidi isolates | `U+2066..=U+2069` | `\u{NNNN}` |
+///
+/// TAB (`\t`) is passed through verbatim; it is the one control character
+/// operators expect to survive in a diagnostic. Newlines are the
+/// responsibility of the caller — they are split before reaching this helper
+/// so each physical line gets its own `ops: <level>:` prefix.
+///
+/// SEC-21 / TASK-1843 records two deliberate decisions:
+///
+/// 1. **C1 is escaped even though not every emulator acts on it.** `U+009B`
+///    is the single-character form of `ESC [` and `U+009D` of `ESC ]`;
+///    whether a given terminal honours C1 delivered as UTF-8 varies (xterm
+///    gates it behind a resource, some VTE-family terminals historically did
+///    not). Escaping ESC while passing CSI through would leave the shorter
+///    spelling of the same primitive open, and the range costs one arm.
+/// 2. **Bidi controls are neutralised, not passed through.** They are the
+///    Trojan-Source vector: they reorder rendered text without changing the
+///    bytes, so a `--dry-run` audit preview could display a command line that
+///    is not the one that will run. Bidi *marks* (`U+200E`/`U+200F`) and
+///    other invisible formatting characters are out of scope — they cannot
+///    reorder a run of text — so this is an escape of the reordering
+///    controls, not general Unicode confusable filtering.
 ///
 /// SEC-21 / TASK-1184: also exposed for the `ops --dry-run` audit channel,
 /// which prints (env-expanded) program / args / env values / cwd verbatim
@@ -31,12 +59,26 @@ pub fn sanitise_line(line: &str, out: &mut String) {
     for ch in line.chars() {
         match ch {
             '\t' => out.push('\t'),
-            c if u32::from(c) < 0x20 || c == '\x7f' || c == '\u{1b}' => {
+            // C0 (ESC included, at U+001B), DEL, and C1. `\xNN` keeps the
+            // existing rendering for the first two.
+            c if u32::from(c) < 0x20 || c == '\u{7f}' || ('\u{80}'..='\u{9f}').contains(&c) => {
                 let _ = write!(out, "\\x{:02x}", u32::from(c));
+            }
+            c if is_bidi_control(c) => {
+                let _ = write!(out, "\\u{{{:04x}}}", u32::from(c));
             }
             c => out.push(c),
         }
     }
+}
+
+/// SEC-21 / TASK-1843: the Unicode bidirectional *reordering* controls —
+/// the embeddings/overrides (`U+202A..=U+202E`) and the isolates
+/// (`U+2066..=U+2069`). These are the Trojan-Source characters; they are
+/// escaped by [`sanitise_line`] rather than stripped so an operator can see
+/// that the input contained them.
+const fn is_bidi_control(c: char) -> bool {
+    matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
 }
 
 fn emit(level: &str, message: &str) {
@@ -117,6 +159,43 @@ mod tests {
             "continuation must not start a forged ops: line, got {second:?}"
         );
         assert!(second.starts_with("ops: error:   "));
+    }
+
+    /// SEC-21 / TASK-1843 AC#4: `U+009B` is CSI — the single-character form
+    /// of `ESC [` — and `U+009D` is OSC. Escaping ESC while passing these
+    /// through left the shorter spelling of the same primitive open.
+    #[test]
+    fn c1_control_characters_are_escaped() {
+        let mut out = String::new();
+        sanitise_line("a\u{9b}31mb\u{9d}c\u{80}", &mut out);
+        assert_eq!(out, "a\\x9b31mb\\x9dc\\x80");
+        assert!(!out.contains('\u{9b}'), "CSI must not survive: {out:?}");
+    }
+
+    /// SEC-21 / TASK-1843 AC#4: bidi overrides and isolates reorder rendered
+    /// text without changing the bytes, so a dry-run preview could display a
+    /// command line that is not the one that will run.
+    #[test]
+    fn bidi_controls_are_escaped() {
+        let mut out = String::new();
+        sanitise_line("rm \u{202e}txt.exe\u{202c} now\u{2066}x\u{2069}", &mut out);
+        assert_eq!(out, "rm \\u{202e}txt.exe\\u{202c} now\\u{2066}x\\u{2069}");
+        assert!(
+            !out.chars().any(super::is_bidi_control),
+            "no bidi control may survive: {out:?}"
+        );
+    }
+
+    /// The neighbouring code points must stay untouched — the escape is a
+    /// bounded range, not a blanket filter on non-ASCII text.
+    #[test]
+    fn characters_adjacent_to_the_escaped_ranges_pass_through() {
+        let mut out = String::new();
+        sanitise_line(
+            "\u{7e}\u{a0}\u{2029}\u{2065}\u{206a}caf\u{e9} 名前",
+            &mut out,
+        );
+        assert_eq!(out, "\u{7e}\u{a0}\u{2029}\u{2065}\u{206a}caf\u{e9} 名前");
     }
 
     /// SEC-21 AC#1: ANSI ESC and other control bytes are escaped, not passed

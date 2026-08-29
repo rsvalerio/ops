@@ -1,6 +1,25 @@
 //! Hierarchical configuration parsing and command resolution.
 //!
-//! Resolution order: internal default → global config → local `.ops.toml` → env vars.
+//! Resolution order — five layers, lowest precedence first; each one overrides
+//! everything before it:
+//!
+//! 1. the base defaults — the embedded internal config (`.default.ops.toml`,
+//!    merged first by `loader::load_config_at`) plus the detected stack's
+//!    default commands. The stack defaults are not merged into the `Config`
+//!    at all: the runner keeps them in a separate store and consults it only
+//!    after `config.commands` misses (`runner::command::resolve`), so they
+//!    behave as the lowest-precedence source of commands: a command defined
+//!    by any layer below shadows the stack default of the same name,
+//! 2. the global config (`~/.config/ops/config.toml`),
+//! 3. the workspace's `.ops.toml`,
+//! 4. the workspace's `.ops.d/*.toml` fragments, merged in sorted filename order,
+//! 5. `OPS__*` environment variables.
+//!
+//! ARCH-11 / TASK-1851: `.ops.d` is layer 4 — **above** `.ops.toml`. This doc
+//! previously listed four layers and omitted it, so a reader would put a
+//! setting in `.ops.toml` expecting it to win over a fragment. The chain is
+//! implemented in `loader::load_config_at` and pinned end-to-end by the
+//! precedence tests there, so reordering those merge calls now fails the suite.
 //!
 //! This module is a re-export hub; the types live in focused submodules:
 //!

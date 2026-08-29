@@ -3,11 +3,11 @@ id: TASK-1917
 title: >-
   READ-10: crate-level cfg_attr allows three cast lints in a crate with zero
   casts, with no reason attached
-status: To Do
+status: Done
 assignee:
   - TASK-2009
 created_date: '2026-08-27 15:41'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:20'
 labels:
   - code-review-rust
   - readability
@@ -45,7 +45,29 @@ None of the four carries a `reason`, and all four are granted at crate root — 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The three cast-lint allows are removed from the crate-level cfg_attr (cargo clippy --all-targets --workspace -- -D warnings still passes)
-- [ ] #2 The remaining unwrap_used suppression uses #[expect(..., reason = "...")] or carries an adjacent comment stating why test code is exempt
-- [ ] #3 The suppression is scoped to the #[cfg(test)] module rather than the crate root, if that scope compiles clean
+- [x] #1 The three cast-lint allows are removed from the crate-level cfg_attr (cargo clippy --all-targets --workspace -- -D warnings still passes)
+- [x] #2 The remaining unwrap_used suppression uses #[expect(..., reason = "...")] or carries an adjacent comment stating why test code is exempt
+- [x] #3 The suppression is scoped to the #[cfg(test)] module rather than the crate root, if that scope compiles clean
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The crate-root `#![cfg_attr(test, allow(...))]` block is deleted outright — all four
+entries, not just the three cast lints.
+
+AC#1: `cargo clippy --all-targets --workspace -- -D warnings` passes with the block gone,
+so the three cast-lint allows are confirmed dead (the crate still contains no `as` cast).
+
+AC#2/#3: no suppression remains to scope or annotate. `clippy.toml` already sets
+`allow-unwrap-in-tests` (and the expect/panic/indexing twins), so test code is exempt from
+the panic-adjacent lints by project policy at the narrowest scope clippy offers — the
+crate-root block was suppressing nothing that was firing. A `#[expect(..., reason = "...")]`
+would have been an *unfulfilled* expectation and failed the gate. The reasoning is recorded
+as a comment at the top of `mod tests` so the block is not reintroduced by the next
+copy-paste.
+
+Note for TASK-1747 / TASK-1828 and the two sibling copies (`extensions/run-before-push`,
+`extensions/hook-common`): the same block is very likely dead there too, for the same
+reason. Left alone here — out of this wave's file scope.
+<!-- SECTION:NOTES:END -->

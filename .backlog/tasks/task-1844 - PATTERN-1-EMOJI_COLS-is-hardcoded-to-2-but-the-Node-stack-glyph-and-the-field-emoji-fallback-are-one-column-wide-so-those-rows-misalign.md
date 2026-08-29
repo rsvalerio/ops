@@ -3,11 +3,11 @@ id: TASK-1844
 title: >-
   PATTERN-1: EMOJI_COLS is hardcoded to 2, but the Node stack glyph and the
   field-emoji fallback are one column wide, so those rows misalign
-status: To Do
+status: Done
 assignee:
   - TASK-1984
 created_date: '2026-08-27 15:24'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-29 00:36'
 labels:
   - code-review-rust
   - correctness
@@ -65,8 +65,14 @@ Existing coverage does not catch it: `render_field_aligns_multi_byte_key_by_disp
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The emoji column is sized from the glyph's measured display width (or every glyph field_emoji can return is padded to a single documented width), so every row's key column starts at the same terminal column
-- [ ] #2 continuation_indent for a row is derived from that row's actual emoji width, so a multi-line value's continuation lines align with its own first value line
-- [ ] #3 A test renders a card whose rows mix a width-2 glyph and a width-1 glyph (Node stack, or the ▸ fallback) and asserts both rows' value columns start at the same display column
-- [ ] #4 A test covers a multi-line value on a width-1-emoji row and asserts the continuation line aligns with the first value line
+- [x] #1 The emoji column is sized from the glyph's measured display width (or every glyph field_emoji can return is padded to a single documented width), so every row's key column starts at the same terminal column
+- [x] #2 continuation_indent for a row is derived from that row's actual emoji width, so a multi-line value's continuation lines align with its own first value line
+- [x] #3 A test renders a card whose rows mix a width-2 glyph and a width-1 glyph (Node stack, or the ▸ fallback) and asserts both rows' value columns start at the same display column
+- [x] #4 A test covers a multi-line value on a width-1-emoji row and asserts the continuation line aligns with the first value line
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-1984. `render_field` now pads the glyph with `pad_to_display_width(field_emoji(..), EMOJI_COLS)`, so every row occupies the same measured two-cell emoji slot regardless of whether the glyph is width-1 (Node ⬢ U+2B22, fallback ▸ U+25B8) or width-2. Because every row now matches EMOJI_COLS exactly, `continuation_indent` — derived from the same constant — matches each row own emoji width. The EMOJI_COLS rustdoc records that the constant describes the rendered column rather than asserting a property of the glyph set. Tests: render_field_aligns_rows_mixing_width_1_and_width_2_glyphs (asserts the width-1/width-2 premise, then equal value columns for license/stack/crate) and multi_line_value_on_width_1_emoji_row_aligns_its_continuation.
+<!-- SECTION:NOTES:END -->

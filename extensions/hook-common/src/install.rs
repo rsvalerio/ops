@@ -2,10 +2,11 @@
 //!
 //! Writes the hook script into `<git_dir>/hooks/<filename>`, canonicalising
 //! the target and refusing symlinked or out-of-tree destinations. Idempotent
-//! when an ops-installed hook already matches; upgrades legacy ops hooks via
-//! a temp-file + atomic rename to close the read/write TOCTOU window.
+//! when an ops-installed hook already matches; both the create and the
+//! upgrade path stage the payload in a randomised sibling and rename it into
+//! place, so `<git_dir>/hooks/<filename>` is never observable half-written.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
@@ -37,41 +38,118 @@ pub fn install_hook(
     std::fs::create_dir_all(&hooks_dir).context("failed to create .git/hooks directory")?;
     let hooks_dir = canonical_subdir(&git_dir, &hooks_dir)?;
     let hook_path = hooks_dir.join(config.hook_filename);
+    reject_symlinked_hook(&hook_path)?;
 
-    match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&hook_path)
-    {
-        Ok(file) => write_new_hook(file, &hook_path, config, w),
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-            handle_existing_hook(&hook_path, config, w)
-        }
-        Err(e) => Err(e).context("failed to create hook"),
+    if let Some(installed) = write_new_hook(&hook_path, config, w)? {
+        return Ok(installed);
     }
+    handle_existing_hook(&hook_path, config, w)
 }
 
+/// SEC-25 (TASK-1892): the hook file is the last component of the write path,
+/// and until now the only one with no symlink check — `canonical_git_dir`
+/// refuses a symlinked `.git`, `canonical_subdir` a symlinked `hooks/`, and
+/// `looks_like_git_dir` a symlinked `HEAD`, each with a test.
+///
+/// A symlinked `<git_dir>/hooks/<hook>` split the decision from the write:
+/// `read_to_string` follows the link, so ops classified the *target's*
+/// content, while every write targets the link path. Two divergent outcomes
+/// followed. If the target held the current ops script, ops reported "Hook
+/// already installed" and exited 0 for a hook whose real body lives outside
+/// the repository and can be changed by whoever owns that file — and
+/// reinstalling never corrected it, because the idempotent branch returned
+/// early every time. If it held a legacy marker, the upgrade path's
+/// `rename(2)` (which does not follow symlinks) silently replaced the link
+/// with a regular file, destroying an operator's deliberate wiring into a
+/// shared hooks directory with no diagnostic beyond "Updating outdated ops
+/// hook".
+///
+/// Writing the symlink requires write access to `.git/hooks` already, so this
+/// is not a privilege boundary — but reporting a hook as installed when the
+/// file git executes is one ops neither wrote nor can vouch for is a
+/// correctness bug on its own.
+fn reject_symlinked_hook(hook_path: &Path) -> anyhow::Result<()> {
+    if std::fs::symlink_metadata(hook_path).is_ok_and(|m| m.file_type().is_symlink()) {
+        anyhow::bail!(
+            "refusing to install hook: {} is a symlink",
+            hook_path.display()
+        );
+    }
+    Ok(())
+}
+
+/// Create the hook for the first time, atomically.
+///
+/// SEC-25 (TASK-1882): the previous shape opened `hook_path` itself with
+/// `OpenOptions::create_new(true)` and wrote the script straight into the
+/// live path. A failure (ENOSPC, EIO, EDQUOT) or a kill mid-write left a
+/// truncated — most often zero-byte — file at `.git/hooks/<name>`, which git
+/// happily executes: an empty hook exits 0, so every subsequent commit passed
+/// with no checks and no diagnostic. The create path now mirrors
+/// [`upgrade_legacy_hook`]: stage the payload in a randomised sibling, fsync
+/// it, make it executable, then link it into place. Nothing is ever written
+/// through `hook_path`, so the destination only ever appears complete.
+///
+/// `persist_noclobber` keeps the exclusive-create semantics `create_new` gave
+/// us: it fails with [`ErrorKind::AlreadyExists`] rather than clobbering a
+/// hook that appeared concurrently. Returns `Ok(None)` in that case so the
+/// caller falls through to [`handle_existing_hook`]; the staged file is
+/// unlinked by `NamedTempFile`'s `Drop`.
 fn write_new_hook(
-    mut file: File,
     hook_path: &Path,
     config: &HookConfig,
     w: &mut dyn Write,
-) -> anyhow::Result<PathBuf> {
-    file.write_all(config.hook_script.as_bytes())
-        .context("failed to write hook")?;
-    // Mirror write_temp_hook's durability: if the system crashes between
-    // install and the next git invocation, fsync prevents a zero-byte hook.
-    file.sync_all().context("failed to fsync hook")?;
-    drop(file);
-    set_hook_executable(hook_path)?;
-    // SEC-25 (TASK-0713): fsync the parent so the new directory entry
-    // survives a power loss. Without this, the inode is durable but the
-    // .git/hooks/<name> link can be lost on ext4/xfs, silently disabling
-    // the hook even though `ops install` reported success. Mirrors
-    // ops_core::config::atomic_write (TASK-0340).
-    sync_parent_dir(hook_path);
-    writeln!(w, "Installed hook at {}", hook_path.display())?;
-    Ok(hook_path.to_path_buf())
+) -> anyhow::Result<Option<PathBuf>> {
+    let tmp = stage_hook_payload(hook_path, config)?;
+    match tmp.persist_noclobber(hook_path) {
+        Ok(_file) => {
+            // SEC-25 (TASK-0713): fsync the parent so the new directory entry
+            // survives a power loss. Without this, the inode is durable but
+            // the .git/hooks/<name> link can be lost on ext4/xfs, silently
+            // disabling the hook even though `ops install` reported success.
+            // Mirrors ops_core::config::atomic_write (TASK-0340).
+            sync_parent_dir(hook_path);
+            writeln!(w, "Installed hook at {}", hook_path.display())?;
+            Ok(Some(hook_path.to_path_buf()))
+        }
+        // A hook appeared between our stage and the link — the same race
+        // `create_new` used to report. Hand off to the existing-hook path.
+        Err(e) if e.error.kind() == ErrorKind::AlreadyExists => Ok(None),
+        Err(e) => Err(anyhow::Error::from(e.error))
+            .with_context(|| format!("failed to install hook at {}", hook_path.display())),
+    }
+}
+
+/// How an already-present `<git_dir>/hooks/<name>` relates to ops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExistingHook {
+    /// Byte-identical to the current ops script: nothing to do.
+    Current,
+    /// Carries a legacy ops marker: upgrade it in place.
+    Legacy,
+    /// Empty, whitespace-only, or a strict prefix of the current ops script.
+    ///
+    /// SEC-25 (TASK-1882): this is the shape a pre-TASK-1882 install left
+    /// behind when it died mid-write, and the shape a truncating filesystem
+    /// error still produces for any writer. It is ops's own artefact, not
+    /// user content, so replacing it is safe — and reporting it as a foreign
+    /// user-authored hook (which is what the old marker-only check did) told
+    /// the operator to "remove it manually" about a file ops wrote itself.
+    Partial,
+    /// Anything else: user-authored, refuse to touch it.
+    Foreign,
+}
+
+fn classify_existing_hook(content: &str, config: &HookConfig) -> ExistingHook {
+    if content == config.hook_script {
+        ExistingHook::Current
+    } else if content.trim().is_empty() || config.hook_script.starts_with(content) {
+        ExistingHook::Partial
+    } else if has_legacy_marker(content, config) {
+        ExistingHook::Legacy
+    } else {
+        ExistingHook::Foreign
+    }
 }
 
 fn handle_existing_hook(
@@ -80,22 +158,24 @@ fn handle_existing_hook(
     w: &mut dyn Write,
 ) -> anyhow::Result<PathBuf> {
     let existing = std::fs::read_to_string(hook_path).context("failed to read existing hook")?;
-    if existing == config.hook_script {
-        writeln!(w, "Hook already installed at {}", hook_path.display())?;
-        return Ok(hook_path.to_path_buf());
+    match classify_existing_hook(&existing, config) {
+        ExistingHook::Current => {
+            writeln!(w, "Hook already installed at {}", hook_path.display())?;
+            Ok(hook_path.to_path_buf())
+        }
+        ExistingHook::Legacy | ExistingHook::Partial => upgrade_legacy_hook(hook_path, config, w),
+        ExistingHook::Foreign => {
+            let first_line = existing.lines().next().unwrap_or("").trim();
+            anyhow::bail!(
+                "a {} hook already exists at {} and was not installed by ops \
+                 (first line: {:?}). Remove it manually or back it up before \
+                 running install.",
+                config.hook_filename,
+                hook_path.display(),
+                first_line,
+            );
+        }
     }
-    if !has_legacy_marker(&existing, config) {
-        let first_line = existing.lines().next().unwrap_or("").trim();
-        anyhow::bail!(
-            "a {} hook already exists at {} and was not installed by ops \
-             (first line: {:?}). Remove it manually or back it up before \
-             running install.",
-            config.hook_filename,
-            hook_path.display(),
-            first_line,
-        );
-    }
-    upgrade_legacy_hook(hook_path, config, w)
 }
 
 /// Match a legacy ops marker against the script body.
@@ -168,49 +248,36 @@ fn upgrade_legacy_hook(
     config: &HookConfig,
     w: &mut dyn Write,
 ) -> anyhow::Result<PathBuf> {
-    let parent = hook_path
-        .parent()
-        .context("hook path has no parent directory")?;
-    let file_name = hook_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .context("hook path has no filename")?;
-
-    // SEC-25 / TASK-1210: stage in a randomised sibling so concurrent
-    // installers do not collide. Prefix with `.` so the partial write is
-    // hidden by typical directory listings, and tag with the hook
-    // filename so an orphan from a crashed install is recognisable in a
-    // post-mortem `ls -la`.
-    let tmp = tempfile::Builder::new()
-        .prefix(&format!(".{file_name}.ops-tmp."))
-        .tempfile_in(parent)
-        .with_context(|| {
-            format!(
-                "failed to create temp hook in {} for atomic rename",
-                parent.display()
-            )
-        })?;
-    let tmp_path = tmp.path().to_path_buf();
-    write_hook_payload(tmp.as_file(), &tmp_path, config).inspect_err(|_| {
-        // NamedTempFile's Drop unlinks on failure too, but be explicit so
-        // a Drop-disabled future refactor cannot silently leave orphans.
-        let _ = std::fs::remove_file(&tmp_path);
-    })?;
-    set_hook_executable(&tmp_path)?;
+    let tmp = stage_hook_payload(hook_path, config)?;
 
     let recheck = std::fs::read_to_string(hook_path)
         .context("failed to re-read existing hook before upgrade")?;
-    if !has_legacy_marker(&recheck, config) {
-        // Drop runs on `tmp` and unlinks the staged file. Bail loudly so
-        // the user-authored content stays intact.
-        anyhow::bail!(
-            "refusing to upgrade {}: file changed during install and no longer \
-             looks like an ops-installed hook",
-            hook_path.display()
-        );
-    }
+    let message = match classify_existing_hook(&recheck, config) {
+        ExistingHook::Legacy => "Updating outdated ops hook at",
+        // SEC-25 (TASK-1882): a truncated ops artefact is replaced, not
+        // reported as a foreign hook.
+        ExistingHook::Partial => "Replacing partially written ops hook at",
+        // A concurrent installer won the race with the identical payload.
+        // Nothing left to do: drop the stage and report the same success the
+        // idempotent path would have. Erroring here would make two honest
+        // simultaneous `ops <hook>-install` runs fail one of themselves.
+        ExistingHook::Current => {
+            drop(tmp);
+            writeln!(w, "Hook already installed at {}", hook_path.display())?;
+            return Ok(hook_path.to_path_buf());
+        }
+        ExistingHook::Foreign => {
+            // Drop runs on `tmp` and unlinks the staged file. Bail loudly so
+            // the user-authored content stays intact.
+            anyhow::bail!(
+                "refusing to upgrade {}: file changed during install and no longer \
+                 looks like an ops-installed hook",
+                hook_path.display()
+            );
+        }
+    };
 
-    writeln!(w, "Updating outdated ops hook at {}", hook_path.display())?;
+    writeln!(w, "{message} {}", hook_path.display())?;
     // `persist` consumes the NamedTempFile and renames its randomised
     // path over `hook_path`. On error the inner `(io::Error, NamedTempFile)`
     // pair lets the temp file fall back into Drop, unlinking the stage.
@@ -238,22 +305,68 @@ fn sync_parent_dir(path: &Path) {
         match File::open(parent) {
             Ok(dir) => {
                 if let Err(e) = dir.sync_all() {
+                    // ERR-7 (TASK-0937 / TASK-1886): Debug-format the path and
+                    // error so a directory name carrying newlines or ANSI
+                    // escapes cannot forge lines in the developer's terminal.
                     tracing::debug!(
-                        parent = %parent.display(),
-                        error = %e,
+                        parent = ?parent.display(),
+                        error = ?e,
                         "fsync of hook parent directory failed; install kept",
                     );
                 }
             }
             Err(e) => {
+                // ERR-7 (TASK-0937 / TASK-1886): see above.
                 tracing::debug!(
-                    parent = %parent.display(),
-                    error = %e,
+                    parent = ?parent.display(),
+                    error = ?e,
                     "could not open hook parent for fsync; install kept",
                 );
             }
         }
     }
+}
+
+/// Stage the hook payload in a randomised sibling of `hook_path`, fsynced and
+/// already executable, ready to be renamed into place.
+///
+/// SEC-25 / TASK-1210: the name is randomised rather than a fixed
+/// `.{file_name}.ops-tmp` sibling. Prefix with `.` so the partial write is
+/// hidden by typical directory listings, and tag with the hook filename so an
+/// orphan from a crashed install is recognisable in a post-mortem `ls -la`.
+///
+/// SEC-25 / TASK-1882: shared by the create and the upgrade path so both get
+/// the same crash-safety. On any failure the staged file is unlinked and
+/// nothing is left at `hook_path`.
+fn stage_hook_payload(
+    hook_path: &Path,
+    config: &HookConfig,
+) -> anyhow::Result<tempfile::NamedTempFile> {
+    let parent = hook_path
+        .parent()
+        .context("hook path has no parent directory")?;
+    let file_name = hook_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .context("hook path has no filename")?;
+
+    let tmp = tempfile::Builder::new()
+        .prefix(&format!(".{file_name}.ops-tmp."))
+        .tempfile_in(parent)
+        .with_context(|| {
+            format!(
+                "failed to create temp hook in {} for atomic rename",
+                parent.display()
+            )
+        })?;
+    let tmp_path = tmp.path().to_path_buf();
+    write_hook_payload(tmp.as_file(), &tmp_path, config).inspect_err(|_| {
+        // NamedTempFile's Drop unlinks on failure too, but be explicit so
+        // a Drop-disabled future refactor cannot silently leave orphans.
+        let _ = std::fs::remove_file(&tmp_path);
+    })?;
+    set_hook_executable(&tmp_path)?;
+    Ok(tmp)
 }
 
 /// Write the hook script bytes into an already-open temp file and fsync.
@@ -328,6 +441,128 @@ mod tests {
 
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("Installed hook"));
+    }
+
+    /// SEC-25 / TASK-1882: if the create path fails, nothing may be left at
+    /// `.git/hooks/<hook>`. The pre-TASK-1882 shape opened the live hook path
+    /// with `create_new` before writing, so any failure downstream of that
+    /// open left a zero-byte hook behind — a file git runs and that exits 0,
+    /// silently disabling the gate. Staging in a sibling makes the failure
+    /// path leave the destination untouched.
+    #[cfg(unix)]
+    #[test]
+    fn install_hook_create_failure_leaves_no_hook_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // TEST-19: root bypasses DAC, so the 0o555 chmod below would not deny
+        // anything and the install would succeed — turning the whole test
+        // into a silent no-op that still reports green. Skip before touching
+        // the permissions rather than after.
+        if ops_core::test_utils::is_root_euid() {
+            return;
+        }
+
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        let hooks = git_dir.join("hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        // Read+execute but not write: the stage cannot be created, so the
+        // install fails at the earliest possible point.
+        std::fs::set_permissions(&hooks, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        let mut buf = Vec::new();
+        let result = install_hook(&cfg, &git_dir, &mut buf);
+
+        let hook_path = hooks.join("pre-commit");
+        let leftover = hook_path.exists();
+        // Restore permissions so tempdir cleanup succeeds.
+        std::fs::set_permissions(&hooks, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(
+            result.is_err(),
+            "install must fail on an unwritable hooks dir"
+        );
+        assert!(
+            !leftover,
+            "no file — in particular no empty file — may remain at the hook path"
+        );
+    }
+
+    /// SEC-25 / TASK-1882: an install killed between staging and the rename
+    /// leaves a randomised `.pre-commit.ops-tmp.*` orphan and *no* hook. The
+    /// next install must ignore the orphan and complete normally.
+    #[test]
+    fn install_hook_after_interrupted_stage_installs_cleanly() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        let hooks = git_dir.join("hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        // What an interruption can leave behind: a staged, partially written
+        // sibling. Never a partial `pre-commit`.
+        let orphan = hooks.join(".pre-commit.ops-tmp.AbCxYz");
+        std::fs::write(&orphan, "#!/usr/bin/env bash\nexec ops run-before-com").unwrap();
+        assert!(!hooks.join("pre-commit").exists());
+
+        let mut buf = Vec::new();
+        let path = install_hook(&cfg, &git_dir, &mut buf).expect("install_hook");
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), cfg.hook_script);
+        assert!(orphan.exists(), "orphan stage is not ours to remove");
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("Installed hook"), "unexpected: {output}");
+    }
+
+    /// SEC-25 / TASK-1882: a truncated hook is ops's own artefact, not a
+    /// user-authored hook. Before the fix the installer read it, found no
+    /// legacy marker, and told the operator to remove "a hook not installed
+    /// by ops" — about a file ops itself had half-written, wedging reinstall.
+    #[test]
+    fn install_hook_replaces_truncated_hook_rather_than_calling_it_foreign() {
+        let cfg = commit_config();
+        for partial in ["", "   \n", "#!/usr/bin/env bash\nexec ops run-before-com"] {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let git_dir = dir.path().join(".git");
+            std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+            std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+            std::fs::write(git_dir.join("hooks/pre-commit"), partial).unwrap();
+
+            let mut buf = Vec::new();
+            let path = install_hook(&cfg, &git_dir, &mut buf)
+                .unwrap_or_else(|e| panic!("partial hook {partial:?} must be replaced: {e:#}"));
+
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), cfg.hook_script);
+            let output = String::from_utf8(buf).unwrap();
+            assert!(
+                !output.contains("not installed by ops"),
+                "partial hook {partial:?} must not be reported as foreign: {output}"
+            );
+        }
+    }
+
+    #[test]
+    fn classify_existing_hook_separates_partial_from_foreign() {
+        let cfg = commit_config();
+        assert_eq!(
+            classify_existing_hook(cfg.hook_script, &cfg),
+            ExistingHook::Current
+        );
+        assert_eq!(classify_existing_hook("", &cfg), ExistingHook::Partial);
+        assert_eq!(
+            classify_existing_hook("#!/usr/bin/env bash\nexec ops run-before-com", &cfg),
+            ExistingHook::Partial
+        );
+        assert_eq!(
+            classify_existing_hook("#!/bin/sh\nexec ops before-commit\n", &cfg),
+            ExistingHook::Legacy
+        );
+        assert_eq!(
+            classify_existing_hook("#!/bin/sh\necho mine\n", &cfg),
+            ExistingHook::Foreign
+        );
     }
 
     #[test]
@@ -564,6 +799,76 @@ mod tests {
         );
     }
 
+    /// SEC-25 / TASK-1892: a symlinked `pre-commit` pointing at a file whose
+    /// content *is* the ops script must not be reported as "Hook already
+    /// installed" — the body git executes lives outside the repository and is
+    /// owned by whoever owns that file.
+    #[cfg(unix)]
+    #[test]
+    fn install_hook_rejects_symlinked_hook_matching_ops_script() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let outside = dir.path().join("shared-hook");
+        std::fs::write(&outside, cfg.hook_script).unwrap();
+        let hook_path = git_dir.join("hooks/pre-commit");
+        std::os::unix::fs::symlink(&outside, &hook_path).unwrap();
+
+        let mut buf = Vec::new();
+        let err = install_hook(&cfg, &git_dir, &mut buf).unwrap_err();
+
+        assert!(
+            err.to_string().contains("is a symlink"),
+            "unexpected: {err}"
+        );
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            !output.contains("already installed"),
+            "must not claim the hook is installed: {output}"
+        );
+        assert!(std::fs::symlink_metadata(&hook_path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    /// SEC-25 / TASK-1892: `rename(2)` does not follow symlinks, so the
+    /// upgrade path used to replace a deliberately symlinked hook with a
+    /// regular file and report only "Updating outdated ops hook". Refuse
+    /// instead, leaving the operator's wiring intact.
+    #[cfg(unix)]
+    #[test]
+    fn install_hook_does_not_replace_symlinked_legacy_hook() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let outside = dir.path().join("shared-hook");
+        let legacy = "#!/bin/sh\nexec ops before-commit\n";
+        std::fs::write(&outside, legacy).unwrap();
+        let hook_path = git_dir.join("hooks/pre-commit");
+        std::os::unix::fs::symlink(&outside, &hook_path).unwrap();
+
+        let mut buf = Vec::new();
+        let err = install_hook(&cfg, &git_dir, &mut buf).unwrap_err();
+
+        assert!(
+            err.to_string().contains("is a symlink"),
+            "unexpected: {err}"
+        );
+        assert!(
+            std::fs::symlink_metadata(&hook_path)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "the symlink must not be replaced by a regular file"
+        );
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), legacy);
+    }
+
     /// SEC-25 / TASK-0361: HEAD must be a real regular file. A symlinked HEAD
     /// is the simplest swap an attacker can stage between the shape check and
     /// the hook write, so the substance check rejects it outright.
@@ -646,9 +951,18 @@ mod tests {
 
         // User's hook is preserved.
         assert_eq!(std::fs::read_to_string(&hook_path).unwrap(), foreign);
-        // Temp file is cleaned up.
-        let tmp = hooks.join(".pre-commit.ops-tmp");
-        assert!(!tmp.exists(), "temp file should be removed on bail");
+        // TEST-11 (TASK-1888): count randomised stages by prefix, matching
+        // the two sibling tests below. The previous assertion probed the
+        // pre-TASK-1210 fixed name `.pre-commit.ops-tmp`, which randomised
+        // staging can never create — so it held unconditionally and left the
+        // bail path's stage cleanup, the only coverage it has, unverified.
+        let stray = std::fs::read_dir(&hooks)
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with(".pre-commit.ops-tmp."))
+            .count();
+        assert_eq!(stray, 0, "staged temp file must be removed on bail");
     }
 
     /// ERR-1 (TASK-1113) + SEC-25 (TASK-1210): a prior `ops install` that

@@ -78,6 +78,13 @@ wait-timeout = "0.2"
 comfy-table = "7"
 terminal_size = "0.4"
 shellexpand = { version = "3.1.2", default-features = false, features = ["base-0"] }
+# SEC-27 / TASK-1806: `config` is a *live* dependency of `ops-core`, not dead
+# weight -- `crates/core/src/config/loader/env.rs` builds the `OPS__*`
+# environment overlay on `config::Environment::with_prefix("OPS")`. The
+# `use config as config_crate;` alias is why a `config::` path grep over
+# `crates/core/src` finds nothing.
+config = "0.15"
+strum = { version = "0.28", features = ["derive"] }
 saphyr-parser = "0.0.6"
 json5 = "0.4"
 ignore = "0.4"

@@ -143,10 +143,12 @@ pub const MAX_GIT_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 /// via `File::open` + `Read::take`. An oversized config returns `None`
 /// with a `tracing::warn!` rather than slurping the whole file.
 ///
-/// # Panics
-///
-/// If the URL bytes fail `String::from_utf8` after having already been
-/// validated as UTF-8 — an internal invariant violation.
+/// READ-4 / TASK-1878: this function carried a `# Panics` section describing
+/// a `String::from_utf8` invariant violation. ERR-1 / TASK-1244 replaced that
+/// fallible decode with an explicit `Err` arm that falls back to
+/// `String::from_utf8_lossy`, so the panic it documented became unreachable.
+/// The section is removed rather than left to mislead callers deciding
+/// whether a call needs isolating.
 #[must_use]
 pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
     use std::io::Read;
@@ -239,6 +241,16 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
 /// stripped from unquoted values, matching `git config --get`. Quoted
 /// values are not yet honoured by this minimal scanner.
 ///
+/// READ-5 (TASK-1876): trailing comments on a *section header*
+/// (`[remote "origin"] # primary`) are stripped too — see
+/// [`strip_header_comment`]. The other looseness git allows on a header
+/// line, a key sharing it (`[remote "origin"] url = https://…`), is
+/// **not** supported: the trimmed line does not end in `]`, so the header
+/// itself fails to parse and the section is skipped. Documented as a
+/// limitation rather than implemented, since no tool writes that form in
+/// practice; `is_origin_header` logs the rejection at debug so the absence
+/// is discoverable under `RUST_LOG=ops_git=debug`.
+///
 /// # Userinfo redaction (SEC-13 / TASK-0894)
 ///
 /// Returns a [`RedactedUrl`] — the type system enforces that any
@@ -263,7 +275,16 @@ fn parse_origin_url_inner(content: &str, path: Option<&Path>) -> Option<Redacted
             continue;
         }
         if trimmed.starts_with('[') {
-            in_origin = is_origin_header(trimmed);
+            // READ-5 / TASK-1876: git treats `#` / `;` as starting a comment
+            // anywhere outside a quoted value, so `[remote "origin"] # primary`
+            // is an ordinary header git resolves `remote.origin.url` from.
+            // `parse_section_header` requires the trimmed line to end in `]`,
+            // so without this strip the header failed to parse, `in_origin`
+            // went false, and *every* `url =` line in the section was
+            // dropped — total loss of repository identity for a config shape
+            // git accepts. The READ-2 / TASK-0726 comment stripping covers
+            // value lines only; header lines never saw it.
+            in_origin = is_origin_header(strip_header_comment(trimmed));
             if in_origin {
                 origin_seen = true;
             }
@@ -377,6 +398,41 @@ fn strip_url_key(line: &str) -> Option<std::borrow::Cow<'_, str>> {
     Some(std::borrow::Cow::Borrowed(uncommented.trim()))
 }
 
+/// READ-5 / TASK-1876: drop a trailing `#` / `;` comment from a section
+/// header line.
+///
+/// git-config(1) starts a comment at an unquoted `#` or `;` anywhere on the
+/// line, so `[remote "origin"] # primary` and `[remote "origin"] ; mirror`
+/// are valid headers. The scan tracks quoting and the `\\` / `\"` escapes
+/// git honours inside a subsection name, so a subsection that legitimately
+/// contains `;` or `#` (`[remote "a;b"]`) is left intact.
+///
+/// Only the comment is stripped: `[remote "origin"] url = …`, git's
+/// header-line key form, remains unsupported and is listed in the
+/// [`read_origin_url_from`] limitation list.
+fn strip_header_comment(line: &str) -> &str {
+    let mut in_quotes = false;
+    let mut escaped = false;
+    for (i, b) in line.bytes().enumerate() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match b {
+            b'\\' if in_quotes => escaped = true,
+            b'"' => in_quotes = !in_quotes,
+            b'#' | b';' if !in_quotes => {
+                // `#` / `;` are ASCII, so `i` is always a char boundary and
+                // `get` always succeeds; it is used over `line[..i]` to keep
+                // the panicking index form (clippy::string_slice) out.
+                return line.get(..i).unwrap_or(line).trim_end();
+            }
+            _ => {}
+        }
+    }
+    line
+}
+
 fn is_origin_header(line: &str) -> bool {
     match parse_section_header(line) {
         Ok((section, subsection)) => {
@@ -401,8 +457,15 @@ fn is_origin_header(line: &str) -> bool {
                 .trim_start_matches('[')
                 .starts_with(|c: char| c.eq_ignore_ascii_case(&'r'))
             {
+                // SEC-21 / ERR-7 / TASK-1871: Debug-format the raw header
+                // line. Unlike a `url = …` value it never passes through
+                // `RedactedUrl::redact`, so a `.git/config` section header
+                // carrying ANSI escapes or an interior `\r` would otherwise
+                // reach the log sink verbatim and repaint the operator's
+                // terminal — the same forging risk TASK-1206 closed for the
+                // config path.
                 tracing::debug!(
-                    line,
+                    line = ?line,
                     reason = ?reason,
                     "git-config: rejected section header that looks like remote.*"
                 );
@@ -515,30 +578,122 @@ fn parse_section_header(line: &str) -> Result<(&str, Option<String>), SectionHea
 /// repository states), `tracing::warn!` on every other IO error so an
 /// operator chasing "branch keeps showing as detached" sees the underlying
 /// permission/EIO problem instead of a `None` that pretends HEAD is detached.
+///
+/// SEC-33 / TASK-1866 (superseding the falsely-closed TASK-0927, which was
+/// marked Done with every acceptance criterion ticked while no code landed):
+/// the read is capped at [`MAX_HEAD_BYTES`] with the same `File::open` +
+/// `Read::take` shape [`read_origin_url`] uses, and the cap is enforced on
+/// raw bytes *before* decoding, matching the TASK-1620 ordering fix. A
+/// multi-gigabyte `HEAD`, or one symlinked to `/dev/zero`, previously forced
+/// an unbounded allocation on every `ops about` invocation.
+///
+/// SEC-2 / SEC-11 / TASK-1863: the returned branch is subjected to the same
+/// whole-codepoint policy [`RedactedUrl::redact`] applies to the remote URL
+/// ([`is_ascii_control_byte`] + [`is_unicode_format_or_separator`]), plus the
+/// dot-only-segment rejection `remote::is_valid_path_segment` applies to
+/// owner/repo (SEC-13 / TASK-0929). `git_info.branch` is rendered on About
+/// cards and emitted in provider JSON exactly like `remote_url`, but only
+/// the URL reader was hardened: a `.git/HEAD` of
+/// `ref: refs/heads/main\x1b[2J\x1b[31mFAKE` — writable by any tarball,
+/// mounted volume, submodule, or third-party checkout — repainted the
+/// operator's terminal, and a U+202E ref spoofed the branch name outright.
+/// A rejected ref returns `None` (never a partially-sanitised branch) and
+/// emits one `tracing::warn!` naming the reason, mirroring the
+/// `read_origin_url` rejected-line breadcrumb (TASK-1215).
 #[must_use]
 pub fn read_head_branch(git_dir: &Path) -> Option<String> {
+    use std::io::Read;
     let head_path = git_dir.join("HEAD");
-    let content = match std::fs::read_to_string(&head_path) {
-        Ok(c) => c,
+    let mut file = match std::fs::File::open(&head_path) {
+        Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
+            // ERR-7 / TASK-1206, TASK-1871: Debug-format the path so a
+            // hostile checkout path with newlines / ANSI cannot forge log
+            // records. This arm logged with `%` (Display) while the three
+            // `read_origin_url` arms in this file already used `?`.
             tracing::warn!(
-                path = %head_path.display(),
+                path = ?head_path.display(),
                 error = %e,
-                "failed to read .git/HEAD; reporting branch as None"
+                "failed to open .git/HEAD; reporting branch as None"
             );
             return None;
         }
+    };
+    let mut bytes = Vec::new();
+    let limit = MAX_HEAD_BYTES.saturating_add(1);
+    if let Err(e) = (&mut file).take(limit).read_to_end(&mut bytes) {
+        tracing::warn!(
+            path = ?head_path.display(),
+            error = %e,
+            "failed to read .git/HEAD (within byte cap); reporting branch as None"
+        );
+        return None;
+    }
+    // SEC-33 / TASK-1866: enforce the cap on raw bytes before any decoding.
+    // `take(limit)` returned at most `limit` bytes, so the file is in-cap iff
+    // `bytes.len() <= MAX_HEAD_BYTES`. A length that does not fit in a `u64`
+    // is necessarily far above the cap, so saturating keeps the comparison
+    // exact for every value it can distinguish.
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_HEAD_BYTES {
+        tracing::warn!(
+            path = ?head_path.display(),
+            cap = MAX_HEAD_BYTES,
+            "SEC-33: .git/HEAD exceeds byte cap; refusing to parse and reporting branch as None"
+        );
+        return None;
+    }
+    let Ok(content) = String::from_utf8(bytes) else {
+        // A refname is ASCII in practice; non-UTF-8 here is corruption or
+        // injection, and there is no lossy form worth surfacing as a branch.
+        tracing::warn!(
+            path = ?head_path.display(),
+            "SEC-2: .git/HEAD is not valid UTF-8; reporting branch as None"
+        );
+        return None;
     };
     let trimmed = content.trim();
     let rest = trimmed.strip_prefix("ref:")?.trim();
     let branch = rest.strip_prefix("refs/heads/")?;
     if branch.is_empty() {
-        None
-    } else {
-        Some(branch.to_string())
+        return None;
     }
+    // SEC-2 / TASK-1863: reuse the `RedactedUrl::redact` predicates rather
+    // than growing a third copy of the policy.
+    if branch.bytes().any(is_ascii_control_byte)
+        || branch.chars().any(is_unicode_format_or_separator)
+    {
+        tracing::warn!(
+            path = ?head_path.display(),
+            "SEC-2 / TASK-1863: .git/HEAD ref contains a control or Unicode formatting codepoint; reporting branch as None"
+        );
+        return None;
+    }
+    // SEC-13 / TASK-1863: a ref that resolves to a traversal shape
+    // (`refs/heads/../../../etc`) must not reach operator-facing surfaces —
+    // the same rejection `remote::is_valid_path_segment` applies to
+    // owner/repo (TASK-0929).
+    if branch
+        .split('/')
+        .any(|seg| !seg.is_empty() && seg.bytes().all(|b| b == b'.'))
+    {
+        tracing::warn!(
+            path = ?head_path.display(),
+            "SEC-13 / TASK-1863: .git/HEAD ref contains a dot-only path segment; reporting branch as None"
+        );
+        return None;
+    }
+    Some(branch.to_string())
 }
+
+/// SEC-33 / TASK-1866 (supersedes the falsely-closed TASK-0927): hard cap on
+/// the `.git/HEAD` read size.
+///
+/// A real `HEAD` is ~30 bytes (`ref: refs/heads/<name>\n`); 4 KiB is ample
+/// for any refname git will accept and still bounds the allocation an
+/// adversarial repository can force. Mirrors the
+/// [`MAX_GIT_CONFIG_BYTES`] posture for `.git/config`.
+pub const MAX_HEAD_BYTES: u64 = 4 * 1024;
 
 #[cfg(test)]
 mod tests {
@@ -1244,5 +1399,200 @@ mod tests {
         assert!(!rendered.contains('\n'));
         assert!(!rendered.contains('\u{1b}'));
         assert!(rendered.contains("\\n"));
+    }
+
+    /// SEC-21 / ERR-7 / TASK-1871: `is_origin_header` logs the raw
+    /// `.git/config` section-header line, which — unlike a `url = …` value —
+    /// never passes through `RedactedUrl::redact`. Debug-formatting it is
+    /// what keeps ANSI escapes and an interior `\r` from reaching the log
+    /// sink verbatim. Same value-level contract as
+    /// `read_origin_url_path_debug_escapes_control_characters`.
+    #[test]
+    fn rejected_section_header_line_debug_escapes_control_characters() {
+        let line = "[remote \u{1b}[31m\rorigin\"]";
+        let rendered = format!("{line:?}");
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(!rendered.contains('\r'));
+        assert!(rendered.contains("\\r"));
+        assert!(rendered.contains("\\u{1b}"));
+    }
+
+    /// SEC-21 / ERR-7 / TASK-1871: the HEAD path takes the same Debug
+    /// formatter as the `.git/config` path — this arm logged with `%`.
+    #[test]
+    fn read_head_branch_path_debug_escapes_control_characters() {
+        let p = std::path::Path::new("/tmp/dir\n\u{1b}[31m/.git/HEAD");
+        let rendered = format!("{:?}", p.display());
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
+    }
+
+    /// TASK-1871 AC#4: no `tracing` call in this crate may Display-format a
+    /// path or a raw `.git/config` line. Grep the sources so a future call
+    /// site cannot quietly reintroduce the forging surface.
+    #[test]
+    fn no_tracing_call_display_formats_a_path_or_config_line() {
+        for name in ["config.rs", "provider.rs", "remote.rs", "lib.rs"] {
+            let src = std::fs::read_to_string(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("src")
+                    .join(name),
+            )
+            .expect("read source");
+            for (n, line) in src.lines().enumerate() {
+                let trimmed = line.trim();
+                assert!(
+                    !(trimmed.starts_with("path = %")
+                        || trimmed.starts_with("line = %")
+                        || trimmed == "line,"),
+                    "{name}:{}: Display-formatted path / raw config line in a tracing call",
+                    n + 1
+                );
+            }
+        }
+    }
+
+    fn write_head(contents: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        std::fs::write(git_dir.join("HEAD"), contents).unwrap();
+        (dir, git_dir)
+    }
+
+    /// SEC-2 / TASK-1863: an ANSI escape in the ref repaints the operator's
+    /// terminal wherever `git_info.branch` is rendered. `read_origin_url`
+    /// dropped such values from day one; this reader shipped them raw.
+    #[test]
+    fn head_branch_with_ansi_escape_is_rejected() {
+        let (_d, git_dir) = write_head("ref: refs/heads/main\u{1b}[2J\u{1b}[31mFAKE\n");
+        assert_eq!(read_head_branch(&git_dir), None);
+    }
+
+    /// SEC-2 / TASK-1863: U+202E RIGHT-TO-LEFT OVERRIDE is the homograph
+    /// surface TASK-1238 closed for the remote URL.
+    #[test]
+    fn head_branch_with_bidi_override_is_rejected() {
+        let (_d, git_dir) = write_head("ref: refs/heads/ma\u{202e}in\n");
+        assert_eq!(read_head_branch(&git_dir), None);
+    }
+
+    /// SEC-2 / TASK-1863: `trim` only removes leading / trailing whitespace,
+    /// so an interior CR survives into the branch string.
+    #[test]
+    fn head_branch_with_interior_carriage_return_is_rejected() {
+        let (_d, git_dir) = write_head("ref: refs/heads/main\rfake\n");
+        assert_eq!(read_head_branch(&git_dir), None);
+    }
+
+    /// SEC-13 / TASK-1863: a traversal-shaped ref must not reach
+    /// `git_info.branch` — the shape `remote::is_valid_path_segment`
+    /// rejects on the remote side (TASK-0929).
+    #[test]
+    fn head_branch_with_dot_only_segment_is_rejected() {
+        let (_d, git_dir) = write_head("ref: refs/heads/../../../etc\n");
+        assert_eq!(read_head_branch(&git_dir), None);
+        let (_d2, git_dir2) = write_head("ref: refs/heads/feature/./foo\n");
+        assert_eq!(read_head_branch(&git_dir2), None);
+    }
+
+    /// SEC-2 / TASK-1863: the hardening must not cost ordinary branches —
+    /// including the `.`-containing and slash-containing names git allows.
+    #[test]
+    fn head_branch_normal_names_still_round_trip() {
+        let (_d, git_dir) = write_head("ref: refs/heads/feature/foo\n");
+        assert_eq!(read_head_branch(&git_dir), Some("feature/foo".to_string()));
+        let (_d2, git_dir2) = write_head("ref: refs/heads/release-1.2.3\n");
+        assert_eq!(
+            read_head_branch(&git_dir2),
+            Some("release-1.2.3".to_string())
+        );
+    }
+
+    /// SEC-33 / TASK-1866 (supersedes the falsely-closed TASK-0927): a HEAD
+    /// one byte over the cap must return `None` rather than allocating the
+    /// file. `read_origin_url` has had this bound since TASK-0910.
+    #[test]
+    fn head_branch_over_byte_cap_is_rejected() {
+        let cap = usize::try_from(MAX_HEAD_BYTES).unwrap_or(usize::MAX);
+        let prefix = "ref: refs/heads/";
+        let oversized = format!("{prefix}{}", "a".repeat(cap + 1 - prefix.len()));
+        assert_eq!(oversized.len(), cap + 1);
+        let (_d, git_dir) = write_head(&oversized);
+        assert_eq!(read_head_branch(&git_dir), None);
+    }
+
+    /// SEC-33 / TASK-1866: exactly at the cap still parses, so the bound is
+    /// a cap and not an off-by-one rejection of large-but-legal refs.
+    #[test]
+    fn head_branch_exactly_at_byte_cap_is_accepted() {
+        let cap = usize::try_from(MAX_HEAD_BYTES).unwrap_or(usize::MAX);
+        let prefix = "ref: refs/heads/";
+        let name = "a".repeat(cap - prefix.len());
+        let at_cap = format!("{prefix}{name}");
+        assert_eq!(at_cap.len(), cap);
+        let (_d, git_dir) = write_head(&at_cap);
+        assert_eq!(read_head_branch(&git_dir), Some(name));
+    }
+
+    /// READ-5 / TASK-1876: git starts a comment at an unquoted `#` / `;`
+    /// anywhere on the line, so these are ordinary headers. Before the fix
+    /// `strip_suffix(']')` failed, `in_origin` went false, and every
+    /// `url =` line in the section was silently dropped.
+    #[test]
+    fn section_header_with_trailing_hash_comment_is_recognised() {
+        let cfg = "[remote \"origin\"] # primary\n\turl = https://github.com/o/r.git\n";
+        assert_eq!(
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
+            Some("https://github.com/o/r.git".to_string())
+        );
+    }
+
+    #[test]
+    fn section_header_with_trailing_semicolon_comment_is_recognised() {
+        let cfg = "[remote \"origin\"] ; upstream mirror\n\turl = https://github.com/o/r.git\n";
+        assert_eq!(
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
+            Some("https://github.com/o/r.git".to_string())
+        );
+    }
+
+    /// READ-5 / TASK-1876 AC#2: a `;` or `#` *inside* the quoted subsection
+    /// name is part of the name, not a comment — stripping must not cut it.
+    #[test]
+    fn quoted_subsection_containing_comment_chars_survives() {
+        let cfg = "[remote \"a;b\"]\n\turl = https://github.com/o/wrong.git\n\
+                   [remote \"origin\"]\n\turl = https://github.com/o/r.git\n";
+        assert_eq!(
+            read_origin_url_from(cfg).map(RedactedUrl::into_string),
+            Some("https://github.com/o/r.git".to_string())
+        );
+        // And the `;`-bearing subsection is matched as itself, not truncated
+        // to `[remote "a`.
+        assert_eq!(strip_header_comment("[remote \"a;b\"]"), "[remote \"a;b\"]");
+        assert_eq!(strip_header_comment("[remote \"a#b\"]"), "[remote \"a#b\"]");
+        assert!(!is_origin_header("[remote \"a;b\"]"));
+    }
+
+    /// READ-5 / TASK-1876: an origin section whose *name* carries the
+    /// comment marker inside quotes still resolves.
+    #[test]
+    fn quoted_origin_subsection_with_trailing_comment() {
+        assert_eq!(
+            strip_header_comment("[remote \"origin\"] ; note"),
+            "[remote \"origin\"]"
+        );
+        assert!(is_origin_header(strip_header_comment(
+            "[remote \"origin\"] ; note"
+        )));
+    }
+
+    /// READ-5 / TASK-1876 AC#3: the header-line key form stays unsupported
+    /// and documented — pin the behaviour so the limitation list stays true.
+    #[test]
+    fn header_line_key_form_remains_unsupported() {
+        let cfg = "[remote \"origin\"] url = https://github.com/o/r.git\n";
+        assert_eq!(read_origin_url_from(cfg), None);
     }
 }

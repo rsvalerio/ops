@@ -3,11 +3,11 @@ id: TASK-1860
 title: >-
   READ-1: display_cmd nests a second, always-true args.is_empty() check inside
   the first, leaving a dead fall-through and a duplicated binding
-status: To Do
+status: Done
 assignee:
   - TASK-1983
 created_date: '2026-08-27 15:29'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 23:53'
 labels:
   - code-review-rust
   - readability
@@ -54,6 +54,12 @@ Neither clippy nor the compiler flags it: the inner condition is not a constant,
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 display_cmd binds program once and has a single args.is_empty() check, with no unreachable branch
-- [ ] #2 The existing display_cmd tests (no-args, display_program override, metacharacter quoting) pass unchanged
+- [x] #1 display_cmd binds program once and has a single args.is_empty() check, with no unreachable branch
+- [x] #2 The existing display_cmd tests (no-args, display_program override, metacharacter quoting) pass unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`display_cmd` now binds `program` once and has a single `args.is_empty()` early return; the nested always-true check and the duplicated binding are gone. Behaviour unchanged — `exec_spec_display_cmd_no_args`, `exec_spec_display_cmd_prefers_display_program` and `exec_spec_display_cmd_quotes_metacharacters` pass unmodified.
+<!-- SECTION:NOTES:END -->

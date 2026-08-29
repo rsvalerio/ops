@@ -3,11 +3,11 @@ id: TASK-1961
 title: >-
   READ-5: fix_trailing violates its documented 'preserves the original line
   terminator' invariant by appending an LF to a bare-CR final line
-status: To Do
+status: Done
 assignee:
   - TASK-2011
 created_date: '2026-08-27 15:51'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:38'
 labels:
   - code-review-rust
   - readability
@@ -46,8 +46,18 @@ For a CR-only file there is a second half to the same defect: because no `\n` is
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 fix_trailing no longer appends a newline byte that was not present in the input, verified by a test asserting fix_trailing on 'abc \r' does not grow the file
-- [ ] #2 A test covers the CR-only line-ending case and asserts the documented behaviour, whichever behaviour is chosen
-- [ ] #3 The trailing.rs module doc and the code agree on how a bare CR is treated
-- [ ] #4 A property or round-trip test asserts that for any input, the output of fix_trailing contains exactly the same number of 0x0A bytes as the input
+- [x] #1 fix_trailing no longer appends a newline byte that was not present in the input, verified by a test asserting fix_trailing on 'abc \r' does not grow the file
+- [x] #2 A test covers the CR-only line-ending case and asserts the documented behaviour, whichever behaviour is chosen
+- [x] #3 The trailing.rs module doc and the code agree on how a bare CR is treated
+- [x] #4 A property or round-trip test asserts that for any input, the output of fix_trailing contains exactly the same number of 0x0A bytes as the input
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2011. `has_crlf` is now gated on `nl.is_some()`, so a `\r` counts as half a terminator only when the `\n` was actually found. `fix_trailing(b"abc \r")` returns `None` instead of growing the file to `abc\r\n`.
+
+AC#3: the module doc and the code now agree, and the doc states the choice — `\n` is the only line terminator, `\r\n` is preserved as a unit, a bare `\r` is ordinary content. A CR-only file is therefore one line and is left entirely alone; treating `\r` as a terminator would be a line-ending conversion, not a whitespace fix. The doc also records the invariant and how it used to break.
+
+Tests: `trailing_bare_cr_does_not_grow_the_file` (AC#1), `cr_only_file_is_left_alone` and `trailing_whitespace_before_a_final_bare_cr_is_still_reachable_via_lf` (AC#2), `newline_count_is_invariant` (AC#4) — a table-driven property over all 343 three-atom combinations of `a`, space, tab, LF, CR, CRLF and empty, asserting the output has exactly as many `0x0A` bytes as the input and never grows.
+<!-- SECTION:NOTES:END -->

@@ -3,11 +3,11 @@ id: TASK-1876
 title: >-
   READ-5: a section header with a trailing comment ([remote "origin"] # primary)
   silently drops the whole origin section
-status: To Do
+status: Done
 assignee:
   - TASK-2007
 created_date: '2026-08-27 15:31'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 23:27'
 labels:
   - code-review-rust
   - readability
@@ -36,8 +36,14 @@ The parser's documented limitation list (`config.rs:222-241`) names `insteadOf`,
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 a trailing '#' or ';' comment after a section header is stripped before parse_section_header runs, so [remote "origin"] # primary is recognised as the origin section
-- [ ] #2 the stripping does not break a subsection name that legitimately contains '#' or ';' inside quotes
-- [ ] #3 either the header-line key form ([remote "origin"] url = …) is supported, or it is added to the documented limitation list in the read_origin_url_from doc comment
-- [ ] #4 unit tests cover header + '#' comment, header + ';' comment, and a quoted subsection containing a ';'
+- [x] #1 a trailing '#' or ';' comment after a section header is stripped before parse_section_header runs, so [remote "origin"] # primary is recognised as the origin section
+- [x] #2 the stripping does not break a subsection name that legitimately contains '#' or ';' inside quotes
+- [x] #3 either the header-line key form ([remote "origin"] url = …) is supported, or it is added to the documented limitation list in the read_origin_url_from doc comment
+- [x] #4 unit tests cover header + '#' comment, header + ';' comment, and a quoted subsection containing a ';'
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#3 satisfied by the documented-limitation route: the header-line key form ([remote "origin"] url = ...) is listed in read_origin_url_from's limitation list and pinned by header_line_key_form_remains_unsupported.
+<!-- SECTION:NOTES:END -->

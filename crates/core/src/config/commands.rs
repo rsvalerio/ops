@@ -195,10 +195,14 @@ impl ExecCommandSpec {
     /// components — the symmetric SEC-25 hardening for `ops run <cmd>`
     /// under a hostile workspace config.
     ///
+    /// SEC-11 (TASK-1826): the `env` map is screened too — see
+    /// [`Self::validate_env`]. Every string this spec hands to
+    /// `std::process::Command` now passes through this function.
+    ///
     /// # Errors
     ///
-    /// If `program` is empty, `timeout_secs` is `Some(0)`, or any field
-    /// contains control characters.
+    /// If `program` is empty, `timeout_secs` is `Some(0)`, any field
+    /// contains control characters, or an `env` key contains `=`.
     pub fn validate(&self, name: &str) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.program.is_empty(),
@@ -221,6 +225,41 @@ impl ExecCommandSpec {
                 anyhow::bail!(
                     "command '{name}': cwd must not contain '..' components (got {cwd_str:?})"
                 );
+            }
+        }
+        self.validate_env(name)?;
+        Ok(())
+    }
+
+    /// SEC-11 / TASK-1826: screen the `env` map with the same
+    /// control-character policy the rest of [`Self::validate`] applies.
+    ///
+    /// `crates/runner/src/command/build.rs` hands `env` straight to
+    /// `Command::env`, so an unscreened NUL surfaces as std's anonymous
+    /// `InvalidInput` — "nul byte found in provided data" — with no command,
+    /// no field, and no offending key: exactly the cryptic spawn failure the
+    /// validator exists to prevent, on the one field it did not cover.
+    ///
+    /// Keys carry one rule values do not: an `=` inside a key produces a Unix
+    /// environment entry the child's `getenv` can never retrieve, so it is
+    /// rejected at load rather than silently spawned.
+    ///
+    /// Keys are visited in sorted order so a config with several bad entries
+    /// always reports the same one; `HashMap` iteration order would otherwise
+    /// make the diagnostic — and any test pinning it — nondeterministic.
+    fn validate_env(&self, name: &str) -> anyhow::Result<()> {
+        let mut keys: Vec<&str> = self.env.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        for key in keys {
+            check_control_chars(name, &format!("env key {key:?}"), key)?;
+            anyhow::ensure!(
+                !key.contains('='),
+                "command '{name}': env key {key:?} must not contain '='; \
+                 the child process could never look such a variable up"
+            );
+            // `keys` was built from `self.env`, so this lookup always hits.
+            if let Some(value) = self.env.get(key) {
+                check_control_chars(name, &format!("env[{key}]"), value)?;
             }
         }
         Ok(())
@@ -246,13 +285,10 @@ impl ExecCommandSpec {
     /// would otherwise reject.
     #[must_use]
     pub fn display_cmd(&self) -> Cow<'_, str> {
-        if self.args.is_empty() {
-            let program = self.display_program.as_deref().unwrap_or(&self.program);
-            if self.args.is_empty() {
-                return shell_quote(program);
-            }
-        }
         let program = self.display_program.as_deref().unwrap_or(&self.program);
+        if self.args.is_empty() {
+            return shell_quote(program);
+        }
         Cow::Owned(format!(
             "{} {}",
             shell_quote(program),

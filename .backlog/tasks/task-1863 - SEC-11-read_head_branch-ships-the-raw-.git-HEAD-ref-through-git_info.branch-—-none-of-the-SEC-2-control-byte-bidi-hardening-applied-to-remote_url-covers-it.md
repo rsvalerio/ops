@@ -4,11 +4,11 @@ title: >-
   SEC-11: read_head_branch ships the raw .git/HEAD ref through git_info.branch —
   none of the SEC-2 control-byte / bidi hardening applied to remote_url covers
   it
-status: To Do
+status: Done
 assignee:
   - TASK-2007
 created_date: '2026-08-27 15:29'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 23:26'
 labels:
   - code-review-rust
   - security
@@ -39,9 +39,9 @@ A `.git/HEAD` of `ref: refs/heads/main\u{1b}[2J\u{1b}[31mFAKE` yields `branch = 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_head_branch applies the same whole-codepoint policy as RedactedUrl::redact (is_ascii_control_byte + is_unicode_format_or_separator), returning None rather than a partially-sanitised branch when the ref contains a rejected codepoint
-- [ ] #2 the rejection reuses the existing helpers in config.rs rather than a third copy of the predicate
-- [ ] #3 a ref that resolves to a traversal shape (any path segment consisting solely of '.') is rejected
-- [ ] #4 a rejected HEAD emits one tracing::warn! naming the reason, mirroring the read_origin_url rejected-line breadcrumb (TASK-1215)
-- [ ] #5 unit tests cover an ANSI-escape branch, a U+202E branch, an interior CR, a '..' segment, and pin that a normal 'feature/foo' branch still round-trips
+- [x] #1 read_head_branch applies the same whole-codepoint policy as RedactedUrl::redact (is_ascii_control_byte + is_unicode_format_or_separator), returning None rather than a partially-sanitised branch when the ref contains a rejected codepoint
+- [x] #2 the rejection reuses the existing helpers in config.rs rather than a third copy of the predicate
+- [x] #3 a ref that resolves to a traversal shape (any path segment consisting solely of '.') is rejected
+- [x] #4 a rejected HEAD emits one tracing::warn! naming the reason, mirroring the read_origin_url rejected-line breadcrumb (TASK-1215)
+- [x] #5 unit tests cover an ANSI-escape branch, a U+202E branch, an interior CR, a '..' segment, and pin that a normal 'feature/foo' branch still round-trips
 <!-- AC:END -->

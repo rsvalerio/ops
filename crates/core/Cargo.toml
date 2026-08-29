@@ -12,11 +12,11 @@ test-support = []
 serde = { workspace = true }
 toml = { workspace = true }
 toml_edit = { workspace = true }
-config = "0.15"
+config = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 indexmap = { workspace = true }
-strum = { version = "0.28", features = ["derive"] }
+strum = { workspace = true }
 comfy-table = { workspace = true }
 unicode-width = { workspace = true }
 terminal_size = { workspace = true }

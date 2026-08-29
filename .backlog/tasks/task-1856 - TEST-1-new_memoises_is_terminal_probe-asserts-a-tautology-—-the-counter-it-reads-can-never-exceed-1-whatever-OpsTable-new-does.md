@@ -3,11 +3,11 @@ id: TASK-1856
 title: >-
   TEST-1: new_memoises_is_terminal_probe asserts a tautology — the counter it
   reads can never exceed 1, whatever OpsTable::new does
-status: To Do
+status: Done
 assignee:
   - TASK-1984
 created_date: '2026-08-27 15:28'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-29 00:37'
 labels:
   - code-review-rust
   - testing
@@ -63,7 +63,13 @@ To actually pin the contract the probe has to be counted at the *call site* rath
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The memoisation test fails when OpsTable::new is changed to call std::io::stdout().is_terminal() directly instead of routing through style::stdout_is_terminal
-- [ ] #2 The probe is counted where it is called rather than inside OnceLock::get_or_init, so the counter reflects isatty invocations rather than cache initialisations
-- [ ] #3 If no meaningful seam is worth adding, the test and the pub #[doc(hidden)] stdout_is_terminal_probe_count API plus its AtomicUsize are removed rather than left as false coverage
+- [x] #1 The memoisation test fails when OpsTable::new is changed to call std::io::stdout().is_terminal() directly instead of routing through style::stdout_is_terminal
+- [x] #2 The probe is counted where it is called rather than inside OnceLock::get_or_init, so the counter reflects isatty invocations rather than cache initialisations
+- [x] #3 If no meaningful seam is worth adding, the test and the pub #[doc(hidden)] stdout_is_terminal_probe_count API plus its AtomicUsize are removed rather than left as false coverage
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-1984. The counter moved out of the OnceLock::get_or_init closure to the top of `style::stdout_is_terminal`, so it now counts calls to the shared accessor rather than cache initialisations; renamed STDOUT_PROBES -> STDOUT_TTY_QUERIES and the seam `stdout_is_terminal_probe_count` -> `stdout_tty_query_count` (only caller is the test). The test is rewritten as `new_routes_tty_probe_through_shared_cache` and asserts the delta is >= 16 across 16 constructions (>= not == because sibling tests in the same binary legitimately consult the same accessor in parallel). AC#1 verified empirically: temporarily changing OpsTable::new to call std::io::stdout().is_terminal() directly makes the test FAIL, where the old tautological assertion passed. The seam is therefore kept rather than removed (AC#3 alternative not needed).
+<!-- SECTION:NOTES:END -->

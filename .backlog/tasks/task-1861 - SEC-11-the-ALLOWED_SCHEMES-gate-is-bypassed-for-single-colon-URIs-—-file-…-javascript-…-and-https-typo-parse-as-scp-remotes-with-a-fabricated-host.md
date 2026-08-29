@@ -3,11 +3,11 @@ id: TASK-1861
 title: >-
   SEC-11: the ALLOWED_SCHEMES gate is bypassed for single-colon URIs — file:/…,
   javascript:… and https:/typo parse as scp remotes with a fabricated host
-status: To Do
+status: Done
 assignee:
   - TASK-2007
 created_date: '2026-08-27 15:29'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 23:26'
 labels:
   - code-review-rust
   - security
@@ -35,8 +35,8 @@ The `ALLOWED_SCHEMES` doc comment at `remote.rs:67-70` states: "`file://`, `java
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 split_scheme_host_and_path rejects any input whose pre-colon segment is a URI scheme not in ALLOWED_SCHEMES when the value is not a genuine scp-style host:path remote (i.e. the scp branch must not silently accept file:, javascript:, ftp:, mailto:, or a single-slash https:/ typo)
-- [ ] #2 parse_remote_url returns None for 'file:/srv/git/o/repo.git', 'javascript:evil/repo', 'ftp:host/o/r', and 'https:/github.com/o/r'; genuine scp remotes ('git@github.com:o/r.git' and the already-redacted 'github.com:o/r.git') still parse to ssh://
-- [ ] #3 the ALLOWED_SCHEMES doc comment matches the implemented behaviour, or is amended to state precisely which forms are gated
-- [ ] #4 regression tests cover each rejected single-colon form and both accepted scp forms
+- [x] #1 split_scheme_host_and_path rejects any input whose pre-colon segment is a URI scheme not in ALLOWED_SCHEMES when the value is not a genuine scp-style host:path remote (i.e. the scp branch must not silently accept file:, javascript:, ftp:, mailto:, or a single-slash https:/ typo)
+- [x] #2 parse_remote_url returns None for 'file:/srv/git/o/repo.git', 'javascript:evil/repo', 'ftp:host/o/r', and 'https:/github.com/o/r'; genuine scp remotes ('git@github.com:o/r.git' and the already-redacted 'github.com:o/r.git') still parse to ssh://
+- [x] #3 the ALLOWED_SCHEMES doc comment matches the implemented behaviour, or is amended to state precisely which forms are gated
+- [x] #4 regression tests cover each rejected single-colon form and both accepted scp forms
 <!-- AC:END -->

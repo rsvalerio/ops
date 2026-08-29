@@ -1,11 +1,11 @@
 ---
 id: TASK-1983
 title: code-review-plan-wave149
-status: To Do
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-08-28 14:04'
-updated_date: '2026-08-28 14:08'
+updated_date: '2026-08-29 00:05'
 labels:
   - code-review-wave
 dependencies:
@@ -45,4 +45,6 @@ code-review-plan-wave149
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-1984 [wave150] 1 files (crates/core/src/text.rs)
+
+Branch: code-review/TASK-1983
 <!-- SECTION:NOTES:END -->

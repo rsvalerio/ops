@@ -3,11 +3,11 @@ id: TASK-1832
 title: >-
   SEC-33: walk_composite re-walks shared subtrees, so a 30-command .ops.toml
   costs 2^30 visits at validate time
-status: To Do
+status: Done
 assignee:
   - TASK-1983
 created_date: '2026-08-27 15:21'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 23:52'
 labels:
   - code-review-rust
   - security
@@ -57,8 +57,38 @@ The fix is the standard three-colour DFS: keep the existing path-set `visiting` 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 walk_composite records nodes whose subtree validated successfully and does not re-descend into them, so validation is O(V+E) rather than O(2^n)
-- [ ] #2 Cycle detection is unchanged: validate_commands_rejects_self_cycle and validate_commands_rejects_indirect_cycle still pass, and validate_commands_accepts_diamond_dag still passes
-- [ ] #3 A regression test builds a 30-level chain where each composite lists the next one twice and asserts validate_commands returns within a bounded wall-clock budget (or asserts a call/visit counter is linear in the command count)
-- [ ] #4 The memoisation is documented alongside the existing ERR-1 / TASK-1221 visiting-set invariant so a future refactor does not silently drop it
+- [x] #1 walk_composite records nodes whose subtree validated successfully and does not re-descend into them, so validation is O(V+E) rather than O(2^n)
+- [x] #2 Cycle detection is unchanged: validate_commands_rejects_self_cycle and validate_commands_rejects_indirect_cycle still pass, and validate_commands_accepts_diamond_dag still passes
+- [x] #3 A regression test builds a 30-level chain where each composite lists the next one twice and asserts validate_commands returns within a bounded wall-clock budget (or asserts a call/visit counter is linear in the command count)
+- [x] #4 The memoisation is documented alongside the existing ERR-1 / TASK-1221 visiting-set invariant so a future refactor does not silently drop it
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented as three-colour DFS with one refinement over the suggested
+`HashSet` memo: `walk_composite` now threads a `CompositeWalk` struct holding
+both `visiting` (the DFS path, cycle detection, cleared per root) and
+`validated: HashMap<&str, usize>` mapping each fully-validated node to its
+**subtree height**, carried across sibling roots.
+
+The height (rather than a bare "seen" flag) is load-bearing: the depth limit is
+measured from whichever root the walk entered by, so a node validated at depth
+10 can still exceed `MAX_COMPOSITE_DEPTH` when reached again at depth 95. On a
+memo hit the walker re-checks `depth + height` and bails identically to the
+re-walked path. A plain seen-set would have failed open there; pinned by
+`validate_commands_memo_still_enforces_depth_limit`.
+
+AC #3: `validate_commands_doubling_chain_is_not_exponential` builds the exact
+30-level doubling chain from the description and asserts a 5s wall-clock budget
+(TEST-15: the budget is ~6 orders of magnitude above the real cost so it cannot
+flake, while 2^30 visits cannot fit inside it).
+
+AC #4: the memo is documented alongside the ERR-1 / TASK-1221 `visiting`
+invariant, on both `CompositeWalk` and `walk_composite`, spelling out that the
+two sets carry opposite meanings and that dropping `validated` restores the
+blowup silently.
+
+`walk_composite`'s signature changed (state struct + returns the height), so the
+two ERR-1 invariant tests now assert via `CompositeWalk::path_is_empty()`.
+<!-- SECTION:NOTES:END -->

@@ -3,11 +3,11 @@ id: TASK-1963
 title: >-
   TEST-6: no test covers any failure or hostile-input path of a tool that
   rewrites the user's files in place
-status: To Do
+status: Done
 assignee:
   - TASK-2011
 created_date: '2026-08-27 15:52'
-updated_date: '2026-08-28 14:18'
+updated_date: '2026-08-28 23:38'
 labels:
   - code-review-rust
   - tests
@@ -42,9 +42,24 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test covers a read-only target file and pins the observable behaviour of the write failure
-- [ ] #2 A test covers an unreadable source file and pins the observable behaviour
-- [ ] #3 A test chmods a fixture and asserts the file mode is unchanged after a fix
-- [ ] #4 A test asserts a zero-byte file is left at zero bytes by both fixers
-- [ ] #5 A fixed-point test runs both fixers twice over a mixed fixture tree and asserts the second run changes nothing and reports changed() as false
+- [x] #1 A test covers a read-only target file and pins the observable behaviour of the write failure
+- [x] #2 A test covers an unreadable source file and pins the observable behaviour
+- [x] #3 A test chmods a fixture and asserts the file mode is unchanged after a fix
+- [x] #4 A test asserts a zero-byte file is left at zero bytes by both fixers
+- [x] #5 A fixed-point test runs both fixers twice over a mixed fixture tree and asserts the second run changes nothing and reports changed() as false
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2011. `extensions/text-fixers/src/tests.rs` is now the failure-and-hostile-input suite:
+
+- AC#1 (**substitution**): a read-only *target file* no longer fails. The move to temp-file-and-rename (TASK-1943) means the write only needs a writable directory, and the mode is carried onto the new inode. `a_read_only_target_is_still_rewritten_with_its_mode_intact` pins that changed behaviour explicitly, and `a_failing_write_names_the_path_keeps_going_and_leaves_the_file_intact` pins the write-failure path proper via a read-only *directory* — the file that cannot be written is named, the original is byte-identical afterwards, and the run continues and still reports the file it did fix.
+- AC#2 `an_unreadable_file_is_reported_rather_than_making_the_run_look_clean`
+- AC#3 `file_mode_survives_the_rewrite` (0640) plus `atomic::tests::preserves_mode`
+- AC#4 `a_zero_byte_file_stays_zero_bytes`
+- AC#5 `both_fixers_over_a_mixed_tree_reach_a_fixed_point` — LF, CRLF, no-trailing-newline, a dotfile, a nested directory and an empty file; both fixers run twice and the second pass must report `!changed()` and leave the tree byte-identical (snapshot compared)
+- also `a_binary_payload_past_the_old_sniff_window_is_left_byte_identical`, `a_file_over_the_cap_is_skipped_reported_and_counted`, `every_discovered_file_is_accounted_for`, and the tracked-mode and symlink cases
+
+All permission-based fixtures go through `test_support` guards that *probe* rather than assume: each returns `None` when the process can defeat the chmod (i.e. root in a CI container), and the test skips instead of asserting something the environment cannot make true.
+<!-- SECTION:NOTES:END -->

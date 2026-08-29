@@ -3,11 +3,11 @@ id: TASK-1852
 title: >-
   TEST-1: merge_conf_d's broken-symlink guard is unreachable since O_NOFOLLOW
   landed, and its regression test passes on the wrong error
-status: To Do
+status: Done
 assignee:
   - TASK-1983
 created_date: '2026-08-27 15:26'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 23:53'
 labels:
   - code-review-rust
   - testing
@@ -71,8 +71,34 @@ Secondary, and worth deciding in the same change: because `O_NOFOLLOW` now refus
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 merge_conf_d_rejects_broken_symlink asserts the specific error the code produces today, so it fails if the branch it names is deleted or reclassified
-- [ ] #2 The ERR-4 doc comment describes the condition that actually reaches the Ok(None) arm (a race between read_dir and open) rather than the broken-symlink case O_NOFOLLOW now intercepts
-- [ ] #3 The delete-between-listing-and-open race has a test, or the Ok(None) arm is documented as defence-in-depth with the reason it cannot currently be exercised
-- [ ] #4 A decision is recorded on whether a legitimate symlink inside .ops.d should hard-fail the load, consistent with whatever the global-config path settles on
+- [x] #1 merge_conf_d_rejects_broken_symlink asserts the specific error the code produces today, so it fails if the branch it names is deleted or reclassified
+- [x] #2 The ERR-4 doc comment describes the condition that actually reaches the Ok(None) arm (a race between read_dir and open) rather than the broken-symlink case O_NOFOLLOW now intercepts
+- [x] #3 The delete-between-listing-and-open race has a test, or the Ok(None) arm is documented as defence-in-depth with the reason it cannot currently be exercised
+- [x] #4 A decision is recorded on whether a legitimate symlink inside .ops.d should hard-fail the load, consistent with whatever the global-config path settles on
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC #1: `merge_conf_d_rejects_broken_symlink` now also asserts the message
+contains `refusing to follow symlink`, i.e. the SEC-25 `ELOOP` branch the code
+actually takes today. The old path-substring-only assertion was satisfied by
+either branch, so the `Ok(None)` bail the test is named for could have been
+deleted with the suite still green.
+
+AC #2 + #3: the ERR-4 doc on `merge_conf_d` was rewritten. It now says a
+dangling symlink returns `ELOOP` under `O_NOFOLLOW` (mapped to `InvalidInput`)
+and therefore takes the `Err` arm, and that the only remaining route into
+`Ok(None)` is a delete/rename **between `read_dir` and `open`** — a genuine
+TOCTOU race, documented as defence in depth with the reason it is not
+unit-tested (reproducing it needs a scheduler-timed unlink inside the loop).
+
+AC #4 (recorded decision): symlinks inside `.ops.d` **stay refused**. `.ops.d`
+is workspace-relative and therefore repo-supplied — the same
+attacker-controlled trust boundary as `.ops.toml`. The SEC-14 / TASK-1847
+relaxation landed in the same wave applies only to the user's own
+`~/.config/ops/config.toml`; the decision and its reasoning are recorded on
+`merge_conf_d` and cross-referenced to `loader::SymlinkPolicy`. New test
+`merge_conf_d_refuses_symlink_to_a_real_file` pins it, so the global-config
+relaxation cannot leak into `.ops.d` later.
+<!-- SECTION:NOTES:END -->

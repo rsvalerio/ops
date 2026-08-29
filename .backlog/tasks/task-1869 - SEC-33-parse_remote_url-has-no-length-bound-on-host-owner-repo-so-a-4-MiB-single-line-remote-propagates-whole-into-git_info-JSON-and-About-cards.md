@@ -3,11 +3,11 @@ id: TASK-1869
 title: >-
   SEC-33: parse_remote_url has no length bound on host / owner / repo, so a 4
   MiB single-line remote propagates whole into git_info JSON and About cards
-status: To Do
+status: Done
 assignee:
   - TASK-2007
 created_date: '2026-08-27 15:30'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 23:26'
 labels:
   - code-review-rust
   - security
@@ -36,8 +36,8 @@ Result: ~4 MiB of attacker-chosen text is emitted as `git_info.host` / `owner` /
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 is_valid_host rejects hosts longer than 253 bytes and labels longer than 63 bytes
-- [ ] #2 is_valid_path_segment rejects segments beyond a documented maximum, and split_owner_repo rejects an owner path beyond a documented total length / segment count
-- [ ] #3 the limits are named consts with a comment stating the rationale, in the style of MAX_GIT_CONFIG_BYTES
-- [ ] #4 unit tests pin rejection just over each limit and acceptance just under it, and confirm a realistic nested GitLab subgroup ('a/b/c/d/repo') still parses
+- [x] #1 is_valid_host rejects hosts longer than 253 bytes and labels longer than 63 bytes
+- [x] #2 is_valid_path_segment rejects segments beyond a documented maximum, and split_owner_repo rejects an owner path beyond a documented total length / segment count
+- [x] #3 the limits are named consts with a comment stating the rationale, in the style of MAX_GIT_CONFIG_BYTES
+- [x] #4 unit tests pin rejection just over each limit and acceptance just under it, and confirm a realistic nested GitLab subgroup ('a/b/c/d/repo') still parses
 <!-- AC:END -->

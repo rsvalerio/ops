@@ -3,11 +3,11 @@ id: TASK-1835
 title: >-
   TEST-2: read_config_file_permission_denied_returns_none is named for the
   opposite outcome and silently passes as a no-op under root
-status: To Do
+status: Done
 assignee:
   - TASK-1983
 created_date: '2026-08-27 15:22'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 23:52'
 labels:
   - code-review-rust
   - testing
@@ -53,7 +53,13 @@ A failing assertion panics before the chmod-back, leaving a 0o000 file that can 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test is renamed to state the outcome it actually asserts (e.g. read_config_file_permission_denied_returns_err)
-- [ ] #2 The test detects the privileged-sandbox case the way edit.rs::sync_parent_dir_warns_when_parent_open_fails does, and either skips or asserts the real behaviour rather than failing when DAC is bypassed
-- [ ] #3 Permissions are restored before the assertion so a failure cannot leave a 0o000 file behind for TempDir teardown
+- [x] #1 The test is renamed to state the outcome it actually asserts (e.g. read_config_file_permission_denied_returns_err)
+- [x] #2 The test detects the privileged-sandbox case the way edit.rs::sync_parent_dir_warns_when_parent_open_fails does, and either skips or asserts the real behaviour rather than failing when DAC is bypassed
+- [x] #3 Permissions are restored before the assertion so a failure cannot leave a 0o000 file behind for TempDir teardown
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Renamed to `read_config_file_permission_denied_returns_err`. The test now probes `File::open` independently to detect a DAC-bypassing privileged sandbox: when DAC is enforced it asserts `Err` naming the file; when bypassed (root/fakeroot CI) it asserts the read succeeded and did **not** collapse to `Ok(None)`, so the test is meaningful in both topologies instead of no-opping. Permissions are restored before any assertion, so a failure can no longer leave a 0o000 file for `TempDir` teardown.
+<!-- SECTION:NOTES:END -->

@@ -42,6 +42,10 @@
 //!
 //! - [`EnvGuard`] — RAII guard that restores an env var on drop. Requires
 //!   `#[serial]` from `serial_test` on the test; see the struct rustdoc.
+//! - [`isolate_global_config`] — point `XDG_CONFIG_HOME` at an empty
+//!   directory and clear the global-config resolver cache for the lifetime
+//!   of the returned [`GlobalConfigIsolation`] guard. Also requires
+//!   `#[serial]`.
 //! - [`is_root_euid`] — true on Unix when EUID is 0; tests that depend on
 //!   DAC-permission denial must `return` early when this is true (see
 //!   TEST-19 in the function rustdoc).
@@ -532,6 +536,50 @@ impl EnvGuard {
         // SAFETY: Test-only. Callers use #[serial] to prevent concurrent env access.
         unsafe { std::env::remove_var(&key) };
         Self { key, original }
+    }
+}
+
+/// Isolate the global config layer for one test.
+///
+/// Points `XDG_CONFIG_HOME` at an empty directory under `dir` and clears the
+/// global-config resolver cache, so a config test observes only the layers it
+/// wrote itself and never the developer's real `~/.config/ops/config.toml`.
+///
+/// Returns the guard; the caller must keep it alive for the whole test, and
+/// the test must be `#[serial]` because this mutates the process environment.
+#[allow(dead_code)]
+#[must_use]
+pub fn isolate_global_config(dir: &std::path::Path) -> GlobalConfigIsolation {
+    crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
+    let guard = EnvGuard::set(
+        "XDG_CONFIG_HOME",
+        dir.join("xdg-empty").display().to_string(),
+    );
+    crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
+    GlobalConfigIsolation { _env: guard }
+}
+
+/// Guard returned by [`isolate_global_config`].
+///
+/// Restoring `XDG_CONFIG_HOME` is not enough on its own: the resolved path is
+/// memoised in `GLOBAL_CONFIG_PATH`, so without this `Drop` the cache would
+/// still hold the (now-deleted) tempdir path when the next test resolves the
+/// global config.
+#[derive(Debug)]
+pub struct GlobalConfigIsolation {
+    _env: EnvGuard,
+}
+
+impl Drop for GlobalConfigIsolation {
+    fn drop(&mut self) {
+        // This body runs before `_env`'s own `Drop` restores
+        // `XDG_CONFIG_HOME`, which is harmless: the cache is left *empty*,
+        // not repopulated, so the next resolution reads whatever the
+        // environment holds by then. These tests are `#[serial]`, so nothing
+        // resolves in the window between.
+        crate::config::reset_global_config_path_cache(
+            crate::config::GlobalConfigPathResetToken::new(),
+        );
     }
 }
 

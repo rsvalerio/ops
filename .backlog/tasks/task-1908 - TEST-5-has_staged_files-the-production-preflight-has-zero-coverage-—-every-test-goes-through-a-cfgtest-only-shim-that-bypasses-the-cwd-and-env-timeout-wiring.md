@@ -4,11 +4,11 @@ title: >-
   TEST-5: has_staged_files (the production preflight) has zero coverage — every
   test goes through a cfg(test)-only shim that bypasses the cwd and env-timeout
   wiring
-status: To Do
+status: Done
 assignee:
   - TASK-2009
 created_date: '2026-08-27 15:39'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:19'
 labels:
   - code-review-rust
   - tests
@@ -56,8 +56,33 @@ fn has_staged_files_with(program: &str, dir: &Path) -> Result<bool, HasStagedFil
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test invokes has_staged_files() itself (via a CwdGuard-style temp-repo cwd switch) and asserts true for a staged file and false for an empty index
-- [ ] #2 A test asserts that setting OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS changes the timeout has_staged_files actually applies, not just what git_timeout_from_env returns
-- [ ] #3 A test asserts the error from a non-repo cwd reaches the caller as an anyhow chain whose {:#} rendering names the underlying HasStagedFilesError
-- [ ] #4 The cfg(test)-only has_staged_files_with shim is either removed or documented as covering only the shared probe, so it is not mistaken for coverage of the production entry point
+- [x] #1 A test invokes has_staged_files() itself (via a CwdGuard-style temp-repo cwd switch) and asserts true for a staged file and false for an empty index
+- [x] #2 A test asserts that setting OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS changes the timeout has_staged_files actually applies, not just what git_timeout_from_env returns
+- [x] #3 A test asserts the error from a non-repo cwd reaches the caller as an anyhow chain whose {:#} rendering names the underlying HasStagedFilesError
+- [x] #4 The cfg(test)-only has_staged_files_with shim is either removed or documented as covering only the shared probe, so it is not mistaken for coverage of the production entry point
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Three tests now call `has_staged_files()` itself, all `#[serial_test::serial]`:
+
+- `has_staged_files_reads_the_process_working_directory` (AC#1) — a new
+  `ops_hook_common::test_helpers::CwdGuard` switches into a temp repo; asserts false for an
+  empty index and true after `git add`.
+- `has_staged_files_applies_the_env_timeout` (AC#2) — a fake `git` (named `git`, since the
+  production fn hardcodes that program) on a shadowing PATH hangs; with
+  `OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS=1` the error reads "timed out after 1s" and must
+  not name `DEFAULT_GIT_TIMEOUT`. The assertion reads the applied timeout back out of the
+  error rather than timing the call, so it pins the value without a wall-clock race
+  (TASK-1913's rule).
+- `has_staged_files_error_reaches_the_caller_as_an_anyhow_chain` (AC#3) — a non-repo cwd;
+  `downcast_ref::<HasStagedFilesError>()` succeeds and the `{:#}` rendering names the probe.
+
+AC#4: the `has_staged_files_with` shim moved inside `mod tests` and carries a doc saying it
+covers only `ops_hook_common`'s bounded wait and is not coverage of the production entry
+point, pointing at the three tests above.
+
+Follow-up filed: TASK-2034 (Triage) — the new `CwdGuard` is a second implementation
+alongside `crates/cli/src/test_utils.rs`'s mutex-serialised one.
+<!-- SECTION:NOTES:END -->

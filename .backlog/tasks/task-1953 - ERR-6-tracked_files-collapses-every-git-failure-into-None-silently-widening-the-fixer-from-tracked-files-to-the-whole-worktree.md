@@ -3,11 +3,11 @@ id: TASK-1953
 title: >-
   ERR-6: tracked_files collapses every git failure into None, silently widening
   the fixer from tracked files to the whole worktree
-status: To Do
+status: Done
 assignee:
   - TASK-2011
 created_date: '2026-08-27 15:49'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:37'
 labels:
   - code-review-rust
   - idioms
@@ -51,8 +51,18 @@ Case 3 is the one that bites: `dubious ownership` is the default state for a rep
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 tracked_files distinguishes 'not a git repository' and 'git not installed' from a genuine git failure, rather than returning one None for all of them
-- [ ] #2 A genuine git failure under tracked_only is propagated to the caller instead of silently falling back to the full walk
-- [ ] #3 When the walk fallback does fire under tracked_only, the run reports the downgrade on the writer so the user knows an unexpectedly wide file set may be rewritten
-- [ ] #4 Tests cover all three outcomes: a real repo, a directory that is not a repo, and a git invocation that exits non-zero
+- [x] #1 tracked_files distinguishes 'not a git repository' and 'git not installed' from a genuine git failure, rather than returning one None for all of them
+- [x] #2 A genuine git failure under tracked_only is propagated to the caller instead of silently falling back to the full walk
+- [x] #3 When the walk fallback does fire under tracked_only, the run reports the downgrade on the writer so the user knows an unexpectedly wide file set may be rewritten
+- [x] #4 Tests cover all three outcomes: a real repo, a directory that is not a repo, and a git invocation that exits non-zero
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in TASK-2011. `tracked_files` now returns `io::Result<Tracked>` with three outcomes: `Files { files, undecodable }`, `NotARepository` (git ran and said so — detected from stderr), and `GitUnavailable` (spawn failed with `NotFound`). Every other non-zero exit becomes an `io::Error` naming the root, the exit status and git's stderr — so `dubious ownership`, a corrupt index, a held lock or ENOMEM propagate instead of silently widening a destructive tool from the index to the whole worktree.
+
+`discover` returns a `Discovery { files, fallback, undecodable_paths, walk_errors }`. AC#3: when the fallback fires, `run_fixer` writes `--tracked unavailable (<reason>); falling back to a full walk of <root> — untracked files are candidates too` before touching anything. `ops-config-checkers`, the other consumer of `discover`, prints the equivalent line.
+
+AC#4 tests: `tracked_mode_returns_tracked_files_and_excludes_untracked` (real repo), `tracked_mode_falls_back_and_reports_when_root_is_not_a_repository` (non-repo, asserts `Fallback::NotARepository` and that the walk set includes the untracked file), `a_genuine_git_failure_is_an_error_not_a_silent_fallback` (index corrupted after `git add`; asserts `Err`). Plus `tests::a_tracked_run_outside_a_repository_announces_the_downgrade` end to end. The git-not-installed arm has no fixture: forcing it needs a process-wide `PATH` mutation, which is unsafe under a parallel test runner; it is one `ErrorKind::NotFound` match.
+<!-- SECTION:NOTES:END -->

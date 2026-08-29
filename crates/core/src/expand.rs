@@ -62,6 +62,11 @@ impl std::error::Error for ExpandError {
 #[derive(Debug, Clone)]
 pub struct Variables {
     builtins: HashMap<&'static str, Arc<str>>,
+    /// SEC-31 / TASK-1854: when `Some`, every [`Variables::try_expand`]
+    /// call fails with this error instead of consulting `builtins` or the
+    /// process environment. Set by [`Variables::poisoned`], the fail-closed
+    /// fallback for infallible construction sites.
+    poison: Option<ExpandError>,
 }
 
 /// Cached `std::env::temp_dir()` rendering. Computed once per process: the
@@ -85,7 +90,84 @@ pub struct Variables {
 /// first `from_env` call in the process; otherwise the swap is silently
 /// shadowed. The cache is intentional (see `from_env_reuses_cached_tmpdir_arc`
 /// and the `tmpdir_swap_after_from_env_is_not_observed` regression test).
+/// ERR-1 / TASK-1805: only a *successfully validated* UTF-8 rendering is
+/// ever stored here, so one non-UTF-8 lookup cannot poison the cache for
+/// the rest of the process.
 static TMPDIR_DISPLAY: std::sync::OnceLock<Arc<str>> = std::sync::OnceLock::new();
+
+#[cfg(test)]
+thread_local! {
+    /// Test-only override for the temporary directory consulted by
+    /// [`cached_tmpdir_arc`].
+    ///
+    /// Thread-local rather than a global: test binaries run tests in
+    /// parallel threads and many of them call [`Variables::from_env`], so a
+    /// process-wide override would leak a synthetic (deliberately non-UTF-8)
+    /// `TMPDIR` into unrelated tests. When set, the process-lifetime
+    /// [`TMPDIR_DISPLAY`] cache is bypassed entirely in both directions —
+    /// the override is neither read from nor written to it.
+    static TMPDIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// ERR-1 / TASK-1805: render the process temporary directory as an
+/// `Arc<str>`, refusing to lossy-render a non-UTF-8 path.
+///
+/// `Path::display()` substitutes U+FFFD for non-UTF-8 bytes, so the previous
+/// `temp_dir().display().to_string()` silently handed a corrupted `TMPDIR`
+/// to `try_expand` — the strict path whose whole purpose (TASK-0450) is to
+/// refuse exactly that — and cached the corruption for the process lifetime.
+/// Mirrors the `OPS_ROOT` branch in [`cached_ops_root_arc`].
+///
+/// # Errors
+///
+/// An [`ExpandError`] carrying `VarError::NotUnicode` when the temporary
+/// directory path is not valid Unicode.
+fn cached_tmpdir_arc() -> Result<Arc<str>, ExpandError> {
+    #[cfg(test)]
+    if let Some(dir) = TMPDIR_OVERRIDE.with(|o| o.borrow().clone()) {
+        return tmpdir_arc_from(&dir);
+    }
+    if let Some(arc) = TMPDIR_DISPLAY.get() {
+        return Ok(Arc::clone(arc));
+    }
+    let arc = tmpdir_arc_from(&std::env::temp_dir())?;
+    // Only a validated rendering reaches the cache. A concurrent caller may
+    // win the race; both computed the same value, so either is correct.
+    Ok(Arc::clone(TMPDIR_DISPLAY.get_or_init(|| arc)))
+}
+
+/// Pure renderer behind [`cached_tmpdir_arc`], split out so the non-UTF-8
+/// branch is reachable from a test without touching the process cache.
+fn tmpdir_arc_from(dir: &Path) -> Result<Arc<str>, ExpandError> {
+    dir.to_str()
+        .map(Arc::<str>::from)
+        .ok_or_else(|| ExpandError {
+            var_name: "TMPDIR".to_string(),
+            cause: std::env::VarError::NotUnicode(dir.as_os_str().to_owned()),
+        })
+}
+
+/// Test-only guard that installs a [`TMPDIR_OVERRIDE`] for the current
+/// thread and clears it on drop, so a panicking assertion cannot leak the
+/// override into the next test that runs on this thread.
+#[cfg(test)]
+struct TmpdirOverrideGuard;
+
+#[cfg(test)]
+impl TmpdirOverrideGuard {
+    fn set(dir: PathBuf) -> Self {
+        TMPDIR_OVERRIDE.with(|o| *o.borrow_mut() = Some(dir));
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for TmpdirOverrideGuard {
+    fn drop(&mut self) {
+        TMPDIR_OVERRIDE.with(|o| *o.borrow_mut() = None);
+    }
+}
 
 /// PERF-3 / TASK-1183: per-`ops_root` cache for the rendered `OPS_ROOT`
 /// value so repeat `from_env` calls hand out an `Arc::clone` instead of
@@ -168,8 +250,9 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
     // root through `Path::display()` — that path silently substitutes
     // U+FFFD and the resulting `Arc<str>` flows into argv/cwd/env through
     // `try_expand`, defeating the strict-expand contract (TASK-0450).
-    // Surface as `ExpandError::NotUnicode` so callers see the failure
-    // instead of materialising a corrupt OPS_ROOT.
+    // Surface as an [`ExpandError`] carrying
+    // `VarError::NotUnicode` so callers see the failure instead of
+    // materialising a corrupt OPS_ROOT.
     let rendered = key.to_str().ok_or_else(|| ExpandError {
         var_name: "OPS_ROOT".to_string(),
         cause: std::env::VarError::NotUnicode(key.as_os_str().to_owned()),
@@ -373,16 +456,26 @@ pub(crate) fn reset_expand_warn_seen() {
 }
 
 impl Variables {
-    /// Construct a `Variables` with no builtins populated. Used by
-    /// fallback paths (e.g. `CommandRunner::from_arc_config` when
-    /// `from_env` surfaces a non-UTF-8 workspace root via
-    /// `ExpandError::NotUnicode`) so downstream `try_expand` calls fail
-    /// loud on the missing variable rather than panicking at runner
-    /// construction time. ERR-1 / TASK-1462.
+    /// Construct a `Variables` that fails **every** expansion with `err`.
+    ///
+    /// SEC-31 / TASK-1854: the fallback for a construction site that cannot
+    /// return a `Result` (e.g. `CommandRunner::from_arc_config` when
+    /// [`Self::from_env`] rejects a non-UTF-8 workspace root). The previous
+    /// fallback handed back an empty-builtins `Variables`, which was
+    /// documented as "fail loud on the missing variable" but did the
+    /// opposite: `shellexpand` leaves an undefined reference *literal*, so
+    /// `try_expand("$OPS_ROOT/target")` returned `Ok("$OPS_ROOT/target")`
+    /// and that literal was materialised as an argv element or cwd — and
+    /// an ambient `OPS_ROOT` in the process environment resolved to an
+    /// unrelated directory instead of failing at all. A poisoned
+    /// `Variables` fails closed: `try_expand` returns `err` for every
+    /// input, and the lossy [`Self::expand`] warns and passes the input
+    /// through unchanged.
     #[must_use]
-    pub fn empty() -> Self {
+    pub fn poisoned(err: ExpandError) -> Self {
         Self {
             builtins: HashMap::new(),
+            poison: Some(err),
         }
     }
 
@@ -397,22 +490,23 @@ impl Variables {
     ///
     /// # Errors
     ///
-    /// [`ExpandError::NotUnicode`] if `ops_root` or `TMPDIR` is not valid
-    /// Unicode. ERR-1 / TASK-1462: surfaced rather than lossily rendered so a
-    /// corrupt root cannot flow into a spawned subprocess.
+    /// An [`ExpandError`] carrying `VarError::NotUnicode` if `ops_root` or
+    /// the temporary directory (`TMPDIR`) is not valid Unicode. ERR-1 /
+    /// TASK-1462 and ERR-1 / TASK-1805: surfaced rather than lossily
+    /// rendered so a corrupt path cannot flow into a spawned subprocess.
     pub fn from_env(ops_root: &Path) -> Result<Self, ExpandError> {
         let mut builtins: HashMap<&'static str, Arc<str>> = HashMap::with_capacity(2);
-        // ERR-1 / TASK-1462: surface a non-UTF-8 workspace root as a
-        // typed `ExpandError::NotUnicode` instead of lossy-rendering
-        // through `Path::display()`. Strict callers (the command-build
-        // path) propagate this so a corrupt OPS_ROOT cannot silently
-        // flow into spawned subprocess argv / cwd / env.
+        // ERR-1 / TASK-1462: surface a non-UTF-8 workspace root as a typed
+        // `ExpandError` instead of lossy-rendering through
+        // `Path::display()`. Strict callers (the command-build path)
+        // propagate this so a corrupt OPS_ROOT cannot silently flow into
+        // spawned subprocess argv / cwd / env.
         builtins.insert("OPS_ROOT", cached_ops_root_arc(ops_root)?);
-        let tmpdir = TMPDIR_DISPLAY
-            .get_or_init(|| Arc::<str>::from(std::env::temp_dir().display().to_string()))
-            .clone();
-        builtins.insert("TMPDIR", tmpdir);
-        Ok(Self { builtins })
+        builtins.insert("TMPDIR", cached_tmpdir_arc()?);
+        Ok(Self {
+            builtins,
+            poison: None,
+        })
     }
 
     /// Expand `$VAR`, `${VAR}`, `${VAR:-default}`, and `~` in the input string.
@@ -458,9 +552,24 @@ impl Variables {
     ///
     /// # Errors
     ///
-    /// [`ExpandError`] if `input` references an undefined variable, or if a
-    /// referenced value is not valid Unicode.
+    /// SEC-31 / TASK-1854: an [`ExpandError`] when a *referenced* variable
+    /// exists but its value is not valid Unicode (`VarError::NotUnicode`),
+    /// or unconditionally when `self` was built by [`Self::poisoned`].
+    ///
+    /// An **undefined** variable is deliberately *not* an error: `shellexpand`
+    /// leaves a bare `$UNDEFINED` / `${UNDEFINED}` reference literal in the
+    /// output and resolves `${UNDEFINED:-default}` to its default. Turning the
+    /// lookup miss into an `Err` would also break the `:-` default form, which
+    /// cannot be distinguished from a bare reference at lookup time. Callers
+    /// that need a missing builtin to fail closed must construct their
+    /// `Variables` through [`Self::poisoned`] rather than relying on this.
     pub fn try_expand<'a>(&'a self, input: &'a str) -> Result<Cow<'a, str>, ExpandError> {
+        // SEC-31 / TASK-1854: a poisoned `Variables` fails closed — no
+        // builtin lookup, and no `std::env` fallback that could silently
+        // resolve `$OPS_ROOT` to an unrelated ambient directory.
+        if let Some(err) = &self.poison {
+            return Err(err.clone());
+        }
         // CL-3: delegate to the shared helper so `~` expansion stays in sync
         // with platform path conventions used by the config loader.
         let home_dir = || -> Option<String> {
@@ -1063,5 +1172,102 @@ mod tests {
                 "TMPDIR Arc must be reused across from_env calls (OnceLock cache)"
             );
         }
+    }
+
+    /// ERR-1 / TASK-1805: a non-UTF-8 temporary directory must surface as an
+    /// `ExpandError` rather than being lossy-rendered through
+    /// `Path::display()` into a U+FFFD-corrupted `TMPDIR` builtin.
+    #[cfg(unix)]
+    #[test]
+    fn from_env_rejects_non_utf8_tmpdir() {
+        use std::os::unix::ffi::OsStringExt as _;
+
+        // 0xff is not a valid UTF-8 lead byte, so this is a legal Unix path
+        // that has no `&str` rendering.
+        let bad = PathBuf::from(std::ffi::OsString::from_vec(b"/tmp/\xff-not-utf8".to_vec()));
+        let _guard = TmpdirOverrideGuard::set(bad);
+        let err = Variables::from_env(&PathBuf::from("/test/project"))
+            .expect_err("non-UTF-8 TMPDIR must be refused");
+        assert_eq!(err.var_name, "TMPDIR");
+        assert!(
+            matches!(err.cause, std::env::VarError::NotUnicode(_)),
+            "expected VarError::NotUnicode, got {:?}",
+            err.cause
+        );
+    }
+
+    /// ERR-1 / TASK-1805 (AC#2): a refused non-UTF-8 rendering must not be
+    /// cached. A later caller with a valid temporary directory still gets a
+    /// clean UTF-8 value rather than an inherited corruption.
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_tmpdir_does_not_poison_the_cache() {
+        use std::os::unix::ffi::OsStringExt as _;
+
+        {
+            let _guard = TmpdirOverrideGuard::set(PathBuf::from(std::ffi::OsString::from_vec(
+                b"/tmp/\xfe-not-utf8".to_vec(),
+            )));
+            assert!(Variables::from_env(&PathBuf::from("/test/project")).is_err());
+        }
+        let vars = Variables::from_env(&PathBuf::from("/test/project"))
+            .expect("valid TMPDIR must still resolve after a refused one");
+        let tmpdir = vars.builtins.get("TMPDIR").expect("TMPDIR populated");
+        assert!(
+            !tmpdir.contains('\u{fffd}'),
+            "TMPDIR must not carry a lossy replacement character: {tmpdir}"
+        );
+    }
+
+    /// SEC-31 / TASK-1854 (AC#3): pin what an *undefined* variable actually
+    /// does. Bare and braced references stay literal; the `:-` form resolves
+    /// to its default. `try_expand` does not error on any of them — which is
+    /// exactly why the fail-closed fallback below has to exist.
+    #[test]
+    fn undefined_variable_forms_are_pinned() {
+        let vars = test_vars();
+        let name = "OPS_DEFINITELY_UNSET_TASK_1854";
+        assert!(std::env::var_os(name).is_none(), "test precondition");
+        assert_eq!(
+            vars.try_expand(&format!("${name}/src"))
+                .expect("undefined variable is not an error"),
+            format!("${name}/src")
+        );
+        assert_eq!(
+            vars.try_expand(&format!("${{{name}}}/src"))
+                .expect("undefined variable is not an error"),
+            format!("${{{name}}}/src")
+        );
+        assert_eq!(
+            vars.try_expand(&format!("${{{name}:-fallback}}/src"))
+                .expect("default form resolves"),
+            "fallback/src"
+        );
+    }
+
+    /// SEC-31 / TASK-1854 (AC#4): the construction-failure fallback must fail
+    /// closed. With `OPS_ROOT` set in the ambient process environment, a
+    /// poisoned `Variables` must **not** silently resolve `$OPS_ROOT` to that
+    /// unrelated directory — the old empty-builtins fallback did exactly that.
+    #[test]
+    #[serial_test::serial]
+    fn poisoned_variables_fail_closed_even_with_ambient_ops_root() {
+        let _env = crate::test_utils::EnvGuard::set("OPS_ROOT", "/unrelated/ambient/root");
+        let vars = Variables::poisoned(ExpandError {
+            var_name: "OPS_ROOT".to_string(),
+            cause: std::env::VarError::NotUnicode(std::ffi::OsString::from("bad")),
+        });
+        let err = vars
+            .try_expand("$OPS_ROOT/target")
+            .expect_err("poisoned Variables must fail every expansion");
+        assert_eq!(err.var_name, "OPS_ROOT");
+        // The lossy path warns and passes the input through unchanged; what
+        // matters is that it never resolves to the ambient directory.
+        let lossy = vars.expand("$OPS_ROOT/target");
+        assert_eq!(lossy, "$OPS_ROOT/target");
+        assert!(
+            !lossy.contains("/unrelated/ambient/root"),
+            "poisoned expansion leaked the ambient OPS_ROOT: {lossy}"
+        );
     }
 }

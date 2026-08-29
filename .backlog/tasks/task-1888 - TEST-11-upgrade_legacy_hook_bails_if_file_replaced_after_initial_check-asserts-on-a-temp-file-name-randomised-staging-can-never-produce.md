@@ -3,11 +3,11 @@ id: TASK-1888
 title: >-
   TEST-11: upgrade_legacy_hook_bails_if_file_replaced_after_initial_check
   asserts on a temp-file name randomised staging can never produce
-status: To Do
+status: Done
 assignee:
   - TASK-2008
 created_date: '2026-08-27 15:34'
-updated_date: '2026-08-28 14:17'
+updated_date: '2026-08-28 23:06'
 labels:
   - code-review-rust
   - tests
@@ -47,6 +47,6 @@ assert_eq!(stray, 0, ...);
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The bail-path test counts directory entries whose name starts with .pre-commit.ops-tmp. instead of probing the obsolete fixed name, matching its two sibling tests
-- [ ] #2 The assertion is shown to be load-bearing: it fails if the inspect_err cleanup and the NamedTempFile drop are both bypassed
+- [x] #1 The bail-path test counts directory entries whose name starts with .pre-commit.ops-tmp. instead of probing the obsolete fixed name, matching its two sibling tests
+- [x] #2 The assertion is shown to be load-bearing: it fails if the inspect_err cleanup and the NamedTempFile drop are both bypassed
 <!-- AC:END -->

@@ -208,9 +208,11 @@ const TAIL_STACK_CAP: usize = 32;
 struct TailRanges {
     stack: [(usize, usize); TAIL_STACK_CAP],
     stack_len: usize,
-    // Spill: populated only when `n > TAIL_STACK_CAP`. Holds the oldest
-    // ranges; the stack array then holds the newest `TAIL_STACK_CAP` entries.
-    // For the typical small-n path this stays `Vec::new()` (no allocation).
+    // Spill: populated only when `n > TAIL_STACK_CAP`. Holds the ranges
+    // older than everything in `stack`, in **push order** — i.e. newest
+    // first, oldest last, because the collector walks the buffer backwards.
+    // `iter` reverses it to restore buffer order. For the typical small-n
+    // path this stays `Vec::new()` (no allocation).
     spill: Vec<(usize, usize)>,
 }
 
@@ -237,27 +239,41 @@ impl TailRanges {
     }
 
     /// Insert `range` as the new oldest entry. Backward walking emits the
-    /// most-recent line first, so each successive push lands in front of all
-    /// previously collected ranges and the iterator emits them in buffer
-    /// order.
+    /// most-recent line first, so each successive push is older than every
+    /// range collected so far.
+    ///
+    /// PATTERN-1 / TASK-1825: the ordering invariant [`Self::iter`] depends
+    /// on is
+    ///
+    /// > `spill` reversed, then `stack[0..stack_len]`, is buffer order
+    /// > (oldest → newest).
+    ///
+    /// While the inline array has room the new (older) range is shifted in at
+    /// index 0, so `stack[0]` is the oldest and `stack[stack_len - 1]` the
+    /// newest. Once it is full it already holds the newest `TAIL_STACK_CAP`
+    /// ranges and is **left untouched**: every further push is older than all
+    /// of them, so it is appended to the spill, which therefore runs
+    /// newest → oldest and is reversed by `iter`.
+    ///
+    /// The previous overflow branch evicted `stack[TAIL_STACK_CAP - 1]` — the
+    /// *newest* entry — into the front of the spill, hoisting the two newest
+    /// lines to the top of the rendered tail for any `n > TAIL_STACK_CAP`.
+    /// Appending also makes the oversized path O(1) per push rather than the
+    /// O(len) front-insert that made collecting `n` ranges O(n²).
     fn push_oldest_front(&mut self, range: (usize, usize)) {
         if self.stack_len < TAIL_STACK_CAP {
             self.stack.copy_within(0..self.stack_len, 1);
             self.stack[0] = range;
             self.stack_len = self.stack_len.saturating_add(1);
         } else {
-            // Stack is full: the existing oldest entry rolls over into the
-            // spill (front of spill = absolute oldest).
-            let overflow = self.stack[TAIL_STACK_CAP - 1];
-            self.stack.copy_within(0..TAIL_STACK_CAP - 1, 1);
-            self.stack[0] = range;
-            self.spill.insert(0, overflow);
+            self.spill.push(range);
         }
     }
 
     fn iter(&self) -> impl Iterator<Item = &(usize, usize)> {
         self.spill
             .iter()
+            .rev()
             .chain(self.stack.iter().take(self.stack_len))
     }
 }
@@ -469,6 +485,49 @@ mod tests {
         let stderr = b"line1\nline2";
         let result = format_error_tail(stderr, 5);
         assert_eq!(result, "line1\nline2");
+    }
+
+    /// PATTERN-1 / TASK-1825: `n = 33` is the first value that overflows the
+    /// inline `TAIL_STACK_CAP` array. The overflow branch used to evict the
+    /// *newest* stack entry into the front of the spill, so the rendered tail
+    /// opened with the two newest lines.
+    #[test]
+    fn format_error_tail_preserves_buffer_order_at_first_overflow() {
+        let lines: Vec<String> = (1..=40).map(|i| format!("line{i}")).collect();
+        let stderr = lines.join("\n");
+        let result = format_error_tail(stderr.as_bytes(), 33);
+        let expected = lines[40 - 33..].join("\n");
+        assert_eq!(result, expected);
+    }
+
+    /// PATTERN-1 / TASK-1825: the same property well past the cap, where the
+    /// old branch migrated one further line per push.
+    #[test]
+    fn format_error_tail_preserves_buffer_order_well_past_cap() {
+        let lines: Vec<String> = (1..=60).map(|i| format!("line{i}")).collect();
+        let stderr = lines.join("\n");
+        let result = format_error_tail(stderr.as_bytes(), 40);
+        let expected = lines[60 - 40..].join("\n");
+        assert_eq!(result, expected);
+    }
+
+    /// PATTERN-1 / TASK-1825 (AC#3): the oversized path appends to the spill
+    /// instead of front-inserting, so the array is left untouched once full
+    /// and each push is O(1). Asserting the split — exactly
+    /// `TAIL_STACK_CAP` inline entries and the remainder in the spill —
+    /// pins the O(n) shape structurally rather than by timing.
+    #[test]
+    fn tail_ranges_overflow_appends_to_spill_and_leaves_stack_intact() {
+        let mut ranges = TailRanges::new(40);
+        // Push newest-to-oldest, the order `collect_tail_ranges` walks in.
+        for i in (0..40).rev() {
+            ranges.push_oldest_front((i, i));
+        }
+        assert_eq!(ranges.stack_len, TAIL_STACK_CAP);
+        assert_eq!(ranges.spill.len(), 40 - TAIL_STACK_CAP);
+        let collected: Vec<(usize, usize)> = ranges.iter().copied().collect();
+        let expected: Vec<(usize, usize)> = (0..40).map(|i| (i, i)).collect();
+        assert_eq!(collected, expected, "iter must yield buffer order");
     }
 
     #[test]
