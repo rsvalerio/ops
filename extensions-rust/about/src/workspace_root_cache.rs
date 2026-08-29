@@ -198,9 +198,17 @@ mod tests {
         Arc::new(PathBuf::from(format!("/ws/{name}")))
     }
 
+    // These tests `clear_cache()` and assert exact entry counts against the
+    // process-global cache, so nothing else may be populating it. The
+    // populating callers are `load_workspace_manifest`'s tests, which run
+    // under the `typed_manifest_cache` key — holding both keys is what
+    // actually excludes them. Naming only `workspace_root_cache` left the two
+    // groups free to run concurrently, and a manifest test's insert would then
+    // break a `cache_len()` assertion here.
+
     /// The point of the cache: a second lookup for the same cwd answers from
     /// memory, so the caller never repeats the canonicalizing ancestor walk.
-    #[serial_test::serial(workspace_root_cache)]
+    #[serial_test::serial(typed_manifest_cache, workspace_root_cache)]
     #[test]
     fn probe_returns_the_memoized_root() {
         clear_cache();
@@ -225,7 +233,7 @@ mod tests {
     /// Re-inserting a known cwd replaces the memoized root rather than adding
     /// a second entry — this is the `ctx.refresh` path, where the ancestor
     /// walk is redone and may legitimately land on a different root.
-    #[serial_test::serial(workspace_root_cache)]
+    #[serial_test::serial(typed_manifest_cache, workspace_root_cache)]
     #[test]
     fn insert_replaces_an_existing_entry() {
         clear_cache();
@@ -245,7 +253,7 @@ mod tests {
     /// PERF-16 / SEC-33: the cap holds and the least-recently-used cwd is the
     /// one that goes, so a host cycling through directories cannot grow this
     /// map without bound and cannot evict the entry it keeps touching.
-    #[serial_test::serial(workspace_root_cache)]
+    #[serial_test::serial(typed_manifest_cache, workspace_root_cache)]
     #[test]
     fn cap_evicts_the_least_recently_used_cwd() {
         clear_cache();
@@ -279,7 +287,7 @@ mod tests {
 
     /// PERF-16 / TASK-1723: stamping on every hit must not leak stamps while
     /// the map sits below the cap — the shape every CLI run has.
-    #[serial_test::serial(workspace_root_cache)]
+    #[serial_test::serial(typed_manifest_cache, workspace_root_cache)]
     #[test]
     fn victim_queue_stays_bounded_below_the_cap() {
         clear_cache();
@@ -299,7 +307,7 @@ mod tests {
         clear_cache();
     }
 
-    #[serial_test::serial(workspace_root_cache)]
+    #[serial_test::serial(typed_manifest_cache, workspace_root_cache)]
     #[test]
     fn evict_drops_only_the_named_cwd() {
         clear_cache();
