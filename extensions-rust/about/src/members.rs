@@ -112,7 +112,18 @@ fn classify_member(member: &str) -> MemberShape<'_> {
     if is_unsupported_glob(member, after_star) {
         return MemberShape::Unsupported;
     }
-    MemberShape::Glob { prefix }
+    // The `*` must stand for a whole path segment: `expand_member_glob`
+    // `read_dir`s `workspace_root.join(prefix)` and treats every child
+    // directory as a match, which is only what Cargo means when the prefix is
+    // empty (`*`) or ends at a separator (`crates/*`). A partial-segment
+    // pattern like `crates/f*` would otherwise `read_dir` the non-existent
+    // path `crates/f` and be reported as an unreadable prefix; classify it as
+    // unsupported so the warn names the real problem.
+    if prefix.is_empty() || prefix.ends_with(std::path::is_separator) {
+        MemberShape::Glob { prefix }
+    } else {
+        MemberShape::Unsupported
+    }
 }
 
 /// Expand a `prefix/*` glob by walking `parent` and returning UTF-8
@@ -384,6 +395,50 @@ mod tests {
                 "expected `{pattern}` to pass through unchanged"
             );
         }
+    }
+
+    /// A `*` that stands for only part of a path segment (`crates/f*`) is not
+    /// the `prefix/*` shape `expand_member_glob` implements: it used to be
+    /// classified as a glob and `read_dir` the non-existent directory
+    /// `crates/f`, reporting an "unreadable prefix" that misnamed the problem
+    /// and dropped the entry. It must be classified as an unsupported shape
+    /// and pass through unchanged instead — while the whole-segment shapes
+    /// `crates/*` and `*` stay globs.
+    #[test]
+    fn partial_segment_glob_is_unsupported_and_passes_through() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("crates/foo")).unwrap();
+        std::fs::write(
+            root.join("crates/foo/Cargo.toml"),
+            "[package]\nname=\"foo\"\n",
+        )
+        .unwrap();
+
+        for pattern in ["crates/f*", "crates*"] {
+            assert!(
+                matches!(classify_member(pattern), MemberShape::Unsupported),
+                "`{pattern}` must classify as unsupported"
+            );
+            let manifest = manifest_with_members(&[pattern]);
+            assert_eq!(
+                resolved_workspace_members(&manifest, root),
+                vec![pattern.to_string()],
+                "expected `{pattern}` to pass through unchanged"
+            );
+        }
+
+        // Whole-segment shapes still expand.
+        for pattern in ["crates/*", "*"] {
+            assert!(
+                matches!(classify_member(pattern), MemberShape::Glob { .. }),
+                "`{pattern}` must still classify as a glob"
+            );
+        }
+        assert_eq!(
+            resolved_workspace_members(&manifest_with_members(&["crates/*"]), root),
+            vec!["crates/foo".to_string()]
+        );
     }
 
     #[test]
