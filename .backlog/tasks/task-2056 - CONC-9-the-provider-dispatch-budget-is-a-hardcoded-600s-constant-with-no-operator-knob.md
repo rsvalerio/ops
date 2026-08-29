@@ -3,9 +3,11 @@ id: TASK-2056
 title: >-
   CONC-9: the provider dispatch budget is a hardcoded 600s constant with no
   operator knob
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2060
 created_date: '2026-08-29 13:31'
+updated_date: '2026-08-29 17:27'
 labels:
   - code-review-rust
   - concurrency

@@ -3,9 +3,11 @@ id: TASK-2053
 title: >-
   ARCH-11: ops verify lints only --all-features, so feature-off code can go red
   without failing the gate
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2062
 created_date: '2026-08-29 13:05'
+updated_date: '2026-08-29 17:27'
 labels:
   - code-review-rust
   - architecture

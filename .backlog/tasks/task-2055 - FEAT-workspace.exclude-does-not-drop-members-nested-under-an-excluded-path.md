@@ -1,9 +1,11 @@
 ---
 id: TASK-2055
 title: 'FEAT: workspace.exclude does not drop members nested under an excluded path'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2064
 created_date: '2026-08-29 13:24'
+updated_date: '2026-08-29 17:27'
 labels:
   - code-review-rust
   - correctness

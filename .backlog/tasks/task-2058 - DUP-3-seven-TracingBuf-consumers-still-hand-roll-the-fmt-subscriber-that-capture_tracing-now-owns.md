@@ -3,9 +3,11 @@ id: TASK-2058
 title: >-
   DUP-3: seven TracingBuf consumers still hand-roll the fmt subscriber that
   capture_tracing now owns
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2061
 created_date: '2026-08-29 13:54'
+updated_date: '2026-08-29 17:27'
 labels:
   - code-review-rust
   - duplication

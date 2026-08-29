@@ -3,9 +3,11 @@ id: TASK-2057
 title: >-
   DUP-1: the terraform heredoc opener is recognised twice, in strip_comments and
   scan_line
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2064
 created_date: '2026-08-29 13:42'
+updated_date: '2026-08-29 17:27'
 labels:
   - code-review-rust
   - duplication

@@ -3,9 +3,11 @@ id: TASK-2052
 title: >-
   SEC-33: the walking providers do not poll Context::check_deadline, so their
   dispatch bound is only post-hoc
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2060
 created_date: '2026-08-29 13:03'
+updated_date: '2026-08-29 17:27'
 labels:
   - code-review-rust
   - security

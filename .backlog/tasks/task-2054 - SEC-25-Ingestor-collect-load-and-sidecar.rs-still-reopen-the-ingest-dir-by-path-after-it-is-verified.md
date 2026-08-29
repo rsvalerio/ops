@@ -3,9 +3,11 @@ id: TASK-2054
 title: >-
   SEC-25: Ingestor::collect / load and sidecar.rs still reopen the ingest dir by
   path after it is verified
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2063
 created_date: '2026-08-29 13:07'
+updated_date: '2026-08-29 17:27'
 labels:
   - code-review-rust
   - security

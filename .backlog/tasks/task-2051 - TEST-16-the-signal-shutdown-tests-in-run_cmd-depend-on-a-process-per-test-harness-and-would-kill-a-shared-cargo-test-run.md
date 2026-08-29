@@ -3,9 +3,11 @@ id: TASK-2051
 title: >-
   TEST-16: the signal-shutdown tests in run_cmd depend on a process-per-test
   harness and would kill a shared cargo test run
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2062
 created_date: '2026-08-29 12:54'
+updated_date: '2026-08-29 17:27'
 labels:
   - code-review-rust
   - tests
