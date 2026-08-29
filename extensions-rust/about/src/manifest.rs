@@ -16,6 +16,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::manifest_cache;
 use crate::members::resolved_workspace_members;
+use crate::workspace_root_cache;
 
 /// ERR-1 / TASK-1076: pairs the cached parsed manifest with its resolved
 /// `[workspace].members` list so the original glob spec on the cached
@@ -224,7 +225,7 @@ pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, Data
     // freshness, cache key, glob expansion and every downstream member join.
     // `ctx.working_directory` is the live process cwd and may sit below the
     // root; the ancestor walk here is the proof the code already knows that.
-    let root = Arc::new(resolve_workspace_root(ctx)?);
+    let root = resolve_workspace_root(ctx)?;
     let freshness = manifest_cache::cargo_toml_freshness(&root);
 
     if ctx.is_refreshing() {
@@ -248,15 +249,32 @@ pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, Data
 ///
 /// The returned path is canonical, which is also what makes it a stable cache
 /// key: two cwds inside one workspace resolve to the same root.
-fn resolve_workspace_root(ctx: &Context) -> Result<PathBuf, DataProviderError> {
-    find_workspace_root_strict(ctx.working_directory()).map_err(|err| {
+///
+/// PERF-1 / TASK-2028: the walk is memoized per cwd in
+/// [`crate::workspace_root_cache`], because keying the typed-manifest cache by
+/// the resolved root (CL-3 / TASK-1762) put this walk *ahead* of the cache
+/// probe — so every provider's cache hit paid for it again against the same
+/// cwd. `ctx.refresh` bypasses the memo and replaces the entry, which is the
+/// only in-process event that can legitimately move a cwd's root. Failures are
+/// never memoized: a missing `Cargo.toml` must stay re-checkable.
+fn resolve_workspace_root(ctx: &Context) -> Result<Arc<PathBuf>, DataProviderError> {
+    let cwd = ctx.working_directory();
+    if !ctx.is_refreshing() {
+        if let Some(root) = workspace_root_cache::probe(cwd) {
+            return Ok(root);
+        }
+    }
+    let root = find_workspace_root_strict(cwd).map_err(|err| {
         tracing::debug!(
-            cwd = ?ctx.working_directory().display(),
+            cwd = ?cwd.display(),
             error = ?err,
             "TASK-1204: strict workspace-root resolution failed; surfacing typed error"
         );
         DataProviderError::from(anyhow::Error::from(err))
-    })
+    })?;
+    let root = Arc::new(root);
+    workspace_root_cache::insert(cwd, &root);
+    Ok(root)
 }
 
 /// PERF-1 / TASK-1195: the cache-miss path goes through
@@ -488,6 +506,65 @@ mod tests {
         );
 
         manifest_cache::evict(&canonical(root));
+    }
+
+    /// PERF-1 / TASK-2028: the canonicalizing ancestor walk runs once per cwd,
+    /// not once per `load_workspace_manifest` call. Proved by making a *nearer*
+    /// ancestor declare its own `[workspace]` after the first load: a second
+    /// walk would stop there, so the loader still reporting the original root
+    /// is the observable evidence that no second walk happened.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn workspace_root_resolution_is_memoized_per_cwd() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let member = root.join("crates/alpha");
+        std::fs::create_dir_all(member.join("src")).unwrap();
+        std::fs::write(
+            member.join("Cargo.toml"),
+            "[package]\nname=\"alpha\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .unwrap();
+        let cwd = member.join("src");
+        manifest_cache::evict(&canonical(root));
+        workspace_root_cache::evict(&cwd);
+
+        let mut ctx = Context::test_context(cwd.clone());
+        let first = load_workspace_manifest(&mut ctx).expect("first load");
+        assert_eq!(first.workspace_root(), canonical(root));
+
+        // A fresh walk from the same cwd would now stop at `crates/alpha`.
+        std::fs::write(
+            member.join("Cargo.toml"),
+            "[workspace]\nmembers = []\n\n[package]\nname=\"alpha\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let second = load_workspace_manifest(&mut ctx).expect("second load");
+        assert_eq!(
+            second.workspace_root(),
+            canonical(root),
+            "the memoized root must be reused instead of re-walking the ancestors"
+        );
+
+        // The memo is per cwd, so the same directory reached by a fresh
+        // resolution (here: `ctx.refresh`) picks up the new nearer root.
+        let mut refreshing = Context::test_context(cwd.clone()).with_refresh();
+        let refreshed = load_workspace_manifest(&mut refreshing).expect("refreshed load");
+        assert_eq!(
+            refreshed.workspace_root(),
+            canonical(&member),
+            "ctx.refresh must bypass the memo and re-resolve the root"
+        );
+
+        manifest_cache::evict(&canonical(root));
+        manifest_cache::evict(&canonical(&member));
+        workspace_root_cache::evict(&cwd);
     }
 
     /// A missing `Cargo.toml` anywhere in the ancestor chain is an error, not

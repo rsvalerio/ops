@@ -13,6 +13,7 @@
 //! - `manifest`: loading the workspace `Cargo.toml` into a `LoadedManifest`
 //! - `manifest_cache`: the bounded, freshness-checked cache behind that loader
 //! - `members`: `[workspace].members` glob resolution and path safety
+//! - `workspace_root_cache`: the per-cwd memo of the resolved workspace root
 //!
 //! Shared rendering for about subpages (units, coverage, dependencies, code)
 //! lives in the generic `ops_about` crate.
@@ -34,6 +35,7 @@ pub(crate) mod manifest;
 pub(crate) mod manifest_cache;
 pub(crate) mod members;
 pub(crate) mod units;
+pub(crate) mod workspace_root_cache;
 
 pub const NAME: &str = "about-rust";
 pub const DESCRIPTION: &str = "Rust project identity and about pages";

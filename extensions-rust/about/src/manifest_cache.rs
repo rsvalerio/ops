@@ -17,6 +17,12 @@
 //! - **Invalidation**: the `<root>/Cargo.toml` mtime+len pair is re-stat'ed on
 //!   every probe; a mismatch reparses. `ctx.refresh` evicts the entry outright.
 //!
+//! PERF-1 / TASK-2028: keying by the root means the root must be resolved
+//! *before* the probe, which would otherwise put a canonicalizing ancestor walk
+//! in front of every hit and blow the one-`stat` hot-path budget the freshness
+//! design above is chosen for. [`crate::workspace_root_cache`] memoizes that
+//! walk per cwd, so the budget still describes what the hit path actually does.
+//!
 //! # Why a cache at all
 //!
 //! PERF-1 / TASK-0558: identity, units, and coverage providers each call
