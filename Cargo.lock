@@ -1803,12 +1803,10 @@ dependencies = [
 name = "ops-about-node"
 version = "0.45.1"
 dependencies = [
- "anyhow",
  "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
- "ops-git",
  "serde",
  "serde_json",
  "tempfile",
