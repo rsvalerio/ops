@@ -367,7 +367,7 @@ fn collect_rust_loc_splits_regions_across_a_canned_tree() {
     let dir = tempfile::tempdir().expect("tempdir");
     write_fixture_tree(dir.path());
 
-    let value = crate::collect_rust_loc(dir.path()).expect("collect should succeed");
+    let value = crate::collect_rust_loc(dir.path(), None).expect("collect should succeed");
     let records = value.as_array().expect("array");
     assert!(!records.is_empty());
 
@@ -409,7 +409,7 @@ fn collect_rust_loc_returns_rows_sorted_by_file_and_region() {
     let dir = tempfile::tempdir().expect("tempdir");
     write_fixture_tree(dir.path());
 
-    let value = crate::collect_rust_loc(dir.path()).expect("collect");
+    let value = crate::collect_rust_loc(dir.path(), None).expect("collect");
     let keys: Vec<(String, String)> = value
         .as_array()
         .expect("array")
@@ -437,7 +437,7 @@ fn region_uses_workspace_relative_path_not_absolute_prefix() {
     std::fs::create_dir_all(root.join("src")).expect("mkdir");
     std::fs::write(root.join("src/lib.rs"), "pub fn f() {}\n").expect("write");
 
-    let value = crate::collect_rust_loc(&root).expect("collect");
+    let value = crate::collect_rust_loc(&root, None).expect("collect");
     let records = value.as_array().expect("array");
     assert_eq!(records.len(), 1);
     assert_eq!(records[0]["region"], "main");
@@ -454,7 +454,7 @@ fn collect_rust_loc_skips_build_directories() {
         std::fs::write(path.join("noise.rs"), "fn b() {}\nfn c() {}\n").expect("write noise");
     }
 
-    let value = crate::collect_rust_loc(dir.path()).expect("collect");
+    let value = crate::collect_rust_loc(dir.path(), None).expect("collect");
     let files: Vec<&str> = value
         .as_array()
         .expect("array")
@@ -481,7 +481,7 @@ fn excluded_directories_are_pruned_below_the_scan_root_too() {
         std::fs::write(path.join("noise.rs"), "fn b() {}\nfn c() {}\n").expect("write noise");
     }
 
-    let value = crate::collect_rust_loc(dir.path()).expect("collect");
+    let value = crate::collect_rust_loc(dir.path(), None).expect("collect");
     let files: Vec<&str> = value
         .as_array()
         .expect("array")
@@ -510,7 +510,7 @@ fn oversized_file_degrades_to_a_line_count_without_aborting_the_scan() {
     let repeats = cap / filler.len() + 2;
     std::fs::write(dir.path().join("big.rs"), filler.repeat(repeats)).expect("write big.rs");
 
-    let value = crate::collect_rust_loc(dir.path()).expect("collect");
+    let value = crate::collect_rust_loc(dir.path(), None).expect("collect");
     let records = value.as_array().expect("array");
 
     assert!(
@@ -548,7 +548,7 @@ fn a_single_line_larger_than_the_cap_is_counted_without_buffering_it() {
     let one_long_line = "x".repeat(cap.saturating_add(1024));
     std::fs::write(dir.path().join("wide.rs"), &one_long_line).expect("write wide.rs");
 
-    let value = crate::collect_rust_loc(dir.path()).expect("collect");
+    let value = crate::collect_rust_loc(dir.path(), None).expect("collect");
     let records = value.as_array().expect("array");
 
     assert!(
@@ -582,7 +582,7 @@ fn blank_state_survives_chunk_boundaries() {
     src.push('\n');
     std::fs::write(dir.path().join("chunks.rs"), &src).expect("write chunks.rs");
 
-    let value = crate::collect_rust_loc(dir.path()).expect("collect");
+    let value = crate::collect_rust_loc(dir.path(), None).expect("collect");
     let records = value.as_array().expect("array");
     let row = records
         .iter()
@@ -615,7 +615,7 @@ fn unreadable_file_is_skipped_and_the_rest_of_the_scan_survives() {
     std::fs::write(dir.path().join("src/broken.rs"), b"fn f() {}\n\xff\xfe\n")
         .expect("write broken");
 
-    let value = crate::collect_rust_loc(dir.path()).expect("collect must not error");
+    let value = crate::collect_rust_loc(dir.path(), None).expect("collect must not error");
     let files: Vec<&str> = value
         .as_array()
         .expect("array")
@@ -660,7 +660,7 @@ fn unwalkable_subdirectory_is_skipped_and_the_rest_of_the_scan_survives() {
         return;
     }
 
-    let result = crate::collect_rust_loc(dir.path());
+    let result = crate::collect_rust_loc(dir.path(), None);
 
     // Restore before asserting, so a failure still leaves a removable tree.
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755))
@@ -708,7 +708,7 @@ fn source_that_lexes_but_fails_syn_keeps_every_line_in_the_base_region() {
 #[test]
 fn collect_rust_loc_on_empty_dir_returns_empty_array() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let value = crate::collect_rust_loc(dir.path()).expect("collect should succeed");
+    let value = crate::collect_rust_loc(dir.path(), None).expect("collect should succeed");
     assert_eq!(value.as_array().map(Vec::len), Some(0));
 }
 
@@ -716,7 +716,7 @@ fn collect_rust_loc_on_empty_dir_returns_empty_array() {
 #[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
 fn collect_rust_loc_returns_records_for_this_crate() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let value = crate::collect_rust_loc(&manifest_dir).expect("collect should succeed");
+    let value = crate::collect_rust_loc(&manifest_dir, None).expect("collect should succeed");
     let records = value.as_array().expect("array");
     assert!(!records.is_empty(), "this crate has .rs files");
     assert!(
@@ -854,4 +854,59 @@ fn rust_loc_ingestor_load_without_collect_fails() {
         RustLocIngestor.load(&dir, &db).is_err(),
         "load without prior collect should fail"
     );
+}
+
+// -- SEC-33 / TASK-2052: the parallel walk honours the dispatch deadline --
+
+/// AC #2: with a budget already spent, the provider aborts the walk instead
+/// of counting the tree and being told afterwards that it was too slow.
+///
+/// `rust-loc` is the harder of the two walkers: its per-entry closure runs on
+/// `ignore`'s worker threads, which cannot borrow the dispatch's `&mut
+/// Context`, so this pins that the detached deadline reaches them and that the
+/// resulting `Quit` is turned back into a *typed* `TimedOut` — not swallowed
+/// into a silently short row set, which is the failure mode a partial-count
+/// policy makes easy to miss.
+#[test]
+fn a_spent_budget_aborts_the_rust_loc_walk_with_a_typed_timeout() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
+    std::fs::write(dir.path().join("src/lib.rs"), "fn a() {}\n").expect("write");
+
+    let mut registry = ops_extension::DataRegistry::new();
+    let _ = registry.register(crate::DATA_PROVIDER_NAME, Box::new(RustLocProvider));
+
+    let mut ctx = Context::test_context(dir.path().to_path_buf())
+        .with_provider_budget(Some(std::time::Duration::from_nanos(1)));
+    match registry.provide(crate::DATA_PROVIDER_NAME, &mut ctx) {
+        Err(ops_extension::DataProviderError::TimedOut { provider, .. }) => {
+            assert_eq!(provider, crate::DATA_PROVIDER_NAME);
+        }
+        other => panic!("expected a typed TimedOut from the walk, got {other:?}"),
+    }
+
+    let mut ctx = Context::test_context(dir.path().to_path_buf());
+    let value = registry
+        .provide(crate::DATA_PROVIDER_NAME, &mut ctx)
+        .expect("the same tree must scan cleanly without a spent budget");
+    assert_eq!(
+        value.as_array().map(Vec::len),
+        Some(1),
+        "the control run must produce the one file's row"
+    );
+}
+
+/// A deadline that has not expired must not perturb the walk.
+#[test]
+fn a_live_budget_leaves_the_rust_loc_walk_intact() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("lib.rs"), "fn a() {}\n").expect("write");
+    let mut registry = ops_extension::DataRegistry::new();
+    let _ = registry.register(crate::DATA_PROVIDER_NAME, Box::new(RustLocProvider));
+    let mut ctx = Context::test_context(dir.path().to_path_buf())
+        .with_provider_budget(Some(std::time::Duration::from_secs(600)));
+    let value = registry
+        .provide(crate::DATA_PROVIDER_NAME, &mut ctx)
+        .expect("a live budget must not fail the walk");
+    assert_eq!(value.as_array().map(Vec::len), Some(1));
 }

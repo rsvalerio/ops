@@ -5,7 +5,10 @@ mod error;
 mod extension;
 mod macros;
 
-pub use data::{Context, DataField, DataProvider, DataProviderSchema, DataRegistry};
+pub use data::{
+    Context, DataField, DataProvider, DataProviderSchema, DataRegistry, Deadline,
+    DEFAULT_PROVIDER_BUDGET,
+};
 pub use error::{DataProviderError, SharedError};
 pub use extension::{
     sort_compiled_extensions, CommandRegistry, Extension, ExtensionFactory, ExtensionInfo,

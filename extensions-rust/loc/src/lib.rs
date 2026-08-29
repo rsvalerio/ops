@@ -21,12 +21,14 @@ pub use ingestor::RustLocIngestor;
 
 use std::io::{BufRead as _, BufReader};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use ops_duckdb::DuckDb;
 use ops_extension::{
-    Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
+    Context, DataField, DataProvider, DataProviderError, DataProviderSchema, Deadline,
+    ExtensionType,
 };
 
 use counter::{count_source, region_from_path, FileCounts, Region};
@@ -63,7 +65,7 @@ impl DataProvider for RustLocProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
-            collect_rust_loc(ctx.working_directory())
+            collect_rust_loc(ctx.working_directory(), ctx.deadline_handle().as_ref())
         })
     }
 
@@ -141,28 +143,47 @@ pub const MAX_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
 ///
 /// # Errors
 ///
-/// None today: every failure mode above is warned and skipped, per the
-/// degradation policy just described, and the only exit builds a
+/// `DataProviderError::TimedOut`, boxed into `anyhow`, when `deadline` is
+/// supplied and expires mid-walk — the cancellation check foreseen by the
+/// previous revision of this section (SEC-33 / TASK-2052). Nothing else:
+/// every other failure mode above is warned and skipped, per the degradation
+/// policy just described, and the only successful exit builds a
 /// `serde_json::Value::Array` from an already-materialised `Vec`, which
-/// cannot fail. The `Result` is kept because
-/// `ops_duckdb::try_provide_from_db` and `DataIngestor::collect` both
-/// require a fallible closure, and because a future cancellation check
-/// or hard resource limit would legitimately use it. Do not convert the
-/// warn-and-skip branches into `?` to make this section true — the
-/// partial-count policy is deliberate.
-pub fn collect_rust_loc(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
+/// cannot fail. Do not convert the warn-and-skip branches into `?` — the
+/// partial-count policy is deliberate, and it is precisely *because* a short
+/// count is otherwise indistinguishable from a complete one that an expired
+/// deadline aborts instead of returning the rows it happened to reach.
+pub fn collect_rust_loc(
+    working_dir: &Path,
+    deadline: Option<&Deadline>,
+) -> Result<serde_json::Value, anyhow::Error> {
     // Counting is CPU-bound, per-file independent, and shares no mutable
     // state: proc-macro2's `span-locations` source map is a thread-local
     // and `invalidate_current_thread_spans` only touches the calling
     // thread's copy, so each worker simply keeps its own. The only shared
     // state is the row sink, locked once per file.
     let records = Mutex::new(Vec::new());
+    // SEC-33 / TASK-2052: the walk runs on `ignore`'s worker threads, which
+    // cannot borrow the `&mut Context` the dispatch holds — hence the detached
+    // `Deadline`, which is `Send + Sync` and builds the same error
+    // `Context::check_deadline` would. Each worker checks before paying for an
+    // entry and answers `Quit`, which stops *every* worker rather than only
+    // its own; the flag then carries the outcome past the walk, since a
+    // `WalkState` is not a value `run` returns.
+    let timed_out = AtomicBool::new(false);
 
     WalkBuilder::new(working_dir)
         .filter_entry(|entry| !is_excluded_dir(entry))
         .build_parallel()
         .run(|| {
             Box::new(|entry| {
+                if deadline.is_some_and(Deadline::is_expired) {
+                    // `Relaxed` is enough: nothing is published alongside this
+                    // flag, and the only read happens after `run` returns,
+                    // which joins every worker and is itself the barrier.
+                    timed_out.store(true, Ordering::Relaxed);
+                    return WalkState::Quit;
+                }
                 let entry = match entry {
                     Ok(entry) => entry,
                     Err(error) => {
@@ -177,6 +198,16 @@ pub fn collect_rust_loc(working_dir: &Path) -> Result<serde_json::Value, anyhow:
                 WalkState::Continue
             })
         });
+
+    if timed_out.load(Ordering::Relaxed) {
+        // Report through the deadline itself rather than a locally built
+        // error, so the failure keeps naming the provider that owns the
+        // budget. `Quit` is only ever set with a deadline present, and the
+        // deadline cannot un-expire, so this branch always yields an error.
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
+    }
 
     let mut records = records.into_inner().unwrap_or_else(PoisonError::into_inner);
     // Workers finish in arbitrary order. Sorting keeps the JSON sidecar

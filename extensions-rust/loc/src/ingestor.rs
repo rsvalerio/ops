@@ -16,7 +16,8 @@ impl DataIngestor for RustLocIngestor {
     }
 
     fn collect(&self, ctx: &Context, dir: &IngestDir) -> DbResult<()> {
-        let json = super::collect_rust_loc(ctx.working_directory()).map_err(external_err)?;
+        let json = super::collect_rust_loc(ctx.working_directory(), ctx.deadline_handle().as_ref())
+            .map_err(external_err)?;
         PIPELINE.collect_sidecar(dir, &json, ctx.working_directory())
     }
 

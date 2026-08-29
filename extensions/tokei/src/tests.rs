@@ -160,7 +160,7 @@ fn collect_tokei_excludes_target_and_git() {
             .expect("write noise");
     }
 
-    let value = super::collect_tokei(dir.path()).expect("collect");
+    let value = super::collect_tokei(dir.path(), None).expect("collect");
     let arr = value.as_array().expect("array");
 
     let files: Vec<String> = arr
@@ -188,7 +188,7 @@ fn collect_tokei_counts_build_dir_nested_under_src() {
     std::fs::create_dir_all(dir.path().join("build")).expect("mkdir build");
     std::fs::write(dir.path().join("build/out.rs"), "fn artifact() {}\n").expect("write artifact");
 
-    let value = super::collect_tokei(dir.path()).expect("collect");
+    let value = super::collect_tokei(dir.path(), None).expect("collect");
     let files: Vec<String> = value
         .as_array()
         .expect("array")
@@ -214,7 +214,7 @@ fn collect_tokei_counts_file_named_like_an_excluded_dir() {
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(dir.path().join("build"), "#!/bin/sh\necho hi\n").expect("write script");
 
-    let value = super::collect_tokei(dir.path()).expect("collect");
+    let value = super::collect_tokei(dir.path(), None).expect("collect");
     let files: Vec<String> = value
         .as_array()
         .expect("array")
@@ -237,7 +237,7 @@ fn scan_tokei_skips_files_over_the_byte_cap() {
         file_bytes: 32,
         ..super::ScanLimits::DEFAULT
     };
-    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+    let scan = super::scan_tokei(dir.path(), limits, None).expect("scan");
 
     assert_eq!(scan.skipped_oversize, 1);
     assert_eq!(scan.records.len(), 1);
@@ -256,7 +256,7 @@ fn scan_tokei_truncates_at_the_file_cap() {
         files: 2,
         ..super::ScanLimits::DEFAULT
     };
-    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+    let scan = super::scan_tokei(dir.path(), limits, None).expect("scan");
 
     assert_eq!(scan.records.len(), 2, "cap must bound what is materialised");
     assert!(scan.truncated, "a truncated result must say so");
@@ -281,7 +281,7 @@ fn unsupported_files_do_not_consume_the_file_cap() {
         files: 2,
         ..super::ScanLimits::DEFAULT
     };
-    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+    let scan = super::scan_tokei(dir.path(), limits, None).expect("scan");
 
     assert_eq!(
         scan.records.len(),
@@ -307,7 +307,7 @@ fn scan_tokei_honours_the_depth_cap() {
         depth: 1,
         ..super::ScanLimits::DEFAULT
     };
-    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+    let scan = super::scan_tokei(dir.path(), limits, None).expect("scan");
 
     assert_eq!(scan.records.len(), 1);
     assert_eq!(scan.records[0]["file"], "top.rs");
@@ -319,7 +319,7 @@ fn scan_tokei_honours_the_depth_cap() {
 fn collect_tokei_errors_on_missing_directory() {
     let dir = tempfile::tempdir().expect("tempdir");
     let missing = dir.path().join("does-not-exist");
-    let err = super::collect_tokei(&missing)
+    let err = super::collect_tokei(&missing, None)
         .expect_err("a nonexistent root must not read as an empty project");
     assert!(
         err.to_string().contains("cannot read scan root"),
@@ -332,7 +332,8 @@ fn collect_tokei_errors_when_root_is_a_file() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = dir.path().join("lib.rs");
     std::fs::write(&file, "fn a() {}\n").expect("write source");
-    let err = super::collect_tokei(&file).expect_err("a file root is not a scannable directory");
+    let err =
+        super::collect_tokei(&file, None).expect_err("a file root is not a scannable directory");
     assert!(
         err.to_string().contains("is not a directory"),
         "error should name the failure, got: {err}"
@@ -356,7 +357,7 @@ fn scan_tokei_counts_unreadable_files() {
         return;
     }
 
-    let scan = super::scan_tokei(dir.path(), super::ScanLimits::DEFAULT).expect("scan");
+    let scan = super::scan_tokei(dir.path(), super::ScanLimits::DEFAULT, None).expect("scan");
     assert!(scan.records.is_empty());
     assert_eq!(
         scan.skipped_unreadable, 1,
@@ -475,7 +476,7 @@ fn flatten_tokei_strips_workspace_prefix() {
 #[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
 fn collect_tokei_on_real_project() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let result = collect_tokei(&manifest_dir).expect("collect_tokei should succeed");
+    let result = collect_tokei(&manifest_dir, None).expect("collect_tokei should succeed");
     assert!(result.is_array());
     assert!(!result.as_array().unwrap().is_empty());
 }
@@ -486,7 +487,8 @@ fn collect_tokei_on_real_project() {
 #[test]
 fn collect_tokei_on_empty_dir() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let result = collect_tokei(dir.path()).expect("collect_tokei should succeed on empty dir");
+    let result =
+        collect_tokei(dir.path(), None).expect("collect_tokei should succeed on empty dir");
     assert!(result.is_array());
     assert!(result.as_array().unwrap().is_empty());
 }
@@ -823,4 +825,56 @@ fn relativize_path_replaces_invalid_utf8_with_replacement_char() {
         rendered.starts_with("bad") && rendered.ends_with("name"),
         "stripped + lossy result: {rendered:?}"
     );
+}
+
+// -- SEC-33 / TASK-2052: the walk honours the dispatch deadline --
+
+/// AC #2: with a budget already spent, the provider must abort *during* the
+/// walk rather than run it to completion and be told afterwards.
+///
+/// Driven through `DataRegistry::provide`, which is what installs the
+/// deadline, so this pins the whole path an operator's dispatch takes — not
+/// just `scan_tokei`'s parameter. The control run below shows the same tree
+/// scans cleanly, so the failure is the deadline and not the fixture.
+#[test]
+fn a_spent_budget_aborts_the_tokei_walk_with_a_typed_timeout() {
+    let dir = fixture_project();
+    let mut registry = ops_extension::DataRegistry::new();
+    let _ = registry.register(DATA_PROVIDER_NAME, Box::new(TokeiProvider));
+
+    // One nanosecond is spent by the time the first entry is examined, so the
+    // check fires on the first iteration.
+    let mut ctx = Context::test_context(dir.path().to_path_buf())
+        .with_provider_budget(Some(std::time::Duration::from_nanos(1)));
+    match registry.provide(DATA_PROVIDER_NAME, &mut ctx) {
+        Err(DataProviderError::TimedOut { provider, .. }) => {
+            assert_eq!(provider, DATA_PROVIDER_NAME);
+        }
+        other => panic!("expected a typed TimedOut from the walk, got {other:?}"),
+    }
+
+    let mut ctx = Context::test_context(dir.path().to_path_buf());
+    let value = registry
+        .provide(DATA_PROVIDER_NAME, &mut ctx)
+        .expect("the same tree must scan cleanly without a spent budget");
+    assert_eq!(
+        value.as_array().map(Vec::len),
+        Some(FIXTURE_FILE_COUNT),
+        "the control run must produce the whole fixture"
+    );
+}
+
+/// A deadline that has not expired must not perturb the scan: the per-entry
+/// check is a cancellation point, not a filter.
+#[test]
+fn a_live_budget_leaves_the_tokei_scan_intact() {
+    let dir = fixture_project();
+    let mut registry = ops_extension::DataRegistry::new();
+    let _ = registry.register(DATA_PROVIDER_NAME, Box::new(TokeiProvider));
+    let mut ctx = Context::test_context(dir.path().to_path_buf())
+        .with_provider_budget(Some(std::time::Duration::from_secs(600)));
+    let value = registry
+        .provide(DATA_PROVIDER_NAME, &mut ctx)
+        .expect("a live budget must not fail the scan");
+    assert_eq!(value.as_array().map(Vec::len), Some(FIXTURE_FILE_COUNT));
 }
