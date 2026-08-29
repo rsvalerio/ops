@@ -398,18 +398,32 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
 
 /// Is `c` valid as the first character of a heredoc terminator?
 ///
-/// HCL identifiers are Unicode (`UAX #31` plus `-`), so `<<終端` is a legal
-/// opener. `char::is_alphabetic` is used as the `ID_Start` approximation rather
-/// than pulling in a `unicode-ident` dependency for one scanner: it accepts
-/// every identifier HCL does, and over-accepting here only means recognising
-/// a heredoc the parser would have rejected anyway.
+/// HCL identifiers are `UAX #31` — `ID_Start (ID_Continue | '-')*` — so `<<終端`
+/// is a legal opener and the terminator has to be matched with the same
+/// alphabet.
+///
+/// `char::is_alphabetic` / `is_alphanumeric` are **not** a workable stand-in.
+/// `ID_Continue` includes combining marks, and Rust's predicates admit only
+/// those carrying `Other_Alphabetic` (a Devanagari vowel sign passes,
+/// `U+0301 COMBINING ACUTE ACCENT` does not). A decomposed `<<é` would then
+/// have its terminator truncated to `e`, the real closing line would never
+/// match, and the rest of the file would be swallowed as heredoc body — the
+/// failure PATTERN-1 / TASK-2031 exists to prevent.
+///
+/// `unicode-ident` carries the generated tables. It resolves `XID_Start` /
+/// `XID_Continue`, the normalisation-closed profile `UAX #31` recommends;
+/// it differs from HCL's `ID_*` only for a handful of code points that are
+/// excluded precisely because they break under normalisation, and no
+/// terminator can depend on one of those and still round-trip.
 fn is_heredoc_ident_start(c: char) -> bool {
-    c.is_alphabetic() || c == '_'
+    unicode_ident::is_xid_start(c) || c == '_'
 }
 
 /// Is `c` valid inside a heredoc terminator, after the first character?
+///
+/// `XID_Continue` already covers `_`; HCL adds `-` on top of `UAX #31`.
 fn is_heredoc_ident_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_' || c == '-'
+    unicode_ident::is_xid_continue(c) || c == '-'
 }
 
 /// The terminator of a heredoc opener, given the text following its `<<`.
@@ -1490,6 +1504,51 @@ terraform {
         assert_eq!(
             extract_required_version(content),
             Some(">= 1.7".to_string())
+        );
+    }
+
+    /// A terminator carrying a combining mark must survive whole. `ID_Continue`
+    /// admits `U+0301 COMBINING ACUTE ACCENT`, but `char::is_alphanumeric`
+    /// does not: it truncated `<<e\u{301}` to `e`, so the real closing line
+    /// never matched and the rest of the file was eaten as heredoc body.
+    #[test]
+    fn extract_required_version_after_a_decomposed_unicode_heredoc_terminator() {
+        let content = concat!(
+            "locals {\n",
+            "  script = <<e\u{301}\n",
+            "# not an HCL comment\n",
+            "if [ -f x ]; then }\n",
+            "e\u{301}\n",
+            "}\n",
+            "terraform {\n",
+            "  required_version = \">= 1.10\"\n",
+            "}\n",
+        );
+        assert_eq!(
+            extract_required_version(content),
+            Some(">= 1.10".to_string())
+        );
+    }
+
+    /// The precomposed spelling of the same name is a different identifier —
+    /// HCL does no normalisation — and must close on its own line, not on the
+    /// decomposed one.
+    #[test]
+    fn a_precomposed_terminator_is_not_closed_by_its_decomposed_spelling() {
+        let content = concat!(
+            "locals {\n",
+            "  script = <<\u{e9}\n",
+            "e\u{301}\n",
+            "}\n",
+            "\u{e9}\n",
+            "}\n",
+            "terraform {\n",
+            "  required_version = \">= 1.11\"\n",
+            "}\n",
+        );
+        assert_eq!(
+            extract_required_version(content),
+            Some(">= 1.11".to_string())
         );
     }
 
