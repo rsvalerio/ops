@@ -153,8 +153,27 @@ impl Drop for ChildGroup {
             // `GROUP_TERM_GRACE` and only on the (rare) cancellation path.
             std::thread::spawn(move || {
                 std::thread::sleep(GROUP_TERM_GRACE);
-                // SAFETY: see `ChildGroup::signal` — same call, same
-                // reservation argument for `pgid`.
+                // SEC: unlike the pre-grace signal in `ChildGroup::signal`,
+                // the pid reservation argument does *not* carry across the
+                // sleep. The reservation only holds while the group still has
+                // a member; if the `SIGTERM` above was obeyed and the leader
+                // was reaped during the grace window, `pgid` is free and the
+                // kernel may already have handed it to an unrelated process
+                // group. Probe with signal 0 first and bail on `ESRCH` so the
+                // escalation can only ever land on a group that is still
+                // live.
+                //
+                // SAFETY: `killpg` is a plain libc call with no memory
+                // operands; signal 0 performs the permission/existence check
+                // without delivering anything.
+                if unsafe { libc::killpg(pgid, 0) } != 0 {
+                    return;
+                }
+                // SAFETY: same call as above. The probe narrows — but cannot
+                // close — the reuse window: the group could still exit and
+                // its pgid be recycled between the probe and this line. That
+                // residual race is inherent to signalling by pid and is the
+                // same one every `kill`-after-check carries.
                 unsafe { libc::killpg(pgid, libc::SIGKILL) };
             });
         }
