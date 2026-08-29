@@ -285,7 +285,10 @@ mod exec_unit_tests {
     async fn post_exit_drain_is_bounded_when_a_grandchild_holds_the_pipe() {
         use tokio::time::{timeout, Duration as TokioDuration};
         let mut cmd = tokio::process::Command::new("sh");
-        cmd.arg("-c").arg("sleep 30 & echo done");
+        // The grandchild must outlive the outer timeout by a wide margin: if
+        // its sleep were the same magnitude, the test would also pass when the
+        // drain is unbounded and the grandchild simply exits on its own.
+        cmd.arg("-c").arg("sleep 300 & echo done");
         cmd.kill_on_drop(true);
         let output = timeout(
             TokioDuration::from_secs(30),
