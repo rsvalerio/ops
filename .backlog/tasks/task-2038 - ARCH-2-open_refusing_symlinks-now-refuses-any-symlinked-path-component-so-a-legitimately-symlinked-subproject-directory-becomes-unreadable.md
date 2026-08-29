@@ -6,6 +6,7 @@ title: >-
 status: Triage
 assignee: []
 created_date: '2026-08-29 00:35'
+updated_date: '2026-08-29 10:06'
 labels:
   - code-review-rust
   - architecture
@@ -34,3 +35,9 @@ In practice the exposure is small: `std::env::current_dir()` returns a fully res
 - [ ] #1 A decision is recorded on whether open_refusing_symlinks gains a root-anchored variant that permits symlinks above a given workspace root while still refusing them beneath it
 - [ ] #2 A refused symlink at an intermediate component leaves a tracing breadcrumb at the manifest-reading call sites, so a degraded about card is explainable
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Second observed symptom (code-review run 20260828, part 3): the same root cause also breaks `.ops.toml` loading, not just the about-card manifest readers. Path: `config::load_config_at` -> `read_config_file` -> `read_capped_toml_file` -> `read_capped_toml_file_with_policy(.., SymlinkPolicy::Refuse)` -> `text::open_refusing_symlinks` -> `unix_open::open_regular_no_symlink`, which applies O_NOFOLLOW per component. So a workspace root reached through a symlinked ancestor (an embedder or caller that passes an unresolved root; cwd-derived paths are still resolved by `current_dir`) makes `load_config_at` return InvalidInput 'refusing to follow symlink' from the local-.ops.toml layer instead of loading the file. Because `load_config_at` propagates with `?` at that point, the .ops.d and env layers never run either, so the whole config load fails rather than degrading. This is louder than the about-card symptom but has the same fix decision: whether the primitive gains a root-anchored variant that permits symlinks in the prefix above the workspace root. Not fixed in that run - deliberately deferred here so the trust boundary is decided once.
+<!-- SECTION:NOTES:END -->
