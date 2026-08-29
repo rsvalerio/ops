@@ -550,14 +550,35 @@ mod tests {
     /// and never the developer's real `~/.config/ops/config.toml`.
     ///
     /// Returns the guard; the caller must keep it alive for the whole test.
-    fn isolate_global_config(dir: &Path) -> crate::test_utils::EnvGuard {
+    fn isolate_global_config(dir: &Path) -> GlobalConfigIsolation {
         super::reset_global_config_path_cache(super::GlobalConfigPathResetToken::new());
         let guard = crate::test_utils::EnvGuard::set(
             "XDG_CONFIG_HOME",
             dir.join("xdg-empty").display().to_string(),
         );
         super::reset_global_config_path_cache(super::GlobalConfigPathResetToken::new());
-        guard
+        GlobalConfigIsolation { _env: guard }
+    }
+
+    /// Guard returned by [`isolate_global_config`].
+    ///
+    /// Restoring `XDG_CONFIG_HOME` is not enough on its own: the resolved
+    /// path is memoised in `GLOBAL_CONFIG_PATH`, so without this `Drop` the
+    /// cache would still hold the (now-deleted) tempdir path when the next
+    /// test resolves the global config.
+    struct GlobalConfigIsolation {
+        _env: crate::test_utils::EnvGuard,
+    }
+
+    impl Drop for GlobalConfigIsolation {
+        fn drop(&mut self) {
+            // This body runs before `_env`'s own `Drop` restores
+            // `XDG_CONFIG_HOME`, which is harmless: the cache is left
+            // *empty*, not repopulated, so the next resolution reads
+            // whatever the environment holds by then. These tests are
+            // `#[serial]`, so nothing resolves in the window between.
+            super::reset_global_config_path_cache(super::GlobalConfigPathResetToken::new());
+        }
     }
 
     /// ARCH-11 / TASK-1851: nothing pinned that the `OPS__*` overlay applies at
