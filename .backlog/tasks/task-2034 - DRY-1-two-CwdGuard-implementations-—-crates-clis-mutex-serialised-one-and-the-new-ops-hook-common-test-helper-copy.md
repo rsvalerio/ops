@@ -3,11 +3,11 @@ id: TASK-2034
 title: >-
   DRY-1: two CwdGuard implementations — crates/cli's mutex-serialised one and
   the new ops-hook-common test-helper copy
-status: To Do
+status: Done
 assignee:
   - TASK-2045
 created_date: '2026-08-28 23:14'
-updated_date: '2026-08-29 11:35'
+updated_date: '2026-08-29 13:53'
 labels:
   - code-review-rust
   - duplication
@@ -48,6 +48,32 @@ inside a wave scoped to `extensions/run-before-commit/src/lib.rs`.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Only one CwdGuard exists in the workspace, or each carries a doc stating why its serialisation contract differs from the other's
-- [ ] #2 If the shared guard is the survivor, it keeps the mutex-based serialisation so a non-serial caller cannot race
+- [x] #1 Only one CwdGuard exists in the workspace, or each carries a doc stating why its serialisation contract differs from the other's
+- [x] #2 If the shared guard is the survivor, it keeps the mutex-based serialisation so a non-serial caller cannot race
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Resolved in TASK-2045 (wave183).
+
+AC #1: the workspace now has one `CwdGuard`, in `ops_core::test_utils`. The
+task named two copies; there was a third — `extensions-rust/deps/src/test_support.rs`,
+whose `CwdGuard::set` panicked on failure and had no serialisation at all — so
+all three were collapsed. `ops_hook_common::test_helpers` and
+`ops_deps::test_support` re-export the shared guard, so
+`ops_hook_common::test_helpers::CwdGuard` and `crate::test_support::CwdGuard`
+imports are unchanged; `crates/cli` picks it up through the existing
+`pub use ops_core::test_utils::*` glob. `ops-deps`'s seven `CwdGuard::set(p)`
+call sites became `CwdGuard::new(p).expect("CwdGuard")`, matching the fallible
+constructor the other two already used.
+
+AC #2: the survivor is the mutex-based cli implementation, `CWD_MUTEX` and
+poisoning recovery included, so a caller that forgets `#[serial_test::serial]`
+still cannot race another CWD-dependent test. `ops-hook-common`'s `test-helpers`
+feature now turns on `ops-core/test-support` to reach it; `ops-deps` and
+`crates/cli` already carried that dev-dependency.
+
+The guard's rustdoc states the contract (mutex-held, not reentrant) at its one
+definition site.
+<!-- SECTION:NOTES:END -->

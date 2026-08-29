@@ -3,11 +3,11 @@ id: TASK-2036
 title: >-
   READ-10: hook-common test fixtures still model a bash hook script neither hook
   crate installs
-status: To Do
+status: Done
 assignee:
   - TASK-2045
 created_date: '2026-08-28 23:24'
-updated_date: '2026-08-29 11:35'
+updated_date: '2026-08-29 13:53'
 labels:
   - code-review-rust
   - tests
@@ -51,6 +51,32 @@ failed integration verify against the sibling wave's tests, and was reverted bef
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Both fixture hook_script values use #!/bin/sh, matching what the wrapper crates actually install
-- [ ] #2 The truncated-prefix literals in install.rs's Partial-classification tests are derived from cfg.hook_script rather than hardcoded, so a future fixture edit cannot silently reclassify them
+- [x] #1 Both fixture hook_script values use #!/bin/sh, matching what the wrapper crates actually install
+- [x] #2 The truncated-prefix literals in install.rs's Partial-classification tests are derived from cfg.hook_script rather than hardcoded, so a future fixture edit cannot silently reclassify them
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Resolved in TASK-2045 (wave183).
+
+AC #1: both fixtures in `extensions/hook-common/src/fixtures.rs` now carry
+`#!/bin/sh`, matching what `run-before-commit` (TASK-1910) and `run-before-push`
+(TASK-1911) actually install.
+
+AC #2: the fixture edit landed only because the hardcoded prefix went first.
+`fixtures::truncated_hook_script(cfg)` derives a strict, non-empty prefix from
+`cfg.hook_script` (everything up to and including its first `ops ` token, so it
+stops mid-line and can never equal the whole script), and the three sites that
+spelled `"#!/usr/bin/env bash\nexec ops run-before-com"` out by hand call it
+instead: `install_hook_after_interrupted_stage_installs_cleanly`,
+`install_hook_replaces_truncated_hook_rather_than_calling_it_foreign`, and
+`classify_existing_hook_separates_partial_from_foreign`. A future fixture edit
+now moves the literal with it rather than silently reclassifying it from
+`Partial` to `Foreign` — which is the failure that made TASK-2009 revert this
+change under a held merge lock.
+
+The `Legacy` and `Foreign` cases in that test still use unrelated literals, so
+the shebang change does not disturb their classification. Verified: the
+hook-common, run-before-commit and run-before-push suites are green.
+<!-- SECTION:NOTES:END -->
