@@ -570,13 +570,6 @@ mod tests {
     /// A missing `Cargo.toml` anywhere in the ancestor chain is an error, not
     /// an empty manifest: `resolve_workspace_root` surfaces the typed
     /// `FindWorkspaceRootError::NotFound` rather than defaulting to the cwd.
-    ///
-    /// The classification `log_manifest_load_failure` performs on top of it is
-    /// deliberately *not* asserted here: `SharedError::source()` skips its own
-    /// inner error, so the typed marker never reaches `is_manifest_missing`'s
-    /// chain walk and this case is currently logged at warn. That is a defect
-    /// in `crates/extension/src/error.rs`, filed separately — pinning today's
-    /// behaviour here would cement it.
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn missing_manifest_surfaces_the_typed_not_found_error() {
@@ -587,5 +580,72 @@ mod tests {
             format!("{err:#}").contains("no Cargo.toml found"),
             "expected the workspace-root NotFound error, got: {err:#}"
         );
+    }
+
+    /// ERR-1 / TASK-2024: the classification built on top of that error is
+    /// what was inert. `SharedError::source()` skipped its own inner error and
+    /// `From<anyhow::Error>` stored anyhow's wrapper rather than the
+    /// originating error, so `is_manifest_missing`'s chain walk never reached
+    /// `FindWorkspaceRootError` and returned `false` — every directory that is
+    /// simply not a Rust project produced "failed to load workspace
+    /// Cargo.toml" at warn. The test above used to say so in prose and
+    /// deliberately declined to pin it; this pins the fixed behaviour.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn a_missing_manifest_is_classified_as_not_found_and_logged_at_debug() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cwd = dir.path().to_path_buf();
+        workspace_root_cache::evict(&cwd);
+
+        let mut ctx = Context::test_context(cwd.clone());
+        let err = load_workspace_manifest(&mut ctx).expect_err("no Cargo.toml anywhere");
+
+        assert!(
+            is_manifest_missing(&err),
+            "the typed NotFound marker must be reachable through the chain: {err:#}"
+        );
+
+        let buf = ops_about::test_support::TracingBuf::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf.clone())
+            .with_max_level(tracing::Level::DEBUG)
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || log_manifest_load_failure(&err));
+        let logs = buf.captured();
+
+        assert!(
+            logs.contains("Cargo.toml not found"),
+            "expected the debug classification, got: {logs}"
+        );
+        assert!(
+            !logs.contains("failed to load workspace Cargo.toml"),
+            "a directory that is not a Rust project must not warn: {logs}"
+        );
+
+        workspace_root_cache::evict(&cwd);
+    }
+
+    /// The other half of the classification must still hold: a manifest that
+    /// exists but does not parse is a real failure and keeps its warn.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn an_unparseable_manifest_is_not_classified_as_missing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::write(root.join("Cargo.toml"), "[workspace\nthis is not toml").unwrap();
+        let cwd = root.to_path_buf();
+        manifest_cache::evict(&canonical(root));
+        workspace_root_cache::evict(&cwd);
+
+        let mut ctx = Context::test_context(cwd.clone());
+        let err = load_workspace_manifest(&mut ctx).expect_err("malformed manifest must fail");
+        assert!(
+            !is_manifest_missing(&err),
+            "a parse failure must not be mistaken for an absent manifest: {err:#}"
+        );
+
+        manifest_cache::evict(&canonical(root));
+        workspace_root_cache::evict(&cwd);
     }
 }
