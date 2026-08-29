@@ -3,11 +3,11 @@ id: TASK-2024
 title: >-
   ERR-1: SharedError::source() skips its own inner error, so every typed-error
   downcast through DataProviderError misses
-status: To Do
+status: Done
 assignee:
   - TASK-2047
 created_date: '2026-08-28 20:07'
-updated_date: '2026-08-29 11:35'
+updated_date: '2026-08-29 13:26'
 labels:
   - code-review-rust
   - error-handling
@@ -44,8 +44,8 @@ That is exactly the classification ARCH-2 / TASK-0871 and TASK-0433 were built t
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 SharedError::source() yields the wrapped error itself, so a chain walk over DataProviderError reaches the originating typed error
-- [ ] #2 A regression test constructs DataProviderError::from(anyhow::Error::from(<typed error>)) and asserts the typed error is reachable via downcast_ref through the source chain
-- [ ] #3 extensions-rust/about is_manifest_missing classifies a missing workspace Cargo.toml as not-found, and log_manifest_load_failure emits debug rather than warn for it (pinned by a test)
-- [ ] #4 SharedError's alternate Display output is unchanged - no link is printed twice or dropped by the source() fix
+- [x] #1 SharedError::source() yields the wrapped error itself, so a chain walk over DataProviderError reaches the originating typed error
+- [x] #2 A regression test constructs DataProviderError::from(anyhow::Error::from(<typed error>)) and asserts the typed error is reachable via downcast_ref through the source chain
+- [x] #3 extensions-rust/about is_manifest_missing classifies a missing workspace Cargo.toml as not-found, and log_manifest_load_failure emits debug rather than warn for it (pinned by a test)
+- [x] #4 SharedError's alternate Display output is unchanged - no link is printed twice or dropped by the source() fix
 <!-- AC:END -->
