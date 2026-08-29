@@ -25,7 +25,10 @@ pub mod sql;
 pub use connection::DuckDb;
 pub use error::{DbError, DbResult};
 pub use ingestor::{DataIngestor, LoadResult, SidecarIngestorConfig};
+// SEC-25 / TASK-2054: `IngestDir` is in `DataIngestor`'s signature, so it must
+// be reachable wherever the trait is implemented.
 pub use schema::{init_schema, upsert_data_source, DataSourceMetadata, SourceName, WorkspaceRoot};
+pub use sql::IngestDir;
 
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use std::path::PathBuf;

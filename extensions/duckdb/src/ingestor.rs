@@ -10,6 +10,7 @@ use crate::connection::DuckDb;
 )]
 use crate::error::DbError;
 use crate::error::DbResult;
+use crate::sql::IngestDir;
 use crate::sql::{CreateTableSql, CreateViewSql};
 use ops_extension::Context;
 use std::path::Path;
@@ -96,23 +97,27 @@ impl SidecarIngestorConfig {
     /// destination either holds the previous content or the full new
     /// payload — never a partial write.
     ///
+    /// SEC-25 / TASK-2054: both staged writes now go through the verified
+    /// [`IngestDir`] anchor rather than by path. `create_dir_all` is gone with
+    /// them — the directory is created, hardened and verified once by
+    /// [`IngestDir::open`] before `collect` is ever called, and re-creating it
+    /// here would have been another by-name resolution of exactly the kind the
+    /// anchor removes.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Io`] if `data_dir` cannot be created or the sidecar cannot be
-    /// written, or [`DbError::Serialization`] if `data` fails to serialize.
+    /// [`DbError::Io`] if the JSON or the sidecar cannot be staged, or
+    /// [`DbError::Serialization`] if `data` fails to serialize.
     pub fn collect_sidecar(
         &self,
-        data_dir: &Path,
+        dir: &IngestDir,
         data: &impl serde::Serialize,
         working_directory: &Path,
     ) -> DbResult<()> {
-        std::fs::create_dir_all(data_dir).map_err(crate::error::DbError::Io)?;
         let json_bytes =
             serde_json::to_vec_pretty(data).map_err(crate::error::DbError::Serialization)?;
-        let json_path = data_dir.join(self.json_filename);
-        ops_core::config::atomic_write(&json_path, &json_bytes)
-            .map_err(crate::error::DbError::Io)?;
-        crate::sql::write_workspace_sidecar(data_dir, self.name, working_directory)?;
+        dir.write_atomic(self.json_filename, &json_bytes)?;
+        crate::sql::write_workspace_sidecar(dir, self.name, working_directory)?;
         Ok(())
     }
 
@@ -188,7 +193,7 @@ impl SidecarIngestorConfig {
     pub fn load_with_sidecar(
         &self,
         db: &DuckDb,
-        data_dir: &Path,
+        dir: &IngestDir,
         create_sql: &CreateTableSql,
         view_sql: &CreateViewSql,
     ) -> DbResult<crate::ingestor::LoadResult> {
@@ -199,7 +204,7 @@ impl SidecarIngestorConfig {
         // identifier check — invalid identifiers can no longer reach
         // here at runtime.
         let quoted = self.count_table.quoted();
-        let workspace_root = crate::sql::read_workspace_sidecar(data_dir, self.name)?;
+        let workspace_root = crate::sql::read_workspace_sidecar(dir, self.name)?;
 
         let record_count = {
             // CONC-2 / TASK-0364: hold the lock for the entire create→count
@@ -212,9 +217,8 @@ impl SidecarIngestorConfig {
             self.count_records_with(&conn, &quoted)?
         };
 
-        let json_path = data_dir.join(self.json_filename);
-        self.persist_record(db, workspace_root.as_os_str(), &json_path, record_count)?;
-        self.cleanup_artifacts(data_dir, &json_path);
+        self.persist_record(db, workspace_root.as_os_str(), dir, record_count)?;
+        self.cleanup_artifacts(dir);
 
         Ok(LoadResult::success(self.name, record_count))
     }
@@ -265,20 +269,25 @@ impl SidecarIngestorConfig {
 
     /// Step 3: upsert the `data_sources` tracking row. Computes the file
     /// checksum (no lock held) before delegating to `upsert_data_source`.
+    /// SEC-25 / TASK-2054: the checksum is computed over the file opened
+    /// *through the anchor*, not over a re-resolved path, so the bytes recorded
+    /// in `data_sources` are the bytes of the file this pipeline staged. The
+    /// path stored on the provenance row stays a plain path — it is a label an
+    /// operator reads, never something this code opens.
     fn persist_record(
         &self,
         db: &DuckDb,
         workspace_root: &std::ffi::OsStr,
-        json_path: &Path,
+        dir: &IngestDir,
         record_count: u64,
     ) -> DbResult<()> {
-        let checksum = crate::sql::checksum_file(json_path)?;
+        let checksum = dir.checksum(self.json_filename)?;
         crate::schema::upsert_data_source(
             db,
             &crate::schema::DataSourceMetadata::new(
                 crate::schema::SourceName::new(self.name),
                 crate::schema::WorkspaceRoot::new(workspace_root),
-                json_path,
+                &dir.entry_path(self.json_filename),
                 record_count,
                 &checksum,
             ),
@@ -309,14 +318,14 @@ impl SidecarIngestorConfig {
     /// contract is shared with `cleanup_artifacts_breadcrumb_paths` so
     /// the unit test can pin the formatting without intercepting a
     /// tracing subscriber.
-    fn cleanup_artifacts(&self, data_dir: &Path, json_path: &Path) {
+    fn cleanup_artifacts(&self, dir: &IngestDir) {
         // FN-1 / TASK-1631: the rename-or-fallback and the unlink-with-recovery
         // each live in their own helper so this body stays a three-line
         // recovery policy ("rename, then unlink the effective path, removing
         // the sidecar when JSON is gone") rather than ~67 lines of mixed
         // syscalls + log formatting.
-        let effective_path = rename_json_to_done(self.name, json_path);
-        unlink_and_remove_sidecar(self.name, data_dir, json_path, &effective_path);
+        let effective = rename_json_to_done(self.name, dir, self.json_filename);
+        unlink_and_remove_sidecar(self.name, dir, self.json_filename, &effective);
     }
 }
 
@@ -328,35 +337,40 @@ impl SidecarIngestorConfig {
 /// path identical while making the crash window observable rather than
 /// indistinguishable.
 ///
-/// Returns the path that the subsequent unlink should target:
-/// * the `.done` path on successful rename,
-/// * the original path on EXDEV/permission failure (logged as debug) or
+/// SEC-25 / TASK-2054: `renameat` on the verified anchor, so the rename cannot
+/// be redirected into a directory an attacker substituted for the ingest dir's
+/// name after verification.
+///
+/// Returns the entry name that the subsequent unlink should target:
+/// * the `.done` name on successful rename,
+/// * the original name on EXDEV/permission failure (logged as debug) or
 ///   when the source was already absent (`NotFound`, no log — the caller's
 ///   `NotFound` branch will emit the appropriate breadcrumb).
-fn rename_json_to_done(source: &'static str, original_json_path: &Path) -> std::path::PathBuf {
-    let done_path = original_json_path.with_extension("json.done");
-    match std::fs::rename(original_json_path, &done_path) {
-        Ok(()) => done_path,
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+fn rename_json_to_done(source: &'static str, dir: &IngestDir, json_name: &str) -> String {
+    let done_name = format!("{json_name}.done");
+    match dir.rename(json_name, &done_name) {
+        Ok(()) => done_name,
+        Err(crate::error::DbError::Io(e)) if e.kind() != std::io::ErrorKind::NotFound => {
             tracing::debug!(
                 source,
                 paths = %cleanup_artifacts_breadcrumb_paths(
-                    original_json_path,
-                    original_json_path,
+                    &dir.entry_path(json_name),
+                    &dir.entry_path(json_name),
                 ),
                 error = ?e,
                 "cleanup_artifacts: rename to .done failed; falling back to direct unlink"
             );
-            original_json_path.to_path_buf()
+            json_name.to_owned()
         }
         // NotFound on the rename: source already absent — fall through to
         // the unlink helper for the same recovery semantics.
-        Err(_) => original_json_path.to_path_buf(),
+        Err(_) => json_name.to_owned(),
     }
 }
 
 /// FN-1 / TASK-1631 (extracted): unlink the post-rename staging file and
-/// remove the workspace sidecar.
+/// remove the workspace sidecar. Both go through the verified anchor
+/// (SEC-25 / TASK-2054).
 ///
 /// ERR-1 / TASK-0466 contract: the sidecar is only removed once the JSON
 /// is gone, so a transient permission/IO error leaves the sidecar in
@@ -370,29 +384,29 @@ fn rename_json_to_done(source: &'static str, original_json_path: &Path) -> std::
 /// too; a debug breadcrumb makes the unexpected absence visible.
 fn unlink_and_remove_sidecar(
     source: &'static str,
-    data_dir: &Path,
-    original_json_path: &Path,
-    effective_path: &Path,
+    dir: &IngestDir,
+    json_name: &str,
+    effective_name: &str,
 ) {
-    match std::fs::remove_file(effective_path) {
-        Ok(()) => crate::sql::remove_workspace_sidecar(data_dir, source),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+    match dir.remove_file(effective_name) {
+        Ok(()) => crate::sql::remove_workspace_sidecar(dir, source),
+        Err(crate::error::DbError::Io(err)) if err.kind() == std::io::ErrorKind::NotFound => {
             tracing::debug!(
                 source,
                 paths = %cleanup_artifacts_breadcrumb_paths(
-                    original_json_path,
-                    effective_path,
+                    &dir.entry_path(json_name),
+                    &dir.entry_path(effective_name),
                 ),
                 "cleanup_artifacts: JSON staging file already absent before removal; removing sidecar anyway"
             );
-            crate::sql::remove_workspace_sidecar(data_dir, source);
+            crate::sql::remove_workspace_sidecar(dir, source);
         }
         Err(err) => {
             tracing::warn!(
                 source,
                 paths = %cleanup_artifacts_breadcrumb_paths(
-                    original_json_path,
-                    effective_path,
+                    &dir.entry_path(json_name),
+                    &dir.entry_path(effective_name),
                 ),
                 error = ?err,
                 "failed to remove staged JSON after ingest; \
@@ -428,11 +442,11 @@ fn cleanup_artifacts_breadcrumb_paths(original: &Path, effective: &Path) -> Stri
 ///
 /// impl DataIngestor for MetadataIngestor {
 ///     fn name(&self) -> &'static str { "metadata" }
-///     fn collect(&self, ctx: &Context, data_dir: &Path) -> DbResult<()> {
-///         // Run `cargo metadata` and write to data_dir
+///     fn collect(&self, ctx: &Context, dir: &IngestDir) -> DbResult<()> {
+///         // Run `cargo metadata` and stage it via `dir.write_atomic(..)`
 ///     }
-///     fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<LoadResult> {
-///         // Read JSON and create DuckDB view
+///     fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<LoadResult> {
+///         // Read the staged JSON through `dir` and create the DuckDB view
 ///     }
 /// }
 /// ```
@@ -444,31 +458,43 @@ pub trait DataIngestor: Send + Sync {
 
     /// Collect raw data (run external commands, produce JSON files).
     ///
-    /// This method runs the external tool (e.g., `cargo metadata`) and
-    /// writes the output to files in `data_dir`. It should not interact
-    /// with the database.
+    /// This method runs the external tool (e.g., `cargo metadata`) and stages
+    /// the output inside the ingest directory. It should not interact with the
+    /// database.
+    ///
+    /// SEC-25 / TASK-2054: the parameter is a verified [`IngestDir`] anchor,
+    /// not a bare `&Path`. Stage through [`IngestDir::write_atomic`] so the
+    /// write resolves against the directory descriptor that was verified;
+    /// re-deriving a path from [`IngestDir::path`] and opening it reintroduces
+    /// exactly the swap window this signature exists to close.
     ///
     /// # Errors
     ///
-    /// If the provider cannot gather its data or write it into `data_dir`.
-    fn collect(&self, ctx: &Context, data_dir: &Path) -> DbResult<()>;
+    /// If the provider cannot gather its data or stage it into `dir`.
+    fn collect(&self, ctx: &Context, dir: &IngestDir) -> DbResult<()>;
 
     /// Load collected data into `DuckDB` tables/views.
     ///
-    /// This method reads files from `data_dir` and creates or replaces
+    /// This method reads the files staged in `dir` and creates or replaces
     /// tables/views in the database. Should be idempotent.
+    ///
+    /// SEC-25 / TASK-2054: reads and cleanup go through the anchor
+    /// ([`IngestDir::open_read`], [`IngestDir::rename`],
+    /// [`IngestDir::remove_file`]). [`IngestDir::entry_path`] is for the one
+    /// thing that cannot take a descriptor — `DuckDB`'s `read_json_auto`,
+    /// which is path-only — and for provenance labels.
     ///
     /// # Errors
     ///
-    /// If `data_dir` cannot be read or the tables/views cannot be created.
-    fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<LoadResult>;
+    /// If the staged files cannot be read or the tables/views cannot be
+    /// created.
+    fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<LoadResult>;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{connection::DuckDb, error::DbError};
-    use std::io::Write;
 
     /// ERR-1 / TASK-1242: the cleanup breadcrumb must surface *both* the
     /// original JSON staging path and the post-rename effective path.
@@ -514,6 +540,12 @@ mod tests {
         );
     }
 
+    /// SEC-25 / TASK-2054: every test stages through a verified anchor, the
+    /// same way `provide_via_ingestor` does in production.
+    fn anchor(tmp: &tempfile::TempDir) -> IngestDir {
+        IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open ingest dir")
+    }
+
     #[test]
     fn load_result_success() {
         let result = LoadResult::success("test_source", 100);
@@ -530,15 +562,12 @@ mod tests {
             self.name
         }
 
-        fn collect(&self, _ctx: &Context, data_dir: &Path) -> DbResult<()> {
-            let json_path = data_dir.join("data.json");
-            let mut file = std::fs::File::create(&json_path).map_err(DbError::Io)?;
-            write!(file, r#"{{"test": "data"}}"#).map_err(DbError::Io)?;
-            Ok(())
+        fn collect(&self, _ctx: &Context, dir: &IngestDir) -> DbResult<()> {
+            dir.write_atomic("data.json", br#"{"test": "data"}"#)
         }
 
-        fn load(&self, data_dir: &Path, _db: &DuckDb) -> DbResult<LoadResult> {
-            let json_path = data_dir.join("data.json");
+        fn load(&self, dir: &IngestDir, _db: &DuckDb) -> DbResult<LoadResult> {
+            let json_path = dir.entry_path("data.json");
             if json_path.exists() {
                 Ok(LoadResult::success(self.name, 1))
             } else {
@@ -553,10 +582,11 @@ mod tests {
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let ctx = Context::new(config, std::path::PathBuf::from("."));
         let temp_dir = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&temp_dir);
         ingestor
-            .collect(&ctx, temp_dir.path())
+            .collect(&ctx, &dir)
             .expect("collect should succeed");
-        assert!(temp_dir.path().join("data.json").exists());
+        assert!(dir.entry_path("data.json").exists());
     }
 
     /// SEC-25 / TASK-0911: a successful `collect_sidecar` must leave no
@@ -571,16 +601,13 @@ mod tests {
             count_table: crate::sql::validation::TableName::from_static("data_sources"),
         };
         let temp_dir = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&temp_dir);
         let workspace = tempfile::tempdir().expect("workspace");
-        cfg.collect_sidecar(
-            temp_dir.path(),
-            &serde_json::json!({"k": "v"}),
-            workspace.path(),
-        )
-        .expect("collect_sidecar");
-        let json_path = temp_dir.path().join("data.json");
+        cfg.collect_sidecar(&dir, &serde_json::json!({"k": "v"}), workspace.path())
+            .expect("collect_sidecar");
+        let json_path = dir.entry_path("data.json");
         assert!(json_path.exists(), "json written");
-        let leftovers: Vec<_> = std::fs::read_dir(temp_dir.path())
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
             .expect("read_dir")
             .filter_map(Result::ok)
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
@@ -604,11 +631,10 @@ mod tests {
             count_table: crate::sql::validation::TableName::from_static("data_sources"),
         };
         let temp_dir = tempfile::tempdir().expect("tempdir");
-        let parent = temp_dir.path().join("locked");
-        std::fs::create_dir(&parent).expect("mkdir");
-        let json_path = parent.join("data.json");
-        std::fs::write(&json_path, "{}").expect("write json");
-        crate::sql::write_workspace_sidecar(temp_dir.path(), config.name, temp_dir.path())
+        let dir = anchor(&temp_dir);
+        let parent = dir.path().to_path_buf();
+        dir.write_atomic("data.json", b"{}").expect("write json");
+        crate::sql::write_workspace_sidecar(&dir, config.name, temp_dir.path())
             .expect("write sidecar");
 
         // Strip write permissions from the parent dir so remove_file fails
@@ -632,12 +658,12 @@ mod tests {
         readonly.set_mode(0o500);
         std::fs::set_permissions(&parent, readonly).expect("chmod");
 
-        config.cleanup_artifacts(temp_dir.path(), &json_path);
+        config.cleanup_artifacts(&dir);
 
         // Restore perms before asserting so the test environment can clean up.
         std::fs::set_permissions(&parent, original).expect("restore");
 
-        let sidecar = crate::sql::sidecar_path(temp_dir.path(), config.name);
+        let sidecar = dir.entry_path(&crate::sql::sidecar_name(config.name));
         assert!(
             sidecar.exists(),
             "sidecar must remain when JSON removal fails: {sidecar:?}"
@@ -659,16 +685,18 @@ mod tests {
             count_table: crate::sql::validation::TableName::from_static("data_sources"),
         };
         let temp_dir = tempfile::tempdir().expect("tempdir");
-        let json_path = temp_dir.path().join("data.json");
-        let done_path = temp_dir.path().join("data.json.done");
+        let dir = anchor(&temp_dir);
+        let json_path = dir.entry_path("data.json");
+        let done_path = dir.entry_path("data.json.done");
 
         // Prior crash residue: `.done` file exists but `.json` is gone.
-        std::fs::write(&done_path, b"crash-residue").unwrap();
+        dir.write_atomic("data.json.done", b"crash-residue")
+            .unwrap();
 
         // Re-run a successful ingest path: the staging JSON exists again.
-        std::fs::write(&json_path, b"new-load").unwrap();
-        crate::sql::write_workspace_sidecar(temp_dir.path(), config.name, temp_dir.path()).unwrap();
-        config.cleanup_artifacts(temp_dir.path(), &json_path);
+        dir.write_atomic("data.json", b"new-load").unwrap();
+        crate::sql::write_workspace_sidecar(&dir, config.name, temp_dir.path()).unwrap();
+        config.cleanup_artifacts(&dir);
 
         assert!(
             !json_path.exists(),
@@ -695,11 +723,11 @@ mod tests {
             count_table: crate::sql::validation::TableName::from_static("data_sources"),
         };
         let temp_dir = tempfile::tempdir().expect("tempdir");
-        let json_path = temp_dir.path().join("data.json");
-        // Intentionally do NOT create json_path — simulate a removal that
+        let dir = anchor(&temp_dir);
+        // Intentionally do NOT stage data.json — simulate a removal that
         // raced with cleanup. Writing the sidecar is enough.
-        crate::sql::write_workspace_sidecar(temp_dir.path(), config.name, temp_dir.path()).unwrap();
-        config.cleanup_artifacts(temp_dir.path(), &json_path);
+        crate::sql::write_workspace_sidecar(&dir, config.name, temp_dir.path()).unwrap();
+        config.cleanup_artifacts(&dir);
         // Sidecar removal should still complete.
     }
 
@@ -707,11 +735,11 @@ mod tests {
     fn data_ingestor_trait_load() {
         let ingestor = MockIngestor { name: "test" };
         let temp_dir = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&temp_dir);
         let db = DuckDb::open_in_memory().expect("db");
-        std::fs::write(temp_dir.path().join("data.json"), r#"{"test": "data"}"#).unwrap();
-        let result = ingestor
-            .load(temp_dir.path(), &db)
-            .expect("load should succeed");
+        dir.write_atomic("data.json", br#"{"test": "data"}"#)
+            .unwrap();
+        let result = ingestor.load(&dir, &db).expect("load should succeed");
         assert_eq!(result.source_name, "test");
         assert_eq!(result.record_count, 1);
     }
@@ -725,13 +753,13 @@ mod tests {
             fn name(&self) -> &'static str {
                 "failing_collect"
             }
-            fn collect(&self, _ctx: &Context, _data_dir: &Path) -> DbResult<()> {
+            fn collect(&self, _ctx: &Context, _dir: &IngestDir) -> DbResult<()> {
                 Err(DbError::Io(std::io::Error::new(
                     std::io::ErrorKind::PermissionDenied,
                     "collect failed",
                 )))
             }
-            fn load(&self, _data_dir: &Path, _db: &DuckDb) -> DbResult<LoadResult> {
+            fn load(&self, _dir: &IngestDir, _db: &DuckDb) -> DbResult<LoadResult> {
                 Ok(LoadResult::success(self.name(), 0))
             }
         }
@@ -742,7 +770,8 @@ mod tests {
             let config = std::sync::Arc::new(ops_core::config::Config::empty());
             let ctx = Context::new(config, std::path::PathBuf::from("."));
             let temp_dir = tempfile::tempdir().expect("tempdir");
-            let result = ingestor.collect(&ctx, temp_dir.path());
+            let dir = anchor(&temp_dir);
+            let result = ingestor.collect(&ctx, &dir);
             assert!(result.is_err());
             assert!(result.unwrap_err().to_string().contains("collect failed"));
         }
@@ -779,13 +808,15 @@ mod tests {
             let db = Arc::new(DuckDb::open_in_memory().expect("db"));
             crate::schema::init_schema(&db).expect("init_schema");
 
-            let dir_a = tempfile::tempdir().expect("dir a");
-            let dir_b = tempfile::tempdir().expect("dir b");
-            std::fs::write(dir_a.path().join("a.json"), "{}").expect("write a.json");
-            std::fs::write(dir_b.path().join("b.json"), "{}").expect("write b.json");
-            crate::sql::write_workspace_sidecar(dir_a.path(), "ingA", Path::new("/wA"))
+            let tmp_a = tempfile::tempdir().expect("dir a");
+            let tmp_b = tempfile::tempdir().expect("dir b");
+            let dir_a = anchor(&tmp_a);
+            let dir_b = anchor(&tmp_b);
+            dir_a.write_atomic("a.json", b"{}").expect("write a.json");
+            dir_b.write_atomic("b.json", b"{}").expect("write b.json");
+            crate::sql::write_workspace_sidecar(&dir_a, "ingA", Path::new("/wA"))
                 .expect("sidecar a");
-            crate::sql::write_workspace_sidecar(dir_b.path(), "ingB", Path::new("/wB"))
+            crate::sql::write_workspace_sidecar(&dir_b, "ingB", Path::new("/wB"))
                 .expect("sidecar b");
 
             let cfg_a = SidecarIngestorConfig {
@@ -810,16 +841,14 @@ mod tests {
                 "CREATE OR REPLACE VIEW shared_v AS SELECT * FROM shared_table",
             );
 
-            let path_a = dir_a.path().to_path_buf();
-            let path_b = dir_b.path().to_path_buf();
             let db_a = Arc::clone(&db);
             let db_b = Arc::clone(&db);
             let view_b = view.clone();
             let h1 = std::thread::spawn(move || {
-                cfg_a.load_with_sidecar(&db_a, &path_a, &create_a, &view)
+                cfg_a.load_with_sidecar(&db_a, &dir_a, &create_a, &view)
             });
             let h2 = std::thread::spawn(move || {
-                cfg_b.load_with_sidecar(&db_b, &path_b, &create_b, &view_b)
+                cfg_b.load_with_sidecar(&db_b, &dir_b, &create_b, &view_b)
             });
 
             let res_a = h1.join().expect("join a").expect("ingestor a");

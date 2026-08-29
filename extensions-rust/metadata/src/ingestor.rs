@@ -4,10 +4,15 @@ use crate::views;
 use crate::{check_metadata_output, run_cargo_metadata};
 use ops_duckdb::sql::external_err;
 use ops_duckdb::{
-    init_schema, upsert_data_source, DataIngestor, DbError, DbResult, DuckDb, LoadResult,
+    init_schema, upsert_data_source, DataIngestor, DbError, DbResult, DuckDb, IngestDir, LoadResult,
 };
 use ops_extension::Context;
 use std::path::Path;
+
+/// The single staged entry name this ingestor writes and reads. SEC-25 /
+/// TASK-2054: a bare entry name, not a path — every use resolves it against
+/// the verified [`IngestDir`] anchor.
+const METADATA_JSON: &str = "metadata.json";
 
 pub struct MetadataIngestor;
 
@@ -16,9 +21,12 @@ impl DataIngestor for MetadataIngestor {
         "metadata"
     }
 
-    fn collect(&self, ctx: &Context, data_dir: &Path) -> DbResult<()> {
-        std::fs::create_dir_all(data_dir)
-            .map_err(|e| io_at("creating metadata ingest directory", data_dir, &e))?;
+    fn collect(&self, ctx: &Context, dir: &IngestDir) -> DbResult<()> {
+        // SEC-25 / TASK-2054: no `create_dir_all` here any more — the ingest
+        // directory is created, hardened and verified once by
+        // `IngestDir::open` before `collect` runs, and re-creating it by path
+        // would be another by-name resolution of the directory this anchor
+        // exists to pin.
         let working_dir = ctx.working_directory();
         let output = run_cargo_metadata(working_dir).map_err(|e| match e {
             ops_core::subprocess::RunError::Io(io) => io_at(
@@ -33,22 +41,34 @@ impl DataIngestor for MetadataIngestor {
             other => external_err(anyhow::Error::new(other).context("cargo metadata")),
         })?;
         check_metadata_output(&output).map_err(external_err)?;
-        let path = data_dir.join("metadata.json");
-        // SEC-25 / TASK-0933: persist `cargo metadata` stdout via
-        // `ops_core::config::atomic_write` (sibling temp + fsync + rename),
-        // matching the TASK-0911 fix for `SidecarIngestorConfig::collect_sidecar`.
-        // A crash mid-write previously left a torn or zero-byte
-        // `metadata.json` that the subsequent `load` step would feed to
-        // DuckDB's `read_json_auto`, corrupting the database with truncated
-        // input. With `atomic_write` the destination either holds the previous
-        // payload or the full new payload — never a partial write.
-        ops_core::config::atomic_write(&path, &output.stdout)
-            .map_err(|e| io_at("writing staged cargo metadata JSON", &path, &e))?;
-        Ok(())
+        // SEC-25 / TASK-0933: persist `cargo metadata` stdout atomically
+        // (sibling temp + fsync + rename), matching the TASK-0911 fix for
+        // `SidecarIngestorConfig::collect_sidecar`. A crash mid-write
+        // previously left a torn or zero-byte `metadata.json` that the
+        // subsequent `load` step would feed to DuckDB's `read_json_auto`,
+        // corrupting the database with truncated input.
+        //
+        // SEC-25 / TASK-2054: and anchored — temp create and publish rename
+        // both resolve against the verified directory descriptor.
+        dir.write_atomic(METADATA_JSON, &output.stdout)
+            .map_err(|e| {
+                // ERR-13 / TASK-1893: keep naming the path the write acted on;
+                // `write_atomic` reports the syscall error, not the destination.
+                match e {
+                    DbError::Io(io) => io_at(
+                        "writing staged cargo metadata JSON",
+                        &dir.entry_path(METADATA_JSON),
+                        &io,
+                    ),
+                    other => other,
+                }
+            })
     }
 
-    fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<LoadResult> {
-        let path = data_dir.join("metadata.json");
+    fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<LoadResult> {
+        // `read_json_auto` is path-only, so the *read* still names the file;
+        // every mutation below goes through the anchor.
+        let path = dir.entry_path(METADATA_JSON);
         // SEC-32 / TASK-2033: arm the cleanup *before* the first fallible
         // step, so every exit from `load` unlinks the staged file. The
         // previous single call site sat immediately before `Ok(...)`, so
@@ -57,7 +77,7 @@ impl DataIngestor for MetadataIngestor {
         // workspace-root extract and the checksum/upsert all returned via `?`
         // and left a full `cargo metadata` dump — every workspace member,
         // every dependency and absolute local paths — on disk indefinitely.
-        let _staged = StagedFile::new(&path);
+        let _staged = StagedFile::new(dir);
         init_schema(db)?;
         // CONC-2 / TASK-1907: one guard across table creation *and* the reads
         // of that table. The previous shape scoped `build_views` in its own
@@ -82,7 +102,9 @@ impl DataIngestor for MetadataIngestor {
         let workspace_root = extract_workspace_root(&conn)?;
         drop(conn);
 
-        let checksum = ops_duckdb::sql::checksum_file(&path)?;
+        // SEC-25 / TASK-2054: checksum the file opened through the anchor, so
+        // the provenance row describes the bytes this pipeline staged.
+        let checksum = dir.checksum(METADATA_JSON)?;
         upsert_data_source(
             db,
             &ops_duckdb::DataSourceMetadata::new(
@@ -212,18 +234,18 @@ fn extract_workspace_root(conn: &duckdb::Connection) -> DbResult<String> {
 /// rewrites from scratch on the next run, so there is no failure mode in
 /// which keeping it helps.
 struct StagedFile<'a> {
-    path: &'a Path,
+    dir: &'a IngestDir,
 }
 
 impl<'a> StagedFile<'a> {
-    const fn new(path: &'a Path) -> Self {
-        Self { path }
+    const fn new(dir: &'a IngestDir) -> Self {
+        Self { dir }
     }
 }
 
 impl Drop for StagedFile<'_> {
     fn drop(&mut self) {
-        cleanup_staged_file(self.path);
+        cleanup_staged_file(self.dir);
     }
 }
 
@@ -232,17 +254,18 @@ impl Drop for StagedFile<'_> {
 /// `DuckDB` row is already committed and a subsequent re-ingest would
 /// otherwise loop, and on a failure path the caller's own error is the one
 /// worth surfacing.
-fn cleanup_staged_file(path: &Path) {
+fn cleanup_staged_file(dir: &IngestDir) {
     // SEC-25: no `exists()` probe first — that is check-then-act, and
     // `remove_file` already reports `NotFound`. An absent file is the normal
     // outcome when `load` fails before `collect` ever staged one, so it is
     // not worth a warning.
-    match std::fs::remove_file(path) {
+    // SEC-25 / TASK-2054: `unlinkat` on the verified descriptor.
+    match dir.remove_file(METADATA_JSON) {
         Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(DbError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => {
             tracing::warn!(
-                path = %path.display(),
+                path = %dir.entry_path(METADATA_JSON).display(),
                 error = %e,
                 "failed to remove staged metadata file after load; leaving in place"
             );
@@ -253,7 +276,7 @@ fn cleanup_staged_file(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{ingest_dep, ingest_metadata, write_metadata_json};
+    use crate::test_support::{ingest_anchor, ingest_dep, ingest_metadata, write_metadata_json};
 
     #[test]
     fn metadata_ingestor_name() {
@@ -279,8 +302,9 @@ mod tests {
         let missing = dir.path().join("does-not-exist");
         let ctx = ops_extension::Context::test_context(missing);
         let data_dir = tempfile::tempdir().unwrap();
+        let dir = ingest_anchor(&data_dir);
         let err = ingestor
-            .collect(&ctx, data_dir.path())
+            .collect(&ctx, &dir)
             .expect_err("collect must fail on a missing working directory");
         match &err {
             DbError::External(inner) => {
@@ -299,30 +323,34 @@ mod tests {
     }
 
     /// ERR-13 / TASK-1893: an IO failure inside `collect` must name the path
-    /// it acted on, so the three filesystem edges (ingest dir, working
-    /// directory, staged JSON file) are distinguishable in a CI log without
-    /// reading the source. Drive the `create_dir_all` edge by pointing the
-    /// data dir at a child of a regular *file*, which no filesystem will let
-    /// us create a directory under.
+    /// it acted on, so a CI log distinguishes the filesystem edges without
+    /// reading the source.
+    ///
+    /// SEC-25 / TASK-2054 rewrote which edges exist. `collect` no longer calls
+    /// `create_dir_all` — the ingest directory is created, hardened and
+    /// verified once by `IngestDir::open` before any ingestor runs — so the
+    /// "creating metadata ingest directory" edge this test used to drive is
+    /// gone with it. The staged-JSON edge is the one that remains inside
+    /// `collect`, and it is driven here by parking a *directory* on the
+    /// staged file's own name so the publish rename cannot succeed.
     #[test]
     fn metadata_collect_io_error_names_the_offending_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let blocker = dir.path().join("not-a-directory");
-        std::fs::write(&blocker, b"x").expect("seed blocking file");
-        let data_dir = blocker.join("ingest");
+        let data_dir = tempfile::tempdir().unwrap();
+        let dir = ingest_anchor(&data_dir);
+        std::fs::create_dir(dir.entry_path(METADATA_JSON)).expect("park a dir on the JSON name");
 
         let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let ctx = ops_extension::Context::test_context(manifest_dir);
         let err = MetadataIngestor
-            .collect(&ctx, &data_dir)
-            .expect_err("create_dir_all under a regular file must fail");
+            .collect(&ctx, &dir)
+            .expect_err("publishing over a directory must fail");
         let rendered = format!("{err:#}");
         assert!(
-            rendered.contains(&data_dir.display().to_string()),
+            rendered.contains(&dir.entry_path(METADATA_JSON).display().to_string()),
             "IO error must name the path it operated on, got: {rendered}"
         );
         assert!(
-            rendered.contains("creating metadata ingest directory"),
+            rendered.contains("writing staged cargo metadata JSON"),
             "IO error must name the operation that failed, got: {rendered}"
         );
     }
@@ -338,13 +366,14 @@ mod tests {
         let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let ctx = ops_extension::Context::test_context(manifest_dir);
         let data_dir = tempfile::tempdir().expect("tempdir");
+        let dir = ingest_anchor(&data_dir);
         let ingestor = MetadataIngestor;
         ingestor
-            .collect(&ctx, data_dir.path())
+            .collect(&ctx, &dir)
             .expect("collect succeeds against this crate's manifest");
-        let json_path = data_dir.path().join("metadata.json");
+        let json_path = dir.entry_path(METADATA_JSON);
         assert!(json_path.exists(), "metadata.json was written");
-        let leftovers: Vec<_> = std::fs::read_dir(data_dir.path())
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
             .expect("read_dir")
             .filter_map(Result::ok)
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
@@ -358,13 +387,14 @@ mod tests {
     #[test]
     fn metadata_load_with_sample_data() {
         let data_dir = tempfile::tempdir().unwrap();
+        let dir = ingest_anchor(&data_dir);
 
         let metadata_json = ingest_metadata().dep(ingest_dep("serde", "^1.0")).value();
-        let json_path = write_metadata_json(data_dir.path(), &metadata_json);
+        let json_path = write_metadata_json(&dir, &metadata_json);
 
         let db = DuckDb::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
-        let result = ingestor.load(data_dir.path(), &db);
+        let result = ingestor.load(&dir, &db);
         assert!(result.is_ok());
         let load_result = result.unwrap();
         assert_eq!(load_result.source_name, "metadata");
@@ -392,16 +422,17 @@ mod tests {
     #[test]
     fn crate_dependencies_view_includes_path_deps() {
         let data_dir = tempfile::tempdir().unwrap();
+        let dir = ingest_anchor(&data_dir);
         let metadata_json = ingest_metadata()
             .source(serde_json::json!(""))
             .dep(ingest_dep("serde", "^1.0"))
             .dep(ingest_dep("ws-sibling", "*").path_source())
             .value();
-        write_metadata_json(data_dir.path(), &metadata_json);
+        write_metadata_json(&dir, &metadata_json);
 
         let db = DuckDb::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
-        let _ = ingestor.load(data_dir.path(), &db).unwrap();
+        let _ = ingestor.load(&dir, &db).unwrap();
 
         let conn = db.lock().unwrap();
         let total: i64 = conn
@@ -434,12 +465,13 @@ mod tests {
         use ops_about::test_support::TracingBuf;
 
         let data_dir = tempfile::tempdir().unwrap();
+        let dir = ingest_anchor(&data_dir);
         // Two-element JSON array → DuckDB `read_json_auto` emits two rows.
         let metadata_json = serde_json::Value::Array(vec![
             ingest_metadata().root("/test/a").value(),
             ingest_metadata().root("/test/b").value(),
         ]);
-        write_metadata_json(data_dir.path(), &metadata_json);
+        write_metadata_json(&dir, &metadata_json);
 
         let buf = TracingBuf::default();
         let subscriber = tracing_subscriber::fmt()
@@ -450,8 +482,7 @@ mod tests {
 
         let db = DuckDb::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
-        let result =
-            tracing::subscriber::with_default(subscriber, || ingestor.load(data_dir.path(), &db));
+        let result = tracing::subscriber::with_default(subscriber, || ingestor.load(&dir, &db));
         let err = result.expect_err("a two-row metadata_raw must not load successfully");
         let rendered = format!("{err:#}");
         assert!(
@@ -479,16 +510,17 @@ mod tests {
     #[test]
     fn metadata_load_rejection_leaves_no_sticky_metadata_raw() {
         let data_dir = tempfile::tempdir().unwrap();
+        let dir = ingest_anchor(&data_dir);
         let metadata_json = serde_json::Value::Array(vec![
             ingest_metadata().root("/test/a").value(),
             ingest_metadata().root("/test/b").value(),
         ]);
-        write_metadata_json(data_dir.path(), &metadata_json);
+        write_metadata_json(&dir, &metadata_json);
 
         let db = DuckDb::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
         ingestor
-            .load(data_dir.path(), &db)
+            .load(&dir, &db)
             .expect_err("two-row load must fail");
 
         // The reader is the other half of the invariant: it must fail too,
@@ -522,15 +554,16 @@ mod tests {
     #[test]
     fn metadata_load_rejection_removes_the_staged_json() {
         let data_dir = tempfile::tempdir().unwrap();
+        let dir = ingest_anchor(&data_dir);
         let metadata_json = serde_json::Value::Array(vec![
             ingest_metadata().root("/test/a").value(),
             ingest_metadata().root("/test/b").value(),
         ]);
-        let json_path = write_metadata_json(data_dir.path(), &metadata_json);
+        let json_path = write_metadata_json(&dir, &metadata_json);
 
         let db = DuckDb::open_in_memory().expect("open in-memory db");
         MetadataIngestor
-            .load(data_dir.path(), &db)
+            .load(&dir, &db)
             .expect_err("two-row load must fail");
 
         assert!(
@@ -547,12 +580,14 @@ mod tests {
     #[test]
     fn metadata_load_removes_the_staged_json_when_the_table_build_fails() {
         let data_dir = tempfile::tempdir().unwrap();
-        let json_path = data_dir.path().join("metadata.json");
-        std::fs::write(&json_path, b"this is not JSON at all").unwrap();
+        let dir = ingest_anchor(&data_dir);
+        let json_path = dir.entry_path(METADATA_JSON);
+        dir.write_atomic(METADATA_JSON, b"this is not JSON at all")
+            .unwrap();
 
         let db = DuckDb::open_in_memory().expect("open in-memory db");
         MetadataIngestor
-            .load(data_dir.path(), &db)
+            .load(&dir, &db)
             .expect_err("unparseable staged JSON must fail the load");
 
         assert!(
@@ -572,15 +607,16 @@ mod tests {
     #[test]
     fn crate_dependencies_view_preserves_target_conditional_duplicates() {
         let data_dir = tempfile::tempdir().unwrap();
+        let dir = ingest_anchor(&data_dir);
         let metadata_json = ingest_metadata()
             .dep(ingest_dep("libc", "^0.2").target("cfg(unix)"))
             .dep(ingest_dep("libc", "^0.2").target("cfg(windows)"))
             .value();
-        write_metadata_json(data_dir.path(), &metadata_json);
+        write_metadata_json(&dir, &metadata_json);
 
         let db = DuckDb::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
-        let _ = ingestor.load(data_dir.path(), &db).unwrap();
+        let _ = ingestor.load(&dir, &db).unwrap();
 
         let conn = db.lock().unwrap();
         let total: i64 = conn

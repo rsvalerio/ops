@@ -1,13 +1,18 @@
 //! Workspace-root sidecar I/O for ingestors that don't embed the path in JSON.
 
+use super::dir::IngestDir;
 use crate::{DbError, DbResult};
-use std::path::{Path, PathBuf};
 
 /// Single source of truth for the workspace sidecar filename convention
 /// (DUP-3). All write/read/remove helpers route through here.
+///
+/// SEC-25 / TASK-2054: returns the bare **entry name**, not a joined path.
+/// Every caller now feeds it to an [`IngestDir`] method that resolves it
+/// against the verified directory descriptor, so there is no path to join and
+/// nothing to re-resolve by name.
 #[must_use]
-pub fn sidecar_path(data_dir: &Path, name: &str) -> PathBuf {
-    data_dir.join(format!("{name}_workspace.txt"))
+pub fn sidecar_name(name: &str) -> String {
+    format!("{name}_workspace.txt")
 }
 
 /// Write a workspace root sidecar file alongside collected data.
@@ -24,19 +29,19 @@ pub fn sidecar_path(data_dir: &Path, name: &str) -> PathBuf {
 ///
 /// [`DbError::Io`] if the sidecar cannot be written atomically.
 pub fn write_workspace_sidecar(
-    data_dir: &Path,
+    dir: &IngestDir,
     name: &str,
-    working_directory: &Path,
+    working_directory: &std::path::Path,
 ) -> DbResult<()> {
-    let workspace_path = sidecar_path(data_dir, name);
     // SEC-25 (TASK-0663): a bare `fs::write` could leave a zero-byte or torn
-    // sidecar after a crash; route through `atomic_write` so the destination
-    // only appears once the temp file has been fsync'd and renamed.
-    ops_core::config::atomic_write(
-        &workspace_path,
+    // sidecar after a crash; the write is atomic (temp + fsync + rename).
+    // SEC-25 / TASK-2054: and anchored — the temp is created and renamed
+    // through the verified directory descriptor, so swapping the ingest dir's
+    // *name* after verification cannot redirect the staged sidecar.
+    dir.write_atomic(
+        &sidecar_name(name),
         working_directory.as_os_str().as_encoded_bytes(),
     )
-    .map_err(DbError::Io)
 }
 
 /// SEC-33 / TASK-0951: hard cap on workspace sidecar read size.
@@ -52,6 +57,9 @@ pub const MAX_SIDECAR_BYTES: u64 = 4 * 1024 * 1024;
 /// SEC-21 / TASK-1217: rejects ASCII control bytes at the read boundary.
 /// UNSAFE-1 (TASK-1104): no `from_encoded_bytes_unchecked` — uses
 /// `OsString::from_vec` on Unix and validated UTF-8 elsewhere.
+/// SEC-25 / TASK-2054: opened through the verified directory descriptor
+/// (`openat`, `O_NOFOLLOW`), so neither the directory name nor a symlink at the
+/// sidecar's own name can redirect the read.
 ///
 /// # Errors
 ///
@@ -60,10 +68,9 @@ pub const MAX_SIDECAR_BYTES: u64 = 4 * 1024 * 1024;
 /// [`std::io::ErrorKind::InvalidData`] — there is no dedicated oversize
 /// variant (READ-4 / TASK-1875: this section used to name a
 /// `DbError::SidecarTooLarge` that does not exist).
-pub fn read_workspace_sidecar(data_dir: &Path, name: &str) -> DbResult<std::ffi::OsString> {
+pub fn read_workspace_sidecar(dir: &IngestDir, name: &str) -> DbResult<std::ffi::OsString> {
     use std::io::Read;
-    let workspace_path = sidecar_path(data_dir, name);
-    let mut file = std::fs::File::open(&workspace_path).map_err(DbError::Io)?;
+    let mut file = dir.open_read(&sidecar_name(name))?;
     let limit = MAX_SIDECAR_BYTES.saturating_add(1);
     let mut bytes = Vec::new();
     (&mut file)
@@ -108,15 +115,18 @@ pub fn read_workspace_sidecar(data_dir: &Path, name: &str) -> DbResult<std::ffi:
 /// Remove a workspace root sidecar file. Best-effort: a missing file is
 /// fine, but other errors (EACCES, IO) are logged so accumulated stale
 /// sidecars do not silently mask broken cleanup (ERR-1).
-pub fn remove_workspace_sidecar(data_dir: &Path, name: &str) {
-    let workspace_path = sidecar_path(data_dir, name);
-    match std::fs::remove_file(&workspace_path) {
+///
+/// SEC-25 / TASK-2054: unlinked through the verified directory descriptor
+/// (`unlinkat`), for the same reason the write is anchored.
+pub fn remove_workspace_sidecar(dir: &IngestDir, name: &str) {
+    let entry = sidecar_name(name);
+    match dir.remove_file(&entry) {
         Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(DbError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => {
             tracing::warn!(
                 "remove_workspace_sidecar({}): {e}",
-                workspace_path.display()
+                dir.entry_path(&entry).display()
             );
         }
     }
@@ -127,19 +137,26 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    /// Every test stages into a fresh verified anchor, exactly as
+    /// `provide_via_ingestor` does.
+    fn anchor(tmp: &tempfile::TempDir) -> IngestDir {
+        IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open ingest dir")
+    }
+
     #[test]
     fn workspace_sidecar_round_trip() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&tmp);
         let working = PathBuf::from("/some/workspace/root");
-        write_workspace_sidecar(dir.path(), "tokei", &working).expect("write sidecar");
+        write_workspace_sidecar(&dir, "tokei", &working).expect("write sidecar");
 
-        let expected = dir.path().join("tokei_workspace.txt");
+        let expected = dir.entry_path("tokei_workspace.txt");
         assert!(expected.exists(), "sidecar file at expected path");
 
-        let read = read_workspace_sidecar(dir.path(), "tokei").expect("read sidecar");
+        let read = read_workspace_sidecar(&dir, "tokei").expect("read sidecar");
         assert_eq!(read, "/some/workspace/root");
 
-        remove_workspace_sidecar(dir.path(), "tokei");
+        remove_workspace_sidecar(&dir, "tokei");
         assert!(!expected.exists(), "sidecar removed");
     }
 
@@ -148,12 +165,13 @@ mod tests {
     fn workspace_sidecar_round_trips_non_utf8_path() {
         use std::ffi::OsStr;
         use std::os::unix::ffi::OsStrExt;
-        let dir = tempfile::tempdir().expect("tempdir");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&tmp);
         let bytes = b"/ws/\xff\xfe/proj";
         let working = PathBuf::from(OsStr::from_bytes(bytes));
-        write_workspace_sidecar(dir.path(), "tokei", &working).expect("write");
+        write_workspace_sidecar(&dir, "tokei", &working).expect("write");
 
-        let raw = std::fs::read(dir.path().join("tokei_workspace.txt")).expect("read raw");
+        let raw = std::fs::read(dir.entry_path("tokei_workspace.txt")).expect("read raw");
         assert_eq!(raw, bytes, "non-UTF-8 bytes preserved verbatim");
     }
 
@@ -163,12 +181,13 @@ mod tests {
     fn read_workspace_sidecar_round_trips_non_utf8_via_helper() {
         use std::ffi::OsStr;
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
-        let dir = tempfile::tempdir().expect("tempdir");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&tmp);
         let bytes = b"/ws/\xff\xfe/proj";
         let working = PathBuf::from(OsStr::from_bytes(bytes));
-        write_workspace_sidecar(dir.path(), "tokei", &working).expect("write");
+        write_workspace_sidecar(&dir, "tokei", &working).expect("write");
 
-        let read = read_workspace_sidecar(dir.path(), "tokei").expect("read sidecar");
+        let read = read_workspace_sidecar(&dir, "tokei").expect("read sidecar");
         assert_eq!(
             read.into_vec(),
             bytes.to_vec(),
@@ -179,11 +198,12 @@ mod tests {
     /// SEC-25 (TASK-0663): atomic write leaves no temp sibling.
     #[test]
     fn workspace_sidecar_write_is_atomic_and_leaves_no_temp() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&tmp);
         let working = PathBuf::from("/some/workspace/root");
-        write_workspace_sidecar(dir.path(), "tokei", &working).expect("write sidecar");
+        write_workspace_sidecar(&dir, "tokei", &working).expect("write sidecar");
 
-        let dest = dir.path().join("tokei_workspace.txt");
+        let dest = dir.entry_path("tokei_workspace.txt");
         let bytes = std::fs::read(&dest).expect("read dest");
         assert_eq!(bytes, b"/some/workspace/root");
 
@@ -192,22 +212,25 @@ mod tests {
             .filter_map(Result::ok)
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .find(|name| name.starts_with(".tokei_workspace.txt.tmp."));
-        assert!(leftover.is_none(), "atomic_write left a temp: {leftover:?}");
+        assert!(
+            leftover.is_none(),
+            "anchored write left a temp: {leftover:?}"
+        );
     }
 
     /// SEC-33 / TASK-0951: oversized sidecar errors out.
     #[test]
     fn read_workspace_sidecar_rejects_oversize_input() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = sidecar_path(dir.path(), "huge");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&tmp);
         // The 4 MiB cap fits every `usize` these tests run on; on a narrower
         // platform `usize::MAX` would itself be below the cap, so the
         // fallback still yields an allocatable buffer instead of an unwrap.
         let oversize = usize::try_from(MAX_SIDECAR_BYTES.saturating_add(1)).unwrap_or(usize::MAX);
-        std::fs::write(&path, vec![b'a'; oversize]).expect("plant oversize sidecar");
+        std::fs::write(dir.entry_path("huge_workspace.txt"), vec![b'a'; oversize])
+            .expect("plant oversize sidecar");
 
-        let err =
-            read_workspace_sidecar(dir.path(), "huge").expect_err("oversize sidecar must error");
+        let err = read_workspace_sidecar(&dir, "huge").expect_err("oversize sidecar must error");
         match err {
             DbError::Io(e) => assert_eq!(
                 e.kind(),
@@ -221,12 +244,16 @@ mod tests {
     /// SEC-21 / TASK-1217: tampered sidecar with control byte rejected.
     #[test]
     fn read_workspace_sidecar_rejects_embedded_newline() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = sidecar_path(dir.path(), "tampered");
-        std::fs::write(&path, b"/ws/path\nfake/path").expect("plant tampered sidecar");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&tmp);
+        std::fs::write(
+            dir.entry_path("tampered_workspace.txt"),
+            b"/ws/path\nfake/path",
+        )
+        .expect("plant tampered sidecar");
 
-        let err = read_workspace_sidecar(dir.path(), "tampered")
-            .expect_err("control-byte sidecar must error");
+        let err =
+            read_workspace_sidecar(&dir, "tampered").expect_err("control-byte sidecar must error");
         match err {
             DbError::Io(e) => assert_eq!(
                 e.kind(),
@@ -237,38 +264,62 @@ mod tests {
         }
     }
 
+    /// SEC-25 / TASK-2054: a symlink planted at the *sidecar's own* name is
+    /// refused rather than read through — `openat` carries `O_NOFOLLOW`.
+    #[test]
+    #[cfg(unix)]
+    fn read_workspace_sidecar_refuses_symlinked_entry() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&tmp);
+        let secret = tmp.path().join("secret.txt");
+        std::fs::write(&secret, b"/attacker/root").expect("write secret");
+        std::os::unix::fs::symlink(&secret, dir.entry_path("linked_workspace.txt"))
+            .expect("plant symlink");
+
+        let err =
+            read_workspace_sidecar(&dir, "linked").expect_err("symlinked sidecar must not be read");
+        assert!(
+            matches!(err, DbError::Io(_)),
+            "expected an IO error, got {err:?}"
+        );
+    }
+
     #[test]
     fn workspace_sidecar_remove_is_best_effort() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        remove_workspace_sidecar(dir.path(), "missing_name");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&tmp);
+        remove_workspace_sidecar(&dir, "missing_name");
     }
 
     #[test]
     fn workspace_sidecar_remove_logs_but_does_not_panic_on_failure() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir(dir.path().join("blocker_workspace.txt")).expect("create blocker dir");
-        remove_workspace_sidecar(dir.path(), "blocker");
-        assert!(dir.path().join("blocker_workspace.txt").exists());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&tmp);
+        std::fs::create_dir(dir.entry_path("blocker_workspace.txt")).expect("create blocker dir");
+        remove_workspace_sidecar(&dir, "blocker");
+        assert!(dir.entry_path("blocker_workspace.txt").exists());
     }
 
     #[test]
     fn workspace_sidecar_filename_uses_name_prefix() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&tmp);
         let working = PathBuf::from("/ws");
-        write_workspace_sidecar(dir.path(), "coverage", &working).expect("write");
-        write_workspace_sidecar(dir.path(), "tokei", &working).expect("write");
-        assert!(dir.path().join("coverage_workspace.txt").exists());
-        assert!(dir.path().join("tokei_workspace.txt").exists());
+        write_workspace_sidecar(&dir, "coverage", &working).expect("write");
+        write_workspace_sidecar(&dir, "tokei", &working).expect("write");
+        assert!(dir.entry_path("coverage_workspace.txt").exists());
+        assert!(dir.entry_path("tokei_workspace.txt").exists());
     }
 
     #[cfg(not(unix))]
     #[test]
     fn read_workspace_sidecar_rejects_invalid_utf8_on_non_unix() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = sidecar_path(dir.path(), "bad");
-        std::fs::write(&path, [0xFFu8, 0xFE, 0xFD]).expect("plant bad sidecar");
-        let err = read_workspace_sidecar(dir.path(), "bad")
-            .expect_err("invalid encoding must error, not UB");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = anchor(&tmp);
+        std::fs::write(dir.entry_path("bad_workspace.txt"), [0xFFu8, 0xFE, 0xFD])
+            .expect("plant bad sidecar");
+        let err =
+            read_workspace_sidecar(&dir, "bad").expect_err("invalid encoding must error, not UB");
         match err {
             DbError::Io(e) => assert_eq!(
                 e.kind(),

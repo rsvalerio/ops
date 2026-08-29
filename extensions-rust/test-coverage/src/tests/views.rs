@@ -96,7 +96,7 @@ const PERCENT_COLUMNS: &[&str] = &[
 
 #[test]
 fn coverage_summary_view_computes_percentages() {
-    let (_data_dir, db) = setup_loaded_db();
+    let (_data_dir, _dir, db) = setup_loaded_db();
     let conn = db.lock().expect("lock");
     let lines_percent: f64 = conn
         .query_row("SELECT lines_percent FROM coverage_summary", [], |row| {
@@ -122,7 +122,7 @@ fn coverage_summary_view_computes_percentages() {
 /// (NULL-vs-0 in `COALESCE`, and NULL-vs-0 in the percentage `CASE`).
 #[test]
 fn coverage_summary_view_empty_table_yields_zero_counts() {
-    let (_data_dir, db) = setup_loaded_db();
+    let (_data_dir, _dir, db) = setup_loaded_db();
     {
         let conn = db.lock().expect("lock");
         conn.execute_batch("DELETE FROM coverage_files")
@@ -159,6 +159,9 @@ fn coverage_summary_view_empty_table_yields_zero_counts() {
 #[test]
 fn coverage_summary_view_handles_zero_counts() {
     let data_dir = tempfile::tempdir().expect("tempdir");
+    // SEC-25 / TASK-2054: stage through the same verified anchor
+    // `provide_via_ingestor` builds.
+    let dir = ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
 
     // Write fixture with all-zero counts
@@ -170,17 +173,12 @@ fn coverage_summary_view_handles_zero_counts() {
         "branches_count": 0, "branches_covered": 0, "branches_notcovered": 0, "branches_percent": 0.0
     }]);
     let json_bytes = serde_json::to_vec_pretty(&flat).expect("serialize");
-    std::fs::write(data_dir.path().join("coverage_files.json"), &json_bytes).expect("write");
-    std::fs::write(
-        data_dir.path().join("coverage_workspace.txt"),
-        "/test/workspace",
-    )
-    .expect("write workspace");
+    std::fs::write(dir.entry_path("coverage_files.json"), &json_bytes).expect("write");
+    std::fs::write(dir.entry_path("coverage_workspace.txt"), "/test/workspace")
+        .expect("write workspace");
 
     let ingestor = CoverageIngestor;
-    let _ = ingestor
-        .load(data_dir.path(), &db)
-        .expect("load should succeed");
+    let _ = ingestor.load(&dir, &db).expect("load should succeed");
 
     let conn = db.lock().expect("lock");
     let lines_percent: f64 = conn
@@ -197,7 +195,7 @@ fn coverage_summary_view_handles_zero_counts() {
 
 #[test]
 fn coverage_summary_view_all_metric_percentages() {
-    let (_data_dir, db) = setup_loaded_db();
+    let (_data_dir, _dir, db) = setup_loaded_db();
     let conn = db.lock().expect("lock");
 
     // functions: 27/30 = 90%

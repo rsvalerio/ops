@@ -746,19 +746,23 @@ fn rust_loc_provider_returns_json_without_a_database() {
 
 #[test]
 fn rust_loc_collect_and_load_cycle() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    write_fixture_tree(dir.path());
+    let workspace = tempfile::tempdir().expect("tempdir");
+    write_fixture_tree(workspace.path());
     let data_dir = tempfile::tempdir().expect("data tempdir");
+    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // test drives the same handle `provide_via_ingestor` builds.
+    let dir =
+        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
 
-    let ctx = Context::test_context(dir.path().to_path_buf());
+    let ctx = Context::test_context(workspace.path().to_path_buf());
     RustLocIngestor
-        .collect(&ctx, data_dir.path())
+        .collect(&ctx, &dir)
         .expect("collect should succeed");
-    assert!(data_dir.path().join("rust_loc_files.json").exists());
+    assert!(dir.entry_path("rust_loc_files.json").exists());
 
     let load_result = RustLocIngestor
-        .load(data_dir.path(), &db)
+        .load(&dir, &db)
         .expect("load should succeed");
     assert!(load_result.record_count > 0);
 
@@ -792,17 +796,21 @@ fn rust_loc_collect_and_load_cycle() {
 /// runtime, on a real workspace, as an empty about page.
 #[test]
 fn rust_loc_summary_view_satisfies_the_shared_summary_query() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    write_fixture_tree(dir.path());
+    let workspace = tempfile::tempdir().expect("tempdir");
+    write_fixture_tree(workspace.path());
     let data_dir = tempfile::tempdir().expect("data tempdir");
+    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // test drives the same handle `provide_via_ingestor` builds.
+    let dir =
+        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
 
-    let ctx = Context::test_context(dir.path().to_path_buf());
+    let ctx = Context::test_context(workspace.path().to_path_buf());
     RustLocIngestor
-        .collect(&ctx, data_dir.path())
+        .collect(&ctx, &dir)
         .expect("collect should succeed");
     let loaded = RustLocIngestor
-        .load(data_dir.path(), &db)
+        .load(&dir, &db)
         .expect("load should succeed");
     assert!(loaded.record_count > 0, "fixture rows must reach DuckDB");
 
@@ -836,10 +844,14 @@ fn rust_loc_summary_view_satisfies_the_shared_summary_query() {
 #[test]
 fn rust_loc_ingestor_load_without_collect_fails() {
     let data_dir = tempfile::tempdir().expect("tempdir");
+    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // test drives the same handle `provide_via_ingestor` builds.
+    let dir =
+        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init schema");
     assert!(
-        RustLocIngestor.load(data_dir.path(), &db).is_err(),
+        RustLocIngestor.load(&dir, &db).is_err(),
         "load without prior collect should fail"
     );
 }

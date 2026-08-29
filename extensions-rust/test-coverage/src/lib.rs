@@ -39,9 +39,8 @@ mod views;
 // callers either; demoted to pub(crate) in parse.rs.
 
 use crate::ingestor::CoverageIngestor;
-use ops_duckdb::{init_schema, DataIngestor, DuckDb, LoadResult};
+use ops_duckdb::{init_schema, DataIngestor, DuckDb, IngestDir, LoadResult};
 use ops_extension::ExtensionType;
-use std::path::Path;
 
 pub const NAME: &str = "coverage";
 pub const DESCRIPTION: &str = "LLVM code coverage provider (per-file line, function, region, \
@@ -84,17 +83,21 @@ ops_extension::impl_extension! {
 ///
 /// # Errors
 ///
-/// If the schema cannot be initialised, or the coverage sidecar in
-/// `data_dir` cannot be read or loaded into the database.
+/// If the schema cannot be initialised, or the coverage sidecar staged in
+/// `dir` cannot be read or loaded into the database.
+///
+/// SEC-25 / TASK-2054: takes the verified [`IngestDir`] anchor the ingestor
+/// trait now takes, so this public entry point cannot re-introduce a by-name
+/// resolution of the staging directory that `provide_via_ingestor` verified.
 #[must_use = "load report carries the record_count health signal (TASK-0808)"]
-pub fn load_coverage(data_dir: &Path, db: &DuckDb) -> Result<LoadResult, anyhow::Error> {
+pub fn load_coverage(dir: &IngestDir, db: &DuckDb) -> Result<LoadResult, anyhow::Error> {
     init_schema(db)?;
     let ingestor = CoverageIngestor;
-    let load_result = ingestor.load(data_dir, db)?;
+    let load_result = ingestor.load(dir, db)?;
     if load_result.record_count == 0 {
         tracing::warn!(
             source = load_result.source_name,
-            data_dir = %data_dir.display(),
+            data_dir = %dir.path().display(),
             "coverage load completed with zero records"
         );
     }

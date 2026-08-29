@@ -17,8 +17,9 @@
 //! inference — the boilerplate is load-bearing, which is why it lives here
 //! exactly once instead of at four call sites.
 
+use ops_duckdb::IngestDir;
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 // ── Ingest fixtures ─────────────────────────────────────────────────────────
 
@@ -147,9 +148,20 @@ impl IngestMetadata {
     }
 }
 
-/// Write a fixture to `<dir>/metadata.json`, where the loader looks for it.
-pub fn write_metadata_json(dir: &Path, value: &Value) -> PathBuf {
-    let json_path = dir.join("metadata.json");
-    std::fs::write(&json_path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
-    json_path
+/// Write a fixture to `metadata.json` inside the ingest directory, where the
+/// loader looks for it.
+///
+/// SEC-25 / TASK-2054: staged through the verified [`IngestDir`] anchor, the
+/// same way `MetadataIngestor::collect` stages it in production, and returns
+/// the entry path so callers can assert on cleanup.
+pub fn write_metadata_json(dir: &IngestDir, value: &Value) -> PathBuf {
+    dir.write_atomic("metadata.json", &serde_json::to_vec_pretty(value).unwrap())
+        .unwrap();
+    dir.entry_path("metadata.json")
+}
+
+/// Open a verified ingest anchor inside `tmp`, mirroring what
+/// `provide_via_ingestor` builds before it calls an ingestor.
+pub fn ingest_anchor(tmp: &tempfile::TempDir) -> IngestDir {
+    IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open ingest dir")
 }

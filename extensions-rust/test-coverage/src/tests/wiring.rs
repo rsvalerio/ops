@@ -28,13 +28,13 @@ fn load_coverage_missing_json_file_errors() {
     // JSON read on the failing path. We only assert the load fails; the exact
     // error message is implementation detail.
     let data_dir = tempfile::tempdir().expect("tempdir");
-    std::fs::write(
-        data_dir.path().join("coverage_workspace.txt"),
-        "/test/workspace",
-    )
-    .expect("write workspace sidecar");
+    // SEC-25 / TASK-2054: stage through the same verified anchor
+    // `provide_via_ingestor` builds.
+    let dir = ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
+    dir.write_atomic("coverage_workspace.txt", b"/test/workspace")
+        .expect("write workspace sidecar");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
-    let err = load_coverage(data_dir.path(), &db).unwrap_err();
+    let err = load_coverage(&dir, &db).unwrap_err();
     let msg = err.to_string();
     // The failure now comes from `read_json_auto` in the coverage-JSON load
     // ("No files found that match the pattern"), not from the sidecar's IO
@@ -51,9 +51,12 @@ fn load_coverage_missing_json_file_errors() {
 #[test]
 fn load_coverage_returns_record_count() {
     let data_dir = tempfile::tempdir().expect("tempdir");
+    // SEC-25 / TASK-2054: stage through the same verified anchor
+    // `provide_via_ingestor` builds.
+    let dir = ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
-    write_coverage_fixture(data_dir.path());
+    write_coverage_fixture(&dir);
 
-    let result = load_coverage(data_dir.path(), &db).expect("load_coverage");
+    let result = load_coverage(&dir, &db).expect("load_coverage");
     assert_eq!(result.record_count, 2);
 }

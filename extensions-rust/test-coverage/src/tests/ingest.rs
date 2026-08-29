@@ -6,7 +6,7 @@ use ops_duckdb::{init_schema, DataIngestor, DuckDb};
 
 #[test]
 fn coverage_load_creates_table_and_view() {
-    let (data_dir, db) = setup_loaded_db();
+    let (_data_dir, dir, db) = setup_loaded_db();
 
     let conn = db.lock().expect("lock");
 
@@ -36,7 +36,7 @@ fn coverage_load_creates_table_and_view() {
     assert_eq!(summary_lines, 300, "summary should aggregate lines");
 
     // Verify staged files cleaned up
-    assert!(!data_dir.path().join("coverage_files.json").exists());
+    assert!(!dir.entry_path("coverage_files.json").exists());
 }
 
 #[test]
@@ -49,13 +49,13 @@ fn coverage_files_has_data_returns_false_for_empty_db() {
 
 #[test]
 fn coverage_load_is_idempotent() {
-    let (data_dir, db) = setup_loaded_db();
+    let (_data_dir, dir, db) = setup_loaded_db();
     // Second load against the same fixture: `setup_loaded_db` already
     // performed the first ingest; restage the sidecar (the loader
     // removes the staged JSON after a successful load) and ingest again.
-    write_coverage_fixture(data_dir.path());
+    write_coverage_fixture(&dir);
     let ingestor = CoverageIngestor;
-    let _ = ingestor.load(data_dir.path(), &db).expect("second load");
+    let _ = ingestor.load(&dir, &db).expect("second load");
 
     let conn = db.lock().expect("lock");
     let count: i64 = conn
