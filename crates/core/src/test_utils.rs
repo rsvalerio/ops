@@ -501,10 +501,20 @@ pub fn make_test_output(status_code: i32, stdout: &[u8], stderr: &[u8]) -> std::
 ///     // test code
 /// }
 /// ```
+///
+/// # DRY-1 / TASK-2059
+///
+/// This is the workspace's only env-var guard. `ops_cli::test_utils`,
+/// `ops_hook_common::test_helpers` and `ops_deps::test_support` each used to
+/// carry a copy — two of them spelled `EnvVarGuard`, with different key and
+/// value types — and all three now re-export this one. Keys and values are
+/// `OsStr`-valued so the `OsString`-keyed call sites keep working, and both
+/// spellings of the removal constructor ([`EnvGuard::remove`] and its alias
+/// [`EnvGuard::unset`]) survive so no call site lost a capability.
 #[allow(dead_code)]
 pub struct EnvGuard {
-    key: String,
-    original: Option<String>,
+    key: std::ffi::OsString,
+    original: Option<std::ffi::OsString>,
 }
 
 // TRAIT-1: manual Debug impl redacts the captured original value. Env
@@ -529,9 +539,9 @@ impl EnvGuard {
     /// Uses `unsafe` for `set_var` which is unsafe in Rust 2024 edition.
     /// This is test-only code guarded by `#[cfg(test)]` consumers and
     /// thread-safety is ensured via `#[serial]` test attributes.
-    pub fn set(key: impl Into<String>, value: impl AsRef<str>) -> Self {
-        let key = key.into();
-        let original = std::env::var(&key).ok();
+    pub fn set(key: impl AsRef<std::ffi::OsStr>, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        let key = key.as_ref().to_os_string();
+        let original = std::env::var_os(&key);
         // SAFETY: Test-only. Callers use #[serial] to prevent concurrent env access.
         unsafe { std::env::set_var(&key, value.as_ref()) };
         Self { key, original }
@@ -544,12 +554,32 @@ impl EnvGuard {
     /// Uses `unsafe` for `remove_var` which is unsafe in Rust 2024 edition.
     /// This is test-only code guarded by `#[cfg(test)]` consumers and
     /// thread-safety is ensured via `#[serial]` test attributes.
-    pub fn remove(key: impl Into<String>) -> Self {
-        let key = key.into();
-        let original = std::env::var(&key).ok();
+    pub fn remove(key: impl AsRef<std::ffi::OsStr>) -> Self {
+        let key = key.as_ref().to_os_string();
+        let original = std::env::var_os(&key);
         // SAFETY: Test-only. Callers use #[serial] to prevent concurrent env access.
         unsafe { std::env::remove_var(&key) };
         Self { key, original }
+    }
+
+    /// [`Self::remove`] under the name the `EnvVarGuard` copies used, so
+    /// `unset`-spelled call sites keep reading the same way after DRY-1 /
+    /// TASK-2059 collapsed the four guards into this one.
+    pub fn unset(key: impl AsRef<std::ffi::OsStr>) -> Self {
+        Self::remove(key)
+    }
+
+    /// Change the value again without losing the original snapshot, for tests
+    /// that sweep a variable through several values in one loop.
+    pub fn set_value(&self, value: impl AsRef<std::ffi::OsStr>) {
+        // SAFETY: Test-only. Callers use #[serial] to prevent concurrent env access.
+        unsafe { std::env::set_var(&self.key, value.as_ref()) };
+    }
+
+    /// Clear the value without losing the original snapshot.
+    pub fn unset_value(&self) {
+        // SAFETY: Test-only. Callers use #[serial] to prevent concurrent env access.
+        unsafe { std::env::remove_var(&self.key) };
     }
 }
 
