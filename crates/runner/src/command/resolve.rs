@@ -353,7 +353,7 @@ impl CommandRunner {
     ) -> Result<Vec<CommandId>, ExpandError> {
         if ctx.depth > ctx.max_depth {
             tracing::warn!(
-                id = %id,
+                id = ?id,
                 depth = ctx.depth,
                 max_depth = ctx.max_depth,
                 "composite expansion depth limit exceeded"
@@ -463,9 +463,9 @@ where
             for alias in spec.aliases() {
                 if let Some(existing) = map.get(alias.as_str()) {
                     tracing::warn!(
-                        alias = %alias,
-                        existing = %existing,
-                        new = %name,
+                        alias = ?alias,
+                        existing = ?existing,
+                        new = ?name.as_str(),
                         "alias collision: later store overrides earlier"
                     );
                 }
