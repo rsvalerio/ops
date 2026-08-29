@@ -3,11 +3,11 @@ id: TASK-2018
 title: >-
   SEC-38: ops_duckdb::downcast_duckdb calls as_any() on an Arc receiver, so
   get_db and try_provide_from_db never find the DuckDb handle
-status: To Do
+status: Done
 assignee:
   - TASK-2042
 created_date: '2026-08-28 19:28'
-updated_date: '2026-08-29 11:35'
+updated_date: '2026-08-29 12:42'
 labels:
   - code-review-rust
   - correctness
@@ -51,8 +51,52 @@ Consider also whether the blanket impl should be narrowed (e.g. a sealed marker 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 downcast_duckdb reborrows as &dyn DuckDbHandle (or its signature takes one) so the downcast reaches the concrete DuckDb
-- [ ] #2 A test in ops-duckdb asserts get_db returns Some for a context with an attached DuckDb handle, and try_provide_from_db takes its db_fn branch rather than the fallback
-- [ ] #3 Whether the DuckDbHandle blanket impl should be narrowed so an Arc receiver fails to compile is decided and the decision recorded in the trait rustdoc
-- [ ] #4 The DB-backed query paths that change behaviour (ops about loc/code/coverage/dependencies, the ingest orchestrator) are verified to still produce the same results now that they actually read from DuckDB
+- [x] #1 downcast_duckdb reborrows as &dyn DuckDbHandle (or its signature takes one) so the downcast reaches the concrete DuckDb
+- [x] #2 A test in ops-duckdb asserts get_db returns Some for a context with an attached DuckDb handle, and try_provide_from_db takes its db_fn branch rather than the fallback
+- [x] #3 Whether the DuckDbHandle blanket impl should be narrowed so an Arc receiver fails to compile is decided and the decision recorded in the trait rustdoc
+- [x] #4 The DB-backed query paths that change behaviour (ops about loc/code/coverage/dependencies, the ingest orchestrator) are verified to still produce the same results now that they actually read from DuckDB
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in code-review/TASK-2042 (wave TASK-2042).
+
+AC#1: `downcast_duckdb` now reborrows `let erased: &dyn DuckDbHandle = h.as_ref();`
+before `as_any()`.
+
+AC#2: added `tests::duckdb_handle_in_scope` in extensions/duckdb/src/lib.rs —
+`get_db_finds_the_handle_regardless_of_what_is_in_scope` and
+`try_provide_from_db_takes_the_db_branch_regardless_of_what_is_in_scope`, plus
+`an_unreborrowed_as_any_on_an_arc_receiver_erases_the_arc` which pins the hazard
+itself. The module imports `DuckDbHandle` deliberately (see below).
+
+AC#3: decided — the blanket impl stays. Recorded in the `DuckDbHandle` rustdoc
+(crates/extension/src/data.rs) with the three rejected alternatives:
+`impl DuckDbHandle for DuckDb` only (inverts the ops-extension -> ops-duckdb
+dependency the trait exists to avoid), a sealed marker supertrait (restores the
+doc-only "return self" contract TRAIT-9 / TASK-1227 replaced), and a negative
+impl for `Arc<T>` (not on stable).
+
+AC#4 — substituted, premise obsolete. The finding's central claim ("`get_db` and
+`try_provide_from_db` never find the handle, so the DB paths always take the
+fallback") does not hold as filed, so no query path changed behaviour and there
+was nothing to re-verify. Verified empirically: the pre-existing
+`get_db_returns_some_for_a_context_carrying_a_duckdb_handle` passes on the
+unfixed code, and a probe showed `downcast_ref::<DuckDb>()` succeeding for both
+`Arc` and `&Arc` receivers *in extensions/duckdb*.
+
+Root cause of the discrepancy with the TASK-1877 observation in
+crates/extension/src/tests.rs: the blanket impl is only a method-resolution
+candidate where `DuckDbHandle` is in scope. extensions/duckdb/src/lib.rs never
+imports it, so `h.as_any()` fell through the deref chain to the trait object's
+own method and downcast correctly; crates/extension/src/tests.rs does import it,
+so there the Arc was erased. The bug was therefore latent rather than live — one
+`use ops_extension::DuckDbHandle;` in that module away from turning every
+DB-backed lookup into a silent cache miss. The fix and its tests remove the
+dependency on the import list entirely.
+
+Substitute check for AC#4: `ops verify` (7/7) and `cargo nextest run --workspace
+--all-features` (2899 passed) both clean, covering the about/ingest paths named
+in the AC.
+<!-- SECTION:NOTES:END -->
