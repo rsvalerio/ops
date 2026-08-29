@@ -1776,6 +1776,40 @@ fn over_budget_provider_without_polling_is_reported_as_a_named_failure() {
     }
 }
 
+/// An overrun must not overwrite the provider's own failure. A slow provider
+/// that fails for its own reason — a command that could not be spawned, a file
+/// that could not be read — has already answered *why* the dispatch failed;
+/// replacing that with `TimedOut` would report only that it was also slow, and
+/// send the operator after a timeout that is not the problem.
+#[test]
+fn an_over_budget_provider_keeps_its_own_error() {
+    /// Overruns the budget and then fails for an unrelated reason.
+    struct SlowFailing;
+    impl DataProvider for SlowFailing {
+        fn name(&self) -> &'static str {
+            "slow-failing"
+        }
+        fn provide(&self, _ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            Err(DataProviderError::computation_failed("cargo not on PATH"))
+        }
+    }
+
+    let registry = registry_with("slow-failing", Box::new(SlowFailing));
+    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
+
+    match registry.provide("slow-failing", &mut ctx) {
+        Err(DataProviderError::ComputationMessage(msg)) => {
+            assert_eq!(msg, "cargo not on PATH");
+        }
+        other => panic!("expected the provider's own error, got {other:?}"),
+    }
+    assert!(
+        ctx.deadline().is_none(),
+        "the failed dispatch must still clear its deadline"
+    );
+}
+
 /// AC #1/#3: a provider that honours `check_deadline` stops early, so the
 /// bound shortens the stall rather than merely labelling it afterwards.
 #[test]
@@ -1803,13 +1837,37 @@ fn polling_provider_aborts_at_the_deadline_instead_of_running_to_completion() {
 /// The budget bounds the traversal an operator asked for, not each level of
 /// it: a provider composing others must not be able to multiply its budget by
 /// nesting, and the failure keeps naming the provider that owns the budget.
+///
+/// The nesting here is a real second trip through [`DataRegistry::provide`],
+/// so `begin_deadline` / `clear_deadline_if_owned` are exercised on the inner
+/// dispatch too: it must inherit the outer deadline rather than install its
+/// own, and must leave the outer one in place when it returns.
 #[test]
 fn nested_dispatch_inherits_the_outermost_deadline() {
-    /// Records the deadline seen on entry and again after sleeping, so the
+    /// The inner provider: records the deadline it was dispatched under.
+    struct Inner {
+        seen: Arc<std::sync::Mutex<Vec<Option<std::time::Instant>>>>,
+    }
+    impl DataProvider for Inner {
+        fn name(&self) -> &'static str {
+            "inner"
+        }
+        fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            self.seen
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(ctx.deadline());
+            Ok(serde_json::json!({ "inner": true }))
+        }
+    }
+
+    /// The outer provider: records the deadline, dispatches `inner` through
+    /// the registry, records it again, then overruns the budget. The
     /// assertions live in the test body rather than inside a
     /// `Result`-returning `provide` (`clippy::panic_in_result_fn`).
     struct Composing {
         seen: Arc<std::sync::Mutex<Vec<Option<std::time::Instant>>>>,
+        registry: Arc<std::sync::Mutex<Option<Arc<DataRegistry>>>>,
     }
     impl DataProvider for Composing {
         fn name(&self) -> &'static str {
@@ -1820,7 +1878,19 @@ fn nested_dispatch_inherits_the_outermost_deadline() {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .push(ctx.deadline());
-            std::thread::sleep(std::time::Duration::from_millis(40));
+            let reg = self
+                .registry
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+                .expect("registry wired")
+                .clone();
+            let _ = reg.provide("inner", ctx)?;
+            self.seen
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(ctx.deadline());
+            std::thread::sleep(std::time::Duration::from_millis(120));
             let result = ctx.check_deadline();
             self.seen
                 .lock()
@@ -1832,25 +1902,55 @@ fn nested_dispatch_inherits_the_outermost_deadline() {
     }
 
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let registry = registry_with(
+    let shared: Arc<std::sync::Mutex<Option<Arc<DataRegistry>>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let mut registry = DataRegistry::new();
+    let _ = registry.register(
         "outer",
         Box::new(Composing {
             seen: Arc::clone(&seen),
+            registry: Arc::clone(&shared),
         }),
     );
-    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
+    let _ = registry.register(
+        "inner",
+        Box::new(Inner {
+            seen: Arc::clone(&seen),
+        }),
+    );
+    let registry = Arc::new(registry);
+    *shared
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::clone(&registry));
+
+    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(60)));
     match registry.provide("outer", &mut ctx) {
         Err(DataProviderError::TimedOut { provider, .. }) => assert_eq!(provider, "outer"),
         other => panic!("expected TimedOut naming the budget owner, got {other:?}"),
     }
+
     let seen = seen
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    assert_eq!(seen.len(), 2, "provide must have run once");
+    // [outer on entry, inner, outer after the nested dispatch, outer after the
+    // deadline check].
+    assert_eq!(seen.len(), 4, "got {seen:?}");
     assert!(seen[0].is_some(), "the dispatch must install a deadline");
     assert_eq!(
         seen[0], seen[1],
-        "a nested check must see the same deadline, not a fresh one"
+        "the nested dispatch must inherit the outer deadline, not begin a fresh one"
+    );
+    assert_eq!(
+        seen[0], seen[2],
+        "the nested dispatch must not clear a deadline it does not own"
+    );
+    assert_eq!(
+        seen[0], seen[3],
+        "the outer deadline must survive its own check"
+    );
+    assert!(
+        ctx.deadline().is_none(),
+        "the outermost dispatch owns the deadline and must clear it on the way out"
     );
 }
 

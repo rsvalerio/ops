@@ -22,10 +22,17 @@ use std::time::{Duration, Instant};
 /// The value is deliberately generous. Providers here range from a
 /// sub-millisecond `Cargo.toml` read to `cargo llvm-cov` over a whole
 /// workspace, and a budget tight enough to be interesting for the first would
-/// turn the second into a spurious failure. Ten minutes is an *upper bound on
-/// a stall*, not a latency target. Callers that know their own tolerance
+/// turn the second into a spurious failure. Twenty minutes is an *upper bound
+/// on a stall*, not a latency target. Callers that know their own tolerance
 /// narrow it with [`Context::with_provider_budget`].
-pub const DEFAULT_PROVIDER_BUDGET: Duration = Duration::from_secs(600);
+///
+/// It must stay **above every subprocess timeout a provider can wait on**,
+/// or this budget fires first and reports a run that was still within its own
+/// limit as a failure. The binding one is `ops-test-coverage`'s
+/// `CARGO_LLVM_COV_TIMEOUT` (15 minutes); the five minutes of headroom cover
+/// the workspace walk and parsing either side of that subprocess. Raising
+/// that timeout means raising this too.
+pub const DEFAULT_PROVIDER_BUDGET: Duration = Duration::from_mins(20);
 
 /// The budget installed for the provider dispatch currently in flight.
 ///
@@ -423,9 +430,9 @@ impl DataRegistry {
     ///
     /// [`DataProviderError::NotFound`] if no provider is registered under
     /// `name`, [`DataProviderError::Cycle`] if a provider for `name` is
-    /// already executing on `ctx`, [`DataProviderError::TimedOut`] if the
-    /// dispatch ran past its budget, or whatever error the provider itself
-    /// returns.
+    /// already executing on `ctx`, whatever error the provider itself returns,
+    /// or [`DataProviderError::TimedOut`] if a provider that would otherwise
+    /// have *succeeded* ran past its budget.
     pub fn provide(
         &self,
         name: &str,
@@ -443,12 +450,16 @@ impl DataRegistry {
         ctx.clear_deadline_if_owned(owns_deadline);
         ctx.exit_provider(name);
         match (result, overrun) {
-            // A provider that polled `check_deadline` already returned the
-            // timeout, naming the same budget owner; keep its error rather
-            // than rebuilding an identical one.
-            (Err(err @ DataProviderError::TimedOut { .. }), _) => Err(err),
-            (_, Some(timed_out)) => Err(timed_out),
-            (result, None) => result,
+            // A provider error is the specific answer and is returned
+            // verbatim, whether or not the dispatch also ran past its budget.
+            // That covers the provider that polled `check_deadline` and
+            // already built an identical `TimedOut` naming the same owner, and
+            // equally the command or I/O failure that happens to have taken
+            // too long: reporting the overrun instead would replace the reason
+            // the dispatch failed with the fact that it was slow.
+            (Err(err), _) => Err(err),
+            (Ok(_), Some(timed_out)) => Err(timed_out),
+            (Ok(value), None) => Ok(value),
         }
     }
 }
