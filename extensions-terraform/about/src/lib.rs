@@ -221,9 +221,9 @@ fn extract_required_version(content: &str) -> Option<String> {
     let stripped = strip_comments(content);
     // ERR-2 / TASK-0919: only accept `required_version = "…"` when it
     // appears at the top level of a `terraform { … }` block.
-    let mut block_stack = BlockStack::new();
+    let mut state = ScanState::new();
     for line in stripped.lines() {
-        match scan_line(line, &mut block_stack) {
+        match scan_line(line, &mut state) {
             LineScan::Continue => {}
             LineScan::Found(value) => return sanitize_required_version(&value),
             LineScan::Malformed => {
@@ -250,6 +250,29 @@ fn extract_required_version(content: &str) -> Option<String> {
 /// balanced whatever the brace was.
 type BlockStack = Vec<Option<String>>;
 
+/// Everything [`scan_line`] carries from one line to the next.
+///
+/// PATTERN-1 / TASK-2031: the block stack alone was not enough state. An HCL
+/// heredoc (`<<EOT` / `<<-EOT` … `EOT`) is an unquoted multi-line string, so
+/// its body is not HCL at all: a bare `}` in a shell snippet is not a
+/// structural close, and `#` starts nothing. Tracking the pending terminator
+/// beside the stack is what lets the scanner skip those lines instead of
+/// reading them as structure.
+struct ScanState {
+    stack: BlockStack,
+    /// `Some(terminator)` while the scanner is inside a heredoc body.
+    heredoc: Option<String>,
+}
+
+impl ScanState {
+    const fn new() -> Self {
+        Self {
+            stack: BlockStack::new(),
+            heredoc: None,
+        }
+    }
+}
+
 /// Outcome of scanning one already-comment-stripped line.
 enum LineScan {
     /// Nothing of interest; `stack` has been updated for this line's braces.
@@ -267,7 +290,25 @@ enum LineScan {
 /// per line, so `terraform { # comment`, `required_version = "…" }` and
 /// `locals { x = 1 }` all track correctly. Quoted strings are skipped so a
 /// brace or quote inside a value is never structural.
-fn scan_line(line: &str, stack: &mut BlockStack) -> LineScan {
+///
+/// PATTERN-1 / TASK-2031: heredoc bodies are skipped whole. A `<<EOT` opener
+/// outside a string switches the scanner into `state.heredoc` until a line
+/// whose trimmed content is the terminator; nothing in between updates the
+/// block stack or yields a value. Without that, a `}` in a shell snippet
+/// popped a level the file never opened, and with the TASK-1765 balance check
+/// in place that silently dropped the whole file.
+fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
+    if let Some(terminator) = state.heredoc.as_deref() {
+        // HCL only allows an indented terminator after `<<-`, but accepting a
+        // trimmed match for both spellings costs nothing here: the scanner
+        // reads no heredoc *values*, so ending a body one line early on
+        // malformed input is not a correctness risk, while failing to end it
+        // would swallow the rest of the file.
+        if line.trim() == terminator {
+            state.heredoc = None;
+        }
+        return LineScan::Continue;
+    }
     let mut segment_start = 0usize;
     let mut in_string = false;
     let mut escaped = false;
@@ -286,16 +327,31 @@ fn scan_line(line: &str, stack: &mut BlockStack) -> LineScan {
         let after_brace = idx.saturating_add(1);
         match ch {
             '"' => in_string = true,
+            '<' => {
+                // `<<EOT` / `<<-EOT`: the body starts on the next line, and
+                // HCL allows nothing after the opener on this one, so the
+                // rest of the line holds no structure to track.
+                if let Some(terminator) = line
+                    .get(after_brace..)
+                    .and_then(|rest| rest.strip_prefix('<'))
+                    .and_then(heredoc_terminator)
+                {
+                    state.heredoc = Some(terminator.to_owned());
+                    return LineScan::Continue;
+                }
+            }
             '{' => {
                 let prefix = line.get(segment_start..idx).unwrap_or_default();
-                stack.push(block_open_ident(prefix).map(ToOwned::to_owned));
+                state
+                    .stack
+                    .push(block_open_ident(prefix).map(ToOwned::to_owned));
                 segment_start = after_brace;
             }
             '}' => {
-                if let Some(found) = required_version_here(line, segment_start, idx, stack) {
+                if let Some(found) = required_version_here(line, segment_start, idx, &state.stack) {
                     return LineScan::Found(found);
                 }
-                if stack.pop().is_none() {
+                if state.stack.pop().is_none() {
                     return LineScan::Malformed;
                 }
                 segment_start = after_brace;
@@ -303,8 +359,46 @@ fn scan_line(line: &str, stack: &mut BlockStack) -> LineScan {
             _ => {}
         }
     }
-    required_version_here(line, segment_start, line.len(), stack)
+    required_version_here(line, segment_start, line.len(), &state.stack)
         .map_or(LineScan::Continue, LineScan::Found)
+}
+
+/// Is `c` valid as the first character of a heredoc terminator?
+const fn is_heredoc_ident_start(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_'
+}
+
+/// Is `c` valid inside a heredoc terminator, after the first character?
+const fn is_heredoc_ident_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '-'
+}
+
+/// The terminator of a heredoc opener, given the text following its `<<`.
+///
+/// Accepts the `-` of the indent-stripping `<<-EOT` spelling. Returns `None`
+/// when what follows is not an identifier, so an ordinary comparison never
+/// opens a phantom heredoc. This is the single statement of the rule; both
+/// [`scan_line`] and [`strip_comments`] recognise openers with it.
+fn heredoc_terminator(after_marker: &str) -> Option<&str> {
+    let rest = after_marker.strip_prefix('-').unwrap_or(after_marker);
+    let mut end = 0usize;
+    for (idx, ch) in rest.char_indices() {
+        let ok = if idx == 0 {
+            is_heredoc_ident_start(ch)
+        } else {
+            is_heredoc_ident_char(ch)
+        };
+        if !ok {
+            break;
+        }
+        // Terminator characters are ASCII, so this stays on a char boundary.
+        end = idx.saturating_add(1);
+    }
+    if end == 0 {
+        None
+    } else {
+        rest.get(..end)
+    }
 }
 
 /// The `required_version` value declared in `line[start..end]`, if that
@@ -432,8 +526,16 @@ fn block_open_ident(prefix: &str) -> Option<&str> {
 /// `required_version = "~> 1.5 # marker"` keeps its marker. An unterminated
 /// `/*` runs to EOF, the same behaviour as terraform's own parser.
 ///
+/// PATTERN-1 / TASK-2031: a heredoc body is passed through **verbatim**. It is
+/// an unquoted string literal, so a `#` line inside it is shell or policy
+/// text, not an HCL comment, and blanking it would corrupt the very content
+/// the scanner is asked to reason about. [`scan_line`] recognises the same
+/// openers and skips the body, so nothing downstream reads it as structure.
+///
 /// PERF-3 / TASK-1782: returns [`Cow::Borrowed`] when the content carries no
-/// comment introducer at all, so the common case allocates nothing.
+/// comment introducer at all, so the common case allocates nothing. A file
+/// whose only "comments" live inside heredocs still takes the owned path —
+/// the fast check is deliberately syntax-free — and comes back unchanged.
 fn strip_comments(content: &str) -> Cow<'_, str> {
     if !content.contains("/*") && !content.contains('#') && !content.contains("//") {
         return Cow::Borrowed(content);
@@ -441,7 +543,30 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
     let mut out = String::with_capacity(content.len());
     let mut chars = content.chars().peekable();
     let mut in_string = false;
+    // Heredoc state. `pending` holds the terminator of an opener seen on the
+    // current line; it becomes `heredoc` once the newline that begins the body
+    // has been emitted. `body_line` accumulates the current body line so the
+    // terminator can be recognised on it.
+    let mut pending: Option<String> = None;
+    let mut heredoc: Option<String> = None;
+    let mut body_line = String::new();
     while let Some(c) = chars.next() {
+        if pending.is_some() && out.ends_with('\n') {
+            heredoc = pending.take();
+            body_line.clear();
+        }
+        if let Some(terminator) = heredoc.as_deref() {
+            out.push(c);
+            if c == '\n' {
+                if body_line.trim() == terminator {
+                    heredoc = None;
+                }
+                body_line.clear();
+            } else {
+                body_line.push(c);
+            }
+            continue;
+        }
         if in_string {
             out.push(c);
             if c == '\\' {
@@ -470,6 +595,32 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
             '/' if chars.peek() == Some(&'*') => {
                 chars.next();
                 blank_block_comment(&mut chars, &mut out);
+            }
+            '<' if chars.peek() == Some(&'<') => {
+                out.push('<');
+                let _ = chars.next();
+                out.push('<');
+                if chars.peek() == Some(&'-') {
+                    let _ = chars.next();
+                    out.push('-');
+                }
+                let mut terminator = String::new();
+                while let Some(&next) = chars.peek() {
+                    let ok = if terminator.is_empty() {
+                        is_heredoc_ident_start(next)
+                    } else {
+                        is_heredoc_ident_char(next)
+                    };
+                    if !ok {
+                        break;
+                    }
+                    terminator.push(next);
+                    out.push(next);
+                    let _ = chars.next();
+                }
+                if !terminator.is_empty() {
+                    pending = Some(terminator);
+                }
             }
             _ => out.push(c),
         }
@@ -1178,6 +1329,118 @@ terraform {
     fn extract_required_version_rejects_unbalanced_closing_brace() {
         let content = "}\nterraform {\n  required_version = \">= 1.5\"\n}\n";
         assert_eq!(extract_required_version(content), None);
+    }
+
+    /// PATTERN-1 / TASK-2031 AC#3/#4: a heredoc body containing a bare `}` is
+    /// a string, not structure. Pre-fix the `}` popped a level the file never
+    /// opened, which — with the TASK-1765 balance check — emptied the stack and
+    /// refused the whole file, so the `terraform` block declared afterwards
+    /// lost its constraint.
+    #[test]
+    fn extract_required_version_after_heredoc_with_a_bare_closing_brace() {
+        let content = concat!(
+            "locals {\n",
+            "  script = <<-EOT\n",
+            "    if [ -f x ]; then\n",
+            "      echo hi\n",
+            "    }\n",
+            "  EOT\n",
+            "}\n",
+            "terraform {\n",
+            "  required_version = \">= 1.5\"\n",
+            "}\n",
+        );
+        assert_eq!(
+            extract_required_version(content),
+            Some(">= 1.5".to_string())
+        );
+    }
+
+    /// PATTERN-1 / TASK-2031 AC#4: the `#` half of the same shape. The `#`
+    /// line is shell text inside a string value; treating it as an HCL comment
+    /// would blank the `}` that closes the heredoc's own `locals` block.
+    #[test]
+    fn extract_required_version_after_heredoc_with_a_hash_line() {
+        let content = concat!(
+            "locals {\n",
+            "  script = <<EOT\n",
+            "# not an HCL comment - a shell comment inside a string value\n",
+            "EOT\n",
+            "}\n",
+            "terraform {\n",
+            "  required_version = \"~> 1.6\"\n",
+            "}\n",
+        );
+        assert_eq!(
+            extract_required_version(content),
+            Some("~> 1.6".to_string())
+        );
+    }
+
+    /// PATTERN-1 / TASK-2031 AC#1: `strip_comments` passes a heredoc body
+    /// through verbatim. The body is an unquoted string literal, so blanking
+    /// its `#` line or opening a block comment on its `/*` would corrupt the
+    /// content rather than remove a comment.
+    #[test]
+    fn strip_comments_leaves_heredoc_bodies_verbatim() {
+        let content = concat!(
+            "locals {\n",
+            "  script = <<-EOT\n",
+            "    # shell comment\n",
+            "    glob=/*   // not a comment either\n",
+            "  EOT\n",
+            "}\n",
+            "# a real comment\n",
+        );
+        let stripped = strip_comments(content);
+        assert!(
+            stripped.contains("    # shell comment\n")
+                && stripped.contains("    glob=/*   // not a comment either\n"),
+            "heredoc body must survive intact; got: {stripped}"
+        );
+        assert!(
+            !stripped.contains("a real comment"),
+            "an HCL comment outside the heredoc must still be blanked; got: {stripped}"
+        );
+    }
+
+    /// PATTERN-1 / TASK-2031: an unbalanced `{` inside a heredoc is inert too,
+    /// so the `terraform` block after it is still read at depth 1 rather than
+    /// one level deeper.
+    #[test]
+    fn extract_required_version_after_heredoc_with_a_bare_opening_brace() {
+        let content = concat!(
+            "locals {\n",
+            "  policy = <<EOT\n",
+            "{ \"Statement\": [] \n",
+            "EOT\n",
+            "}\n",
+            "terraform {\n",
+            "  required_version = \">= 1.9\"\n",
+            "}\n",
+        );
+        assert_eq!(
+            extract_required_version(content),
+            Some(">= 1.9".to_string())
+        );
+    }
+
+    /// PATTERN-1 / TASK-2031: `a < <b` and other non-openers must not put the
+    /// scanner into heredoc state — that would swallow the rest of the file.
+    #[test]
+    fn extract_required_version_after_a_non_heredoc_less_than() {
+        let content = concat!(
+            "locals {\n",
+            "  cmp = 1 < 2\n",
+            "}\n",
+            "terraform {\n",
+            "  required_version = \">= 1.4\"\n",
+            "}\n",
+        );
+        assert_eq!(
+            extract_required_version(content),
+            Some(">= 1.4".to_string())
+        );
     }
 
     /// PATTERN-1 / TASK-1768: a trailing `#` comment on the block opener is
