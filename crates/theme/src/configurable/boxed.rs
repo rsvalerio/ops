@@ -256,7 +256,9 @@ pub(super) struct BorderArgs<'a> {
 /// Render a horizontal border like `╭─ title ────...───╮`.
 ///
 /// Pads the title with `─` fill to reach `columns`, honoring `left_pad` on the
-/// outer margin. `title_prefix` is the precomputed SGR prefix applied only to
+/// outer margin. The title is first clamped to the interior left over once
+/// both corners are accounted for, so the rendered border never exceeds
+/// `columns`. `title_prefix` is the precomputed SGR prefix applied only to
 /// the inline title text so the border itself stays dim/plain.
 pub(super) fn build_horizontal_border(args: BorderArgs<'_>) -> String {
     let BorderArgs {
@@ -275,13 +277,19 @@ pub(super) fn build_horizontal_border(args: BorderArgs<'_>) -> String {
     // report producer or a themed `plan_header_prefix`.
     let corner_l_w = visible_width(left_corner);
     let corner_r_w = visible_width(right_corner);
-    let title_w = visible_width(title);
-    let fill = inner.saturating_sub(
-        corner_l_w
-            .saturating_add(corner_r_w)
-            .saturating_add(title_w),
-    );
+    // CL-3 / TASK-1969: the corners are non-negotiable, so the title only
+    // owns whatever interior is left once both are paid for. A title wider
+    // than that (a long `Running: ...` step list, a report producer's own
+    // heading) previously pushed the closing corner past `columns` and
+    // wrapped the border onto a second line. Clamp with the module's
+    // ANSI-aware truncator -- the same helper every other width in this file
+    // uses -- and measure the *clamped* text for the fill, so the rendered
+    // border is at most `columns` wide.
+    let interior = inner.saturating_sub(corner_l_w.saturating_add(corner_r_w));
+    let title = truncate_to_width(title, interior);
+    let title_w = visible_width(&title);
+    let fill = interior.saturating_sub(title_w);
     let fill_str = "─".repeat(fill);
-    let colored_title = apply_with_prefix(title, title_prefix);
+    let colored_title = apply_with_prefix(&title, title_prefix);
     format!("{pad}{left_corner}{colored_title}{fill_str}{right_corner}")
 }

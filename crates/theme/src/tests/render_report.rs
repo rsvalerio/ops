@@ -74,12 +74,16 @@ fn render_report_emits_title_rows_details_and_footer() {
     assert!(joined.contains("Clean Section"));
     assert!(joined.contains("None"));
 
-    // Warning row + verbatim detail line.
+    // Warning row + verbatim detail line. CL-3: the detail text itself is
+    // verbatim (no dotted separator, no reflow), but it carries the same left
+    // margin as the title and the rows — otherwise it hangs a column left of
+    // the row it belongs to.
     assert!(joined.contains("\u{26a0}"));
     assert!(joined.contains("1 warning"));
+    let expected_detail = format!("{}      note line", theme.left_pad_str());
     assert!(
-        lines.iter().any(|l| l == "      note line"),
-        "detail line must be emitted verbatim, no separator: {lines:?}"
+        lines.contains(&expected_detail),
+        "detail line must be emitted verbatim behind the theme's left pad: {lines:?}"
     );
 
     // Footer: 2 checks, 1 warning.

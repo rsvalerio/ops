@@ -118,13 +118,24 @@ fn plain_header_with_prefix_emits_prefix() {
 ///
 /// A test harness cannot make stdout a real terminal, so the scenario is
 /// pinned in two halves that together cover it: the gate itself is asked
-/// about exactly that stream combination, and a step line is rendered in this
-/// process, where stderr is redirected, and asserted to be plain.
+/// about exactly that stream combination, and a step line is rendered with
+/// the stderr-bound gate forced off and asserted to be plain.
+///
+/// TEST-9: the rendered half used to depend on *this process's* stderr being
+/// redirected. `ops_core::style::stderr_is_terminal()` caches its
+/// `is_terminal()` answer in a `OnceLock`, so no amount of `#[serial]` can
+/// make that true — run the suite from an interactive shell (`cargo nextest
+/// run` without a pipe) and the theme legitimately emits SGR, failing a test
+/// that is not about the harness's stdio at all. Force `NO_COLOR` for the
+/// render, which drives the same gate to `false` deterministically, and keep
+/// the un-forced assertion only when the cached probe agrees stderr really
+/// is redirected.
 #[test]
 #[serial]
 fn step_line_is_plain_when_stderr_is_redirected() {
     // stdout a TTY, stderr redirected: the shared stdout-bound resolver says
-    // "colour", the theme's stderr-bound gate must not.
+    // "colour", the theme's stderr-bound gate must not. Both are pure
+    // functions of their arguments and hold whatever this process's stdio is.
     assert!(ops_core::style::color_enabled_from(true, false, false));
     assert!(!crate::style::color_enabled_for(false, false));
 
@@ -132,11 +143,25 @@ fn step_line_is_plain_when_stderr_is_redirected() {
     cfg.label_color = "cyan".into();
     cfg.duration_color = "bold green".into();
     let theme = ConfigurableTheme::new(cfg);
-    let line = render_line(&theme, StepStatus::Succeeded, "cargo build", Some(0.5));
-    assert!(
-        !line.contains('\x1b'),
-        "a step line written to a redirected stderr must carry no SGR: {line:?}"
-    );
+
+    {
+        let _g = EnvGuard::set("NO_COLOR", "1");
+        let line = render_line(&theme, StepStatus::Succeeded, "cargo build", Some(0.5));
+        assert!(
+            !line.contains('\x1b'),
+            "a step line must carry no SGR once the stderr-bound gate is off: {line:?}"
+        );
+    }
+
+    // When the harness's own stderr really is redirected, the same must hold
+    // with nothing forced — the production path.
+    if !ops_core::style::stderr_is_terminal() {
+        let line = render_line(&theme, StepStatus::Succeeded, "cargo build", Some(0.5));
+        assert!(
+            !line.contains('\x1b'),
+            "a step line written to a redirected stderr must carry no SGR: {line:?}"
+        );
+    }
 }
 
 #[test]

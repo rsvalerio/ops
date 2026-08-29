@@ -61,7 +61,10 @@ impl ConfigurableTheme {
             for detail in &row.details {
                 // SEC-21 / TASK-1965: report details are producer-supplied
                 // text (often captured tool output) rendered verbatim.
-                out.push(sanitise(detail));
+                // CL-3: carry the same left margin the title and rows use —
+                // an unpadded detail line hangs one column left of the row it
+                // belongs to under any theme with `left_pad > 0`.
+                out.push(format!("{pad}{}", sanitise(detail)));
             }
         }
         // Blank line before the summary, matching the runner's flat layout
