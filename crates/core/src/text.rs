@@ -225,22 +225,51 @@ mod unix_open {
     use std::os::unix::io::{AsRawFd, FromRawFd as _, IntoRawFd as _, OwnedFd};
     use std::path::{Component, Path};
 
-    /// Flags shared by every step of the walk.
+    /// Flags for the **final** component — the one the caller reads from.
     ///
+    /// * `O_RDONLY` — the caller gets a readable `File`.
     /// * `O_NOFOLLOW` — the component must not be a symlink.
-    /// * `O_NONBLOCK` — a FIFO planted at any component cannot block the
-    ///   `open(2)` itself (SEC-33); cleared on the final descriptor once the
-    ///   type check has passed.
-    /// * `O_CLOEXEC` — the intermediate descriptors must not leak into the
-    ///   subprocesses `ops` spawns.
+    /// * `O_NONBLOCK` — a FIFO planted at the final component cannot block the
+    ///   `open(2)` itself (SEC-33); cleared once the type check has passed.
+    /// * `O_CLOEXEC` — the descriptor must not leak into the subprocesses
+    ///   `ops` spawns.
     ///
-    /// `O_DIRECTORY` is deliberately **not** set on intermediate components:
-    /// combined with `O_NOFOLLOW` it makes Linux report a symlink as
-    /// `ENOTDIR`, which is indistinguishable from "a plain file in the middle
-    /// of the path". Opening without it yields an unambiguous `ELOOP`, and the
-    /// `fstat` below enforces the directory requirement instead.
-    const WALK_FLAGS: libc::c_int =
+    /// `O_DIRECTORY` is deliberately **not** set: combined with `O_NOFOLLOW`
+    /// it makes Linux report a symlink as `ENOTDIR`, which is
+    /// indistinguishable from "a plain file in the middle of the path".
+    /// Opening without it yields an unambiguous `ELOOP`, and the `fstat`
+    /// below enforces the type requirement instead.
+    const FILE_FLAGS: libc::c_int =
         libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
+
+    /// Flags for the **intermediate** components, which are only ever used as
+    /// the `dirfd` of the next `openat` and as the subject of an `fstat`.
+    ///
+    /// On Linux that is exactly what `O_PATH` is for: it yields a handle
+    /// usable for path resolution without opening the directory for reading,
+    /// so the walk no longer demands read permission on every ancestor of the
+    /// manifest (search permission — `+x` — is enough, which is what plain
+    /// path resolution requires). Both operations the walk performs on these
+    /// descriptors are explicitly supported for `O_PATH` handles: `fstat(2)`
+    /// works, and an `O_PATH` descriptor may be passed as the `dirfd` of
+    /// `openat(2)`.
+    ///
+    /// `O_PATH` ignores `O_NONBLOCK` (nothing is opened, so a FIFO planted
+    /// mid-path cannot block regardless), and it honours `O_NOFOLLOW` and
+    /// `O_CLOEXEC`.
+    ///
+    /// The one behavioural difference: `O_PATH | O_NOFOLLOW` does **not**
+    /// fail with `ELOOP` on a symlink — it returns a descriptor referring to
+    /// the symlink itself. [`open_dir_component`] therefore rejects `S_IFLNK`
+    /// from the `fstat` explicitly, which keeps the refusal surface identical
+    /// to the `O_RDONLY` path.
+    #[cfg(target_os = "linux")]
+    const DIR_FLAGS: libc::c_int = libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+
+    /// Non-Linux Unix has no `O_PATH`; intermediate components use the same
+    /// flags as the final one.
+    #[cfg(not(target_os = "linux"))]
+    const DIR_FLAGS: libc::c_int = FILE_FLAGS;
 
     /// `openat(2)` relative to `dir` (or the process cwd when `dir` is
     /// `None`), returning an owned descriptor.
@@ -310,17 +339,20 @@ mod unix_open {
 
     /// Open one intermediate component and prove it is a directory.
     fn open_dir_component(cur: Option<&OwnedFd>, name: &CStr, path: &Path) -> io::Result<OwnedFd> {
-        let fd = openat(cur, name, WALK_FLAGS).map_err(|e| {
+        let fd = openat(cur, name, DIR_FLAGS).map_err(|e| {
             if is_symlink_refusal(&e) {
                 super::refused_symlink(path)
             } else {
                 e
             }
         })?;
-        if file_type_bits(&fd)? == libc::S_IFDIR {
-            Ok(fd)
-        } else {
-            Err(io::Error::from_raw_os_error(libc::ENOTDIR))
+        match file_type_bits(&fd)? {
+            libc::S_IFDIR => Ok(fd),
+            // Reachable only on the `O_PATH` (Linux) path, where
+            // `O_NOFOLLOW` hands back the symlink itself instead of failing
+            // with `ELOOP`. Spell the refusal the same way either way.
+            libc::S_IFLNK => Err(super::refused_symlink(path)),
+            _ => Err(io::Error::from_raw_os_error(libc::ENOTDIR)),
         }
     }
 
@@ -360,7 +392,7 @@ mod unix_open {
             return Err(io::Error::from_raw_os_error(libc::EISDIR));
         };
         let c_name = to_cstring(final_name.as_bytes(), path)?;
-        let fd = openat(cur.as_ref(), &c_name, WALK_FLAGS).map_err(|e| {
+        let fd = openat(cur.as_ref(), &c_name, FILE_FLAGS).map_err(|e| {
             if is_symlink_refusal(&e) {
                 super::refused_symlink(path)
             } else {
@@ -822,6 +854,36 @@ mod tests {
         let got = read_capped_to_string_with(&nested.join("Cargo.toml"), 1024)
             .expect("a symlink-free nested path must be readable");
         assert_eq!(got, "[package]");
+    }
+
+    /// The intermediate components are opened `O_PATH` on Linux, so the walk
+    /// needs only *search* permission (`+x`) on the ancestors — the same
+    /// privilege ordinary path resolution requires. A search-only directory
+    /// used to fail with `EACCES` under the old `O_RDONLY` walk.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn read_capped_to_string_traverses_a_search_only_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        if crate::test_utils::is_root_euid() {
+            return; // TEST-19: root bypasses DAC, so the fixture proves nothing.
+        }
+        let root = tempfile::tempdir().unwrap();
+        let mid = root.path().join("search-only");
+        std::fs::create_dir(&mid).unwrap();
+        let manifest = mid.join("Cargo.toml");
+        std::fs::write(&manifest, b"[package]").unwrap();
+        // --x------: traversable, not listable, not readable.
+        std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o100)).unwrap();
+
+        let got = read_capped_to_string_with(&manifest, 1024);
+
+        // Restore before asserting so the tempdir can always be cleaned up.
+        std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            got.expect("search permission must be enough to reach the manifest"),
+            "[package]"
+        );
     }
 
     /// SEC-33 / TASK-1853: a FIFO planted at a manifest path must be refused,
