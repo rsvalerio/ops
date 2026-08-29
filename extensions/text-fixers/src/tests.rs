@@ -95,6 +95,38 @@ fn every_discovered_file_is_accounted_for() {
     );
 }
 
+/// A file whose rewrite fails belongs in exactly one bucket. It used to be
+/// tallied as *scanned* on the way in and as *failed* on the way out, so the
+/// summary line double-counted it and `scanned + skipped + failed` overshot
+/// the number of paths discovery actually handed the runner.
+#[test]
+fn a_file_whose_write_fails_is_counted_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(&root.join("dirty.txt"), b"a   \n");
+
+    // Read-only root: the file is still readable and needs fixing, but the
+    // atomic replace cannot stage its sibling.
+    let Some(_guard) = ReadOnlyDir::new(root) else {
+        return; // Running as root, or the chmod did not deny anything.
+    };
+
+    let mut buf = Vec::new();
+    let report = run_trailing_whitespace(&opts(root), &mut buf).unwrap();
+
+    assert_eq!(report.files_failed.len(), 1, "the write must fail");
+    assert_eq!(
+        report.files_scanned, 0,
+        "a failed file is not also a scanned file"
+    );
+    let discovered = discovery::discover(root, false).unwrap().files.len();
+    assert_eq!(
+        report.files_scanned + report.files_skipped + report.files_failed.len(),
+        discovered,
+        "scanned + skipped + failed must still account for every discovered path"
+    );
+}
+
 #[test]
 fn both_fixers_over_a_mixed_tree_reach_a_fixed_point() {
     let dir = tempfile::tempdir().unwrap();

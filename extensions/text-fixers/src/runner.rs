@@ -139,15 +139,19 @@ fn run_fixer(
             write_skip(writer, label, &display, &SkipReason::NotText)?;
             continue;
         }
-        report.files_scanned = report.files_scanned.saturating_add(1);
-
         let Some(fixed) = fix(&bytes) else {
+            report.files_scanned = report.files_scanned.saturating_add(1);
             continue;
         };
         if fixed == bytes {
+            report.files_scanned = report.files_scanned.saturating_add(1);
             continue;
         }
 
+        // The scanned tally is deliberately deferred past this point: a file
+        // whose rewrite fails is recorded in `files_failed`, and counting it
+        // as scanned too would put one discovered file in two buckets and
+        // make `scanned + failed + skipped` overshoot the discovered total.
         if let Err(e) = atomic::replace(&path, &fixed, &metadata) {
             record_failure(
                 &mut report,
@@ -161,6 +165,7 @@ fn run_fixer(
             )?;
             continue;
         }
+        report.files_scanned = report.files_scanned.saturating_add(1);
         writeln!(writer, "{label}: fixed {}", display.display())
             .with_context(|| format!("{label}: writing the fixed-file line failed"))?;
         report.files_changed.push(display);
