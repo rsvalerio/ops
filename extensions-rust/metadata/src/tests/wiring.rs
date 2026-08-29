@@ -50,7 +50,7 @@ fn metadata_provider_fails_in_non_cargo_dir() {
         .expect_err("a directory with no Cargo.toml must fail");
     let chain = format!("{err:#}");
     assert!(
-        matches!(err, DataProviderError::ComputationFailed(_)),
+        matches!(&err, DataProviderError::ComputationFailed(_)),
         "expected ComputationFailed carrying the cargo-metadata chain, got: {err:?}"
     );
     assert!(
