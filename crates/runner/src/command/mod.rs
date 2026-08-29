@@ -228,23 +228,30 @@ impl CommandRunner {
 
         // ERR-1 / TASK-1462: a non-UTF-8 workspace root would otherwise
         // lossy-render into the OPS_ROOT builtin and defeat the
-        // strict-expand contract. `Variables::from_env` now surfaces this
-        // as an `ExpandError::NotUnicode`; the runner constructor used to
-        // be infallible, so we propagate through a `tracing::warn!` +
-        // empty-builtins fallback rather than panicking the CLI. A
-        // subsequent `try_expand("$OPS_ROOT/...")` will fail explicitly
-        // when callers actually touch the variable, preserving the
-        // "fail-loud" intent. Strict downstream callers should adopt the
-        // Result-returning `Variables::from_env` directly.
+        // strict-expand contract. `Variables::from_env` surfaces it as an
+        // `ExpandError` instead; the runner constructor is infallible, so
+        // we degrade through a `tracing::warn!` + fail-closed fallback
+        // rather than panicking the CLI.
+        //
+        // SEC-31 / TASK-1854: the fallback is `Variables::poisoned`, not
+        // the old empty-builtins `Variables`. The latter was believed to
+        // "fail loud on the missing variable", but `shellexpand` leaves an
+        // undefined reference literal, so `try_expand("$OPS_ROOT/...")`
+        // returned `Ok("$OPS_ROOT/...")` and that literal was materialised
+        // as an argv element or cwd — and an ambient `OPS_ROOT` resolved to
+        // an unrelated directory rather than failing. A poisoned
+        // `Variables` returns the original error from every `try_expand`,
+        // so strict callers really do fail. Strict downstream callers
+        // should adopt the Result-returning `Variables::from_env` directly.
         let vars = match Variables::from_env(&cwd) {
             Ok(v) => v,
             Err(e) => {
                 tracing::warn!(
                     var = %e.var_name,
                     cause = %e.cause,
-                    "Variables::from_env failed; downstream $OPS_ROOT expansion will surface the error"
+                    "Variables::from_env failed; every $OPS_ROOT expansion will surface this error"
                 );
-                Variables::empty()
+                Variables::poisoned(e)
             }
         };
         let extension_commands = IndexMap::new();
