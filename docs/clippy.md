@@ -10,6 +10,10 @@ exception, records that exception next to the code with a reason.
 cargo clippy --workspace --all-features --all-targets -- -D warnings
 ```
 
+That covers the `--all-features` build only. The default-feature build is the
+gate's blind spot and has its own companion command, `ops clippy-default` —
+see [Two feature sets, two blind spots](#two-feature-sets-two-blind-spots).
+
 Warnings are errors. Either the code changes or the exception is written down.
 The one bounded exception is the temporary-allow block described below, which
 only ever shrinks.
@@ -348,10 +352,41 @@ let results = match spec {
 };
 ```
 
-### `--all-features` matters
+### Two feature sets, two blind spots
 
-The gate uses `--all-features`; a plain `cargo clippy` misses feature-gated code
-entirely. Run the same command the gate runs, or run `ops verify`.
+A clippy run only lints the code the compiler actually compiles, and which arms
+of a `#[cfg(feature = ...)]` are compiled depends entirely on the feature set.
+`--all-features` and default features are therefore two *different* builds, and
+neither one subsumes the other:
+
+| Command | What it lints | What it cannot see |
+|---|---|---|
+| plain `cargo clippy` | the default-feature build | every `#[cfg(feature = "x")]` arm for a non-default feature |
+| `cargo clippy --all-features` | the all-on build (`ops verify`) | every `#[cfg(not(feature = "x"))]` arm |
+
+The first gap is the familiar one: a plain `cargo clippy` misses feature-gated
+code entirely, so run the same command the gate runs, or run `ops verify`.
+
+The second gap is the mirror image and it is just as real. With every feature
+on, no `#[cfg(not(feature = ...))]` arm is compiled, so a lint that fires only
+in the feature-off build never reaches `ops verify`. TASK-2027 is the worked
+example: two `clippy::missing_const_for_fn` errors sat on the `duckdb`-off
+`enrich_from_db` stubs in `ops-about` and surfaced only when someone happened to
+run `cargo clippy -p ops-about`. Because `-D clippy::nursery` is workspace
+policy, that regression lands as a red build on whoever next lints a subset of
+crates — code they did not touch — and the failure gets attributed to them.
+
+So the default-feature build has its own gate:
+
+```bash
+ops clippy-default   # cargo clippy --workspace --all-targets -- -D warnings
+```
+
+It runs in CI (the `Lint` job runs both sweeps) and in `ops run-before-push`.
+It is deliberately *not* part of `ops verify`: `verify` is the pre-commit gate,
+and a second full-workspace clippy under a different feature fingerprint costs a
+second full compile on every commit. Any crate with a `cfg(not(feature = ..))`
+arm can regress this way, so when you add or change one, run both sweeps.
 
 ## Adding a new crate
 

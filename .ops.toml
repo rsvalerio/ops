@@ -6,12 +6,29 @@ theme = "compact"
 program = "cargo"
 args = ["install", "--path", "crates/cli", "--force", "--all-features"]
 
+# ARCH-11 / TASK-2053: the shared `clippy` gate lints `--all-features`, so
+# every `#[cfg(not(feature = ...))]` arm in the workspace is never compiled and
+# its lints are invisible. `--all-features` and default features are two
+# different builds; neither subsumes the other. This is the second half — the
+# default-feature sweep — so a lint that only fires with a feature OFF fails a
+# gate here rather than ambushing whoever next runs `cargo clippy -p <crate>`.
+# See docs/clippy.md, "Two feature sets, two blind spots".
+#
+# It is deliberately NOT folded into `verify`: that is the pre-commit gate, and
+# a second full-workspace clippy under a different feature fingerprint means a
+# second full compile every commit. It runs pre-push and in CI instead.
+[commands.clippy-default]
+program = "cargo"
+args = ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+help = "Lint the default-feature build (the --all-features gate's blind spot)"
+category = "Code Quality"
+
 [commands.run-before-commit]
 commands = ["verify","end-of-file-fixer","trailing-whitespace"]
 fail_fast = true
 help = "Run run-before-commit checks before committing"
 
 [commands.run-before-push]
-commands = ["qax"]
+commands = ["qax","clippy-default"]
 fail_fast = true
 help = "Run run-before-push checks before pushing"
