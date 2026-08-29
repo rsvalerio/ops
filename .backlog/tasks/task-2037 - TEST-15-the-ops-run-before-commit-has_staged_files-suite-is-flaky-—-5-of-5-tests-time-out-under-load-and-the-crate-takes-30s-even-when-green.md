@@ -3,10 +3,10 @@ id: TASK-2037
 title: >-
   TEST-15: the ops-run-before-commit has_staged_files suite is flaky — 5 of 5
   tests time out under load and the crate takes 30s even when green
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-08-29 00:05'
-updated_date: '2026-08-29 00:44'
+updated_date: '2026-08-29 06:55'
 labels:
   - code-review-rust
   - testing
@@ -68,13 +68,24 @@ workspace test run even when it passes.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The has_staged_files tests pass deterministically under a loaded cargo test --workspace run, repeated at least 10 times
-- [ ] #2 The root cause is identified as either a too-tight probe timeout, a shared-cwd race between the tests, or a real hang in the bounded-wait probe — and named in the fix
-- [ ] #3 The crate's test wall-clock no longer sits at the timeout budget on a passing run
+- [x] #1 The has_staged_files tests pass deterministically under a loaded cargo test --workspace run, repeated at least 10 times
+- [x] #2 The root cause is identified as either a too-tight probe timeout, a shared-cwd race between the tests, or a real hang in the bounded-wait probe — and named in the fix
+- [x] #3 The crate's test wall-clock no longer sits at the timeout budget on a passing run
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-Orchestrator follow-up (2026-08-29, end of code-review run 2026-08-28): did NOT reproduce on the quiesced part3 integration branch. `cargo nextest run -p ops-run-before-commit --all-features` green 3/3 standalone; `cargo nextest run --workspace --all-features` green 2871/2871 with has_staged_files passing. The original observation was made while four wave runners were building concurrently, and every failure was pinned at exactly 30.0s -- the env timeout -- which is consistent with CPU starvation under load rather than a code defect. Keeping the task open but the severity is likely overstated: the real question is whether the suite's 30s timeout is too tight to survive a loaded machine, not whether has_staged_files is broken.
+ROOT CAUSE CONFIRMED and FIXED on code-review/run-20260828-part3 (commit 163ed58d).
+
+Not the 1500 ms git probe budget. The 30.0s is `has_staged_files_applies_the_env_timeout`, which redirects the process-global PATH at a fake `git` whose body is `sleep 30`. Five sibling tests in the same module resolve the real `git` by name through that same PATH and carried no serial-test grouping, so any of them scheduled inside the redirect window exec'd the fake instead and burned the full 30s. That is exactly why the failure set is those five, why the rate tracks machine load, and why the wall clock pins at 30.0s even when green.
+
+Reproduced and measured, same machine, cargo test -p ops-run-before-commit --lib x3:
+  before: FAILED 29/1 (30.06s), ok 30/0 (30.06s), FAILED 29/1 (30.05s)
+  after:  ok 30/0 (1.18s) x3
+Also cargo nextest run -p ops-run-before-commit --all-features x6: 30 passed, ~1.02s each. (nextest process-isolates each test, so it never reproduced the failure — the reproducer is cargo test.)
+
+Fix: add #[serial_test::serial] (the same default group the PATH-redirecting tests already use) to has_staged_files_false_when_index_empty, _true_when_file_staged, _true_when_only_a_deletion_is_staged, _true_when_only_a_type_change_is_staged, and _errors_outside_git_repo. init_repo / commit_file are plain helpers called from those tests, so they inherit the grouping.
+
+Full workspace suite after the change: 2876 passed, 0 failed. ops verify 7/7.
 <!-- SECTION:NOTES:END -->

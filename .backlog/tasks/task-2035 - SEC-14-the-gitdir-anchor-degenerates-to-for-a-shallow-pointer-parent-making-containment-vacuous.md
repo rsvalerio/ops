@@ -6,6 +6,7 @@ title: >-
 status: Triage
 assignee: []
 created_date: '2026-08-28 23:17'
+updated_date: '2026-08-29 06:55'
 labels:
   - code-review-rust
   - security
@@ -49,3 +50,15 @@ proof whenever the anchor degenerates.
 - [ ] #1 canonical_anchor cannot return a path that contains every candidate target (either it is floored below the filesystem root, or resolution is refused with a tracing::debug! breadcrumb when it degenerates)
 - [ ] #2 A test plants a pointer whose parent is shallow enough that the anchor would be / and asserts an out-of-tree target is still refused
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified on code-review/run-20260828-part3 during the PR #41 CodeRabbit follow-up: the report is accurate and the finding still stands.
+
+canonical_anchor() is parent.ancestors().nth(2).unwrap_or(parent) with no floor, so for any pointer whose parent is two or fewer components deep the anchor canonicalizes to / and canonical_target.starts_with("/") is true for every path on the machine. Both the relative branch (read_gitdir_pointer) and the absolute branch (resolve_absolute_gitdir) share it, so in that layout the SEC-14 containment gate costs a canonicalize syscall and proves nothing.
+
+Context added by this run: resolve_absolute_gitdir gained a third acceptance rule (commit aa0aeacb) for the --separate-git-dir layout, which git writes with no reverse link in either direction. That rule is a substance check on the target (HEAD + objects/ + refs/), not a containment proof, so it does not depend on the anchor and does not make this task worse — but it does mean the absolute branch now has two of three rules that are not containment. Fixing the degenerate anchor is still worth doing for the relative branch, which has the anchor and nothing else.
+
+Existing tests do not catch it because every fixture plants its pointer deep inside a tempdir (>2 components), where the anchor lands inside the fixture and does discriminate. AC#2's shallow-parent test is the missing coverage.
+<!-- SECTION:NOTES:END -->
