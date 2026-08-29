@@ -3,11 +3,11 @@ id: TASK-2029
 title: >-
   CL-3: ensure_tools probes cargo in Path::new(".") instead of the context's
   working directory
-status: To Do
+status: Done
 assignee:
   - TASK-2050
 created_date: '2026-08-28 20:51'
-updated_date: '2026-08-29 11:36'
+updated_date: '2026-08-29 13:26'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -41,7 +41,7 @@ Today the two coincide because `run_deps` calls `ensure_tools()` before building
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 check_tool / ensure_tools take the working directory from the caller instead of hardcoding Path::new(".")
-- [ ] #2 run_deps passes the context's working directory (or the cwd it resolved) so the probe and the collection calls agree on one directory
-- [ ] #3 The command-path tests can point ensure_tools at a tempdir without chdir-ing the process
+- [x] #1 check_tool / ensure_tools take the working directory from the caller instead of hardcoding Path::new(".")
+- [x] #2 run_deps passes the context's working directory (or the cwd it resolved) so the probe and the collection calls agree on one directory
+- [x] #3 The command-path tests can point ensure_tools at a tempdir without chdir-ing the process
 <!-- AC:END -->

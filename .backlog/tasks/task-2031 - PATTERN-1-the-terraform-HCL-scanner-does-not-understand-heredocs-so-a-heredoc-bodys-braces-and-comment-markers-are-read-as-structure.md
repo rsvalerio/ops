@@ -3,11 +3,11 @@ id: TASK-2031
 title: >-
   PATTERN-1: the terraform HCL scanner does not understand heredocs, so a
   heredoc body's braces and comment markers are read as structure
-status: To Do
+status: Done
 assignee:
   - TASK-2050
 created_date: '2026-08-28 21:26'
-updated_date: '2026-08-29 11:36'
+updated_date: '2026-08-29 13:32'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -63,8 +63,8 @@ pre-pass that blanks heredoc bodies the way block comments are blanked).
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 strip_comments leaves heredoc bodies untouched - a # or /* inside a heredoc is not treated as an HCL comment
-- [ ] #2 scan_line does not count braces that appear inside a heredoc body as structural
-- [ ] #3 extract_required_version returns the constraint for a terraform block declared after a locals heredoc containing an unbalanced brace
-- [ ] #4 Regression tests cover a heredoc containing a bare } and a heredoc containing a # line
+- [x] #1 strip_comments leaves heredoc bodies untouched - a # or /* inside a heredoc is not treated as an HCL comment
+- [x] #2 scan_line does not count braces that appear inside a heredoc body as structural
+- [x] #3 extract_required_version returns the constraint for a terraform block declared after a locals heredoc containing an unbalanced brace
+- [x] #4 Regression tests cover a heredoc containing a bare } and a heredoc containing a # line
 <!-- AC:END -->
