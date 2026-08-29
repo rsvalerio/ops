@@ -414,12 +414,16 @@ fn normalize_urls(
     for (k, v) in urls {
         let norm = normalize_url_key(k);
         if let Some((first_key, first_url)) = out.get(&norm) {
+            // SEC-21: every field but `normalized_key` is verbatim
+            // `pyproject.toml` text — an untrusted key or URL carrying a
+            // newline or an SGR sequence could otherwise forge a log record.
+            // Debug-format them so they arrive quoted and escaped.
             tracing::warn!(
                 normalized_key = %norm,
-                first_key = %first_key,
-                first_url = %first_url,
-                duplicate_key = %k,
-                duplicate_url = %v,
+                first_key = ?first_key,
+                first_url = ?first_url,
+                duplicate_key = ?k,
+                duplicate_url = ?v,
                 recovery = "keep-first",
                 "pyproject [project.urls] keys collapse under normalisation; keeping first-seen entry"
             );
@@ -978,19 +982,19 @@ Documentation = "https://docs.x"
 
         assert_eq!(picked.as_deref(), Some("https://first.dev"));
         assert!(
-            logs.contains("first_key=Home-Page"),
+            logs.contains("first_key=\"Home-Page\""),
             "warn must name the first-seen raw key: {logs}"
         );
         assert!(
-            logs.contains("duplicate_key=home page"),
+            logs.contains("duplicate_key=\"home page\""),
             "warn must name the colliding raw key: {logs}"
         );
         assert!(
-            logs.contains("first_url=https://first.dev"),
+            logs.contains("first_url=\"https://first.dev\""),
             "warn must carry the retained URL: {logs}"
         );
         assert!(
-            logs.contains("duplicate_url=https://second.dev"),
+            logs.contains("duplicate_url=\"https://second.dev\""),
             "warn must carry the discarded URL: {logs}"
         );
         assert!(

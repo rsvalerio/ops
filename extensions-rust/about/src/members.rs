@@ -122,6 +122,24 @@ fn classify_member(member: &str) -> MemberShape<'_> {
 /// boundary handling sits in one place.
 pub fn expand_member_glob(member: &str, parent: &Path, workspace_root: &Path) -> Vec<String> {
     let mut out = Vec::new();
+    // SEC-14 / TASK-1246 (extended): resolve the workspace root once so each
+    // directory entry can be tested for containment against a fully resolved
+    // anchor. Unlike the ancestor walk in `find_workspace_root_strict` (see
+    // TASK-2026), this check is *not* vacuous: `read_dir` hands back entries
+    // that may themselves be symlinks pointing anywhere on the filesystem, so
+    // `canonicalize` genuinely moves the path before it is compared.
+    let canonical_root = match std::fs::canonicalize(workspace_root) {
+        Ok(root) => root,
+        Err(e) => {
+            tracing::warn!(
+                pattern = ?member,
+                workspace_root = ?workspace_root.display(),
+                error = ?e,
+                "workspace root could not be resolved; glob member skipped"
+            );
+            return out;
+        }
+    };
     let entries = match std::fs::read_dir(parent) {
         Ok(entries) => entries,
         Err(e) => {
@@ -150,10 +168,37 @@ pub fn expand_member_glob(member: &str, parent: &Path, workspace_root: &Path) ->
             }
         };
         let path = entry.path();
-        if !(path.is_dir() && path.join("Cargo.toml").exists()) {
+        // SEC-14: a workspace member reached through a symlink must still
+        // live inside the workspace. Resolve the entry, require containment
+        // in the canonical root, and then keep using the *resolved* path for
+        // the directory / `Cargo.toml` probes and the relative member string,
+        // so every downstream manifest read follows the path we validated
+        // rather than the symlink we were handed.
+        let canonical = match std::fs::canonicalize(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    parent = ?parent.display(),
+                    entry = ?path.display(),
+                    error = ?e,
+                    "workspace glob entry could not be resolved; skipped"
+                );
+                continue;
+            }
+        };
+        if !canonical.starts_with(&canonical_root) {
+            tracing::warn!(
+                parent = ?parent.display(),
+                entry = ?path.display(),
+                resolved = ?canonical.display(),
+                "workspace glob entry resolves outside the workspace root; skipped"
+            );
             continue;
         }
-        let Ok(rel) = path.strip_prefix(workspace_root) else {
+        if !(canonical.is_dir() && canonical.join("Cargo.toml").exists()) {
+            continue;
+        }
+        let Ok(rel) = canonical.strip_prefix(&canonical_root) else {
             continue;
         };
         // READ-5 (TASK-0946): non-UTF-8 member paths must not be lossily
@@ -436,6 +481,42 @@ mod tests {
         let manifest = manifest_with_members(&["crates/**"]);
         let resolved = resolved_workspace_members(&manifest, std::path::Path::new("/nonexistent"));
         assert_eq!(resolved, vec!["crates/**".to_string()]);
+    }
+
+    /// SEC-14 / TASK-1246 (extended): a glob member that is a symlink out of
+    /// the workspace must be dropped, while its ordinary sibling still
+    /// resolves. `..`-rejection only covers the *textual* member entries; a
+    /// `crates/*` expansion never sees them, so containment has to be
+    /// enforced on the resolved directory instead.
+    #[cfg(unix)]
+    #[test]
+    fn glob_member_symlinked_outside_the_workspace_is_skipped() {
+        let root = tempfile::tempdir().expect("root");
+        let outside = tempfile::tempdir().expect("outside");
+
+        let crates = root.path().join("crates");
+        std::fs::create_dir_all(crates.join("inside")).expect("inside");
+        std::fs::write(
+            crates.join("inside/Cargo.toml"),
+            "[package]\nname=\"inside\"\nversion=\"0.1.0\"\n",
+        )
+        .expect("inside manifest");
+
+        let evil = outside.path().join("evil");
+        std::fs::create_dir_all(&evil).expect("evil");
+        std::fs::write(
+            evil.join("Cargo.toml"),
+            "[package]\nname=\"evil\"\nversion=\"0.1.0\"\n",
+        )
+        .expect("evil manifest");
+        std::os::unix::fs::symlink(&evil, crates.join("escapee")).expect("symlink");
+
+        let expanded = expand_member_glob("crates/*", &crates, root.path());
+        assert_eq!(
+            expanded,
+            vec!["crates/inside".to_string()],
+            "the symlinked-out member must not be expanded"
+        );
     }
 
     /// SEC-14 / TASK-1246: absolute and `..`-traversal member entries are
