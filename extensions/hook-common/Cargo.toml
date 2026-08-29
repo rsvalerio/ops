@@ -28,8 +28,9 @@ tracing-subscriber = { workspace = true }
 [features]
 # Exposes `test_helpers` (e.g. `EnvGuard`) so wrapper crates can reuse the
 # same env-mutation guard from their own #[cfg(test)] modules without
-# duplicating the implementation.
-test-helpers = []
+# duplicating the implementation. DRY-1 / TASK-2034: `CwdGuard` is re-exported
+# from `ops_core::test_utils`, so the feature has to turn that surface on.
+test-helpers = ["ops-core/test-support"]
 
 [lints]
 workspace = true
