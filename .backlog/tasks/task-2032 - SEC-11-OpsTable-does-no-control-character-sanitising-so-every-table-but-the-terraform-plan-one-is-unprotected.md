@@ -3,11 +3,11 @@ id: TASK-2032
 title: >-
   SEC-11: OpsTable does no control-character sanitising, so every table but the
   terraform plan one is unprotected
-status: To Do
+status: Done
 assignee:
   - TASK-2044
 created_date: '2026-08-28 21:30'
-updated_date: '2026-08-29 11:35'
+updated_date: '2026-08-29 12:33'
 labels:
   - code-review-rust
   - security
@@ -44,8 +44,8 @@ cross-crate home explicitly but filed the finding against the ingress crate.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 OpsTable exposes a sanitising text-cell constructor that strips C0/C1 control characters, and it is the documented way to render untrusted text
-- [ ] #2 Callers rendering externally sourced strings into a table use that constructor
-- [ ] #3 extensions-terraform/plan/src/render.rs delegates to the shared helper instead of keeping its own sanitize_terminal_text
-- [ ] #4 A test asserts a control-sequence-bearing value rendered through OpsTable emits no ESC or CR byte
+- [x] #1 OpsTable exposes a sanitising text-cell constructor that strips C0/C1 control characters, and it is the documented way to render untrusted text
+- [x] #2 Callers rendering externally sourced strings into a table use that constructor
+- [x] #3 extensions-terraform/plan/src/render.rs delegates to the shared helper instead of keeping its own sanitize_terminal_text
+- [x] #4 A test asserts a control-sequence-bearing value rendered through OpsTable emits no ESC or CR byte
 <!-- AC:END -->

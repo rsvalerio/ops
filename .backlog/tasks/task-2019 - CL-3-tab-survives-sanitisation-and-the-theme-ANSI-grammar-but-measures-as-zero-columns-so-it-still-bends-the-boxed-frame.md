@@ -3,11 +3,11 @@ id: TASK-2019
 title: >-
   CL-3: tab survives sanitisation and the theme ANSI grammar but measures as
   zero columns, so it still bends the boxed frame
-status: To Do
+status: Done
 assignee:
   - TASK-2044
 created_date: '2026-08-28 19:28'
-updated_date: '2026-08-29 11:35'
+updated_date: '2026-08-29 12:23'
 labels:
   - code-review-rust
   - security
@@ -36,6 +36,6 @@ Consequence: a tab in a captured stderr line, a report detail, or a step label m
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 visible_width and strip_ansi agree with what a terminal paints for a string containing a tab, either by expanding it to spaces or by dropping it
-- [ ] #2 a test renders a boxed error-block line whose stderr text contains a tab and asserts the line's visible width equals the frame width and ends with the closing bar
+- [x] #1 visible_width and strip_ansi agree with what a terminal paints for a string containing a tab, either by expanding it to spaces or by dropping it
+- [x] #2 a test renders a boxed error-block line whose stderr text contains a tab and asserts the line's visible width equals the frame width and ends with the closing bar
 <!-- AC:END -->
