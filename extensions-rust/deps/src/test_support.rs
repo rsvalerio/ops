@@ -43,6 +43,22 @@ impl EnvVarGuard {
         unsafe { std::env::set_var(&key, value) };
         Self { key, prev }
     }
+
+    /// Remove `key` for the guard's lifetime, restoring its prior value on
+    /// drop.
+    ///
+    /// TEST-23: the mirror of [`Self::set`], for tests whose subject reads
+    /// the *absence* of an override — a config loader asserting the on-disk
+    /// value wins has to be sure the ambient environment is not supplying
+    /// one, or it passes for the wrong reason on a developer machine and
+    /// fails on the one where the variable happens to be exported.
+    pub fn unset<K: AsRef<OsStr>>(key: K) -> Self {
+        let key = key.as_ref().to_os_string();
+        let prev = std::env::var_os(&key);
+        // SAFETY: same serial-execution argument as `set`.
+        unsafe { std::env::remove_var(&key) };
+        Self { key, prev }
+    }
 }
 
 impl Drop for EnvVarGuard {

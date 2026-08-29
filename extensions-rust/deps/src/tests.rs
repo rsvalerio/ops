@@ -322,6 +322,11 @@ mod user_config_tests {
         // panic this test can produce cannot leave the whole binary running
         // in a tempdir that `TempDir::drop` then deletes.
         let _cwd = crate::test_support::CwdGuard::set(dir.path());
+        // TEST-23: `merge_env_vars` overlays any `OPS__*` variable on top of
+        // the on-disk config, so an ambient `OPS__STACK` would decide this
+        // assertion instead of the `.ops.toml` the test just wrote. Clear it
+        // for the call and restore whatever the developer had.
+        let _stack = crate::test_support::EnvVarGuard::unset("OPS__STACK");
 
         let ctx = build_user_context().expect("build_user_context");
 

@@ -369,6 +369,18 @@ fn inheritable_field_default_is_absent() {
 fn inheritable_field_absent_round_trips_through_json() {
     let manifest = CargoToml::parse("[package]\nname = \"test\"\n").expect("should parse");
     let json = serde_json::to_value(&manifest).expect("serialize");
+    // TEST-9: `Index` yields `Null` for a *missing* key too, so `is_null()`
+    // alone would stay green if the field stopped being serialised at all —
+    // which is a different (and also wrong) outcome from "serialised as
+    // null". Pin the key's presence first.
+    let package = json["package"]
+        .as_object()
+        .expect("package must serialise as an object");
+    assert!(
+        package.contains_key("version"),
+        "an absent field must still be emitted, got keys {:?}",
+        package.keys().collect::<Vec<_>>()
+    );
     assert!(
         json["package"]["version"].is_null(),
         "an absent field must serialise as null, got {:?}",
