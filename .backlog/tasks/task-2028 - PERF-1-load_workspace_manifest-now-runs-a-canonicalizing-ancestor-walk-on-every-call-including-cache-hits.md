@@ -3,11 +3,11 @@ id: TASK-2028
 title: >-
   PERF-1: load_workspace_manifest now runs a canonicalizing ancestor walk on
   every call, including cache hits
-status: To Do
+status: Done
 assignee:
   - TASK-2048
 created_date: '2026-08-28 20:27'
-updated_date: '2026-08-29 11:35'
+updated_date: '2026-08-29 13:24'
 labels:
   - code-review-rust
   - performance
@@ -36,7 +36,13 @@ This is a deliberate trade — the previous hot path was cheap and wrong (it res
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The workspace-root resolution for a given cwd is performed at most once per process, so a typed-manifest cache hit costs no additional canonicalizing ancestor walk
-- [ ] #2 The memoization states its key, value, maximum size and invalidation expectation, matching the contract style already used by manifest_cache
-- [ ] #3 The cache remains keyed by the resolved workspace root so two cwds inside one workspace still share a single entry (manifest_cache::tests::cache_is_keyed_by_workspace_root_not_cwd still passes)
+- [x] #1 The workspace-root resolution for a given cwd is performed at most once per process, so a typed-manifest cache hit costs no additional canonicalizing ancestor walk
+- [x] #2 The memoization states its key, value, maximum size and invalidation expectation, matching the contract style already used by manifest_cache
+- [x] #3 The cache remains keyed by the resolved workspace root so two cwds inside one workspace still share a single entry (manifest_cache::tests::cache_is_keyed_by_workspace_root_not_cwd still passes)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented in code-review/TASK-2048: new `extensions-rust/about/src/workspace_root_cache.rs` memoizes `cwd -> Arc<PathBuf>` resolved root (cap 64, LRU via ops_about::lru, ctx.refresh re-resolves and replaces, failures never memoized). `manifest::resolve_workspace_root` consults it, so a typed-manifest cache hit no longer pays the canonicalizing ancestor walk. Test: manifest::tests::workspace_root_resolution_is_memoized_per_cwd; manifest_cache::tests::cache_is_keyed_by_workspace_root_not_cwd still passes.
+<!-- SECTION:NOTES:END -->
