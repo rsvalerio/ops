@@ -304,7 +304,7 @@ mod cache_tests {
         cached_query_project_coverage, project_coverage_cache, ProjectCoverageCache,
         COVERAGE_VICTIM_QUEUE_SLACK, MAX_COVERAGE_CACHE_ENTRIES,
     };
-    use ops_about::test_support::TracingBuf;
+    use ops_about::test_support::{capture_tracing, pin_global_dispatcher, TracingBuf};
     use ops_duckdb::DuckDb;
     use std::sync::Arc;
 
@@ -354,18 +354,11 @@ mod cache_tests {
             .expect("seed broken-schema coverage_files");
         }
 
-        let buf = TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
         // Two call-site simulation: both providers run during a single
         // `ops about`, so we invoke the cache helper twice. The first call
         // dispatches the query and logs once; the second must hit the
         // cache and stay silent.
-        let (first, second) = tracing::subscriber::with_default(subscriber, || {
+        let (logs, (first, second)) = capture_tracing(tracing::Level::WARN, || {
             let a = cached_query_project_coverage(&db);
             let b = cached_query_project_coverage(&db);
             (a, b)
@@ -376,7 +369,6 @@ mod cache_tests {
         assert!(first.is_none(), "first call must hit fallback");
         assert!(second.is_none(), "second call must hit cached fallback");
 
-        let logs = buf.captured();
         // Count the `query="query_project_coverage"` tracing field rather
         // than the bare substring: `query_or_warn` includes the label both
         // as a tracing field and (via the shared `query_project_row`
@@ -417,6 +409,12 @@ mod cache_tests {
             .expect("seed broken-schema coverage_files");
         }
 
+        // Per-thread subscribers are the one shape `capture_tracing` cannot
+        // provide (its subscriber is the calling thread's default), so this
+        // test owns the buffer — and therefore has to pin the global
+        // dispatcher itself, or `tracing` can cache `Interest::never()` for
+        // the warn callsite and the capture comes back empty at random.
+        pin_global_dispatcher();
         let captured = TracingBuf::default();
 
         let make_subscriber = || {
@@ -567,7 +565,7 @@ mod cache_tests {
 #[cfg(all(test, unix))]
 mod tests {
     use super::RustCoverageProvider;
-    use ops_about::test_support::TracingBuf;
+    use ops_about::test_support::capture_tracing;
     use ops_duckdb::DuckDb;
     use ops_extension::{Context, DataProvider};
     use std::ffi::OsStr;
@@ -625,13 +623,7 @@ mod tests {
         let mut ctx = Context::test_context(root);
         ctx.attach_db(Arc::new(db));
 
-        let buf = TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-        let value = tracing::subscriber::with_default(subscriber, || {
+        let (logs, value) = capture_tracing(tracing::Level::WARN, || {
             RustCoverageProvider.provide(&mut ctx).expect("provide")
         });
 
@@ -645,7 +637,6 @@ mod tests {
             Some(0),
             "per-crate coverage must be skipped for a non-UTF-8 root, got: {value}"
         );
-        let logs = buf.captured();
         assert!(
             logs.contains("non-UTF-8 workspace root"),
             "the short-circuit must leave a breadcrumb, got: {logs}"
