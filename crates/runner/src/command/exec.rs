@@ -135,7 +135,55 @@ type DrainOutcome = Result<std::io::Result<(Vec<u8>, u64)>, tokio::task::JoinErr
 ///
 /// Generous on purpose: a healthy step drains in microseconds, so this is
 /// only ever paid by a step that is already misbehaving.
-const POST_EXIT_DRAIN_GRACE: Duration = Duration::from_secs(5);
+///
+/// CONC-9 / TASK-2022: this deadline can now terminate a descendant
+/// process, which makes it the highest-consequence default in the module —
+/// a step that deliberately leaves a grandchild streaming to the inherited
+/// pipe has its capture truncated and that grandchild killed. Operators
+/// whose workload legitimately needs longer (or who want the deadline
+/// tighter on a heavily loaded CI runner where a slow-but-progressing
+/// drain could reach 5s) override it through
+/// [`DRAIN_GRACE_ENV`] via [`post_exit_drain_grace`], using the same
+/// parse / clamp / warn-on-fallback contract as `OPS_OUTPUT_BYTE_CAP` and
+/// `OPS_MAX_PARALLEL`.
+const DEFAULT_POST_EXIT_DRAIN_GRACE_SECS: u64 = 5;
+
+/// Operator override for [`DEFAULT_POST_EXIT_DRAIN_GRACE_SECS`], in whole
+/// seconds. Unset or empty means the default; `0`, an unparseable value, or
+/// a value above [`MAX_POST_EXIT_DRAIN_GRACE_SECS`] falls back / clamps
+/// with a `tracing::warn!`, exactly like `OPS_MAX_PARALLEL`.
+const DRAIN_GRACE_ENV: &str = "OPS_OUTPUT_DRAIN_GRACE_SECS";
+
+/// Ceiling for [`DRAIN_GRACE_ENV`] (one hour). A bounded drain is the whole
+/// point of the deadline, so an operator cannot restore the unbounded
+/// pre-TASK-1919 hang by setting an arbitrarily large value.
+const MAX_POST_EXIT_DRAIN_GRACE_SECS: u64 = 3600;
+
+/// PERF-3: resolved once per process, mirroring `output_byte_cap`'s
+/// `OnceLock` contract — the value is process-global and constant for a
+/// run, and the drain path runs under every parallel step.
+static POST_EXIT_DRAIN_GRACE: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+
+/// The `(default, ceiling)` pair the shared resolver expects, in `usize`.
+/// Both constants are small literals, so the conversion is infallible on
+/// every supported target; `unwrap_or(usize::MAX)` keeps it total without an
+/// `as` cast (see `docs/clippy.md` on `as_conversions`).
+fn drain_grace_bounds() -> (usize, usize) {
+    (
+        usize::try_from(DEFAULT_POST_EXIT_DRAIN_GRACE_SECS).unwrap_or(usize::MAX),
+        usize::try_from(MAX_POST_EXIT_DRAIN_GRACE_SECS).unwrap_or(usize::MAX),
+    )
+}
+
+/// Resolve the post-exit drain deadline, honouring [`DRAIN_GRACE_ENV`].
+fn post_exit_drain_grace() -> Duration {
+    *POST_EXIT_DRAIN_GRACE.get_or_init(|| {
+        let (default, ceiling) = drain_grace_bounds();
+        let secs = super::parallel::resolve_env_usize(DRAIN_GRACE_ENV, default, ceiling);
+        // The resolver clamps to `ceiling`, so this conversion cannot fail.
+        Duration::from_secs(u64::try_from(secs).unwrap_or(MAX_POST_EXIT_DRAIN_GRACE_SECS))
+    })
+}
 
 /// Second, short deadline applied after the orphan holding the pipes has
 /// been `SIGKILL`ed: the read side should observe EOF essentially at once.
@@ -144,7 +192,7 @@ const POST_KILL_DRAIN_GRACE: Duration = Duration::from_secs(2);
 /// Await both drain tasks by id, recording each into its own slot.
 ///
 /// Split out of [`spawn_capped`] so the collection can be *resumed*: the
-/// first call runs under [`POST_EXIT_DRAIN_GRACE`] and, if that expires, the
+/// first call runs under [`post_exit_drain_grace`] and, if that expires, the
 /// second call resumes with whichever stream already returned instead of
 /// restarting from nothing.
 async fn collect_drain_results(
@@ -192,7 +240,7 @@ fn missing_drain() -> std::io::Error {
 /// leader and owned by a [`ChildGroup`] guard, so a cancelled step (timeout
 /// or `fail_fast`) tears down the child's whole descendant tree rather than
 /// only its root, and the post-exit drain is bounded by
-/// [`POST_EXIT_DRAIN_GRACE`] so an orphan holding the pipe cannot hang the
+/// [`post_exit_drain_grace`] so an orphan holding the pipe cannot hang the
 /// plan.
 async fn spawn_capped(
     cmd: &mut tokio::process::Command,
@@ -260,8 +308,9 @@ async fn spawn_capped(
     // so anything still holding the write end of these pipes is a
     // grandchild that outlived it; `read_capped` would otherwise wait for an
     // EOF that never comes.
+    let drain_grace = post_exit_drain_grace();
     if tokio::time::timeout(
-        POST_EXIT_DRAIN_GRACE,
+        drain_grace,
         collect_drain_results(
             &mut drains,
             stdout_id,
@@ -274,9 +323,10 @@ async fn spawn_capped(
     .is_err()
     {
         tracing::warn!(
-            grace_secs = POST_EXIT_DRAIN_GRACE.as_secs(),
+            grace_secs = drain_grace.as_secs(),
+            env = DRAIN_GRACE_ENV,
             "captured output still open {}s after the child exited; killing the process group",
-            POST_EXIT_DRAIN_GRACE.as_secs()
+            drain_grace.as_secs()
         );
         // Straight to SIGKILL: these are orphans of an already-exited
         // leader, there is nothing left to shut down gracefully, and the
@@ -780,7 +830,7 @@ async fn forward_terminal_event_or_drop(
         _ = tx.send(ev) => {}
         () = abort.cancelled() => {
             tracing::debug!(
-                id = %id,
+                id = ?id.as_str(),
                 "CONC-9: dropping terminal event under abort to avoid blocking on full outer channel"
             );
         }
@@ -896,7 +946,7 @@ pub async fn exec_standalone(
             .await
         {
             tracing::warn!(
-                step_id = %id,
+                step_id = ?id.as_str(),
                 dropped_count = dropped_outputs,
                 "outer event channel closed; dropped-output count cannot be sent to display \
                  (recording in logs so the count survives)",
@@ -930,6 +980,78 @@ pub fn resolution_failure(
 }
 
 #[cfg(test)]
+mod drain_grace_knob_tests {
+    use super::{drain_grace_bounds, DRAIN_GRACE_ENV};
+    use crate::command::parallel::resolve_env_usize;
+
+    /// Run `body` with `DRAIN_GRACE_ENV` set to `value` (or removed when
+    /// `None`), restoring the previous value afterwards.
+    fn with_env<T>(value: Option<&str>, body: impl FnOnce() -> T) -> T {
+        let prev = std::env::var_os(DRAIN_GRACE_ENV);
+        // SAFETY: these tests are serialised via `serial_test`, so no other
+        // thread reads the environment mid-mutation.
+        unsafe {
+            match value {
+                Some(v) => std::env::set_var(DRAIN_GRACE_ENV, v),
+                None => std::env::remove_var(DRAIN_GRACE_ENV),
+            }
+        }
+        let out = body();
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var(DRAIN_GRACE_ENV, v),
+                None => std::env::remove_var(DRAIN_GRACE_ENV),
+            }
+        }
+        out
+    }
+
+    /// The resolver is the shared one, so the cached `post_exit_drain_grace`
+    /// wrapper cannot be exercised twice in one process; drive
+    /// `resolve_env_usize` directly, the way the `OPS_MAX_PARALLEL` tests do.
+    fn resolve(value: Option<&str>) -> usize {
+        let (default, ceiling) = drain_grace_bounds();
+        with_env(value, || {
+            resolve_env_usize(DRAIN_GRACE_ENV, default, ceiling)
+        })
+    }
+
+    #[test]
+    #[serial_test::serial(env_drain_grace)]
+    fn unset_uses_the_default() {
+        assert_eq!(resolve(None), drain_grace_bounds().0);
+    }
+
+    #[test]
+    #[serial_test::serial(env_drain_grace)]
+    fn a_valid_value_is_honoured() {
+        assert_eq!(resolve(Some("30")), 30);
+    }
+
+    /// CONC-9 / TASK-2022 AC #2: an unparseable or zero value falls back to
+    /// the default rather than silently disabling the deadline.
+    #[test]
+    #[serial_test::serial(env_drain_grace)]
+    fn unusable_values_fall_back_to_the_default() {
+        let default = drain_grace_bounds().0;
+        assert_eq!(resolve(Some("later")), default);
+        assert_eq!(resolve(Some("0")), default);
+        assert_eq!(resolve(Some("")), default);
+    }
+
+    /// An operator cannot restore the unbounded pre-TASK-1919 hang.
+    #[test]
+    #[serial_test::serial(env_drain_grace)]
+    fn out_of_range_clamps_to_the_ceiling() {
+        assert_eq!(
+            resolve(Some("999999")),
+            drain_grace_bounds().1,
+            "an arbitrarily large grace must clamp, not pass through"
+        );
+    }
+}
+
+#[cfg(test)]
 mod spawn_error_log_format_tests {
     /// SEC-21 / TASK-1127: `log_and_redact_spawn_error` formats `program`
     /// (the raw `.ops.toml`-supplied program string) via the `?` (Debug)
@@ -944,5 +1066,30 @@ mod spawn_error_log_format_tests {
         assert!(!rendered.contains('\n'));
         assert!(!rendered.contains('\u{1b}'));
         assert!(rendered.contains("\\n"));
+    }
+
+    /// SEC-21 / TASK-2020: `.ops.toml` table keys and `aliases` entries
+    /// become `CommandId`s and reach `tracing` fields across the crate.
+    /// They are rendered with the `?` (Debug) formatter applied to
+    /// `as_str()`, which escapes embedded newlines / ANSI escapes — so a
+    /// crafted id cannot forge a log record or repaint the operator's
+    /// terminal — while keeping the field shape a bare quoted string
+    /// rather than `CommandId("...")`.
+    #[test]
+    fn command_id_field_debug_escapes_control_characters() {
+        let id = ops_core::config::CommandId::from("evil\nFAKE_LOG_LINE\n\u{1b}[31mred\u{1b}[0m");
+
+        let rendered = format!("{:?}", id.as_str());
+        assert!(!rendered.contains('\n'), "got: {rendered}");
+        assert!(!rendered.contains('\u{1b}'), "got: {rendered}");
+        assert!(rendered.contains("\\n"), "got: {rendered}");
+        assert!(
+            rendered.starts_with('"') && rendered.ends_with('"'),
+            "got: {rendered}"
+        );
+        assert!(!rendered.contains("CommandId"), "got: {rendered}");
+
+        // The Display rendering this replaced would not have escaped.
+        assert!(format!("{id}").contains('\n'));
     }
 }

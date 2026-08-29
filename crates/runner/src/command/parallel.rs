@@ -121,7 +121,11 @@ fn resolve_event_budget() -> usize {
 pub const ZERO_NOT_ALLOWED_MSG: &str =
     "zero is not allowed; use 1 for sequential execution; falling back to default";
 
-fn resolve_env_usize(var: &'static str, default: usize, ceiling: usize) -> usize {
+/// Shared by `exec.rs` for `OPS_OUTPUT_DRAIN_GRACE_SECS` (CONC-9 /
+/// TASK-2022) so every resource knob in the crate answers to the same
+/// parse / clamp / warn-on-fallback contract instead of a second copy of
+/// it (DUP-1).
+pub(super) fn resolve_env_usize(var: &'static str, default: usize, ceiling: usize) -> usize {
     let Ok(raw) = std::env::var(var) else {
         return default;
     };
@@ -144,7 +148,7 @@ fn resolve_env_usize(var: &'static str, default: usize, ceiling: usize) -> usize
         Err(_) => {
             tracing::warn!(
                 env = var,
-                value = %raw,
+                value = ?raw,
                 default,
                 "unparseable value; falling back to default"
             );
@@ -233,7 +237,7 @@ impl CommandRunner {
                 // "panicked" for siblings that were intentionally
                 // stopped.
                 if e.is_cancelled() {
-                    tracing::debug!(id = %cmd_id, "parallel task cancelled (fail_fast abort)");
+                    tracing::debug!(id = ?cmd_id.as_str(), "parallel task cancelled (fail_fast abort)");
                     results.push(StepResult::cancelled(cmd_id));
                 } else {
                     // SEC-21 / TASK-0334: a JoinError's Display embeds the
@@ -244,7 +248,7 @@ impl CommandRunner {
                     // output, mirroring the leak channel SEC-22 closed for
                     // spawn errors. Surface a generic message and log the
                     // raw payload at debug for operators.
-                    tracing::debug!(id = %cmd_id, error = %e, "parallel task panicked (full payload)");
+                    tracing::debug!(id = ?cmd_id.as_str(), error = %e, "parallel task panicked (full payload)");
                     results.push(StepResult::failure(
                         cmd_id,
                         Duration::ZERO,
