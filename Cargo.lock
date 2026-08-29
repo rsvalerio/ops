@@ -1769,7 +1769,6 @@ dependencies = [
  "serde_path_to_error",
  "tempfile",
  "tracing",
- "tracing-subscriber",
  "unicode-segmentation",
 ]
 
@@ -1826,7 +1825,6 @@ dependencies = [
  "tempfile",
  "toml 1.1.4+spec-1.1.0",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -2030,7 +2028,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
