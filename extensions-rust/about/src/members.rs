@@ -15,10 +15,14 @@
 //! by `deps_provider` where dependency graph data is unavoidable.
 
 use ops_cargo_toml::CargoToml;
+use std::collections::HashSet;
 use std::path::Path;
 
 /// Resolve `[workspace].members` globs to concrete member paths, honoring
 /// `[workspace].exclude`. Members without a `*` are passed through verbatim.
+///
+/// FEAT / TASK-2040: `exclude` entries carry globs too, and are matched with
+/// the same single-`*` semantics — see [`ExcludeSet`].
 ///
 /// Supports the simple `prefix/*` shape Cargo workspaces use in practice.
 /// More elaborate patterns (`prefix/*/suffix`, `**`, `?`, character classes)
@@ -38,7 +42,7 @@ pub fn resolved_workspace_members(manifest: &CargoToml, workspace_root: &Path) -
         return Vec::new();
     };
 
-    let exclude: std::collections::HashSet<&str> = ws.exclude.iter().map(String::as_str).collect();
+    let exclude = ExcludeSet::from_entries(&ws.exclude);
 
     let mut resolved = Vec::new();
     for member in &ws.members {
@@ -67,7 +71,7 @@ pub fn resolved_workspace_members(manifest: &CargoToml, workspace_root: &Path) -
         }
     }
 
-    resolved.retain(|m| !exclude.contains(m.as_str()));
+    resolved.retain(|m| !exclude.excludes(m));
     resolved.sort();
     // PATTERN-1 (TASK-1042): dedup the resolved member list. Cargo treats
     // `[workspace].members` with set semantics — overlapping entries like
@@ -77,6 +81,85 @@ pub fn resolved_workspace_members(manifest: &CargoToml, workspace_root: &Path) -
     // in the units / coverage providers, diverging from `cargo metadata`.
     resolved.dedup();
     resolved
+}
+
+/// FEAT / TASK-2040: `[workspace].exclude` entries, matched with the same
+/// single-`*` semantics `[workspace].members` entries get.
+///
+/// Cargo accepts glob shapes in `exclude` exactly as it does in `members`, but
+/// this module used to apply `exclude` as an exact string-set membership test
+/// against the *resolved* member list. A glob exclude therefore matched no
+/// resolved member and every directory the user meant to drop was still
+/// counted — silently, and biased toward over-counting: `module_count`
+/// (identity provider) and the `ProjectUnit` list (units / coverage providers)
+/// diverged from `cargo metadata` with no warn to explain it.
+///
+/// Patterns are matched against the already-resolved member strings rather
+/// than expanded on disk. An excluded path is by definition *not* a workspace
+/// member, so `read_dir`-ing it would add IO and a second family of
+/// unreadable-path failure modes without telling us anything the resolved list
+/// does not already say.
+struct ExcludeSet<'a> {
+    /// Entries with no expandable `*`: matched verbatim, as before.
+    literals: HashSet<&'a str>,
+    /// The text before the `*` of a single-`*` pattern. A member matches when
+    /// it extends the prefix by exactly one path segment, which is what the
+    /// `read_dir(prefix)` expansion means for `members` — so `crates/*`
+    /// excludes `crates/foo` but not `crates/foo/bar`, and `crates/gen-*`
+    /// excludes `crates/gen-a`. Unlike `members`, a partial-segment prefix is
+    /// supported here: matching is string work, so it needs no directory to
+    /// `read_dir`.
+    prefixes: Vec<&'a str>,
+}
+
+impl<'a> ExcludeSet<'a> {
+    fn from_entries(entries: &'a [String]) -> Self {
+        let mut literals = HashSet::new();
+        let mut prefixes = Vec::new();
+        for entry in entries {
+            match entry.split_once('*') {
+                Some((prefix, after_star)) if !is_unsupported_glob(entry, after_star) => {
+                    prefixes.push(prefix);
+                }
+                // A shape we cannot expand (`**`, `?`, `[…]`, `{…}`) is kept
+                // as a literal — the pre-TASK-2040 behaviour — and announced,
+                // mirroring the `MemberShape::Unsupported` passthrough rather
+                // than dropping the entry on the floor. ERR-7 (TASK-0941):
+                // Debug-format the manifest-controlled pattern so embedded
+                // newlines / ANSI escapes cannot forge log records.
+                Some(_) => {
+                    tracing::warn!(
+                        pattern = ?entry,
+                        "workspace exclude glob shape not supported by ops about; matching it literally"
+                    );
+                    literals.insert(entry.as_str());
+                }
+                None => {
+                    if contains_unsupported_glob_meta(entry) {
+                        tracing::warn!(
+                            pattern = ?entry,
+                            "workspace exclude glob shape not supported by ops about; matching it literally"
+                        );
+                    }
+                    literals.insert(entry.as_str());
+                }
+            }
+        }
+        Self { literals, prefixes }
+    }
+
+    /// Whether `member` — a resolved, workspace-relative member path — is
+    /// excluded.
+    fn excludes(&self, member: &str) -> bool {
+        if self.literals.contains(member) {
+            return true;
+        }
+        self.prefixes.iter().any(|prefix| {
+            member
+                .strip_prefix(prefix)
+                .is_some_and(|rest| !rest.is_empty() && !rest.contains(std::path::is_separator))
+        })
+    }
 }
 
 /// FN-1 / TASK-1156: classified shape of one `[workspace].members` entry,
@@ -495,6 +578,97 @@ mod tests {
         assert_eq!(
             resolved,
             vec!["crates/bar".to_string(), "crates/foo".to_string()]
+        );
+    }
+
+    /// FEAT / TASK-2040: a glob `exclude` used to match nothing, because
+    /// exclusion was an exact string-set test against the resolved member
+    /// list. `crates/generated-*` must drop exactly the members it names —
+    /// whole-segment (`vendor/*`) and partial-segment (`crates/generated-*`)
+    /// prefixes alike — and leave everything else in place.
+    #[test]
+    fn exclude_globs_drop_the_members_they_match() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        for path in [
+            "crates/core",
+            "crates/generated-a",
+            "crates/generated-b",
+            "vendor/one",
+            "vendor/two",
+        ] {
+            std::fs::create_dir_all(root.join(path)).unwrap();
+            std::fs::write(
+                root.join(path).join("Cargo.toml"),
+                "[package]\nname=\"x\"\n",
+            )
+            .unwrap();
+        }
+
+        let manifest = manifest_with_members_and_exclude(
+            &["crates/*", "vendor/*"],
+            &["crates/generated-*", "vendor/*"],
+        );
+
+        assert_eq!(
+            resolved_workspace_members(&manifest, root),
+            vec!["crates/core".to_string()],
+            "glob excludes must drop the members they match"
+        );
+    }
+
+    /// The exclude prefix must consume exactly one path segment, so a glob
+    /// exclude cannot reach members it does not name: `crates/*` excludes
+    /// `crates/foo` but neither `crates/foo/nested` nor `crates-extra/foo`.
+    #[test]
+    fn exclude_glob_matches_one_segment_only() {
+        let exclude = vec!["crates/*".to_string()];
+        let set = ExcludeSet::from_entries(&exclude);
+
+        assert!(set.excludes("crates/foo"));
+        assert!(!set.excludes("crates/foo/nested"));
+        assert!(!set.excludes("crates-extra/foo"));
+        assert!(!set.excludes("crates/"), "an empty segment is not a member");
+        assert!(!set.excludes("crates"));
+    }
+
+    /// An exclude shape the expander cannot interpret (`**`, `?`, `[…]`,
+    /// `{…}`) keeps the pre-TASK-2040 literal behaviour and says so, instead
+    /// of being silently reinterpreted as a prefix that would over-exclude.
+    #[test]
+    fn unsupported_exclude_shapes_stay_literal_and_warn() {
+        let buf = ops_about::test_support::TracingBuf::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf.clone())
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+
+        let exclude = vec![
+            "crates/**".to_string(),
+            "crates/{core,cli}".to_string(),
+            "crates/foo?".to_string(),
+        ];
+        let excluded_literally = tracing::subscriber::with_default(subscriber, || {
+            let set = ExcludeSet::from_entries(&exclude);
+            (
+                set.excludes("crates/**"),
+                set.excludes("crates/core"),
+                set.excludes("crates/foo"),
+            )
+        });
+
+        assert_eq!(
+            excluded_literally,
+            (true, false, false),
+            "unsupported shapes must match literally, never as a prefix"
+        );
+        let logs = buf.captured();
+        assert_eq!(
+            logs.matches("workspace exclude glob shape not supported")
+                .count(),
+            3,
+            "every unsupported exclude shape must be announced, got: {logs}"
         );
     }
 
