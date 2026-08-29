@@ -98,8 +98,9 @@ fn probe_git_entry(candidate: &Path) -> Option<PathBuf> {
 /// * **Relative**: textual `..` cap, then the canonical result must sit under
 ///   the anchor exactly [`MAX_GITDIR_PARENT_TRAVERSAL`] levels above the
 ///   pointer's parent.
-/// * **Absolute**: the canonical result must sit under that same anchor, *or*
-///   carry git's own back-reference — see [`resolve_absolute_gitdir`].
+/// * **Absolute**: the canonical result must sit under that same anchor, carry
+///   git's own back-reference, or be a substantive separate git directory —
+///   see [`resolve_absolute_gitdir`].
 ///
 /// Returns `None` (and emits a `tracing::debug!`) for any other shape.
 fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
@@ -232,6 +233,23 @@ fn canonicalize_gitdir_target(target: &Path) -> Option<PathBuf> {
 ///    this worktree, not one somebody redirected us to. This keeps genuinely
 ///    distant worktrees (`git worktree add /elsewhere/wt`) working, which a
 ///    containment rule alone would break.
+/// 3. **The `--separate-git-dir` layout** — the target is a substantive git
+///    directory in its own right (`HEAD` regular file plus `objects/` and
+///    `refs/` directories). `git init --separate-git-dir=/elsewhere/repo.git`
+///    writes an absolute pointer and, unlike `git worktree add`, writes **no**
+///    reverse link at all (verified against git 2.53): there is nothing in
+///    either direction to prove the pair beyond the target being a real
+///    repository. Rules 1 and 2 both reject that layout, so without this
+///    branch `find_git_dir` returns `None` for every separate-git-dir
+///    checkout whose gitdir sits more than [`MAX_GITDIR_PARENT_TRAVERSAL`]
+///    levels away.
+///
+/// Rule 3 is a substance check, not a containment proof — an attacker who can
+/// plant a `.git` file in the walk can point it at any real repository on the
+/// machine. What still stands behind it is
+/// `paths::canonical_git_dir`, which the installer runs on the resolved path
+/// and which additionally requires the directory be named `.git` or sit at
+/// `<repo>/.git/worktrees/<name>`.
 ///
 /// Realistic impact of the old shape was bounded by filesystem permissions —
 /// the redirect can only land where the invoking user could already write —
@@ -245,14 +263,27 @@ fn resolve_absolute_gitdir(pointer: &Path, parent: &Path, target: &Path) -> Opti
     if has_gitdir_backreference(&canonical_target, pointer) {
         return Some(canonical_target);
     }
+    if is_separate_git_dir(&canonical_target) {
+        return Some(canonical_target);
+    }
     // ERR-7 (TASK-0937): Debug-format paths, matching the relative-pointer
     // refusal paths.
     tracing::debug!(
         pointer = ?pointer.display(),
         target = ?canonical_target.display(),
-        "absolute gitdir pointer is neither anchored nor back-referenced by git; rejecting",
+        "absolute gitdir pointer is not anchored, back-referenced, or a separate git dir; rejecting",
     );
     None
+}
+
+/// True when `dir` has the substance of a repository git directory: a `HEAD`
+/// regular file plus `objects/` and `refs/` directories.
+///
+/// This is what `git init --separate-git-dir=<dir>` produces, and it is the
+/// only signal available for that layout — git writes no reverse link for it.
+/// A directory that merely *exists* at the pointed-to path does not qualify.
+fn is_separate_git_dir(dir: &Path) -> bool {
+    dir.join("HEAD").is_file() && dir.join("objects").is_dir() && dir.join("refs").is_dir()
 }
 
 /// True when `gitdir/gitdir` names `pointer` — the reverse link `git worktree
@@ -563,6 +594,59 @@ mod tests {
         std::fs::write(&pointer, format!("gitdir: {}\n", absolute.display())).unwrap();
 
         // No real `.git` anywhere up the chain — only the planted pointer.
+        assert_eq!(find_git_dir(&worktree), None);
+    }
+
+    /// SEC-14 / TASK-1890: `git init --separate-git-dir=<dir>` writes an
+    /// absolute pointer and **no** reverse link (verified against git 2.53),
+    /// so neither the anchor rule nor the back-reference rule accepts it and
+    /// `find_git_dir` used to return `None` for the whole checkout. The
+    /// substance of the target — `HEAD` plus `objects/` and `refs/` — is the
+    /// only proof the layout offers, and it is enough to resolve.
+    #[test]
+    fn find_git_dir_accepts_external_separate_git_dir() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Deep enough that the SEC-14 anchor (`<tmp>/work/a/b`) cannot
+        // contain the external gitdir.
+        let worktree = dir.path().join("work/a/b/c/checkout");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let external = dir.path().join("elsewhere/repo.git");
+        std::fs::create_dir_all(external.join("objects")).unwrap();
+        std::fs::create_dir_all(external.join("refs")).unwrap();
+        std::fs::write(external.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        // No `<gitdir>/gitdir` back-reference: that is the point of the case.
+        assert!(!external.join("gitdir").exists());
+
+        let canonical_external = std::fs::canonicalize(&external).unwrap();
+        std::fs::write(
+            worktree.join(".git"),
+            format!("gitdir: {}\n", canonical_external.display()),
+        )
+        .unwrap();
+
+        assert_eq!(find_git_dir(&worktree), Some(canonical_external));
+    }
+
+    /// The separate-git-dir allowance is a *substance* check, not an open
+    /// door: an out-of-scope absolute target that is merely a directory (or a
+    /// directory carrying a lone `HEAD`) still fails all three rules.
+    #[test]
+    fn find_git_dir_rejects_out_of_scope_absolute_target_without_git_substance() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let worktree = dir.path().join("work/a/b/c/checkout");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let planted = dir.path().join("elsewhere/.git");
+        std::fs::create_dir_all(&planted).unwrap();
+        // A convincing name and a HEAD, but no `objects/` and no `refs/`.
+        std::fs::write(planted.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+
+        let canonical = std::fs::canonicalize(&planted).unwrap();
+        std::fs::write(
+            worktree.join(".git"),
+            format!("gitdir: {}\n", canonical.display()),
+        )
+        .unwrap();
+
         assert_eq!(find_git_dir(&worktree), None);
     }
 
