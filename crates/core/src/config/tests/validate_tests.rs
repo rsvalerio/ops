@@ -675,12 +675,10 @@ fn scale_columns_handles_huge_widths_without_wrapping() {
 #[serial]
 fn load_config_rejects_duplicate_alias_across_commands() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let _xdg = EnvGuard::set(
-        "XDG_CONFIG_HOME",
-        dir.path().join("xdg-empty").display().to_string(),
-    );
+    // Isolates XDG and clears the resolver cache both on entry and on drop,
+    // so the cached tempdir path cannot outlive this test.
+    let _xdg = crate::test_utils::isolate_global_config(dir.path());
     let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
-    crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
     std::fs::write(
         dir.path().join(".ops.toml"),
         r#"
@@ -713,12 +711,10 @@ aliases = ["b"]
 #[serial]
 fn load_config_rejects_alias_shadowing_a_command_name() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let _xdg = EnvGuard::set(
-        "XDG_CONFIG_HOME",
-        dir.path().join("xdg-empty").display().to_string(),
-    );
+    // Isolates XDG and clears the resolver cache both on entry and on drop,
+    // so the cached tempdir path cannot outlive this test.
+    let _xdg = crate::test_utils::isolate_global_config(dir.path());
     let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
-    crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
     std::fs::write(
         dir.path().join(".ops.toml"),
         r#"
@@ -890,12 +886,10 @@ fn load_config_rejects_huge_left_pad() {
 #[serial]
 fn load_config_accepts_ordinary_left_pad() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let _xdg = EnvGuard::set(
-        "XDG_CONFIG_HOME",
-        dir.path().join("xdg-empty").display().to_string(),
-    );
+    // Isolates XDG and clears the resolver cache both on entry and on drop,
+    // so the cached tempdir path cannot outlive this test.
+    let _xdg = crate::test_utils::isolate_global_config(dir.path());
     let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
-    crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
     std::fs::write(dir.path().join(".ops.toml"), theme_toml("4")).unwrap();
 
     let config = crate::config::load_config_at(dir.path()).expect("an ordinary left_pad must load");
@@ -948,12 +942,10 @@ left_pad = {left_pad}
 /// Load a `.ops.toml` carrying `left_pad` and return the rendered error chain.
 fn load_config_with_left_pad(left_pad: &str) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
-    let _xdg = EnvGuard::set(
-        "XDG_CONFIG_HOME",
-        dir.path().join("xdg-empty").display().to_string(),
-    );
+    // Isolates XDG and clears the resolver cache both on entry and on drop,
+    // so the cached tempdir path cannot outlive this test.
+    let _xdg = crate::test_utils::isolate_global_config(dir.path());
     let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
-    crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
     std::fs::write(dir.path().join(".ops.toml"), theme_toml(left_pad)).unwrap();
 
     let err = crate::config::load_config_at(dir.path())

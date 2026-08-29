@@ -545,42 +545,6 @@ mod tests {
         );
     }
 
-    /// Point `XDG_CONFIG_HOME` at an empty directory and clear the resolver
-    /// cache, so a precedence test observes only the layers it wrote itself
-    /// and never the developer's real `~/.config/ops/config.toml`.
-    ///
-    /// Returns the guard; the caller must keep it alive for the whole test.
-    fn isolate_global_config(dir: &Path) -> GlobalConfigIsolation {
-        super::reset_global_config_path_cache(super::GlobalConfigPathResetToken::new());
-        let guard = crate::test_utils::EnvGuard::set(
-            "XDG_CONFIG_HOME",
-            dir.join("xdg-empty").display().to_string(),
-        );
-        super::reset_global_config_path_cache(super::GlobalConfigPathResetToken::new());
-        GlobalConfigIsolation { _env: guard }
-    }
-
-    /// Guard returned by [`isolate_global_config`].
-    ///
-    /// Restoring `XDG_CONFIG_HOME` is not enough on its own: the resolved
-    /// path is memoised in `GLOBAL_CONFIG_PATH`, so without this `Drop` the
-    /// cache would still hold the (now-deleted) tempdir path when the next
-    /// test resolves the global config.
-    struct GlobalConfigIsolation {
-        _env: crate::test_utils::EnvGuard,
-    }
-
-    impl Drop for GlobalConfigIsolation {
-        fn drop(&mut self) {
-            // This body runs before `_env`'s own `Drop` restores
-            // `XDG_CONFIG_HOME`, which is harmless: the cache is left
-            // *empty*, not repopulated, so the next resolution reads
-            // whatever the environment holds by then. These tests are
-            // `#[serial]`, so nothing resolves in the window between.
-            super::reset_global_config_path_cache(super::GlobalConfigPathResetToken::new());
-        }
-    }
-
     /// ARCH-11 / TASK-1851: nothing pinned that the `OPS__*` overlay applies at
     /// all. The whole mechanism rests on an undocumented `config-rs` detail —
     /// `prefix_separator` defaults to `separator`, so the stripped prefix is
@@ -593,7 +557,7 @@ mod tests {
     #[serial_test::serial]
     fn env_layer_overrides_the_local_ops_toml() {
         let dir = tempfile::tempdir().unwrap();
-        let _xdg = isolate_global_config(dir.path());
+        let _xdg = crate::test_utils::isolate_global_config(dir.path());
         fs::write(
             dir.path().join(".ops.toml"),
             "[output]\ntheme = \"from-ops-toml\"\n",
@@ -615,7 +579,7 @@ mod tests {
     #[serial_test::serial]
     fn conf_d_layer_overrides_the_local_ops_toml() {
         let dir = tempfile::tempdir().unwrap();
-        let _xdg = isolate_global_config(dir.path());
+        let _xdg = crate::test_utils::isolate_global_config(dir.path());
         let _env = crate::test_utils::EnvGuard::remove("OPS__OUTPUT__THEME");
         fs::write(
             dir.path().join(".ops.toml"),
@@ -645,7 +609,7 @@ mod tests {
     #[serial_test::serial]
     fn env_layer_overrides_conf_d() {
         let dir = tempfile::tempdir().unwrap();
-        let _xdg = isolate_global_config(dir.path());
+        let _xdg = crate::test_utils::isolate_global_config(dir.path());
         let ops_d = dir.path().join(".ops.d");
         fs::create_dir(&ops_d).unwrap();
         fs::write(
