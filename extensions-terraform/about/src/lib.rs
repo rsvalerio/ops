@@ -597,7 +597,12 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
         return Cow::Borrowed(content);
     }
     let mut out = String::with_capacity(content.len());
-    let mut chars = content.chars().peekable();
+    // DUP-1 / TASK-2057: a plain `Chars` rather than a `Peekable<Chars>`, so
+    // `chars.as_str()` hands the *remaining slice* to [`heredoc_terminator`]
+    // and this stage recognises openers with the same function [`scan_line`]
+    // uses instead of re-walking the grammar inline. `as_str().starts_with(…)`
+    // covers the one-character lookahead `peek` used to provide.
+    let mut chars = content.chars();
     let mut in_string = false;
     // Heredoc state. `pending` holds the terminator of an opener seen on the
     // current line; it becomes `heredoc` once the newline that begins the body
@@ -644,42 +649,37 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
                 out.push('"');
             }
             '#' => blank_line_comment(&mut chars, &mut out, 1),
-            '/' if chars.peek() == Some(&'/') => {
+            '/' if chars.as_str().starts_with('/') => {
                 chars.next();
                 blank_line_comment(&mut chars, &mut out, 2);
             }
-            '/' if chars.peek() == Some(&'*') => {
+            '/' if chars.as_str().starts_with('*') => {
                 chars.next();
                 blank_block_comment(&mut chars, &mut out);
             }
-            '<' if chars.peek() == Some(&'<') => {
+            '<' if chars.as_str().starts_with('<') => {
                 out.push('<');
                 let _ = chars.next();
                 out.push('<');
-                let indented = chars.peek() == Some(&'-');
-                if indented {
-                    let _ = chars.next();
-                    out.push('-');
-                }
-                let mut terminator = String::new();
-                while let Some(&next) = chars.peek() {
-                    let ok = if terminator.is_empty() {
-                        is_heredoc_ident_start(next)
-                    } else {
-                        is_heredoc_ident_char(next)
-                    };
-                    if !ok {
-                        break;
+                // DUP-1 / TASK-2057: one recogniser for the opener grammar.
+                // `Chars::as_str` borrows the *content*, not the iterator, so
+                // the matched terminator outlives the reassignment below.
+                let after_marker = chars.as_str();
+                if let Some((terminator, indented)) = heredoc_terminator(after_marker) {
+                    // The match is a prefix of `after_marker` — the optional
+                    // `-` plus the terminator — and both ends sit on char
+                    // boundaries, so the two `get`s always succeed.
+                    let consumed = usize::from(indented).saturating_add(terminator.len());
+                    if let (Some(opener), Some(rest)) =
+                        (after_marker.get(..consumed), after_marker.get(consumed..))
+                    {
+                        out.push_str(opener);
+                        pending = Some(Heredoc {
+                            terminator: terminator.to_owned(),
+                            indented,
+                        });
+                        chars = rest.chars();
                     }
-                    terminator.push(next);
-                    out.push(next);
-                    let _ = chars.next();
-                }
-                if !terminator.is_empty() {
-                    pending = Some(Heredoc {
-                        terminator,
-                        indented,
-                    });
                 }
             }
             _ => out.push(c),
@@ -693,11 +693,7 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
 ///
 /// `marker_len` is the width of the introducer already consumed by the caller,
 /// replaced with the same number of spaces so byte offsets do not shift.
-fn blank_line_comment(
-    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
-    out: &mut String,
-    marker_len: usize,
-) {
+fn blank_line_comment(chars: &mut std::str::Chars<'_>, out: &mut String, marker_len: usize) {
     for _ in 0..marker_len {
         out.push(' ');
     }
@@ -712,11 +708,11 @@ fn blank_line_comment(
 
 /// Blank a `/* … */` span, preserving newlines. The caller has already
 /// consumed the `/*`, whose two bytes are re-emitted as spaces.
-fn blank_block_comment(chars: &mut std::iter::Peekable<std::str::Chars<'_>>, out: &mut String) {
+fn blank_block_comment(chars: &mut std::str::Chars<'_>, out: &mut String) {
     out.push(' ');
     out.push(' ');
     while let Some(inner) = chars.next() {
-        if inner == '*' && chars.peek() == Some(&'/') {
+        if inner == '*' && chars.as_str().starts_with('/') {
             chars.next();
             out.push(' ');
             out.push(' ');
@@ -1434,6 +1430,73 @@ terraform {
         assert_eq!(
             extract_required_version(content),
             Some("~> 1.6".to_string())
+        );
+    }
+
+    /// DUP-1 / TASK-2057 AC#2: the two pipeline stages must agree on what
+    /// opens a heredoc. `strip_comments` passing a body through verbatim while
+    /// `scan_line` does not consider itself inside a heredoc puts raw shell
+    /// text back into the structural scan — the failure TASK-2031 fixed.
+    ///
+    /// Both stages now call [`heredoc_terminator`], so this test drives all
+    /// three against one table of opener spellings: the shared recogniser is
+    /// the oracle, `scan_line`'s heredoc state and the survival of a `#` line
+    /// under `strip_comments` are the two observations. A future widening
+    /// (`<<"EOT"`, a broader terminator charset) applied to one side alone
+    /// fails here.
+    #[test]
+    fn both_stages_recognise_the_same_heredoc_openers() {
+        for after_marker in [
+            "EOT",          // the ordinary spelling
+            "-EOT",         // indent-stripping
+            "_x",           // `_` is a legal start
+            "a-b",          // HCL adds `-` to XID_Continue
+            "終端",         // identifiers are Unicode
+            "e\u{301}nd",   // …including decomposed forms (TASK-2031)
+            "EOT trailing", // the terminator stops at the first non-ident
+            "\"EOT\"",      // quoted openers are not supported by either side
+            " EOT",         // no space is allowed before the terminator
+            "-",            // `<<-` with nothing after it opens nothing
+            "",             // a bare `<<`
+            "1BAD",         // XID_Start excludes digits
+            "#x",           // `<<#` is a comment introducer, not an opener
+        ] {
+            let expected = heredoc_terminator(after_marker);
+
+            let mut state = ScanState::new();
+            let _ = scan_line(&format!("x = <<{after_marker}"), &mut state);
+            assert_eq!(
+                state.heredoc.is_some(),
+                expected.is_some(),
+                "scan_line disagrees with heredoc_terminator on `<<{after_marker}`"
+            );
+
+            // A `#` line is blanked unless it sits inside a heredoc body, so
+            // its survival is the observable proof `strip_comments` opened one.
+            let content = format!("x = <<{after_marker}\n# body\n");
+            let stripped = strip_comments(&content);
+            assert_eq!(
+                stripped.contains("# body"),
+                expected.is_some(),
+                "strip_comments disagrees with heredoc_terminator on `<<{after_marker}`"
+            );
+        }
+    }
+
+    /// DUP-1 / TASK-2057: recognising the opener through the shared function
+    /// must still emit it verbatim — `strip_comments` preserves byte offsets
+    /// for everything that is not a comment, the `<<-` marker included.
+    #[test]
+    fn strip_comments_emits_the_heredoc_opener_verbatim() {
+        let content = "x = <<-終端\n# body\n終端\n# real\n";
+        let stripped = strip_comments(content);
+        assert!(
+            stripped.starts_with("x = <<-終端\n# body\n終端\n"),
+            "opener and body must round-trip unchanged; got: {stripped}"
+        );
+        assert!(
+            !stripped.contains("real"),
+            "a comment after the heredoc must still be blanked; got: {stripped}"
         );
     }
 
