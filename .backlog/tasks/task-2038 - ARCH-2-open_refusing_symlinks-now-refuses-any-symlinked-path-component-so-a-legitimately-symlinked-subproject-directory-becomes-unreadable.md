@@ -3,11 +3,11 @@ id: TASK-2038
 title: >-
   ARCH-2: open_refusing_symlinks now refuses any symlinked path component, so a
   legitimately symlinked subproject directory becomes unreadable
-status: To Do
+status: Done
 assignee:
   - TASK-2041
 created_date: '2026-08-29 00:35'
-updated_date: '2026-08-29 11:35'
+updated_date: '2026-08-29 12:59'
 labels:
   - code-review-rust
   - architecture
@@ -33,12 +33,14 @@ In practice the exposure is small: `std::env::current_dir()` returns a fully res
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A decision is recorded on whether open_refusing_symlinks gains a root-anchored variant that permits symlinks above a given workspace root while still refusing them beneath it
-- [ ] #2 A refused symlink at an intermediate component leaves a tracing breadcrumb at the manifest-reading call sites, so a degraded about card is explainable
+- [x] #1 A decision is recorded on whether open_refusing_symlinks gains a root-anchored variant that permits symlinks above a given workspace root while still refusing them beneath it
+- [x] #2 A refused symlink at an intermediate component leaves a tracing breadcrumb at the manifest-reading call sites, so a degraded about card is explainable
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Second observed symptom (code-review run 20260828, part 3): the same root cause also breaks `.ops.toml` loading, not just the about-card manifest readers. Path: `config::load_config_at` -> `read_config_file` -> `read_capped_toml_file` -> `read_capped_toml_file_with_policy(.., SymlinkPolicy::Refuse)` -> `text::open_refusing_symlinks` -> `unix_open::open_regular_no_symlink`, which applies O_NOFOLLOW per component. So a workspace root reached through a symlinked ancestor (an embedder or caller that passes an unresolved root; cwd-derived paths are still resolved by `current_dir`) makes `load_config_at` return InvalidInput 'refusing to follow symlink' from the local-.ops.toml layer instead of loading the file. Because `load_config_at` propagates with `?` at that point, the .ops.d and env layers never run either, so the whole config load fails rather than degrading. This is louder than the about-card symptom but has the same fix decision: whether the primitive gains a root-anchored variant that permits symlinks in the prefix above the workspace root. Not fixed in that run - deliberately deferred here so the trust boundary is decided once.
+
+Decision recorded in the doc comment of ops_core::text::open_refusing_symlinks: NO root-anchored variant is added. The same boundary is already reachable without new API - a caller canonicalizes its root once and joins repo-supplied components onto the resolved path, which makes the prefix symlink-free by construction and leaves the strict walk applying only to the attacker-influenced suffix (exactly what current_dir() and find_workspace_root already give their callers). A dirfd-taking variant would add a descriptor lifetime and a second refusal surface for callers that can fix it one canonicalize earlier. AC#2: unix_open::refused_symlink_component now emits a tracing::warn! naming the offending component and explaining the degradation (about-card fields, .ops.toml layers) on both intermediate-component refusal paths (openat ELOOP and the Linux O_PATH S_IFLNK fstat arm); the returned io::Error is unchanged, so the documented InvalidInput surface still holds. Covered by read_capped_to_string_logs_breadcrumb_for_symlinked_intermediate_directory.
 <!-- SECTION:NOTES:END -->
